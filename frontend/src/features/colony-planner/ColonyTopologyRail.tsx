@@ -77,7 +77,7 @@ export function ColonyTopologyRail({
         Whole-system slot map
       </div>
       {snapshot.slotPredictions && (
-        <div className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver">
+        <div className="mt-2 rounded-sm border border-cyan/25 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-silver">
           <div className="text-cyan">Predicted slots</div>
           <div className="mt-0.5">{snapshot.slotPredictions.disclaimer}</div>
           <div className="mt-0.5 italic">{snapshot.slotPredictions.validation_note}</div>
@@ -86,7 +86,7 @@ export function ColonyTopologyRail({
       {hasEstimatedSlots && (
         <div
           data-testid="topology-slot-estimate-disclaimer"
-          className="mt-2 rounded border border-gold/30 bg-gold/10 px-2 py-1.5 font-mono text-[10px] italic text-gold"
+          className="mt-2 rounded-sm border border-gold/30 bg-gold/10 px-2 py-1.5 font-mono text-[10px] italic text-gold"
         >
           {ESTIMATED_SLOT_LAYOUT_DISCLAIMER}
         </div>
@@ -113,7 +113,7 @@ export function ColonyTopologyRail({
       </button>
 
       {bodies.length === 0 ? (
-        <p className="mt-3 rounded border border-border/45 bg-bg2/45 px-2 py-2 font-mono text-[10px] leading-snug text-silver">
+        <p className="mt-3 rounded-sm border border-border/45 bg-bg2/45 px-2 py-2 font-mono text-[10px] leading-snug text-silver">
           No body layout imported yet. Use the planner tools to import/refresh layout when available.
         </p>
       ) : (
@@ -166,7 +166,7 @@ export function ColonyTopologyRail({
       {snapshot.projection && projectedBodyLabels.length > 0 && (
         <div
           data-testid="topology-projected-bodies"
-          className="mt-3 rounded border border-cyan/30 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-cyan"
+          className="mt-3 rounded-sm border border-cyan/30 bg-cyan/5 px-2 py-1.5 font-mono text-[10px] text-cyan"
         >
           <div className="uppercase tracking-[0.14em]">Projected plan</div>
           <div className="mt-1 text-silver">
@@ -175,7 +175,7 @@ export function ColonyTopologyRail({
         </div>
       )}
 
-      <div className="mt-3 rounded border border-border/45 bg-bg3/30 px-2 py-1.5 font-mono text-[10px] text-silver">
+      <div className="mt-3 rounded-sm border border-border/45 bg-bg3/30 px-2 py-1.5 font-mono text-[10px] text-silver">
         Click a body to plan there.
       </div>
     </aside>
@@ -289,7 +289,7 @@ function BodyTreeRow({
         </div>
       )}
       {hasSlotOrPlanSignal && (
-        <div className="ml-3 mt-1 rounded border border-border/45 bg-bg3/35 px-2 py-1.5">
+        <div className="ml-3 mt-1 rounded-sm border border-border/45 bg-bg3/35 px-2 py-1.5">
           <SlotLaneRow
             laneKey={`${node.id}-orbital`}
             label="Orbit"
@@ -356,7 +356,7 @@ function PlacementGroupRow({
   onSelectPlacement: (placementIndex: number) => void;
 }) {
   return (
-    <div className="rounded border border-gold/25 bg-gold/5 p-1.5">
+    <div className="rounded-sm border border-gold/25 bg-gold/5 p-1.5">
       <button type="button" onClick={onSelectGroup} aria-pressed={selected} className={rowClass(selected)}>
         <span className="mt-0.5 w-4 shrink-0 text-center text-gold" aria-hidden="true">?</span>
         <div className="min-w-0 flex-1">
@@ -398,7 +398,7 @@ function PlacementButton({
       data-testid={`topology-placement-${item.index}`}
       aria-pressed={selected}
       className={[
-        'flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded border px-2 py-1 text-left font-mono text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70',
+        'flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-sm border px-2 py-1 text-left font-mono text-[10px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/70',
         selected
           ? 'border-orange/55 bg-orange/15 text-orange'
           : 'border-border/45 bg-bg2/45 text-silver hover:border-orange/35 hover:text-white',
@@ -427,7 +427,7 @@ function SlotLaneRow({
     return (
       <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver">
         <span className="w-10 uppercase tracking-[0.12em]">{label}</span>
-        <span className="rounded border border-gold/35 bg-gold/10 px-1 text-gold" data-testid={`slot-lane-unknown-${laneKey}`}>[?]</span>
+        <span className="rounded-sm border border-gold/35 bg-gold/10 px-1 text-gold" data-testid={`slot-lane-unknown-${laneKey}`}>[?]</span>
       </div>
     );
   }
@@ -443,7 +443,7 @@ function SlotLaneRow({
             key={cell.key}
             data-testid={`${laneKey}-slot-${index}`}
             className={[
-              'inline-flex h-5 min-w-5 max-w-[4.6rem] items-center justify-center rounded border px-1 text-[8px] leading-none',
+              'inline-flex h-5 min-w-5 max-w-[4.6rem] items-center justify-center rounded-sm border px-1 text-[8px] leading-none',
               cell.tone === 'planned'
                 ? 'border-orange/55 bg-orange/15 text-orange'
                 : cell.tone === 'projected'
@@ -465,7 +465,7 @@ function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {
   return (
     <div
       data-testid={`topology-projected-placement-${item.index}`}
-      className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 text-left font-mono text-[10px] text-cyan"
+      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-sm border border-cyan/35 bg-cyan/8 px-2 py-1 text-left font-mono text-[10px] text-cyan"
       aria-label={`Projected structure ${label}`}
     >
       <span className="min-w-0 truncate">#{item.placement.build_order} {label}</span>
@@ -476,7 +476,7 @@ function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {
 
 function rowClass(selected: boolean, projected = false) {
   return [
-    'flex w-full min-w-0 cursor-pointer items-start gap-2 rounded border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70',
+    'flex w-full min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-1.5 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/70',
     selected
       ? 'border-orange/70 bg-orange/18 shadow-[inset_3px_0_0_rgba(255,122,20,0.9),0_0_18px_rgba(255,125,32,0.12)]'
       : projected
@@ -503,7 +503,7 @@ function Marker({
       title={label}
       aria-label={label}
       className={[
-        'grid h-5 w-5 shrink-0 place-items-center rounded border font-mono text-[9px] font-bold',
+        'grid h-5 w-5 shrink-0 place-items-center rounded-sm border font-mono text-[9px] font-bold',
         tone === 'gold'
           ? 'border-gold/40 bg-gold/10 text-gold'
           : tone === 'cyan'
@@ -525,7 +525,7 @@ function Chip({ children, tone = 'silver' }: { children: React.ReactNode; tone?:
     silver: 'border-border/60 bg-bg2/60 text-silver',
   }[tone];
   return (
-    <span className={['shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]', toneClass].join(' ')}>
+    <span className={['shrink-0 rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]', toneClass].join(' ')}>
       {children}
     </span>
   );

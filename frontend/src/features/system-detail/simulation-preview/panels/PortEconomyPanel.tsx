@@ -22,7 +22,7 @@ export function PortEconomyPanel({
               .sort((a, b) => b.value - a.value)
               .slice(0, 4);
             return (
-              <div key={`${state.local_body_id ?? 'system'}-${state.port_id}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-2">
+              <div key={`${state.local_body_id ?? 'system'}-${state.port_id}`} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="font-mono text-[11px] text-silver">{state.port_name}</div>
@@ -49,7 +49,7 @@ export function PortEconomyPanel({
                   </div>
                 )}
                 {[...(state.warnings ?? []), ...(state.recommendations ?? [])].slice(0, 2).map((item) => (
-                  <div key={item} className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+                  <div key={item} className="mt-2 rounded-sm border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
                     {item}
                   </div>
                 ))}
@@ -58,18 +58,18 @@ export function PortEconomyPanel({
           })}
         </div>
       ) : (
-        <div className="rounded border border-border/60 bg-bg3/45 px-2 py-2 font-mono text-[10px] text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-2 font-mono text-[10px] text-silver-dk">
           No Main Ports are present yet, so there are no per-port economy states.
         </div>
       )}
       {ledger && ledger.length > 0 && (
-        <details className="mt-3 rounded border border-border/60 bg-bg2/55 px-2 py-2">
+        <details className="mt-3 rounded-sm border border-border/60 bg-bg2/55 px-2 py-2">
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
             Influence Ledger
           </summary>
           <div className="mt-2 space-y-1.5">
             {ledger.slice(0, 12).map((influence) => (
-              <div key={`${influence.source_id}-${influence.target_port_id}-${influence.influence_type}-${influence.economy}-${influence.value}`} className="rounded border border-border/50 bg-bg3/45 px-2 py-1.5">
+              <div key={`${influence.source_id}-${influence.target_port_id}-${influence.influence_type}-${influence.economy}-${influence.value}`} className="rounded-sm border border-border/50 bg-bg3/45 px-2 py-1.5">
                 <div className="grid gap-1 font-mono text-[10px] text-silver-dk sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_92px_70px_42px]">
                   <span className="truncate"><span className="text-silver">Source:</span> {influence.source_name}</span>
                   <span className="truncate"><span className="text-silver">Target:</span> {influence.target_port_name}</span>

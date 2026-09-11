@@ -153,7 +153,7 @@ function PlanSummaryPanel({ summary }: { summary: PlanSummary }) {
 function SummaryMetric({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
     <div className={[
-      'rounded border px-3 py-2 font-mono',
+      'rounded-sm border px-3 py-2 font-mono',
       warn ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35',
     ].join(' ')}>
       <div className={warn ? 'text-[10px] uppercase tracking-[0.16em] text-gold' : 'text-[10px] uppercase tracking-[0.16em] text-cyan'}>
@@ -216,7 +216,7 @@ function BodyGroupCard({
         <div className="rounded-chunk-sm border border-border/50 bg-bg3/35 px-2 py-2">
           <button
             type="button"
-            className="focus-visible:ring-cyan/80 flex w-full flex-col gap-2 rounded border border-transparent px-2 py-1 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            className="focus-visible:ring-cyan/80 flex w-full flex-col gap-2 rounded-sm border border-transparent px-2 py-1 text-left transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
             aria-label={selectLabel}
             aria-pressed={selected}
             onClick={onSelectBody}
@@ -242,7 +242,7 @@ function BodyGroupCard({
             </p>
           </button>
         </div>
-        <div className="rounded border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px]">
+        <div className="rounded-sm border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px]">
           <span className="text-silver-dk">Body CP</span>
           <span className="ml-1 text-silver">Y+{summary.yellowGenerated}/{summary.yellowNeeded} G+{summary.greenGenerated}/{summary.greenNeeded}</span>
         </div>
@@ -299,7 +299,7 @@ function PlacementCard({
     <button
       type="button"
       className={[
-        'w-full rounded border p-3 text-left transition-[border-color,background-color,box-shadow,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
+        'w-full rounded-sm border p-3 text-left transition-[border-color,background-color,box-shadow,transform] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80',
         selected
           ? 'border-cyan/80 bg-cyan/10 shadow-brand-glow'
           : 'border-border/65 bg-bg3/45 hover:border-cyan/45',
@@ -345,7 +345,7 @@ function PlacementCard({
             {warnings.map((warning) => <Chip key={warning} tone="warn">{warning}</Chip>)}
           </div>
         </div>
-        <div className="flex items-center gap-1 rounded border border-border/55 bg-bg2/55 px-2 py-1 font-mono text-[10px] text-silver-dk">
+        <div className="flex items-center gap-1 rounded-sm border border-border/55 bg-bg2/55 px-2 py-1 font-mono text-[10px] text-silver-dk">
           <CircleDotDashed size={12} />
           {index + 1} of {totalPlacements}
         </div>

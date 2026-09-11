@@ -28,21 +28,21 @@ export function SavedSystemCard({
       <div className="min-w-0 flex-1 space-y-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-base tracking-[0.1em] text-text">
+            <h2 className="font-display text-base tracking-widest text-text">
               {system.name}
             </h2>
             {system.activeProject ? (
-              <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange">
+              <span className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange">
                 Has active plan
               </span>
             ) : null}
             {system.isColonised ? (
-              <span className="rounded border border-violet/35 bg-violet/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-violet">
+              <span className="rounded-sm border border-violet/35 bg-violet/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-violet">
                 Colonised
               </span>
             ) : null}
             {telemetry ? (
-              <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+              <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
                 Personal telemetry imported
               </span>
             ) : null}
@@ -103,7 +103,7 @@ export function SavedSystemCard({
         <button
           type="button"
           onClick={onRemove}
-          className="rounded border border-red/40 bg-red/10 px-3 py-1.5 font-mono text-[11px] text-red hover:bg-red/20"
+          className="rounded-sm border border-red/40 bg-red/10 px-3 py-1.5 font-mono text-[11px] text-red hover:bg-red/20"
         >
           Remove from saved
         </button>
@@ -119,7 +119,7 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
       onClick={onClick}
       aria-pressed={active}
       className={[
-        'rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
+        'rounded-sm border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
         active
           ? 'border-orange/50 bg-orange/12 text-orange'
           : 'border-border bg-bg3/35 text-silver-dk hover:border-orange/35 hover:text-orange-lt',

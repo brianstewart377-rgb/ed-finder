@@ -121,12 +121,12 @@ export function JournalImportPanel() {
         Only the previewed, supported observations are uploaded. They stay tied to your sync key and remain separate from the shared reference data until reviewed.
       </div>
 
-      <div className="rounded border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
+      <div className="rounded-sm border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
         Sync key: <span className="text-orange-lt">{syncKey}</span>
       </div>
 
       {telemetryQuery.isLoading ? (
-        <div className="rounded border border-border/50 bg-bg1/35 px-3 py-2 text-sm text-silver-dk" data-testid="journal-import-telemetry-loading">
+        <div className="rounded-sm border border-border/50 bg-bg1/35 px-3 py-2 text-sm text-silver-dk" data-testid="journal-import-telemetry-loading">
           Loading telemetry snapshot...
         </div>
       ) : null}
@@ -234,7 +234,7 @@ function PreviewPanel({ result }: { result: JournalImportParseResult }) {
             </div>
             <ul className="mt-2 space-y-1 text-sm text-silver" data-testid="journal-import-preview-files">
               {result.client_manifest.files.map((file) => (
-                <li key={file.name} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border/40 bg-bg1/40 px-2 py-1">
+                <li key={file.name} className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border/40 bg-bg1/40 px-2 py-1">
                   <span className="truncate">{file.name}</span>
                   <span className="font-mono text-[11px] text-silver-dk">{file.event_count} ready</span>
                 </li>
@@ -281,7 +281,7 @@ function ReceiptPanel({ receipt }: { receipt: JournalImportReceipt }) {
           </div>
           <ul className="mt-2 space-y-1 text-sm text-silver" data-testid="journal-import-receipt-files">
             {receipt.files.map((file) => (
-              <li key={file.name} className="flex flex-wrap items-center justify-between gap-2 rounded border border-green/25 bg-bg1/35 px-2 py-1">
+              <li key={file.name} className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-green/25 bg-bg1/35 px-2 py-1">
                 <span className="truncate">{file.name}</span>
                 <span className="font-mono text-[11px] text-silver-dk">{file.event_count} events</span>
               </li>
@@ -298,7 +298,7 @@ function ReceiptPanel({ receipt }: { receipt: JournalImportReceipt }) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded border border-border/50 bg-bg1/55 px-3 py-2">
+    <div className="rounded-sm border border-border/50 bg-bg1/55 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
         {label}
       </div>

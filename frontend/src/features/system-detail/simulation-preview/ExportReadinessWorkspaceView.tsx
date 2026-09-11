@@ -100,7 +100,7 @@ export function ExportReadinessWorkspaceView({
       <section className="rounded-chunk-lg border border-border/70 bg-bg2/50 p-3" aria-label="Closeout readiness">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="font-display tracking-[0.14em] text-cyan text-xs">Closeout readiness</span>
-          <span className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${artifacts.readiness.closeout_ready ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}>
+          <span className={`rounded-sm border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${artifacts.readiness.closeout_ready ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}>
             {artifacts.readiness.closeout_ready ? 'Ready' : 'Needs review'}
           </span>
           {(provenanceQuery.isLoading || observedQuery.isLoading) && (
@@ -119,7 +119,7 @@ export function ExportReadinessWorkspaceView({
       <section className="rounded-chunk-lg border border-border/70 bg-bg2/50 p-3" aria-label="Operator review and audit">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="font-display tracking-[0.14em] text-cyan text-xs">Operator review and audit</span>
-          <span className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${artifacts.operatorReview.ready ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}>
+          <span className={`rounded-sm border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${artifacts.operatorReview.ready ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}>
             {artifacts.operatorReview.ready ? 'Review ready' : 'Needs operator review'}
           </span>
         </div>
@@ -142,7 +142,7 @@ export function ExportReadinessWorkspaceView({
           </div>
 
           <div className="space-y-3">
-            <div className="rounded border border-border/70 bg-bg1/50 p-2">
+            <div className="rounded-sm border border-border/70 bg-bg1/50 p-2">
               <div className="mb-2 font-display tracking-[0.12em] text-[11px] text-cyan">Sanitized references</div>
               <dl className="grid gap-1 text-[11px] text-silver-dk" data-testid="operator-review-references">
                 <ReferenceRow label="System" value={artifacts.operatorReview.references.system_name ?? `ID64 ${artifacts.operatorReview.references.system_id64}`} />
@@ -152,13 +152,13 @@ export function ExportReadinessWorkspaceView({
               </dl>
             </div>
 
-            <div className="rounded border border-border/70 bg-bg1/50 p-2">
+            <div className="rounded-sm border border-border/70 bg-bg1/50 p-2">
               <div className="mb-2 font-display tracking-[0.12em] text-[11px] text-cyan">Section coverage</div>
               <div className="flex flex-wrap gap-2" data-testid="operator-review-sections">
                 {Object.entries(artifacts.operatorReview.sections).map(([key, present]) => (
                   <span
                     key={key}
-                    className={`rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${present ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}
+                    className={`rounded-sm border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${present ? 'border-green/40 bg-green/10 text-green' : 'border-gold/40 bg-gold/10 text-gold'}`}
                   >
                     {key}
                   </span>
@@ -172,14 +172,14 @@ export function ExportReadinessWorkspaceView({
       <section className="rounded-chunk-lg border border-border/70 bg-bg2/50 p-3" aria-label="Documentation governance">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="font-display tracking-[0.14em] text-cyan text-xs">Documentation governance</span>
-          <span className="rounded border border-cyan/40 bg-cyan/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan">
+          <span className="rounded-sm border border-cyan/40 bg-cyan/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan">
             Read-only policy
           </span>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-3">
-            <div className="rounded border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-scope">
+            <div className="rounded-sm border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-scope">
               <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Authority scope</div>
               <p className="text-[11px] text-silver-dk">{artifacts.governance.authority_scope}</p>
             </div>
@@ -193,7 +193,7 @@ export function ExportReadinessWorkspaceView({
           </div>
 
           <div className="space-y-3">
-            <div className="rounded border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-history">
+            <div className="rounded-sm border border-border/70 bg-bg1/50 p-2" data-testid="export-governance-history">
               <div className="mb-1 font-display tracking-[0.12em] text-[11px] text-cyan">Historical status</div>
               <p className="text-[11px] text-silver-dk">{artifacts.governance.historical_status}</p>
             </div>
@@ -260,7 +260,7 @@ function ArtifactBlock({
         readOnly
         data-testid={testId}
         value={value}
-        className="min-h-[180px] w-full rounded border border-border bg-bg1/80 p-3 font-mono text-[10px] leading-snug text-silver"
+        className="min-h-[180px] w-full rounded-sm border border-border bg-bg1/80 p-3 font-mono text-[10px] leading-snug text-silver"
       />
     </section>
   );

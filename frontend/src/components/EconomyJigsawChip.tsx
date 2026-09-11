@@ -84,7 +84,7 @@ export function EconomyJigsawChip({
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-[1px] rounded-full"
+        className="pointer-events-none absolute inset-px rounded-full"
         style={{
           border: '1px solid rgba(255,255,255,0.03)',
           background: 'linear-gradient(180deg, rgba(255,255,255,0.045), transparent 34%)',
@@ -133,7 +133,7 @@ export function EconomyJigsawChip({
 
       <span
         data-testid={leftTestId}
-        className="relative z-[1] inline-flex h-full min-w-0 items-center justify-center px-4 text-center"
+        className="relative z-1 inline-flex h-full min-w-0 items-center justify-center px-4 text-center"
       >
         <span
           ref={leftMeasureRef}
@@ -149,7 +149,7 @@ export function EconomyJigsawChip({
 
       <span
         data-testid={rightTestId}
-        className="relative z-[1] inline-flex h-full min-w-0 items-center justify-center px-4 text-center"
+        className="relative z-1 inline-flex h-full min-w-0 items-center justify-center px-4 text-center"
       >
         <span
           ref={rightMeasureRef}

@@ -124,7 +124,7 @@ export function OptimiserCandidateDetails({
         </div>
         {ranking && (
           <div className="flex items-center gap-2">
-            <span className={`rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] ${rankTone(ranking.rank_tier)}`}>
+            <span className={`rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] ${rankTone(ranking.rank_tier)}`}>
               {ranking.rank_tier}
             </span>
             <span className="font-mono text-sm font-bold text-orange">{formatScore(ranking.rank_score)}</span>
@@ -135,7 +135,7 @@ export function OptimiserCandidateDetails({
       {candidate.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {presentation.tags.map((tag) => (
-            <span key={tag} className="rounded border border-border/50 bg-bg3/30 px-1.5 py-0.5 font-mono text-[10px] text-silver-dk">
+            <span key={tag} className="rounded-sm border border-border/50 bg-bg3/30 px-1.5 py-0.5 font-mono text-[10px] text-silver-dk">
               {tag}
             </span>
           ))}
@@ -154,7 +154,7 @@ export function OptimiserCandidateDetails({
 
       {advisor && <StrategyAdvisorSection advisor={advisor} />}
 
-      <div className="rounded border border-orange/25 bg-orange/8 px-3 py-2">
+      <div className="rounded-sm border border-orange/25 bg-orange/8 px-3 py-2">
         <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Plan scale</h5>
         <p className="mt-1 text-[11px] text-silver-dk">
           <span className="text-silver">{presentation.scaleLabel}</span> scale: {presentation.placementCount} placements across {presentation.bodyCount || 1} body/bodies.
@@ -162,7 +162,7 @@ export function OptimiserCandidateDetails({
         <p className="mt-1 text-[11px] text-silver-dk">{presentation.scaleReason}</p>
       </div>
 
-      <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+      <div className="rounded-sm border border-cyan/25 bg-cyan/5 px-3 py-2">
         <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Projected layout</h5>
         <p className="mt-1 text-[11px] text-silver-dk">
           {usedBodyNames.length > 0 ? `This plan uses: ${usedBodyNames.join(', ')}` : 'This plan has no explicit body assignments yet.'}
@@ -285,21 +285,21 @@ function LoadConfirmation({
       : 'Replace Build Plan';
 
   return (
-    <div className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2">
+    <div className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-3 py-2">
       <div className="text-xs font-semibold text-gold">{title}</div>
       <p className="mt-1 text-[11px] text-silver-dk">{body}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-border bg-bg3 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/50"
+          className="rounded-sm border border-border bg-bg3 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/50"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded border border-orange/50 bg-orange/15 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/25"
+          className="rounded-sm border border-orange/50 bg-orange/15 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/25"
         >
           {confirmLabel}
         </button>
@@ -310,7 +310,7 @@ function LoadConfirmation({
 
 function SummaryBox({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+    <div className="rounded-sm border border-cyan/25 bg-cyan/5 px-3 py-2">
       <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</h5>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">{body}</p>
     </div>
@@ -358,7 +358,7 @@ function AdvisorFact({ title, body }: { title: string; body: string }) {
 
 function Section({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
-    <div className="rounded border border-border/45 bg-bg3/20 px-3 py-2">
+    <div className="rounded-sm border border-border/45 bg-bg3/20 px-3 py-2">
       <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">{title}</h5>
       {items.length > 0 ? (
         <ul className="mt-1 space-y-1 text-[11px] text-silver-dk">

@@ -68,7 +68,7 @@ export function ProvenanceCockpitPanel({
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-display tracking-[0.14em] text-cyan text-xs">Provenance cockpit</h3>
         <StateBadge state={effectiveResponse?.provenance_summary.state ?? 'unknown'} />
-        <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
+        <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
           Read-only
         </span>
       </div>
@@ -79,13 +79,13 @@ export function ProvenanceCockpitPanel({
       </p>
 
       {query.isLoading && (
-        <div className="rounded border border-border bg-bg2/70 px-3 py-2 text-text-dim">
+        <div className="rounded-sm border border-border bg-bg2/70 px-3 py-2 text-text-dim">
           Loading provenance cockpit…
         </div>
       )}
 
       {query.isError && (
-        <div role="alert" className="rounded border border-red-400/50 bg-red-950/30 px-3 py-2 text-red-100">
+        <div role="alert" className="rounded-sm border border-red-400/50 bg-red-950/30 px-3 py-2 text-red-100">
           Provenance cockpit failed to load.
           <span className="block text-[10px] text-red-200/80">
             {query.error instanceof ApiError ? query.error.message : 'Unknown error'}
@@ -98,13 +98,13 @@ export function ProvenanceCockpitPanel({
           <SummaryGrid response={effectiveResponse} liveObservedFactsLoaded={observedFactsQuery.isSuccess} />
           <section
             data-testid="provenance-evidence-consistency-surface"
-            className="rounded border border-border bg-bg2/70 p-3 space-y-2"
+            className="rounded-sm border border-border bg-bg2/70 p-3 space-y-2"
           >
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-display tracking-[0.14em] text-[10px] text-cyan">
                 Selected-system evidence posture
               </span>
-              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
+              <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 text-[9px] uppercase tracking-wider text-text-dim">
                 Read-only review surface
               </span>
             </div>
@@ -118,17 +118,17 @@ export function ProvenanceCockpitPanel({
               data-testid="provenance-evidence-consistency-highlights"
               className="flex flex-wrap items-center gap-2 text-[10px] text-text-dim"
             >
-              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 uppercase tracking-wider">
                 Selected-system context
               </span>
-              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 uppercase tracking-wider">
                 Report-only review context
               </span>
-              <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+              <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 uppercase tracking-wider">
                 {warehouseEvidenceSourceLabel}
               </span>
               {warehouseEvidence?.boundedStaging?.status === 'available' ? (
-                <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 uppercase tracking-wider">
+                <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 uppercase tracking-wider">
                   Stage 19BB bounded staging evidence
                 </span>
               ) : null}
@@ -153,7 +153,7 @@ function SummaryGrid({
 
   return (
     <div className="grid gap-3 lg:grid-cols-3">
-      <article className="rounded border border-border bg-bg2/70 p-3 space-y-2">
+      <article className="rounded-sm border border-border bg-bg2/70 p-3 space-y-2">
         <header className="flex items-center justify-between gap-2">
           <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Source run</span>
           <StateBadge state={panels.source_run.state} />
@@ -168,7 +168,7 @@ function SummaryGrid({
         </dl>
       </article>
 
-      <article className="rounded border border-border bg-bg2/70 p-3 space-y-2">
+      <article className="rounded-sm border border-border bg-bg2/70 p-3 space-y-2">
         <header className="flex items-center justify-between gap-2">
           <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Planner evidence</span>
           <StateBadge state={summary.planner_evidence_state} />
@@ -185,7 +185,7 @@ function SummaryGrid({
         </dl>
       </article>
 
-      <article className="rounded border border-border bg-bg2/70 p-3 space-y-2">
+      <article className="rounded-sm border border-border bg-bg2/70 p-3 space-y-2">
         <header className="flex items-center justify-between gap-2">
           <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Warnings</span>
           <StateBadge state={summary.warehouse_state} />
@@ -219,7 +219,7 @@ function GuardrailsSummaryCard({ response }: { response: ProvenanceCockpitRespon
   ] as const;
 
   return (
-    <article className="rounded border border-border bg-bg2/70 p-3 space-y-2">
+    <article className="rounded-sm border border-border bg-bg2/70 p-3 space-y-2">
       <header className="flex items-center gap-2">
         <span className="font-display tracking-[0.14em] text-[10px] text-cyan">Authority / safety status</span>
         <span className="text-text-dim">Deferred production lanes remain explicit.</span>
@@ -228,7 +228,7 @@ function GuardrailsSummaryCard({ response }: { response: ProvenanceCockpitRespon
         {guardrails.map(([label, enabled]) => (
           <li
             key={label}
-            className="flex items-center justify-between gap-2 rounded border border-border/80 bg-bg1/70 px-2 py-1"
+            className="flex items-center justify-between gap-2 rounded-sm border border-border/80 bg-bg1/70 px-2 py-1"
           >
             <span>{label}</span>
             <span className={enabled ? 'text-cyan' : 'text-orange-lt'}>
@@ -259,7 +259,7 @@ function StateBadge({ state }: { state: ProvenanceCockpitState }) {
         : 'border-border bg-bg4 text-text-dim';
 
   return (
-    <span className={`px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${tone}`}>
+    <span className={`px-1.5 py-0.5 rounded-sm border text-[9px] uppercase tracking-wider ${tone}`}>
       {state}
     </span>
   );

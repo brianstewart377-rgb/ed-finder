@@ -317,7 +317,7 @@ function IconBtn({ label, disabled, onClick, testid }: {
       onClick={onClick}
       disabled={disabled}
       data-testid={testid}
-      className="w-7 h-7 rounded-chunk-sm border border-border bg-gradient-to-b from-bg4 to-bg3 text-silver-dk text-[11px] font-mono hover:text-orange-lt hover:border-orange-dk transition-colors disabled:opacity-30 disabled:cursor-not-allowed shadow-metal"
+      className="w-7 h-7 rounded-chunk-sm border border-border bg-linear-to-b from-bg4 to-bg3 text-silver-dk text-[11px] font-mono hover:text-orange-lt hover:border-orange-dk transition-colors disabled:opacity-30 disabled:cursor-not-allowed shadow-metal"
     >
       {label}
     </button>

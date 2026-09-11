@@ -171,7 +171,7 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         </p>
         <details
           data-testid="warehouse-evidence-technical-details"
-          className="mt-3 rounded border border-border bg-bg3/30 px-3 py-2"
+          className="mt-3 rounded-sm border border-border bg-bg3/30 px-3 py-2"
         >
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
             Data and evidence details
@@ -506,7 +506,7 @@ function CoverageDetail({ coverage }: { coverage: NonNullable<PlannerWarehouseEv
       {coverage.thinDataReasons.length > 0 ? (
         <ul
           data-testid="warehouse-evidence-thin-data-reasons"
-          className="space-y-1 rounded border border-border bg-bg1/60 p-3"
+          className="space-y-1 rounded-sm border border-border bg-bg1/60 p-3"
         >
           {coverage.thinDataReasons.map((reason, index) => (
             <li key={`${reason}-${index}`}>{reason}</li>
@@ -545,7 +545,7 @@ function CoverageMetricCard({
   return (
     <article
       data-testid={testId}
-      className="rounded border border-border bg-bg1/60 p-3 space-y-2"
+      className="rounded-sm border border-border bg-bg1/60 p-3 space-y-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>{label}</span>

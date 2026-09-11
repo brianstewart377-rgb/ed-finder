@@ -78,7 +78,7 @@ export function StructurePickerTable({
           <h6 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Compare structures</h6>
           <p className="mt-1 text-[11px] text-silver-dk">Uses current facility catalogue. Validity hints are planning checks; run Preview for full prediction.</p>
         </div>
-        <div className="rounded border border-border/60 bg-bg2/60 px-2 py-1 font-mono text-[10px] text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg2/60 px-2 py-1 font-mono text-[10px] text-silver-dk">
           {bodyContext.status === 'selected'
             ? `Evaluating against: ${bodyDisplayName(bodyContext.body as SystemBody)}`
             : bodyContext.status === 'unknown'
@@ -99,10 +99,10 @@ export function StructurePickerTable({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search structures"
-            className="w-full rounded border border-border/70 bg-bg2 px-8 py-2 font-mono text-xs text-silver outline-none focus:border-cyan/60"
+            className="w-full rounded-sm border border-border/70 bg-bg2 px-8 py-2 font-mono text-xs text-silver outline-hidden focus:border-cyan/60"
           />
         </label>
-        <div className="inline-flex rounded border border-border/70 bg-bg2/60 p-1" role="group" aria-label="Location filter">
+        <div className="inline-flex rounded-sm border border-border/70 bg-bg2/60 p-1" role="group" aria-label="Location filter">
           {([
             ['all', 'All'],
             ['orbital', 'Orbital'],
@@ -115,7 +115,7 @@ export function StructurePickerTable({
               onClick={() => setLocationFilter(value)}
               aria-pressed={locationFilter === value}
               className={[
-                'rounded px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
+                'rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
                 locationFilter === value ? 'bg-orange/15 text-orange' : 'text-silver-dk hover:text-silver',
               ].join(' ')}
             >
@@ -126,11 +126,11 @@ export function StructurePickerTable({
       </div>
 
       {templates.length === 0 ? (
-        <p className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 font-mono text-[11px] text-gold">
+        <p className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-3 py-2 font-mono text-[11px] text-gold">
           No structures available yet.
         </p>
       ) : filteredTemplates.length === 0 ? (
-        <p className="mt-3 rounded border border-border/60 bg-bg2/45 px-3 py-2 font-mono text-[11px] text-silver-dk">
+        <p className="mt-3 rounded-sm border border-border/60 bg-bg2/45 px-3 py-2 font-mono text-[11px] text-silver-dk">
           No structures match the current filters.
         </p>
       ) : (
@@ -158,7 +158,7 @@ export function StructurePickerTable({
                     <th colSpan={11} className="px-2 py-2 text-left">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{group.label}</span>
-                        <span className="rounded border border-border/60 bg-bg2/70 px-1.5 py-0.5 font-mono text-[9px] text-silver-dk">
+                        <span className="rounded-sm border border-border/60 bg-bg2/70 px-1.5 py-0.5 font-mono text-[9px] text-silver-dk">
                           {group.templates.length} option{group.templates.length === 1 ? '' : 's'}
                         </span>
                       </div>
@@ -207,7 +207,7 @@ export function StructurePickerTable({
                         <td className="px-2 py-2 text-silver-dk">Y{template.yellow_cp_cost} G{template.green_cp_cost}</td>
                         <td className="px-2 py-2 text-silver-dk">{template.confidence ?? 'missing'}</td>
                         <td className="px-2 py-2">
-                          <div className="flex max-w-[14rem] flex-wrap gap-1">
+                          <div className="flex max-w-56 flex-wrap gap-1">
                             <Chip tone={validityTone}>{validity}</Chip>
                             {warnings.map((warning) => (
                               <Chip key={`${template.id}-${warning}`} tone="warn">{warning}</Chip>
@@ -220,7 +220,7 @@ export function StructurePickerTable({
                             aria-label={`Select structure ${template.name}`}
                             onClick={() => onSelectTemplate(template.id)}
                             className={[
-                              'rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] transition',
+                              'rounded-sm border px-2 py-1 text-[10px] uppercase tracking-[0.12em] transition',
                               isSelected
                                 ? 'border-cyan/65 bg-cyan/15 text-cyan'
                                 : isProposed

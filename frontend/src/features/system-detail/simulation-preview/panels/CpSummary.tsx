@@ -14,7 +14,7 @@ export function CpSummary({ cp }: { cp: SimulateBuildResponse['cp'] }) {
         <CpCell label="T3 ports" value={cp.t3_ports} colour="#7dd3fc" />
       </div>
       {cp.warnings.length > 0 && (
-        <div className="mt-2 flex items-start gap-2 rounded border border-gold/30 bg-gold/5 px-2 py-1.5 text-[10px] font-mono text-gold">
+        <div className="mt-2 flex items-start gap-2 rounded-sm border border-gold/30 bg-gold/5 px-2 py-1.5 text-[10px] font-mono text-gold">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           <span>{cp.warnings[0]}</span>
         </div>
@@ -25,7 +25,7 @@ export function CpSummary({ cp }: { cp: SimulateBuildResponse['cp'] }) {
 
 function CpCell({ label, value, colour }: { label: string; value: number; colour: string }) {
   return (
-    <div className="rounded border border-border/60 bg-bg3/60 p-2 text-center">
+    <div className="rounded-sm border border-border/60 bg-bg3/60 p-2 text-center">
       <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">{label}</div>
       <div className="font-mono text-sm font-bold tabular-nums" style={{ color: colour }}>
         {value > 0 ? `+${value}` : value}

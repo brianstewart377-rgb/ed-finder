@@ -141,7 +141,7 @@ function JobSummary({
   }
 
   return (
-    <div className="rounded border border-border/60 bg-bg2/20 px-3 py-2 font-mono text-[11px] space-y-1">
+    <div className="rounded-sm border border-border/60 bg-bg2/20 px-3 py-2 font-mono text-[11px] space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-silver">{label}</span>
         <span className="text-orange-lt uppercase tracking-[0.12em]">{job.status}</span>

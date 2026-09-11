@@ -342,7 +342,7 @@ export function WholeSystemColonyPlanner({
                 role={structureAddFeedback.tone === 'error' ? 'alert' : 'status'}
                 data-testid="canvas-add-structure-feedback"
                 className={[
-                  'rounded border px-3 py-2 text-sm leading-relaxed',
+                  'rounded-sm border px-3 py-2 text-sm leading-relaxed',
                   structureAddFeedback.tone === 'error'
                     ? 'border-gold/35 bg-gold/10 text-gold'
                     : 'border-green/35 bg-green/10 text-green',
@@ -381,16 +381,16 @@ export function WholeSystemColonyPlanner({
                 <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Colony Cockpit</div>
                 <span
                   data-testid="colony-cockpit-active-mode-chip"
-                  className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
+                  className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
                 >
                   {workspaceModeLabel(advancedInitialMode)}
                 </span>
                 {advancedPanelOpen ? (
-                  <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">
+                  <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">
                     Live mode
                   </span>
                 ) : (
-                  <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+                  <span className="rounded-sm border border-border/60 bg-bg3/35 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
                     Ready to open
                   </span>
                 )}
@@ -405,26 +405,26 @@ export function WholeSystemColonyPlanner({
                 {activeCockpitModeMeta.emphasis}
               </p>
             </div>
-            <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+            <span className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
               Route-aware mode handoff
             </span>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+            <div className="rounded-sm border border-border/60 bg-bg3/35 p-3">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Project context</div>
               <div className="mt-1 text-sm text-silver">{activeProjectLabel}</div>
               <div className="mt-1 text-xs text-silver-dk">
                 {projectState.unsavedChanges ? 'Unsaved changes are still local to this browser.' : 'Planner state is saved locally or still blank.'}
               </div>
             </div>
-            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+            <div className="rounded-sm border border-border/60 bg-bg3/35 p-3">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Planning focus</div>
               <div className="mt-1 text-sm text-silver">{contextSummary}</div>
               <div className="mt-1 text-xs text-silver-dk">
                 {placements.length} planned / {projection?.placements.length ?? 0} projected
               </div>
             </div>
-            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+            <div className="rounded-sm border border-border/60 bg-bg3/35 p-3">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Best next move</div>
               <div className="mt-1 text-sm text-silver">{activeCockpitModeMeta.helper}</div>
               <div className="mt-1 text-xs text-silver-dk">
@@ -448,7 +448,7 @@ export function WholeSystemColonyPlanner({
                 data-testid={`colony-cockpit-open-${mode}`}
                 onClick={() => openCockpitMode(mode)}
                 className={[
-                  'rounded border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
+                  'rounded-sm border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
                   advancedPanelOpen && advancedInitialMode === mode
                     ? 'border-orange/55 bg-orange/15 text-orange'
                     : 'border-border/60 bg-bg3/35 text-silver-dk hover:border-cyan/45 hover:text-cyan',
@@ -465,7 +465,7 @@ export function WholeSystemColonyPlanner({
                 type="button"
                 data-testid={`colony-cockpit-suggested-next-${mode}`}
                 onClick={() => openCockpitMode(mode)}
-                className="rounded border border-cyan/30 bg-cyan/10 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan transition-colors hover:border-cyan/50 hover:bg-cyan/15"
+                className="rounded-sm border border-cyan/30 bg-cyan/10 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan transition-colors hover:border-cyan/50 hover:bg-cyan/15"
               >
                 Next: {workspaceModeLabel(mode)}
               </button>

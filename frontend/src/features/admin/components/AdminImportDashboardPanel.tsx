@@ -138,7 +138,7 @@ export function AdminImportDashboardPanel({
               id="admin-import-source-filter"
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
-              className="rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+              className="rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               data-testid="admin-import-source-filter"
             >
               <option value="all">All sources</option>
@@ -159,7 +159,7 @@ export function AdminImportDashboardPanel({
               {visibleRuns.slice(0, 8).map((run) => (
                 <article
                   key={run.source_run_key}
-                  className="rounded border border-border/80 bg-bg2/30 px-3 py-2"
+                  className="rounded-sm border border-border/80 bg-bg2/30 px-3 py-2"
                   data-testid={`admin-import-run-${run.source_run_key}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">

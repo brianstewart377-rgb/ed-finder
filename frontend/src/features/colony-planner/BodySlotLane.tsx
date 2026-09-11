@@ -27,7 +27,7 @@ export function BodySlotLane({
     <section
       data-testid={`slot-lane-${laneKey}`}
       className={[
-        'relative overflow-hidden rounded border p-2.5',
+        'relative overflow-hidden rounded-sm border p-2.5',
         disabled
           ? 'border-gold/35 bg-gold/6'
           : laneKey === 'orbital'
@@ -52,7 +52,7 @@ export function BodySlotLane({
           <p className="mt-0.5 text-xs leading-relaxed text-silver">{helper}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rounded border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-silver">
+          <span className="rounded-sm border border-border/55 bg-bg2/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-silver">
             {slotStatus}
           </span>
           <button
@@ -61,7 +61,7 @@ export function BodySlotLane({
             disabled={disabled}
             data-testid={`slot-lane-add-${laneKey}`}
             className={[
-              'rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.1em]',
+              'rounded-sm border px-2 py-1 font-mono text-[11px] uppercase tracking-widest',
               disabled
                 ? 'cursor-not-allowed border-gold/35 bg-gold/10 text-gold/70'
                 : 'border-orange/45 bg-orange/12 text-orange hover:bg-orange/20',
@@ -73,7 +73,7 @@ export function BodySlotLane({
       </div>
 
       {disabled && disabledReason && (
-        <p className="mt-2 rounded border border-gold/30 bg-gold/10 px-2 py-1 text-xs leading-relaxed text-gold">
+        <p className="mt-2 rounded-sm border border-gold/30 bg-gold/10 px-2 py-1 text-xs leading-relaxed text-gold">
           {disabledReason}
         </p>
       )}

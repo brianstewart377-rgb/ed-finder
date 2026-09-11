@@ -34,7 +34,7 @@ export function TopologyPanel({ topology }: { topology: SimulateBuildResponse['t
       </div>
       <div className="mt-2 space-y-1.5">
         {groups.slice(0, 3).map((group) => (
-          <div key={group.local_body_id} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+          <div key={group.local_body_id} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
             <div className="text-silver">{group.body_name || `Body ${group.local_body_id}`}</div>
             <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-silver-dk">
               {group.main_orbital_port && <span>Orbital Main: {group.main_orbital_port.facility_name}</span>}
@@ -45,7 +45,7 @@ export function TopologyPanel({ topology }: { topology: SimulateBuildResponse['t
         ))}
       </div>
       {converted.slice(0, 2).map((port) => (
-        <div key={port.facility_name} className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1 text-[10px] leading-snug text-gold">
+        <div key={port.facility_name} className="mt-2 rounded-sm border border-gold/30 bg-gold/5 px-2 py-1 text-[10px] leading-snug text-gold">
           {port.facility_name}: {port.reason}
         </div>
       ))}

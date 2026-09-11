@@ -37,7 +37,7 @@ export function ReviewReadinessStrip({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-display text-xs tracking-[0.14em] text-cyan">Shared review readiness</span>
-        <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+        <span className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
           {activeMode === 'evidence' ? 'Evidence lane' : activeMode === 'validation' ? 'Validation lane' : 'Export lane'}
         </span>
       </div>
@@ -85,7 +85,7 @@ function ReadinessChip({
       : 'border-border/60 bg-bg3/35 text-silver-dk';
 
   return (
-    <span className={`rounded border px-2 py-1 uppercase tracking-[0.12em] ${className}`}>
+    <span className={`rounded-sm border px-2 py-1 uppercase tracking-[0.12em] ${className}`}>
       {children}
     </span>
   );

@@ -236,7 +236,7 @@ function PlanHealthCard({
         <SummaryRow label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
       </dl>
       {prerequisiteIssues.length > 0 && (
-        <div data-testid="plan-health-prerequisite-warnings" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold shadow-[0_12px_22px_-18px_rgba(234,179,8,0.85)]">
+        <div data-testid="plan-health-prerequisite-warnings" className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold shadow-[0_12px_22px_-18px_rgba(234,179,8,0.85)]">
           Missing prerequisite: {prerequisiteIssues.slice(0, 3).map((issue) => `${issue.templateName}: ${issue.missing.join('; ')}`).join(' / ')}
         </div>
       )}
@@ -302,7 +302,7 @@ function PreviewSuggestedCard({
         </p>
       )}
       {selection.type === 'body' && snapshot.projection && projectedBodyIds.includes(bodyIdKey(selection.bodyId)) && (
-        <p className="mt-1 rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan shadow-[0_12px_22px_-18px_rgba(34,211,238,0.9)]">
+        <p className="mt-1 rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan shadow-[0_12px_22px_-18px_rgba(34,211,238,0.9)]">
           Selected body is used by the projected suggested build.
         </p>
       )}
@@ -331,7 +331,7 @@ function SummaryRow({
   return (
     <div className="premium-toolbar rounded-xl px-2 py-1.5">
       <dt className="uppercase tracking-[0.14em] text-silver-dk">{label}</dt>
-      <dd className={['mt-0.5 break-words text-[11px]', toneClass].join(' ')}>{value}</dd>
+      <dd className={['mt-0.5 wrap-break-word text-[11px]', toneClass].join(' ')}>{value}</dd>
     </div>
   );
 }

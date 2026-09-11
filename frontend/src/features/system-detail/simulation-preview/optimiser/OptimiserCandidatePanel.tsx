@@ -138,10 +138,10 @@ export function OptimiserCandidatePanel({
       </div>
 
       <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
-        <div className="rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
+        <div className="rounded-sm border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
           Target: <span className="text-silver">{humanizeArchetype(targetArchetype)}</span>
         </div>
-        <div className="inline-flex items-center rounded border border-border/70 bg-bg2/60 p-1" role="group" aria-label="Suggested build scale">
+        <div className="inline-flex items-center rounded-sm border border-border/70 bg-bg2/60 p-1" role="group" aria-label="Suggested build scale">
           {([
             ['starter', 'Starter'],
             ['expansion', 'Expansion'],
@@ -153,7 +153,7 @@ export function OptimiserCandidatePanel({
               aria-pressed={scale === value}
               onClick={() => setScale(value)}
               className={[
-                'rounded px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
+                'rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]',
                 scale === value ? 'bg-orange/18 text-orange' : 'text-silver-dk hover:text-silver',
               ].join(' ')}
             >
@@ -161,12 +161,12 @@ export function OptimiserCandidatePanel({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 rounded border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
+        <label className="flex items-center gap-2 rounded-sm border border-border/50 bg-bg3/20 px-3 py-2 font-mono text-[11px] text-silver-dk">
           Max
           <select
             value={maxCandidates}
             onChange={(event) => setMaxCandidates(Number(event.target.value))}
-            className="h-7 rounded border border-border bg-bg2 px-2 text-silver"
+            className="h-7 rounded-sm border border-border bg-bg2 px-2 text-silver"
           >
             {[3, 5, 8, 10].map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
@@ -200,7 +200,7 @@ export function OptimiserCandidatePanel({
       </p>
 
       {generatedParams && (
-        <div className="mb-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk">
+        <div className="mb-3 rounded-sm border border-cyan/35 bg-cyan/5 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk">
           <div className="uppercase tracking-[0.16em] text-cyan">Generated for</div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             <span>Target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
@@ -212,7 +212,7 @@ export function OptimiserCandidatePanel({
       )}
 
       {controlsChangedSinceGeneration && generatedParams && (
-        <div className="mb-3 rounded border border-gold/55 bg-gold/12 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
+        <div className="mb-3 rounded-sm border border-gold/55 bg-gold/12 px-3 py-2 font-mono text-[11px] leading-snug text-gold">
           <div className="font-bold">Controls have changed since these suggested builds were generated. Generate again to refresh suggested builds before comparing or copying.</div>
           <div className="mt-2 grid gap-1 text-[10px] text-silver-dk sm:grid-cols-3">
             <span>Generated target: <span className="text-silver">{humanizeArchetype(generatedParams.targetArchetype)}</span></span>
@@ -228,7 +228,7 @@ export function OptimiserCandidatePanel({
       )}
 
       {loading && (
-        <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
           Generating ranked Suggested Builds...
         </div>
       )}
@@ -240,7 +240,7 @@ export function OptimiserCandidatePanel({
         <OptimiserEmptyState warnings={response.warnings} assumptions={response.assumptions} />
       )}
       {!loading && !error && response && response.candidates.length > 0 && candidates.length === 0 && (
-        <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
           No useful {scaleLabel(scale).toLowerCase()} suggested builds are available yet. Change scale or generate again with different controls.
         </div>
       )}

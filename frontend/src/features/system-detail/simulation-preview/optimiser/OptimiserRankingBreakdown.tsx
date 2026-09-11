@@ -18,7 +18,7 @@ const PENALTIES: Array<[keyof OptimiserRankBreakdown, string]> = [
 export function OptimiserRankingBreakdown({ breakdown }: { breakdown?: OptimiserRankBreakdown | null }) {
   if (!breakdown) {
     return (
-      <div className="rounded border border-border/60 bg-bg3/25 px-3 py-2 text-[11px] text-silver-dk">
+      <div className="rounded-sm border border-border/60 bg-bg3/25 px-3 py-2 text-[11px] text-silver-dk">
         No ranking breakdown is available for this suggested build.
       </div>
     );
@@ -32,7 +32,7 @@ export function OptimiserRankingBreakdown({ breakdown }: { breakdown?: Optimiser
       </div>
       <div className="mt-3 grid gap-1.5 font-mono text-[11px]">
         {CONTRIBUTIONS.map(([key, label]) => (
-          <div key={key} className="flex justify-between gap-3 rounded border border-border/40 bg-bg3/20 px-2 py-1">
+          <div key={key} className="flex justify-between gap-3 rounded-sm border border-border/40 bg-bg3/20 px-2 py-1">
             <span className="text-silver-dk">{label}</span>
             <span className="text-silver">+{formatScore(Number(breakdown[key] ?? 0))}</span>
           </div>
@@ -40,7 +40,7 @@ export function OptimiserRankingBreakdown({ breakdown }: { breakdown?: Optimiser
         {PENALTIES.map(([key, label]) => {
           const value = Number(breakdown[key] ?? 0);
           return (
-            <div key={key} className="flex justify-between gap-3 rounded border border-gold/25 bg-gold/5 px-2 py-1">
+            <div key={key} className="flex justify-between gap-3 rounded-sm border border-gold/25 bg-gold/5 px-2 py-1">
               <span className="text-gold">{label}</span>
               <span className={value < 0 ? 'text-gold' : 'text-silver-dk'}>{formatScore(value)}</span>
             </div>
@@ -48,7 +48,7 @@ export function OptimiserRankingBreakdown({ breakdown }: { breakdown?: Optimiser
         })}
       </div>
       {breakdown.reasons.length > 0 && (
-        <div className="mt-3 rounded border border-border/50 bg-bg3/20 px-2 py-2">
+        <div className="mt-3 rounded-sm border border-border/50 bg-bg3/20 px-2 py-2">
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Reasons</div>
           <ul className="mt-1 space-y-1 text-[11px] text-silver-dk">
             {breakdown.reasons.map((reason) => <li key={reason}>• {reason}</li>)}

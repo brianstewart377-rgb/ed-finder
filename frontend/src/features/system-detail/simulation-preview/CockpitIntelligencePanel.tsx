@@ -35,7 +35,7 @@ export function CockpitIntelligencePanel({
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-display text-xs tracking-[0.14em] text-orange">Facility intelligence</span>
-            <span className="rounded border border-cyan/30 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">
+            <span className="rounded-sm border border-cyan/30 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">
               {snapshot.postureLabel}
             </span>
           </div>
@@ -76,7 +76,7 @@ export function CockpitIntelligencePanel({
           <div className="font-display text-xs tracking-[0.14em] text-cyan">Explainable next actions</div>
           <div className="mt-2 space-y-2" data-testid="cockpit-intelligence-next-actions">
             {snapshot.nextActions.map((action) => (
-              <div key={action.id} className="rounded border border-border/55 bg-bg3/35 px-3 py-2">
+              <div key={action.id} className="rounded-sm border border-border/55 bg-bg3/35 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={actionToneClass(action.tone)}>{action.tone === 'good' ? 'ready' : action.tone === 'warn' ? 'review' : 'next'}</span>
                   <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver">{action.label}</span>
@@ -107,7 +107,7 @@ function MetricChip({
       : 'border-border/60 bg-bg3/35 text-silver-dk';
 
   return (
-    <span className={`rounded border px-2 py-1 ${className}`}>
+    <span className={`rounded-sm border px-2 py-1 ${className}`}>
       {label}: {value}
     </span>
   );
@@ -123,7 +123,7 @@ function FactBlock({
   testId: string;
 }) {
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-3 py-2">
+    <div className="rounded-sm border border-border/55 bg-bg3/35 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">{title}</div>
       <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-silver-dk" data-testid={testId}>
         {items.map((item) => <li key={item}>{item}</li>)}
@@ -133,7 +133,7 @@ function FactBlock({
 }
 
 function actionToneClass(tone: 'good' | 'warn' | 'neutral') {
-  if (tone === 'good') return 'rounded border border-green/35 bg-green/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-green';
-  if (tone === 'warn') return 'rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-gold';
-  return 'rounded border border-cyan/30 bg-cyan/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-cyan';
+  if (tone === 'good') return 'rounded-sm border border-green/35 bg-green/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-green';
+  if (tone === 'warn') return 'rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-gold';
+  return 'rounded-sm border border-cyan/30 bg-cyan/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-cyan';
 }

@@ -52,7 +52,7 @@ function WorkflowChip({
   return (
     <span
       className={[
-        'inline-flex items-center gap-1 rounded border px-2 py-1',
+        'inline-flex items-center gap-1 rounded-sm border px-2 py-1',
         tone === 'primary'
           ? 'border-orange/35 bg-orange/10 text-orange'
           : 'border-border bg-bg3/45 text-silver',
@@ -81,7 +81,7 @@ function NavChip({
   return (
     <span
       className={[
-        'inline-flex items-center gap-1 rounded border px-2 py-1',
+        'inline-flex items-center gap-1 rounded-sm border px-2 py-1',
         tone === 'primary'
           ? 'border-orange/35 bg-orange/10 text-orange'
           : 'border-border bg-bg3/45 text-silver',

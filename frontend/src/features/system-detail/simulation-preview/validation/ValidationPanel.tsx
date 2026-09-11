@@ -169,7 +169,7 @@ export function ValidationPanel({
           </button>
         </div>
         <p
-          className="mt-1 rounded border border-cyan/30 bg-cyan/5 px-2 py-1 text-[10px] text-cyan font-mono leading-snug"
+          className="mt-1 rounded-sm border border-cyan/30 bg-cyan/5 px-2 py-1 text-[10px] text-cyan font-mono leading-snug"
           role="note"
           aria-label="Validation advisory notice"
           data-testid="validation-advisory-copy"
@@ -177,7 +177,7 @@ export function ValidationPanel({
           {ADVISORY_COPY}
         </p>
         <ul
-          className="mt-2 grid gap-1 rounded border border-border/60 bg-bg3/30 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk sm:grid-cols-2"
+          className="mt-2 grid gap-1 rounded-sm border border-border/60 bg-bg3/30 px-3 py-2 font-mono text-[10px] leading-snug text-silver-dk sm:grid-cols-2"
           data-testid="validation-review-reminders"
         >
           {VALIDATION_REVIEW_REMINDERS.map((reminder) => (
@@ -190,7 +190,7 @@ export function ValidationPanel({
         <div
           role="alert"
           data-testid="validation-stale-warning"
-          className="mb-3 rounded border border-orange/40 bg-orange/10 px-3 py-2 font-mono text-[11px] text-orange leading-snug"
+          className="mb-3 rounded-sm border border-orange/40 bg-orange/10 px-3 py-2 font-mono text-[11px] text-orange leading-snug"
         >
           {STALE_PREVIEW_COPY}
         </div>
@@ -199,7 +199,7 @@ export function ValidationPanel({
       {!previewResult && (
         <div
           data-testid="validation-no-preview"
-          className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk leading-snug"
+          className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk leading-snug"
         >
           {NO_PREVIEW_COPY}
         </div>
@@ -208,7 +208,7 @@ export function ValidationPanel({
       {previewResult && compareQuery.isLoading && (
         <div
           data-testid="validation-loading"
-          className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
+          className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
         >
           Comparing prediction with observed evidence&hellip;
         </div>
@@ -218,7 +218,7 @@ export function ValidationPanel({
         <div
           role="alert"
           data-testid="validation-error"
-          className="rounded border border-red/40 bg-red/10 px-3 py-2 font-mono text-[11px] text-red"
+          className="rounded-sm border border-red/40 bg-red/10 px-3 py-2 font-mono text-[11px] text-red"
         >
           <div>Validation failed to load: {describeApiError(compareQuery.error)}</div>
           <button
@@ -238,7 +238,7 @@ export function ValidationPanel({
           {reviewQuery.isLoading && (
             <div
               data-testid="validation-review-loading"
-              className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
+              className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
             >
               Building review guidance&hellip;
             </div>
@@ -247,7 +247,7 @@ export function ValidationPanel({
             <div
               role="alert"
               data-testid="validation-review-error"
-              className="rounded border border-orange/40 bg-orange/10 px-3 py-2 font-mono text-[11px] text-orange"
+              className="rounded-sm border border-orange/40 bg-orange/10 px-3 py-2 font-mono text-[11px] text-orange"
             >
               Review guidance failed to load: {describeApiError(reviewQuery.error)}
             </div>
@@ -258,7 +258,7 @@ export function ValidationPanel({
           {(compareQuery.data.warnings?.length ?? 0) > 0 && (
             <ul
               data-testid="validation-warnings"
-              className="rounded border border-orange/30 bg-orange/5 px-3 py-2 font-mono text-[11px] text-orange"
+              className="rounded-sm border border-orange/30 bg-orange/5 px-3 py-2 font-mono text-[11px] text-orange"
             >
               {compareQuery.data.warnings.map((warning, idx) => (
                 <li key={`warning-${idx}`}>{warning}</li>
@@ -268,7 +268,7 @@ export function ValidationPanel({
           {(compareQuery.data.assumptions?.length ?? 0) > 0 && (
             <ul
               data-testid="validation-assumptions"
-              className="rounded border border-border/60 bg-bg3/30 px-3 py-2 font-mono text-[11px] text-silver-dk"
+              className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-2 font-mono text-[11px] text-silver-dk"
             >
               {compareQuery.data.assumptions.map((assumption, idx) => (
                 <li key={`assumption-${idx}`}>{assumption}</li>

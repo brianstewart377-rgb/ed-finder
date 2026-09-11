@@ -74,7 +74,7 @@ export function PlannerTelemetryPanel({
       className="rounded-chunk border border-cyan/25 bg-bg2/95 p-3"
     >
       <div className="flex items-center gap-2 border-b border-border/45 pb-2">
-        <div className="grid h-8 w-8 place-items-center rounded border border-orange/35 bg-orange/10 text-orange">
+        <div className="grid h-8 w-8 place-items-center rounded-sm border border-orange/35 bg-orange/10 text-orange">
           <Target size={17} />
         </div>
         <div>
@@ -197,7 +197,7 @@ function ProjectionViewButton({
       disabled={disabled}
       onClick={() => onSelect(view)}
       className={[
-        'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors disabled:cursor-not-allowed disabled:opacity-45',
+        'rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors disabled:cursor-not-allowed disabled:opacity-45',
         active ? 'border-orange/55 bg-orange/15 text-orange' : 'border-border/60 bg-bg3/45 text-silver hover:border-cyan/45 hover:text-cyan',
       ].join(' ')}
     >
@@ -217,7 +217,7 @@ function ProjectionBodiesView({ summary, selectedProjectedCount }: { summary: Pr
       <ProjectionBodyList label="New ghost bodies" values={summary.newBodyLabels} />
       <ProjectionBodyList label="Plan-only bodies" values={summary.plannedOnlyBodyLabels} />
       {selectedProjectedCount > 0 && (
-        <p className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan">
+        <p className="rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan">
           Selected body carries {selectedProjectedCount} projected ghost structure{selectedProjectedCount === 1 ? '' : 's'}.
         </p>
       )}
@@ -229,9 +229,9 @@ function ProjectionEconomyView({ summary }: { summary: ProjectionComparisonSumma
   return (
     <div className="mt-2 space-y-1.5" data-testid="projection-comparison-economy">
       {summary.economyDeltas.length > 0 ? summary.economyDeltas.map((entry) => (
-        <div key={entry.economy} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
+        <div key={entry.economy} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 rounded-sm border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
           <span className="truncate text-silver">{entry.economy}</span>
-          <span className="h-1.5 overflow-hidden rounded bg-bg4/80">
+          <span className="h-1.5 overflow-hidden rounded-sm bg-bg4/80">
             <span
               className="block h-full bg-cyan/70"
               style={{ width: `${entry.projected > 0 && entry.total > 0 ? Math.max(8, (entry.projected / entry.total) * 100) : 0}%` }}
@@ -243,7 +243,7 @@ function ProjectionEconomyView({ summary }: { summary: ProjectionComparisonSumma
           </span>
         </div>
       )) : (
-        <p className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px] text-silver">No economy metadata to compare.</p>
+        <p className="rounded-sm border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px] text-silver">No economy metadata to compare.</p>
       )}
     </div>
   );
@@ -269,7 +269,7 @@ function ProjectionMetric({ label, value, tone }: { label: string; value: number
     green: 'text-green',
   }[tone];
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono">
+    <div className="rounded-sm border border-border/55 bg-bg3/35 px-2 py-1 font-mono">
       <div className="truncate text-[9px] uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={["mt-0.5 text-[13px] font-semibold", toneClass].join(' ')}>{value}</div>
     </div>
@@ -278,7 +278,7 @@ function ProjectionMetric({ label, value, tone }: { label: string; value: number
 
 function ProjectionBodyList({ label, values }: { label: string; values: string[] }) {
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
+    <div className="rounded-sm border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
       <div className="uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className="mt-0.5 truncate text-silver">{values.length > 0 ? values.join(', ') : 'None'}</div>
     </div>
@@ -362,12 +362,12 @@ function SelectedStructureTelemetryCard({ detail }: { detail: StructureTelemetry
         {detail.roleLabel && <TelemetryChip label={detail.roleLabel} tone="cyan" />}
       </div>
       {detail.economyContextLabel && (
-        <p data-testid="planner-telemetry-contextual-economy" className="mt-2 rounded border border-cyan/30 bg-cyan/8 px-2 py-1 font-mono text-[10px] leading-snug text-cyan">
+        <p data-testid="planner-telemetry-contextual-economy" className="mt-2 rounded-sm border border-cyan/30 bg-cyan/8 px-2 py-1 font-mono text-[10px] leading-snug text-cyan">
           {detail.economyContextLabel}
         </p>
       )}
       {detail.prerequisiteWarnings.length > 0 && (
-        <p data-testid="planner-telemetry-prerequisite-warning" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+        <p data-testid="planner-telemetry-prerequisite-warning" className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
           Missing prerequisite: {detail.prerequisiteWarnings.join('; ')}
         </p>
       )}
@@ -393,7 +393,7 @@ function TelemetryField({
     gold: 'text-gold',
   }[tone];
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1">
+    <div className="rounded-sm border border-border/55 bg-bg3/35 px-2 py-1">
       <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={["mt-0.5 truncate text-[11px] font-semibold", toneClass].join(' ')}>{value}</div>
     </div>
@@ -414,7 +414,7 @@ function TelemetryChip({
     green: 'border-green/35 bg-green/10 text-green',
     gold: 'border-gold/35 bg-gold/10 text-gold',
   }[tone];
-  return <span className={["rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em]", toneClass].join(' ')}>{label}</span>;
+  return <span className={["rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest", toneClass].join(' ')}>{label}</span>;
 }
 
 function buildSelectedBodyTelemetryDetail(
@@ -514,7 +514,7 @@ function countBodyPlacements(placements: SimulateBuildPlacement[], bodyId: strin
 function TelemetryMetric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-2">
-      <div className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-silver">{label}</div>
+      <div className="truncate font-mono text-[10px] uppercase tracking-widest text-silver">{label}</div>
       <div className="text-right font-display text-base text-silver">{value}</div>
     </div>
   );
@@ -546,7 +546,7 @@ function DevelopmentProfileCard({ system }: { system: SystemDetail }) {
   return (
     <section
       data-testid="planner-development-profile-card"
-      className="mt-4 rounded border border-orange/30 bg-orange/5 p-2"
+      className="mt-4 rounded-sm border border-orange/30 bg-orange/5 p-2"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -557,7 +557,7 @@ function DevelopmentProfileCard({ system }: { system: SystemDetail }) {
         </div>
         <div
           data-testid="planner-development-overall-score"
-          className="shrink-0 rounded border px-2 py-1 text-right font-mono"
+          className="shrink-0 rounded-sm border px-2 py-1 text-right font-mono"
           style={{
             borderColor: `${tierColor}88`,
             background: `linear-gradient(180deg, ${tierColor}24, rgba(18,20,24,0.52))`,
@@ -577,7 +577,7 @@ function DevelopmentProfileCard({ system }: { system: SystemDetail }) {
           ))}
         </div>
       ) : (
-        <p className="mt-3 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+        <p className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
           No development assessment is present on this system record yet.
         </p>
       )}
@@ -601,7 +601,7 @@ function RatingFact({
     gold: 'text-gold',
   }[tone];
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1">
+    <div className="rounded-sm border border-border/55 bg-bg3/35 px-2 py-1">
       <div className="truncate uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={['mt-0.5 truncate font-semibold', toneClass].join(' ')} title={String(value)}>{value}</div>
     </div>
@@ -620,7 +620,7 @@ function ZeroCenteredStatBar({ id, label, value }: { id: string; label: string; 
       className="grid grid-cols-[7.5rem_1fr_3.6rem] items-center gap-2 font-mono text-[11px]"
     >
       <span className="truncate text-silver">{label}</span>
-      <span className="relative h-4 overflow-hidden rounded-sm border border-border/60 bg-bg4/80 shadow-inner-soft">
+      <span className="relative h-4 overflow-hidden rounded-xs border border-border/60 bg-bg4/80 shadow-inner-soft">
         <span data-testid={`planner-stat-${id}-zero-axis`} aria-hidden className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-silver/55" />
         <span
           data-testid={`planner-stat-${id}-negative`}

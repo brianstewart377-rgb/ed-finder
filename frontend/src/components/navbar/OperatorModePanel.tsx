@@ -41,7 +41,7 @@ export function OperatorModePanel({
               type="button"
               onClick={() => onNavigate('finder')}
               data-testid={returnTestId}
-              className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+              className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
             >
               Return to player workspace
             </button>

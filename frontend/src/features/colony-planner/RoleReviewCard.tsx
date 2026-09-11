@@ -25,22 +25,22 @@ export function RoleReviewCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</div>
-        <span className={['rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em]', toneClass].join(' ')}>
+        <span className={['rounded-sm border px-2 py-1 text-[10px] uppercase tracking-[0.12em]', toneClass].join(' ')}>
           {result.consistencyLabel}
         </span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-        <span className="rounded border border-green/35 bg-green/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
+        <span className="rounded-sm border border-green/35 bg-green/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
           Declared Strategy: {result.coverage.declaredCount}
         </span>
-        <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-orange">
+        <span className="rounded-sm border border-orange/35 bg-orange/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-orange">
           Observed Colony State: {result.coverage.observedCount}
         </span>
-        <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 uppercase tracking-[0.12em] text-cyan">
+        <span className="rounded-sm border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 uppercase tracking-[0.12em] text-cyan">
           Matched: {result.coverage.matchedCount}
         </span>
         {result.coverage.mismatchCount > 0 && (
-          <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-gold">
+          <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 uppercase tracking-[0.12em] text-gold">
             Mismatch: {result.coverage.mismatchCount}
           </span>
         )}
@@ -49,7 +49,7 @@ export function RoleReviewCard({
         {buildRoleReviewHighlights(result).map((highlight) => (
           <span
             key={highlight}
-            className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 uppercase tracking-[0.12em] text-cyan"
+            className="rounded-sm border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 uppercase tracking-[0.12em] text-cyan"
           >
             {highlight}
           </span>
@@ -58,11 +58,11 @@ export function RoleReviewCard({
       {!compact && (
         <>
           <div className="mt-2 grid gap-2 md:grid-cols-2">
-            <div className="rounded border border-green/25 bg-green/8 px-2 py-2">
+            <div className="rounded-sm border border-green/25 bg-green/8 px-2 py-2">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-green">Declared strategy</div>
               <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                 {result.declaredRoles.length > 0 ? result.declaredRoles.slice(0, 4).map((role) => (
-                  <span key={role.id} className="rounded border border-green/35 bg-bg3/35 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
+                  <span key={role.id} className="rounded-sm border border-green/35 bg-bg3/35 px-1.5 py-0.5 uppercase tracking-[0.12em] text-green">
                     {roleCompactLabel(role.role_id)}
                   </span>
                 )) : (
@@ -70,11 +70,11 @@ export function RoleReviewCard({
                 )}
               </div>
             </div>
-            <div className="rounded border border-orange/25 bg-orange/8 px-2 py-2">
+            <div className="rounded-sm border border-orange/25 bg-orange/8 px-2 py-2">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-orange">Observed evidence</div>
               <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                 {result.observedRoles.length > 0 ? result.observedRoles.slice(0, 4).map((role) => (
-                  <span key={role.id} className="rounded border border-orange/35 bg-bg3/35 px-1.5 py-0.5 text-orange">
+                  <span key={role.id} className="rounded-sm border border-orange/35 bg-bg3/35 px-1.5 py-0.5 text-orange">
                     {role.label} / {role.evidenceLabel}
                   </span>
                 )) : (

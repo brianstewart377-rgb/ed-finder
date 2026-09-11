@@ -53,7 +53,7 @@ export function AdvancedPlannerDrawer({
             Suggested Builds, Preview, Sequence, Evidence, Validation, and Export now live as explicit planner modes inside the canonical cockpit.
           </p>
         </div>
-        <span className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver">
+        <span className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver">
           {open ? 'Hide' : 'Open'}
         </span>
       </button>

@@ -12,8 +12,8 @@ export function RegionalContextMini({
   if (loading) {
     return (
       <div className="rounded-chunk-lg border border-border/50 bg-bg3/25 p-3">
-        <div className="h-3 w-40 rounded bg-bg4/60" />
-        <div className="mt-3 h-3 w-2/3 rounded bg-bg4/40" />
+        <div className="h-3 w-40 rounded-sm bg-bg4/60" />
+        <div className="mt-3 h-3 w-2/3 rounded-sm bg-bg4/40" />
       </div>
     );
   }

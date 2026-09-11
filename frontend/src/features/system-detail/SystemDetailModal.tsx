@@ -134,7 +134,7 @@ export function SystemDetailModal({
           onClick={onClose}
           data-testid="system-detail-close"
           aria-label="Close system details"
-          className="premium-toolbar absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-full text-white transition-colors hover:border-orange/70 hover:bg-orange hover:text-bg1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+          className="premium-toolbar absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-full text-white transition-colors hover:border-orange/70 hover:bg-orange hover:text-bg1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
         >
           <X size={19} strokeWidth={3} />
         </button>

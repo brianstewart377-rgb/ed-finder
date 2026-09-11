@@ -38,7 +38,7 @@ export function EliteNewsBar() {
           style={{ borderRadius: '20px' }}
         >
           <div
-            className="flex items-center gap-2 px-4 shrink-0 border-r border-border/70 rounded-l-[20px]"
+            className="flex items-center gap-2 px-4 shrink-0 border-r border-border/70 rounded-l-chunk"
             style={{
               background: 'linear-gradient(180deg, rgba(255,122,20,0.18), rgba(255,122,20,0.04))',
             }}
@@ -95,7 +95,7 @@ export function EliteNewsBar() {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 px-4 shrink-0 border-l border-border/70 bg-bg3/40 rounded-r-[20px]">
+          <div className="hidden md:flex items-center gap-2 px-4 shrink-0 border-l border-border/70 bg-bg3/40 rounded-r-chunk">
             <span className="font-mono text-[10px] tracking-widest text-silver-dk uppercase">
               {renderedItems.length} {showingFallbackLinks ? 'links' : 'headlines'}
             </span>

@@ -12,7 +12,7 @@ export function ServicesPanel({ services }: { services: SimulateBuildResponse['s
       </div>
       <div className="grid gap-1.5 sm:grid-cols-2">
         {rows.map(([service, detail]) => (
-          <div key={service} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+          <div key={service} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
             <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
               <span className="truncate text-silver">{titleCase(service)}</span>
               <span className={serviceTone(detail.status)}>{titleCase(detail.status)}</span>

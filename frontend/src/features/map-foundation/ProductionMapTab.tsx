@@ -567,7 +567,7 @@ export function ProductionMapTab({
               {showTimeline && (
                 <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
                   Time range
-                  <select value={timelineBucket} onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)} className="rounded border border-border bg-bg3 px-2 py-1">
+                  <select value={timelineBucket} onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)} className="rounded-sm border border-border bg-bg3 px-2 py-1">
                     <option value="month">Month</option>
                     <option value="quarter">Quarter</option>
                     <option value="year">Year</option>
@@ -681,7 +681,7 @@ export function ProductionMapTab({
               <aside aria-label="Overlapping systems" className="panel-thin space-y-2 p-3">
                 <h3 className="font-display text-xs text-orange">Choose overlapping system</h3>
                 {overlapCandidateIds.map((id64) => (
-                  <button key={id64} type="button" onClick={() => selectOverlapCandidate(id64)} className="block w-full rounded border border-border px-2 py-1 text-left font-mono text-xs text-silver">
+                  <button key={id64} type="button" onClick={() => selectOverlapCandidate(id64)} className="block w-full rounded-sm border border-border px-2 py-1 text-left font-mono text-xs text-silver">
                     {systems.find((system) => system.id64 === id64)?.name ?? id64}
                   </button>
                 ))}

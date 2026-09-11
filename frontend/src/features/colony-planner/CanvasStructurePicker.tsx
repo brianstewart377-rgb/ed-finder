@@ -112,7 +112,7 @@ export function CanvasStructurePicker({
           type="button"
           aria-label="Close structure picker"
           onClick={onClose}
-          className="inline-flex items-center gap-1 rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
+          className="inline-flex items-center gap-1 rounded-sm border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
         >
           <X size={12} />
           Close
@@ -120,19 +120,19 @@ export function CanvasStructurePicker({
       </div>
 
       {templatesLoading && (
-        <p data-testid="canvas-picker-loading" className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
+        <p data-testid="canvas-picker-loading" className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
           Facility catalogue loading.
         </p>
       )}
 
       {templatesErrorMessage && (
-        <p data-testid="canvas-picker-error" className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
+        <p data-testid="canvas-picker-error" className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
           {templatesErrorMessage}
         </p>
       )}
 
       {disabledReason && (
-        <p data-testid="canvas-picker-disabled-reason" className="mt-3 rounded border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
+        <p data-testid="canvas-picker-disabled-reason" className="mt-3 rounded-sm border border-gold/35 bg-gold/10 px-3 py-2 text-[11px] text-gold">
           {disabledReason}
         </p>
       )}
@@ -147,10 +147,10 @@ export function CanvasStructurePicker({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search by name, economy, or type"
-            className="w-full rounded border border-border/70 bg-bg2 px-8 py-2 font-mono text-xs text-silver outline-none focus:border-cyan/60"
+            className="w-full rounded-sm border border-border/70 bg-bg2 px-8 py-2 font-mono text-xs text-silver outline-hidden focus:border-cyan/60"
           />
         </label>
-        <div data-testid="canvas-picker-compatibility-summary" className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver-dk">
+        <div data-testid="canvas-picker-compatibility-summary" className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver-dk">
           {laneHiddenCount + bodyHiddenCount > 0
             ? `${laneHiddenCount + bodyHiddenCount} incompatible hidden`
             : 'No incompatible templates hidden'}
@@ -158,7 +158,7 @@ export function CanvasStructurePicker({
       </div>
 
       {disabledReason ? null : !templatesLoading && !templatesErrorMessage && (templates.length === 0 || visibleTemplates.length === 0) ? (
-        <p data-testid="canvas-picker-empty-state" className="mt-3 rounded border border-border/55 bg-bg3/35 px-3 py-2 text-[11px] text-silver-dk">
+        <p data-testid="canvas-picker-empty-state" className="mt-3 rounded-sm border border-border/55 bg-bg3/35 px-3 py-2 text-[11px] text-silver-dk">
           No compatible structures available for this lane/body.
         </p>
       ) : visibleTemplates.length > 0 ? (
@@ -171,7 +171,7 @@ export function CanvasStructurePicker({
               aria-label={`Add ${templateDisplayName(template)} to ${bodyName}`}
               disabled={!canSelectTemplate}
               onClick={() => onPickTemplate(template.id)}
-              className="flex items-center justify-between gap-2 rounded border border-border/55 bg-bg3/35 px-3 py-2 text-left hover:border-orange/45 hover:bg-orange/8 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-between gap-2 rounded-sm border border-border/55 bg-bg3/35 px-3 py-2 text-left hover:border-orange/45 hover:bg-orange/8 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="min-w-0">
                 <span className="block truncate text-[11px] font-bold text-silver">{templateDisplayName(template)}</span>
@@ -202,7 +202,7 @@ export function CanvasStructurePicker({
                   </span>
                 )}
               </span>
-              <span className="shrink-0 rounded border border-orange/35 bg-orange/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-orange">
+              <span className="shrink-0 rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-orange">
                 Add
               </span>
             </button>
@@ -217,7 +217,7 @@ function PickerFact({ label, tone = 'silver' }: { label: string; tone?: 'silver'
   return (
     <span
       className={[
-        'rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
+        'rounded-sm border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
         tone === 'cyan'
           ? 'border-cyan/35 bg-cyan/10 text-cyan'
           : tone === 'gold'

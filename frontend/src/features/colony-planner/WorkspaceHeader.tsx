@@ -149,7 +149,7 @@ export function WorkspaceHeader({
             type="button"
             onClick={() => onOpenSystemDetail(system.id64)}
             data-testid="back-to-system-detail"
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-2 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
+            className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-2 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cyan/80"
           >
             <ExternalLink size={14} />
             Back to system detail
@@ -174,7 +174,7 @@ export function WorkspaceHeader({
               <span
                 data-testid="planner-local-save-state"
                 className={[
-                  'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em]',
+                  'rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em]',
                   unsavedChanges
                     ? 'border-gold/40 bg-gold/10 text-gold'
                     : 'border-green/35 bg-green/10 text-green',
@@ -215,7 +215,7 @@ export function WorkspaceHeader({
                   type="button"
                   onClick={onOpenMyWork}
                   data-testid="planner-manage-my-work"
-                  className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
+                  className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cyan/80"
                 >
                   Manage in My Work
                 </button>
@@ -261,7 +261,7 @@ export function WorkspaceHeader({
                   role="menuitem"
                   onClick={() => setConfirmDeleteOpen(true)}
                   data-testid="planner-delete-plan-menu-item"
-                  className="flex w-full items-center gap-2 rounded border border-transparent px-3 py-2 text-left text-xs font-mono font-bold text-red hover:border-red/35 hover:bg-red/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/70"
+                  className="flex w-full items-center gap-2 rounded-sm border border-transparent px-3 py-2 text-left text-xs font-mono font-bold text-red hover:border-red/35 hover:bg-red/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-red/70"
                 >
                   <Trash2 size={14} />
                   {deleteActionLabel}
@@ -299,7 +299,7 @@ export function WorkspaceHeader({
                       }
                     }}
                     data-testid="planner-confirm-delete"
-                    className="rounded-chunk-sm border border-red/50 bg-red/20 px-3 py-2 text-xs font-mono font-bold text-red hover:bg-red/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red/80"
+                    className="rounded-chunk-sm border border-red/50 bg-red/20 px-3 py-2 text-xs font-mono font-bold text-red hover:bg-red/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-red/80"
                   >
                     {deleteActionLabel}
                   </button>

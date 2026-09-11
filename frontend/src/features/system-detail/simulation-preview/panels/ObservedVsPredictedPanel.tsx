@@ -24,18 +24,18 @@ export function ObservedVsPredictedPanel({
         <Chip>{titleCase(summary.confidence_impact)} impact</Chip>
       </div>
       {!hasDiffs && (
-        <div className="mt-2 rounded border border-border/50 bg-bg3/45 px-2 py-1.5 font-mono text-[10px] leading-snug text-silver-dk">
+        <div className="mt-2 rounded-sm border border-border/50 bg-bg3/45 px-2 py-1.5 font-mono text-[10px] leading-snug text-silver-dk">
           Results are predicted from current mechanics rules.
         </div>
       )}
       {hasDiffs && (
-        <details className="mt-3 rounded border border-border/60 bg-bg2/55 px-2 py-2">
+        <details className="mt-3 rounded-sm border border-border/60 bg-bg2/55 px-2 py-2">
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
             Observation Diffs
           </summary>
           <div className="mt-2 space-y-1.5">
             {diffs.slice(0, 8).map((diff) => (
-              <div key={`${diff.area}-${diff.subject_id}-${diff.status}`} className="rounded border border-border/50 bg-bg3/45 px-2 py-1.5">
+              <div key={`${diff.area}-${diff.subject_id}-${diff.status}`} className="rounded-sm border border-border/50 bg-bg3/45 px-2 py-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
                   <span className="text-silver">{titleCase(diff.area)} · {diff.subject_id}</span>
                   <span className={diff.status === 'mismatch' ? 'text-gold' : diff.status === 'confirmed' ? 'text-green' : 'text-silver-dk'}>{titleCase(diff.status)}</span>

@@ -58,7 +58,7 @@ export function ResearchConsentPanel() {
       </div>
 
       {consent.loading ? (
-        <div className="rounded border border-border/50 bg-bg1/35 px-3 py-2 text-sm text-silver-dk" data-testid="research-consent-loading">
+        <div className="rounded-sm border border-border/50 bg-bg1/35 px-3 py-2 text-sm text-silver-dk" data-testid="research-consent-loading">
           Loading contribution state...
         </div>
       ) : null}

@@ -18,7 +18,7 @@ export function PlanningEconomyStrip({
     <section
       data-testid={testId}
       className={[
-        'rounded border border-border/55 bg-bg3/35',
+        'rounded-sm border border-border/55 bg-bg3/35',
         compact ? 'px-2 py-1' : 'px-3 py-2',
       ].join(' ')}
       title={PLANNING_ECONOMY_NOTE}
@@ -32,7 +32,7 @@ export function PlanningEconomyStrip({
       {hasEntries ? (
         <>
           <div
-            className="mt-1 flex h-2 overflow-hidden rounded bg-bg2/80"
+            className="mt-1 flex h-2 overflow-hidden rounded-sm bg-bg2/80"
             aria-hidden="true"
             data-testid={testId ? `${testId}-bar` : undefined}
           >
@@ -66,7 +66,7 @@ export function PlanningEconomyStrip({
             {topEntries.map((entry) => (
               <span
                 key={entry.economy}
-                className="rounded border border-border/55 bg-bg2/55 px-1 font-mono text-[8px] uppercase tracking-[0.1em] text-silver-dk"
+                className="rounded-sm border border-border/55 bg-bg2/55 px-1 font-mono text-[8px] uppercase tracking-widest text-silver-dk"
                 title={`${entry.economy}: ${entry.planned} planned, ${entry.projected} projected`}
               >
                 {compactEconomyLabel(entry.economy)}

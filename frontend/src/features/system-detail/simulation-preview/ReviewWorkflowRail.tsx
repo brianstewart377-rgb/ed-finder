@@ -22,7 +22,7 @@ export function ReviewWorkflowRail({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-display text-xs tracking-[0.14em] text-cyan">Review flow</span>
-        <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+        <span className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
           {activeMode === 'evidence' ? 'Evidence in focus' : activeMode === 'validation' ? 'Validation in focus' : 'Export in focus'}
         </span>
       </div>
@@ -74,7 +74,7 @@ export function ReviewWorkflowRail({
       </div>
       <div
         data-testid="review-workflow-next-move"
-        className="mt-3 rounded border border-border/60 bg-bg3/35 px-3 py-2 text-sm leading-relaxed text-silver"
+        className="mt-3 rounded-sm border border-border/60 bg-bg3/35 px-3 py-2 text-sm leading-relaxed text-silver"
       >
         <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Best next move</span>
         <span className="ml-2">{nextMove}</span>
@@ -105,14 +105,14 @@ function WorkflowCard({
   return (
     <div
       className={[
-        'rounded border p-3',
+        'rounded-sm border p-3',
         active ? 'border-orange/45 bg-orange/10 shadow-[0_12px_24px_-22px_rgba(251,146,60,0.9)]' : toneClass,
       ].join(' ')}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[10px] uppercase tracking-[0.14em]">{title}</span>
         {active && (
-          <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-orange">
+          <span className="rounded-sm border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-orange">
             Active
           </span>
         )}

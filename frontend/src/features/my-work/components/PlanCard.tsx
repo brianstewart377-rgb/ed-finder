@@ -49,7 +49,7 @@ export function PlanCard({
               <input
                 value={editingName}
                 onChange={(event) => onEditNameChange(event.target.value)}
-                className="min-w-[18rem] flex-1 rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
+                className="min-w-[18rem] flex-1 rounded-sm border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
               />
               <button
                 type="button"
@@ -67,7 +67,7 @@ export function PlanCard({
               </button>
             </div>
           ) : (
-            <h3 className="truncate font-display text-sm tracking-[0.1em] text-text">
+            <h3 className="truncate font-display text-sm tracking-widest text-text">
               {project.project_name}
             </h3>
           )}
@@ -111,7 +111,7 @@ export function PlanCard({
           data-testid={`plan-status-${project.id}`}
           value={project.status}
           onChange={(event) => onStatusChange(event.target.value as ColonyProjectStatus)}
-          className="rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-[11px] text-silver"
+          className="rounded-sm border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-[11px] text-silver"
         >
           <option value="draft">Draft</option>
           <option value="ready_to_build">Ready to build</option>
@@ -135,7 +135,7 @@ export function PlanCard({
         <button
           type="button"
           onClick={onArchive}
-          className="rounded border border-gold/35 bg-gold/10 px-3 py-1.5 font-mono text-[11px] text-gold hover:bg-gold/20"
+          className="rounded-sm border border-gold/35 bg-gold/10 px-3 py-1.5 font-mono text-[11px] text-gold hover:bg-gold/20"
         >
           Archive
         </button>
@@ -148,7 +148,7 @@ export function PlanCard({
           <button
             type="button"
             onClick={() => onToggleColonised(!isExplicitlyColonised)}
-            className="mt-2 rounded border border-violet/35 bg-violet/12 px-3 py-1.5 font-mono text-[11px] text-violet hover:bg-violet/20"
+            className="mt-2 rounded-sm border border-violet/35 bg-violet/12 px-3 py-1.5 font-mono text-[11px] text-violet hover:bg-violet/20"
           >
             {isExplicitlyColonised ? 'Remove colonised mark' : 'Mark system colonised'}
           </button>

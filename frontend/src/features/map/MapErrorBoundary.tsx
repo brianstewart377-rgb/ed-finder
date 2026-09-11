@@ -40,7 +40,7 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
         <button
           type="button"
           onClick={this.handleRetry}
-          className="rounded border border-orange/60 bg-orange/15 px-3 py-2 font-mono text-xs text-orange transition-colors hover:bg-orange/25"
+          className="rounded-sm border border-orange/60 bg-orange/15 px-3 py-2 font-mono text-xs text-orange transition-colors hover:bg-orange/25"
         >
           Retry map
         </button>

@@ -57,7 +57,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           'font-display font-bold uppercase tracking-[0.12em]',
           'rounded-chunk-sm',
           'transition-all duration-fast',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg1',
+          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg1',
           // Interactive
           'select-none',
           disabled && 'opacity-40 cursor-not-allowed pointer-events-none',

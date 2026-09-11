@@ -50,7 +50,7 @@ export function BodyStructureSlot({
       aria-pressed={selected}
       data-testid={`slot-planned-${item.index}`}
       className={[
-        'relative flex min-h-[3.75rem] min-w-[11rem] flex-col justify-between overflow-hidden rounded border px-2 py-2 pb-4 text-left transition-colors',
+        'relative flex min-h-15 min-w-44 flex-col justify-between overflow-hidden rounded-sm border px-2 py-2 pb-4 text-left transition-colors',
         selected
           ? 'border-orange/70 bg-orange/16 shadow-[0_0_18px_rgba(255,122,20,0.16)]'
           : 'border-border/60 bg-bg3/45 hover:border-orange/45 hover:bg-orange/8',
@@ -117,7 +117,7 @@ function SlotChip({
   return (
     <span
       className={[
-        'rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em]',
+        'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest',
         tone === 'cyan'
           ? 'border-cyan/35 bg-cyan/10 text-cyan'
           : tone === 'gold'

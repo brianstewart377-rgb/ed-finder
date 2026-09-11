@@ -69,12 +69,12 @@ export function RefSystemPicker({
           }, 120);
         }}
         data-testid="ref-system-input"
-        className="w-full px-3 py-2 rounded bg-bg4 border border-border font-mono text-sm text-text placeholder:text-text-dim/50 focus:border-orange-dk focus:outline-none"
+        className="w-full px-3 py-2 rounded-sm bg-bg4 border border-border font-mono text-sm text-text placeholder:text-text-dim/50 focus:border-orange-dk focus:outline-hidden"
       />
       {open && text.trim().length >= 2 && (
         <ul
           role="listbox"
-          className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded border border-border bg-bg3 shadow-lg font-mono text-xs"
+          className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-sm border border-border bg-bg3 shadow-lg font-mono text-xs"
         >
           {loading && (
             <li className="px-3 py-2 text-text-dim italic">Searching…</li>

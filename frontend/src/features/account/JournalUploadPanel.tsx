@@ -188,7 +188,7 @@ function ReceiptBlock({
 
 function ReceiptMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded border border-border/50 bg-bg1/55 px-3 py-2">
+    <div className="rounded-sm border border-border/50 bg-bg1/55 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">{label}</div>
       <div className="mt-1 text-lg text-text" data-testid={`journal-upload-metric-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         {value.toLocaleString()}

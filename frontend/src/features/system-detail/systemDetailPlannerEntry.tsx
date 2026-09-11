@@ -98,7 +98,7 @@ export function ColonyPlannerEntryPoint({
               aria-label={savedForLater ? 'Remove from saved' : 'Save for later'}
               aria-busy={saveActionBusy || undefined}
               className={[
-                'inline-flex items-center gap-2 rounded-chunk-sm border px-3 py-2 text-xs font-mono font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
+                'inline-flex items-center gap-2 rounded-chunk-sm border px-3 py-2 text-xs font-mono font-bold focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80',
                 savedForLater
                   ? 'border-orange/50 bg-orange/15 text-orange hover:bg-orange/25'
                   : 'border-border bg-bg4 text-silver hover:border-orange/45 hover:text-orange',
@@ -113,7 +113,7 @@ export function ColonyPlannerEntryPoint({
               onClick={onTogglePlanStart}
               disabled={!canStartPlan}
               data-testid="open-plan-start"
-              className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
+              className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
             >
               <Rocket size={14} />
               {planningOpen ? 'Close plan setup' : 'Start a plan'}
@@ -169,7 +169,7 @@ function PlanStartPanel({
       className="mt-4 rounded-chunk-lg border border-orange/30 bg-bg2/85 p-4 space-y-4"
     >
       <div className="space-y-1">
-        <h4 className="font-display text-base tracking-[0.1em] text-orange-lt">
+        <h4 className="font-display text-base tracking-widest text-orange-lt">
           Create a local draft
         </h4>
         <p className="text-sm leading-relaxed text-silver">
@@ -198,7 +198,7 @@ function PlanStartPanel({
               data-testid={`plan-objective-${option.value}`}
               aria-pressed={selectedObjective === option.value}
               className={[
-                'rounded border px-3 py-3 text-left transition-colors',
+                'rounded-sm border px-3 py-3 text-left transition-colors',
                 selectedObjective === option.value
                   ? 'border-orange/50 bg-orange/10'
                   : 'border-border bg-bg3/35 hover:border-orange/35',
@@ -230,7 +230,7 @@ function PlanStartPanel({
             data-testid="plan-approach-recommendation"
             aria-pressed={selectedStartApproach === 'recommendation_assisted'}
             className={[
-              'rounded border px-3 py-3 text-left transition-colors',
+              'rounded-sm border px-3 py-3 text-left transition-colors',
               selectedStartApproach === 'recommendation_assisted'
                 ? 'border-cyan/45 bg-cyan/10'
                 : 'border-border bg-bg3/35 hover:border-cyan/35',
@@ -250,7 +250,7 @@ function PlanStartPanel({
             data-testid="plan-approach-manual"
             aria-pressed={selectedStartApproach === 'manual'}
             className={[
-              'rounded border px-3 py-3 text-left transition-colors',
+              'rounded-sm border px-3 py-3 text-left transition-colors',
               selectedStartApproach === 'manual'
                 ? 'border-orange/45 bg-orange/10'
                 : 'border-border bg-bg3/35 hover:border-orange/35',
@@ -267,7 +267,7 @@ function PlanStartPanel({
         </div>
       </section>
 
-      <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2">
+      <div className="rounded-sm border border-border/60 bg-bg3/35 px-3 py-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Draft preview</div>
         <div className="mt-1 text-sm text-text">{draftName}</div>
         <div className="mt-1 text-xs text-silver-dk">
@@ -281,7 +281,7 @@ function PlanStartPanel({
           onClick={onConfirm}
           disabled={!readyToCreate}
           data-testid="confirm-start-plan"
-          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
+          className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
         >
           <Rocket size={14} />
           Create draft & open planner

@@ -37,24 +37,24 @@ export function ValidationComparisonCard({ comparison }: ValidationComparisonCar
     <article
       data-testid="validation-comparison-card"
       data-status={comparison.status}
-      className="rounded border border-border/60 bg-bg2/40 p-3 font-mono text-[11px] text-silver-dk"
+      className="rounded-sm border border-border/60 bg-bg2/40 p-3 font-mono text-[11px] text-silver-dk"
     >
       <header className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span
-          className="rounded border border-cyan/30 bg-cyan/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-cyan"
+          className="rounded-sm border border-cyan/30 bg-cyan/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-cyan"
           data-testid="validation-card-status"
         >
           {statusLabel}
         </span>
         <span
-          className="rounded border border-border bg-bg3 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-silver-dk"
+          className="rounded-sm border border-border bg-bg3 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-silver-dk"
           data-testid="validation-card-severity"
         >
           Severity: <span className="text-silver">{severityLabel}</span>
         </span>
         <span
           className={[
-            'rounded border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em]',
+            'rounded-sm border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em]',
             validationMismatchCategoryClassName(mismatchCategory),
           ].join(' ')}
           data-testid="validation-card-review-category"
@@ -122,7 +122,7 @@ export function ValidationComparisonCard({ comparison }: ValidationComparisonCar
 
       {comparison.recommended_action && (
         <p
-          className="mt-1 rounded border border-orange/25 bg-orange/5 px-2 py-1 text-[11px] text-orange leading-snug"
+          className="mt-1 rounded-sm border border-orange/25 bg-orange/5 px-2 py-1 text-[11px] text-orange leading-snug"
           data-testid="validation-card-recommended-action"
         >
           Recommended action: {comparison.recommended_action}
@@ -150,7 +150,7 @@ function ValidationEvidenceList({
   const count = evidence?.length ?? 0;
   return (
     <details
-      className="mt-2 rounded border border-border/40 bg-bg3/30 px-2 py-1"
+      className="mt-2 rounded-sm border border-border/40 bg-bg3/30 px-2 py-1"
       data-testid="validation-card-evidence"
     >
       <summary
@@ -175,7 +175,7 @@ function ValidationEvidenceList({
             <li
               key={`${comparisonId}-${match.observation_id}`}
               data-testid="validation-card-evidence-item"
-              className="rounded border border-border/40 bg-bg2/40 px-2 py-1"
+              className="rounded-sm border border-border/40 bg-bg2/40 px-2 py-1"
             >
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
                 <span>

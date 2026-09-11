@@ -1,8 +1,112 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap')
+layer(base);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-bg1: hsl(220 12% 6%);
+  --color-bg2: hsl(218 11% 10%);
+  --color-bg3: hsl(216 10% 14%);
+  --color-bg4: hsl(215 9% 19%);
+  --color-bg5: hsl(214 8% 24%);
+  --color-text: hsl(210 14% 92%);
+  --color-text-dim: hsl(215 10% 65%);
+  --color-border: hsl(216 10% 24%);
+  --color-border-bright: hsl(216 10% 38%);
+  --color-silver: #c8ccd1;
+  --color-silver-dk: #8a8f96;
+  --color-silver-2: #5e636b;
+  --color-steel: #9aa0a8;
+  --color-orange: #ff7a14;
+  --color-orange-lt: #ffb074;
+  --color-orange-dk: #cc5400;
+  --color-orange-deep: #a13e00;
+  --color-green: #4ade80;
+  --color-gold: #fbbf24;
+  --color-red: #f87171;
+  --color-cyan: #7dd3fc;
+
+  --radius-chunk-sm: 14px;
+  --radius-chunk: 20px;
+  --radius-chunk-lg: 26px;
+  --radius-chunk-xl: 34px;
+
+  --shadow-brand:
+    0 1px 0 0 hsl(216 10% 38%) inset, 0 0 0 1px hsl(216 10% 22%),
+    0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-brand-glow:
+    0 0 0 1px rgba(255, 122, 20, 0.35), 0 0 20px -4px rgba(255, 122, 20, 0.45),
+    0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-metal:
+    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+    0 -1px 0 0 rgba(0, 0, 0, 0.4) inset, 0 6px 22px -10px rgba(0, 0, 0, 0.8);
+  --shadow-inner-soft: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+
+  --background-image-metal: linear-gradient(
+    180deg,
+    hsl(216 10% 18%) 0%,
+    hsl(218 11% 12%) 50%,
+    hsl(220 12% 8%) 100%
+  );
+  --background-image-metal-active: linear-gradient(
+    180deg,
+    hsl(216 10% 22%) 0%,
+    hsl(218 11% 16%) 100%
+  );
+  --background-image-orange-grad: linear-gradient(
+    135deg,
+    #ff7a14 0%,
+    #ff9c4a 50%,
+    #ff7a14 100%
+  );
+  --background-image-silver-grad: linear-gradient(
+    135deg,
+    #c8ccd1 0%,
+    #8a8f96 50%,
+    #c8ccd1 100%
+  );
+
+  --font-ui: Manrope, system-ui, sans-serif;
+  --font-mono: JetBrains Mono, ui-monospace, monospace;
+  --font-display: Orbitron, JetBrains Mono, monospace;
+
+  --text-caption: 9px;
+  --text-caption--line-height: 1.3;
+  --text-caption--letter-spacing: 0.08em;
+  --text-caption--font-weight: 600;
+  --text-label: 10px;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.12em;
+  --text-label--font-weight: 600;
+  --text-overline: 11px;
+  --text-overline--line-height: 1.3;
+  --text-overline--letter-spacing: 0.14em;
+  --text-overline--font-weight: 600;
+
+  --default-transition-duration: 160ms;
+  --transition-duration-fast: 120ms;
+  --transition-duration-slow: 240ms;
+
+  --ring-offset-color: hsl(220 12% 6%);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
  * ED:Finder — Coalsack Nebula theme

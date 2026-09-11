@@ -38,7 +38,7 @@ export function InheritedEconomyPanel({ profiles }: { profiles: SimulateBuildRes
                 </div>
               )}
               {profile.caveats.slice(0, 2).map((caveat) => (
-                <div key={caveat} className="rounded border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+                <div key={caveat} className="rounded-sm border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
                   {caveat}
                 </div>
               ))}

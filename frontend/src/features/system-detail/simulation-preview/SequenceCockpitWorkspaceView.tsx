@@ -59,7 +59,7 @@ export function SequenceCockpitWorkspaceView({
             {sequenceRows.map((row) => (
               <div
                 key={`${row.step}-${row.templateName}-${row.bodyLabel}`}
-                className="rounded border border-border/60 bg-bg3/45 px-3 py-2"
+                className="rounded-sm border border-border/60 bg-bg3/45 px-3 py-2"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-silver">
                   <span>{row.step}. {row.templateName}</span>
@@ -67,11 +67,11 @@ export function SequenceCockpitWorkspaceView({
                 </div>
                 <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-silver-dk">
                   {row.primaryPort && (
-                    <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 text-cyan">
+                    <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 text-cyan">
                       Primary port
                     </span>
                   )}
-                  <span className="rounded border border-border/70 bg-bg1/60 px-1.5 py-0.5">
+                  <span className="rounded-sm border border-border/70 bg-bg1/60 px-1.5 py-0.5">
                     Template {row.templateId}
                   </span>
                 </div>
@@ -79,7 +79,7 @@ export function SequenceCockpitWorkspaceView({
             ))}
           </div>
         ) : (
-          <div className="rounded border border-border/60 bg-bg3/35 px-3 py-3 font-mono text-[11px] text-silver-dk">
+          <div className="rounded-sm border border-border/60 bg-bg3/35 px-3 py-3 font-mono text-[11px] text-silver-dk">
             No placements yet. Build sequence will appear here once the plan contains at least one explicit placement.
           </div>
         )}

@@ -13,7 +13,7 @@ const variantStyles = {
     'shadow-inner-soft',
   ],
   silver: [
-    'bg-gradient-to-b from-white/6 to-transparent bg-bg4',
+    'bg-linear-to-b from-white/6 to-transparent bg-bg4',
     'border border-silver/30',
     'text-silver',
     'shadow-inner-soft',

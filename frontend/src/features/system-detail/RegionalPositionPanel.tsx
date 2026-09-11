@@ -14,11 +14,11 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
   if (isLoading) {
     return (
       <div data-testid="regional-position-loading" className="rounded-chunk-lg border border-border/60 bg-bg3/30 p-4 animate-pulse">
-        <div className="h-4 w-52 rounded bg-bg4/70" />
+        <div className="h-4 w-52 rounded-sm bg-bg4/70" />
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <div className="h-16 rounded bg-bg4/50" />
-          <div className="h-16 rounded bg-bg4/40" />
-          <div className="h-16 rounded bg-bg4/30" />
+          <div className="h-16 rounded-sm bg-bg4/50" />
+          <div className="h-16 rounded-sm bg-bg4/40" />
+          <div className="h-16 rounded-sm bg-bg4/30" />
         </div>
       </div>
     );
@@ -39,7 +39,7 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
     return (
       <section data-testid="regional-position-unknown" className="rounded-chunk-lg border border-border/70 bg-bg1/60 p-4">
         <Header />
-        <div className="rounded border border-border/60 bg-bg3/35 px-3 py-3 font-mono text-[11px] text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg3/35 px-3 py-3 font-mono text-[11px] text-silver-dk">
           {data?.rationale?.summary || 'Regional analysis has not been computed for this system yet.'}
         </div>
       </section>
@@ -72,7 +72,7 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
           </div>
           <div
             data-testid="regional-position-verdict"
-            className="mt-3 rounded border border-border/60 bg-bg3/45 px-3 py-3"
+            className="mt-3 rounded-sm border border-border/60 bg-bg3/45 px-3 py-3"
           >
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
               Colonisation proximity
@@ -114,7 +114,7 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
       {fitRows.length > 0 && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {fitRows.map(([archetype, score]) => (
-            <div key={archetype} className="rounded border border-border/60 bg-bg3/45 px-2 py-2">
+            <div key={archetype} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-2">
               <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">{formatRole(archetype)}</div>
               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-bg4">
                 <div className="h-full rounded-full bg-orange-grad" style={{ width: `${Math.max(4, Math.min(100, score))}%` }} />
@@ -126,13 +126,13 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
       )}
 
       {data.rationale?.warnings && data.rationale.warnings.length > 0 && (
-        <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2 font-mono text-[11px] text-gold">
+        <div className="mt-3 rounded-sm border border-gold/35 bg-gold/5 px-3 py-2 font-mono text-[11px] text-gold">
           {data.rationale.warnings[0]}
         </div>
       )}
 
       {data.confidence_signals.length > 0 && (
-        <div className="mt-3 rounded border border-border/60 bg-bg3/35 px-3 py-2 font-mono text-[10px] text-silver-dk">
+        <div className="mt-3 rounded-sm border border-border/60 bg-bg3/35 px-3 py-2 font-mono text-[10px] text-silver-dk">
           <span className="text-cyan">{standardLabel(data.confidence_signals[0].level)}:</span> {data.confidence_signals[0].reason}
         </div>
       )}
@@ -156,7 +156,7 @@ function Header() {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded border border-border/60 bg-bg3/60 p-2 text-center">
+    <div className="rounded-sm border border-border/60 bg-bg3/60 p-2 text-center">
       <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">{label}</div>
       <div className="mt-1 font-mono text-sm font-bold text-orange tabular-nums">{value}</div>
     </div>
@@ -166,7 +166,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 function Badge({ label, tone }: { label: string; tone: 'orange' | 'cyan' }) {
   const colour = tone === 'orange' ? '#f97316' : '#22d3ee';
   return (
-    <span className="rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]" style={{ borderColor: `${colour}66`, color: colour, backgroundColor: `${colour}14` }}>
+    <span className="rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em]" style={{ borderColor: `${colour}66`, color: colour, backgroundColor: `${colour}14` }}>
       {label}
     </span>
   );

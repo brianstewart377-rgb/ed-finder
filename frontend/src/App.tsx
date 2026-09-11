@@ -281,7 +281,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     <>
       <a
         href="#app-content"
-        className="sr-only fixed left-4 top-4 z-[100] rounded-chunk-sm border border-orange/55 bg-bg2/95 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange shadow-brand-glow focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-orange/80"
+        className="sr-only fixed left-4 top-4 z-100 rounded-chunk-sm border border-orange/55 bg-bg2/95 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange shadow-brand-glow focus:not-sr-only focus:outline-hidden focus:ring-2 focus:ring-orange/80"
       >
         Skip to main content
       </a>
@@ -510,7 +510,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
                   }))}
                   data-testid="modal-pin-toggle"
                   className={[
-                    'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
+                    'px-2 py-1 rounded-sm font-mono text-[11px] border transition-colors',
                     sys && pinned.has(sys.id64)
                       ? 'bg-orange/20 border-orange text-orange'
                       : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',
@@ -526,7 +526,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
                   onClick={() => sys && compare.toggle(toCompareSnapshot(sys, archetype))}
                   data-testid="modal-compare-toggle"
                   className={[
-                    'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
+                    'px-2 py-1 rounded-sm font-mono text-[11px] border transition-colors',
                     sys && compare.has(sys.id64)
                       ? 'bg-orange/20 border-orange text-orange'
                       : 'bg-bg4 border-border text-text-dim hover:text-orange hover:border-orange-dk',

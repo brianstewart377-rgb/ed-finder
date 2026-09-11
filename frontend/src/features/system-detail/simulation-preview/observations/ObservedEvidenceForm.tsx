@@ -90,7 +90,7 @@ export function ObservedEvidenceForm({
               // switching to "Note".
               setLocalErrors([]);
             }}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             {CREATABLE_FACT_TYPES.map((value) => (
               <option key={value} value={value}>{factTypeLabel(value)}</option>
@@ -102,7 +102,7 @@ export function ObservedEvidenceForm({
           <select
             value={state.status}
             onChange={(event) => update('status', event.target.value as CreateFormState['status'])}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             {STATUSES.map((value) => (
               <option key={value} value={value}>{statusLabel(value)}</option>
@@ -114,7 +114,7 @@ export function ObservedEvidenceForm({
           <select
             value={state.confidence}
             onChange={(event) => update('confidence', event.target.value as CreateFormState['confidence'])}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             {CONFIDENCES.map((value) => (
               <option key={value} value={value}>{confidenceLabel(value)}</option>
@@ -134,7 +134,7 @@ export function ObservedEvidenceForm({
             value={state.service_id}
             onChange={(event) => update('service_id', event.target.value)}
             placeholder="e.g. market, refuel, repair"
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           />
         </label>
       )}
@@ -146,7 +146,7 @@ export function ObservedEvidenceForm({
             value={state.economy}
             onChange={(event) => update('economy', event.target.value)}
             placeholder="e.g. Agriculture, Refinery"
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           />
         </label>
       )}
@@ -158,7 +158,7 @@ export function ObservedEvidenceForm({
             value={state.facility_template_id}
             onChange={(event) => update('facility_template_id', event.target.value)}
             placeholder="e.g. agri_support_a"
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           />
         </label>
       )}
@@ -170,7 +170,7 @@ export function ObservedEvidenceForm({
             value={state.observed_value_raw}
             onChange={(event) => update('observed_value_raw', event.target.value)}
             placeholder={state.fact_type === 'cp_value' ? 'e.g. 12 or {"yellow":4,"green":2}' : 'e.g. completed'}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           />
         </label>
       )}
@@ -182,7 +182,7 @@ export function ObservedEvidenceForm({
           onChange={(event) => update('notes', event.target.value)}
           rows={2}
           placeholder="What did you actually see in-game?"
-          className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+          className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
         />
       </label>
 
@@ -198,7 +198,7 @@ export function ObservedEvidenceForm({
       </div>
 
       {advancedOpen && (
-        <div className="space-y-2 rounded border border-border/60 bg-bg3/20 p-2">
+        <div className="space-y-2 rounded-sm border border-border/60 bg-bg3/20 p-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-[10px] uppercase tracking-[0.14em] text-silver-dk">
               Local body ID
@@ -206,7 +206,7 @@ export function ObservedEvidenceForm({
                 type="text"
                 value={state.local_body_id}
                 onChange={(event) => update('local_body_id', event.target.value)}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
             <label className="block text-[10px] uppercase tracking-[0.14em] text-silver-dk">
@@ -216,7 +216,7 @@ export function ObservedEvidenceForm({
                 value={state.target_archetype}
                 onChange={(event) => update('target_archetype', event.target.value)}
                 placeholder={suggestedArchetype ?? ''}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
           </div>
@@ -227,7 +227,7 @@ export function ObservedEvidenceForm({
                 type="text"
                 value={state.observed_value_raw}
                 onChange={(event) => update('observed_value_raw', event.target.value)}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
             <label className="block text-[10px] uppercase tracking-[0.14em] text-silver-dk">
@@ -236,7 +236,7 @@ export function ObservedEvidenceForm({
                 type="text"
                 value={state.expected_value_raw}
                 onChange={(event) => update('expected_value_raw', event.target.value)}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
           </div>
@@ -246,7 +246,7 @@ export function ObservedEvidenceForm({
               type="text"
               value={state.tags_input}
               onChange={(event) => update('tags_input', event.target.value)}
-              className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+              className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
             />
           </label>
           <p className="text-[10px] text-silver-dk leading-snug">
@@ -258,7 +258,7 @@ export function ObservedEvidenceForm({
       )}
 
       {localErrors.length > 0 && (
-        <div role="alert" className="rounded border border-gold/45 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+        <div role="alert" className="rounded-sm border border-gold/45 bg-gold/10 px-2 py-1 text-[11px] text-gold">
           <ul className="list-disc space-y-1 pl-4">
             {localErrors.map((message) => (
               <li key={message}>{message}</li>
@@ -267,7 +267,7 @@ export function ObservedEvidenceForm({
         </div>
       )}
       {serverError && (
-        <div role="alert" className="rounded border border-red/40 bg-red/10 px-2 py-1 text-[11px] text-red">
+        <div role="alert" className="rounded-sm border border-red/40 bg-red/10 px-2 py-1 text-[11px] text-red">
           {serverError}
         </div>
       )}

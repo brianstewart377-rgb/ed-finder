@@ -391,7 +391,7 @@ function ContributionGroup({
         {items.map((item) => (
           <span
             key={`${title}-${item.key}`}
-            className={`rounded border border-current/30 px-1.5 py-0.5 ${tone}`}
+            className={`rounded-sm border border-current/30 px-1.5 py-0.5 ${tone}`}
           >
             {item.label} {formatContributionValue(item.value)}
           </span>

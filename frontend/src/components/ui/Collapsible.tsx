@@ -34,7 +34,7 @@ export const Collapsible = forwardRef<HTMLDivElement, CollapsibleProps>(
             'group flex w-full items-center gap-1.5',
             'font-mono text-label uppercase tracking-[0.12em] text-silver-dk',
             'hover:text-silver transition-colors duration-fast',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60 focus-visible:ring-offset-1 focus-visible:ring-offset-bg1 rounded',
+            'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/60 focus-visible:ring-offset-1 focus-visible:ring-offset-bg1 rounded-sm',
           )}
         >
           <ChevronRight

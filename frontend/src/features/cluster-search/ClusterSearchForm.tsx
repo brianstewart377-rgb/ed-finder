@@ -81,7 +81,7 @@ export function ClusterSearchForm({
                   : Number(event.target.value),
               });
             }}
-            className="w-full rounded border border-border bg-bg4/70 px-3 py-2 font-mono text-xs text-text"
+            className="w-full rounded-sm border border-border bg-bg4/70 px-3 py-2 font-mono text-xs text-text"
           >
             <option value="">All 42 named regions</option>
             {GALAXY_REGIONS.map((region) => (
@@ -117,7 +117,7 @@ export function ClusterSearchForm({
             onClick={onAddSlot}
             disabled={!canAdd}
             className={[
-              'w-full py-2 rounded border-dashed border font-mono text-[10px] uppercase tracking-wide transition-colors',
+              'w-full py-2 rounded-sm border-dashed border font-mono text-[10px] uppercase tracking-wide transition-colors',
               canAdd
                 ? 'border-border text-cyan hover:border-cyan/50 hover:text-white cursor-pointer'
                 : 'border-border/40 text-text-dim/40 cursor-not-allowed',
@@ -154,7 +154,7 @@ export function ClusterSearchForm({
                 const v = Number(e.target.value);
                 if (!Number.isNaN(v)) onChange({ limit: Math.max(5, Math.min(200, v)) });
               }}
-              className="w-20 rounded border border-border bg-bg4/70 px-2 py-1 font-mono text-xs text-orange text-right tabular-nums no-spinner"
+              className="w-20 rounded-sm border border-border bg-bg4/70 px-2 py-1 font-mono text-xs text-orange text-right tabular-nums no-spinner"
             />
             <p className="col-span-2 font-mono text-[10px] leading-relaxed text-text-dim">
               Controls how many matching locations are returned, not the number of galactic regions.
@@ -234,13 +234,13 @@ function SlotRow({
   };
 
   return (
-    <div className="rounded border border-border/70 bg-bg3/50 p-3 space-y-2.5">
+    <div className="rounded-sm border border-border/70 bg-bg3/50 p-3 space-y-2.5">
       {/* Archetype / custom dropdown */}
       <div className="flex items-center gap-2">
         <select
           value={slot.archetype_key ?? '__custom__'}
           onChange={(e) => handleArchetypeChange(e.target.value)}
-          className="flex-1 px-2 py-1.5 rounded bg-bg3 border border-border font-mono text-xs text-text"
+          className="flex-1 px-2 py-1.5 rounded-sm bg-bg3 border border-border font-mono text-xs text-text"
         >
           {ARCHETYPE_PROFILES.map((p) => (
             <option key={p.archetype_key} value={p.archetype_key}>{p.label}</option>
@@ -266,7 +266,7 @@ function SlotRow({
               <select
                 value={econ}
                 onChange={(e) => handleCustomEconomy(ci, e.target.value)}
-                className="px-2 py-1 rounded bg-bg3 border border-border font-mono text-xs text-text"
+                className="px-2 py-1 rounded-sm bg-bg3 border border-border font-mono text-xs text-text"
               >
                 {ALL_ECONOMIES.map((e) => (
                   <option key={e} value={e}>{e}</option>
@@ -292,7 +292,7 @@ function SlotRow({
             <button
               type="button"
               onClick={handleAddSecondEconomy}
-              className="px-2 py-1 rounded border-dashed border border-border/60 font-mono text-[10px] text-cyan hover:text-white hover:border-cyan/50 transition-colors"
+              className="px-2 py-1 rounded-sm border-dashed border border-border/60 font-mono text-[10px] text-cyan hover:text-white hover:border-cyan/50 transition-colors"
             >
               <Plus size={10} className="inline mr-0.5" />
               Add economy

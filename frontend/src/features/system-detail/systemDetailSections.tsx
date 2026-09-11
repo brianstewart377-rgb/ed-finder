@@ -179,7 +179,7 @@ export function ExternalLinks({ sys }: { sys: SystemDetail }) {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-2 py-1 rounded bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk"
+            className="px-2 py-1 rounded-sm bg-bg4 border border-border text-text-dim hover:text-orange hover:border-orange-dk"
           >
             {label} ↗
           </a>
@@ -192,7 +192,7 @@ export function ExternalLinks({ sys }: { sys: SystemDetail }) {
 function ValueCell({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   return (
     <div className={[
-      'rounded border p-2',
+      'rounded-sm border p-2',
       highlight ? 'border-orange/50 bg-orange/10' : 'border-border bg-bg3/40',
     ].join(' ')}>
       <div className="text-text-dim uppercase tracking-wider text-[10px]">{label}</div>

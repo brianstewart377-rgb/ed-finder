@@ -20,7 +20,7 @@ export function DataConfidencePanel({ result }: { result: SimulateBuildResponse 
       {signals.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {signals.slice(0, 5).map((signal) => (
-            <div key={`${signal.area}-${signal.reason}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+            <div key={`${signal.area}-${signal.reason}`} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
                 <span className="text-silver">{titleCase(signal.area)}</span>
                 <span className={confidenceLevelTone(signal.level)}>{standardLabel(signal.level)}</span>

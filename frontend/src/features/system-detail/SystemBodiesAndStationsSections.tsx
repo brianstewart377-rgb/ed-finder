@@ -143,7 +143,7 @@ function StationLaneBadge({ station }: { station: SystemStation }) {
   return (
     <span
       title={transientReason ?? `Lane: ${label}`}
-      className={['inline-flex rounded border px-2 py-1 text-[10px]', tone].join(' ')}
+      className={['inline-flex rounded-sm border px-2 py-1 text-[10px]', tone].join(' ')}
     >
       {label}
     </span>
@@ -156,7 +156,7 @@ function StationAssociationBadge({ station }: { station: SystemStation }) {
     return (
       <span
         title={transientReason}
-        className="inline-flex rounded border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] text-cyan"
+        className="inline-flex rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] text-cyan"
       >
         Fleet Carrier / transient / ignored for colony planning
       </span>
@@ -176,7 +176,7 @@ function StationAssociationBadge({ station }: { station: SystemStation }) {
   return (
     <span
       title={station.resolver_notes ?? label}
-      className={['inline-flex rounded border px-2 py-1 text-[10px]', tone].join(' ')}
+      className={['inline-flex rounded-sm border px-2 py-1 text-[10px]', tone].join(' ')}
     >
       {label}
     </span>

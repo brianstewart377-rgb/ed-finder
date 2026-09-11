@@ -20,7 +20,7 @@ export function BuildPlanWorkspaceView({
               <span className="ml-2">Topology selection provides context only. Build Plan edits stay explicit.</span>
             </p>
           </div>
-          <span className="rounded border border-border/60 bg-bg3/45 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+          <span className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
             Active mode
           </span>
         </div>

@@ -26,7 +26,7 @@ export function ArchitectObservationPanel({
       aria-label="Architect observation status"
       data-testid="architect-observation-panel"
       className={[
-        'rounded border border-cyan/25 bg-cyan/5 text-[11px] leading-snug text-silver-dk',
+        'rounded-sm border border-cyan/25 bg-cyan/5 text-[11px] leading-snug text-silver-dk',
         compact ? 'px-2 py-1.5' : 'px-3 py-2',
       ].join(' ')}
     >

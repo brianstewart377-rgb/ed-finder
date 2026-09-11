@@ -20,7 +20,7 @@ export function ContinueWhereLeftOff({
     return (
       <section data-testid="my-work-continuation" className="premium-subpanel border-orange/35 bg-orange/8 p-4">
         <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-orange">Continue planning</p>
-        <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-text">
+        <h2 className="mt-2 font-display text-lg tracking-widest text-text">
           {continuation.project.system_name} - {continuation.project.project_name}
         </h2>
         <p className="mt-1 text-sm text-silver">
@@ -40,7 +40,7 @@ export function ContinueWhereLeftOff({
   return (
     <section data-testid="my-work-continuation" className="premium-subpanel border-cyan/35 bg-cyan/8 p-4">
       <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan">Ready to revisit</p>
-      <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-text">
+      <h2 className="mt-2 font-display text-lg tracking-widest text-text">
         {continuation.system.name}
       </h2>
       <p className="mt-1 text-sm text-silver">

@@ -155,7 +155,7 @@ describe('WarehouseEvidenceCard', () => {
           knownCount: 0,
           totalCount: 1,
           coverageRatio: 0,
-          summary: '0/1 ring identities are currently covered.',
+          summary: '0/1 ring-3 identities are currently covered.',
         },
         sourceFreshness: {
           canonicalUpdatedAt: '2026-06-19T20:05:00Z',
@@ -165,9 +165,9 @@ describe('WarehouseEvidenceCard', () => {
         },
         thinDataReasons: [
           'Body scan coverage is partial: 2/4 body scans are currently covered.',
-          'Ring identity coverage is missing: 0/1 ring identities are currently covered.',
+          'Ring identity coverage is missing: 0/1 ring-3 identities are currently covered.',
         ],
-        summary: 'Coverage summary: 2/4 body scans are currently covered. 2/2 station links are currently covered. 0/1 ring identities are currently covered.',
+        summary: 'Coverage summary: 2/4 body scans are currently covered. 2/2 station links are currently covered. 0/1 ring-3 identities are currently covered.',
       },
       items: [
         {

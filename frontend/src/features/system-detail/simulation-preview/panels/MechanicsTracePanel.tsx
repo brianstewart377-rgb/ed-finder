@@ -11,7 +11,7 @@ export function MechanicsTracePanel({ trace }: { trace: SimulateBuildResponse['m
       </summary>
       <div className="mt-3 space-y-2">
         {categories.slice(0, 6).map(([category, events]) => (
-          <div key={category} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+          <div key={category} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-orange">{titleCase(category)}</div>
             <div className="mt-1 space-y-1">
               {events.slice(0, 3).map((event) => (

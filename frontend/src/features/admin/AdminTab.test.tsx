@@ -583,7 +583,7 @@ describe('AdminTab enrichment status', () => {
     expect(screen.getByText('warehouse-status.json')).toBeTruthy();
     expect(screen.getByText('Canonical untouched')).toBeTruthy();
     expect(screen.getByText('Missing station evidence')).toBeTruthy();
-    expect(screen.getByText('Trusted ring bodies')).toBeTruthy();
+    expect(screen.getByText('Trusted ring-3 bodies')).toBeTruthy();
     expect(screen.getByText('Needs evidence systems')).toBeTruthy();
     expect(screen.getByText('edsm_nightly_stations:1')).toBeTruthy();
     expect(container.textContent).not.toMatch(/\/tmp|\/data|\/home/i);
