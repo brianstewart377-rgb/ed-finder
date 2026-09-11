@@ -9,10 +9,10 @@ dependencies = [
   "fastapi==0.141.1",
   "httpx==0.28.1",
   "pydantic-settings==2.15.0",
-  "pydantic==2.13.4",
+  "pydantic==2.13.5",
   "pyzmq==27.2.0",
   "redis==8.1.0",
-  "sentry-sdk==2.68.0",
+  "sentry-sdk==2.68.1",
   "slowapi==0.1.10",
   "tornado==6.5.8",
   "uvicorn[standard]==0.52.4",
@@ -25,14 +25,14 @@ dependencies = [
 [dependency-groups]
 test = [
   "PyYAML==6.0.3",
-  "coverage==7.10.7",
+  "coverage==7.16.0",
   "ijson==3.5.1",
-  "jsonschema==4.25.1",
-  "numpy==2.5.1",
+  "jsonschema==4.26.0",
+  "numpy==2.5.2",
   "psycopg[binary]==3.3.4",
-  "pytest-asyncio==1.2.0",
-  "pytest==8.3.4",
-  "ruff==0.15.22",
+  "pytest-asyncio==1.4.0",
+  "pytest==9.1.1",
+  "ruff==0.16.5",
   "tqdm==4.70.0",
 ]
 
