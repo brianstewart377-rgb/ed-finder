@@ -553,7 +553,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur-sm', stopKeyboardInput);
+      window.removeEventListener('blur', stopKeyboardInput);
       stopKeyboardInput();
     };
   }, [
