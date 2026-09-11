@@ -24,16 +24,16 @@
 #                                 R1 normalized shell; recovered from the
 #                                 chatgpt-ed-new-ops-requests branch
 #
-#   005_v3_journal_intelligence.sql is declared but NOT applied. It is this
-#                                 branch's own contribution: the account-scoped
-#                                 private journal lane from the personal-journal
-#                                 workstream. It follows every applied row, so the
-#                                 reviewed live ledger stays an exact prefix of
-#                                 this file and the migration operation reports
-#                                 exactly one pending migration.
+#   003_ratings_v4_derived.sql, 004_v3_search_spatial_clusters.sql and
+#   005_v3_journal_intelligence.sql are declared but NOT applied. They follow
+#                                 every applied row, so the reviewed live ledger
+#                                 stays an exact prefix of this file and the
+#                                 migration operation reports three pending
+#                                 migrations in order (003 -> 004 -> 005).
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
 1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40  r1_v3/001_structural_shell.sql  r1_v3/001_structural_shell.sql
+c7818f98ad00b4b99b7ce0f7c3fa12ece555e59e761b7b1ca15d437a39c499cb  003_ratings_v4_derived.sql  v3/migrations/003_ratings_v4_derived.sql
 e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2  004_v3_search_spatial_clusters.sql  v3/migrations/004_v3_search_spatial_clusters.sql
 e5c853bcc35da054aff67356a95cbe3d668f6bf2dd1d97b497b9ba7d8cae02ac  005_v3_journal_intelligence.sql  v3/migrations/005_v3_journal_intelligence.sql

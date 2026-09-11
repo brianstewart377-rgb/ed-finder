@@ -7,6 +7,7 @@ tests/fixtures/ratings_v4_sources/spansh-system-dumps.zip -text
 apps/importer/src/v3_spansh/*.py -text
 sql/v3/migrations/001_v3_baseline.sql -text
 sql/v3/migrations/002_v3_accounts_identity.sql -text
+sql/v3/migrations/003_ratings_v4_derived.sql -text
 sql/v3/migrations/004_v3_search_spatial_clusters.sql -text
 sql/v3/migrations/005_v3_journal_intelligence.sql -text
 sql/r1_v3/001_structural_shell.sql -text
