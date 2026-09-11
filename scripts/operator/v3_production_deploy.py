@@ -85,7 +85,7 @@ SELECT json_build_object(
         'filename', migration_name,
         'checksum_sha256', encode(migration_sha256, 'hex')
       )
-      ORDER BY migration_name
+       ORDER BY applied_at, migration_name
     ) FROM v3_meta.schema_migration
   ), '[]'::json)
 )::text;
