@@ -16,10 +16,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "json-with-bigint": ["node_modules/json-with-bigint/json-with-bigint.d.ts"]
+      "@/*": ["./src/*"],
+      "json-with-bigint": ["./node_modules/json-with-bigint/json-with-bigint.d.ts"]
     }
   },
   "include": ["src"],
