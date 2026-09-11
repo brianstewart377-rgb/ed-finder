@@ -61,7 +61,7 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
             borderBottom: '1px solid hsl(216 10% 24%)',
           }}>
             <tr>
-              <th className="px-3 py-2.5 text-left sticky left-0 bg-bg2/95 backdrop-blur z-10">Metric</th>
+              <th className="px-3 py-2.5 text-left sticky left-0 bg-bg2/95 backdrop-blur-sm z-10">Metric</th>
               {entries.map((sys) => (
                 <th key={sys.id64} className="px-3 py-2.5 text-left min-w-[160px]">
                   <div className="flex items-center justify-between gap-2">
@@ -98,7 +98,7 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.label} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
-                <td className="px-3 py-2 text-silver-dk font-semibold sticky left-0 bg-bg1/85 backdrop-blur">
+                <td className="px-3 py-2 text-silver-dk font-semibold sticky left-0 bg-bg1/85 backdrop-blur-sm">
                   {row.label}
                 </td>
                 {row.cells.map((cell, i) => (
@@ -140,7 +140,7 @@ function CompareHeader({
       className="panel flex flex-wrap items-center gap-4 p-4 sm:p-5"
     >
       <div className="min-w-0 flex-1">
-        <h1 className="font-display text-xl tracking-[0.1em] text-text sm:text-2xl">
+        <h1 className="font-display text-xl tracking-widest text-text sm:text-2xl">
           Compare systems
         </h1>
         <p className="mt-1.5 text-sm text-silver">
@@ -231,7 +231,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
         return (
           <span
             className={[
-              'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
+              'inline-block px-2 py-0.5 rounded-sm border text-[11px] font-bold',
               tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
               tier === 'A' && 'bg-green/20 text-green border-green/50',
               tier === 'B' && 'bg-gold/20 text-gold border-gold/50',

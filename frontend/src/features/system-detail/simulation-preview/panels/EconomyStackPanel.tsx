@@ -38,7 +38,7 @@ export function EconomyStackPanel({ stack }: { stack: SimulateBuildResponse['eco
         </div>
       )}
       {warnings.slice(0, 2).map((warning) => (
-        <div key={warning} className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
+        <div key={warning} className="mt-2 rounded-sm border border-gold/30 bg-gold/5 px-2 py-1 font-mono text-[10px] leading-snug text-gold">
           {warning}
         </div>
       ))}

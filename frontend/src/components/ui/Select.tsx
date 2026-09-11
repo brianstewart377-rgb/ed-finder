@@ -59,15 +59,15 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
             aria-invalid={!!error}
             className={cn(
               'group inline-flex w-full items-center justify-between',
-              'bg-gradient-to-b from-bg3 to-bg2',
+              'bg-linear-to-b from-bg3 to-bg2',
               'border border-border',
               'rounded-chunk-sm',
               'text-text font-ui',
               'shadow-inner-soft',
               'transition-colors duration-fast',
-              'focus:outline-none focus:border-orange/65 focus:ring-2 focus:ring-orange/20',
+              'focus:outline-hidden focus:border-orange/65 focus:ring-2 focus:ring-orange/20',
               'disabled:opacity-40 disabled:cursor-not-allowed',
-              'data-[placeholder]:text-silver-2',
+              'data-placeholder:text-silver-2',
               error && 'border-red/50 focus:border-red/65 focus:ring-red/20',
               sizeStyles[size],
               className,
@@ -89,7 +89,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
               position="popper"
               sideOffset={4}
               className={cn(
-                'z-50 max-h-[300px] min-w-[var(--radix-select-trigger-width)] overflow-hidden',
+                'z-50 max-h-[300px] min-w-(--radix-select-trigger-width) overflow-hidden',
                 'rounded-chunk-sm',
                 'border border-silver/20',
                 'bg-bg2',
@@ -111,9 +111,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                     className={cn(
                       'relative flex items-center rounded-chunk-sm py-1.5 pl-2 pr-8',
                       'font-ui text-overline text-text',
-                      'cursor-pointer select-none outline-none',
-                      'data-[disabled]:opacity-30 data-[disabled]:cursor-not-allowed',
-                      'data-[highlighted]:bg-orange/15 data-[highlighted]:text-orange-lt data-[highlighted]:outline-none',
+                      'cursor-pointer select-none outline-hidden',
+                      'data-disabled:opacity-30 data-disabled:cursor-not-allowed',
+                      'data-highlighted:bg-orange/15 data-highlighted:text-orange-lt data-highlighted:outline-hidden',
                       'data-[state=checked]:text-orange data-[state=checked]:font-semibold',
                     )}
                   >

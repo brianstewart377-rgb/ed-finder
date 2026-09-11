@@ -73,7 +73,7 @@ export function BuildPlanEditor({
             data-testid={`build-plan-placement-${index}`}
             data-topology-highlight={selectedByTopology ? 'placement' : relatedToSelectedBody ? 'body' : 'none'}
             className={[
-              'rounded-chunk-lg border p-3 outline-none transition-[border-color,box-shadow,background-color]',
+              'rounded-chunk-lg border p-3 outline-hidden transition-[border-color,box-shadow,background-color]',
               selectedByTopology
                 ? 'border-orange/70 bg-orange/10 shadow-[0_0_18px_rgba(255,125,32,0.16)]'
                 : relatedToSelectedBody
@@ -85,16 +85,16 @@ export function BuildPlanEditor({
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placement</span>
               <div className="flex flex-wrap justify-end gap-1.5">
                 {selectedByTopology && (
-                  <span className="rounded border border-orange/50 bg-orange/10 px-2 py-0.5 font-mono text-[10px] text-orange">
+                  <span className="rounded-sm border border-orange/50 bg-orange/10 px-2 py-0.5 font-mono text-[10px] text-orange">
                     Topology selected
                   </span>
                 )}
                 {relatedToSelectedBody && !selectedByTopology && (
-                  <span className="rounded border border-cyan/45 bg-cyan/10 px-2 py-0.5 font-mono text-[10px] text-cyan">
+                  <span className="rounded-sm border border-cyan/45 bg-cyan/10 px-2 py-0.5 font-mono text-[10px] text-cyan">
                     Selected body
                   </span>
                 )}
-                <span className="rounded border border-border/60 bg-bg3/45 px-2 py-0.5 font-mono text-[10px] text-silver-dk">
+                <span className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-0.5 font-mono text-[10px] text-silver-dk">
                   List view editor
                 </span>
               </div>
@@ -140,7 +140,7 @@ export function BuildPlanEditor({
                 type="button"
                 onClick={() => setPickerIndex((current) => current === index ? null : index)}
                 className={[
-                  'rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition',
+                  'rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition',
                   pickerOpen
                     ? 'border-cyan/60 bg-cyan/10 text-cyan'
                     : 'border-border/65 bg-bg3/45 text-silver-dk hover:border-cyan/60 hover:text-cyan',
@@ -153,7 +153,7 @@ export function BuildPlanEditor({
             </div>
 
             {!template && (
-              <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[11px] text-gold">
+              <p className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[11px] text-gold">
                 Needs review: facility template missing ({placement.facility_template_id})
               </p>
             )}

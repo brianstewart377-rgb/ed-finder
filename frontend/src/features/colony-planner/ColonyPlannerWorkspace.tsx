@@ -157,7 +157,7 @@ export function ColonyPlannerWorkspace({
               label="Report-only context"
               tone="report_only"
             />
-            <span className="px-1.5 py-0.5 rounded border border-border bg-bg4 text-[11px] uppercase tracking-wider text-text-dim">
+            <span className="px-1.5 py-0.5 rounded-sm border border-border bg-bg4 text-[11px] uppercase tracking-wider text-text-dim">
               Selected-system context
             </span>
           </div>

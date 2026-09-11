@@ -49,7 +49,7 @@ export function StructureReplacementComparison({
             Compare the current and proposed structures before applying. This does not run Preview or change the plan until you apply it.
           </p>
         </div>
-        <div className="rounded border border-border/60 bg-bg2/60 px-2 py-1 font-mono text-[10px] text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg2/60 px-2 py-1 font-mono text-[10px] text-silver-dk">
           {bodyContextLabel(bodyContext)}
         </div>
       </div>
@@ -79,14 +79,14 @@ export function StructureReplacementComparison({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-border/70 bg-bg3/55 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-silver/60 hover:text-silver"
+          className="rounded-sm border border-border/70 bg-bg3/55 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-silver/60 hover:text-silver"
         >
           Cancel replacement
         </button>
         <button
           type="button"
           onClick={onApply}
-          className="rounded border border-orange/60 bg-orange/15 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-orange hover:bg-orange/25"
+          className="rounded-sm border border-orange/60 bg-orange/15 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-orange hover:bg-orange/25"
         >
           Apply replacement
         </button>
@@ -115,7 +115,7 @@ function StructureColumn({
       : 'warn';
 
   return (
-    <div className="rounded border border-border/60 bg-bg2/70 p-3">
+    <div className="rounded-sm border border-border/60 bg-bg2/70 p-3">
       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">{title}</div>
       <h6 className="mt-1 text-sm font-bold text-silver">{template?.name ?? fallbackName ?? 'Unknown structure'}</h6>
       <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px]">
@@ -128,7 +128,7 @@ function StructureColumn({
 
 function ReplacementDeltaTable({ deltas }: { deltas: ReplacementFieldDelta[] }) {
   return (
-    <div className="mt-3 overflow-x-auto rounded border border-border/60 bg-bg2/55" data-testid="structure-replacement-deltas">
+    <div className="mt-3 overflow-x-auto rounded-sm border border-border/60 bg-bg2/55" data-testid="structure-replacement-deltas">
       <table className="min-w-full border-collapse text-left font-mono text-[10px]">
         <thead>
           <tr className="border-b border-border/55 text-silver-dk">
@@ -164,7 +164,7 @@ function ReplacementDeltaTable({ deltas }: { deltas: ReplacementFieldDelta[] }) 
 function DeltaValue({ value, warn, changed }: { value: string; warn: boolean; changed: boolean }) {
   return (
     <td className={['px-2 py-2', changed ? 'text-silver' : 'text-silver-dk'].join(' ')}>
-      <span className={['break-words', warn ? 'text-gold' : ''].join(' ')}>
+      <span className={['wrap-break-word', warn ? 'text-gold' : ''].join(' ')}>
         {value}
       </span>
     </td>
@@ -195,7 +195,7 @@ function WarningDeltaBucket({
   subdued?: boolean;
 }) {
   return (
-    <div className="rounded border border-border/55 bg-bg2/55 p-2">
+    <div className="rounded-sm border border-border/55 bg-bg2/55 p-2">
       <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">{title}</div>
       <div className={['mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]', subdued ? 'opacity-75' : ''].join(' ')}>
         {warnings.length > 0
@@ -208,7 +208,7 @@ function WarningDeltaBucket({
 
 function ArchitectPrimaryPortContext({ isPrimaryPort }: { isPrimaryPort: boolean }) {
   return (
-    <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+    <div className="mt-3 rounded-sm border border-cyan/25 bg-cyan/5 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Architect primary-port context</div>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">
         Check the primary-port location in-game through System Map and Architect Mode before final major station placement. Primary-port location is placement guidance, not a Build Point source.

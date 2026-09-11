@@ -164,7 +164,7 @@ export function BuildPlanSection({
         onShowSuggestedBuilds={onShowSuggestedBuilds}
       />
       {optimiserCandidateOriginLabel && (
-        <div className="mt-3 rounded border border-cyan/35 bg-cyan/5 px-3 py-2">
+        <div className="mt-3 rounded-sm border border-cyan/35 bg-cyan/5 px-3 py-2">
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Suggested build origin</div>
           <div className="mt-1 text-[11px] text-silver-dk">
             {optimiserCandidateWasEdited ? (
@@ -176,7 +176,7 @@ export function BuildPlanSection({
         </div>
       )}
       {initialAssumptions.length > 0 && (
-        <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2">
+        <div className="mt-3 rounded-sm border border-gold/35 bg-gold/5 px-3 py-2">
           <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">Estimated assumptions</div>
           <ul className="mt-1 space-y-1 font-mono text-[11px] text-silver-dk">
             {initialAssumptions.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
@@ -220,7 +220,7 @@ export function BuildPlanSection({
         {selectedBodyId && (
           <div
             data-testid="topology-planner-context"
-            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-cyan/30 bg-cyan/5 px-3 py-2"
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-cyan/30 bg-cyan/5 px-3 py-2"
           >
             <div className="min-w-0">
               <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
@@ -245,7 +245,7 @@ export function BuildPlanSection({
         {selectedPlacementIndex != null && (
           <div
             data-testid="topology-placement-context"
-            className="mt-3 rounded border border-orange/30 bg-orange/5 px-3 py-2 font-mono text-[11px] text-silver-dk"
+            className="mt-3 rounded-sm border border-orange/30 bg-orange/5 px-3 py-2 font-mono text-[11px] text-silver-dk"
           >
             Currently viewing placement {selectedPlacementIndex + 1}. The matching editor row is highlighted in List view.
           </div>
@@ -253,7 +253,7 @@ export function BuildPlanSection({
       </div>
 
       {templatesLoading && (
-        <div className="mt-3 rounded border border-border/60 bg-bg3/30 px-3 py-3 text-xs font-mono text-silver-dk">
+        <div className="mt-3 rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 text-xs font-mono text-silver-dk">
           Loading facility catalogue...
         </div>
       )}
@@ -263,7 +263,7 @@ export function BuildPlanSection({
       )}
 
       {templateCatalogueEmpty && (
-        <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2 text-[11px] font-mono text-gold">
+        <div className="mt-3 rounded-sm border border-gold/35 bg-gold/5 px-3 py-2 text-[11px] font-mono text-gold">
           Facility catalogue is empty. Structures cannot be added until templates load.
         </div>
       )}
@@ -353,7 +353,7 @@ function LayoutImportControl({
 
   return (
     <div className={[
-      'mb-3 rounded border px-3 py-2',
+      'mb-3 rounded-sm border px-3 py-2',
       tone === 'warn' ? 'border-gold/35 bg-gold/5' : 'border-cyan/30 bg-cyan/5',
     ].join(' ')}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -377,7 +377,7 @@ function LayoutImportControl({
       </div>
 
       {running && (
-        <p className="mt-2 rounded border border-cyan/25 bg-cyan/5 px-2 py-1 font-mono text-[10px] text-cyan">
+        <p className="mt-2 rounded-sm border border-cyan/25 bg-cyan/5 px-2 py-1 font-mono text-[10px] text-cyan">
           Import request is running...
         </p>
       )}
@@ -395,31 +395,31 @@ function LayoutImportControl({
 
       {result && (
         <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[10px]">
-          <span className="rounded border border-border/55 bg-bg3/40 px-2 py-0.5">Bodies found: {result.summary.bodies_found}</span>
-          <span className="rounded border border-border/55 bg-bg3/40 px-2 py-0.5">Stations found: {result.summary.stations_found}</span>
+          <span className="rounded-sm border border-border/55 bg-bg3/40 px-2 py-0.5">Bodies found: {result.summary.bodies_found}</span>
+          <span className="rounded-sm border border-border/55 bg-bg3/40 px-2 py-0.5">Stations found: {result.summary.stations_found}</span>
         </div>
       )}
 
       {errorMessage && (
-        <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+        <p className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
           Layout import failed: {errorMessage}
         </p>
       )}
 
       {result?.errors.map((error) => (
-        <p key={error} className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+        <p key={error} className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
           Layout import failed: {error}
         </p>
       ))}
 
       {result?.warnings.map((warning) => (
-        <p key={warning} className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+        <p key={warning} className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
           Layout import warning: {warning}
         </p>
       ))}
 
       {assignedUnknownBodyIds.length > 0 && (
-        <p className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
+        <p className="mt-2 rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 text-[11px] text-gold">
           Needs review: imported/current body data does not match assigned placement body IDs ({assignedUnknownBodyIds.join(', ')}). No placements were reassigned.
         </p>
       )}
@@ -429,9 +429,9 @@ function LayoutImportControl({
 
 function ImportMetric({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className={['rounded border px-2 py-1', warn ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35'].join(' ')}>
+    <div className={['rounded-sm border px-2 py-1', warn ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35'].join(' ')}>
       <div className={warn ? 'uppercase tracking-[0.14em] text-gold' : 'uppercase tracking-[0.14em] text-cyan'}>{label}</div>
-      <div className="mt-0.5 break-words text-silver">{value}</div>
+      <div className="mt-0.5 wrap-break-word text-silver">{value}</div>
     </div>
   );
 }
@@ -476,7 +476,7 @@ function BuildPlanViewButton({
       onClick={onClick}
       data-testid={testId}
       className={[
-        'inline-flex min-w-[8.5rem] items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors',
+        'inline-flex min-w-34 items-center gap-2 rounded-sm px-2.5 py-1.5 text-left transition-colors',
         active ? 'bg-orange/15 text-orange' : 'text-silver-dk hover:bg-bg2 hover:text-silver',
       ].join(' ')}
       aria-pressed={active}
@@ -518,9 +518,9 @@ function BuildPlanStatus({
         : 'This Preview Result was generated for the current Build Plan.';
 
   return (
-    <div className="mb-3 rounded border border-cyan/30 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug">
+    <div className="mb-3 rounded-sm border border-cyan/30 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-0.5 text-cyan">{placementLabel}</span>
+        <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-0.5 text-cyan">{placementLabel}</span>
         <span className={isPreviewResultStale ? 'text-gold' : 'text-silver'}>{status}</span>
       </div>
       <p className="mt-1 text-silver-dk">{guidance}</p>

@@ -19,11 +19,11 @@ export function ArchetypeAssessment({
         data-testid="archetype-assessment-loading"
         className="rounded-chunk-lg border border-border/70 bg-bg3/30 p-4 animate-pulse"
       >
-        <div className="h-4 w-48 rounded bg-bg4/70" />
+        <div className="h-4 w-48 rounded-sm bg-bg4/70" />
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <div className="h-16 rounded bg-bg4/50" />
-          <div className="h-16 rounded bg-bg4/40" />
-          <div className="h-16 rounded bg-bg4/30" />
+          <div className="h-16 rounded-sm bg-bg4/50" />
+          <div className="h-16 rounded-sm bg-bg4/40" />
+          <div className="h-16 rounded-sm bg-bg4/30" />
         </div>
       </div>
     );
@@ -120,7 +120,7 @@ export function ArchetypeAssessment({
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {metrics.map(([label, value]) => (
-            <div key={label} className="rounded border border-border/70 bg-bg2/70 px-3 py-2">
+            <div key={label} className="rounded-sm border border-border/70 bg-bg2/70 px-3 py-2">
               <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-silver-dk">{label}</div>
               <div className="mt-1 font-mono text-sm font-bold text-orange-lt">{value}</div>
             </div>

@@ -157,7 +157,7 @@ export function NavBar({
         </div>
 
           {/* divider */}
-          <span className="hidden h-9 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent sm:block" />
+          <span className="hidden h-9 w-px shrink-0 bg-linear-to-b from-transparent via-border-bright to-transparent sm:block" />
 
           <div
             className="nav-route-strip hidden min-w-0 flex-1 items-center gap-3 lg:flex"
@@ -195,7 +195,7 @@ export function NavBar({
           </div>
 
           <div className="nav-mobile-route-summary min-w-0 flex-1 lg:hidden">
-            <span className="truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+            <span className="truncate rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
               {currentPrimary ? `${currentWorkspaceMeta.primaryLabel} · ${currentRouteDescriptor?.label ?? currentWorkspaceMeta.title}` : currentWorkspaceMeta.title}
             </span>
           </div>
@@ -209,7 +209,7 @@ export function NavBar({
             data-testid="nav-density-toggle"
             title={`Density: ${densityLabel} (click to cycle)`}
             aria-label={`Density: ${densityLabel}, click to cycle`}
-            className="premium-toolbar flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-[14px] leading-none text-silver transition-colors hover:border-orange-dk hover:text-orange-lt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            className="premium-toolbar flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-[14px] leading-none text-silver transition-colors hover:border-orange-dk hover:text-orange-lt focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
           >
             <span aria-hidden>{densityIcon}</span>
           </button>
@@ -220,7 +220,7 @@ export function NavBar({
             data-testid="nav-menu-toggle"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="nav-menu-toggle premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
+            className="nav-menu-toggle premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
           >
             Menu
           </button>
@@ -305,7 +305,7 @@ export function NavBar({
                       type="button"
                       onClick={onOpenSelectedSystemInPlan}
                       data-testid="nav-open-selected-system-plan"
-                      className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                      className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
                     >
                       Open in Plan
                     </button>
@@ -339,7 +339,7 @@ export function NavBar({
                           onClick={onDismissSelectedSystem}
                           aria-label="Clear selected system"
                           data-testid="selected-system-dismiss-mobile"
-                          className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-white/10 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60"
+                          className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-white/10 hover:text-orange-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/60"
                         >
                           <X size={14} />
                         </button>
@@ -366,7 +366,7 @@ export function NavBar({
                         type="button"
                         onClick={onOpenSelectedSystemInPlan}
                         data-testid="nav-open-selected-system-plan-mobile"
-                        className="mt-3 w-full rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                        className="mt-3 w-full rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
                       >
                         Open in Plan
                       </button>

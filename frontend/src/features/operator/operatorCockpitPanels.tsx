@@ -348,7 +348,7 @@ function MetricList({ rows }: { rows: Array<[string, string]> }) {
       {rows.map(([label, value]) => (
         <div key={label} className="grid grid-cols-[130px_1fr] gap-2">
           <dt className="text-silver-dk">{label}</dt>
-          <dd className="text-silver break-words">{value}</dd>
+          <dd className="text-silver wrap-break-word">{value}</dd>
         </div>
       ))}
     </dl>
@@ -388,7 +388,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-chunk-sm p-2.5 border border-border bg-bg3/40">
       <div className="text-silver-dk uppercase tracking-[0.16em] text-[10px]">{label}</div>
-      <div className="tabular-nums font-bold mt-0.5 text-silver break-words">
+      <div className="tabular-nums font-bold mt-0.5 text-silver wrap-break-word">
         {value}
       </div>
     </div>

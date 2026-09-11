@@ -53,9 +53,9 @@ export function PreviewResultSection({
               <GhostMetric label="Confidence" />
             </div>
             <div className="mt-5 space-y-2">
-              <div className="h-3 w-4/5 rounded bg-bg4/70" />
-              <div className="h-3 w-2/3 rounded bg-bg4/50" />
-              <div className="h-3 w-1/2 rounded bg-bg4/40" />
+              <div className="h-3 w-4/5 rounded-sm bg-bg4/70" />
+              <div className="h-3 w-2/3 rounded-sm bg-bg4/50" />
+              <div className="h-3 w-1/2 rounded-sm bg-bg4/40" />
             </div>
           </div>
         )}

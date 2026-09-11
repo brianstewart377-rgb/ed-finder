@@ -7,7 +7,7 @@ export function Chip({ children, tone = 'default' }: { children: ReactNode; tone
       ? 'border-gold/35 bg-gold/10 text-gold'
       : 'border-border bg-bg4 text-silver-dk';
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 border ${cls}`}>
+    <span className={`inline-flex items-center rounded-sm px-1.5 py-0.5 border ${cls}`}>
       {children}
     </span>
   );

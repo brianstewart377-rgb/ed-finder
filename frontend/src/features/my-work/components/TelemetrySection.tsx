@@ -19,7 +19,7 @@ export function TelemetrySection({
       <div className="premium-subpanel border-cyan/30 bg-cyan/8 px-3 py-2 text-sm text-silver">
         My Work telemetry is sync-key scoped and read-only. It shows what your imported journal data observed; it does not claim canonical truth or live commander identity.
       </div>
-      <div className="rounded border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
+      <div className="rounded-sm border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
         Telemetry scope: <span className="text-cyan">{syncKey}</span>
       </div>
       {isLoading ? (
@@ -43,7 +43,7 @@ export function TelemetrySection({
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="premium-subpanel space-y-3 p-4">
               <div>
-                <h2 className="font-display text-base tracking-[0.1em] text-text">Recently observed systems</h2>
+                <h2 className="font-display text-base tracking-widest text-text">Recently observed systems</h2>
                 <p className="mt-1 text-sm text-silver-dk">
                   Recent systems found in your imported journal history. This is your personal reference and does not alter shared system data.
                 </p>
@@ -75,7 +75,7 @@ export function TelemetrySection({
             <div className="space-y-4">
               <div className="premium-subpanel space-y-3 p-4">
                 <div>
-                  <h2 className="font-display text-base tracking-[0.1em] text-text">Recent import runs</h2>
+                  <h2 className="font-display text-base tracking-widest text-text">Recent import runs</h2>
                   <p className="mt-1 text-sm text-silver-dk">
                     Bounded receipts for your recent sync-key journal imports.
                   </p>
@@ -85,7 +85,7 @@ export function TelemetrySection({
                 ) : (
                   <ul className="space-y-2">
                     {telemetry.recent_runs.map((run) => (
-                      <li key={run.run_key} className="rounded border border-border/40 bg-bg1/35 px-3 py-2">
+                      <li key={run.run_key} className="rounded-sm border border-border/40 bg-bg1/35 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">{run.status}</span>
                           <span className="font-mono text-[11px] text-silver-dk">{run.run_key}</span>
@@ -102,7 +102,7 @@ export function TelemetrySection({
                 )}
               </div>
               <div className="premium-subpanel space-y-3 p-4">
-                <h2 className="font-display text-base tracking-[0.1em] text-text">Event mix</h2>
+                <h2 className="font-display text-base tracking-widest text-text">Event mix</h2>
                 <p className="text-sm text-silver-dk">
                   {formatCompactEventCounts(telemetry.event_counts)}
                 </p>

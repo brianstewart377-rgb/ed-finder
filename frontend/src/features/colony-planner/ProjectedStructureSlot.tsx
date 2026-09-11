@@ -37,7 +37,7 @@ export function ProjectedStructureSlot({
   const economy = normalisePlanningEconomy(item.template?.economy);
   const economyContext = contextualEconomyLabel(item.template);
   const className = [
-    'relative flex min-h-[3.75rem] min-w-[11rem] flex-col justify-between overflow-hidden rounded border border-cyan/35 bg-cyan/8 px-2 py-2 pb-4 text-left',
+    'relative flex min-h-15 min-w-44 flex-col justify-between overflow-hidden rounded-sm border border-cyan/35 bg-cyan/8 px-2 py-2 pb-4 text-left',
     selected ? 'ring-2 ring-cyan/70 shadow-[0_0_18px_rgba(125,211,252,0.18)]' : '',
     onSelect ? 'hover:border-cyan/65 hover:bg-cyan/12' : '',
   ].filter(Boolean).join(' ');
@@ -121,7 +121,7 @@ function SlotChip({
   return (
     <span
       className={[
-        'rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em]',
+        'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest',
         tone === 'strong'
           ? 'border-cyan/45 bg-cyan/18 text-cyan'
           : 'border-cyan/30 bg-cyan/12 text-cyan/85',

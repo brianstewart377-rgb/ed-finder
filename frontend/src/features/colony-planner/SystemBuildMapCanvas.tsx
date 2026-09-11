@@ -67,7 +67,7 @@ export function SystemBuildMapCanvas({
         : null;
   const selectedProjectedPlacementIndex = selection.type === 'projected-placement' ? selection.placementIndex : null;
   const hasEstimatedSlots = rows.some((row) => row.orbitalCapacityEstimated || row.groundCapacityEstimated);
-  const responsiveGridClassName = 'grid-cols-1 lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]';
+  const responsiveGridClassName = 'grid-cols-1 lg:grid-cols-[280px_minmax(300px,1fr)_minmax(320px,1.05fr)]';
 
   return (
     <section
@@ -78,7 +78,7 @@ export function SystemBuildMapCanvas({
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-orange/25 bg-bg2/80 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded border border-cyan/35 bg-cyan/10 text-cyan">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-cyan/35 bg-cyan/10 text-cyan">
             <Network size={16} />
           </div>
           <div className="min-w-0">
@@ -100,7 +100,7 @@ export function SystemBuildMapCanvas({
         </div>
       </header>
       {occupancySummary.existingCount > 0 && (
-        <div data-testid="planner-canvas-existing-summary" className="border-b border-green/25 bg-green/8 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-green">
+        <div data-testid="planner-canvas-existing-summary" className="border-b border-green/25 bg-green/8 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-green">
           Existing infrastructure detected: {occupancySummary.existingCount} matched slot occupant{occupancySummary.existingCount === 1 ? '' : 's'}.
         </div>
       )}
@@ -232,7 +232,7 @@ function PlannerCanvasBodyRow({
         >
           <div className="hidden lg:block" />
           <div className="flex min-w-0 flex-wrap items-center gap-2 lg:col-span-2">
-            <span className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
+            <span className="rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
               Needs lane
             </span>
             <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -266,7 +266,7 @@ function UnresolvedExistingInfrastructure({ structures }: { structures: Existing
       aria-label="Existing infrastructure not matched to body"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
+        <span className="rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-gold">
           Existing infrastructure not matched to body
         </span>
         <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -281,13 +281,13 @@ function UnresolvedExistingInfrastructure({ structures }: { structures: Existing
                 `Source: ${structure.association_source}`,
                 structure.unresolved_reason ?? structure.body_match_reason,
               ].filter(Boolean).join(' | ')}
-              className="max-w-[14rem] truncate rounded border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
+              className="max-w-56 truncate rounded-sm border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
             >
               {structure.name} / {existingStructureDisplayType(structure)} / {existingAssociationLabel(structure)}
             </span>
           ))}
           {extra > 0 && (
-            <span className="rounded border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-gold">
+            <span className="rounded-sm border border-gold/30 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-gold">
               +{extra} more
             </span>
           )}
@@ -315,14 +315,14 @@ function TreeCell({
         <span
           key={index}
           aria-hidden
-          className="absolute bottom-[-0.5rem] top-[-0.5rem] w-px bg-cyan/30"
+          className="absolute -bottom-2 -top-2 w-px bg-cyan/30"
           style={{ left: 16 + index * 28 }}
         />
       ))}
       {row.depth > 0 && (
         <>
-          <span aria-hidden className="absolute top-[-0.5rem] h-[calc(50%+0.5rem)] w-px bg-cyan/40" style={{ left: markerLeft }} />
-          {!row.isLast && <span aria-hidden className="absolute bottom-[-0.5rem] top-1/2 w-px bg-cyan/40" style={{ left: markerLeft }} />}
+          <span aria-hidden className="absolute -top-2 h-[calc(50%+0.5rem)] w-px bg-cyan/40" style={{ left: markerLeft }} />
+          {!row.isLast && <span aria-hidden className="absolute -bottom-2 top-1/2 w-px bg-cyan/40" style={{ left: markerLeft }} />}
           <span aria-hidden className="absolute top-1/2 h-px bg-cyan/40" style={{ left: markerLeft - 28, width: 28 }} />
         </>
       )}
@@ -333,7 +333,7 @@ function TreeCell({
         aria-pressed={selected}
         title={row.displayName}
         onClick={onSelect}
-        className="absolute inset-y-0 right-1 z-10 flex items-center rounded-chunk-sm border border-transparent text-left hover:border-cyan/35 focus:outline-none focus-visible:border-orange"
+        className="absolute inset-y-0 right-1 z-10 flex items-center rounded-chunk-sm border border-transparent text-left hover:border-cyan/35 focus:outline-hidden focus-visible:border-orange"
         style={{ left: markerLeft + 4 }}
       >
         <span
@@ -344,8 +344,8 @@ function TreeCell({
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold leading-snug text-silver-lt">{row.compactName}</span>
-            {row.warningCount > 0 && <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">!</span>}
-            {row.projected && <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan">ghost</span>}
+            {row.warningCount > 0 && <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">!</span>}
+            {row.projected && <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan">ghost</span>}
             <BodyCapacitySummary
               testId={`planner-canvas-body-capacity-${row.id}`}
               orbitalCapacity={row.orbitalCapacity}
@@ -381,7 +381,7 @@ function BodyCapacitySummary({
         data-testid={`${testId}-${lane}`}
         data-capacity={value}
         className={[
-          'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]',
+          'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]',
           tone,
         ].join(' ')}
       >
@@ -444,11 +444,11 @@ function PlannerCanvasLaneSlots({
   return (
     <div data-testid={`${bodyId}-${lane}-lane`} data-disabled={disabledReason ? 'true' : 'false'} className="flex min-w-0 flex-col gap-1 pr-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="flex min-w-[7rem] shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-cyan">
+        <span className="flex min-w-28 shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-widest text-cyan">
           <span
             data-testid={`${bodyId}-${lane}-capacity-badge`}
             data-capacity={knownCount}
-            className="inline-flex items-baseline gap-0.5 rounded border border-cyan/35 bg-cyan/8 px-2 py-0.5 text-cyan"
+            className="inline-flex items-baseline gap-0.5 rounded-sm border border-cyan/35 bg-cyan/8 px-2 py-0.5 text-cyan"
           >
             <span className="text-[11px] font-semibold tracking-wide">{laneFullName}</span>
             <span className="font-display text-[15px] font-bold leading-none tabular-nums">{knownCount}</span>
@@ -461,7 +461,7 @@ function PlannerCanvasLaneSlots({
               title={disabledReason ?? addLabel}
               disabled={Boolean(disabledReason)}
               onClick={requestAdd}
-              className="inline-flex items-center gap-1 rounded border border-orange/55 bg-orange/15 px-2.5 py-1 text-[11px] font-semibold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
+              className="inline-flex items-center gap-1 rounded-sm border border-orange/55 bg-orange/15 px-2.5 py-1 text-[11px] font-semibold text-orange hover:bg-orange/25 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/70 disabled:cursor-not-allowed disabled:border-gold/35 disabled:bg-gold/10 disabled:text-gold/70 disabled:hover:bg-gold/10"
             >
               <Plus size={12} />
               {lane === 'orbital' ? 'Add Orbit' : 'Add Surface'}
@@ -491,7 +491,7 @@ function PlannerCanvasLaneSlots({
             />
           )}
           {selectedBody && disabledReason && (
-            <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
+            <span data-testid={`${bodyId}-${lane}-disabled-reason`} className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-1 font-mono text-[10px] text-gold">
               {disabledReason}
             </span>
           )}
@@ -534,15 +534,15 @@ function LaneOccupancySummary({
       title={title}
       className="flex min-w-0 flex-wrap gap-1 font-mono text-[9px] uppercase tracking-[0.08em] text-silver-dk"
     >
-      <span className="rounded border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Slots {slotsLabel}</span>
-      <span className="rounded border border-green/25 bg-green/8 px-1.5 py-0.5 text-green">Existing {occupancy.existingCount}{inferredLabel}</span>
-      <span className="rounded border border-orange/25 bg-orange/8 px-1.5 py-0.5 text-orange">Planned {occupancy.plannedCount}</span>
-      <span className="rounded border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Ghost {occupancy.projectedCount}</span>
-      <span className={occupancy.remainingForPlan === 0 ? 'rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold' : 'rounded border border-border/45 bg-bg3/30 px-1.5 py-0.5 text-silver'}>
+      <span className="rounded-sm border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Slots {slotsLabel}</span>
+      <span className="rounded-sm border border-green/25 bg-green/8 px-1.5 py-0.5 text-green">Existing {occupancy.existingCount}{inferredLabel}</span>
+      <span className="rounded-sm border border-orange/25 bg-orange/8 px-1.5 py-0.5 text-orange">Planned {occupancy.plannedCount}</span>
+      <span className="rounded-sm border border-cyan/25 bg-cyan/8 px-1.5 py-0.5 text-cyan">Ghost {occupancy.projectedCount}</span>
+      <span className={occupancy.remainingForPlan === 0 ? 'rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold' : 'rounded-sm border border-border/45 bg-bg3/30 px-1.5 py-0.5 text-silver'}>
         Open {remainingLabel}
       </span>
       {occupancy.projectedOverflowCount > 0 && (
-        <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold">Ghost over +{occupancy.projectedOverflowCount}</span>
+        <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold">Ghost over +{occupancy.projectedOverflowCount}</span>
       )}
     </div>
   );
@@ -566,14 +566,14 @@ function LaneCompactState({
   }
   if (capacity == null) {
     return (
-      <span data-testid={testId} title={`${laneName} slot count unknown`} className="rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+      <span data-testid={testId} title={`${laneName} slot count unknown`} className="rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
         ? slots
       </span>
     );
   }
   if (capacity <= 0) {
     return selectedBody ? (
-      <span data-testid={testId} className="rounded border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px] text-silver-dk">
+      <span data-testid={testId} className="rounded-sm border border-border/45 bg-bg3/30 px-2 py-1 font-mono text-[10px] text-silver-dk">
         No {laneName} slots
       </span>
     ) : <span data-testid={testId} className="sr-only">No {laneName} slots</span>;
@@ -583,7 +583,7 @@ function LaneCompactState({
     <span
       data-testid={testId}
       title={`${capacity} open ${laneName} slot${capacity === 1 ? '' : 's'}`}
-      className="inline-flex items-center gap-1 rounded border border-border/35 bg-bg3/25 px-2 py-1"
+      className="inline-flex items-center gap-1 rounded-sm border border-border/35 bg-bg3/25 px-2 py-1"
     >
       {Array.from({ length: dotCount }, (_unused, index) => (
         <span key={index} className="h-1.5 w-1.5 rounded-full bg-silver-dk/70" />
@@ -639,12 +639,12 @@ function PlannerSlotBox({
         {slot.kind === 'empty' && onAdd ? '+' : slot.label}
       </span>
       {inferredExisting && (
-        <span data-testid="planner-canvas-inferred-existing" className="absolute right-1 top-1 rounded border border-gold/45 bg-gold/15 px-1 text-[8px] leading-tight text-gold">
+        <span data-testid="planner-canvas-inferred-existing" className="absolute right-1 top-1 rounded-sm border border-gold/45 bg-gold/15 px-1 text-[8px] leading-tight text-gold">
           verify
         </span>
       )}
       {confirmedExisting && (
-        <span data-testid="planner-canvas-confirmed-existing" className="absolute right-1 top-1 rounded border border-green/45 bg-green/15 px-1 text-[8px] leading-tight text-green">
+        <span data-testid="planner-canvas-confirmed-existing" className="absolute right-1 top-1 rounded-sm border border-green/45 bg-green/15 px-1 text-[8px] leading-tight text-green">
           known
         </span>
       )}
@@ -657,7 +657,7 @@ function PlannerSlotBox({
   );
 
   const className = [
-    'group/slot relative flex overflow-hidden rounded border px-1.5 text-center font-mono text-[11px] font-bold uppercase leading-tight transition',
+    'group/slot relative flex overflow-hidden rounded-sm border px-1.5 text-center font-mono text-[11px] font-bold uppercase leading-tight transition',
     isStructure ? 'h-11 min-w-[94px] max-w-[148px] items-start justify-center pb-3 pt-1.5' : 'h-8 min-w-[74px] max-w-[112px] items-center justify-center',
     interactive && 'hover:-translate-y-0.5 hover:border-orange-lt hover:shadow-brand-glow',
     selected && 'ring-2 ring-orange/70',
@@ -758,5 +758,5 @@ function CanvasPill({ label, tone }: { label: string; tone: 'silver' | 'orange' 
     green: 'border-green/35 bg-green/10 text-green',
     gold: 'border-gold/35 bg-gold/10 text-gold',
   }[tone];
-  return <span className={['rounded border px-1.5 py-0.5 font-mono uppercase tracking-[0.1em]', toneClass].join(' ')}>{label}</span>;
+  return <span className={['rounded-sm border px-1.5 py-0.5 font-mono uppercase tracking-widest', toneClass].join(' ')}>{label}</span>;
 }

@@ -72,7 +72,7 @@ export function BuildPlanLayoutDetailPanel({
         <button
           type="button"
           onClick={onSelectSummary}
-          className="inline-flex items-center gap-1 rounded border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan focus-visible:ring-cyan/80 focus-visible:outline-none focus-visible:ring-2"
+          className="inline-flex items-center gap-1 rounded-sm border border-border/70 bg-bg3/50 px-2 py-1 font-mono text-[10px] text-silver-dk hover:border-cyan/60 hover:text-cyan focus-visible:ring-cyan/80 focus-visible:outline-hidden focus-visible:ring-2"
         >
           <RotateCcw size={12} />
           Summary
@@ -85,7 +85,7 @@ export function BuildPlanLayoutDetailPanel({
         <PlacementDetail group={selectedGroup} item={selectedPlacement} summary={summary} />
       )}
       {selection.kind !== 'summary' && (!selectedGroup || (selection.kind === 'placement' && !selectedPlacement)) && (
-        <div className="mt-3 rounded border border-gold/35 bg-gold/5 px-3 py-2 text-[11px] text-silver-dk">
+        <div className="mt-3 rounded-sm border border-gold/35 bg-gold/5 px-3 py-2 text-[11px] text-silver-dk">
           This selection no longer matches the current Build Plan. Review the current layout summary.
         </div>
       )}
@@ -96,7 +96,7 @@ export function BuildPlanLayoutDetailPanel({
 function SummaryDetail({ summary }: { summary: PlanSummary }) {
   return (
     <div className="mt-3 space-y-3">
-      <p className="rounded border border-cyan/20 bg-cyan/5 px-2 py-1 font-mono text-[11px] leading-snug text-silver-dk">
+      <p className="rounded-sm border border-cyan/20 bg-cyan/5 px-2 py-1 font-mono text-[11px] leading-snug text-silver-dk">
         Pick a body group or placement card to inspect what it contributes. Detailed edits stay in List view.
       </p>
       <DetailSection title="Placement counts">
@@ -158,7 +158,7 @@ function BodyDetail({ group, groups, summary }: { group: BodyGroup; groups: Body
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Placements on this body</div>
         <ul className="mt-2 space-y-1 font-mono text-[11px] text-silver-dk">
           {group.placements.map((item) => (
-            <li key={`${item.index}-${item.placement.facility_template_id}`} className="rounded border border-border/50 bg-bg3/35 px-2 py-1">
+            <li key={`${item.index}-${item.placement.facility_template_id}`} className="rounded-sm border border-border/50 bg-bg3/35 px-2 py-1">
               #{item.placement.build_order || item.index + 1} {item.template?.name ?? item.placement.facility_template_id ?? 'Unknown facility'}
               {item.placement.is_primary_port ? ' - primary port' : ''}
             </li>
@@ -208,7 +208,7 @@ function PlacementDetail({ group, item, summary }: { group: BodyGroup; item: Gro
       <WarningList warnings={warnings} emptyLabel="No placement warnings from current layout data." />
       <PlannerGuidanceList items={guidance} />
       <ArchitectObservationPanel compact showPrimaryPortPlacementReminder={Boolean(placement.is_primary_port)} />
-      <p className="rounded border border-border/50 bg-bg3/35 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
+      <p className="rounded-sm border border-border/50 bg-bg3/35 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         Use List view to edit this placement.
       </p>
       <NextAction summary={summary} bodyWarnings={warnings} hasUnassignedBody={!group.body} />
@@ -227,7 +227,7 @@ function NextAction({
 }) {
   const action = getLayoutNextAction(summary, bodyWarnings, hasUnassignedBody);
   return (
-    <div className="rounded border border-cyan/25 bg-cyan/5 px-3 py-2">
+    <div className="rounded-sm border border-cyan/25 bg-cyan/5 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Next safe action</div>
       <p className="mt-1 text-[11px] leading-snug text-silver-dk">{action}</p>
     </div>
@@ -258,11 +258,11 @@ function DetailItem({
   tone?: 'default' | 'warn';
 }) {
   return (
-    <div className={['rounded border px-2 py-1.5', tone === 'warn' ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35'].join(' ')}>
+    <div className={['rounded-sm border px-2 py-1.5', tone === 'warn' ? 'border-gold/35 bg-gold/5' : 'border-border/55 bg-bg3/35'].join(' ')}>
       <dt className={['font-mono text-[9px] uppercase tracking-[0.14em]', tone === 'warn' ? 'text-gold' : 'text-silver-dk'].join(' ')}>
         {label}
       </dt>
-      <dd className="mt-0.5 break-words text-[11px] text-silver">{value}</dd>
+      <dd className="mt-0.5 wrap-break-word text-[11px] text-silver">{value}</dd>
     </div>
   );
 }

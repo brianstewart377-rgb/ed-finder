@@ -21,7 +21,7 @@ export function ValidationReviewPanel({ review }: ValidationReviewPanelProps) {
     <section
       data-testid="validation-review-panel"
       aria-label="Review guidance"
-      className="rounded border border-cyan/30 bg-cyan/5 px-3 py-3 font-mono text-[11px] text-silver-dk"
+      className="rounded-sm border border-cyan/30 bg-cyan/5 px-3 py-3 font-mono text-[11px] text-silver-dk"
     >
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-cyan">
@@ -29,7 +29,7 @@ export function ValidationReviewPanel({ review }: ValidationReviewPanelProps) {
         </h4>
         <span
           data-testid="validation-review-status"
-          className="rounded border border-cyan/30 bg-bg2/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan"
+          className="rounded-sm border border-cyan/30 bg-bg2/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan"
         >
           {reviewStatusLabel(summary.overall_review_status)}
         </span>
@@ -38,7 +38,7 @@ export function ValidationReviewPanel({ review }: ValidationReviewPanelProps) {
       <p
         role="note"
         data-testid="validation-review-advisory-copy"
-        className="mb-2 rounded border border-border/60 bg-bg3/30 px-2 py-1 text-[10px] text-silver-dk"
+        className="mb-2 rounded-sm border border-border/60 bg-bg3/30 px-2 py-1 text-[10px] text-silver-dk"
       >
         {REVIEW_ADVISORY_COPY}
       </p>
@@ -66,7 +66,7 @@ export function ValidationReviewPanel({ review }: ValidationReviewPanelProps) {
             <li
               key={signal.signal_id}
               data-testid="validation-review-signal"
-              className="rounded border border-border/60 bg-bg3/30 px-3 py-2"
+              className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-2"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div className="text-[11px] font-bold text-silver">{signal.title}</div>

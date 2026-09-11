@@ -16,7 +16,7 @@ export function LayoutTopologyReadout({
       aria-label={`Topology readout for ${readout.bodyLabel}`}
       data-testid="layout-topology-readout"
       className={[
-        'rounded border border-cyan/25 bg-cyan/5 px-2 py-2',
+        'rounded-sm border border-cyan/25 bg-cyan/5 px-2 py-2',
         compact ? 'mt-2' : '',
       ].join(' ')}
     >

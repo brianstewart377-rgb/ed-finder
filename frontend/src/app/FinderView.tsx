@@ -245,7 +245,7 @@ export function FinderView({
             )}
 
             {clusterSearch.state.kind === 'err' && (
-              <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
+              <div className="rounded-sm border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
                 <div className="font-bold mb-1">Cluster search failed</div>
                 <div className="text-xs">{clusterSearch.state.message}</div>
               </div>

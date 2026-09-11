@@ -31,12 +31,12 @@ export function OptimiserCandidateCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {ranking && (
-              <span className="rounded border border-orange/40 bg-orange/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-orange">
+              <span className="rounded-sm border border-orange/40 bg-orange/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-orange">
                 #{ranking.rank}
               </span>
             )}
             {ranking && (
-              <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] ${rankTone(ranking.rank_tier)}`}>
+              <span className={`rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] ${rankTone(ranking.rank_tier)}`}>
                 {ranking.rank_tier}
               </span>
             )}
@@ -45,13 +45,13 @@ export function OptimiserCandidateCard({
             {presentation.category}
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5">
-            <span className="rounded border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">
+            <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">
               {presentation.scaleLabel}
             </span>
-            <span className="rounded border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+            <span className="rounded-sm border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
               {presentation.placementCount} placements
             </span>
-            <span className="rounded border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
+            <span className="rounded-sm border border-border/55 bg-bg3/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-silver-dk">
               {presentation.bodyCount || 1} bodies
             </span>
           </div>
@@ -66,7 +66,7 @@ export function OptimiserCandidateCard({
                   {advisorHighlights.map((highlight) => (
                     <span
                       key={highlight}
-                      className="rounded border border-cyan/30 bg-cyan/8 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan"
+                      className="rounded-sm border border-cyan/30 bg-cyan/8 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan"
                     >
                       {highlight}
                     </span>
@@ -95,9 +95,9 @@ export function OptimiserCandidateCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px]">
-        {warningCount > 0 && <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold">{warningCount} warning(s)</span>}
-        {summary?.cp_negative && <span className="rounded border border-red/35 bg-red/10 px-1.5 py-0.5 text-red">CP risk</span>}
-        {!summary && <span className="rounded border border-border bg-bg3 px-1.5 py-0.5 text-silver-dk">No preview summary</span>}
+        {warningCount > 0 && <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-gold">{warningCount} warning(s)</span>}
+        {summary?.cp_negative && <span className="rounded-sm border border-red/35 bg-red/10 px-1.5 py-0.5 text-red">CP risk</span>}
+        {!summary && <span className="rounded-sm border border-border bg-bg3 px-1.5 py-0.5 text-silver-dk">No preview summary</span>}
       </div>
     </button>
   );
@@ -105,7 +105,7 @@ export function OptimiserCandidateCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-border/45 bg-bg3/25 px-2 py-1">
+    <div className="rounded-sm border border-border/45 bg-bg3/25 px-2 py-1">
       <div className="text-silver-dk">{label}</div>
       <div className="text-silver">{value}</div>
     </div>

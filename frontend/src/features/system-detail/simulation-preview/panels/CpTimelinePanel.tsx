@@ -10,7 +10,7 @@ export function CpTimelinePanel({ timeline }: { timeline: SimulateBuildResponse[
       </div>
       <div className="space-y-1.5">
         {timeline.slice(0, 5).map((step) => (
-          <div key={`${step.step}-${step.facility_template_id}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+          <div key={`${step.step}-${step.facility_template_id}`} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
             <div className="flex items-center justify-between gap-2 font-mono text-[10px] text-silver">
               <span className="truncate">{step.step}. {step.facility_name}</span>
               <span className="shrink-0 tabular-nums text-orange">

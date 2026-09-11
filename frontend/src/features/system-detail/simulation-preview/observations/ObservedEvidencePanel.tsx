@@ -192,7 +192,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Observed Evidence</h3>
         <p className="mt-1 text-[11px] text-silver-dk font-mono leading-snug">{PANEL_INTRO_COPY}</p>
         <p
-          className="mt-1 rounded border border-cyan/30 bg-cyan/5 px-2 py-1 text-[10px] text-cyan font-mono"
+          className="mt-1 rounded-sm border border-cyan/30 bg-cyan/5 px-2 py-1 text-[10px] text-cyan font-mono"
           role="note"
           aria-label="Observed Evidence passivity notice"
         >
@@ -206,7 +206,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         filtered={filtersActive}
       />
 
-      <div className="mb-4 rounded border border-cyan/30 bg-cyan/8 p-3">
+      <div className="mb-4 rounded-sm border border-cyan/30 bg-cyan/8 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.14em] text-cyan">Journal import</div>
@@ -224,7 +224,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         </div>
       </div>
 
-      <div className="mb-4 rounded border border-border/60 bg-bg2/30 p-3">
+      <div className="mb-4 rounded-sm border border-border/60 bg-bg2/30 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-[0.14em] text-silver-dk">Record manually observed evidence</div>
         <ObservedEvidenceForm
           // Remount on success so internal form state resets cleanly.
@@ -246,7 +246,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
           <select
             value={factTypeFilter}
             onChange={(event) => setFactTypeFilter(event.target.value as ObservedFactType | '')}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             <option value="">All types</option>
             {CREATABLE_FACT_TYPES.map((value) => (
@@ -261,7 +261,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as ObservedStatus | '')}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             <option value="">All statuses</option>
             {STATUSES.map((value) => (
@@ -274,7 +274,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
           <select
             value={confidenceFilter}
             onChange={(event) => setConfidenceFilter(event.target.value as ObservedConfidence | '')}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
           >
             <option value="">All confidences</option>
             {CONFIDENCES.map((value) => (
@@ -298,7 +298,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       </div>
 
       {summary && (
-        <div className="mb-3 rounded border border-border/60 bg-bg3/20 px-3 py-2 font-mono text-[10px] text-silver-dk">
+        <div className="mb-3 rounded-sm border border-border/60 bg-bg3/20 px-3 py-2 font-mono text-[10px] text-silver-dk">
           <div className="uppercase tracking-[0.16em] text-silver">
             Summary
             {(factTypeFilter || statusFilter) && (
@@ -337,7 +337,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       )}
 
       {listQuery.isLoading && (
-        <div className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
+        <div className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-xs text-silver-dk">
           Loading observed evidence&hellip;
         </div>
       )}
@@ -345,7 +345,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       {listQuery.isError && (
         <div
           role="alert"
-          className="rounded border border-red/40 bg-red/10 px-3 py-2 font-mono text-[11px] text-red"
+          className="rounded-sm border border-red/40 bg-red/10 px-3 py-2 font-mono text-[11px] text-red"
         >
           <div>Observed evidence failed to load: {describeApiError(listQuery.error)}</div>
           <button

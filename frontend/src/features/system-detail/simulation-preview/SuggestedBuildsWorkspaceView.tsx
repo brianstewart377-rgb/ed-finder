@@ -15,7 +15,7 @@ export function SuggestedBuildsWorkspaceView({
     <div
       data-testid="suggested-builds-workspace-view"
       className={[
-        'space-y-3 rounded-chunk-lg outline-none transition-[box-shadow,border-color] duration-300',
+        'space-y-3 rounded-chunk-lg outline-hidden transition-[box-shadow,border-color] duration-300',
         highlighted ? 'ring-2 ring-cyan/70 shadow-brand-glow' : '',
       ].join(' ')}
     >

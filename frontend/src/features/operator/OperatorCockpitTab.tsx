@@ -201,7 +201,7 @@ export function OperatorCockpitTab({ admin, ownerName }: OperatorCockpitTabProps
       )}
 
       {loadState === 'err' && (
-        <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
+        <div className="rounded-sm border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
           <div className="font-bold mb-1">Failed to load operator cockpit.</div>
           {error && <div className="text-xs">{error}</div>}
         </div>

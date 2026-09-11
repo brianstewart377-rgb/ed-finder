@@ -66,7 +66,7 @@ function WorkflowChip({
 }) {
   return (
     <span className={[
-      'inline-flex items-center gap-1 rounded border px-1.5 py-0.5',
+      'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5',
       tone === 'primary'
         ? 'border-orange/35 bg-orange/10 text-orange'
         : 'border-border/70 bg-bg3/40 text-silver-dk',

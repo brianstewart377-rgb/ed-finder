@@ -147,7 +147,7 @@ export function MapTab({
           data-testid="map-view-mode"
           role="group"
           aria-label="Map view mode"
-          className="flex items-center rounded-chunk-sm overflow-hidden border border-[hsl(216_10%_24%)]"
+          className="flex items-center rounded-chunk-sm overflow-hidden border border-border"
         >
           {VIEW_MODES.map((mode) => (
             <button
@@ -223,7 +223,7 @@ export function MapTab({
               data-testid="map-timeline-bucket"
               value={timelineBucket}
               onChange={(e) => setTimelineBucket(e.target.value as 'month' | 'quarter' | 'year')}
-              className="rounded border border-border bg-bg3 px-2 py-1 text-[10px] text-silver"
+              className="rounded-sm border border-border bg-bg3 px-2 py-1 text-[10px] text-silver"
             >
               <option value="month">Month</option>
               <option value="quarter">Quarter</option>

@@ -332,7 +332,7 @@ export function SimulationPreview({
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Active cockpit lane</span>
               <span
                 data-testid="colony-cockpit-command-active-mode"
-                className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
+                className="rounded-sm border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
               >
                 {workspaceModeLabel(activeMode)}
               </span>
@@ -345,17 +345,17 @@ export function SimulationPreview({
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-[0.12em]">
-            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+            <span className="rounded-sm border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
               {plan.placements.length} placements
             </span>
-            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+            <span className="rounded-sm border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
               {previewStatusLabel}
             </span>
-            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+            <span className="rounded-sm border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
               {observedFactsCount} observed facts
             </span>
             {planningFocusLabel ? (
-              <span className="rounded border border-cyan/30 bg-cyan/10 px-2 py-1 text-cyan">
+              <span className="rounded-sm border border-cyan/30 bg-cyan/10 px-2 py-1 text-cyan">
                 {planningFocusLabel}
               </span>
             ) : null}
@@ -368,7 +368,7 @@ export function SimulationPreview({
               type="button"
               data-testid={`colony-cockpit-command-next-${mode}`}
               onClick={() => handleModeChange(mode)}
-              className="rounded border border-cyan/30 bg-bg3/35 px-3 py-2 text-left transition-colors hover:border-cyan/45 hover:bg-cyan/10"
+              className="rounded-sm border border-cyan/30 bg-bg3/35 px-3 py-2 text-left transition-colors hover:border-cyan/45 hover:bg-cyan/10"
             >
               <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
                 Next: {workspaceModeLabel(mode)}
@@ -435,7 +435,7 @@ export function SimulationPreview({
           ref={suggestedBuildsRef}
           tabIndex={-1}
           data-testid="suggested-builds-focus-target"
-          className="outline-none"
+          className="outline-hidden"
         >
           {activeMode === 'suggested-builds' && (
             <SuggestedBuildsWorkspaceView
@@ -579,22 +579,22 @@ function WorkspaceRoleContext({
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-[10px] uppercase tracking-[0.16em] text-cyan">{mode} role context</span>
         {primary && (
-          <span className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan">
+          <span className="rounded-sm border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan">
             {primary.compactLabel}
           </span>
         )}
         {summary && (
-          <span className="rounded border border-border/60 bg-bg2/55 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+          <span className="rounded-sm border border-border/60 bg-bg2/55 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-silver-dk">
             {roleConfidenceLabel(summary.confidence)}
           </span>
         )}
         {summary?.conflicts.length ? (
-          <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-gold">
+          <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-gold">
             role overlap
           </span>
         ) : null}
         {reviewLabel && (
-          <span className="rounded border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange">
+          <span className="rounded-sm border border-orange/35 bg-orange/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange">
             {reviewLabel}
           </span>
         )}

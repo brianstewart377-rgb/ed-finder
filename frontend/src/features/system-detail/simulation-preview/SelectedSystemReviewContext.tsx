@@ -31,7 +31,7 @@ export function SelectedSystemReviewContext({
           Selected-system context
         </span>
         <SemanticStatusBadge label={modeLabel} tone={tone} />
-        <span className="rounded border border-border/70 bg-bg1/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+        <span className="rounded-sm border border-border/70 bg-bg1/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
           Review only
         </span>
       </div>

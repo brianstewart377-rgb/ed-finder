@@ -134,7 +134,7 @@ function warehouseEvidenceResponse(overrides: Partial<WarehousePlannerEvidenceCo
         known_count: 1,
         total_count: 2,
         coverage_ratio: 0.5,
-        summary: '1/2 ring identities are currently covered.',
+        summary: '1/2 ring-3 identities are currently covered.',
       },
       source_freshness: {
         canonical_updated_at: '2026-06-19T00:00:00Z',
@@ -144,9 +144,9 @@ function warehouseEvidenceResponse(overrides: Partial<WarehousePlannerEvidenceCo
       },
       thin_data_reasons: [
         'Body scan coverage is partial: 3/5 body scans are currently covered.',
-        'Ring identity coverage is partial: 1/2 ring identities are currently covered.',
+        'Ring identity coverage is partial: 1/2 ring-3 identities are currently covered.',
       ],
-      summary: 'Coverage summary: 3/5 body scans are currently covered. 2/2 station links are currently covered. 1/2 ring identities are currently covered.',
+      summary: 'Coverage summary: 3/5 body scans are currently covered. 2/2 station links are currently covered. 1/2 ring-3 identities are currently covered.',
     },
     evidence_summary: {
       availability: 'report_only',

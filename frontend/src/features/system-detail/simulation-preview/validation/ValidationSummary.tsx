@@ -22,7 +22,7 @@ export function ValidationSummary({ summary }: ValidationSummaryProps) {
   return (
     <div
       data-testid="validation-summary"
-      className="rounded border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
+      className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 font-mono text-[11px] text-silver-dk"
     >
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <div>

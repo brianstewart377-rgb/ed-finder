@@ -57,7 +57,7 @@ export function ProjectControlsCard({
           <span
             data-testid="project-unsaved-indicator"
             className={[
-              'rounded border px-1.5 py-0.5 font-mono text-[10px]',
+              'rounded-sm border px-1.5 py-0.5 font-mono text-[10px]',
               unsavedChanges ? 'border-gold/45 bg-gold/10 text-gold' : 'border-green/35 bg-green/10 text-green',
             ].join(' ')}
           >
@@ -72,7 +72,7 @@ export function ProjectControlsCard({
           aria-label="Project name"
           value={projectName}
           onChange={(event) => onProjectNameChange(event.target.value)}
-          className="w-full rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
+          className="w-full rounded-sm border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
         />
       </label>
 
@@ -89,7 +89,7 @@ export function ProjectControlsCard({
             aria-label="Load project"
             value={pendingProjectId}
             onChange={(event) => onPendingProjectChange(event.target.value)}
-            className="w-full rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
+            className="w-full rounded-sm border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
           >
             <option value="">No saved project selected</option>
             {projects.map((project) => (
@@ -131,7 +131,7 @@ export function ProjectControlsCard({
                 value={projectNotes}
                 onChange={(event) => onProjectNotesChange(event.target.value)}
                 rows={3}
-                className="w-full resize-y rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
+                className="w-full resize-y rounded-sm border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
               />
             </label>
 
@@ -154,13 +154,13 @@ export function ProjectControlsCard({
                     <button type="button" onClick={() => onConfirmArchiveChange(false)} className="btn-metal text-[10px] font-mono">
                       Cancel
                     </button>
-                    <button type="button" onClick={onArchiveProject} className="rounded border border-gold/45 bg-gold/10 px-2 py-1 font-mono text-[10px] font-bold text-gold shadow-[0_14px_24px_-20px_rgba(234,179,8,0.82)]">
+                    <button type="button" onClick={onArchiveProject} className="rounded-sm border border-gold/45 bg-gold/10 px-2 py-1 font-mono text-[10px] font-bold text-gold shadow-[0_14px_24px_-20px_rgba(234,179,8,0.82)]">
                       Archive project
                     </button>
                   </div>
                 </div>
               ) : (
-                <button type="button" onClick={() => onConfirmArchiveChange(true)} disabled={!activeProject} className="w-full rounded border border-gold/40 bg-gold/10 px-2 py-1.5 font-mono text-[11px] text-gold shadow-[0_14px_24px_-20px_rgba(234,179,8,0.82)] hover:bg-gold/20 disabled:opacity-45">
+                <button type="button" onClick={() => onConfirmArchiveChange(true)} disabled={!activeProject} className="w-full rounded-sm border border-gold/40 bg-gold/10 px-2 py-1.5 font-mono text-[11px] text-gold shadow-[0_14px_24px_-20px_rgba(234,179,8,0.82)] hover:bg-gold/20 disabled:opacity-45">
                   Delete / archive project
                 </button>
               )}

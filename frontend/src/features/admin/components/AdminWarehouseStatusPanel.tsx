@@ -65,8 +65,8 @@ export function AdminWarehouseStatusPanel({
         <Stat label="Report mode" value={safety?.report_only === true ? 'report-only' : formatBool(safety?.report_only)} highlight={safety?.report_only === false} />
         <Stat label="Station evidence systems" value={formatUnknown(coverage?.systems_with_station_evidence)} />
         <Stat label="Missing station evidence" value={formatUnknown(coverage?.systems_missing_station_evidence)} highlight={(coverage?.systems_missing_station_evidence ?? 0) > 0} />
-        <Stat label="Trusted ring bodies" value={formatUnknown(coverage?.trusted_ring_evidence_bodies)} />
-        <Stat label="Unknown ring bodies" value={formatUnknown(coverage?.unknown_ring_evidence_bodies)} highlight={(coverage?.unknown_ring_evidence_bodies ?? 0) > 0} />
+        <Stat label="Trusted ring-3 bodies" value={formatUnknown(coverage?.trusted_ring_evidence_bodies)} />
+        <Stat label="Unknown ring-3 bodies" value={formatUnknown(coverage?.unknown_ring_evidence_bodies)} highlight={(coverage?.unknown_ring_evidence_bodies ?? 0) > 0} />
         <Stat label="Unresolved stations" value={formatUnknown(health?.unresolved_stations)} highlight={(health?.unresolved_stations ?? 0) > 0} />
         <Stat label="Blocked conflicts" value={formatUnknown(health?.blocked_conflicts)} highlight={(health?.blocked_conflicts ?? 0) > 0} />
         <Stat label="Risky conflicts" value={formatUnknown(health?.risky_conflicts)} highlight={(health?.risky_conflicts ?? 0) > 0} />

@@ -86,12 +86,12 @@ export function BodyRingMap({
   const surfaceSlots = ringSlots(surfaceSlotCount, surfaceRadius);
 
   return (
-    <section data-testid="body-slot-graph" className="mb-3 rounded border border-border/60 bg-bg3/35 px-2 py-3">
-      <div className="relative mx-auto min-h-[18.5rem] max-w-[56rem]">
+    <section data-testid="body-slot-graph" className="mb-3 rounded-sm border border-border/60 bg-bg3/35 px-2 py-3">
+      <div className="relative mx-auto min-h-74 max-w-4xl">
         <svg
           aria-hidden="true"
           viewBox="0 0 320 320"
-          className="pointer-events-none absolute left-1/2 top-[8.9rem] h-[16rem] w-[16rem] -translate-x-1/2 -translate-y-1/2 overflow-visible"
+          className="pointer-events-none absolute left-1/2 top-[8.9rem] h-64 w-[16rem] -translate-x-1/2 -translate-y-1/2 overflow-visible"
         >
           <circle cx="160" cy="160" r={ORBIT_BAND_RADIUS} fill="none" stroke="#00c8ff" strokeWidth="40" strokeOpacity="0.46" />
           <circle cx="160" cy="160" r={SURFACE_BAND_RADIUS} fill="none" stroke="#ff9f1a" strokeWidth="40" strokeOpacity="0.48" />
@@ -132,8 +132,8 @@ export function BodyRingMap({
           />
         ))}
 
-        <div className="pointer-events-none absolute left-2 top-2 rounded border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbit band</div>
-        <div className="pointer-events-none absolute left-2 top-8 rounded border border-gold/35 bg-gold/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gold">Surface band</div>
+        <div className="pointer-events-none absolute left-2 top-2 rounded-sm border border-cyan/35 bg-cyan/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-cyan">Orbit band</div>
+        <div className="pointer-events-none absolute left-2 top-8 rounded-sm border border-gold/35 bg-gold/8 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gold">Surface band</div>
       </div>
     </section>
   );

@@ -88,7 +88,7 @@ export function EvidencePostureSummary({
             aria-controls={disclosureId}
             data-testid={`${testIdPrefix}-disclosure-toggle`}
             onClick={() => setIsOpen((current) => !current)}
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-semibold text-silver transition-colors hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-semibold text-silver transition-colors hover:text-orange focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
           >
             <ChevronDown
               size={14}

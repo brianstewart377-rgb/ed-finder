@@ -593,7 +593,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByText('Body slot planner')).toBeNull();
     expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
     expect(screen.getByTestId('planner-canvas-body-row-body1').firstElementChild?.className).toContain('grid-cols-1');
-    expect(screen.getByTestId('planner-canvas-body-row-body1').firstElementChild?.className).toContain('lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]');
+    expect(screen.getByTestId('planner-canvas-body-row-body1').firstElementChild?.className).toContain('lg:grid-cols-[280px_minmax(300px,1fr)_minmax(320px,1.05fr)]');
     expect((screen.getByTestId('body1-ground-add') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByTestId('slot-lane-flex')).toBeNull();
     expect(screen.queryByTestId('slot-lane-add-flex')).toBeNull();

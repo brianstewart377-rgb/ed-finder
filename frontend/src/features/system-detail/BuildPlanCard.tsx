@@ -49,7 +49,7 @@ export function BuildPlanCard({
       </div>
 
       {plan.port_economy_summary.length > 0 && (
-        <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-2 py-2">
+        <div className="mt-3 rounded-sm border border-cyan/25 bg-cyan/5 px-2 py-2">
           <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">Port economy</div>
           <div className="mt-1 space-y-1 font-mono text-[10px] text-silver-dk">
             {plan.port_economy_summary.slice(0, 2).map((item) => <div key={item}>{item}</div>)}
@@ -71,7 +71,7 @@ export function BuildPlanCard({
         </div>
       )}
 
-      <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-2 py-2">
+      <div className="mt-3 rounded-sm border border-cyan/25 bg-cyan/5 px-2 py-2">
         <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">Selected body</div>
         <div className="mt-1 font-mono text-[11px] text-silver">
           {plan.selected_body_name || (plan.selected_body_id ? `Body ${plan.selected_body_id}` : 'Estimated body option')}
@@ -82,7 +82,7 @@ export function BuildPlanCard({
       </div>
 
       {(plan.regional_role || plan.nearest_colony_distance != null || plan.archetype_regional_fit != null) && (
-        <div className="mt-3 rounded border border-orange/25 bg-orange/5 px-2 py-2">
+        <div className="mt-3 rounded-sm border border-orange/25 bg-orange/5 px-2 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             {plan.regional_role && <Badge label={`Region: ${titleCase(plan.regional_role)}`} tone="orange" />}
             {plan.nearest_colony_distance != null && (
@@ -109,7 +109,7 @@ export function BuildPlanCard({
         </div>
       </div>
 
-      <details className="mt-3 rounded border border-border/60 bg-bg3/35 px-2 py-2">
+      <details className="mt-3 rounded-sm border border-border/60 bg-bg3/35 px-2 py-2">
         <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
           Why this plan won
         </summary>
@@ -125,13 +125,13 @@ export function BuildPlanCard({
       </details>
 
       {rankBreakdownEntries.length > 0 && (
-        <details className="mt-2 rounded border border-border/60 bg-bg3/35 px-2 py-2">
+        <details className="mt-2 rounded-sm border border-border/60 bg-bg3/35 px-2 py-2">
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
             Score breakdown
           </summary>
           <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
             {rankBreakdownEntries.map(([key, value]) => (
-              <div key={key} className="flex justify-between gap-2 rounded border border-border/50 bg-bg2/60 px-2 py-1 font-mono text-[10px]">
+              <div key={key} className="flex justify-between gap-2 rounded-sm border border-border/50 bg-bg2/60 px-2 py-1 font-mono text-[10px]">
                 <span className="text-silver-dk">{titleCase(key)}</span>
                 <span className={value < 0 || key.includes('penalty') ? 'text-gold' : 'text-orange'}>{value.toFixed(1)}</span>
               </div>
@@ -166,7 +166,7 @@ function MiniList({ title, items, tone }: { title: string; items: string[]; tone
   if (items.length === 0) return null;
   const colour = tone === 'good' ? 'text-green' : tone === 'info' ? 'text-cyan' : 'text-gold';
   return (
-    <div className="rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+    <div className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
       <div className={`font-mono text-[9px] uppercase tracking-[0.14em] ${colour}`}>{title}</div>
       <ul className="mt-1 space-y-1 font-mono text-[10px] text-silver-dk">
         {items.slice(0, 2).map((item) => <li key={item}>{item}</li>)}
@@ -183,7 +183,7 @@ function Badge({ label, tone }: { label: string; tone: 'green' | 'gold' | 'red' 
     orange: '#f97316',
   }[tone];
   return (
-    <span className="rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em]" style={{ borderColor: `${colour}60`, color: colour, backgroundColor: `${colour}14` }}>
+    <span className="rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest" style={{ borderColor: `${colour}60`, color: colour, backgroundColor: `${colour}14` }}>
       {label}
     </span>
   );

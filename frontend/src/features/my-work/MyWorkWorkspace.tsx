@@ -293,7 +293,7 @@ export function MyWorkWorkspace({
                 data-testid={`saved-systems-filter-${filter.id}`}
                 onClick={() => setSavedFilter(filter.id)}
                 className={[
-                  'rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-all',
+                  'rounded-sm border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-all',
                   savedFilter === filter.id
                     ? 'border-orange/50 bg-orange/12 text-orange shadow-brand-glow'
                     : 'border-border/50 bg-bg3/35 text-silver-dk hover:border-orange/35 hover:text-orange-lt',
@@ -431,7 +431,7 @@ export function MyWorkWorkspace({
                                 if (e.key === 'Enter') saveExpansionRename();
                                 if (e.key === 'Escape') setEditingExpansionPlanId(null);
                               }}
-                              className="px-2 py-1 rounded bg-bg3 border border-border font-display text-base text-text"
+                              className="px-2 py-1 rounded-sm bg-bg3 border border-border font-display text-base text-text"
                               autoFocus
                             />
                             <button type="button" onClick={saveExpansionRename} className="btn-primary text-[10px] px-2 py-1">Save</button>
@@ -518,7 +518,7 @@ export function MyWorkWorkspace({
                                 {Object.entries(slot.scores).map(([econ, score]) => (
                                   <span
                                     key={econ}
-                                    className="font-mono text-[10px] px-1.5 py-0.5 rounded border"
+                                    className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border"
                                     style={{
                                       color: economyColor(econ),
                                       borderColor: `${economyColor(econ)}40`,
@@ -570,14 +570,14 @@ export function MyWorkWorkspace({
                 <li key={`${colony.id64}-${colony.plan?.id ?? 'explicit'}`} className="premium-subpanel flex flex-wrap items-start justify-between gap-3 p-4">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded border border-violet/35 bg-violet/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-violet">
+                      <span className="rounded-sm border border-violet/35 bg-violet/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-violet">
                         Player-managed colony
                       </span>
                       <span className="font-mono text-[11px] text-silver-dk">
                         {colony.colonisedAt ? `Established ${formatTimestamp(colony.colonisedAt)}` : 'Colonised date unavailable'}
                       </span>
                     </div>
-                      <h2 className="font-display text-base tracking-[0.1em] text-text">
+                      <h2 className="font-display text-base tracking-widest text-text">
                       {colony.systemName}
                     </h2>
                     <p className="text-sm text-silver">

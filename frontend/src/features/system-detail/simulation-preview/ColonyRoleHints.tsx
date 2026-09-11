@@ -17,7 +17,7 @@ export function ColonyRoleHints({
     <section
       aria-label="Advisory colony role hints"
       data-testid="colony-role-hints"
-      className="rounded border border-cyan/20 bg-cyan/5 px-2 py-2"
+      className="rounded-sm border border-cyan/20 bg-cyan/5 px-2 py-2"
     >
       <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-cyan">
         <BadgeInfo size={12} />

@@ -12,7 +12,7 @@ export function BuildOrderTimeline({ steps }: { steps: SimulateBuildPlacement[] 
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-orange/45 bg-orange/10 font-mono text-[10px] font-bold text-orange">
             {index + 1}
           </span>
-          <div className="min-w-0 flex-1 rounded border border-border/60 bg-bg3/45 px-2 py-1.5">
+          <div className="min-w-0 flex-1 rounded-sm border border-border/60 bg-bg3/45 px-2 py-1.5">
             <div className="truncate font-mono text-[11px] font-bold text-silver">
               {formatFacility(step.facility_template_id)}
             </div>

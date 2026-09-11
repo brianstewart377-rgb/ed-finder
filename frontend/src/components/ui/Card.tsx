@@ -5,7 +5,7 @@ const variantStyles = {
   default: [
     // Glassmorphic chrome panel — replaces .panel
     'bg-metal',
-    'backdrop-blur-xl saturate-[120%]',
+    'backdrop-blur-xl saturate-120',
     'border border-silver/20',
     'rounded-chunk-lg',
     'shadow-metal',
@@ -14,9 +14,9 @@ const variantStyles = {
   ],
   thin: [
     // Lighter panel — replaces .panel-thin
-    'bg-gradient-to-b from-white/5 to-transparent',
+    'bg-linear-to-b from-white/5 to-transparent',
     'bg-bg2/88',
-    'backdrop-blur-md saturate-[120%]',
+    'backdrop-blur-md saturate-120',
     'border border-silver/20',
     'rounded-chunk',
     'shadow-brand',
@@ -24,7 +24,7 @@ const variantStyles = {
   ],
   premium: [
     // Raised inner card — replaces .premium-subpanel
-    'bg-gradient-to-b from-white/6 to-transparent',
+    'bg-linear-to-b from-white/6 to-transparent',
     'bg-bg3/86',
     'border border-silver/20',
     'rounded-chunk',
@@ -34,7 +34,7 @@ const variantStyles = {
   ],
   toolbar: [
     // Raised toolbar pill — replaces .premium-toolbar
-    'bg-gradient-to-b from-white/6 to-transparent',
+    'bg-linear-to-b from-white/6 to-transparent',
     'bg-bg3/86',
     'border border-silver/20',
     'rounded-chunk-sm',

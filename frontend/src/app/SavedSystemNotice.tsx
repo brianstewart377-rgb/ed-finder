@@ -30,7 +30,7 @@ export function SavedSystemNotice({
           <button
             type="button"
             onClick={onOpenMyWork}
-            className="rounded-chunk-sm border border-green/40 bg-green/10 px-3 py-1.5 font-bold text-green hover:bg-green/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green/80"
+            className="rounded-chunk-sm border border-green/40 bg-green/10 px-3 py-1.5 font-bold text-green hover:bg-green/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-green/80"
           >
             {notice.actionLabel}
           </button>
@@ -38,7 +38,7 @@ export function SavedSystemNotice({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-chunk-sm border border-border bg-bg4 px-3 py-1.5 font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+          className="rounded-chunk-sm border border-border bg-bg4 px-3 py-1.5 font-bold text-silver hover:text-orange focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80"
         >
           Dismiss
         </button>

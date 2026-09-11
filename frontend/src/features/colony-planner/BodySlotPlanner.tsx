@@ -247,10 +247,10 @@ export function BodySlotPlanner({
         </BodySlotLane>
 
         {(unassignedPlanned.length > 0 || unassignedProjected.length > 0) && (
-          <section data-testid="slot-lane-unassigned" className="rounded border border-gold/35 bg-gold/6 p-2.5">
+          <section data-testid="slot-lane-unassigned" className="rounded-sm border border-gold/35 bg-gold/6 p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-gold">Needs lane</div>
-              <span className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">
+              <span className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] text-gold">
                 {unassignedPlanned.length + unassignedProjected.length} unassigned
               </span>
             </div>
@@ -306,10 +306,10 @@ function LaneCapacityMap({
   const used = existing.length + planned.length + projected.length;
   if (capacity == null) {
     return (
-      <div className="mb-2 rounded border border-gold/30 bg-gold/5 px-2 py-2">
+      <div className="mb-2 rounded-sm border border-gold/30 bg-gold/5 px-2 py-2">
         <div className="flex items-center gap-2 font-mono text-[10px] text-gold">
           <span className="uppercase tracking-[0.14em]">Predicted capacity</span>
-          <span data-testid={`center-slot-unknown-${laneKey}`} className="rounded border border-gold/40 bg-gold/10 px-1">[?]</span>
+          <span data-testid={`center-slot-unknown-${laneKey}`} className="rounded-sm border border-gold/40 bg-gold/10 px-1">[?]</span>
         </div>
         {existing.length > 0 && (
           <div className="mt-2 font-mono text-[10px] text-green">
@@ -396,7 +396,7 @@ function LaneCapacityMap({
   const overflow = Math.max(0, used - capacity);
 
   return (
-    <div className="mb-2 rounded border border-border/55 bg-bg3/30 px-2 py-2">
+    <div className="mb-2 rounded-sm border border-border/55 bg-bg3/30 px-2 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px]">
         <span className="uppercase tracking-[0.14em] text-silver">Predicted capacity</span>
         <span className="text-silver">{used}/{capacity} slots including existing and projection</span>
@@ -445,7 +445,7 @@ function CapacityCell({
   onClick?: () => void;
 }) {
   const className = [
-    'inline-flex h-9 min-w-9 max-w-[5.5rem] items-center justify-center rounded border px-2 font-mono text-[10px] font-bold uppercase leading-none',
+    'inline-flex h-9 min-w-9 max-w-22 items-center justify-center rounded-sm border px-2 font-mono text-[10px] font-bold uppercase leading-none',
     label
       ? kind === 'projected'
         ? 'border-cyan/45 bg-cyan/10 text-cyan'
@@ -491,7 +491,7 @@ function ExistingLaneStructures({
   return (
     <section
       data-testid={`existing-lane-${laneKey}`}
-      className="mb-2 rounded border border-green/30 bg-green/6 px-3 py-2"
+      className="mb-2 rounded-sm border border-green/30 bg-green/6 px-3 py-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-green">Existing infrastructure</div>
@@ -508,7 +508,7 @@ function ExistingLaneStructures({
               structure.association_status === 'inferred' ? 'Verify body match' : 'Confirmed body match',
               structure.association_source,
             ].filter(Boolean).join(' | ')}
-            className="rounded border border-green/35 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
+            className="rounded-sm border border-green/35 bg-bg3/45 px-2 py-1 font-mono text-[10px] text-silver"
           >
             {structure.name} / {existingStructureDisplayType(structure)} / {structure.association_status === 'inferred' ? 'Verify' : 'Confirmed'}
           </span>
@@ -548,7 +548,7 @@ function LaneSlots({
     return (
       <div
         data-testid={`slot-lane-empty-${laneKey}`}
-        className="rounded border border-dashed border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[10px] text-silver"
+        className="rounded-sm border border-dashed border-border/55 bg-bg3/30 px-3 py-2 font-mono text-[10px] text-silver"
       >
         {emptyText}
       </div>
@@ -646,7 +646,7 @@ export function SlotCapacityDots({
     return (
       <span
         data-testid={testId}
-        className="rounded border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-gold"
+        className="rounded-sm border border-gold/35 bg-gold/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-gold"
       >
         slots ?
       </span>
@@ -655,7 +655,7 @@ export function SlotCapacityDots({
   return (
     <span
       data-testid={testId}
-      className="inline-flex max-w-[12rem] flex-wrap items-center gap-1"
+      className="inline-flex max-w-48 flex-wrap items-center gap-1"
       title={`${occupiedOrbital}/${orbitalCapacity ?? '?'} orbit, ${occupiedSurface}/${surfaceCapacity ?? '?'} surface`}
     >
       {dots.map((dot) => (
@@ -707,7 +707,7 @@ function FactChip({
   return (
     <span
       className={[
-        'rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]',
+        'rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]',
         tone === 'orange'
           ? 'border-orange/35 bg-orange/10 text-orange'
           : tone === 'cyan'

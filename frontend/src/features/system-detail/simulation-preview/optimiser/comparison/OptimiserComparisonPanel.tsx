@@ -8,7 +8,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
 
   if (!result) {
     return (
-      <section className="rounded border border-border/45 bg-bg3/20 px-3 py-2" aria-label="Optimiser comparison">
+      <section className="rounded-sm border border-border/45 bg-bg3/20 px-3 py-2" aria-label="Optimiser comparison">
         <h5 className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Compare with current plan</h5>
         <p className="mt-1 text-[11px] text-silver-dk">
           Comparison needs a current Build Plan. Add placements or copy a Suggested Build to compare changes.
@@ -29,7 +29,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="rounded border border-cyan/40 bg-bg2/80 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/10"
+          className="rounded-sm border border-cyan/40 bg-bg2/80 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan hover:bg-cyan/10"
           aria-expanded={expanded}
         >
           {expanded ? 'Hide comparison' : 'Show comparison'}
@@ -42,7 +42,7 @@ export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonR
             This comparison is advisory and preview-only. It does not run Simulation Preview, save a build, or commit anything in-game.
           </p>
 
-          <div className="rounded border border-border/45 bg-bg1/40 px-3 py-2">
+          <div className="rounded-sm border border-border/45 bg-bg1/40 px-3 py-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Verdict</div>
             <div className="mt-1 text-sm font-semibold text-silver">{verdictLabel}</div>
             {result.recommendation.reasons.length > 0 && (
@@ -155,7 +155,7 @@ function SetChangeSection({ title, changes }: { title: string; changes: StringSe
 
 function ListSection({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
-    <div className="rounded border border-border/45 bg-bg1/30 px-3 py-2">
+    <div className="rounded-sm border border-border/45 bg-bg1/30 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">{title}</div>
       {items.length > 0 ? (
         <ul className="mt-1 space-y-1 text-[11px] text-silver-dk">

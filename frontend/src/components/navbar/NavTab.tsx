@@ -19,8 +19,8 @@ export function NavTab({ label, active, onClick, testid, badge, title, compact =
       className={[
         'group relative inline-flex items-center gap-1.5 px-3.5 py-2 rounded-chunk-sm whitespace-nowrap',
         compact ? 'w-full justify-between' : '',
-        'font-display font-bold text-[12.5px] tracking-[0.1em] uppercase',
-        'transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
+        'font-display font-bold text-[12.5px] tracking-widest uppercase',
+        'transition-all duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-orange/80',
         active
           ? 'text-white shadow-brand-glow'
           : 'text-silver hover:text-white hover:bg-bg3/70',
@@ -44,7 +44,7 @@ export function NavTab({ label, active, onClick, testid, badge, title, compact =
       )}
       {active && (
         <span
-          className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 h-[3px] w-8 rounded-full"
+          className="absolute bottom-[-7px] left-1/2 -translate-x-1/2 h-[3px] w-8 rounded-full"
           style={{ background: 'linear-gradient(90deg, transparent, #ff7a14, transparent)' }}
         />
       )}

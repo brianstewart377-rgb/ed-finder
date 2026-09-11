@@ -16,7 +16,7 @@ export function ObservedEvidencePlanningSummary({
   const visibleCount = facts.length;
 
   return (
-    <div className="mb-4 rounded border border-border/60 bg-bg2/25 p-3 font-mono text-[10px] text-silver-dk">
+    <div className="mb-4 rounded-sm border border-border/60 bg-bg2/25 p-3 font-mono text-[10px] text-silver-dk">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="uppercase tracking-[0.16em] text-silver">Observed vs planned framing</div>
         <div className="text-cyan" aria-label="Visible observed evidence count">
@@ -35,7 +35,7 @@ export function ObservedEvidencePlanningSummary({
           <div
             key={category.id}
             className={[
-              'rounded border px-2 py-2',
+              'rounded-sm border px-2 py-2',
               category.count > 0
                 ? 'border-orange/30 bg-orange/10 text-silver'
                 : 'border-border/50 bg-bg3/20 text-silver-dk',
@@ -66,7 +66,7 @@ export function ObservedEvidencePlanningSummary({
 
 function EvidenceState({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-border/50 bg-bg3/25 px-2 py-2">
+    <div className="rounded-sm border border-border/50 bg-bg3/25 px-2 py-2">
       <div className="uppercase tracking-[0.14em] text-silver">{label}</div>
       <div className="mt-1 leading-snug">{value}</div>
     </div>

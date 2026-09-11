@@ -110,13 +110,13 @@ export function WorkspaceModeTabs({
             onClick={() => onModeChange(mode.id)}
             data-testid={`workspace-mode-tab-${mode.id}`}
             className={[
-              'flex min-h-[3.25rem] items-center gap-2 rounded border px-2 py-1.5 text-left font-mono transition-colors',
+              'flex min-h-13 items-center gap-2 rounded-sm border px-2 py-1.5 text-left font-mono transition-colors',
               activeMode === mode.id
                 ? 'border-orange/60 bg-orange/15 text-orange'
                 : 'border-border/65 bg-bg3/35 text-silver-dk hover:border-cyan/45 hover:text-silver',
             ].join(' ')}
           >
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded border border-current/35 bg-bg1/45">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-current/35 bg-bg1/45">
               {mode.icon}
             </span>
             <span className="min-w-0">

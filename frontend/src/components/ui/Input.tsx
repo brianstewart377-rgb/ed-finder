@@ -38,13 +38,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           className={cn(
             'w-full',
-            'bg-gradient-to-b from-bg3 to-bg2',
+            'bg-linear-to-b from-bg3 to-bg2',
             'border border-border',
             'rounded-chunk-sm',
             'text-text font-ui placeholder:text-silver-2',
             'shadow-inner-soft',
             'transition-colors duration-fast',
-            'focus:outline-none focus:border-orange/65 focus:ring-2 focus:ring-orange/20',
+            'focus:outline-hidden focus:border-orange/65 focus:ring-2 focus:ring-orange/20',
             'disabled:opacity-40 disabled:cursor-not-allowed',
             error && 'border-red/50 focus:border-red/65 focus:ring-red/20',
             sizeStyles[inputSize],

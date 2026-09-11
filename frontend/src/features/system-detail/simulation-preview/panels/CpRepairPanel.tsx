@@ -14,7 +14,7 @@ export function CpRepairPanel({ suggestions }: { suggestions: SimulateBuildRespo
       </div>
       <div className="space-y-2">
         {sorted.slice(0, 3).map((suggestion) => (
-          <div key={`${suggestion.type}-${suggestion.summary}-${suggestion.affected_steps.join('-')}`} className="rounded border border-border/60 bg-bg3/45 px-2 py-2">
+          <div key={`${suggestion.type}-${suggestion.summary}-${suggestion.affected_steps.join('-')}`} className="rounded-sm border border-border/60 bg-bg3/45 px-2 py-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="font-mono text-[11px] text-silver">{suggestion.summary}</div>
@@ -29,7 +29,7 @@ export function CpRepairPanel({ suggestions }: { suggestions: SimulateBuildRespo
               <div><span className="text-silver">Confidence:</span> {titleCase(suggestion.confidence)}</div>
             </div>
             {(suggestion.caveats.length > 0 || suggestion.suggested_action) && (
-              <details className="mt-2 rounded border border-border/50 bg-bg2/45 px-2 py-1">
+              <details className="mt-2 rounded-sm border border-border/50 bg-bg2/45 px-2 py-1">
                 <summary className="cursor-pointer font-mono text-[10px] text-gold">Caveats and structured action</summary>
                 <div className="mt-1 space-y-1 font-mono text-[10px] leading-snug text-silver-dk">
                   {suggestion.caveats.map((caveat) => <div key={caveat}>{caveat}</div>)}

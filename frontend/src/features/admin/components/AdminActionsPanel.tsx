@@ -89,7 +89,7 @@ export function AdminActionsPanel({ admin }: { admin: UseAdmin }) {
               Dismiss
             </button>
           </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-border/60 bg-bg2/20 p-3 font-mono text-[11px] text-silver">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-sm border border-border/60 bg-bg2/20 p-3 font-mono text-[11px] text-silver">
             {admin.lastOperationResult.outputText}
           </pre>
         </div>
@@ -115,7 +115,7 @@ export function AdminActionsPanel({ admin }: { admin: UseAdmin }) {
             {admin.operationHistory.map((entry) => (
               <div
                 key={entry.job_run_id}
-                className="rounded border border-border/60 bg-bg2/15 p-3 space-y-2"
+                className="rounded-sm border border-border/60 bg-bg2/15 p-3 space-y-2"
                 data-testid={`admin-operation-history-${entry.job_run_id}`}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -135,7 +135,7 @@ export function AdminActionsPanel({ admin }: { admin: UseAdmin }) {
                 <div className="font-mono text-[10px] text-silver-dk">
                   started {entry.started_at ?? 'unknown'}{entry.finished_at ? ` · finished ${entry.finished_at}` : ''}
                 </div>
-                <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded border border-border/60 bg-bg2/20 p-3 font-mono text-[11px] text-silver">
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-sm border border-border/60 bg-bg2/20 p-3 font-mono text-[11px] text-silver">
                   {entry.output_text ?? entry.error_text ?? '(no output captured)'}
                 </pre>
               </div>

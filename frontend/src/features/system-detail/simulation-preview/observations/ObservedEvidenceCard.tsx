@@ -100,16 +100,16 @@ export function ObservedEvidenceCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em]">
-            <span className="rounded border border-orange/40 bg-orange/10 px-2 py-0.5 text-orange">
+            <span className="rounded-sm border border-orange/40 bg-orange/10 px-2 py-0.5 text-orange">
               {factTypeLabel(fact.fact_type)}
             </span>
-            <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-0.5 text-cyan">
+            <span className="rounded-sm border border-cyan/35 bg-cyan/10 px-2 py-0.5 text-cyan">
               {statusLabel(fact.status)}
             </span>
-            <span className="rounded border border-border bg-bg3 px-2 py-0.5 text-silver">
+            <span className="rounded-sm border border-border bg-bg3 px-2 py-0.5 text-silver">
               {confidenceLabel(fact.confidence)} confidence
             </span>
-            <span className="rounded border border-border bg-bg3/60 px-2 py-0.5 text-silver-dk">
+            <span className="rounded-sm border border-border bg-bg3/60 px-2 py-0.5 text-silver-dk">
               {sourceLabel(fact.source)}
             </span>
           </div>
@@ -172,7 +172,7 @@ export function ObservedEvidenceCard({
           {tagList && (
             <div className="flex flex-wrap gap-1">
               {tagList.map((tag) => (
-                <span key={tag} className="rounded border border-border bg-bg3/40 px-1.5 py-0.5 text-[10px] text-silver-dk">
+                <span key={tag} className="rounded-sm border border-border bg-bg3/40 px-1.5 py-0.5 text-[10px] text-silver-dk">
                   #{tag}
                 </span>
               ))}
@@ -202,7 +202,7 @@ export function ObservedEvidenceCard({
               <select
                 value={editState.status}
                 onChange={(event) => setEditState({ ...editState, status: event.target.value as typeof editState.status })}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               >
                 {STATUSES.map((value) => (
                   <option key={value} value={value}>{statusLabel(value)}</option>
@@ -214,7 +214,7 @@ export function ObservedEvidenceCard({
               <select
                 value={editState.confidence}
                 onChange={(event) => setEditState({ ...editState, confidence: event.target.value as typeof editState.confidence })}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               >
                 {CONFIDENCES.map((value) => (
                   <option key={value} value={value}>{confidenceLabel(value)}</option>
@@ -228,7 +228,7 @@ export function ObservedEvidenceCard({
               value={editState.notes}
               onChange={(event) => setEditState({ ...editState, notes: event.target.value })}
               rows={3}
-              className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+              className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
             />
           </label>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -238,7 +238,7 @@ export function ObservedEvidenceCard({
                 type="text"
                 value={editState.observed_value_raw}
                 onChange={(event) => setEditState({ ...editState, observed_value_raw: event.target.value })}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
             <label className="block text-[10px] uppercase tracking-[0.14em] text-silver-dk">
@@ -247,7 +247,7 @@ export function ObservedEvidenceCard({
                 type="text"
                 value={editState.expected_value_raw}
                 onChange={(event) => setEditState({ ...editState, expected_value_raw: event.target.value })}
-                className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+                className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
               />
             </label>
           </div>
@@ -257,11 +257,11 @@ export function ObservedEvidenceCard({
               type="text"
               value={editState.tags_input}
               onChange={(event) => setEditState({ ...editState, tags_input: event.target.value })}
-              className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+              className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
             />
           </label>
           {saveError && (
-            <div role="alert" className="rounded border border-red/40 bg-red/10 px-2 py-1 text-[11px] text-red">
+            <div role="alert" className="rounded-sm border border-red/40 bg-red/10 px-2 py-1 text-[11px] text-red">
               {saveError}
             </div>
           )}
@@ -285,11 +285,11 @@ export function ObservedEvidenceCard({
       )}
 
       {mode === 'confirm-delete' && (
-        <div className="mt-3 rounded border border-red/40 bg-red/10 px-3 py-2" role="alertdialog" aria-label="Confirm delete observed evidence">
+        <div className="mt-3 rounded-sm border border-red/40 bg-red/10 px-3 py-2" role="alertdialog" aria-label="Confirm delete observed evidence">
           <div className="font-bold text-red">{DELETE_CONFIRM_TITLE}</div>
           <p className="mt-1 text-[11px] leading-snug text-silver">{DELETE_CONFIRM_BODY}</p>
           {deleteError && (
-            <div role="alert" className="mt-2 rounded border border-red/50 bg-red/15 px-2 py-1 text-[11px] text-red">
+            <div role="alert" className="mt-2 rounded-sm border border-red/50 bg-red/15 px-2 py-1 text-[11px] text-red">
               {deleteError}
             </div>
           )}
@@ -323,7 +323,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-2">
       <dt className="shrink-0 text-silver-dk">{label}:</dt>
-      <dd className="min-w-0 break-words text-silver">{value}</dd>
+      <dd className="min-w-0 wrap-break-word text-silver">{value}</dd>
     </div>
   );
 }

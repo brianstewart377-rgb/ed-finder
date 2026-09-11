@@ -61,7 +61,7 @@ export function PlannerStatusStrip({
           {unresolvedExistingCount > 0 ? (
             <details
               data-testid="existing-location-review"
-              className="rounded border border-gold/35 bg-gold/10 px-2 py-1 text-gold"
+              className="rounded-sm border border-gold/35 bg-gold/10 px-2 py-1 text-gold"
             >
               <summary className="cursor-pointer font-bold">
                 Existing locations need review ({unresolvedExistingCount})
@@ -72,7 +72,7 @@ export function PlannerStatusStrip({
             </details>
           ) : null}
           {prerequisiteIssueCount > 0 ? (
-            <span data-testid="planner-prerequisite-summary" className="rounded border border-gold/25 bg-bg3/60 px-2 py-1 text-gold">
+            <span data-testid="planner-prerequisite-summary" className="rounded-sm border border-gold/25 bg-bg3/60 px-2 py-1 text-gold">
               {prerequisiteIssueCount} prerequisite warning{prerequisiteIssueCount === 1 ? '' : 's'}
             </span>
           ) : null}
@@ -97,7 +97,7 @@ function StatusChip({
   return (
     <span
       className={[
-        'rounded border px-2 py-1 text-[11px] uppercase tracking-[0.12em]',
+        'rounded-sm border px-2 py-1 text-[11px] uppercase tracking-[0.12em]',
         tone === 'orange'
           ? 'border-orange/35 bg-orange/10 text-orange'
           : tone === 'gold'

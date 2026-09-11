@@ -85,7 +85,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
         >
           {/* Brand pill */}
           <div
-            className="flex items-center gap-2 px-4 shrink-0 border-r border-border/70 rounded-l-[20px]"
+            className="flex items-center gap-2 px-4 shrink-0 border-r border-border/70 rounded-l-chunk"
             style={{
               background: 'linear-gradient(180deg, rgba(255,122,20,0.18), rgba(255,122,20,0.04))',
             }}
@@ -201,7 +201,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
                         onClick={() => setEnabled((p) => ({ ...p, [t]: !on }))}
                         aria-pressed={on}
                         className={[
-                          'flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-chunk-sm border font-display text-[9.5px] uppercase tracking-[0.1em] font-bold transition-all',
+                          'flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-chunk-sm border font-display text-[9.5px] uppercase tracking-widest font-bold transition-all',
                           on
                             ? 'border-orange/45 text-orange-lt bg-orange/10'
                             : 'border-border text-silver-dk bg-bg3/40 line-through opacity-60 hover:opacity-100',
@@ -222,7 +222,7 @@ export function EddnTicker({ onOpenSystem }: EddnTickerProps) {
           </div>
 
           {/* Counter pill */}
-          <div className="hidden md:flex items-center gap-2 px-4 shrink-0 border-l border-border/70 bg-bg3/40 rounded-r-[20px]">
+          <div className="hidden md:flex items-center gap-2 px-4 shrink-0 border-l border-border/70 bg-bg3/40 rounded-r-chunk">
             <span className="font-mono text-[10px] tracking-widest text-silver-dk uppercase">
               {filtered.length} recent
             </span>

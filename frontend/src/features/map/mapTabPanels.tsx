@@ -98,7 +98,7 @@ export function SelectionPanel({ system }: { system: SystemResult | null }) {
       <div className="flex gap-2 items-center">
         <span
           className={[
-            'px-2 py-0.5 rounded border font-bold',
+            'px-2 py-0.5 rounded-sm border font-bold',
             tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
             tier === 'A' && 'bg-green/20 text-green border-green/50',
             tier === 'B' && 'bg-gold/20 text-gold border-gold/50',

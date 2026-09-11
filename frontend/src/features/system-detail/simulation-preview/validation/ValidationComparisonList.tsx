@@ -42,7 +42,7 @@ export function ValidationComparisonList({ comparisons }: ValidationComparisonLi
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as ComparisonStatus | '')}
-            className="mt-1 block w-full rounded border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
+            className="mt-1 block w-full rounded-sm border border-border bg-bg2 px-2 py-1 text-[11px] text-silver"
             data-testid="validation-status-filter"
           >
             <option value="">All statuses</option>
@@ -72,14 +72,14 @@ export function ValidationComparisonList({ comparisons }: ValidationComparisonLi
 
       {comparisons.length === 0 ? (
         <p
-          className="rounded border border-border/60 bg-bg3/30 px-3 py-3 text-[11px] text-silver-dk"
+          className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 text-[11px] text-silver-dk"
           data-testid="validation-comparison-empty"
         >
           {EMPTY_COMPARISONS_COPY}
         </p>
       ) : visible.length === 0 ? (
         <p
-          className="rounded border border-border/60 bg-bg3/30 px-3 py-3 text-[11px] text-silver-dk"
+          className="rounded-sm border border-border/60 bg-bg3/30 px-3 py-3 text-[11px] text-silver-dk"
           data-testid="validation-comparison-filter-empty"
         >
           No rows match this status filter. Clear the filter to see all comparisons.

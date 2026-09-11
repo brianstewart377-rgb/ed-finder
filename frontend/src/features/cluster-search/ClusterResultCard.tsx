@@ -74,7 +74,7 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
   return (
     <article
       data-testid={`cluster-result-${cluster.anchor_id64}`}
-      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-[1px]"
+      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-px"
     >
       {/* Header — clickable to open anchor detail */}
       <div
@@ -141,7 +141,7 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
                       {Object.entries(bestMatch.scores).map(([econ, score]) => (
                         <span
                           key={econ}
-                          className="font-mono text-[10px] px-1.5 py-0.5 rounded border"
+                          className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border"
                           style={{
                             color: economyColor(econ),
                             borderColor: `${economyColor(econ)}40`,
@@ -206,7 +206,7 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
           <button
             type="button"
             className={[
-              'w-full py-2 rounded border font-mono text-[11px] uppercase tracking-wide transition-all',
+              'w-full py-2 rounded-sm border font-mono text-[11px] uppercase tracking-wide transition-all',
               planCreated
                 ? 'border-green/50 text-green bg-green/10'
                 : 'border-orange/50 text-orange hover:bg-orange/10 hover:border-orange',
@@ -235,7 +235,7 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
                 <div
                   key={key}
                   className={[
-                    'rounded border px-2 py-1.5 transition-opacity',
+                    'rounded-sm border px-2 py-1.5 transition-opacity',
                     isRequired
                       ? 'border-border bg-bg3/80'
                       : 'border-border/40 bg-bg3/30 opacity-50',

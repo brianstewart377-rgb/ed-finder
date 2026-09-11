@@ -141,7 +141,7 @@ function SystemTableRow({
       data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
       onClick={canOpenRow ? () => onRowClick?.(systemId64) : undefined}
       className={[
-        'border-t border-border/50 transition-all duration-150 hover:bg-white/[0.03]',
+        'border-t border-border/50 transition-all duration-150 hover:bg-white/3',
         canOpenRow ? 'cursor-pointer' : '',
       ].join(' ')}
     >
@@ -192,7 +192,7 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
         <>
           <span className="text-orange font-bold">{row.name}</span>
           {systemStatusLabel(row) !== 'Available' && (
-            <span className="ml-2 text-[9px] px-1 py-0.5 rounded bg-red/20 text-red border border-red/40">
+            <span className="ml-2 text-[9px] px-1 py-0.5 rounded-sm bg-red/20 text-red border border-red/40">
               {systemStatusLabel(row) === 'Colonised' ? 'COL' : 'BUILD'}
             </span>
           )}
@@ -225,7 +225,7 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
       return (
         <span
           className={[
-            'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
+            'inline-block px-2 py-0.5 rounded-sm border text-[11px] font-bold',
             tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
             tier === 'A' && 'bg-green/20 text-green border-green/50',
             tier === 'B' && 'bg-gold/20 text-gold border-gold/50',

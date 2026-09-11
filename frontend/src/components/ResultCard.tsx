@@ -68,7 +68,7 @@ export function ResultCard({
   return (
     <article
       data-testid={`result-card-${system.id64}`}
-      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-[1px]"
+      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-px"
       style={{
         borderColor: inhabited ? 'rgba(248,113,113,0.35)' : undefined,
         boxShadow: open
