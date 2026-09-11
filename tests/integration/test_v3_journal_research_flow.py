@@ -46,7 +46,7 @@ _ORIGIN = {"Origin": settings.cors_origins.split(",")[0].strip()}
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _v2_table_shim(v3_v2_table_shim):
+def _v2_table_shim(v3_fixture_db_ready, v3_v2_table_shim):
     """Session-scoped dependency (body lives in conftest): the V3-only fixture
     DB lacks the V2 tables conftest's ``clean_db`` TRUNCATEs; the shared
     ``v3_v2_table_shim`` fixture creates empty stand-ins. Autouse so the
