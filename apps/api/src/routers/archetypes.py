@@ -220,7 +220,7 @@ def _json_object(value: Any) -> dict[str, Any]:
 def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str, Any]:
     """Enrich archetype rationale with canonical confidence if data_confidence present.
 
-    Converts numeric data_confidence to canonical form for CRE-aligned workflows.
+    Converts numeric data_confidence to canonical form for EDRE-aligned workflows.
     """
     if not rationale or not isinstance(rationale.get('data_confidence'), (int, float)):
         return rationale

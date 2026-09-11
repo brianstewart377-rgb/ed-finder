@@ -147,6 +147,8 @@ memory/
 .env.production
 .env.*
 *.env
+# V3 r5 retention cleanup-protection manifest is intentionally version-controlled
+!scripts/operator/protected_resources.env
 credentials.json
 *.pem
 *.key

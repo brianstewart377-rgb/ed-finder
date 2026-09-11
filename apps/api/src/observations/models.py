@@ -211,7 +211,7 @@ class ObservedStatus(str, Enum):
 class ObservedConfidence(str, Enum):
     """User-submitted observation confidence (3-value scale).
 
-    Maps to CRE confidence bands via from_canonical().
+    Maps to EDRE confidence bands via from_canonical().
     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
     """
     LOW = 'low'
@@ -222,7 +222,7 @@ class ObservedConfidence(str, Enum):
     def from_canonical(cls, canonical: CanonicalConfidence) -> ObservedConfidence:
         """Derive 3-value confidence from canonical shape.
 
-        Maps CRE confidence bands to the 3-value display scale:
+        Maps EDRE confidence bands to the 3-value display scale:
         - High (85–100) → HIGH
         - Usable/Exploratory (50–84) → MEDIUM
         - Weak/Insufficient (<50) → LOW
@@ -252,7 +252,7 @@ class PersistedObservedFact:
     """A persisted observed fact with canonical confidence tracking.
 
     ``confidence`` is the legacy 3-value display field (for API compatibility).
-    ``canonical_confidence`` carries the CRE-aligned canonical shape when available.
+    ``canonical_confidence`` carries the EDRE-aligned canonical shape when available.
     """
     observation_id: str
     system_id64: int

@@ -52,7 +52,7 @@ class ComparisonSeverity(str, Enum):
 class ComparisonConfidence(str, Enum):
     """Comparison engine confidence (4-value scale).
 
-    Maps to CRE confidence bands via from_canonical().
+    Maps to EDRE confidence bands via from_canonical().
     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
     """
     LOW = 'low'
@@ -64,7 +64,7 @@ class ComparisonConfidence(str, Enum):
     def from_canonical(cls, canonical: CanonicalConfidence) -> ComparisonConfidence:
         """Derive 4-value confidence from canonical shape.
 
-        Maps CRE confidence bands to the comparison-engine display scale:
+        Maps EDRE confidence bands to the comparison-engine display scale:
         - High (85–100) → HIGH
         - Usable/Exploratory (50–84) → MEDIUM
         - Weak (<50) → LOW
@@ -163,7 +163,7 @@ class PredictionObservationComparison:
     economy list, or a CP numeric/object value.
 
     ``confidence`` is the legacy 4-value display field (for API compatibility).
-    ``canonical_confidence`` carries the CRE-aligned canonical shape when available.
+    ``canonical_confidence`` carries the EDRE-aligned canonical shape when available.
     """
 
     comparison_id: str

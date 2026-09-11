@@ -200,6 +200,9 @@ if settings.sentry_dsn:
         dsn=settings.sentry_dsn,
         release=settings.build_sha,
         send_default_pii=False,
+        # Provider access/refresh tokens are transient locals during the
+        # exchange. Never serialize frame locals into Sentry/GlitchTip events.
+        include_local_variables=False,
         traces_sample_rate=0,
         before_send=redact_frontier_oauth_sentry_event,
     )

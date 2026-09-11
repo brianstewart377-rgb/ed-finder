@@ -111,6 +111,8 @@ fi
 # ── 3. Dangling docker volumes from old importer runs ────────────────────────
 log "Checking for dangling (unused) Docker volumes ..."
 DANGLING_VOLS=$(docker volume ls -qf dangling=true 2>/dev/null || true)
+source "$(dirname "${BASH_SOURCE[0]}")/operator/protected_resources.sh"
+protected_volumes_refuse "$DANGLING_VOLS"
 if [[ -z "$DANGLING_VOLS" ]]; then
     ok "No dangling volumes found."
 else

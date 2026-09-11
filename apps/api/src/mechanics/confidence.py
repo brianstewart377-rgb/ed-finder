@@ -1,6 +1,6 @@
 """Structured confidence/data-quality signals for colony planning outputs.
 
-This module defines a canonical confidence model aligned with CRE's (Colonisation
+This module defines a canonical confidence model aligned with EDRE's (Elite Dangerous
 Research Engine) confidence/source-authority taxonomy:
 
 - SourceAuthority: who said it (official, community, live evidence, inferred, etc.)
@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 
 class SourceAuthority(str, Enum):
-    """CRE SA-register: source classes for confidence attribution.
+    """EDRE SA-register: source classes for confidence attribution.
 
     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.1
     """
@@ -34,7 +34,7 @@ class SourceAuthority(str, Enum):
 
 
 class ConfidenceBand(str, Enum):
-    """CRE confidence bands based on 0–100 score.
+    """EDRE confidence bands based on 0–100 score.
 
     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §3, §7.1
     """
@@ -46,7 +46,7 @@ class ConfidenceBand(str, Enum):
 
 
 class ConfidenceLayer(str, Enum):
-    """CRE layer taxonomy: where confidence is tracked.
+    """EDRE layer taxonomy: where confidence is tracked.
 
     Confidence tracked separately per layer; high confidence in one does not
     imply high confidence in another. Ref: CM-0001, CM-0006A.
@@ -62,11 +62,11 @@ class ConfidenceLayer(str, Enum):
 
 @dataclass(frozen=True)
 class CanonicalConfidence:
-    """Single source of truth for confidence, aligned with CRE's model.
+    """Single source of truth for confidence, aligned with EDRE's model.
 
     Each confidence-bearing value carries three dimensions:
     - source_authority: who said it (SourceAuthority)
-    - score: 0–100 numeric score (CRE six-component model input)
+    - score: 0–100 numeric score (EDRE six-component model input)
     - band: derived band from score (ConfidenceBand)
     - layer: which interpretation layer (ConfidenceLayer)
     - reason: human-readable explanation
