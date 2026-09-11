@@ -6,7 +6,7 @@ Task 3. Consent/export logic lives in ``edfinder_api.journal.consent`` and
 this router stays import-checkable before those modules land.
 
 Consent is explicit, versioned and revocable; upload never depends on it.
-Exports are deterministic sanitized CRE evidence batches; a WITHDRAW
+Exports are deterministic sanitized EDRE evidence batches; a WITHDRAW
 supersedes prior lineage batches (supersede-not-delete) and blocks further
 exports with 403 while no GRANT is effective.
 """

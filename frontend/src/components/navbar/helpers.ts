@@ -115,5 +115,14 @@ export function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         statusLabel: 'Operator-only tools',
         statusTone: 'caution',
       };
+    case 'account':
+      return {
+        title: 'Account',
+        primaryLabel: 'Account',
+        supportingText: 'Personal journal import and explicit research contribution live here, scoped to your Frontier account.',
+        nextAction: 'Import journals or review your research contribution decision.',
+        statusLabel: 'Personal account workspace',
+        statusTone: 'available',
+      };
   }
 }

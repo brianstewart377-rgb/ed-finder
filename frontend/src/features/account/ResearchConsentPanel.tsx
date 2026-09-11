@@ -7,7 +7,7 @@ import { useResearchConsent } from './useResearchConsent';
  * Verbatim — do not soften. "Pseudonymous" is a deliberate, tested claim;
  * this panel must never say "anonymous".
  */
-export const RESEARCH_CONSENT_COPY = 'Sanitized and pseudonymous — not anonymous. Travel sequences can still identify an explorer. Withdrawal stops future exports; observations already in published CRE releases cannot be retracted (supersede-not-delete).';
+export const RESEARCH_CONSENT_COPY = 'Sanitized and pseudonymous — not anonymous. Travel sequences can still identify an explorer. Withdrawal stops future exports; observations already in published EDRE releases cannot be retracted (supersede-not-delete).';
 
 /**
  * Explicit research opt-in card. Completely separate from journal upload:
@@ -25,7 +25,7 @@ export function ResearchConsentPanel() {
     try {
       await consent.grant();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not share observations with CRE research.');
+      setActionError(error instanceof Error ? error.message : 'Could not share observations with EDRE research.');
     }
   };
 
@@ -85,8 +85,8 @@ export function ResearchConsentPanel() {
         <div className="rounded-chunk-lg border border-orange/25 bg-orange/5 p-3">
           <p className="text-sm leading-relaxed text-silver">
             {decision === 'WITHDRAW'
-              ? 'Your contribution is withdrawn. You can share sanitized observations with CRE research again at any time.'
-              : 'Journal upload never requires this. Contribute only if you want sanitized observations to reach the CRE research corpus.'}
+              ? 'Your contribution is withdrawn. You can share sanitized observations with EDRE research again at any time.'
+              : 'Journal upload never requires this. Contribute only if you want sanitized observations to reach the EDRE research corpus.'}
           </p>
           <button
             type="button"
@@ -95,7 +95,7 @@ export function ResearchConsentPanel() {
             data-testid="research-consent-share"
             className="btn-primary mt-3 text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {consent.busy ? 'Updating...' : 'Share sanitized observations with CRE research'}
+            {consent.busy ? 'Updating...' : 'Share sanitized observations with EDRE research'}
           </button>
         </div>
       )}

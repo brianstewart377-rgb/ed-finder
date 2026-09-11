@@ -4,7 +4,7 @@ Maps a normalized ``v3_private.journal_event`` row (with its canonical
 event key and stripped payload) to a sanitized export observation, or None
 for excluded event types. Authority: the A1-A14 sanitization table in the
 implementation plan and the V3 journal-intelligence decision doc's
-ED-Finder -> CRE boundary (sanitization model). Fail-closed: any field not
+ED-Finder -> EDRE boundary (sanitization model). Fail-closed: any field not
 listed in the A1-A14 table is never copied into the output.
 
 Hard exclusions enforced here: Latitude/Longitude (default excluded, even
@@ -185,7 +185,7 @@ def _signals_block(event_type: str, payload: dict) -> dict | None:
     ``Type_Localised`` are dropped); ``genuses`` is a SEPARATE optional
     string-array field of canonical genus tokens from ``SAASignalsFound.
     Genuses`` (localised names are not allowlisted). Null values inside
-    entries are dropped — the CRE consumer schema rejects JSON nulls, so no
+    entries are dropped — the EDRE consumer schema rejects JSON nulls, so no
     null may ever be emitted."""
     block: dict[str, Any] = {}
     if event_type not in _SIGNALS_EVENT_TYPES:
@@ -297,7 +297,7 @@ def sanitize_observation(event_row: dict) -> dict | None:
     if system_name is None:
         system_name = payload.get('System')
 
-    # CRE contract (schema review directive): system_id64 and system_name
+    # EDRE contract (schema review directive): system_id64 and system_name
     # are ALWAYS present for every exported observation type EXCEPT
     # SellOrganicData, which omits both. A row that cannot satisfy the
     # contract is an integrity anomaly — fail closed rather than emit a

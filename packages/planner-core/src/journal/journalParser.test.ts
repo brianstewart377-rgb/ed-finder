@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { parseJournalFilesStreaming } from './index';
+import { EVENT_PAYLOAD_FIELDS, parseJournalFilesStreaming } from './journalParser';
 
 beforeAll(() => {
   if (!globalThis.crypto?.subtle) vi.stubGlobal('crypto', webcrypto);
@@ -99,6 +99,20 @@ describe('V3 journal parser extensions', () => {
       { files_processed: 1, files_total: 2, events_parsed: 1 },
       { files_processed: 2, files_total: 2, events_parsed: 2 },
     ]);
+  });
+
+  it('client allowlist parity: exported events can carry the system name the sanitizer requires', () => {
+    // Backend fix wave: the server sanitizer fail-closes on a missing system
+    // name for every non-sale exported type, so the client parser must also
+    // allow SystemName/StarSystem on CodexEntry / ScanOrganic /
+    // SAAScanComplete (the client strips pre-network — a field the client
+    // strips can never reach the server, so both allowlists must agree).
+    for (const eventType of ['CodexEntry', 'ScanOrganic', 'SAAScanComplete'] as const) {
+      const allowed = EVENT_PAYLOAD_FIELDS[eventType];
+      expect(allowed).toContain('SystemName');
+      expect(allowed).toContain('StarSystem');
+    }
+    expect(EVENT_PAYLOAD_FIELDS.CodexEntry).toContain('System');
   });
 });
 

@@ -1,7 +1,7 @@
 """V3 versioned research-consent ledger (Task 4, decision doc R7).
 
 Explicit, revocable, versioned research-contribution consent for the
-ED-Finder -> CRE evidence pipeline. Decisions are append-only per
+ED-Finder -> EDRE evidence pipeline. Decisions are append-only per
 (account, consent_version, decision) in ``v3_private.research_consent``;
 effective state is the row with the greatest ``decided_at``. A WITHDRAW row
 supersedes the matching GRANT row by ``decided_at``; decision history is
@@ -13,6 +13,9 @@ Consent vocabulary (frozen)::
     SANITIZED_CONTRACT_VERSION = "1.0.0"
     PURPOSE = "CRE_RESEARCH_EVIDENCE"
     AUDIENCE = "CRE"
+
+Purpose/audience values are frozen v1.0 consent vocabulary; the legacy CRE
+spelling is retained for compatibility after the CRE→EDRE rename.
 
 State machine: NONE -> GRANT (ok) -> duplicate GRANT (ConsentStateError,
 routers map to 409) -> WITHDRAW (ok) -> re-GRANT (refused) -> duplicate

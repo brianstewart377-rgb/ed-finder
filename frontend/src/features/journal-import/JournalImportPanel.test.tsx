@@ -65,6 +65,7 @@ describe('JournalImportPanel', () => {
         parser_version: 'journal-import-worker-v1',
         files: [{ name: 'Journal.demo.log', event_count: 2 }],
       },
+      file_manifest: [],
       observations: [
         {
           observation_key: 'abc123abc123abc123abc123abc123ab',
@@ -128,6 +129,7 @@ describe('JournalImportPanel', () => {
         parser_version: 'journal-import-worker-v1',
         files: [{ name: 'Journal.demo.log', event_count: 1 }],
       },
+      file_manifest: [],
       observations: [
         {
           observation_key: 'abc123abc123abc123abc123abc123ab',

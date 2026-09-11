@@ -55,7 +55,7 @@ def _row(
     return {
         'event_type': event_type,
         'event_key': key if key is not None else {'SystemAddress': 12345},
-        # Default payload carries a system name: the CRE contract requires
+        # Default payload carries a system name: the EDRE contract requires
         # system_name on every non-sale exported observation.
         'event_payload': payload if payload is not None else {'StarSystem': 'X'},
         'event_timestamp': ts,
@@ -460,7 +460,7 @@ def test_sale_nested_values_excluded():
 
 
 # ---------------------------------------------------------------------------
-# CRE consumer-schema directives (orchestrator, Task 6 schema review):
+# EDRE consumer-schema directives (orchestrator, Task 6 schema review):
 # 1) the observation JSON must contain NO null-valued keys anywhere;
 # 2) system_id64 + system_name ALWAYS present for every exported type
 #    EXCEPT SellOrganicData, which omits both;

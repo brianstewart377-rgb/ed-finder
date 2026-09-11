@@ -1,7 +1,7 @@
 -- ED-Finder V3 migration 005: account-scoped journal intelligence foundation.
 --
 -- Private journal-ingestion lane for the personal journal workstream
--- (docs/architecture/V3_JOURNAL_INTELLIGENCE_AND_CRE_EVIDENCE_PIPELINE.md).
+-- (docs/architecture/V3_JOURNAL_INTELLIGENCE_AND_EDRE_EVIDENCE_PIPELINE.md).
 -- Private trust zone only (ADR-011): nothing here reaches public/canonical
 -- galaxy tables; promotion requires a separately authorized write lane.
 -- Client-side parsing uploads normalized allowlisted events only; raw

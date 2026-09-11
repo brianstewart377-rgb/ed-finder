@@ -12,8 +12,10 @@ export {
 export type {
   JournalFileCheckpoint,
   JournalFileInput,
+  JournalFileManifestEntry,
   JournalFileSource,
   JournalImportParseResult,
   JournalImportParseSummary,
+  JournalParseFileProgress,
   JournalParserState,
 } from './types';

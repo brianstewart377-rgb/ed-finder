@@ -18,6 +18,7 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  *   #colony-planner/system/123/detail/456  → route='colony-planner', plannerSystemId=123, selectedSystemId=456
  *   #colony-planner/system/123/project/abc/detail/456 → route='colony-planner', plannerSystemId=123, plannerProjectId='abc', selectedSystemId=456
  *   #operator                     → route='operator', selectedSystemId=null
+ *   #account                      → route='account', selectedSystemId=null
  *   #colony-planner               → route='colony-planner', plannerSystemId=null
  *   <empty> or unknown            → route='finder',    selectedSystemId=null
  *
@@ -32,8 +33,8 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'admin' | 'operator' | 'colony-planner';
-const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'admin', 'operator', 'colony-planner'];
+export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'admin' | 'operator' | 'colony-planner' | 'account';
+const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'admin', 'operator', 'colony-planner', 'account'];
 
 export interface ParsedHash {
   route:            Route;

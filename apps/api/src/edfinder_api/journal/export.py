@@ -17,7 +17,7 @@ Supersede (consent withdrawal): CREATED batches of one lineage token are
 marked SUPERSEDED with ``superseded_by_batch_id`` pointing at a new ledger
 row whose payload is the ``kind: "supersede"`` batch (manifest
 ``{"withdrawal": true}``). Observations and receipts are never deleted
-(R8: remove from future reconciliation; recomputation is CRE-side).
+(R8: remove from future reconciliation; recomputation is EDRE-side).
 
 Consent gating note: this module does NOT check consent — the research
 router (Task 3) owns the "no active GRANT -> 403" gate and orchestrates
@@ -41,10 +41,11 @@ import asyncpg
 from edfinder_api.journal.consent import CONSENT_VERSION, SANITIZED_CONTRACT_VERSION
 from edfinder_api.journal.sanitize import sanitize_observation
 
+# Schema id retained for wire-contract compatibility after the CRE→EDRE rename (2026-08-29).
 EXPORT_SCHEMA = 'ed-finder-cre-journal-observation-export'
 EXPORT_SCHEMA_VERSION = '1.0.0'
 
-# Exact per plan; counts are ATTESTED, never CRE-verifiable (Q2/Q9).
+# Exact per plan; counts are ATTESTED, never EDRE-verifiable (Q2/Q9).
 ATTESTATION_NOTE = (
     'attested-not-proven: one Commander = one observer chain; '
     'lineage tokens do not verify cross-export independence'
@@ -97,8 +98,8 @@ def build_export_payload(
 ) -> dict:
     """Exact v1.0.0 export payload shape (plan 'Export payload shape').
 
-    The manifest is the CRE-visible manifest and MUST stay exactly the
-    schema's ``exportManifest`` (CRE schema enforces
+    The manifest is the EDRE-visible manifest and MUST stay exactly the
+    schema's ``exportManifest`` (EDRE consumer schema enforces
     ``additionalProperties: false``). Replay metadata such as the raw-row
     ``limit`` is persisted separately in the RECEIPT's manifest column (see
     ``build_export``), never inside the payload manifest.
@@ -160,7 +161,7 @@ async def build_export(
     with excluded (travel/identity) events exports FEWER observations than
     the limit — never more. The applied limit is persisted in the RECEIPT's
     manifest column (``manifest.limit``, receipt-internal replay metadata —
-    deliberately NOT in the CRE-visible payload manifest, whose schema
+    deliberately NOT in the EDRE-visible payload manifest, whose schema
     forbids extra keys) so a limit-truncated export is replayable: the
     rebuild reads the limit back from the stored receipt manifest.
     """
@@ -198,7 +199,7 @@ async def build_export(
     )
     # Receipt-internal replay metadata: the raw-row limit is needed by the
     # rebuild to reproduce a limit-truncated export byte-for-byte. It lives
-    # in the RECEIPT manifest only — the payload manifest (CRE-visible) is
+    # in the RECEIPT manifest only — the payload manifest (EDRE-visible) is
     # schema-frozen and must not carry it.
     receipt_manifest = {**payload['manifest'], 'limit': limit}
     payload_bytes_ = payload_bytes(payload)

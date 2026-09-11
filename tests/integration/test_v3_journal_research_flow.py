@@ -1,4 +1,4 @@
-"""Integration flow tests: V3 journal research lane (consent + CRE export).
+"""Integration flow tests: V3 journal research lane (consent + EDRE export).
 
 Real Postgres fixture DB required (V3 baseline + 002 + 003 applied), plus
 the parallel-task package ``edfinder_api.journal`` (Tasks 2/4). When either

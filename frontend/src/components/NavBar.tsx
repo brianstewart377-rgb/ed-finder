@@ -84,6 +84,10 @@ export function NavBar({
     [groupedRoutes],
   );
 
+  const accountRoute: RouteDescriptor[] = [
+    { route: 'account' as const, label: 'Account', testid: 'nav-account', title: 'Personal journal import and research contribution' },
+  ];
+  const showAccount = !!auth?.authenticated;
   const operatorMode = current === 'admin' || current === 'operator';
   const showPlayerContext = immersive || current === 'compare'
     ? false
@@ -176,6 +180,16 @@ export function NavBar({
                     title={tab.title}
                   />
                 ))}
+                {showAccount ? (
+                  <NavTab
+                    key="account"
+                    label="Account"
+                    active={current === 'account'}
+                    onClick={() => handleNavigate('account')}
+                    testid="nav-account"
+                    title="Personal journal import and research contribution"
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -375,7 +389,7 @@ export function NavBar({
           <div className="grid gap-3">
             <MenuSection
               title="Routes"
-              routes={playerRoutes}
+              routes={[...playerRoutes, ...(showAccount ? accountRoute : [])]}
               current={current}
               onNavigate={handleNavigate}
             />
