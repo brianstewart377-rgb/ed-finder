@@ -44,8 +44,8 @@ export interface V3JournalImportReceipt {
   duplicates_skipped: number;
   privacy_stripped_fields: number;
   event_counts: Record<string, number>;
-  started_at: string | null;
-  finished_at: string | null;
+  started_at: string;
+  finished_at: string;
 }
 
 export interface V3JournalSummaryResponse {
@@ -135,8 +135,9 @@ export interface V3ResearchExportReceipt {
   created_at: string;
 }
 
-/** Receipt + the deterministically rebuilt export payload. */
-export interface V3ResearchExportDetail extends V3ResearchExportReceipt {
+/** Receipt + the deterministically rebuilt export payload (wire wrapper). */
+export interface V3ResearchExportDetail {
+  receipt: V3ResearchExportReceipt;
   payload: Record<string, unknown>;
 }
 

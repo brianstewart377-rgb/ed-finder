@@ -189,6 +189,12 @@ async def import_journal_batch(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Serialize imports per account so the daily-quota read-then-insert
+            # cannot race two concurrent requests past the cap.
+            await conn.execute(
+                'SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)',
+                str(account_id),
+            )
             stored_today = int(await conn.fetchval(
                 '''
                 SELECT count(*)
@@ -464,6 +470,12 @@ async def import_journal_batch(
                 event_type = str(event['event_type'])
                 payload = dict(event.get('payload') or {})
                 stripped, n_removed = strip_payload(event_type, payload)
+                # ``source_record_hash`` is the client parser's per-line hash.
+                # For content-addressed event types it is also the dedupe
+                # identity (identity.py). The server cannot recompute the raw
+                # journal line, so the hash is trusted after 32-byte/hex format
+                # validation below. Blast radius is the caller's own
+                # account-scoped data; the raw line is never stored.
                 record_hash = _hash_bytes(
                     event.get('source_record_hash'), field='source_record_hash',
                 )

@@ -242,18 +242,32 @@ async def stations(system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonl
               LEFT JOIN v3_vocab.station_type station_type USING(station_type_id)
               JOIN {schema}.station_placement placement USING(station_pk,system_id64)
              WHERE station.system_id64=$1 ORDER BY station.station_pk""",
-        numeric_id,
+         numeric_id,
     )
-    result: list[StationV1] = []
-    for row in rows:
+    station_pks = [row["station_pk"] for row in rows]
+    economies_by_station: dict = {}
+    if station_pks:
         economy_rows = await pool.fetch(
-            f"""SELECT economy.public_code,economy_current.economy_weight,
-                       economy_current.is_primary,economy_current.is_secondary
+            f"""SELECT economy_current.station_pk, economy.public_code,
+                       economy_current.economy_weight,
+                       economy_current.is_primary, economy_current.is_secondary
                   FROM {schema}.station_economy_current economy_current
                   JOIN v3_vocab.economy economy USING(economy_id)
-                 WHERE economy_current.station_pk=$1 ORDER BY economy.economy_id""",
-            row["station_pk"],
+                 WHERE economy_current.station_pk = ANY($1::bigint[])
+                 ORDER BY economy_current.station_pk, economy.economy_id""",
+            station_pks,
         )
+        for economy in economy_rows:
+            economies_by_station.setdefault(economy["station_pk"], []).append(
+                StationEconomyV1(
+                    economy=economy["public_code"],
+                    economy_weight=economy["economy_weight"],
+                    is_primary=economy["is_primary"],
+                    is_secondary=economy["is_secondary"],
+                )
+            )
+    result: list[StationV1] = []
+    for row in rows:
         result.append(StationV1(
             station_id=str(row["station_pk"]),
             market_id=str(row["market_id"]) if row["market_id"] is not None else None,
@@ -261,9 +275,6 @@ async def stations(system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonl
             distance_from_arrival_ls=row["distance_from_arrival_ls"],
             body_id=str(row["body_pk"]) if row["body_pk"] is not None else None,
             association_state=row["association_state"],
-            economies=[StationEconomyV1(
-                economy=economy["public_code"], economy_weight=economy["economy_weight"],
-                is_primary=economy["is_primary"], is_secondary=economy["is_secondary"],
-            ) for economy in economy_rows],
+            economies=economies_by_station.get(row["station_pk"], []),
         ))
     return result

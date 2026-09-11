@@ -63,7 +63,7 @@ _SELECT_EVENTS_SQL = """
 SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
 FROM v3_private.journal_event
 WHERE owner_account_id = $1
-ORDER BY event_type, event_key, event_timestamp
+ORDER BY event_timestamp DESC, event_key, source_record_hash
 LIMIT $2
 """
 
@@ -159,13 +159,18 @@ async def build_export(
 
     ``limit`` applies to RAW ROWS BEFORE sanitization exclusion: an account
     with excluded (travel/identity) events exports FEWER observations than
-    the limit — never more. The applied limit is persisted in the RECEIPT's
-    manifest column (``manifest.limit``, receipt-internal replay metadata —
-    deliberately NOT in the EDRE-visible payload manifest, whose schema
-    forbids extra keys) so a limit-truncated export is replayable: the
-    rebuild reads the limit back from the stored receipt manifest.
+    the limit — never more. Rows are selected newest-first (chronological)
+    so limit truncation keeps the most recent events rather than biasing the
+    surviving set toward alphabetically-earlier event types. The applied
+    limit and a ``truncated`` flag are persisted in the RECEIPT's manifest
+    column (receipt-internal replay metadata — deliberately NOT in the
+    EDRE-visible payload manifest, whose frozen consumer schema forbids
+    extra keys) so a limit-truncated export is replayable: the rebuild reads
+    the limit back from the stored receipt manifest.
     """
-    rows = await pool.fetch(_SELECT_EVENTS_SQL, account_id, limit)
+    rows = await pool.fetch(_SELECT_EVENTS_SQL, account_id, limit + 1)
+    truncated = len(rows) > limit
+    rows = rows[:limit]
     event_rows = [
         {
             'event_type': row['event_type'],
@@ -201,7 +206,7 @@ async def build_export(
     # rebuild to reproduce a limit-truncated export byte-for-byte. It lives
     # in the RECEIPT manifest only — the payload manifest (EDRE-visible) is
     # schema-frozen and must not carry it.
-    receipt_manifest = {**payload['manifest'], 'limit': limit}
+    receipt_manifest = {**payload['manifest'], 'limit': limit, 'truncated': truncated}
     payload_bytes_ = payload_bytes(payload)
     sha_hex = hashlib.sha256(payload_bytes_).hexdigest()
 
