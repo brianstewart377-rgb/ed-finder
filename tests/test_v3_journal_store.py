@@ -283,7 +283,7 @@ def test_quota_exceeded_raises_and_writes_nothing():
             events=_events('Scan', 'Scan'),
         ))
     kinds = [_classify(sql) for sql, _args in conn.calls]
-    assert kinds == ['quota']
+    assert kinds == ['other', 'quota']
 
 
 def test_privacy_stripped_fields_are_counted():

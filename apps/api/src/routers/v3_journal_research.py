@@ -194,7 +194,7 @@ async def _rebuild_observations(
             """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
                  FROM v3_private.journal_event
                 WHERE owner_account_id = $1
-                ORDER BY event_type, event_key, event_timestamp""",
+                ORDER BY event_timestamp DESC, event_key, source_record_hash""",
             account_id,
         )
     else:
@@ -202,7 +202,7 @@ async def _rebuild_observations(
             """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
                  FROM v3_private.journal_event
                 WHERE owner_account_id = $1
-                ORDER BY event_type, event_key, event_timestamp
+                ORDER BY event_timestamp DESC, event_key, source_record_hash
                 LIMIT $2""",
             account_id,
             limit,
