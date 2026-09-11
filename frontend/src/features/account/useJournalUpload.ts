@@ -7,7 +7,7 @@ import type {
   V3JournalImportRequest,
 } from '@/lib/api';
 import { parseJournalFiles } from '@/features/journal-import/parseJournalFiles';
-import type { JournalImportParseResult, JournalParseFileProgress } from '@/lib/journalParsing';
+import type { JournalImportParseResult, JournalParseFileProgress } from '@ed-finder/planner-core/journal';
 
 // Server-side quotas (see the V3 journal plan — Global Constraints).
 export const MAX_V3_UPLOAD_FILES = 200;

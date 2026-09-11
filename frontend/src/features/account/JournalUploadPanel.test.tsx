@@ -5,7 +5,7 @@ import { ApiError, createV3JournalImport } from '@/lib/api';
 import type { V3JournalImportRequest } from '@/lib/api';
 import { useAuth } from '@/features/auth/useAuth';
 import { parseJournalFiles } from '@/features/journal-import/parseJournalFiles';
-import type { JournalImportParseResult } from '@/lib/journalParsing';
+import type { JournalImportParseResult } from '@ed-finder/planner-core/journal';
 import { AccountWorkspace } from './AccountWorkspace';
 import { JournalUploadPanel } from './JournalUploadPanel';
 

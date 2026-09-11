@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { JournalImportParseResult } from '@/lib/journalParsing';
+import type { JournalImportParseResult } from '@ed-finder/planner-core/journal';
 import {
   MAX_V3_UPLOAD_EVENTS,
   MAX_V3_UPLOAD_FILES,

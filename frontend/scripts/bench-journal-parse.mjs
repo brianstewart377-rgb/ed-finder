@@ -7,7 +7,7 @@
  *    ~100k-line synthetic journal under tests/fixtures/journal_v3/generated/
  *    (gitignored).
  * 2. Bundles the REAL client worker parser
- *    (src/lib/journalParsing/journalParser.ts + journalJson.ts, the same code
+ *    (packages/planner-core/src/journal/journalParser.ts + journalJson.ts, the same code
  *    the browser worker runs) into a temp ESM file via esbuild.
  * 3. Parses the fixture in a Node worker_thread through
  *    parseJournalFilesStreaming (the real worker entry point).

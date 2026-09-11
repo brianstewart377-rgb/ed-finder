@@ -2,7 +2,7 @@ import type {
   JournalFileSource,
   JournalImportParseResult,
   JournalParseFileProgress,
-} from '@/lib/journalParsing';
+} from '@ed-finder/planner-core/journal';
 
 type ParseSuccess = {
   type: 'parsed';
