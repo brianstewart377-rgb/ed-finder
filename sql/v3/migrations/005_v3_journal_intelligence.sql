@@ -7,6 +7,8 @@
 -- Client-side parsing uploads normalized allowlisted events only; raw
 -- journal files are never stored.
 
+BEGIN;
+
 DO $baseline_guard$
 BEGIN
     IF to_regclass('v3_meta.schema_migration') IS NULL
@@ -208,3 +210,5 @@ CREATE INDEX research_export_batch_lineage_idx
     ON v3_private.research_export_batch(lineage_token);
 COMMENT ON INDEX v3_private.research_export_batch_lineage_idx IS
     'Use: locate batches to supersede when consent is withdrawn.';
+
+COMMIT;
