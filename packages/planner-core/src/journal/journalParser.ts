@@ -6,8 +6,10 @@ import { decimalString, parseJournalJson, toJournalTransportValue } from './jour
 import type {
   JournalFileCheckpoint,
   JournalFileInput,
+  JournalFileManifestEntry,
   JournalFileSource,
   JournalImportParseResult,
+  JournalParseFileProgress,
   JournalParserState,
 } from './types';
 
@@ -80,10 +82,27 @@ const BODY_EVENTS = new Set<JournalEventType>([
   'Touchdown',
 ]);
 
-const EVENT_PAYLOAD_FIELDS: Record<JournalEventType, readonly string[]> = {
+// V3 observation events that carry the rolling Fileheader/LoadGame
+// GameVersion/GameBuild state into their payloads (V3 journal lane). The
+// existing lowercase `gameversion`/`gamebuild` attach for the A-1 lane is
+// untouched; this is the capitalized V3 contract the server-side payload
+// allowlists additionally admit (see the V3 event contract).
+const GAME_VERSION_ATTACH_EVENTS = new Set<JournalEventType>([
+  'Scan',
+  'FSSBodySignals',
+  'SAASignalsFound',
+  'SAAScanComplete',
+  'CodexEntry',
+  'ScanOrganic',
+  'SellOrganicData',
+  'FSSDiscoveryScan',
+  'FSSAllBodiesFound',
+]);
+
+export const EVENT_PAYLOAD_FIELDS: Record<JournalEventType, readonly string[]> = {
   ApproachBody: ['StarSystem', 'SystemAddress', 'Body', 'BodyID', 'BodyName'],
   CarrierJump: ['StarSystem', 'SystemAddress', 'StarPos', 'Body', 'BodyID', 'BodyType', 'Docked'],
-  CodexEntry: ['EntryID', 'Name', 'Name_Localised', 'SubCategory', 'SubCategory_Localised', 'Category', 'Category_Localised', 'Region', 'System', 'SystemAddress', 'BodyID', 'NearestDestination', 'NearestDestination_Localised', 'Latitude', 'Longitude', 'Traits'],
+  CodexEntry: ['EntryID', 'Name', 'Name_Localised', 'SubCategory', 'SubCategory_Localised', 'Category', 'Category_Localised', 'Region', 'System', 'SystemName', 'StarSystem', 'SystemAddress', 'BodyID', 'NearestDestination', 'NearestDestination_Localised', 'Latitude', 'Longitude', 'Traits'],
   Commander: ['Name', 'FID'],
   Died: ['KillerName', 'KillerShip', 'KillerRank', 'Killers'],
   Disembark: ['SRV', 'Taxi', 'Multicrew', 'StarSystem', 'SystemAddress', 'Body', 'BodyID', 'BodyName', 'OnStation', 'OnPlanet'],
@@ -103,10 +122,10 @@ const EVENT_PAYLOAD_FIELDS: Record<JournalEventType, readonly string[]> = {
   NavRoute: ['Route'],
   NavRouteClear: [],
   Resurrect: ['Option', 'Cost', 'Bankrupt'],
-  SAAScanComplete: ['SystemAddress', 'BodyName', 'BodyID', 'ProbesUsed', 'EfficiencyTarget'],
+  SAAScanComplete: ['StarSystem', 'SystemName', 'SystemAddress', 'BodyName', 'BodyID', 'ProbesUsed', 'EfficiencyTarget'],
   SAASignalsFound: ['StarSystem', 'SystemAddress', 'BodyName', 'BodyID', 'Signals', 'Genuses'],
   Scan: ['ScanType', 'StarSystem', 'SystemAddress', 'BodyName', 'BodyID', 'DistanceFromArrivalLS', 'StarType', 'Subclass', 'StellarMass', 'Radius', 'AbsoluteMagnitude', 'Age_MY', 'SurfaceTemperature', 'Luminosity', 'SemiMajorAxis', 'Eccentricity', 'OrbitalInclination', 'Periapsis', 'OrbitalPeriod', 'RotationPeriod', 'AxialTilt', 'Rings', 'Parents', 'PlanetClass', 'Atmosphere', 'AtmosphereType', 'AtmosphereComposition', 'Volcanism', 'MassEM', 'SurfaceGravity', 'SurfacePressure', 'Landable', 'Materials', 'Composition', 'ReserveLevel', 'TerraformState', 'WasDiscovered', 'WasMapped'],
-  ScanOrganic: ['ScanType', 'Genus', 'Genus_Localised', 'Species', 'Species_Localised', 'Variant', 'Variant_Localised', 'SystemAddress', 'Body', 'BodyID', 'BodyName'],
+  ScanOrganic: ['ScanType', 'Genus', 'Genus_Localised', 'Species', 'Species_Localised', 'Variant', 'Variant_Localised', 'StarSystem', 'SystemName', 'SystemAddress', 'Body', 'BodyID', 'BodyName'],
   Screenshot: ['Filename', 'Width', 'Height', 'System', 'SystemAddress', 'Body', 'BodyID', 'Latitude', 'Longitude', 'Altitude', 'Heading'],
   SellExplorationData: ['Systems', 'Discovered', 'BaseValue', 'Bonus'],
   SellOrganicData: ['MarketID', 'BioData'],
@@ -144,6 +163,7 @@ interface FileLike {
 
 export async function parseJournalFilesStreaming(
   sources: readonly JournalFileSource[],
+  onFileProgress?: (progress: JournalParseFileProgress) => void,
 ): Promise<JournalImportParseResult> {
   if (sources.length === 0) throw new Error('Select at least one journal file first.');
 
@@ -154,11 +174,13 @@ export async function parseJournalFilesStreaming(
   const seenPowerplayKeys = new Set<string>();
   const eventCounts: Record<string, number> = {};
   const manifestFiles: Array<{ name: string; event_count: number }> = [];
+  const fileManifest: JournalFileManifestEntry[] = [];
   let state = cloneState(EMPTY_STATE);
   let linesRead = 0;
   let skippedLines = 0;
 
-  for (const source of sources) {
+  for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+    const source = sources[sourceIndex] as JournalFileSource;
     const input = normaliseFileInput(source);
     const file = input.file as FileLike;
     const checkpoint = input.checkpoint;
@@ -217,6 +239,18 @@ export async function parseJournalFilesStreaming(
     }
 
     manifestFiles.push({ name: file.name, event_count: fileEventCount });
+    // File-level provenance for the V3 lane: SHA-256 over the whole raw
+    // file (content-addressed identity — filename and parse range never
+    // participate), plus size. Computed in this worker where the bytes are
+    // already being streamed.
+    const contentSha256 = await fileSha256Hex(file);
+    fileManifest.push({
+      name: file.name,
+      content_sha256: contentSha256,
+      size_bytes: file.size,
+      event_count: fileEventCount,
+      line_count: lineNumber,
+    });
     checkpoints.push({
       version: 1,
       source_file: file.name,
@@ -227,6 +261,11 @@ export async function parseJournalFilesStreaming(
       complete: nextOffset >= file.size,
       state: cloneState(state),
     });
+    onFileProgress?.({
+      files_processed: sourceIndex + 1,
+      files_total: sources.length,
+      events_parsed: observations.length,
+    });
   }
 
   return {
@@ -234,6 +273,7 @@ export async function parseJournalFilesStreaming(
       parser_version: JOURNAL_PARSER_VERSION,
       files: manifestFiles,
     },
+    file_manifest: fileManifest,
     observations,
     powerplay_events: powerplayEvents,
     preview: {
@@ -339,6 +379,12 @@ function payloadForEvent(
   }
   if (state.game_version && payload.gameversion == null) payload.gameversion = state.game_version;
   if (state.game_build && payload.gamebuild == null && payload.build == null) payload.gamebuild = state.game_build;
+  // V3 lane: attach the capitalized GameVersion/GameBuild contract fields
+  // to observation payloads from the rolling Fileheader/LoadGame state.
+  if (GAME_VERSION_ATTACH_EVENTS.has(eventType)) {
+    if (state.game_version && payload.GameVersion == null) payload.GameVersion = state.game_version;
+    if (state.game_build && payload.GameBuild == null) payload.GameBuild = state.game_build;
+  }
   return toJournalTransportValue(payload) as Record<string, unknown>;
 }
 
@@ -468,6 +514,35 @@ async function sha256Hex(value: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((item) => item.toString(16).padStart(2, '0'))
     .join('');
+}
+
+/**
+ * SHA-256 of a whole file, read in stream chunks and digested once via
+ * WebCrypto. Chunked over the raw bytes so memory stays bounded to the file
+ * size (up to the 128 MiB client cap) rather than an unbounded accumulation;
+ * the digest itself is a single `crypto.subtle.digest` over the assembled
+ * ArrayBuffer (WebCrypto has no incremental digest API). The hash is always
+ * over `slice(0, size)` — the full file, independent of any incremental
+ * parse range — so it is a stable content-addressable identity.
+ */
+async function fileSha256Hex(file: FileLike): Promise<string> {
+  const byteLength = file.size;
+  const combined = new Uint8Array(byteLength);
+  const reader = file.slice(0, byteLength).stream().getReader();
+  let offset = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        combined.set(value, offset);
+        offset += value.length;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return sha256Hex(combined);
 }
 
 function normaliseFileInput(source: JournalFileSource): JournalFileInput {

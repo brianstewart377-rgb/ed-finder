@@ -773,6 +773,60 @@ export type BodySlotPrediction = {
 };
 
 /**
+ * BodyV1
+ */
+export type BodyV1 = {
+    /**
+     * Body Id
+     */
+    body_id: string;
+    /**
+     * Source Body Id64
+     */
+    source_body_id64: string | null;
+    /**
+     * Frontier Body Id
+     */
+    frontier_body_id: string | null;
+    /**
+     * Direct Parent Body Id
+     */
+    direct_parent_body_id: string | null;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Body Type
+     */
+    body_type: string | null;
+    /**
+     * Radius Km
+     */
+    radius_km: number | null;
+    /**
+     * Planet Mass Earth
+     */
+    planet_mass_earth: number | null;
+    /**
+     * Stellar Mass Solar
+     */
+    stellar_mass_solar: number | null;
+    /**
+     * Surface Pressure Atm
+     */
+    surface_pressure_atm: number | null;
+    /**
+     * Semi Major Axis Km
+     */
+    semi_major_axis_km: number | null;
+    /**
+     * Distance From Arrival Ls
+     */
+    distance_from_arrival_ls: number | null;
+};
+
+/**
  * BuildSimulateRequest
  */
 export type BuildSimulateRequest = {
@@ -2832,6 +2886,28 @@ export type GenerationResponse = {
 };
 
 /**
+ * GenerationV1
+ */
+export type GenerationV1 = {
+    /**
+     * Generation Id
+     */
+    generation_id: string;
+    /**
+     * Generation Key
+     */
+    generation_key: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: string;
+    /**
+     * Published At
+     */
+    published_at: string;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -3485,7 +3561,7 @@ export type ObservationSource = 'manual' | 'imported' | 'inferred' | 'test_fixtu
  *
  * User-submitted observation confidence (3-value scale).
  *
- * Maps to CRE confidence bands via from_canonical().
+ * Maps to EDRE confidence bands via from_canonical().
  * Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
  */
 export type ObservedConfidence = 'low' | 'medium' | 'high';
@@ -5168,6 +5244,82 @@ export type RegionalAnalysisResponse = {
 };
 
 /**
+ * RingSignalV1
+ */
+export type RingSignalV1 = {
+    /**
+     * Signal Type
+     */
+    signal_type: string;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * RingV1
+ */
+export type RingV1 = {
+    /**
+     * Ring Id
+     */
+    ring_id: string;
+    /**
+     * Body Id
+     */
+    body_id: string;
+    /**
+     * Source Ring Id64
+     */
+    source_ring_id64: string | null;
+    /**
+     * Kind
+     */
+    kind: 'RING' | 'BELT';
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Ring Type
+     */
+    ring_type: string | null;
+    /**
+     * Reserve Type
+     */
+    reserve_type: string | null;
+    /**
+     * Inner Radius Km
+     */
+    inner_radius_km: number | null;
+    /**
+     * Outer Radius Km
+     */
+    outer_radius_km: number | null;
+    /**
+     * Mass Mt
+     */
+    mass_mt: number | null;
+    /**
+     * Signals Complete
+     */
+    signals_complete: boolean | null;
+    /**
+     * Source Updated At
+     */
+    source_updated_at: string | null;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
+    /**
+     * Signals
+     */
+    signals: Array<RingSignalV1>;
+};
+
+/**
  * RouteAlignment
  */
 export type RouteAlignment = {
@@ -6375,6 +6527,28 @@ export type SpecialisationConstraintResponse = {
 };
 
 /**
+ * StationEconomyV1
+ */
+export type StationEconomyV1 = {
+    /**
+     * Economy
+     */
+    economy: string;
+    /**
+     * Economy Weight
+     */
+    economy_weight: number | null;
+    /**
+     * Is Primary
+     */
+    is_primary: boolean;
+    /**
+     * Is Secondary
+     */
+    is_secondary: boolean;
+};
+
+/**
  * StationModel
  */
 export type StationModel = {
@@ -6503,6 +6677,44 @@ export type StationModel = {
      */
     has_rearm?: boolean | null;
     [key: string]: unknown;
+};
+
+/**
+ * StationV1
+ */
+export type StationV1 = {
+    /**
+     * Station Id
+     */
+    station_id: string;
+    /**
+     * Market Id
+     */
+    market_id: string | null;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Station Type
+     */
+    station_type: string | null;
+    /**
+     * Distance From Arrival Ls
+     */
+    distance_from_arrival_ls: number | null;
+    /**
+     * Body Id
+     */
+    body_id: string | null;
+    /**
+     * Association State
+     */
+    association_state: string;
+    /**
+     * Economies
+     */
+    economies: Array<StationEconomyV1>;
 };
 
 /**
@@ -7201,6 +7413,48 @@ export type SystemRow = {
 };
 
 /**
+ * SystemV1
+ */
+export type SystemV1 = {
+    /**
+     * Id64
+     */
+    id64: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * X Ly
+     */
+    x_ly: number;
+    /**
+     * Y Ly
+     */
+    y_ly: number;
+    /**
+     * Z Ly
+     */
+    z_ly: number;
+    /**
+     * Source Body Count
+     */
+    source_body_count: number | null;
+    /**
+     * Loaded Body Count
+     */
+    loaded_body_count: number;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
+    /**
+     * Source Updated At
+     */
+    source_updated_at: string | null;
+};
+
+/**
  * TopologyContextResponse
  */
 export type TopologyContextResponse = {
@@ -7314,6 +7568,435 @@ export type TopologyDetail = {
      */
     has_deep_orbital_anchor?: boolean | null;
     [key: string]: unknown;
+};
+
+/**
+ * V3CodexEntryRow
+ */
+export type V3CodexEntryRow = {
+    /**
+     * Entry Id
+     */
+    entry_id: string;
+    /**
+     * Name
+     */
+    name: string | null;
+    /**
+     * Category
+     */
+    category: string | null;
+    /**
+     * Subcategory
+     */
+    subcategory: string | null;
+    /**
+     * Region
+     */
+    region: string | null;
+    /**
+     * System Id64
+     */
+    system_id64: string | null;
+    /**
+     * Body Id
+     */
+    body_id: string | null;
+    /**
+     * First Observed At
+     */
+    first_observed_at: string | null;
+    /**
+     * Last Observed At
+     */
+    last_observed_at: string | null;
+};
+
+/**
+ * V3JournalBodyRow
+ */
+export type V3JournalBodyRow = {
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * Body Id
+     */
+    body_id: string;
+    /**
+     * Body Name
+     */
+    body_name: string | null;
+    /**
+     * First Observed At
+     */
+    first_observed_at: string | null;
+    /**
+     * Last Observed At
+     */
+    last_observed_at: string | null;
+    /**
+     * Scan Count
+     */
+    scan_count: number;
+};
+
+/**
+ * V3JournalEventInput
+ */
+export type V3JournalEventInput = {
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * Event Timestamp
+     */
+    event_timestamp: string;
+    /**
+     * Source Record Hash
+     */
+    source_record_hash: string;
+    /**
+     * Source File
+     */
+    source_file: string;
+    /**
+     * Source Offset
+     */
+    source_offset: number;
+    /**
+     * Payload
+     */
+    payload: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * V3JournalFileRef
+ */
+export type V3JournalFileRef = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Content Sha256
+     */
+    content_sha256: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+    /**
+     * Line Count
+     */
+    line_count: number;
+    /**
+     * Event Count
+     */
+    event_count: number;
+    /**
+     * First Event At
+     */
+    first_event_at?: string | null;
+    /**
+     * Last Event At
+     */
+    last_event_at?: string | null;
+};
+
+/**
+ * V3JournalImportReceipt
+ */
+export type V3JournalImportReceipt = {
+    /**
+     * Import Id
+     */
+    import_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Files Received
+     */
+    files_received: number;
+    /**
+     * Files Skipped
+     */
+    files_skipped: number;
+    /**
+     * Files Admitted
+     */
+    files_admitted: number;
+    /**
+     * Events Received
+     */
+    events_received: number;
+    /**
+     * Events Inserted
+     */
+    events_inserted: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped: number;
+    /**
+     * Privacy Stripped Fields
+     */
+    privacy_stripped_fields: number;
+    /**
+     * Event Counts
+     */
+    event_counts: {
+        [key: string]: number;
+    };
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Finished At
+     */
+    finished_at: string;
+};
+
+/**
+ * V3JournalImportRequest
+ */
+export type V3JournalImportRequest = {
+    /**
+     * Parser Version
+     */
+    parser_version: string;
+    /**
+     * Files
+     */
+    files: Array<V3JournalFileRef>;
+    /**
+     * Events
+     */
+    events?: Array<V3JournalEventInput>;
+};
+
+/**
+ * V3JournalSummaryResponse
+ */
+export type V3JournalSummaryResponse = {
+    /**
+     * Events Stored
+     */
+    events_stored: number;
+    /**
+     * Unique Bodies
+     */
+    unique_bodies: number;
+    /**
+     * Unique Bio Observations
+     */
+    unique_bio_observations: number;
+    /**
+     * Systems Observed
+     */
+    systems_observed: number;
+    /**
+     * Last Imported At
+     */
+    last_imported_at: string | null;
+    /**
+     * Event Counts
+     */
+    event_counts: {
+        [key: string]: number;
+    };
+    /**
+     * Imported Files
+     */
+    imported_files: number;
+};
+
+/**
+ * V3JournalSystemRow
+ */
+export type V3JournalSystemRow = {
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * System Name
+     */
+    system_name: string | null;
+    /**
+     * First Observed At
+     */
+    first_observed_at: string | null;
+    /**
+     * Last Observed At
+     */
+    last_observed_at: string | null;
+    /**
+     * Visit Count
+     */
+    visit_count: number;
+};
+
+/**
+ * V3OrganicProgressRow
+ */
+export type V3OrganicProgressRow = {
+    /**
+     * Genus
+     */
+    genus: string;
+    /**
+     * Species
+     */
+    species: string;
+    /**
+     * Variant
+     */
+    variant: string | null;
+    /**
+     * Stages
+     */
+    stages: Array<string>;
+    /**
+     * First Observed At
+     */
+    first_observed_at: string | null;
+    /**
+     * Last Observed At
+     */
+    last_observed_at: string | null;
+};
+
+/**
+ * V3ResearchConsentRequest
+ */
+export type V3ResearchConsentRequest = {
+    /**
+     * Decision
+     */
+    decision: 'GRANT' | 'WITHDRAW';
+};
+
+/**
+ * V3ResearchConsentState
+ */
+export type V3ResearchConsentState = {
+    /**
+     * Decision
+     */
+    decision: 'GRANT' | 'WITHDRAW' | 'NONE';
+    /**
+     * Consent Version
+     */
+    consent_version: string | null;
+    /**
+     * Sanitized Contract Version
+     */
+    sanitized_contract_version: string | null;
+    /**
+     * Purpose
+     */
+    purpose: string | null;
+    /**
+     * Audience Code
+     */
+    audience_code: string | null;
+    /**
+     * Decided At
+     */
+    decided_at: string | null;
+    /**
+     * Withdrawable
+     */
+    withdrawable: boolean;
+};
+
+/**
+ * V3ResearchExportDetail
+ */
+export type V3ResearchExportDetail = {
+    receipt: V3ResearchExportReceipt;
+    /**
+     * Payload
+     */
+    payload: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * V3ResearchExportReceipt
+ */
+export type V3ResearchExportReceipt = {
+    /**
+     * Export Batch Id
+     */
+    export_batch_id: string;
+    /**
+     * Sanitized Contract Version
+     */
+    sanitized_contract_version: string;
+    /**
+     * Consent Version
+     */
+    consent_version: string;
+    /**
+     * Lineage Token
+     */
+    lineage_token: string;
+    /**
+     * Observation Count
+     */
+    observation_count: number;
+    /**
+     * Payload Sha256
+     */
+    payload_sha256: string;
+    /**
+     * Batch State
+     */
+    batch_state: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * V3ResearchExportRequest
+ */
+export type V3ResearchExportRequest = {
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
+ * V3SaleRow
+ */
+export type V3SaleRow = {
+    /**
+     * Bio Data
+     */
+    bio_data: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Market Id
+     */
+    market_id: string | null;
+    /**
+     * Observed At
+     */
+    observed_at: string;
 };
 
 /**
@@ -10949,3 +11632,492 @@ export type OperatorSafetyGatesApiOperatorSafetyGatesGetResponses = {
      */
     200: unknown;
 };
+
+export type GetV3CurrentGenerationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/generation';
+};
+
+export type GetV3CurrentGenerationResponses = {
+    /**
+     * Successful Response
+     */
+    200: GenerationV1;
+};
+
+export type GetV3CurrentGenerationResponse = GetV3CurrentGenerationResponses[keyof GetV3CurrentGenerationResponses];
+
+export type GetV3SystemData = {
+    body?: never;
+    path: {
+        /**
+         * System Id
+         */
+        system_id: string;
+    };
+    query?: never;
+    url: '/api/v1/systems/{system_id}';
+};
+
+export type GetV3SystemErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetV3SystemError = GetV3SystemErrors[keyof GetV3SystemErrors];
+
+export type GetV3SystemResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemV1;
+};
+
+export type GetV3SystemResponse = GetV3SystemResponses[keyof GetV3SystemResponses];
+
+export type ListV3SystemBodiesData = {
+    body?: never;
+    path: {
+        /**
+         * System Id
+         */
+        system_id: string;
+    };
+    query?: never;
+    url: '/api/v1/systems/{system_id}/bodies';
+};
+
+export type ListV3SystemBodiesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3SystemBodiesError = ListV3SystemBodiesErrors[keyof ListV3SystemBodiesErrors];
+
+export type ListV3SystemBodiesResponses = {
+    /**
+     * Response Listv3Systembodies
+     *
+     * Successful Response
+     */
+    200: Array<BodyV1>;
+};
+
+export type ListV3SystemBodiesResponse = ListV3SystemBodiesResponses[keyof ListV3SystemBodiesResponses];
+
+export type ListV3SystemRingsData = {
+    body?: never;
+    path: {
+        /**
+         * System Id
+         */
+        system_id: string;
+    };
+    query?: never;
+    url: '/api/v1/systems/{system_id}/rings';
+};
+
+export type ListV3SystemRingsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3SystemRingsError = ListV3SystemRingsErrors[keyof ListV3SystemRingsErrors];
+
+export type ListV3SystemRingsResponses = {
+    /**
+     * Response Listv3Systemrings
+     *
+     * Successful Response
+     */
+    200: Array<RingV1>;
+};
+
+export type ListV3SystemRingsResponse = ListV3SystemRingsResponses[keyof ListV3SystemRingsResponses];
+
+export type ListV3SystemStationsData = {
+    body?: never;
+    path: {
+        /**
+         * System Id
+         */
+        system_id: string;
+    };
+    query?: never;
+    url: '/api/v1/systems/{system_id}/stations';
+};
+
+export type ListV3SystemStationsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3SystemStationsError = ListV3SystemStationsErrors[keyof ListV3SystemStationsErrors];
+
+export type ListV3SystemStationsResponses = {
+    /**
+     * Response Listv3Systemstations
+     *
+     * Successful Response
+     */
+    200: Array<StationV1>;
+};
+
+export type ListV3SystemStationsResponse = ListV3SystemStationsResponses[keyof ListV3SystemStationsResponses];
+
+export type CreateV3JournalImportData = {
+    body: V3JournalImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/imports';
+};
+
+export type CreateV3JournalImportErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateV3JournalImportError = CreateV3JournalImportErrors[keyof CreateV3JournalImportErrors];
+
+export type CreateV3JournalImportResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3JournalImportReceipt;
+};
+
+export type CreateV3JournalImportResponse = CreateV3JournalImportResponses[keyof CreateV3JournalImportResponses];
+
+export type GetV3JournalImportData = {
+    body?: never;
+    path: {
+        /**
+         * Import Id
+         */
+        import_id: string;
+    };
+    query?: never;
+    url: '/api/v1/journal/imports/{import_id}';
+};
+
+export type GetV3JournalImportErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetV3JournalImportError = GetV3JournalImportErrors[keyof GetV3JournalImportErrors];
+
+export type GetV3JournalImportResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3JournalImportReceipt;
+};
+
+export type GetV3JournalImportResponse = GetV3JournalImportResponses[keyof GetV3JournalImportResponses];
+
+export type GetV3JournalSummaryData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/summary';
+};
+
+export type GetV3JournalSummaryResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3JournalSummaryResponse;
+};
+
+export type GetV3JournalSummaryResponse = GetV3JournalSummaryResponses[keyof GetV3JournalSummaryResponses];
+
+export type ListV3JournalSystemsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/systems';
+};
+
+export type ListV3JournalSystemsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3JournalSystemsError = ListV3JournalSystemsErrors[keyof ListV3JournalSystemsErrors];
+
+export type ListV3JournalSystemsResponses = {
+    /**
+     * Response Listv3Journalsystems
+     *
+     * Successful Response
+     */
+    200: Array<V3JournalSystemRow>;
+};
+
+export type ListV3JournalSystemsResponse = ListV3JournalSystemsResponses[keyof ListV3JournalSystemsResponses];
+
+export type ListV3JournalBodiesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/bodies';
+};
+
+export type ListV3JournalBodiesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3JournalBodiesError = ListV3JournalBodiesErrors[keyof ListV3JournalBodiesErrors];
+
+export type ListV3JournalBodiesResponses = {
+    /**
+     * Response Listv3Journalbodies
+     *
+     * Successful Response
+     */
+    200: Array<V3JournalBodyRow>;
+};
+
+export type ListV3JournalBodiesResponse = ListV3JournalBodiesResponses[keyof ListV3JournalBodiesResponses];
+
+export type ListV3JournalCodexData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/codex';
+};
+
+export type ListV3JournalCodexResponses = {
+    /**
+     * Response Listv3Journalcodex
+     *
+     * Successful Response
+     */
+    200: Array<V3CodexEntryRow>;
+};
+
+export type ListV3JournalCodexResponse = ListV3JournalCodexResponses[keyof ListV3JournalCodexResponses];
+
+export type ListV3JournalOrganicsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/organics';
+};
+
+export type ListV3JournalOrganicsResponses = {
+    /**
+     * Response Listv3Journalorganics
+     *
+     * Successful Response
+     */
+    200: Array<V3OrganicProgressRow>;
+};
+
+export type ListV3JournalOrganicsResponse = ListV3JournalOrganicsResponses[keyof ListV3JournalOrganicsResponses];
+
+export type ListV3JournalSalesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/sales';
+};
+
+export type ListV3JournalSalesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3JournalSalesError = ListV3JournalSalesErrors[keyof ListV3JournalSalesErrors];
+
+export type ListV3JournalSalesResponses = {
+    /**
+     * Response Listv3Journalsales
+     *
+     * Successful Response
+     */
+    200: Array<V3SaleRow>;
+};
+
+export type ListV3JournalSalesResponse = ListV3JournalSalesResponses[keyof ListV3JournalSalesResponses];
+
+export type GetV3ResearchConsentData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/research-consent';
+};
+
+export type GetV3ResearchConsentResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3ResearchConsentState;
+};
+
+export type GetV3ResearchConsentResponse = GetV3ResearchConsentResponses[keyof GetV3ResearchConsentResponses];
+
+export type PutV3ResearchConsentData = {
+    body: V3ResearchConsentRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/research-consent';
+};
+
+export type PutV3ResearchConsentErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PutV3ResearchConsentError = PutV3ResearchConsentErrors[keyof PutV3ResearchConsentErrors];
+
+export type PutV3ResearchConsentResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3ResearchConsentState;
+};
+
+export type PutV3ResearchConsentResponse = PutV3ResearchConsentResponses[keyof PutV3ResearchConsentResponses];
+
+export type ListV3ResearchExportsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/research-exports';
+};
+
+export type ListV3ResearchExportsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3ResearchExportsError = ListV3ResearchExportsErrors[keyof ListV3ResearchExportsErrors];
+
+export type ListV3ResearchExportsResponses = {
+    /**
+     * Response Listv3Researchexports
+     *
+     * Successful Response
+     */
+    200: Array<V3ResearchExportReceipt>;
+};
+
+export type ListV3ResearchExportsResponse = ListV3ResearchExportsResponses[keyof ListV3ResearchExportsResponses];
+
+export type CreateV3ResearchExportData = {
+    body: V3ResearchExportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/research-exports';
+};
+
+export type CreateV3ResearchExportErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateV3ResearchExportError = CreateV3ResearchExportErrors[keyof CreateV3ResearchExportErrors];
+
+export type CreateV3ResearchExportResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3ResearchExportReceipt;
+};
+
+export type CreateV3ResearchExportResponse = CreateV3ResearchExportResponses[keyof CreateV3ResearchExportResponses];
+
+export type GetV3ResearchExportData = {
+    body?: never;
+    path: {
+        /**
+         * Export Batch Id
+         */
+        export_batch_id: string;
+    };
+    query?: never;
+    url: '/api/v1/journal/research-exports/{export_batch_id}';
+};
+
+export type GetV3ResearchExportErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetV3ResearchExportError = GetV3ResearchExportErrors[keyof GetV3ResearchExportErrors];
+
+export type GetV3ResearchExportResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3ResearchExportDetail;
+};
+
+export type GetV3ResearchExportResponse = GetV3ResearchExportResponses[keyof GetV3ResearchExportResponses];

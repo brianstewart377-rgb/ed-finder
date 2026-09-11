@@ -119,7 +119,7 @@ class FacilityTemplate:
 
     @property
     def canonical_confidence(self) -> CanonicalConfidence:
-        """Get CRE-aligned canonical confidence for this facility's CP data.
+        """Get EDRE-aligned canonical confidence for this facility's CP data.
 
         Converts the string data_confidence ('confirmed', 'observed', 'estimated')
         to the canonical shape for use in canonical workflows.

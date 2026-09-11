@@ -1,6 +1,21 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import type { UseAuth } from '@/features/auth/useAuth';
 import { NavBar } from './NavBar';
+
+function authenticatedAuth(): UseAuth {
+  return {
+    loading: false,
+    authenticated: true,
+    user: { commander_name: 'Test' } as never,
+    ownerClaimAvailable: false,
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    claimOwner: vi.fn(),
+    refresh: vi.fn(),
+  };
+}
 
 describe('NavBar', () => {
   it('shows one direct route strip without duplicated workspace headings', () => {
@@ -185,5 +200,19 @@ describe('NavBar', () => {
 
     fireEvent.click(screen.getByTestId('nav-return-to-player-desktop'));
     expect(onNavigate).toHaveBeenCalledWith('finder');
+  });
+
+  it('shows the Account tab only for authenticated sessions and navigates to it', () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<NavBar current="finder" onNavigate={onNavigate} health="Online" />);
+    expect(screen.queryByTestId('nav-account')).toBeNull();
+
+    rerender(<NavBar current="finder" onNavigate={onNavigate} health="Online" auth={authenticatedAuth()} />);
+    expect(screen.getByTestId('nav-account')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('nav-account'));
+    expect(onNavigate).toHaveBeenCalledWith('account');
+
+    rerender(<NavBar current="account" onNavigate={onNavigate} health="Online" auth={authenticatedAuth()} />);
+    expect(screen.getByTestId('nav-account').getAttribute('aria-current')).toBe('page');
   });
 });

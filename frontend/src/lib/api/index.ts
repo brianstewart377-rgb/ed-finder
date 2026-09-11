@@ -41,6 +41,7 @@ import * as map from './map';
 import * as routes from './routes';
 import * as powerplay from './powerplay';
 import * as auth from './auth';
+import * as journal from './journal';
 
 export type {
   CommanderPowerplayResponse,
@@ -54,12 +55,28 @@ export type {
 
 export { ApiError } from './core';
 export type { AuthSession, AuthUser } from './auth';
+export * from './journal';
 
 export const api = {
   frontierLoginUrl: auth.frontierLoginUrl,
   authSession: auth.authSession,
   authLogout: auth.authLogout,
   claimOwner: auth.claimOwner,
+
+  createV3JournalImport: journal.createV3JournalImport,
+  getV3JournalImport: journal.getV3JournalImport,
+  getV3JournalSummary: journal.getV3JournalSummary,
+  listV3JournalSystems: journal.listV3JournalSystems,
+  listV3JournalBodies: journal.listV3JournalBodies,
+  listV3JournalCodex: journal.listV3JournalCodex,
+  listV3JournalOrganics: journal.listV3JournalOrganics,
+  listV3JournalSales: journal.listV3JournalSales,
+  getV3ResearchConsent: journal.getV3ResearchConsent,
+  putV3ResearchConsent: journal.putV3ResearchConsent,
+  createV3ResearchExport: journal.createV3ResearchExport,
+  listV3ResearchExports: journal.listV3ResearchExports,
+  getV3ResearchExport: journal.getV3ResearchExport,
+
   health: search.health,
   autocomplete: search.autocomplete,
   localSearch: search.localSearch,

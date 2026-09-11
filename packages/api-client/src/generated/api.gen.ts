@@ -2055,6 +2055,280 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Generation */
+        get: operations["getV3CurrentGeneration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/systems/{system_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System */
+        get: operations["getV3System"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/systems/{system_id}/bodies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bodies */
+        get: operations["listV3SystemBodies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/systems/{system_id}/rings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rings */
+        get: operations["listV3SystemRings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/systems/{system_id}/stations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stations */
+        get: operations["listV3SystemStations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create V3 Journal Import */
+        post: operations["createV3JournalImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get V3 Journal Import */
+        get: operations["getV3JournalImport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get V3 Journal Summary */
+        get: operations["getV3JournalSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/systems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Journal Systems */
+        get: operations["listV3JournalSystems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/bodies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Journal Bodies */
+        get: operations["listV3JournalBodies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/codex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Journal Codex */
+        get: operations["listV3JournalCodex"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/organics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Journal Organics */
+        get: operations["listV3JournalOrganics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Journal Sales */
+        get: operations["listV3JournalSales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/research-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get V3 Research Consent */
+        get: operations["getV3ResearchConsent"];
+        /** Put V3 Research Consent */
+        put: operations["putV3ResearchConsent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/research-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List V3 Research Exports */
+        get: operations["listV3ResearchExports"];
+        put?: never;
+        /** Create V3 Research Export */
+        post: operations["createV3ResearchExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/research-exports/{export_batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get V3 Research Export */
+        get: operations["getV3ResearchExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2537,6 +2811,33 @@ export interface components {
             radius?: number | null;
         } & {
             [key: string]: unknown;
+        };
+        /** BodyV1 */
+        BodyV1: {
+            /** Body Id */
+            body_id: string;
+            /** Source Body Id64 */
+            source_body_id64: string | null;
+            /** Frontier Body Id */
+            frontier_body_id: string | null;
+            /** Direct Parent Body Id */
+            direct_parent_body_id: string | null;
+            /** Name */
+            name: string;
+            /** Body Type */
+            body_type: string | null;
+            /** Radius Km */
+            radius_km: number | null;
+            /** Planet Mass Earth */
+            planet_mass_earth: number | null;
+            /** Stellar Mass Solar */
+            stellar_mass_solar: number | null;
+            /** Surface Pressure Atm */
+            surface_pressure_atm: number | null;
+            /** Semi Major Axis Km */
+            semi_major_axis_km: number | null;
+            /** Distance From Arrival Ls */
+            distance_from_arrival_ls: number | null;
         };
         /** BuildSimulateRequest */
         BuildSimulateRequest: {
@@ -3800,6 +4101,17 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** GenerationV1 */
+        GenerationV1: {
+            /** Generation Id */
+            generation_id: string;
+            /** Generation Key */
+            generation_key: string;
+            /** Publication Sequence */
+            publication_sequence: string;
+            /** Published At */
+            published_at: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -4229,7 +4541,7 @@ export interface components {
          * ObservedConfidence
          * @description User-submitted observation confidence (3-value scale).
          *
-         *     Maps to CRE confidence bands via from_canonical().
+         *     Maps to EDRE confidence bands via from_canonical().
          *     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
          * @enum {string}
          */
@@ -5267,6 +5579,47 @@ export interface components {
             /** Computed At */
             computed_at?: unknown | null;
         };
+        /** RingSignalV1 */
+        RingSignalV1: {
+            /** Signal Type */
+            signal_type: string;
+            /** Count */
+            count: number;
+        };
+        /** RingV1 */
+        RingV1: {
+            /** Ring Id */
+            ring_id: string;
+            /** Body Id */
+            body_id: string;
+            /** Source Ring Id64 */
+            source_ring_id64: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "RING" | "BELT";
+            /** Name */
+            name: string;
+            /** Ring Type */
+            ring_type: string | null;
+            /** Reserve Type */
+            reserve_type: string | null;
+            /** Inner Radius Km */
+            inner_radius_km: number | null;
+            /** Outer Radius Km */
+            outer_radius_km: number | null;
+            /** Mass Mt */
+            mass_mt: number | null;
+            /** Signals Complete */
+            signals_complete: boolean | null;
+            /** Source Updated At */
+            source_updated_at: string | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
+            /** Signals */
+            signals: components["schemas"]["RingSignalV1"][];
+        };
         /** RouteAlignment */
         RouteAlignment: {
             /** Planned Order */
@@ -6021,6 +6374,17 @@ export interface components {
             /** Provenance */
             provenance: string | null;
         };
+        /** StationEconomyV1 */
+        StationEconomyV1: {
+            /** Economy */
+            economy: string;
+            /** Economy Weight */
+            economy_weight: number | null;
+            /** Is Primary */
+            is_primary: boolean;
+            /** Is Secondary */
+            is_secondary: boolean;
+        };
         /** StationModel */
         StationModel: {
             /** Id */
@@ -6087,6 +6451,25 @@ export interface components {
             has_rearm?: boolean | null;
         } & {
             [key: string]: unknown;
+        };
+        /** StationV1 */
+        StationV1: {
+            /** Station Id */
+            station_id: string;
+            /** Market Id */
+            market_id: string | null;
+            /** Name */
+            name: string;
+            /** Station Type */
+            station_type: string | null;
+            /** Distance From Arrival Ls */
+            distance_from_arrival_ls: number | null;
+            /** Body Id */
+            body_id: string | null;
+            /** Association State */
+            association_state: string;
+            /** Economies */
+            economies: components["schemas"]["StationEconomyV1"][];
         };
         /**
          * StatusResponse
@@ -6502,6 +6885,27 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** SystemV1 */
+        SystemV1: {
+            /** Id64 */
+            id64: string;
+            /** Name */
+            name: string;
+            /** X Ly */
+            x_ly: number;
+            /** Y Ly */
+            y_ly: number;
+            /** Z Ly */
+            z_ly: number;
+            /** Source Body Count */
+            source_body_count: number | null;
+            /** Loaded Body Count */
+            loaded_body_count: number;
+            /** Lifecycle State */
+            lifecycle_state: string;
+            /** Source Updated At */
+            source_updated_at: string | null;
+        };
         /** TopologyContextResponse */
         TopologyContextResponse: {
             /**
@@ -6603,6 +7007,238 @@ export interface components {
             has_deep_orbital_anchor?: boolean | null;
         } & {
             [key: string]: unknown;
+        };
+        /** V3CodexEntryRow */
+        V3CodexEntryRow: {
+            /** Entry Id */
+            entry_id: string;
+            /** Name */
+            name: string | null;
+            /** Category */
+            category: string | null;
+            /** Subcategory */
+            subcategory: string | null;
+            /** Region */
+            region: string | null;
+            /** System Id64 */
+            system_id64: string | null;
+            /** Body Id */
+            body_id: string | null;
+            /** First Observed At */
+            first_observed_at: string | null;
+            /** Last Observed At */
+            last_observed_at: string | null;
+        };
+        /** V3JournalBodyRow */
+        V3JournalBodyRow: {
+            /** System Id64 */
+            system_id64: string;
+            /** Body Id */
+            body_id: string;
+            /** Body Name */
+            body_name: string | null;
+            /** First Observed At */
+            first_observed_at: string | null;
+            /** Last Observed At */
+            last_observed_at: string | null;
+            /** Scan Count */
+            scan_count: number;
+        };
+        /** V3JournalEventInput */
+        V3JournalEventInput: {
+            /** Event Type */
+            event_type: string;
+            /**
+             * Event Timestamp
+             * Format: date-time
+             */
+            event_timestamp: string;
+            /** Source Record Hash */
+            source_record_hash: string;
+            /** Source File */
+            source_file: string;
+            /** Source Offset */
+            source_offset: number;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** V3JournalFileRef */
+        V3JournalFileRef: {
+            /** Name */
+            name: string;
+            /** Content Sha256 */
+            content_sha256: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Line Count */
+            line_count: number;
+            /** Event Count */
+            event_count: number;
+            /** First Event At */
+            first_event_at?: string | null;
+            /** Last Event At */
+            last_event_at?: string | null;
+        };
+        /** V3JournalImportReceipt */
+        V3JournalImportReceipt: {
+            /** Import Id */
+            import_id: string;
+            /** Status */
+            status: string;
+            /** Files Received */
+            files_received: number;
+            /** Files Skipped */
+            files_skipped: number;
+            /** Files Admitted */
+            files_admitted: number;
+            /** Events Received */
+            events_received: number;
+            /** Events Inserted */
+            events_inserted: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /** Privacy Stripped Fields */
+            privacy_stripped_fields: number;
+            /** Event Counts */
+            event_counts: {
+                [key: string]: number;
+            };
+            /** Started At */
+            started_at: string;
+            /** Finished At */
+            finished_at: string;
+        };
+        /** V3JournalImportRequest */
+        V3JournalImportRequest: {
+            /** Parser Version */
+            parser_version: string;
+            /** Files */
+            files: components["schemas"]["V3JournalFileRef"][];
+            /** Events */
+            events?: components["schemas"]["V3JournalEventInput"][];
+        };
+        /** V3JournalSummaryResponse */
+        V3JournalSummaryResponse: {
+            /** Events Stored */
+            events_stored: number;
+            /** Unique Bodies */
+            unique_bodies: number;
+            /** Unique Bio Observations */
+            unique_bio_observations: number;
+            /** Systems Observed */
+            systems_observed: number;
+            /** Last Imported At */
+            last_imported_at: string | null;
+            /** Event Counts */
+            event_counts: {
+                [key: string]: number;
+            };
+            /** Imported Files */
+            imported_files: number;
+        };
+        /** V3JournalSystemRow */
+        V3JournalSystemRow: {
+            /** System Id64 */
+            system_id64: string;
+            /** System Name */
+            system_name: string | null;
+            /** First Observed At */
+            first_observed_at: string | null;
+            /** Last Observed At */
+            last_observed_at: string | null;
+            /** Visit Count */
+            visit_count: number;
+        };
+        /** V3OrganicProgressRow */
+        V3OrganicProgressRow: {
+            /** Genus */
+            genus: string;
+            /** Species */
+            species: string;
+            /** Variant */
+            variant: string | null;
+            /** Stages */
+            stages: string[];
+            /** First Observed At */
+            first_observed_at: string | null;
+            /** Last Observed At */
+            last_observed_at: string | null;
+        };
+        /** V3ResearchConsentRequest */
+        V3ResearchConsentRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "GRANT" | "WITHDRAW";
+        };
+        /** V3ResearchConsentState */
+        V3ResearchConsentState: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "GRANT" | "WITHDRAW" | "NONE";
+            /** Consent Version */
+            consent_version: string | null;
+            /** Sanitized Contract Version */
+            sanitized_contract_version: string | null;
+            /** Purpose */
+            purpose: string | null;
+            /** Audience Code */
+            audience_code: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Withdrawable */
+            withdrawable: boolean;
+        };
+        /** V3ResearchExportDetail */
+        V3ResearchExportDetail: {
+            receipt: components["schemas"]["V3ResearchExportReceipt"];
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** V3ResearchExportReceipt */
+        V3ResearchExportReceipt: {
+            /** Export Batch Id */
+            export_batch_id: string;
+            /** Sanitized Contract Version */
+            sanitized_contract_version: string;
+            /** Consent Version */
+            consent_version: string;
+            /** Lineage Token */
+            lineage_token: string;
+            /** Observation Count */
+            observation_count: number;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            /** Batch State */
+            batch_state: string;
+            /** Created At */
+            created_at: string;
+        };
+        /** V3ResearchExportRequest */
+        V3ResearchExportRequest: {
+            /**
+             * Limit
+             * @default 1000
+             */
+            limit: number;
+        };
+        /** V3SaleRow */
+        V3SaleRow: {
+            /** Bio Data */
+            bio_data: {
+                [key: string]: unknown;
+            }[];
+            /** Market Id */
+            market_id: string | null;
+            /** Observed At */
+            observed_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -10362,6 +10998,519 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    getV3CurrentGeneration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerationV1"];
+                };
+            };
+        };
+    };
+    getV3System: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3SystemBodies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyV1"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3SystemRings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingV1"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3SystemStations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StationV1"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createV3JournalImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["V3JournalImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3JournalImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3JournalSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalSummaryResponse"];
+                };
+            };
+        };
+    };
+    listV3JournalSystems: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalSystemRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3JournalBodies: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalBodyRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3JournalCodex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3CodexEntryRow"][];
+                };
+            };
+        };
+    };
+    listV3JournalOrganics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3OrganicProgressRow"][];
+                };
+            };
+        };
+    };
+    listV3JournalSales: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3SaleRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3ResearchConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3ResearchConsentState"];
+                };
+            };
+        };
+    };
+    putV3ResearchConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["V3ResearchConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3ResearchConsentState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3ResearchExports: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3ResearchExportReceipt"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createV3ResearchExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["V3ResearchExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3ResearchExportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3ResearchExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3ResearchExportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

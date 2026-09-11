@@ -36,6 +36,30 @@ export interface JournalFileInput {
 
 export type JournalFileSource = File | JournalFileInput;
 
+/**
+ * Per-file provenance for the V3 journal lane. `content_sha256` is the
+ * file-level dedupe identity (ADR-010 acquisition artifact identity): it is
+ * computed over the whole raw file bytes and must never depend on the
+ * filename or the byte range requested for parsing. Kept OUT of
+ * `client_manifest.files` on purpose — the A-1 lane's `JournalImportFileRef`
+ * is `extra='forbid'` server-side, so the existing A-1 wire contract must
+ * not gain new fields.
+ */
+export interface JournalFileManifestEntry {
+  name: string;
+  content_sha256: string;
+  size_bytes: number;
+  event_count: number;
+  line_count: number;
+}
+
+/** Live parse progress reported between files (worker → UI). */
+export interface JournalParseFileProgress {
+  files_processed: number;
+  files_total: number;
+  events_parsed: number;
+}
+
 export interface JournalImportParseSummary {
   files_processed: number;
   lines_read: number;
@@ -50,6 +74,8 @@ export interface JournalImportParseResult {
     parser_version: string;
     files: Array<{ name: string; event_count: number }>;
   };
+  /** V3 file-level provenance (SHA-256 + size) — see JournalFileManifestEntry. */
+  file_manifest: JournalFileManifestEntry[];
   observations: JournalImportObservationInput[];
   powerplay_events: PowerplayJournalEventInput[];
   preview: JournalImportParseSummary;

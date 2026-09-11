@@ -64,6 +64,72 @@ import redis.asyncio as aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 
+# V2-named tables that the shared ``clean_db`` TRUNCATE list references.
+# The V3-only fixture DB (fresh PG18 lineage, no V2 schema) lacks them, so
+# the journal flow tests create empty stand-ins for TRUNCATE to succeed.
+# No-op against the V2 DB (tables already exist); the stand-ins are never
+# read by any test. Session-scoped and NON-autouse on purpose: only the
+# tests that need a V3-only DB request it, so the general integration suite
+# never depends on DATABASE_URL being set.
+@pytest.fixture(scope="session")
+def v3_v2_table_shim():
+    import asyncio
+
+    async def _create():
+        conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+        try:
+            for name in (
+                "watchlist", "system_notes", "profile_sync", "watchlist_changelog",
+                "api_cache", "evidence_records", "derived_features", "rule_decisions",
+                "rule_proposals", "observed_facts", "exploration_facts",
+                "powerplay_cycles", "commander_powerplay_state",
+                "commander_powerplay_events", "powerplay_observations",
+            ):
+                await conn.execute(f'CREATE TABLE IF NOT EXISTS public.{name} (id integer)')
+        finally:
+            await conn.close()
+
+    asyncio.run(_create())
+
+
+# Relations that only exist once the fresh PG18 V3 lineage has been applied.
+# The protected `Backend integration (PG+Redis)` lane seeds the V2 schema only,
+# so the V3-only journal flow tests must skip there instead of failing on a
+# table that lane never creates; the orchestrator runs them against the
+# dedicated V3 fixture DB (baseline + 002 + 005).
+_V3_FIXTURE_RELATIONS = (
+    "v3_meta.schema_migration",
+    "v3_identity.external_identity",
+    "v3_private.journal_event",
+)
+
+
+@pytest.fixture(scope="session")
+def v3_fixture_db_ready():
+    import asyncio
+
+    async def _missing() -> list[str]:
+        conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+        try:
+            missing = []
+            for relation in _V3_FIXTURE_RELATIONS:
+                present = await conn.fetchval("SELECT to_regclass($1)", relation)
+                if present is None:
+                    missing.append(relation)
+            return missing
+        finally:
+            await conn.close()
+
+    try:
+        missing = asyncio.run(_missing())
+    except Exception as exc:  # noqa: BLE001 - any failure means "not this DB"
+        pytest.skip(f"V3-only fixture DB required; probe failed: {exc}")
+    if missing:
+        pytest.skip(
+            "V3-only fixture DB required; missing: " + ", ".join(missing)
+        )
+
+
 # Function-scoped fixture: each test gets its own pool/redis lifecycle.
 # That avoids the "session fixture / per-test event loop" mismatch that
 # otherwise hangs on teardown.
