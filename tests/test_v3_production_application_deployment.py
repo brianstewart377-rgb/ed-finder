@@ -150,7 +150,7 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
     assert 'DB_USER = "edfinder_v3"' in source
     assert 'DB_NAME = "edfinder_v3_phase4c_full_20260827_r5"' in source
     assert "FROM v3_meta.schema_migration" in source
-    assert "ORDER BY migration_name" in source
+    assert "ORDER BY applied_at, migration_name" in source
     assert '"container_environment_read": False' in source
     assert '"filesystem_writes_performed": False' in source
     for required_inventory_fact in (
