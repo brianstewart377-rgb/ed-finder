@@ -191,8 +191,11 @@ generation is substantially built and covered by twelve test modules.
 
 ## How a migration lands in production
 
-There is no production migration authority today, which is why nothing in
-sections B–D can reach production. Adding one means, for each migration:
+There is no governed delivery for a production migration yet, which is why
+nothing in sections B–D can reach production. The reviewed operation itself now
+exists — see
+[the production schema migration runbook](../operations/v3-production-schema-migration.md)
+for its gates, its operations and its remaining gap. Land a migration by:
 
 1. commit the migration under `sql/v3/migrations/`, and, for the R1 shell style,
    `sql/r1_v3/`;
