@@ -95,7 +95,7 @@
     "api_env_owner_uid": 0,
     "api_env_mode": "0600",
     "schema_identity_file": "/etc/ed-finder/v3-production/schema-identity.json",
-    "schema_identity_sha256": "5669ee535a6dc4410ce16001eca15807cad95d5b50930cc44141e0dbdfd7a5c0",
+    "schema_identity_sha256": "9299110ac7ec318dc9294dedb0e2ac386a29137d22ff5020f10a0410b94d61c0",
     "schema_identity_owner_uid": 0,
     "schema_identity_mode": "0600",
     "active_origin_bind": "127.0.0.1:58080",

@@ -50,11 +50,12 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
     entries = module.desired_entries(ROOT)
 
     assert [entry["ledger_name"] for entry in entries] == [
-        "001_v3_baseline.sql",
-        "002_v3_accounts_identity.sql",
-        "r1_v3/001_structural_shell.sql",
-        "004_v3_search_spatial_clusters.sql",
-        "005_v3_journal_intelligence.sql",
+         "001_v3_baseline.sql",
+         "002_v3_accounts_identity.sql",
+         "r1_v3/001_structural_shell.sql",
+         "003_ratings_v4_derived.sql",
+         "004_v3_search_spatial_clusters.sql",
+         "005_v3_journal_intelligence.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -72,6 +73,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
     ]
     assert [entry["ledger_name"] for entry in pending] == [
         "r1_v3/001_structural_shell.sql",
+        "003_ratings_v4_derived.sql",
         "004_v3_search_spatial_clusters.sql",
         "005_v3_journal_intelligence.sql",
     ]
