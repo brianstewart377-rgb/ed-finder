@@ -26,6 +26,11 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Set up CPython 3.14 for operator request validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
       - name: Validate data-only request
         shell: bash
         env:
@@ -52,6 +57,9 @@ jobs:
           ref: main
           path: trusted-main
           persist-credentials: false
+
+      - name: Render shared Search query from trusted main
+        run: python trusted-main/scripts/operator/render_v3_system_search_profile.py > "${{ runner.temp }}/search-profile.sh"
 
       - name: Prepare SSH
         shell: bash
@@ -88,7 +96,7 @@ jobs:
             -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$SSH_USER@$SSH_HOST" \
             'bash -s' \
-            < trusted-main/scripts/operator/actions/v3-system-search-profile.sh | tee "$RECEIPT"
+            < "${{ runner.temp }}/search-profile.sh" | tee "$RECEIPT"
           ssh -i ~/.ssh/ed_new_operator_key \
             -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \

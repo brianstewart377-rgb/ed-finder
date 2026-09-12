@@ -39,7 +39,7 @@ def test_signal_profile_only_explains_read_only_variants():
 
 def test_profile_workflow_runs_signal_comparison_from_trusted_main():
     source = WORKFLOW.read_text(encoding="utf-8")
-    assert "trusted-main/scripts/operator/actions/v3-system-search-profile.sh" in source
+    assert "trusted-main/scripts/operator/render_v3_system_search_profile.py" in source
     assert "trusted-main/scripts/operator/actions/v3-system-search-signal-plan-profile.sh" in source
     assert 'tee -a "$RECEIPT"' in source
     assert "ref: main" in source
