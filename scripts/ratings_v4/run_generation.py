@@ -65,12 +65,13 @@ def _generation(connection, snapshot: CanonicalSnapshot, generation_key: str, *,
         from scripts.ratings_v4.resume_upgrade import verify_origin
         verify_origin(manifest, check_contract=True)
     if compatible and upgrade_actor is not None:
-        from scripts.ratings_v4.resume_upgrade import recorded_upgrade
+        from scripts.ratings_v4.resume_upgrade import approved_target, recorded_upgrade
         if recorded_upgrade(connection, identifier, manifest) is None:
             if state != 'BUILDING':
                 raise ValueError('parser upgrade requires a BUILDING generation')
             if connection.execute("SELECT to_regclass('v3_meta.derived_code_upgrade')").fetchone()[0] is None:
                 raise ValueError('reviewed parser upgrade migration is not installed')
+            approved_target(connection)
     else:
         _verify_code(manifest, connection, identifier)
     expected = {
@@ -188,13 +189,22 @@ def build_generation(read_connection, write_connection, source_path: Path,
         write_connection, snapshot, generation_key, upgrade_actor=upgrade_actor,
     )
     chunks_seen = chunks_written = 0
+    chunks_reused = 0
 
     if state == 'BUILDING':
         stream = RetainedArtifactStream(source_path, sha256=digest, size_bytes=size)
         if upgrade_manifest is not None:
             from scripts.ratings_v4.resume_upgrade import remaining_chunks
+
+            def reused(item):
+                nonlocal chunks_seen, chunks_reused
+                chunks_seen += 1
+                chunks_reused += 1
+                if progress is not None:
+                    progress(item)
+
             chunks = remaining_chunks(stream, chunk_size, write_connection, identifier,
-                                      upgrade_manifest, actor=upgrade_actor, progress=progress)
+                                      upgrade_manifest, actor=upgrade_actor, progress=reused)
         else:
             chunks = enumerate(stream.chunks(chunk_size))
         if workers == 1:
@@ -266,6 +276,7 @@ def build_generation(read_connection, write_connection, source_path: Path,
         'canonical_publication_sequence': snapshot.publication_sequence,
         'chunks_seen': chunks_seen,
         'chunks_written': chunks_written,
+        'chunks_reused': chunks_reused,
         'resumed': resumed,
         'publication_performed': False,
         'validation_receipt': validation,

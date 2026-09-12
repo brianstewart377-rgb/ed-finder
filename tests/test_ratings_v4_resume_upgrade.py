@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 from domain.ratings_v4_canonical import load_source_fixture  # noqa: E402
 from scripts.ratings_v4 import production_generation as generation  # noqa: E402
+from scripts.ratings_v4 import resume_upgrade  # noqa: E402
 from scripts.ratings_v4.canonical_stream import CanonicalSnapshot  # noqa: E402
 from scripts.ratings_v4.resume_upgrade import (  # noqa: E402
     LEGACY_CODE, LEGACY_SOURCE_SHA, CommittedPrefix, accept_verified_prefix,
@@ -78,6 +79,12 @@ def interrupted_database(tmp_path, legacy_root, *, install_upgrade=True):
         connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
         if install_upgrade:
             connection.execute((ROOT / 'sql/v3/proposals/007_ratings_v4_code_upgrade.sql').read_text())
+            # Load a separately committed policy, never derive expected hashes
+            # from the candidate at test time. CI must catch any target drift.
+            target = json.loads((ROOT / 'sql/v3/proposals/007_ratings_v4_code_upgrade_target.json').read_text())
+            connection.execute('''INSERT INTO v3_meta.derived_code_upgrade_target(
+                upgrade_id,code_sha256_lf) VALUES (%s,%s::jsonb)''',
+                (target['upgrade_id'], json.dumps(target['code_sha256_lf'])))
         assert old_run(legacy_root, connection, source)['status'] == 'INTERRUPTED'
         identifier, manifest, digest = connection.execute('''SELECT derived_generation_id,
             manifest,manifest_sha256 FROM v3_meta.derived_generation''').fetchone()
@@ -114,6 +121,7 @@ def test_real_old_builder_upgrades_same_generation_without_rewriting_saved_chunk
         assert result['derived_generation_id'] == str(identifier)
         assert result['status'] == 'VERIFIED' and result['lifecycle_state'] == 'READY'
         assert result['publication_performed'] is False and result['chunks_written'] == 2
+        assert result['chunks_seen'] == 4 and result['chunks_reused'] == 2
         assert len(exported) == 2  # Saved chunks caused no canonical reads or encoding.
         assert [item['chunk_ordinal'] for item in progress if item.get('resume_verified')] == [0, 1]
         assert saved_rows(connection, identifier) == saved
@@ -190,13 +198,40 @@ def test_upgrade_attestation_is_immutable_and_rejects_different_target_code(tmp_
     with interrupted_database(tmp_path, legacy_root) as (connection, source, identifier, manifest, _):
         resume(connection, source, upgrade_actor='disposable-test')
         for sql in ("UPDATE v3_meta.derived_code_upgrade SET receipt='{}'::jsonb",
-                    'DELETE FROM v3_meta.derived_code_upgrade', 'TRUNCATE v3_meta.derived_code_upgrade'):
+                    'DELETE FROM v3_meta.derived_code_upgrade', 'TRUNCATE v3_meta.derived_code_upgrade',
+                    "UPDATE v3_meta.derived_code_upgrade_target SET code_sha256_lf='{}'::jsonb",
+                    'DELETE FROM v3_meta.derived_code_upgrade_target',
+                    'TRUNCATE v3_meta.derived_code_upgrade_target'):
             with pytest.raises(psycopg.errors.RaiseException, match='retained and immutable'):
                 connection.execute(sql)
         changed = {**generation.code_identity(), 'scripts/ratings_v4/run_generation.py': '0' * 64}
         monkeypatch.setattr(generation, 'code_identity', lambda: changed)
-        with pytest.raises(ValueError, match='upgrade identity mismatch'):
+        with pytest.raises(ValueError, match='independently approved identity'):
             generation._verify_code(manifest, connection, identifier)
+
+
+def test_first_handoff_refuses_unknown_target_before_reading_source(tmp_path, legacy_root, monkeypatch):
+    import psycopg
+
+    with interrupted_database(tmp_path, legacy_root) as (connection, source, identifier, manifest, _):
+        changed = {**generation.code_identity(), 'scripts/ratings_v4/run_generation.py': '0' * 64}
+        monkeypatch.setattr(generation, 'code_identity', lambda: changed)
+        with pytest.raises(ValueError, match='independently approved identity'):
+            resume(connection, source, upgrade_actor='disposable-test')
+        assert len(committed_prefix(connection, identifier).rows) == 2
+        assert connection.execute('SELECT count(*) FROM v3_meta.derived_code_upgrade').fetchone()[0] == 0
+        unapproved = {'upgrade_id': resume_upgrade.UPGRADE_ID, 'derived_generation_id': str(identifier),
+                      'manifest_sha256': generation._digest(manifest).hex(),
+                      'from_code_sha256_lf': LEGACY_CODE, 'to_code_sha256_lf': changed}
+        with pytest.raises(psycopg.errors.RaiseException, match='independently approved target'):
+            connection.execute('''INSERT INTO v3_meta.derived_code_upgrade(
+                derived_generation_id,receipt,receipt_sha256) VALUES (%s,%s::jsonb,%s)''',
+                (identifier, generation._json(unapproved), generation._digest(unapproved)))
+
+
+def test_committed_approval_matches_this_exact_candidate():
+    target = json.loads((ROOT / 'sql/v3/proposals/007_ratings_v4_code_upgrade_target.json').read_text())
+    assert target['code_sha256_lf'] == generation.code_identity()
 
 
 def test_unknown_origin_and_unverified_prefix_fail_before_database_access():
@@ -206,3 +241,16 @@ def test_unknown_origin_and_unverified_prefix_fail_before_database_access():
         verify_origin({'code_sha256_lf': changed})
     with pytest.raises(ValueError, match='every committed source chunk'):
         accept_verified_prefix(None, None, {}, CommittedPrefix(((0,),)), actor='test')
+
+
+def test_transition_rejects_another_parser_and_changed_attested_prefix(monkeypatch):
+    monkeypatch.setattr(resume_upgrade, 'DIRECT_PARSER_SHA256_LF', '0' * 64)
+    with pytest.raises(ValueError, match='unsupported parser upgrade target'):
+        verify_origin({'code_sha256_lf': LEGACY_CODE})
+    prefix = CommittedPrefix(((0, bytes(32), bytes(32), bytes(32), 3, 0, 0, 0),))
+    receipt = {'prefix_chunks': 1, 'prefix_sha256': prefix.digest.hex(), 'prefix_systems': 3}
+    prefix.verify_attestation(receipt)
+    with pytest.raises(ValueError, match='attested checkpoint prefix changed'):
+        prefix.verify_attestation({**receipt, 'prefix_sha256': 'f' * 64})
+    with pytest.raises(ValueError, match='attested checkpoint prefix is missing'):
+        CommittedPrefix(()).verify_attestation(receipt)

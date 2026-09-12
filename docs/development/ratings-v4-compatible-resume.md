@@ -32,6 +32,8 @@ Only the exact four-file identity of production builder
 `fe0c058134b6fec33690fa937c2ac74338b401dc` is an eligible origin. A new generation
 or any other historical identity is not eligible for this transition. Scorer,
 mechanics, adapter, importer and freeze identity are checked before replay.
+The parser target is also pinned to the exact normalized source hash from PR
+#707. An unrelated future parser cannot reuse this transition identifier.
 
 An explicit `--upgrade-parser-actor` initiates the transition. The proposed
 additive SQL in `sql/v3/proposals/007_ratings_v4_code_upgrade.sql` must already be
@@ -39,6 +41,16 @@ installed by a reviewed operator. It adds one append-only attestation per derive
 generation, containing the old and actual new code hashes, original manifest
 hash, verified checkpoint frontier/digest, system count and actor. The original
 manifest is never edited or relabelled as having used the new code throughout.
+
+The operator first installs the independently reviewed target hashes from
+`sql/v3/proposals/007_ratings_v4_code_upgrade_target.json` into an immutable policy
+table. This policy is separate from the candidate's own execution hashes: the
+builder cannot approve itself, insert policy, update policy, or accept an unknown
+initial target. Both the Python gate and the SQL attestation-insert trigger check
+that target. CI reads the committed policy unchanged and fails on candidate drift.
+The future production operator must verify the reviewed policy artifact/bundle
+identity before installing it. Editing candidate files and recomputing their own
+hashes does not satisfy the already installed policy.
 
 Registration occurs only after every saved source chunk has matched. The
 generation row is then locked and its identity, lifecycle and complete checkpoint
@@ -62,6 +74,8 @@ retains its committed progress.
 After registration, the same new code can resume without registering another
 upgrade. It verifies all chunks now present, including any committed after the
 first handoff. Pending encodes or failed transactions are not checkpoints.
+The checkpoint subset recorded at the first upgrade must still match its audit
+digest. Progress receipts report both reused chunks and newly written chunks.
 
 The old code can also resume the same generation because its original manifest
 is intact and the new parser produces identical chunk data. The isolated test
