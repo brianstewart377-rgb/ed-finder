@@ -121,6 +121,17 @@ def _emit_progress(progress, identifier, ordinal, systems, written):
         })
 
 
+def _compact_source_records(records):
+    """Keep only source fields that participate in V4 adaptation/checkpointing."""
+    return tuple({
+        'id64': record['id64'],
+        'bodies': [
+            {key: body[key] for key in ('id64', 'bodyId', 'type', 'subType', 'updateTime') if key in body}
+            for body in record.get('bodies', [])
+        ],
+    } for record in records)
+
+
 def _drain_oldest(pending, write_connection, identifier, metadata, progress):
     ordinal, systems, canonical, future = pending.popleft()
     payload, checkpoint = future.result()
@@ -183,9 +194,10 @@ def build_generation(read_connection, write_connection, source_path: Path,
                     canonical = snapshot.export_chunk(
                         read_connection, [record['id64'] for record in records],
                     )
+                    compact_records = _compact_source_records(records)
                     future = executor.submit(
                         encode_chunk, identifier, ordinal, canonical,
-                        snapshot.metadata, tuple(records),
+                        snapshot.metadata, compact_records,
                     )
                     pending.append((ordinal, len(records), canonical, future))
                     # Bound memory/IPC while still keeping every encoder busy.
