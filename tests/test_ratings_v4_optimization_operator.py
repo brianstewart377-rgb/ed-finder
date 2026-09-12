@@ -15,6 +15,7 @@ def test_parallel_runner_is_bounded_and_parent_owned_db():
     assert 'if len(pending) >= workers:' in runner
     assert 'executor.submit(' in runner
     assert 'encode_chunk, identifier, ordinal, canonical' in runner
+    assert '_compact_source_records(records)' in runner
     assert '_write_encoded_chunk(' in runner
     assert "parser.add_argument('--workers'" in runner
     assert 'psycopg.connect' in runner
@@ -41,8 +42,8 @@ def test_optimized_worker_proves_progress_before_reversible_cutover():
     assert 'TARGET_MEMORY="64g"' in action
     assert 'TARGET_WORKERS="8"' in action
     assert 'TARGET_CHUNK_SIZE="1000"' in action
-    assert '--chunk-size 1000' in action
-    assert '--workers 8' in action
+    assert '--chunk-size "$RATINGS_V4_CHUNK_SIZE"' in action
+    assert '--workers "$RATINGS_V4_ENCODER_WORKERS"' in action
     assert '--memory-swap "$TARGET_MEMORY"' in action
     assert 'MIN_PROOF_CHUNKS="2"' in action
     assert action.index('proof_chunks=0') < action.index('docker stop --time 30 "$old_worker"')
