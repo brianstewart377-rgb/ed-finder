@@ -13,6 +13,8 @@ on:
           - recover-v3-runtime-contract
           - octopus-qdrant-healthcheck-repair
           - v3-app-status
+          - ratings-v4-generation-start
+          - ratings-v4-generation-status
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -69,7 +71,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -244,3 +246,75 @@ jobs:
             ${{ runner.temp }}/edfinder-v3-runtime-recovery/recovery-receipt.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare offline Ratings V4 generation bundle
+        if: steps.request.outputs.operation == 'ratings-v4-generation-start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          printf '%s\n' "$source_sha" > trusted-main/.ratings-v4-source-sha
+          rm -rf trusted-main/.ratings-v4-wheelhouse
+          mkdir -p trusted-main/.ratings-v4-wheelhouse
+          python -m pip download --disable-pip-version-check --only-binary=:all: --dest trusted-main/.ratings-v4-wheelhouse \
+            'psycopg[binary]==3.3.4' 'ijson==3.5.1'
+
+      - name: Stage trusted main and launch Ratings V4 generation
+        if: steps.request.outputs.operation == 'ratings-v4-generation-start'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/ratings-v4-generation-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-ratings-v4-${source_sha}"
+          tar -C trusted-main --exclude=.git -cf - . | \
+            ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              "bash -s -- start '$stage' '$source_sha'" \
+              < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
+
+      - name: Inspect Ratings V4 generation status
+        if: steps.request.outputs.operation == 'ratings-v4-generation-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/ratings-v4-generation-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'bash -s -- status' \
+              < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
+
+      - name: Upload Ratings V4 generation operation receipt
+        if: always() && (steps.request.outputs.operation == 'ratings-v4-generation-start' || steps.request.outputs.operation == 'ratings-v4-generation-status')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ratings-v4-generation-operation
+          path: ${{ runner.temp }}/ratings-v4-generation-operation.txt
+          if-no-files-found: warn
+          retention-days: 30
