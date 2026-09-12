@@ -167,3 +167,15 @@ def test_search_can_finish_after_ratings_ready_and_blocks_publication_until_veri
 
     with pytest.raises(ValueError, match='cannot accept'):
         register_product(connection, key)
+
+
+def test_existing_search_manifest_rejects_changed_builder_identity(database, monkeypatch):
+    from scripts import v3_system_search
+    connection, _, _, _ = database
+    key, _, _, _ = _ratings_generation(database)
+    register_product(connection, key)
+    changed = dict(v3_system_search.code_identity())
+    changed['scripts/v3_system_search.py'] = '0' * 64
+    monkeypatch.setattr(v3_system_search, 'code_identity', lambda: changed)
+    with pytest.raises(ValueError, match='manifest differs'):
+        register_product(connection, key)
