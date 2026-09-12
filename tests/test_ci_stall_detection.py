@@ -50,6 +50,7 @@ CHECKED_WORKFLOWS = (
     'ratings-v4-freeze.yml',
     'ratings-v4-production-accelerate.yml',
     'ratings-v4-production-optimize.yml',
+    'ratings-v4-production-profile.yml',
     'remove-ollama-production.yml',
     'review-lab.yml',
     'semgrep.yml',

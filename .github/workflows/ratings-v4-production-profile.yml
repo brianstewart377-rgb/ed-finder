@@ -1,0 +1,108 @@
+name: Ratings V4 runtime profile
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ratings-v4-profile-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ed-new-ops
+  cancel-in-progress: false
+
+jobs:
+  profile:
+    name: Observe Ratings V4 CPU and database waits
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 8
+    steps:
+      - name: Checkout request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Set up CPython 3.14 for operator request validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Validate data-only request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed_files[@]}" -eq 1 ] || { echo "Expected exactly one Ratings profile request file" >&2; exit 64; }
+          case "${changed_files[0]}" in
+            .github/ratings-v4-profile-requests/*.json) ;;
+            *) echo "Unexpected request path" >&2; exit 64 ;;
+          esac
+          python - "${changed_files[0]}" <<'PY'
+          import json, pathlib, sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation": "ratings-v4-runtime-profile"}:
+              raise SystemExit("unsupported request")
+          PY
+
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Run bounded read-only Ratings profile
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/ratings-v4-runtime-profile.jsonl
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          printf '{"kind":"provenance","trusted_main_sha":"%s","profiler_sha256":"%s"}\n' \
+            "$(git -C trusted-main rev-parse HEAD)" \
+            "$(sha256sum trusted-main/scripts/operator/ratings_v4_runtime_profile.py | cut -d' ' -f1)" | tee "$RECEIPT"
+          ssh -i ~/.ssh/ed_new_operator_key \
+            -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$SSH_USER@$SSH_HOST" \
+            'timeout 210s python3.14 -' \
+            < trusted-main/scripts/operator/ratings_v4_runtime_profile.py | tee -a "$RECEIPT"
+
+      - name: Upload profile receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ratings-v4-runtime-profile
+          path: ${{ runner.temp }}/ratings-v4-runtime-profile.jsonl
+          if-no-files-found: warn
+          retention-days: 14
