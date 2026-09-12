@@ -7,7 +7,10 @@ execution still requires a current, reviewed V3 operation authority.
 from __future__ import annotations
 
 import argparse
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -21,10 +24,12 @@ from scripts.ratings_v4.canonical_stream import (  # noqa: E402
     MAX_CHUNK_SYSTEMS, CanonicalSnapshot, RetainedArtifactStream,
 )
 from scripts.ratings_v4.production_generation import (  # noqa: E402
-    _verify_code, create_generation, seal_source, validate_generation, write_chunk,
+    BODY_COLUMNS, OPPORTUNITY_COLUMNS, VECTOR_COLUMNS, _verify_code,
+    create_generation, encode_chunk, seal_source, validate_generation, write_chunk,
 )
 
 GENERATION_KEY = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
+MAX_ENCODER_WORKERS = 16
 Progress = Callable[[dict], None]
 
 
@@ -65,12 +70,92 @@ def _generation(connection, snapshot: CanonicalSnapshot, generation_key: str):
     return identifier, state, validation, True
 
 
+def _write_encoded_chunk(connection, generation_id, ordinal, canonical, metadata,
+                         payload, checkpoint):
+    """Commit one already-encoded chunk with the same atomic checks as write_chunk."""
+    from psycopg import sql
+
+    if checkpoint[0] != generation_id or checkpoint[1] != ordinal:
+        raise ValueError('encoded checkpoint identity mismatch')
+    with connection.transaction():
+        generation = connection.execute('''SELECT lifecycle_state,manifest FROM v3_meta.derived_generation
+            WHERE derived_generation_id=%s FOR SHARE''', (generation_id,)).fetchone()
+        if generation is None or generation[0] != 'BUILDING':
+            raise ValueError('generation is not BUILDING')
+        manifest = generation[1]
+        _verify_code(manifest)
+        if (manifest['source_metadata'] != metadata or
+                manifest['canonical_schema'] != canonical['canonical_schema']):
+            raise ValueError('chunk canonical source differs from generation manifest')
+        old = connection.execute('''SELECT source_projection_sha256,canonical_input_sha256,content_sha256
+            FROM v3_derived.build_chunk WHERE derived_generation_id=%s AND chunk_ordinal=%s''',
+            (generation_id, ordinal)).fetchone()
+        if old is not None:
+            if tuple(bytes(item) for item in old) != checkpoint[2:5]:
+                raise ValueError('resumed chunk source/content changed')
+            return False
+        for table, columns, rows in (
+            ('system_rating_vector', VECTOR_COLUMNS, payload['vectors']),
+            ('body_mechanics', BODY_COLUMNS, payload['bodies']),
+            ('economy_opportunity', OPPORTUNITY_COLUMNS, payload['opportunities']),
+        ):
+            command = sql.SQL('COPY v3_derived.{} ({}) FROM STDIN').format(
+                sql.Identifier(table), sql.SQL(',').join(map(sql.Identifier, columns)))
+            with connection.cursor().copy(command) as copy:
+                for row in rows:
+                    copy.write_row(row)
+        connection.execute('''INSERT INTO v3_derived.build_chunk(
+            derived_generation_id,chunk_ordinal,source_projection_sha256,canonical_input_sha256,
+            content_sha256,systems,canonical_bodies,physical_bodies,eligible_opportunities)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''', checkpoint)
+    return True
+
+
+def _emit_progress(progress, identifier, ordinal, systems, written):
+    if progress is not None:
+        progress({
+            'derived_generation_id': str(identifier),
+            'chunk_ordinal': ordinal,
+            'systems': systems,
+            'written': written,
+        })
+
+
+def _compact_source_records(records):
+    """Keep only source fields that participate in V4 adaptation/checkpointing."""
+    return tuple({
+        'id64': record['id64'],
+        'bodies': [
+            {key: body[key] for key in ('id64', 'bodyId', 'type', 'subType', 'updateTime') if key in body}
+            for body in record.get('bodies', [])
+        ],
+    } for record in records)
+
+
+def _drain_oldest(pending, write_connection, identifier, metadata, progress):
+    ordinal, systems, canonical, future = pending.popleft()
+    payload, checkpoint = future.result()
+    written = _write_encoded_chunk(
+        write_connection, identifier, ordinal, canonical, metadata, payload, checkpoint,
+    )
+    _emit_progress(progress, identifier, ordinal, systems, written)
+    return int(written)
+
+
 def build_generation(read_connection, write_connection, source_path: Path,
                      generation_key: str, *, chunk_size: int = 500,
-                     progress: Progress | None = None) -> dict:
-    """Build or resume one exact generation, validate it, and never publish it."""
+                     workers: int = 1, progress: Progress | None = None) -> dict:
+    """Build or resume one exact generation, validate it, and never publish it.
+
+    Source parsing and canonical reads remain sequential and authoritative. With
+    ``workers > 1``, only pure chunk encoding/scoring is sent to bounded child
+    processes. Encoded chunks are committed in ordinal order by the parent using
+    one derived connection, preserving the existing atomic checkpoint contract.
+    """
     if type(chunk_size) is not int or not 1 <= chunk_size <= MAX_CHUNK_SYSTEMS:
         raise ValueError('chunk size outside bounded contract')
+    if type(workers) is not int or not 1 <= workers <= MAX_ENCODER_WORKERS:
+        raise ValueError('encoder worker count outside bounded contract')
     source_path = Path(source_path)
     if source_path.is_symlink() or not source_path.is_file():
         raise ValueError('retained artifact must be a regular non-symlink file')
@@ -86,23 +171,53 @@ def build_generation(read_connection, write_connection, source_path: Path,
 
     if state == 'BUILDING':
         stream = RetainedArtifactStream(source_path, sha256=digest, size_bytes=size)
-        for ordinal, records in enumerate(stream.chunks(chunk_size)):
-            canonical = snapshot.export_chunk(
-                read_connection, [record['id64'] for record in records],
-            )
-            written = write_chunk(
-                write_connection, identifier, ordinal, canonical,
-                snapshot.metadata, records,
-            )
-            chunks_seen += 1
-            chunks_written += int(written)
-            if progress is not None:
-                progress({
-                    'derived_generation_id': str(identifier),
-                    'chunk_ordinal': ordinal,
-                    'systems': len(records),
-                    'written': written,
-                })
+        if workers == 1:
+            for ordinal, records in enumerate(stream.chunks(chunk_size)):
+                canonical = snapshot.export_chunk(
+                    read_connection, [record['id64'] for record in records],
+                )
+                written = write_chunk(
+                    write_connection, identifier, ordinal, canonical,
+                    snapshot.metadata, records,
+                )
+                chunks_seen += 1
+                chunks_written += int(written)
+                _emit_progress(progress, identifier, ordinal, len(records), written)
+        else:
+            # Explicit spawn avoids depending on Python/platform multiprocessing
+            # defaults and ensures child workers inherit no live DB connection.
+            context = multiprocessing.get_context('spawn')
+            executor = ProcessPoolExecutor(max_workers=workers, mp_context=context)
+            pending = deque()
+            try:
+                for ordinal, records in enumerate(stream.chunks(chunk_size)):
+                    canonical = snapshot.export_chunk(
+                        read_connection, [record['id64'] for record in records],
+                    )
+                    compact_records = _compact_source_records(records)
+                    future = executor.submit(
+                        encode_chunk, identifier, ordinal, canonical,
+                        snapshot.metadata, compact_records,
+                    )
+                    pending.append((ordinal, len(records), canonical, future))
+                    # Bound memory/IPC while still keeping every encoder busy.
+                    if len(pending) >= workers:
+                        chunks_written += _drain_oldest(
+                            pending, write_connection, identifier, snapshot.metadata, progress,
+                        )
+                        chunks_seen += 1
+                while pending:
+                    chunks_written += _drain_oldest(
+                        pending, write_connection, identifier, snapshot.metadata, progress,
+                    )
+                    chunks_seen += 1
+            except BaseException:
+                for _, _, _, future in pending:
+                    future.cancel()
+                executor.shutdown(wait=True, cancel_futures=True)
+                raise
+            else:
+                executor.shutdown(wait=True)
         if stream.receipt is None:
             raise ValueError('retained artifact did not produce a verified EOF receipt')
         seal_source(write_connection, identifier, stream.receipt)
@@ -136,6 +251,7 @@ def parse_args(argv=None):
     parser.add_argument('--source', required=True, type=Path)
     parser.add_argument('--generation-key', required=True)
     parser.add_argument('--chunk-size', type=int, default=500)
+    parser.add_argument('--workers', type=int, default=1)
     return parser.parse_args(argv)
 
 
@@ -153,6 +269,7 @@ def main(argv=None) -> int:
             receipt = build_generation(
                 read_connection, write_connection, args.source,
                 args.generation_key, chunk_size=args.chunk_size,
+                workers=args.workers,
                 progress=lambda item: print(json.dumps({'status': 'PROGRESS', **item}, sort_keys=True)),
             )
     except Exception as exc:  # CLI emits no connection or source exception details.
