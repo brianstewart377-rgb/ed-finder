@@ -1,0 +1,100 @@
+name: V3 Search production system-id statistics tuning
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/v3-search-systemid-stats-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ed-new-ops
+  cancel-in-progress: false
+
+jobs:
+  tune:
+    name: Tune Search system-id planner statistics
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - name: Checkout request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate data-only request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed_files[@]}" -eq 1 ] || { echo "Expected exactly one Search system-id statistics request file" >&2; exit 64; }
+          case "${changed_files[0]}" in
+            .github/v3-search-systemid-stats-requests/*.json) ;;
+            *) echo "Unexpected request path" >&2; exit 64 ;;
+          esac
+          python - "${changed_files[0]}" <<'PY'
+          import json, pathlib, sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation": "v3-system-search-f1-tune-systemid-stats"}:
+              raise SystemExit("unsupported request")
+          PY
+
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Tune bounded system-id planner statistics
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-system-search-tune-systemid-stats.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/ed_new_operator_key \
+            -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$SSH_USER@$SSH_HOST" \
+            'bash -s' \
+            < trusted-main/scripts/operator/actions/v3-system-search-tune-systemid-stats.sh | tee "$RECEIPT"
+
+      - name: Upload tuning receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-system-search-tune-systemid-stats
+          path: ${{ runner.temp }}/v3-system-search-tune-systemid-stats.txt
+          if-no-files-found: warn
+          retention-days: 30
