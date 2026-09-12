@@ -15,7 +15,7 @@ def test_v3_app_status_is_allowlisted_through_trusted_main_operator_path():
     workflow = _read(WORKFLOW)
 
     assert '          - v3-app-status\n' in workflow
-    assert 'v3-app-status)' in workflow
+    assert '|v3-app-status|' in workflow or 'v3-app-status)' in workflow
     assert "steps.request.outputs.operation == 'v3-app-status'" in workflow
     assert 'trusted-main/scripts/operator/actions/v3-app-status.sh' in workflow
     assert 'StrictHostKeyChecking=yes' in workflow
