@@ -48,8 +48,9 @@ def test_parallel_runner_builds_ordered_atomic_chunks(tmp_path):
             WHERE derived_generation_id=%s ORDER BY chunk_ordinal''',
             (receipt['derived_generation_id'],)).fetchall()
         assert chunks == [(0, 3), (1, 3), (2, 3), (3, 3)]
-        assert connection.execute('''SELECT count(*) FROM v3_derived.derived_publication
-            WHERE derived_generation_id=%s''', (receipt['derived_generation_id'],)).fetchone()[0] == 0
+        assert connection.execute('''SELECT published_at FROM v3_meta.derived_generation
+            WHERE derived_generation_id=%s''',
+            (receipt['derived_generation_id'],)).fetchone()[0] is None
 
 
 @pytest.mark.parametrize('workers', [0, MAX_ENCODER_WORKERS + 1, True])
