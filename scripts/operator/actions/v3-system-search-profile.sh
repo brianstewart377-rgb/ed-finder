@@ -42,6 +42,12 @@ __SEARCH_CANDIDATE_SQL__
 SQL
 }
 
+prepared_query() {
+  cat <<SQL
+__SEARCH_PREPARED_SQL__
+SQL
+}
+
 meta="$("${psql_base[@]}" --command "BEGIN READ ONLY;
 SET LOCAL statement_timeout='60s';
 SELECT g.derived_generation_id::text || E'\\t' ||
@@ -75,10 +81,11 @@ printf 'search_frontier_chunk_ordinal=%s\n' "$search_frontier"
 printf 'profile_started_at=%s\n' "$(date -u +%FT%TZ)"
 
 run_cohort() {
-  local cohort="$1" chunk_ordinal="$2" legacy candidate
+  local cohort="$1" chunk_ordinal="$2" legacy candidate prepared
   legacy="$(legacy_query)"
   candidate="$(candidate_query)"
-  [[ "$legacy" != *__SEARCH_* && "$candidate" != *__SEARCH_* ]] \
+  prepared="$(prepared_query)"
+  [[ "$legacy" != *__SEARCH_* && "$candidate" != *__SEARCH_* && "$prepared" != *__SEARCH_* ]] \
     || fail "profile template was not rendered"
   printf 'profile_cohort=%s\nprofile_chunk_ordinal=%s\n' "$cohort" "$chunk_ordinal"
   docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
@@ -111,6 +118,15 @@ SET LOCAL jit=off;
 \\echo candidate_jit_off_select_plan_json=
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)
 ${candidate};
+SET LOCAL plan_cache_mode=force_generic_plan;
+PREPARE search_candidate(uuid,bigint) AS
+${prepared};
+\\echo full_query_variant=candidate_generic_jit_off
+\\echo candidate_generic_select_plan_json=
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)
+EXECUTE search_candidate('${generation_id}'::uuid,${chunk_ordinal});
+DEALLOCATE search_candidate;
+SET LOCAL plan_cache_mode=DEFAULT;
 SET LOCAL jit=DEFAULT;
 WITH baseline AS MATERIALIZED (${legacy}),
      candidate AS MATERIALIZED (${candidate}),
