@@ -48,6 +48,8 @@ CHECKED_WORKFLOWS = (
     'coverage.yml',
     'cypress-parity.yml',
     'ratings-v4-freeze.yml',
+    'ratings-v4-production-accelerate.yml',
+    'ratings-v4-production-optimize.yml',
     'remove-ollama-production.yml',
     'review-lab.yml',
     'semgrep.yml',
