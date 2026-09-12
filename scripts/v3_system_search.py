@@ -114,7 +114,10 @@ def product_manifest(generation: Generation) -> dict:
             'body_count': 'Ratings V4 loaded_body_count for the same generation/system',
             'landable_count': 'ACTIVE canonical bodies with is_landable=true',
             'station_count': 'ACTIVE canonical stations',
-            'has_rings': 'positive observation of an ACTIVE canonical RING; asteroid BELT rows do not set this Finder flag',
+            'has_rings': (
+                'positive observation of an ACTIVE canonical RING; asteroid BELT rows '
+                'do not set this Finder flag'
+            ),
             'has_biologicals': 'positive biological signal_count on an ACTIVE canonical body',
             'has_geologicals': 'positive geological signal_count on an ACTIVE canonical body',
             'has_terraformable': 'ACTIVE canonical body with terraforming state terraformable/terraformed/terraforming',
@@ -122,7 +125,10 @@ def product_manifest(generation: Generation) -> dict:
             'source_observed_at': 'canonical systems.source_updated_at',
             'completeness': 'minimum of the seven frozen Ratings V4 completeness values',
             'confidence': 'minimum of the seven frozen Ratings V4 confidence values',
-            'false_flags': 'false means no positive observation in the pinned canonical generation, not proof of known absence',
+            'false_flags': (
+                'false means no positive observation in the pinned canonical generation, '
+                'not proof of known absence'
+            ),
         },
     }
 
