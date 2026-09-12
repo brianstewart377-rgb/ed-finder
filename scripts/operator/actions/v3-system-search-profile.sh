@@ -61,12 +61,16 @@ FROM v3_meta.derived_generation g
 WHERE g.derived_generation_id='${generation_id}'::uuid;
 COMMIT;"
 
-printf 'select_plan_json=\n'
-docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
-  --no-align --quiet --set ON_ERROR_STOP=1 \
-  --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL
+run_full_query_variant() {
+  local label="$1" settings="$2" plan_key="$3"
+  printf 'full_query_variant=%s\n' "$label"
+  printf '%s=\n' "$plan_key"
+  docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
+    --no-align --quiet --set ON_ERROR_STOP=1 \
+    --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL
 BEGIN READ ONLY;
 SET LOCAL statement_timeout='60s';
+${settings}
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)
 WITH target AS MATERIALIZED (
     SELECT v.system_id64,v.loaded_body_count,v.completeness,v.confidence
@@ -147,6 +151,13 @@ SELECT t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
  ORDER BY t.system_id64;
 ROLLBACK;
 SQL
+}
+
+run_full_query_variant baseline "" select_plan_json
+run_full_query_variant jit_off "SET LOCAL jit=off;" jit_off_select_plan_json
+run_full_query_variant indexed_no_seqscan \
+  "SET LOCAL jit=off; SET LOCAL enable_seqscan=off;" \
+  indexed_select_plan_json
 
 printf 'database_writes_performed=false\n'
 printf 'schema_changes_performed=false\n'

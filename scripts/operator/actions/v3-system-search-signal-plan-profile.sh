@@ -59,14 +59,14 @@ COMMIT;"
 run_variant() {
   local label="$1" settings="$2" query_kind="$3"
   printf 'signal_variant=%s\n' "$label"
+  printf 'signal_plan_json=\n'
   if [ "$query_kind" = "current" ]; then
     docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
-      --no-align --quiet --set ON_ERROR_STOP=1 --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL \
-      | grep -E '^( *(Seq Scan|Index Scan|Index Only Scan|Bitmap|Nested Loop|Hash Join|Merge Join|HashAggregate|GroupAggregate)| *Buffers:| *Execution Time:| *JIT:| *Settings:)'
+      --no-align --quiet --set ON_ERROR_STOP=1 --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL
 BEGIN READ ONLY;
 SET LOCAL statement_timeout='60s';
 ${settings}
-EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY)
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)
 WITH target AS MATERIALIZED (
     SELECT v.system_id64
       FROM v3_derived.system_rating_vector v
@@ -86,14 +86,13 @@ ROLLBACK;
 SQL
   else
     docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
-      --no-align --quiet --set ON_ERROR_STOP=1 --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL \
-      | grep -E '^( *(Seq Scan|Index Scan|Index Only Scan|Bitmap|Nested Loop|Hash Join|Merge Join|HashAggregate|GroupAggregate)| *Buffers:| *Execution Time:| *JIT:| *Settings:)'
+      --no-align --quiet --set ON_ERROR_STOP=1 --username "$DATABASE_USER" --dbname "$DATABASE_NAME" <<SQL
 BEGIN READ ONLY;
 SET LOCAL statement_timeout='60s';
 SET LOCAL jit=off;
 SET LOCAL join_collapse_limit=1;
 SET LOCAL from_collapse_limit=1;
-EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY)
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)
 WITH target AS MATERIALIZED (
     SELECT v.system_id64
       FROM v3_derived.system_rating_vector v
