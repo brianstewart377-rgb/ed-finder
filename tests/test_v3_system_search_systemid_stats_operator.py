@@ -13,7 +13,9 @@ def test_systemid_stats_tuning_is_exact_and_row_safe():
     assert 'CANONICAL_SCHEMA="v3_gen_phase4c_full_20260827_r5"' in source
     assert 'DERIVED_KEY="ratings_v4_prod_p4_opt1"' in source
     assert 'STATISTICS_TARGET="1000"' in source
+    assert 'N_DISTINCT_OVERRIDE="-0.10"' in source
     assert "ALTER COLUMN system_id64 SET STATISTICS ${STATISTICS_TARGET};" in source
+    assert "ALTER COLUMN system_id64 SET (n_distinct = ${N_DISTINCT_OVERRIDE});" in source
     assert "ANALYZE ${CANONICAL_SCHEMA}.bodies (system_id64);" in source
     assert "statement_timeout='15min'" in source
     assert "lock_timeout='5s'" in source
@@ -42,11 +44,14 @@ def test_systemid_stats_tuning_reports_before_and_after_selectivity():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "before_stats=" in source
     assert "after_stats=" in source
+    assert "n_distinct_override=" in source
+    assert "'attribute_options',a.attoptions" in source
     assert "'n_distinct',s.n_distinct" in source
     assert "'implied_distinct'" in source
     assert "'implied_rows_per_system'" in source
     assert "system_id64 statistics target was not applied" in source
     assert "system_id64 n_distinct is missing after ANALYZE" in source
+    assert "system_id64 n_distinct override was not applied" in source
 
 
 def test_systemid_stats_workflow_is_data_only_and_uses_trusted_main():
