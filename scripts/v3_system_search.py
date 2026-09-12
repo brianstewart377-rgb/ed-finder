@@ -237,6 +237,100 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     return _digest(rows)
 
 
+def projection_query_sql() -> str:
+    """Read projection shared by the writer and the read-only operator profiler.
+
+    Only {schema} is an SQL-format identifier; values are named DB parameters.
+    LATERAL aggregates keep signals system-keyed, while LIMIT 1 preserves the
+    lowest-body_pk main-star rule and bounds the generation/system lookup.
+    """
+    return '''
+WITH target AS MATERIALIZED (
+    SELECT v.system_id64,v.loaded_body_count,v.completeness,v.confidence
+      FROM v3_derived.system_rating_vector v
+     WHERE v.derived_generation_id=%(generation_id)s AND v.chunk_ordinal=%(chunk_ordinal)s
+),
+body_summary AS (
+    SELECT b.system_id64,
+           (count(*) FILTER (
+               WHERE b.lifecycle_state='ACTIVE' AND b.is_landable IS TRUE
+           ))::integer AS landable_count,
+           bool_or(
+               b.lifecycle_state='ACTIVE'
+               AND ts.public_code IN ('terraformable','terraformed','terraforming')
+           ) AS has_terraformable
+      FROM {schema}.bodies b
+      JOIN target t ON t.system_id64=b.system_id64
+ LEFT JOIN v3_vocab.terraforming_state ts
+        ON ts.terraforming_state_id=b.terraforming_state_id
+  GROUP BY b.system_id64
+),
+ring_summary AS (
+    SELECT r.system_id64,true AS has_rings
+      FROM {schema}.rings r
+      JOIN target t ON t.system_id64=r.system_id64
+     WHERE r.lifecycle_state='ACTIVE' AND r.kind='RING'
+  GROUP BY r.system_id64
+),
+signal_summary AS (
+    SELECT t.system_id64,sig.has_biologicals,sig.has_geologicals
+      FROM target t
+CROSS JOIN LATERAL (
+    SELECT bool_or(st.public_code='saa_signaltype_biological'
+                   AND bs.signal_count>0) AS has_biologicals,
+           bool_or(st.public_code='saa_signaltype_geological'
+                   AND bs.signal_count>0) AS has_geologicals
+      FROM {schema}.bodies b
+      JOIN {schema}.body_signal_current bs ON bs.body_pk=b.body_pk
+      JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
+     WHERE b.system_id64=t.system_id64 AND b.lifecycle_state='ACTIVE'
+) sig
+),
+station_summary AS (
+    SELECT st.system_id64,
+           (count(*) FILTER (WHERE st.lifecycle_state='ACTIVE'))::integer
+               AS station_count
+      FROM {schema}.stations st
+      JOIN target t ON t.system_id64=st.system_id64
+  GROUP BY st.system_id64
+),
+main_star AS (
+    SELECT t.system_id64,ms.main_star_class
+      FROM target t
+ LEFT JOIN LATERAL (
+    SELECT bm.body_class AS main_star_class
+      FROM v3_derived.body_mechanics bm
+     WHERE bm.derived_generation_id=%(generation_id)s
+       AND bm.system_id64=t.system_id64 AND bm.is_main_star IS TRUE
+  ORDER BY bm.body_pk
+     LIMIT 1
+) ms ON true
+)
+SELECT %(generation_id)s,t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
+       cube(ARRAY[s.x_ly,s.y_ly,s.z_ly]),
+       s.galaxy_region_id,gr.display_name,ms.main_star_class,
+       t.loaded_body_count,COALESCE(bs.landable_count,0),
+       COALESCE(ss.station_count,0),COALESCE(rs.has_rings,false),
+       COALESCE(sig.has_biologicals,false),
+       COALESCE(sig.has_geologicals,false),
+       COALESCE(bs.has_terraformable,false),
+       s.source_updated_at,
+       (SELECT min(value)::double precision/10000
+          FROM unnest(t.completeness) AS value),
+       (SELECT min(value)::double precision/10000
+          FROM unnest(t.confidence) AS value)
+  FROM target t
+  JOIN {schema}.systems s ON s.id64=t.system_id64
+ LEFT JOIN v3_vocab.galaxy_region gr ON gr.galaxy_region_id=s.galaxy_region_id
+ LEFT JOIN body_summary bs USING(system_id64)
+ LEFT JOIN ring_summary rs USING(system_id64)
+ LEFT JOIN signal_summary sig USING(system_id64)
+ LEFT JOIN station_summary ss USING(system_id64)
+ LEFT JOIN main_star ms USING(system_id64)
+ORDER BY t.system_id64
+    '''.strip()
+
+
 def _insert_chunk(
     connection,
     generation: Generation,
@@ -293,104 +387,20 @@ def _insert_chunk(
         if preexisting:
             raise ValueError('unreceipted Search rows already exist for chunk')
 
-        schema = sql.Identifier(generation.canonical_schema)
         query = sql.SQL(
-            '''
-            WITH target AS MATERIALIZED (
-                SELECT v.system_id64,v.loaded_body_count,v.completeness,v.confidence
-                  FROM v3_derived.system_rating_vector v
-                 WHERE v.derived_generation_id=%s AND v.chunk_ordinal=%s
-            ),
-            body_summary AS (
-                SELECT b.system_id64,
-                       (count(*) FILTER (
-                           WHERE b.lifecycle_state='ACTIVE' AND b.is_landable IS TRUE
-                       ))::integer AS landable_count,
-                       bool_or(
-                           b.lifecycle_state='ACTIVE'
-                           AND ts.public_code IN ('terraformable','terraformed','terraforming')
-                       ) AS has_terraformable
-                  FROM {}.bodies b
-                  JOIN target t ON t.system_id64=b.system_id64
-             LEFT JOIN v3_vocab.terraforming_state ts
-                    ON ts.terraforming_state_id=b.terraforming_state_id
-              GROUP BY b.system_id64
-            ),
-            ring_summary AS (
-                SELECT r.system_id64,true AS has_rings
-                  FROM {}.rings r
-                  JOIN target t ON t.system_id64=r.system_id64
-                 WHERE r.lifecycle_state='ACTIVE' AND r.kind='RING'
-              GROUP BY r.system_id64
-            ),
-            signal_summary AS (
-                SELECT b.system_id64,
-                       bool_or(st.public_code='saa_signaltype_biological'
-                               AND bs.signal_count>0) AS has_biologicals,
-                       bool_or(st.public_code='saa_signaltype_geological'
-                               AND bs.signal_count>0) AS has_geologicals
-                  FROM {}.body_signal_current bs
-                  JOIN {}.bodies b ON b.body_pk=bs.body_pk
-                  JOIN target t ON t.system_id64=b.system_id64
-                  JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
-                 WHERE b.lifecycle_state='ACTIVE'
-              GROUP BY b.system_id64
-            ),
-            station_summary AS (
-                SELECT st.system_id64,
-                       (count(*) FILTER (WHERE st.lifecycle_state='ACTIVE'))::integer
-                           AS station_count
-                  FROM {}.stations st
-                  JOIN target t ON t.system_id64=st.system_id64
-              GROUP BY st.system_id64
-            ),
-            main_star AS (
-                SELECT DISTINCT ON (bm.system_id64)
-                       bm.system_id64,bm.body_class AS main_star_class
-                  FROM v3_derived.body_mechanics bm
-                  JOIN target t ON t.system_id64=bm.system_id64
-                 WHERE bm.derived_generation_id=%s AND bm.is_main_star IS TRUE
-              ORDER BY bm.system_id64,bm.body_pk
-            )
-            INSERT INTO v3_derived.system_search(
+            '''INSERT INTO v3_derived.system_search(
                 derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,
                 galaxy_region_id,region_name,main_star_class,body_count,landable_count,
                 station_count,has_rings,has_biologicals,has_geologicals,
                 has_terraformable,source_observed_at,completeness,confidence
             )
-            SELECT %s,t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
-                   cube(ARRAY[s.x_ly,s.y_ly,s.z_ly]),
-                   s.galaxy_region_id,gr.display_name,ms.main_star_class,
-                   t.loaded_body_count,COALESCE(bs.landable_count,0),
-                   COALESCE(ss.station_count,0),COALESCE(rs.has_rings,false),
-                   COALESCE(sig.has_biologicals,false),
-                   COALESCE(sig.has_geologicals,false),
-                   COALESCE(bs.has_terraformable,false),
-                   s.source_updated_at,
-                   (SELECT min(value)::double precision/10000
-                      FROM unnest(t.completeness) AS value),
-                   (SELECT min(value)::double precision/10000
-                      FROM unnest(t.confidence) AS value)
-              FROM target t
-              JOIN {}.systems s ON s.id64=t.system_id64
-         LEFT JOIN v3_vocab.galaxy_region gr
-                ON gr.galaxy_region_id=s.galaxy_region_id
-         LEFT JOIN body_summary bs USING(system_id64)
-         LEFT JOIN ring_summary rs USING(system_id64)
-         LEFT JOIN signal_summary sig USING(system_id64)
-         LEFT JOIN station_summary ss USING(system_id64)
-         LEFT JOIN main_star ms USING(system_id64)
-            ORDER BY t.system_id64
             '''
-        ).format(schema, schema, schema, schema, schema, schema)
-
+        ) + sql.SQL(projection_query_sql()).format(
+            schema=sql.Identifier(generation.canonical_schema),
+        )
         cursor = connection.execute(
             query,
-            (
-                generation.identifier, ordinal,
-                generation.identifier,
-                generation.identifier,
-            ),
+            {'generation_id': generation.identifier, 'chunk_ordinal': ordinal},
         )
         if cursor.rowcount != systems:
             raise ValueError('Search chunk did not cover every Ratings system')
