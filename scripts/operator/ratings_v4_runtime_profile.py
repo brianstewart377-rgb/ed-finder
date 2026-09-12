@@ -249,7 +249,7 @@ def process_cpu_summary(frames, role, ticks_per_second):
     """
     totals = {}
     seconds = frames[-1]['elapsed_seconds'] - frames[0]['elapsed_seconds']
-    for before, after in zip(frames, frames[1:]):
+    for before, after in zip(frames, frames[1:], strict=False):
         interval = after['elapsed_seconds'] - before['elapsed_seconds']
         for row in process_rates(before['processes'][role], after['processes'][role],
                                  interval, ticks_per_second):
