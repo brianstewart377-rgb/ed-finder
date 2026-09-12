@@ -11,6 +11,7 @@ CANONICAL_SEQUENCE="4"
 CANONICAL_SCHEMA="v3_gen_phase4c_full_20260827_r5"
 DERIVED_KEY="ratings_v4_prod_p4_opt1"
 STATISTICS_TARGET="1000"
+N_DISTINCT_OVERRIDE="-0.10"
 
 fail() {
   printf 'v3 system search tune system-id stats: %s\n' "$*" >&2
@@ -64,6 +65,7 @@ stats_json() {
 SELECT json_build_object(
   'relation_reltuples',c.reltuples::bigint,
   'statistics_target',a.attstattarget,
+  'attribute_options',a.attoptions,
   'n_distinct',s.n_distinct,
   'implied_distinct',CASE
       WHEN s.n_distinct IS NULL THEN NULL
@@ -92,6 +94,7 @@ printf 'canonical_generation=%s\n' "$CANONICAL_GENERATION"
 printf 'canonical_sequence=%s\n' "$CANONICAL_SEQUENCE"
 printf 'canonical_schema=%s\n' "$CANONICAL_SCHEMA"
 printf 'statistics_target=%s\n' "$STATISTICS_TARGET"
+printf 'n_distinct_override=%s\n' "$N_DISTINCT_OVERRIDE"
 printf 'before_stats=%s\n' "$(stats_json)"
 
 docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
@@ -100,6 +103,8 @@ SET statement_timeout='15min';
 SET lock_timeout='5s';
 ALTER TABLE ${CANONICAL_SCHEMA}.bodies
   ALTER COLUMN system_id64 SET STATISTICS ${STATISTICS_TARGET};
+ALTER TABLE ${CANONICAL_SCHEMA}.bodies
+  ALTER COLUMN system_id64 SET (n_distinct = ${N_DISTINCT_OVERRIDE});
 ANALYZE ${CANONICAL_SCHEMA}.bodies (system_id64);
 SQL
 
@@ -108,6 +113,7 @@ printf 'after_stats=%s\n' "$(stats_json)"
 verification="$("${psql_base[@]}" --command "BEGIN READ ONLY;
 SELECT a.attstattarget::text || E'\\t' ||
        COALESCE(s.n_distinct::text,'') || E'\\t' ||
+       (COALESCE(s.n_distinct,0)=-0.1)::int::text || E'\\t' ||
        (st.last_analyze IS NOT NULL)::int::text
   FROM pg_class c
   JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -116,12 +122,13 @@ SELECT a.attstattarget::text || E'\\t' ||
   LEFT JOIN pg_stat_all_tables st ON st.relid=c.oid
  WHERE n.nspname='${CANONICAL_SCHEMA}' AND c.relname='bodies';
 COMMIT;")"
-IFS=$'\t' read -r observed_target observed_n_distinct analyzed <<< "$verification"
+IFS=$'\t' read -r observed_target observed_n_distinct override_applied analyzed <<< "$verification"
 [ "$observed_target" = "$STATISTICS_TARGET" ] || fail "system_id64 statistics target was not applied"
 [ -n "$observed_n_distinct" ] || fail "system_id64 n_distinct is missing after ANALYZE"
+[ "$override_applied" = "1" ] || fail "system_id64 n_distinct override was not applied"
 [ "$analyzed" = "1" ] || fail "bodies ANALYZE receipt was not visible"
 
-printf 'result=planner-statistics-target-refreshed\n'
+printf 'result=planner-systemid-statistics-tuned\n'
 printf 'planner_statistics_updated=true\n'
 printf 'planner_metadata_changes_performed=true\n'
 printf 'canonical_row_writes_performed=false\n'
