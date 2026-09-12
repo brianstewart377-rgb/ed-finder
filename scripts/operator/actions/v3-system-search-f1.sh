@@ -175,6 +175,7 @@ start_operation() {
   [ "$(cat "$REPO_ROOT/.v3-search-source-sha" 2>/dev/null || true)" = "$SOURCE_SHA" ] || fail "trusted main bundle SHA marker mismatch"
   [ -f "$REPO_ROOT/scripts/v3_system_search.py" ] || fail "Search builder is missing"
   [ -f "$REPO_ROOT/sql/v3/migrations/006_v3_derived_product_lifecycle.sql" ] || fail "migration 006 is missing"
+  [ -d "$REPO_ROOT/.v3-search-wheelhouse" ] || fail "offline Search dependency wheelhouse is missing"
 
   install -d -m 700 "$STATE_ROOT"
   command -v flock >/dev/null 2>&1 || fail "flock is unavailable"
@@ -222,7 +223,10 @@ start_operation() {
     --entrypoint /bin/sh \
     "$api_image" -lc '
       set -eu
-      export PYTHONPATH="/work:/work/apps/api/src"
+      /usr/local/bin/python -m pip install --disable-pip-version-check --no-input --no-index \
+        --find-links /work/.v3-search-wheelhouse --target /tmp/v3-search-deps \
+        "psycopg[binary]==3.3.4"
+      export PYTHONPATH="/tmp/v3-search-deps:/work:/work/apps/api/src"
       cd /work
       exec /app/.venv/bin/python scripts/v3_system_search.py \
         --generation-key ratings_v4_prod_p4_opt1 --follow --poll-seconds 5
