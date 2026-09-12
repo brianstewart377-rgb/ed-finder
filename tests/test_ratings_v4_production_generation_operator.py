@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/chatgpt-ed-new-ops.yml"
 ACTION = ROOT / "scripts/operator/actions/ratings-v4-generation.sh"
+ACCELERATE_WORKFLOW = ROOT / ".github/workflows/ratings-v4-production-accelerate.yml"
+ACCELERATE_ACTION = ROOT / "scripts/operator/actions/ratings-v4-accelerate.sh"
 
 
 def test_generation_request_uses_trusted_main_and_is_allowlisted():
@@ -52,3 +54,25 @@ def test_generation_reuses_live_database_secret_without_printing_it():
     assert "RATINGS_V4_DERIVED_DATABASE_URL=%s" in action
     assert 'printf \'%s\' "$value"' in action
     assert 'printf \'%s\\n\' "$dsn"' not in action
+
+
+def test_acceleration_is_in_place_and_data_only():
+    workflow = ACCELERATE_WORKFLOW.read_text(encoding="utf-8")
+    action = ACCELERATE_ACTION.read_text(encoding="utf-8")
+    assert "ratings-v4-generation-accelerate" in workflow
+    assert "ref: main" in workflow
+    assert ".github/ratings-v4-ops-requests/*.json" in workflow
+    assert "trusted-main/scripts/operator/actions/ratings-v4-accelerate.sh" in workflow
+    assert 'TARGET_CPUS="16"' in action
+    assert 'TARGET_MEMORY="64g"' in action
+    assert 'docker update \\' in action
+    assert "--cpus \"$TARGET_CPUS\"" in action
+    assert "--memory \"$TARGET_MEMORY\"" in action
+    assert "worker_restarted=false" in action
+    assert "publication_performed=false" in action
+    assert "migrations_performed=false" in action
+    assert "canonical_writes_performed=false" in action
+    assert "docker restart" not in action
+    assert "docker stop" not in action
+    assert "docker rm" not in action
+    assert "publish_derived_generation(" not in action
