@@ -29,10 +29,10 @@ test = [
   "ijson==3.5.1",
   "jsonschema==4.26.0",
   "numpy==2.5.2",
-  "psycopg[binary]==3.3.4",
+  "psycopg[binary]==3.3.5",
   "pytest-asyncio==1.4.0",
   "pytest==9.1.1",
-  "ruff==0.16.5",
+  "ruff==0.16.6",
   "tqdm==4.70.0",
 ]
 
