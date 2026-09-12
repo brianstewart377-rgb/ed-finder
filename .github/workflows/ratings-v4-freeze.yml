@@ -11,6 +11,8 @@ on:
       - 'scripts/ratings_v4/**'
       - 'scripts/v3_system_search.py'
       - 'scripts/operator/render_v3_system_search_profile.py'
+      - 'scripts/operator/ratings_v4_runtime_profile.py'
+      - '.github/workflows/ratings-v4-production-profile.yml'
       - 'scripts/operator/v3_system_search_legacy.sql'
       - 'scripts/checks/requirements.txt'
       - 'tests/test_ratings_v4*'
