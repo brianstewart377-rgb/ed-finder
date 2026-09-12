@@ -46,3 +46,4 @@ def test_search_profile_workflow_is_data_only_and_uses_trusted_main():
     assert "trusted-main/scripts/operator/actions/v3-system-search-profile.sh" in source
     assert "environment: ed-new-operator" in source
     assert "group: chatgpt-ed-new-ops" in source
+    assert "timeout-minutes: 12" in source
