@@ -34,7 +34,7 @@ def test_optimization_request_is_data_only_and_uses_trusted_main():
     assert '--only-binary=:all:' in workflow
 
 
-def test_optimized_worker_proves_progress_before_reversible_cutover():
+def test_optimized_worker_proves_and_benchmarks_before_reversible_cutover():
     action = ACTION.read_text(encoding='utf-8')
     assert 'new_generation_key="ratings_v4_prod_p${sequence}_opt1"' in action
     assert 'new_worker="edfinder-ratings-v4-prod-p${sequence}-opt1"' in action
@@ -46,7 +46,14 @@ def test_optimized_worker_proves_progress_before_reversible_cutover():
     assert '--workers "$RATINGS_V4_ENCODER_WORKERS"' in action
     assert '--memory-swap "$TARGET_MEMORY"' in action
     assert 'MIN_PROOF_CHUNKS="2"' in action
-    assert action.index('proof_chunks=0') < action.index('docker stop --time 30 "$old_worker"')
+    assert 'BENCHMARK_SECONDS="60"' in action
+    assert 'MIN_ACCEPTED_SYSTEMS_PER_SECOND="500"' in action
+    assert action.index('proof_chunks=0') < action.index('docker pause "$old_worker"')
+    assert action.index('docker pause "$old_worker"') < action.index('sleep "$BENCHMARK_SECONDS"')
+    assert action.index('benchmark_rate=$((benchmark_delta_systems / BENCHMARK_SECONDS))') < action.index('docker stop --time 30 "$old_worker"')
+    assert 'rollback_on_exit()' in action
+    assert 'docker unpause "$old_worker"' in action
+    assert 'docker start "$old_worker"' in action
     assert 'old_worker_retained=true' in action
     assert 'old_generation_deleted=false' in action
     assert 'publication_performed=false' in action
