@@ -10,7 +10,9 @@ def test_signal_profile_only_explains_read_only_variants():
     source = SCRIPT.read_text(encoding="utf-8")
     assert 'TARGET_GENERATION_KEY="ratings_v4_prod_p4_opt1"' in source
     assert "BEGIN READ ONLY;" in source
-    assert "EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY)" in source
+    assert "EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)" in source
+    assert "signal_plan_json=" in source
+    assert "grep -E" not in source
     assert "statement_timeout='60s'" in source
     assert "enable_hashjoin=off" in source
     assert "enable_seqscan=off" in source

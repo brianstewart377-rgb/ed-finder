@@ -13,6 +13,11 @@ def test_search_profile_is_read_only_and_exact_targeted():
     assert 'BEGIN READ ONLY;' in source
     assert 'EXPLAIN (ANALYZE, BUFFERS, SETTINGS, SUMMARY, FORMAT JSON)' in source
     assert "statement_timeout='60s'" in source
+    assert "run_full_query_variant baseline \"\" select_plan_json" in source
+    assert 'run_full_query_variant jit_off "SET LOCAL jit=off;" jit_off_select_plan_json' in source
+    assert "run_full_query_variant indexed_no_seqscan" in source
+    assert "SET LOCAL enable_seqscan=off;" in source
+    assert "full_query_variant=%s" in source
     assert "database_writes_performed=false" in source
     assert "schema_changes_performed=false" in source
     assert "publication_performed=false" in source
