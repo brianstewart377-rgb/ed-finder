@@ -25,7 +25,7 @@ from scripts.ratings_v4.canonical_stream import (  # noqa: E402
 )
 from scripts.ratings_v4.production_generation import (  # noqa: E402
     BODY_COLUMNS, OPPORTUNITY_COLUMNS, VECTOR_COLUMNS, _verify_code,
-    create_generation, encode_chunk, seal_source, validate_generation, write_chunk,
+    _digest, code_identity, create_generation, encode_chunk, seal_source, validate_generation, write_chunk,
 )
 
 GENERATION_KEY = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
@@ -46,17 +46,33 @@ def _artifact(snapshot: CanonicalSnapshot) -> tuple[str, int]:
     return digest.removeprefix('\\x'), size
 
 
-def _generation(connection, snapshot: CanonicalSnapshot, generation_key: str):
+def _generation(connection, snapshot: CanonicalSnapshot, generation_key: str, *, upgrade_actor=None):
     if not GENERATION_KEY.fullmatch(generation_key):
         raise ValueError('invalid derived generation key')
     row = connection.execute('''SELECT derived_generation_id,lifecycle_state,manifest,
-        validation_receipt FROM v3_meta.derived_generation WHERE generation_key=%s''',
+        validation_receipt,manifest_sha256 FROM v3_meta.derived_generation WHERE generation_key=%s''',
         (generation_key,)).fetchone()
     if row is None:
+        if upgrade_actor is not None:
+            raise ValueError('parser upgrade requires an existing generation')
         identifier = create_generation(connection, snapshot, generation_key)
-        return identifier, 'BUILDING', None, False
-    identifier, state, manifest, validation = row
-    _verify_code(manifest)
+        return identifier, 'BUILDING', None, False, None
+    identifier, state, manifest, validation, manifest_hash = row
+    if _digest(manifest) != bytes(manifest_hash):
+        raise ValueError('generation manifest checksum mismatch')
+    compatible = manifest.get('code_sha256_lf') != code_identity()
+    if compatible:
+        from scripts.ratings_v4.resume_upgrade import verify_origin
+        verify_origin(manifest, check_contract=True)
+    if compatible and upgrade_actor is not None:
+        from scripts.ratings_v4.resume_upgrade import recorded_upgrade
+        if recorded_upgrade(connection, identifier, manifest) is None:
+            if state != 'BUILDING':
+                raise ValueError('parser upgrade requires a BUILDING generation')
+            if connection.execute("SELECT to_regclass('v3_meta.derived_code_upgrade')").fetchone()[0] is None:
+                raise ValueError('reviewed parser upgrade migration is not installed')
+    else:
+        _verify_code(manifest, connection, identifier)
     expected = {
         'canonical_generation_id': snapshot.generation_id,
         'canonical_publication_sequence': snapshot.publication_sequence,
@@ -67,7 +83,7 @@ def _generation(connection, snapshot: CanonicalSnapshot, generation_key: str):
     }
     if any(manifest.get(key) != value for key, value in expected.items()):
         raise ValueError('existing generation key belongs to another canonical input')
-    return identifier, state, validation, True
+    return identifier, state, validation, True, manifest if compatible else None
 
 
 def _write_encoded_chunk(connection, generation_id, ordinal, canonical, metadata,
@@ -83,7 +99,7 @@ def _write_encoded_chunk(connection, generation_id, ordinal, canonical, metadata
         if generation is None or generation[0] != 'BUILDING':
             raise ValueError('generation is not BUILDING')
         manifest = generation[1]
-        _verify_code(manifest)
+        _verify_code(manifest, connection, generation_id)
         if (manifest['source_metadata'] != metadata or
                 manifest['canonical_schema'] != canonical['canonical_schema']):
             raise ValueError('chunk canonical source differs from generation manifest')
@@ -144,7 +160,8 @@ def _drain_oldest(pending, write_connection, identifier, metadata, progress):
 
 def build_generation(read_connection, write_connection, source_path: Path,
                      generation_key: str, *, chunk_size: int = 500,
-                     workers: int = 1, progress: Progress | None = None) -> dict:
+                     workers: int = 1, progress: Progress | None = None,
+                     upgrade_actor: str | None = None) -> dict:
     """Build or resume one exact generation, validate it, and never publish it.
 
     Source parsing and canonical reads remain sequential and authoritative. With
@@ -156,6 +173,9 @@ def build_generation(read_connection, write_connection, source_path: Path,
         raise ValueError('chunk size outside bounded contract')
     if type(workers) is not int or not 1 <= workers <= MAX_ENCODER_WORKERS:
         raise ValueError('encoder worker count outside bounded contract')
+    if upgrade_actor is not None and (not isinstance(upgrade_actor, str) or
+                                     not upgrade_actor.strip() or len(upgrade_actor) > 200):
+        raise ValueError('explicit parser upgrade actor is required')
     source_path = Path(source_path)
     if source_path.is_symlink() or not source_path.is_file():
         raise ValueError('retained artifact must be a regular non-symlink file')
@@ -164,15 +184,21 @@ def build_generation(read_connection, write_connection, source_path: Path,
     digest, size = _artifact(snapshot)
     if source_path.stat().st_size != size:
         raise ValueError('retained artifact size differs from canonical metadata')
-    identifier, state, validation, resumed = _generation(
-        write_connection, snapshot, generation_key,
+    identifier, state, validation, resumed, upgrade_manifest = _generation(
+        write_connection, snapshot, generation_key, upgrade_actor=upgrade_actor,
     )
     chunks_seen = chunks_written = 0
 
     if state == 'BUILDING':
         stream = RetainedArtifactStream(source_path, sha256=digest, size_bytes=size)
+        if upgrade_manifest is not None:
+            from scripts.ratings_v4.resume_upgrade import remaining_chunks
+            chunks = remaining_chunks(stream, chunk_size, write_connection, identifier,
+                                      upgrade_manifest, actor=upgrade_actor, progress=progress)
+        else:
+            chunks = enumerate(stream.chunks(chunk_size))
         if workers == 1:
-            for ordinal, records in enumerate(stream.chunks(chunk_size)):
+            for ordinal, records in chunks:
                 canonical = snapshot.export_chunk(
                     read_connection, [record['id64'] for record in records],
                 )
@@ -190,7 +216,7 @@ def build_generation(read_connection, write_connection, source_path: Path,
             executor = ProcessPoolExecutor(max_workers=workers, mp_context=context)
             pending = deque()
             try:
-                for ordinal, records in enumerate(stream.chunks(chunk_size)):
+                for ordinal, records in chunks:
                     canonical = snapshot.export_chunk(
                         read_connection, [record['id64'] for record in records],
                     )
@@ -252,6 +278,9 @@ def parse_args(argv=None):
     parser.add_argument('--generation-key', required=True)
     parser.add_argument('--chunk-size', type=int, default=500)
     parser.add_argument('--workers', type=int, default=1)
+    parser.add_argument('--upgrade-parser-actor', default=None,
+                        help='Explicit actor for the reviewed legacy-parser transition; '
+                             'requires its additive audit migration and a stopped old writer')
     return parser.parse_args(argv)
 
 
@@ -270,6 +299,7 @@ def main(argv=None) -> int:
                 read_connection, write_connection, args.source,
                 args.generation_key, chunk_size=args.chunk_size,
                 workers=args.workers,
+                upgrade_actor=args.upgrade_parser_actor,
                 progress=lambda item: print(json.dumps({'status': 'PROGRESS', **item}, sort_keys=True)),
             )
     except Exception as exc:  # CLI emits no connection or source exception details.
