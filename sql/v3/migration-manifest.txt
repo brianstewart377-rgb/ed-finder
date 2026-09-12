@@ -12,8 +12,7 @@
 # guessing at a naming convention. <path-under-sql> locates the bytes that hash
 # to <sha256>.
 #
-# Provenance of the reviewed rows, all three re-verified by byte hash against the
-# live ledger read under BEGIN READ ONLY by the 2026-09-10 inventory receipt:
+# Provenance of the retained production rows:
 #
 #   001_v3_baseline.sql           applied 2026-08-27T12:05:58Z by the
 #                                 edfinder-v3-phase4c-full-20260827_r5 rehearsal
@@ -23,13 +22,17 @@
 #   r1_v3/001_structural_shell.sql applied 2026-08-31T16:22:56Z as the additive
 #                                 R1 normalized shell; recovered from the
 #                                 chatgpt-ed-new-ops-requests branch
+#   003_ratings_v4_derived.sql,
+#   004_v3_search_spatial_clusters.sql and
+#   005_v3_journal_intelligence.sql were confirmed applied in retained production
+#                                 on 2026-09-12 before the first full Ratings V4
+#                                 generation was started.
 #
-#   003_ratings_v4_derived.sql, 004_v3_search_spatial_clusters.sql and
-#   005_v3_journal_intelligence.sql are declared but NOT applied. They follow
-#                                 every applied row, so the reviewed live ledger
-#                                 stays an exact prefix of this file and the
-#                                 migration operation reports three pending
-#                                 migrations in order (003 -> 004 -> 005).
+#   006_v3_derived_product_lifecycle.sql is the next declared migration. It adds
+#                                 independently validated derived products and a
+#                                 publication gate; it must be applied through the
+#                                 reviewed V3 migration operation before Search is
+#                                 attached to a production generation.
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
@@ -37,3 +40,4 @@ e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_account
 c7818f98ad00b4b99b7ce0f7c3fa12ece555e59e761b7b1ca15d437a39c499cb  003_ratings_v4_derived.sql  v3/migrations/003_ratings_v4_derived.sql
 e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2  004_v3_search_spatial_clusters.sql  v3/migrations/004_v3_search_spatial_clusters.sql
 e5c853bcc35da054aff67356a95cbe3d668f6bf2dd1d97b497b9ba7d8cae02ac  005_v3_journal_intelligence.sql  v3/migrations/005_v3_journal_intelligence.sql
+85f38fe5f0251bf3d5f81485a8a5b7de439750b4cc12ef9449755454898767f4  006_v3_derived_product_lifecycle.sql  v3/migrations/006_v3_derived_product_lifecycle.sql
