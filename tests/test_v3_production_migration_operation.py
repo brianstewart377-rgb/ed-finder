@@ -56,6 +56,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
          "003_ratings_v4_derived.sql",
          "004_v3_search_spatial_clusters.sql",
          "005_v3_journal_intelligence.sql",
+         "006_v3_derived_product_lifecycle.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -76,6 +77,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "003_ratings_v4_derived.sql",
         "004_v3_search_spatial_clusters.sql",
         "005_v3_journal_intelligence.sql",
+        "006_v3_derived_product_lifecycle.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
