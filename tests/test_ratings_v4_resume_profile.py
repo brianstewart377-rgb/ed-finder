@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 import io
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.operator.ratings_v4_resume_profile import (  # noqa: E402
-    ArrayRootReader, direct_chunks, verify_chunk,
+    ArrayRootReader, builder_progress, direct_chunks, verify_chunk,
 )
 from scripts.ratings_v4.canonical_stream import _ArrayRootReader  # noqa: E402
 from scripts.ratings_v4.production_generation import _digest, _projection  # noqa: E402
@@ -48,6 +49,29 @@ def test_observer_is_bounded_and_database_read_only():
     assert 'signal.alarm(150)' in source
     assert 'source_eof_verified=False' in source
     assert 'INSERT INTO' not in source and 'UPDATE v3_' not in source
+
+
+def test_builder_rate_uses_database_snapshot_interval():
+    started = datetime(2026, 9, 12, 23, 35, 33, tzinfo=timezone.utc)
+    # A 120-second parser sample can have a longer database count interval.
+    # Builder throughput must include that extra time in its denominator.
+    ended = started + timedelta(seconds=123)
+    result = builder_progress((78_510_000, started), (78_756_000, ended))
+    assert result['builder_elapsed_seconds'] == 123
+    assert result['builder_systems_per_second'] == 2000
+    assert result['builder_systems_committed_during_sample'] == 246_000
+    assert result['builder_systems_at_start'] == 78_510_000
+    assert result['builder_systems_at_end'] == 78_756_000
+    assert result['builder_snapshot_started_at'] == started.isoformat()
+    assert result['builder_snapshot_ended_at'] == ended.isoformat()
+    assert builder_progress((1000, started), (1000, ended))['builder_systems_per_second'] == 0
+
+
+@pytest.mark.parametrize(('seconds', 'end_count'), [(0, 2000), (-1, 2000), (120, 999)])
+def test_builder_rate_rejects_invalid_snapshot_interval(seconds, end_count):
+    started = datetime(2026, 9, 12, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match='invalid builder snapshot interval'):
+        builder_progress((1000, started), (end_count, started + timedelta(seconds=seconds)))
 
 
 @pytest.mark.parametrize('wrong_source', [False, True])

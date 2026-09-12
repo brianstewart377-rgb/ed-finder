@@ -82,6 +82,29 @@ def emit(kind, **data):
                      sort_keys=True), flush=True)
 
 
+def builder_snapshot(connection):
+    # The count and clock belong to the same database statement. Source parsing
+    # has a different interval and must not be used to time builder commits.
+    return connection.execute('''SELECT COALESCE(sum(systems),0), statement_timestamp()
+        FROM v3_derived.build_chunk WHERE derived_generation_id=%s''', (GENERATION_ID,)).fetchone()
+
+
+def builder_progress(before, after):
+    elapsed = (after[1] - before[1]).total_seconds()
+    committed = int(after[0] - before[0])
+    if elapsed <= 0 or committed < 0:
+        raise ValueError('invalid builder snapshot interval')
+    return {
+        'builder_systems_at_start': int(before[0]),
+        'builder_systems_at_end': int(after[0]),
+        'builder_snapshot_started_at': before[1].isoformat(),
+        'builder_snapshot_ended_at': after[1].isoformat(),
+        'builder_elapsed_seconds': elapsed,
+        'builder_systems_committed_during_sample': committed,
+        'builder_systems_per_second': committed / elapsed,
+    }
+
+
 def main():
     import psycopg
     import resource
@@ -124,10 +147,11 @@ def main():
             FROM v3_derived.build_chunk WHERE derived_generation_id=%s ORDER BY chunk_ordinal''', (GENERATION_ID,)).fetchall()
         if not checkpoints or any(row[0] != i for i, row in enumerate(checkpoints)):
             raise ValueError('committed prefix is empty or noncontiguous')
-        before = sum(row[2] for row in checkpoints)
-        emit('start', generation_id=GENERATION_ID, committed_systems=before,
+        prefix_systems = sum(row[2] for row in checkpoints)
+        emit('start', generation_id=GENERATION_ID, committed_systems=prefix_systems,
              committed_chunks=len(checkpoints), expected_systems=manifest['expected_systems'],
              database_read_only=True, duration_seconds=DURATION_SECONDS)
+        builder_before = builder_snapshot(connection)
         started = last_complete = time.monotonic()
         verified_systems = verified_chunks = 0
         deadline_reached = False
@@ -151,22 +175,20 @@ def main():
                 deadline_reached = True
             signal.alarm(15)
             elapsed = time.monotonic() - started
-            after = connection.execute('''SELECT COALESCE(sum(systems),0) FROM v3_derived.build_chunk
-                WHERE derived_generation_id=%s''', (GENERATION_ID,)).fetchone()[0]
+            builder_after = builder_snapshot(connection)
             sample_seconds = last_complete - started
             rate = verified_systems / sample_seconds if verified_systems and sample_seconds else None
             emit('summary', generation_id=GENERATION_ID, database_read_only=True,
                  ratings_writes_performed=False, worker_restarted=False,
                  elapsed_seconds=elapsed, completed_chunk_seconds=sample_seconds,
                  verified_chunks=verified_chunks, verified_systems=verified_systems,
-                 prefix_systems_at_start=before, compressed_bytes_read=reader.bytes_read,
+                 prefix_systems_at_start=prefix_systems, compressed_bytes_read=reader.bytes_read,
                  compressed_prefix_sha256=reader.digest.hexdigest(), source_eof_verified=False,
                  all_initial_checkpoints_verified=verified_chunks == len(checkpoints),
                  verified_systems_per_second=rate,
-                 projected_prefix_seconds_if_same_mix=before / rate if rate else None,
+                 projected_prefix_seconds_if_same_mix=prefix_systems / rate if rate else None,
                  projection_is_not_a_production_eta=True, deadline_reached=deadline_reached,
-                 builder_systems_committed_during_sample=after-before,
-                 builder_systems_per_second=(after-before)/elapsed)
+                 **builder_progress(builder_before, builder_after))
     signal.alarm(0)
 
 
