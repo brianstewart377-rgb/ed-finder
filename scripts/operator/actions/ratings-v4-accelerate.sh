@@ -26,10 +26,8 @@ mapfile -t workers < <(docker ps --filter "label=${OPERATION_LABEL}" --format '{
 [ "${#workers[@]}" -eq 1 ] || fail "expected exactly one running Ratings V4 worker, found ${#workers[@]}"
 worker="${workers[0]}"
 
-case "$worker" in
-  edfinder-ratings-v4-prod-p[1-9][0-9]*) ;;
-  *) fail "unexpected Ratings V4 worker name" ;;
-esac
+[[ "$worker" =~ ^edfinder-ratings-v4-prod-p[1-9][0-9]*$ ]] \
+  || fail "unexpected Ratings V4 worker name"
 
 [ "$(docker inspect -f '{{.State.Running}}' "$worker")" = "true" ] || fail "Ratings V4 worker is not running"
 
