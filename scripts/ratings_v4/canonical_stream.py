@@ -58,6 +58,32 @@ class _HashedReader:
         return data
 
 
+class _ArrayRootReader:
+    """Check the root while forwarding unchanged bytes to the native parser.
+
+    Checking each bounded read also handles arbitrarily long leading whitespace
+    without retaining a prefix or depending on gzip.peek(). read(0) is the parser's
+    binary-stream probe and must not be mistaken for end of input.
+    """
+    def __init__(self, stream):
+        self.stream = stream
+        self.checked = False
+
+    def read(self, size=-1):
+        data = self.stream.read(size)
+        if size != 0 and not self.checked:
+            # Match the existing YAJL backend's ASCII whitespace handling. The
+            # parser still validates the complete document, including its tail.
+            prefix = data.lstrip(b' \t\r\n\v\f')
+            if prefix:
+                if prefix[:1] != b'[':
+                    raise ValueError('Spansh artifact must be a JSON array')
+                self.checked = True
+            elif not data:
+                raise ValueError('Spansh artifact must be a JSON array')
+        return data
+
+
 class RetainedArtifactStream:
     """Hash the compressed bytes actually parsed; only EOF produces a receipt.
 
@@ -90,10 +116,8 @@ class RetainedArtifactStream:
             chunk = []
             chunk_bodies = 0
             with gzip.GzipFile(fileobj=reader, mode='rb') as decoded:
-                events = ijson.parse(decoded, use_float=True)
-                if next(events, None) != ('', 'start_array', None):
-                    raise ValueError('Spansh artifact must be a JSON array')
-                for record in ijson.items(events, 'item'):
+                records = ijson.items(_ArrayRootReader(decoded), 'item', use_float=True)
+                for record in records:
                     if not isinstance(record, dict) or not isinstance(record.get('bodies', []), list):
                         raise ValueError('invalid Spansh system record')
                     _system_ids([record.get('id64')])

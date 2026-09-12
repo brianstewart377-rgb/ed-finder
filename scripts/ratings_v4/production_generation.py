@@ -47,12 +47,22 @@ def code_identity():
             for name in ('scripts/ratings_v4/production_generation.py',
                          'scripts/ratings_v4/run_generation.py',
                          'scripts/ratings_v4/canonical_stream.py',
-                         'sql/v3/migrations/003_ratings_v4_derived.sql')}
+                         'sql/v3/migrations/003_ratings_v4_derived.sql',
+                         'scripts/ratings_v4/resume_upgrade.py',
+                         'sql/v3/proposals/007_ratings_v4_code_upgrade.sql',
+                         'apps/api/src/domain/ratings_v4.py',
+                         'apps/api/src/domain/ratings_v4_canonical.py',
+                         'scripts/ratings_v4/verify_freeze.py')}
 
 
-def _verify_code(manifest):
+def _verify_code(manifest, connection=None, generation_id=None):
     if manifest.get('code_sha256_lf') != code_identity():
-        raise ValueError('generation builder/adapter/schema code identity changed')
+        from scripts.ratings_v4.resume_upgrade import recorded_upgrade
+        receipt = recorded_upgrade(connection, generation_id, manifest)
+        if receipt is None:
+            raise ValueError('generation builder/adapter/schema code identity changed')
+        return receipt
+    return None
 
 
 def _json(value):
@@ -170,7 +180,7 @@ def write_chunk(connection, generation_id, ordinal, canonical, metadata, source_
         if generation is None or generation[0] != 'BUILDING':
             raise ValueError('generation is not BUILDING')
         manifest = generation[1]
-        _verify_code(manifest)
+        _verify_code(manifest, connection, generation_id)
         if (manifest['source_metadata'] != metadata or manifest['canonical_schema'] != canonical['canonical_schema']):
             raise ValueError('chunk canonical source differs from generation manifest')
         old = connection.execute('''SELECT source_projection_sha256,canonical_input_sha256,content_sha256
@@ -262,6 +272,7 @@ def seal_source(connection, generation_id, receipt):
         if row is None or row[0] != 'BUILDING':
             raise ValueError('generation is not BUILDING')
         manifest = row[1]
+        _verify_code(manifest, connection, generation_id)
         artifact = manifest['source_metadata']['artifact']
         if (receipt.get('artifact_sha256') != artifact['content_sha256'].removeprefix('\\x') or
                 receipt.get('size_bytes') != artifact['size_bytes'] or
@@ -289,7 +300,7 @@ def validate_generation(connection, generation_id):
     if row is None or row[0] != 'VALIDATING':
         raise ValueError('generation is not VALIDATING')
     manifest = row[1]
-    _verify_code(manifest)
+    upgrade = _verify_code(manifest, connection, generation_id)
     if _digest(manifest) != bytes(row[2]):
         raise ValueError('generation manifest checksum mismatch')
     if (manifest['scorer_version'] != SCORER_VERSION or manifest['mechanics_version'] != MECHANICS_VERSION or
@@ -341,6 +352,8 @@ def validate_generation(connection, generation_id):
                'content_sha256': bytes(row[3]).hex(), 'manifest_sha256': bytes(row[2]).hex(),
                'every_system_replayed': True, 'every_stored_chunk_read_back': True,
                'elapsed_seconds': (datetime.now(timezone.utc) - started).total_seconds()}
+    if upgrade is not None:
+        receipt['code_upgrade'] = upgrade
     with connection.transaction():
         updated = connection.execute('''UPDATE v3_meta.derived_generation SET lifecycle_state='READY',
             validation_receipt=%s::jsonb,validated_at=now()
@@ -358,7 +371,7 @@ def explain_system(connection, generation_id, system_id64):
         WHERE derived_generation_id=%s''', (generation_id,)).fetchone()
     if row is None or row[1] not in {'READY', 'PUBLISHED', 'RETIRED'}:
         raise ValueError('no validated generation')
-    _verify_code(row[0])
+    _verify_code(row[0], connection, generation_id)
     vector = connection.execute(sql.SQL('SELECT {} FROM v3_derived.system_rating_vector WHERE derived_generation_id=%s AND system_id64=%s').format(
         sql.SQL(',').join(map(sql.Identifier, VECTOR_COLUMNS))), (generation_id, system_id64)).fetchone()
     if vector is None:

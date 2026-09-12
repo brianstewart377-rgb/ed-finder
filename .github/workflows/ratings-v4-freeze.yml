@@ -12,11 +12,14 @@ on:
       - 'scripts/v3_system_search.py'
       - 'scripts/operator/render_v3_system_search_profile.py'
       - 'scripts/operator/ratings_v4_runtime_profile.py'
+      - 'scripts/operator/ratings_v4_resume_profile.py'
+      - '.github/workflows/ratings-v4-resume-profile.yml'
       - '.github/workflows/ratings-v4-production-profile.yml'
       - 'scripts/operator/v3_system_search_legacy.sql'
       - 'scripts/checks/requirements.txt'
       - 'tests/test_ratings_v4*'
       - 'tests/ratings_v4_pg_fixture.py'
+      - 'tests/ratings_v4_legacy_resume_fixture.py'
       - 'tests/fixtures/ratings_v4*'
       - 'tests/fixtures/ratings_v4_sources/**'
       - 'docs/development/ratings-v4*'
@@ -46,6 +49,8 @@ jobs:
           --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fetch exact legacy builder for cross-version resume proof
+        run: git fetch --no-tags --depth=1 origin fe0c058134b6fec33690fa937c2ac74338b401dc
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.14'
@@ -63,4 +68,16 @@ jobs:
         with:
           name: ratings-v4-validation-receipt
           path: /tmp/ratings-v4-validation-receipt.json
+          if-no-files-found: error
+      - name: Benchmark source parsing and complete disposable PostgreSQL builds
+        env:
+          RATINGS_V4_VALIDATION_DATABASE_URL: postgresql://v4validator:v4test@127.0.0.1:5432/ratings_v4_validation
+        run: >-
+          python scripts/ratings_v4/benchmark_source_parser.py --rounds 4 --postgres
+          --receipt /tmp/ratings-v4-parser-benchmark.json
+      - name: Retain parser and builder benchmark receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ratings-v4-parser-benchmark
+          path: /tmp/ratings-v4-parser-benchmark.json
           if-no-files-found: error
