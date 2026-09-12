@@ -102,6 +102,15 @@ def _query(source):
     ).format(schema=sql.Identifier('search_plan_fixture'))
 
 
+def test_projection_laterals_correlate_directly_with_the_final_target():
+    source = projection_query_sql()
+    assert source.count('JOIN LATERAL') == 2
+    assert 'signal_summary AS' not in source
+    assert 'main_star AS' not in source
+    assert 'WHERE b.system_id64=t.system_id64' in source
+    assert 'AND bm.system_id64=t.system_id64' in source
+
+
 def test_projection_matches_legacy_for_sparse_and_adversarial_rows(projection_database):
     connection = projection_database
     rows = []
@@ -140,3 +149,24 @@ def test_profile_equivalence_sql_executes_with_duplicate_output_names(projection
     assert connection.execute(query, {
         'generation_id': GENERATION, 'chunk_ordinal': 0,
     }).fetchone() == (5, 5, 0)
+
+
+def test_projection_prepared_generic_plan_preserves_results(projection_database):
+    from psycopg import sql
+    connection = projection_database
+    prepared = _query(projection_query_sql()
+                      .replace('%(generation_id)s', '$1')
+                      .replace('%(chunk_ordinal)s', '$2'))
+    expected = connection.execute(_query(LEGACY.read_text()), {
+        'generation_id': GENERATION, 'chunk_ordinal': 0,
+    }).fetchall()
+    with connection.transaction():
+        connection.execute('SET TRANSACTION READ ONLY')
+        connection.execute('SET LOCAL plan_cache_mode=force_generic_plan')
+        connection.execute('SET LOCAL jit=off')
+        connection.execute(sql.SQL('PREPARE search_candidate(uuid,bigint) AS ') + prepared)
+        actual = connection.execute(
+            sql.SQL('EXECUTE search_candidate({},0)').format(sql.Literal(GENERATION))
+        ).fetchall()
+        assert actual == expected
+        connection.execute('DEALLOCATE search_candidate')
