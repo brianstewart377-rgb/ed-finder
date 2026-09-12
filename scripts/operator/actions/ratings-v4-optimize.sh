@@ -135,7 +135,7 @@ esac
 [ -f "$REPO_ROOT/scripts/ratings_v4/production_generation.py" ] || fail "generation builder is missing"
 [ -d "$REPO_ROOT/.ratings-v4-wheelhouse" ] || fail "offline dependency wheelhouse is missing"
 
-grep -F "--workers" "$REPO_ROOT/scripts/ratings_v4/run_generation.py" >/dev/null \
+grep -F -- "--workers" "$REPO_ROOT/scripts/ratings_v4/run_generation.py" >/dev/null \
   || fail "trusted runner has no parallel worker contract"
 
 install -d -m 700 "$STATE_ROOT"
@@ -170,6 +170,10 @@ api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
 dsn="$(api_database_url "$api")"
 
 if docker inspect "$new_worker" >/dev/null 2>&1; then
+  new_key_label="$(docker inspect -f '{{index .Config.Labels "ed-finder.generation-key"}}' "$new_worker")"
+  new_source_label="$(docker inspect -f '{{index .Config.Labels "ed-finder.source-sha"}}' "$new_worker")"
+  [ "$new_key_label" = "$new_generation_key" ] || fail "existing optimized worker generation identity mismatch"
+  [ "$new_source_label" = "$SOURCE_SHA" ] || fail "existing optimized worker code identity differs from trusted main"
   new_state="$(docker inspect -f '{{.State.Status}}' "$new_worker")"
   if [ "$new_state" != "running" ]; then
     docker rm "$new_worker" >/dev/null
@@ -184,6 +188,8 @@ if ! docker inspect "$new_worker" >/dev/null 2>&1; then
     printf 'RATINGS_V4_DERIVED_DATABASE_URL=%s\n' "$dsn"
     printf 'RATINGS_V4_SOURCE=/source/galaxy.json.gz\n'
     printf 'RATINGS_V4_GENERATION_KEY=%s\n' "$new_generation_key"
+    printf 'RATINGS_V4_CHUNK_SIZE=%s\n' "$TARGET_CHUNK_SIZE"
+    printf 'RATINGS_V4_ENCODER_WORKERS=%s\n' "$TARGET_WORKERS"
   } > "$env_file"
   chmod 600 "$env_file"
 
@@ -193,6 +199,8 @@ if ! docker inspect "$new_worker" >/dev/null 2>&1; then
     --label "ed-finder.generation-key=${new_generation_key}" \
     --label "ed-finder.source-sha=${SOURCE_SHA}" \
     --label "ed-finder.optimization=parallel-encoding-v1" \
+    --label "ed-finder.chunk-size=${TARGET_CHUNK_SIZE}" \
+    --label "ed-finder.encoder-workers=${TARGET_WORKERS}" \
     --network "$APPLICATION_NETWORK" \
     --cpus "$TARGET_CPUS" \
     --memory "$TARGET_MEMORY" \
@@ -217,8 +225,8 @@ if ! docker inspect "$new_worker" >/dev/null 2>&1; then
       exec /app/.venv/bin/python scripts/ratings_v4/run_generation.py \
         --source "$RATINGS_V4_SOURCE" \
         --generation-key "$RATINGS_V4_GENERATION_KEY" \
-        --chunk-size 1000 \
-        --workers 8
+        --chunk-size "$RATINGS_V4_CHUNK_SIZE" \
+        --workers "$RATINGS_V4_ENCODER_WORKERS"
     ' >/dev/null
   rm -f "$env_file"
 fi
