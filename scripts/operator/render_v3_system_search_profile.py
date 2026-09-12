@@ -13,7 +13,13 @@ sys.path.insert(0, str(ROOT))
 from scripts.v3_system_search import projection_query_sql  # noqa: E402
 
 
-def shell_query(query: str) -> str:
+def shell_query(query: str, *, prepared: bool = False) -> str:
+    if prepared:
+        # The first shell heredoc unescapes these dollars; the resulting query
+        # is then expanded as a variable, without recursive shell evaluation.
+        return (query.replace('{schema}', '${canonical_schema}')
+                .replace('%(generation_id)s', r'\$1')
+                .replace('%(chunk_ordinal)s', r'\$2'))
     return (query
             .replace('{schema}', '${canonical_schema}')
             .replace('%(generation_id)s', "'${generation_id}'::uuid")
@@ -32,6 +38,10 @@ def render_profile() -> str:
         if source.count(marker) != 1:
             raise ValueError(f'expected exactly one {marker} marker')
         source = source.replace(marker, shell_query(query))
+    marker = '__SEARCH_PREPARED_SQL__'
+    if source.count(marker) != 1:
+        raise ValueError(f'expected exactly one {marker} marker')
+    source = source.replace(marker, shell_query(projection_query_sql(), prepared=True))
     return source
 
 

@@ -79,7 +79,9 @@ def test_search_projection_builds_resumes_and_has_exact_generation_coverage(data
 
     generation, state, manifest_sha = register_product(connection, key)
     assert state == 'BUILDING'
+    connection.execute('SET jit=on')
     first = build_available(connection, generation, manifest_sha)
+    assert connection.execute('SHOW jit').fetchone()[0] == 'on'
     second = build_available(connection, generation, manifest_sha)
     assert first['chunks_written'] == 3
     assert second['chunks_written'] == 0

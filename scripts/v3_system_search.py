@@ -241,8 +241,9 @@ def projection_query_sql() -> str:
     """Read projection shared by the writer and the read-only operator profiler.
 
     Only {schema} is an SQL-format identifier; values are named DB parameters.
-    LATERAL aggregates keep signals system-keyed, while LIMIT 1 preserves the
-    lowest-body_pk main-star rule and bounds the generation/system lookup.
+    LATERAL lookups correlate directly with the final target row: putting these
+    in target-scanning CTEs creates quadratic joins back to that same target.
+    LIMIT 1 preserves the lowest-body_pk main-star rule.
     """
     return '''
 WITH target AS MATERIALIZED (
@@ -272,20 +273,6 @@ ring_summary AS (
      WHERE r.lifecycle_state='ACTIVE' AND r.kind='RING'
   GROUP BY r.system_id64
 ),
-signal_summary AS (
-    SELECT t.system_id64,sig.has_biologicals,sig.has_geologicals
-      FROM target t
-CROSS JOIN LATERAL (
-    SELECT bool_or(st.public_code='saa_signaltype_biological'
-                   AND bs.signal_count>0) AS has_biologicals,
-           bool_or(st.public_code='saa_signaltype_geological'
-                   AND bs.signal_count>0) AS has_geologicals
-      FROM {schema}.bodies b
-      JOIN {schema}.body_signal_current bs ON bs.body_pk=b.body_pk
-      JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
-     WHERE b.system_id64=t.system_id64 AND b.lifecycle_state='ACTIVE'
-) sig
-),
 station_summary AS (
     SELECT st.system_id64,
            (count(*) FILTER (WHERE st.lifecycle_state='ACTIVE'))::integer
@@ -293,18 +280,6 @@ station_summary AS (
       FROM {schema}.stations st
       JOIN target t ON t.system_id64=st.system_id64
   GROUP BY st.system_id64
-),
-main_star AS (
-    SELECT t.system_id64,ms.main_star_class
-      FROM target t
- LEFT JOIN LATERAL (
-    SELECT bm.body_class AS main_star_class
-      FROM v3_derived.body_mechanics bm
-     WHERE bm.derived_generation_id=%(generation_id)s
-       AND bm.system_id64=t.system_id64 AND bm.is_main_star IS TRUE
-  ORDER BY bm.body_pk
-     LIMIT 1
-) ms ON true
 )
 SELECT %(generation_id)s,t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
        cube(ARRAY[s.x_ly,s.y_ly,s.z_ly]),
@@ -324,9 +299,25 @@ SELECT %(generation_id)s,t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
  LEFT JOIN v3_vocab.galaxy_region gr ON gr.galaxy_region_id=s.galaxy_region_id
  LEFT JOIN body_summary bs USING(system_id64)
  LEFT JOIN ring_summary rs USING(system_id64)
- LEFT JOIN signal_summary sig USING(system_id64)
  LEFT JOIN station_summary ss USING(system_id64)
- LEFT JOIN main_star ms USING(system_id64)
+ LEFT JOIN LATERAL (
+    SELECT bool_or(st.public_code='saa_signaltype_biological'
+                   AND bs.signal_count>0) AS has_biologicals,
+           bool_or(st.public_code='saa_signaltype_geological'
+                   AND bs.signal_count>0) AS has_geologicals
+      FROM {schema}.bodies b
+      JOIN {schema}.body_signal_current bs ON bs.body_pk=b.body_pk
+      JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
+     WHERE b.system_id64=t.system_id64 AND b.lifecycle_state='ACTIVE'
+ ) sig ON true
+ LEFT JOIN LATERAL (
+    SELECT bm.body_class AS main_star_class
+      FROM v3_derived.body_mechanics bm
+     WHERE bm.derived_generation_id=%(generation_id)s
+       AND bm.system_id64=t.system_id64 AND bm.is_main_star IS TRUE
+  ORDER BY bm.body_pk
+     LIMIT 1
+ ) ms ON true
 ORDER BY t.system_id64
     '''.strip()
 
@@ -398,6 +389,9 @@ def _insert_chunk(
         ) + sql.SQL(projection_query_sql()).format(
             schema=sql.Identifier(generation.canonical_schema),
         )
+        # The bounded indexed projection is too short to amortize compilation.
+        # READ ONLY profiles prove this; keep the setting transaction-local.
+        connection.execute('SET LOCAL jit=off')
         cursor = connection.execute(
             query,
             {'generation_id': generation.identifier, 'chunk_ordinal': ordinal},

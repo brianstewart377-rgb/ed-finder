@@ -27,6 +27,10 @@ def test_search_profile_is_read_only_and_exact_targeted():
     assert "full_query_variant=indexed_no_seqscan" in source
     assert "full_query_variant=candidate_default" in source
     assert "full_query_variant=candidate_jit_off" in source
+    assert "full_query_variant=candidate_generic_jit_off" in source
+    assert "SET LOCAL plan_cache_mode=force_generic_plan;" in source
+    assert "PREPARE search_candidate(uuid,bigint) AS" in source
+    assert "DEALLOCATE search_candidate;" in source
     assert "SET LOCAL enable_seqscan=off;" in source
     assert "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;" in source
     assert 'run_cohort search_frontier "$search_frontier"' in source
@@ -71,6 +75,7 @@ def test_profile_uses_exact_writer_select_and_has_valid_shell_syntax():
     assert shell_query(projection_query_sql()) in source
     assert '__SEARCH_CANDIDATE_SQL__' not in source
     assert '__SEARCH_LEGACY_SQL__' not in source
+    assert '__SEARCH_PREPARED_SQL__' not in source
     subprocess.run(['bash', '-n'], input=source, text=True, check=True)
     # Only the diagnostic control may disable sequential scans. The candidate
     # is measured after both settings have been restored to session defaults.
@@ -78,3 +83,16 @@ def test_profile_uses_exact_writer_select_and_has_valid_shell_syntax():
     candidate = source.index('full_query_variant=candidate_default')
     assert reset < candidate
     assert 'SET LOCAL jit=DEFAULT;' in source[reset:candidate]
+
+
+def test_prepared_query_dollars_survive_the_shell_without_positional_expansion():
+    source = render_profile()
+    body = source.split('prepared_query() {', 1)[1].split('\n}\n', 1)[0]
+    script = ('set -eu\ncanonical_schema=v3_gen_fixture\n'
+              + 'prepared_query() {' + body + '\n}\nprepared_query\n')
+    result = subprocess.run(
+        ['bash', '-c', script], text=True, capture_output=True, check=True,
+    )
+    assert 'v.derived_generation_id=$1 AND v.chunk_ordinal=$2' in result.stdout
+    assert 'FROM v3_gen_fixture.bodies' in result.stdout
+    assert '%(' not in result.stdout

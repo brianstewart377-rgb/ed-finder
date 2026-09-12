@@ -52,3 +52,31 @@ that existing manifest; do not edit the manifest or bypass its identity check.
 A live cutover needs a separately reviewed, explicitly authorized product
 identity/resume strategy after the read-only proof passes. Until then the
 currently running worker remains on its original immutable source bundle.
+
+## Run 6 result and remaining executor costs
+
+[Run 6](https://github.com/brianstewart377-rgb/ed-finder/actions/runs/34714066271)
+succeeded at 19:25 UTC on 12 September 2026, following PR #704. Both cohorts
+returned exactly 1,000 rows and zero bidirectional EXCEPT ALL differences.
+Natural candidate plans used the existing body, signal and mechanics indexes
+and had no temporary I/O or broad signal/mechanics scans.
+
+| Full SELECT | Search frontier 5533 | Ratings tip 44779 |
+| --- | ---: | ---: |
+| Legacy defaults | 10,312.683 ms | 10,169.324 ms |
+| Candidate defaults | 474.447 ms | 483.622 ms |
+| Candidate JIT off | 129.009 ms | 137.227 ms |
+| Legacy forced-index diagnostic | 21.414 ms | 33.536 ms |
+
+The indexed access path is proved for these cohorts, but not live worker
+throughput. The candidate paid 359.505/363.714 ms for JIT compilation. Its two
+target-scanning LATERAL CTEs also induced two joins each rejecting 999,000 rows.
+
+The follow-up correlates both LATERAL lookups directly with the final target
+row and disables JIT only inside the writer's transaction. A test verifies that
+the connection's JIT setting is restored after the chunk commits. The profiler
+retains defaults as a counterfactual and JIT-off as the candidate writer setting;
+it also explains a forced-generic prepared SELECT with generation/ordinal
+parameters. That additional profile is required before claiming the follow-up
+meets the indexed-path target. The immutable product identity rollout gate above
+still applies; no live worker or persistent database setting is changed.
