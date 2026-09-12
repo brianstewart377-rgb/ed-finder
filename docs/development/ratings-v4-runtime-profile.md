@@ -37,6 +37,11 @@ The artifact contains:
 
 Compute throughput from committed count deltas and their database timestamps.
 CPU percentages use one CPU core as 100%; compare totals with the recorded quota.
+Process CPU sums matching PID/start-time deltas across adjacent observations,
+including processes absent at either endpoint. Process lists refresh each sample.
+Unobserved entry/exit intervals and lifetimes shorter than the sample cadence remain
+unknown; cgroup counters provide the full container total. The receipt reports
+observed restarts, running-state changes and resource-limit changes separately.
 Do not sum disk counters across partitions, RAID devices and their members.
 Database I/O/WAL counters are database/cluster-wide, not attributable solely to
 Ratings. Timing counters are uninformative when the corresponding tracking

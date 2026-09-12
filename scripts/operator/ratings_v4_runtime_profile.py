@@ -217,6 +217,8 @@ def source_position(pid, missing):
                     positions.append(numeric_lines(raw).get('pos') if raw else None)
             except FileNotFoundError:
                 pass  # Descriptors may close while being observed.
+            except OSError as exc:
+                missing.add(f'{fd}:{type(exc).__name__}')
     except OSError as exc:
         missing.add(f'{directory}:{type(exc).__name__}')
     return positions
@@ -233,9 +235,51 @@ def process_rates(before, after, seconds, ticks_per_second):
         if delta < 0:
             continue
         result.append({'pid': row['pid'], 'namespace_pid': row['namespace_pid'],
+                       'start_ticks': row['start_ticks'], 'cpu_ticks_delta': delta,
                        'comm': row['comm'], 'one_core_cpu_percent':
                            100 * delta / ticks_per_second / seconds})
     return result
+
+
+def process_cpu_summary(frames, role, ticks_per_second):
+    """Retain matched interval deltas even for processes absent at an endpoint.
+
+    CPU outside a process's observed intervals is unknown. Cgroup counters provide
+    the full container total, including lifetimes shorter than the sample cadence.
+    """
+    totals = {}
+    seconds = frames[-1]['elapsed_seconds'] - frames[0]['elapsed_seconds']
+    for before, after in zip(frames, frames[1:]):
+        interval = after['elapsed_seconds'] - before['elapsed_seconds']
+        for row in process_rates(before['processes'][role], after['processes'][role],
+                                 interval, ticks_per_second):
+            key = row['pid'], row['start_ticks']
+            total = totals.setdefault(key, {
+                'pid': row['pid'], 'namespace_pid': row['namespace_pid'],
+                'start_ticks': row['start_ticks'], 'comm': row['comm'],
+                'observed_cpu_seconds': 0, 'observed_seconds': 0,
+            })
+            total['observed_cpu_seconds'] += row['cpu_ticks_delta'] / ticks_per_second
+            total['observed_seconds'] += interval
+    return [dict(row, one_core_cpu_percent=100 * row['observed_cpu_seconds'] / seconds)
+            for row in totals.values()]
+
+
+def identity_changes(before, after):
+    def changed(keys):
+        return any(after[role][key] != info[key] for role, info in before.items()
+                   for key in keys)
+    return {
+        'worker_restarted': changed(('id', 'pid', 'started_at')),
+        'running_state_changed': changed(('running',)),
+        'resource_limits_changed': changed(('nano_cpus', 'memory')),
+    }
+
+
+def verify_generations(identities):
+    for role in ('ratings', 'search'):
+        if identities[role]['generation'] != GENERATION:
+            raise ValueError(f'{role} worker generation mismatch')
 
 
 def main():
@@ -252,11 +296,9 @@ def main():
     identities = {role: container_info(name) for role, name in CONTAINERS.items()}
     if any(not value['running'] for value in identities.values()):
         raise ValueError('expected existing Ratings, Search and PostgreSQL processes')
-    if identities['ratings']['generation'] != GENERATION:
-        raise ValueError('Ratings worker generation mismatch')
+    verify_generations(identities)
     missing = set()
     groups = {role: cgroup_directory(info['pid'], missing) for role, info in identities.items()}
-    pids = {role: process_ids(name) for role, name in CONTAINERS.items()}
     ticks = os.sysconf('SC_CLK_TCK')
     emit('identity', containers=identities, duration_seconds=DURATION_SECONDS,
          interval_seconds=INTERVAL_SECONDS, clock_ticks_per_second=ticks,
@@ -266,12 +308,11 @@ def main():
         raise ValueError('target Ratings generation is absent')
     emit('totals_before', data=before_totals)
     started = time.monotonic()
-    first = last = None
+    process_frames = []
     sample = 0
     wait_counts = Counter()
     while True:
-        if sample and sample % 15 == 0:
-            pids = {role: process_ids(name) for role, name in CONTAINERS.items()}
+        pids = {role: process_ids(name) for role, name in CONTAINERS.items()}
         processes = {role: [row for pid in members
                            if (row := process_snapshot(pid, missing)) is not None]
                      for role, members in pids.items()}
@@ -290,9 +331,8 @@ def main():
                          row['wait_event'], row['query_kind'])] += 1
         frame['database'] = activity
         emit('sample', index=sample, **frame)
-        if first is None:
-            first = frame
-        last = frame
+        process_frames.append({'elapsed_seconds': frame['elapsed_seconds'],
+                               'processes': processes})
         sample += 1
         remaining = DURATION_SECONDS - (time.monotonic() - started)
         if remaining <= 0:
@@ -301,16 +341,16 @@ def main():
     after_totals = database_query(TOTALS_SQL)
     emit('totals_after', data=after_totals)
     end_identities = {role: container_info(name) for role, name in CONTAINERS.items()}
-    stable = all(end_identities[role][key] == info[key] for role, info in identities.items()
-                 for key in ('id', 'pid', 'started_at', 'running', 'nano_cpus', 'memory'))
-    seconds = last['elapsed_seconds'] - first['elapsed_seconds']
+    changes = identity_changes(identities, end_identities)
+    stable = not any(changes.values())
+    seconds = process_frames[-1]['elapsed_seconds'] - process_frames[0]['elapsed_seconds']
     emit('summary', samples=sample, sample_seconds=seconds, identity_unchanged=stable,
-         process_cpu={role: process_rates(first['processes'][role], last['processes'][role],
-                                         seconds, ticks) for role in CONTAINERS},
+         process_cpu={role: process_cpu_summary(process_frames, role, ticks)
+                      for role in CONTAINERS},
          database_wait_samples=[{'role': key[0], 'state': key[1], 'type': key[2],
                                  'event': key[3], 'query_kind': key[4], 'count': value}
                                 for key, value in wait_counts.items()],
-         unavailable_counters=sorted(missing), worker_restarted=False,
+         unavailable_counters=sorted(missing), **changes,
          configuration_changes_performed=False, database_writes_performed=False,
          schema_changes_performed=False, publication_performed=False)
     if not stable:

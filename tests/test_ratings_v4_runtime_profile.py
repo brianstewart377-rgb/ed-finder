@@ -93,3 +93,60 @@ def test_observation_queries_execute_on_postgresql18_catalogs():
         assert data['generation'] is None
         assert data['database']['datname'].startswith('v4_test_')
         assert isinstance(data['io'], list)
+
+
+def test_cpu_summary_retains_processes_between_endpoints_and_separates_pid_reuse():
+    def process(pid, start, cpu):
+        return {'pid': pid, 'start_ticks': start, 'cpu_ticks': cpu,
+                'namespace_pid': pid, 'comm': 'python'}
+    inventories = [
+        [process(1, 10, 0)],
+        [process(1, 10, 100), process(2, 20, 10)],
+        [process(2, 20, 110), process(1, 30, 50)],
+        [process(1, 30, 150)],
+    ]
+    frames = [{'elapsed_seconds': index, 'processes': {'ratings': rows}}
+              for index, rows in enumerate(inventories)]
+    result = profile.process_cpu_summary(frames, 'ratings', 100)
+    by_identity = {(row['pid'], row['start_ticks']): row for row in result}
+    assert set(by_identity) == {(1, 10), (2, 20), (1, 30)}
+    for row in result:
+        assert row['observed_cpu_seconds'] == 1
+        assert row['observed_seconds'] == 1
+        assert row['one_core_cpu_percent'] == pytest.approx(100 / 3)
+
+
+def test_identity_change_receipt_distinguishes_restart_limits_and_exit():
+    original = {'ratings': {'id': 'a', 'pid': 1, 'started_at': 'before',
+                            'running': True, 'nano_cpus': 16, 'memory': 64}}
+    assert not any(profile.identity_changes(original, original).values())
+    for key, value, expected in (
+        ('pid', 2, 'worker_restarted'), ('started_at', 'after', 'worker_restarted'),
+        ('id', 'b', 'worker_restarted'), ('memory', 32, 'resource_limits_changed'),
+        ('running', False, 'running_state_changed'),
+    ):
+        after = {'ratings': dict(original['ratings'], **{key: value})}
+        changes = profile.identity_changes(original, after)
+        assert changes[expected] is True
+        assert sum(changes.values()) == 1
+
+
+def test_search_generation_must_match_ratings():
+    identities = {role: {'generation': profile.GENERATION} for role in ('ratings', 'search')}
+    profile.verify_generations(identities)
+    identities['search']['generation'] = 'stale_generation'
+    with pytest.raises(ValueError, match='search worker generation mismatch'):
+        profile.verify_generations(identities)
+
+
+def test_unreadable_descriptor_does_not_prevent_observing_other_descriptors(monkeypatch):
+    monkeypatch.setattr(Path, 'iterdir', lambda self: iter([self / '1', self / '2']))
+    def link(path):
+        if path.name == '1':
+            raise PermissionError('fixture')
+        return '/retained/galaxy.json.gz'
+    monkeypatch.setattr(profile.os, 'readlink', link)
+    monkeypatch.setattr(profile, 'optional_read', lambda *_: 'pos: 123\n')
+    missing = set()
+    assert profile.source_position(42, missing) == [123]
+    assert missing == {'/proc/42/fd/1:PermissionError'}
