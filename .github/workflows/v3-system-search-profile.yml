@@ -89,6 +89,14 @@ jobs:
             "$SSH_USER@$SSH_HOST" \
             'bash -s' \
             < trusted-main/scripts/operator/actions/v3-system-search-profile.sh | tee "$RECEIPT"
+          ssh -i ~/.ssh/ed_new_operator_key \
+            -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$SSH_USER@$SSH_HOST" \
+            'bash -s' \
+            < trusted-main/scripts/operator/actions/v3-system-search-signal-plan-profile.sh | tee -a "$RECEIPT"
 
       - name: Upload profile receipt
         if: always()
