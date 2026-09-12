@@ -15,6 +15,8 @@ on:
           - v3-app-status
           - ratings-v4-generation-start
           - ratings-v4-generation-status
+          - v3-system-search-f1-start
+          - v3-system-search-f1-status
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -71,7 +73,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -122,13 +124,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
 
       - name: Inspect V3 app status
         if: steps.request.outputs.operation == 'v3-app-status'
@@ -140,14 +137,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'cd /opt/ed-finder && bash -s' \
-              < trusted-main/scripts/operator/actions/v3-app-status.sh
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-app-status.sh
 
       - name: Repair Octopus Qdrant healthcheck and boot web
         if: steps.request.outputs.operation == 'octopus-qdrant-healthcheck-repair'
@@ -159,14 +150,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'cd /opt/ed-finder && bash -s' \
-              < trusted-main/scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh
 
       - name: Inspect Octopus edge status
         if: steps.request.outputs.operation == 'octopus-edge-status'
@@ -178,14 +163,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'cd /opt/ed-finder && bash -s' \
-              < trusted-main/scripts/operator/actions/octopus-edge-status.sh
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/octopus-edge-status.sh
 
       - name: Recover retained V3 runtime contract
         if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
@@ -200,15 +179,9 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           mkdir -p "$RECOVERY_DIR"
           archive="$RECOVERY_DIR/edfinder-v3-phase4c-r5-runtime-contract.tar.gz"
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'python3.14 - --container edfinder-v3-phase4c-full-20260827_r5-postgres' \
-              < trusted-main/scripts/operator/recover_v3_runtime_contract.py \
-              > "$archive"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'python3.14 - --container edfinder-v3-phase4c-full-20260827_r5-postgres' \
+            < trusted-main/scripts/operator/recover_v3_runtime_contract.py > "$archive"
           test -s "$archive"
           (cd "$RECOVERY_DIR" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
           python3 - "$archive" <<'PY'
@@ -216,7 +189,6 @@ jobs:
           import shutil
           import sys
           import tarfile
-
           archive = pathlib.Path(sys.argv[1])
           output = archive.parent
           expected = ("recovery-manifest.json", "recovery-receipt.json")
@@ -273,22 +245,11 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-ratings-v4-${source_sha}"
-          tar -C trusted-main --exclude=.git -cf - . | \
-            ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              "bash -s -- start '$stage' '$source_sha'" \
-              < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
+          tar -C trusted-main --exclude=.git -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "bash -s -- start '$stage' '$source_sha'" \
+            < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
 
       - name: Inspect Ratings V4 generation status
         if: steps.request.outputs.operation == 'ratings-v4-generation-status'
@@ -301,14 +262,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'bash -s -- status' \
-              < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'bash -s -- status' < trusted-main/scripts/operator/actions/ratings-v4-generation.sh | tee "$RECEIPT"
 
       - name: Upload Ratings V4 generation operation receipt
         if: always() && (steps.request.outputs.operation == 'ratings-v4-generation-start' || steps.request.outputs.operation == 'ratings-v4-generation-status')
@@ -316,5 +271,56 @@ jobs:
         with:
           name: ratings-v4-generation-operation
           path: ${{ runner.temp }}/ratings-v4-generation-operation.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Prepare trusted V3 Search bundle marker
+        if: steps.request.outputs.operation == 'v3-system-search-f1-start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          printf '%s\n' "$source_sha" > trusted-main/.v3-search-source-sha
+
+      - name: Stage trusted main and launch V3 Search F1
+        if: steps.request.outputs.operation == 'v3-system-search-f1-start'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-search-${source_sha}"
+          tar -C trusted-main --exclude=.git -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- start '$stage' '$source_sha'; else echo 'V3 Search start requires root or passwordless sudo before any schema change' >&2; exit 64; fi"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
+            < trusted-main/scripts/operator/actions/v3-system-search-f1.sh | tee "$RECEIPT"
+
+      - name: Inspect V3 Search F1 status
+        if: steps.request.outputs.operation == 'v3-system-search-f1-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'bash -s -- status' < trusted-main/scripts/operator/actions/v3-system-search-f1.sh | tee "$RECEIPT"
+
+      - name: Upload V3 Search F1 operation receipt
+        if: always() && (steps.request.outputs.operation == 'v3-system-search-f1-start' || steps.request.outputs.operation == 'v3-system-search-f1-status')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-system-search-f1-operation
+          path: ${{ runner.temp }}/v3-system-search-f1-operation.txt
           if-no-files-found: warn
           retention-days: 30
