@@ -274,7 +274,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Prepare trusted V3 Search bundle marker
+      - name: Prepare trusted V3 Search bundle marker and dependencies
         if: steps.request.outputs.operation == 'v3-system-search-f1-start'
         shell: bash
         run: |
@@ -282,6 +282,10 @@ jobs:
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
           printf '%s\n' "$source_sha" > trusted-main/.v3-search-source-sha
+          rm -rf trusted-main/.v3-search-wheelhouse
+          mkdir -p trusted-main/.v3-search-wheelhouse
+          python -m pip download --disable-pip-version-check --only-binary=:all: \
+            --dest trusted-main/.v3-search-wheelhouse 'psycopg[binary]==3.3.4'
 
       - name: Stage trusted main and launch V3 Search F1
         if: steps.request.outputs.operation == 'v3-system-search-f1-start'

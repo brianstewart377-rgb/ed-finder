@@ -59,6 +59,21 @@ def test_search_operator_is_bounded_and_cannot_publish_or_touch_canonical():
     assert "DROP SCHEMA" not in source
 
 
+def test_search_worker_dependencies_are_offline_and_pinned():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    source = ACTION.read_text(encoding="utf-8")
+    requirement = "psycopg[binary]==3.3.4"
+    assert requirement in workflow
+    assert requirement in source
+    assert "--only-binary=:all:" in workflow
+    assert ".v3-search-wheelhouse" in workflow
+    assert ".v3-search-wheelhouse" in source
+    assert "--no-index" in source
+    assert "--find-links /work/.v3-search-wheelhouse" in source
+    assert "--target /tmp/v3-search-deps" in source
+    assert 'PYTHONPATH="/tmp/v3-search-deps:/work:/work/apps/api/src"' in source
+
+
 def test_search_operator_uses_reviewed_migration_authority_before_worker_launch():
     source = ACTION.read_text(encoding="utf-8")
     identity = source.index("install_target_schema_identity")
