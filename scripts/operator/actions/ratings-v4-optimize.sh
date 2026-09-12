@@ -17,6 +17,8 @@ TARGET_MEMORY="64g"
 TARGET_WORKERS="8"
 TARGET_CHUNK_SIZE="1000"
 MIN_PROOF_CHUNKS="2"
+BENCHMARK_SECONDS="60"
+MIN_ACCEPTED_SYSTEMS_PER_SECOND="500"
 
 fail() {
   printf 'ratings-v4 optimize: %s\n' "$*" >&2
@@ -122,6 +124,31 @@ resolve_source_path() {
   printf '%s\n' "${candidates[0]}"
 }
 
+new_worker_started_by_operation=false
+old_worker_paused_by_operation=false
+old_worker_stopped_by_operation=false
+cutover_committed=false
+old_worker=""
+new_worker=""
+
+rollback_on_exit() {
+  status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ] && [ "$cutover_committed" != "true" ]; then
+    if [ "$old_worker_paused_by_operation" = "true" ] && [ -n "$old_worker" ]; then
+      docker unpause "$old_worker" >/dev/null 2>&1 || true
+    fi
+    if [ "$old_worker_stopped_by_operation" = "true" ] && [ -n "$old_worker" ]; then
+      docker start "$old_worker" >/dev/null 2>&1 || true
+    fi
+    if [ "$new_worker_started_by_operation" = "true" ] && [ -n "$new_worker" ]; then
+      docker stop --time 10 "$new_worker" >/dev/null 2>&1 || true
+    fi
+  fi
+  exit "$status"
+}
+trap rollback_on_exit EXIT
+
 require_target
 [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] || fail "trusted main bundle path is required"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "trusted main SHA is invalid"
@@ -158,8 +185,8 @@ old_worker="edfinder-ratings-v4-prod-p${sequence}"
 new_generation_key="ratings_v4_prod_p${sequence}_opt1"
 new_worker="edfinder-ratings-v4-prod-p${sequence}-opt1"
 
-# The original container is the rollback path. It may be running (first cutover)
-# or stopped (idempotent retry), but it must never be removed by this operation.
+# The original container is the rollback path. It is paused only for the clean
+# benchmark and is never deleted by this operation.
 docker inspect "$old_worker" >/dev/null 2>&1 || fail "original Ratings V4 worker is unavailable for rollback"
 old_key_label="$(docker inspect -f '{{index .Config.Labels "ed-finder.generation-key"}}' "$old_worker")"
 [ "$old_key_label" = "$old_generation_key" ] || fail "original worker generation identity mismatch"
@@ -229,10 +256,11 @@ if ! docker inspect "$new_worker" >/dev/null 2>&1; then
         --workers "$RATINGS_V4_ENCODER_WORKERS"
     ' >/dev/null
   rm -f "$env_file"
+  new_worker_started_by_operation=true
 fi
 
 # Prove the new immutable generation is genuinely committing chunks before the
-# original worker is stopped. A failed proof leaves the original worker alone.
+# original worker is even paused. A failed proof leaves the original untouched.
 proof_chunks=0
 for _ in $(seq 1 45); do
   [ "$(docker inspect -f '{{.State.Running}}' "$new_worker" 2>/dev/null || true)" = "true" ] \
@@ -247,11 +275,40 @@ done
 [ "$proof_chunks" -ge "$MIN_PROOF_CHUNKS" ] || fail "optimized worker did not prove chunk progress"
 
 old_was_running="$(docker inspect -f '{{.State.Running}}' "$old_worker")"
+benchmark_rate="not-run"
+benchmark_delta_systems="0"
 if [ "$old_was_running" = "true" ]; then
+  # Pause preserves the exact old process/source position while removing its CPU
+  # and I/O competition from the real-galaxy throughput sample.
+  docker pause "$old_worker" >/dev/null
+  old_worker_paused_by_operation=true
+  benchmark_start_systems="$(db_query "BEGIN READ ONLY; SELECT COALESCE(sum(b.systems),0) FROM v3_derived.build_chunk b JOIN v3_meta.derived_generation g USING(derived_generation_id) WHERE g.generation_key='${new_generation_key}'; COMMIT;")"
+  [[ "$benchmark_start_systems" =~ ^[0-9]+$ ]] || fail "benchmark start count was invalid"
+  sleep "$BENCHMARK_SECONDS"
+  [ "$(docker inspect -f '{{.State.Running}}' "$new_worker")" = "true" ] || fail "optimized worker stopped during benchmark"
+  benchmark_end_systems="$(db_query "BEGIN READ ONLY; SELECT COALESCE(sum(b.systems),0) FROM v3_derived.build_chunk b JOIN v3_meta.derived_generation g USING(derived_generation_id) WHERE g.generation_key='${new_generation_key}'; COMMIT;")"
+  [[ "$benchmark_end_systems" =~ ^[0-9]+$ ]] || fail "benchmark end count was invalid"
+  benchmark_delta_systems=$((benchmark_end_systems - benchmark_start_systems))
+  [ "$benchmark_delta_systems" -ge 0 ] || fail "optimized generation count went backwards"
+  benchmark_rate=$((benchmark_delta_systems / BENCHMARK_SECONDS))
+  printf 'benchmark_seconds=%s\n' "$BENCHMARK_SECONDS"
+  printf 'benchmark_delta_systems=%s\n' "$benchmark_delta_systems"
+  printf 'benchmark_systems_per_second=%s\n' "$benchmark_rate"
+  printf 'minimum_accepted_systems_per_second=%s\n' "$MIN_ACCEPTED_SYSTEMS_PER_SECOND"
+  if [ "$benchmark_rate" -lt "$MIN_ACCEPTED_SYSTEMS_PER_SECOND" ]; then
+    printf 'result=optimization-benchmark-rejected\n'
+    fail "optimized throughput did not justify abandoning original progress"
+  fi
+
+  docker unpause "$old_worker" >/dev/null
+  old_worker_paused_by_operation=false
   docker stop --time 30 "$old_worker" >/dev/null
+  old_worker_stopped_by_operation=true
 fi
+
 [ "$(docker inspect -f '{{.State.Running}}' "$new_worker")" = "true" ] || fail "optimized worker stopped during cutover"
 [ "$(docker inspect -f '{{.State.Running}}' "$old_worker")" = "false" ] || fail "original worker did not stop"
+cutover_committed=true
 
 printf 'operation=ratings-v4-generation-optimize\n'
 printf 'result=optimized-worker-proven-and-cut-over\n'
@@ -266,6 +323,8 @@ printf 'chunk_size=%s\n' "$TARGET_CHUNK_SIZE"
 printf 'encoder_workers=%s\n' "$TARGET_WORKERS"
 printf 'cpu_limit=%s\n' "$TARGET_CPUS"
 printf 'memory_limit=%s\n' "$TARGET_MEMORY"
+printf 'benchmark_systems_per_second=%s\n' "$benchmark_rate"
+printf 'benchmark_delta_systems=%s\n' "$benchmark_delta_systems"
 printf 'new_worker_running=true\n'
 printf 'old_worker=%s\n' "$old_worker"
 printf 'old_worker_was_running=%s\n' "$old_was_running"
