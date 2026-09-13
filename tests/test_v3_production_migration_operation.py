@@ -335,6 +335,11 @@ def test_governed_migration_workflow_is_manual_protected_and_source_bounded():
     source = WORKFLOW.read_text(encoding="utf-8")
     assert "git fetch --no-tags origin refs/heads/main" in source
     assert "Canonical main moved while production approval was pending" in source
+    assert source.count("git fetch --no-tags origin refs/heads/main") == 2
+    assert "Canonical main moved immediately before production apply" in source
+    assert source.rindex("git fetch --no-tags origin refs/heads/main") < source.index(
+        'tar -C "$BUNDLE" -cf - . | ssh'
+    )
     assert "ed-finder-prod/nb79a3d.mevnode.com" in source
     assert "V3_PRODUCTION_SSH_KNOWN_HOSTS" in source
     assert "--candidate-schema-identity" in source

@@ -150,6 +150,13 @@ jobs:
           set -euo pipefail
           test -n "$SSH_USER"
           case "$OPERATION" in plan|apply) ;; *) exit 64 ;; esac
+          if [ "$OPERATION" = apply ]; then
+            git fetch --no-tags origin refs/heads/main
+            [ "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA" ] || {
+              echo "Canonical main moved immediately before production apply" >&2
+              exit 64
+            }
+          fi
           remote_receipt="$RECEIPT.remote"
           set +e
           tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_production_key -p "$SSH_PORT" \
