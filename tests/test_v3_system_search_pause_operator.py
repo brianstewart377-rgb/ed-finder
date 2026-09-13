@@ -32,7 +32,7 @@ docker_case() {
     exec) db_query_case "$@" ;;
     ps) printf '%s' "${FAKE_WORKERS}" ;;
     stop)
-      printf 'stopped %s\n' "$4"
+      printf 'stopped %s\n' "$4" >&2
       : > "${FAKE_STATE}/stopped"
       ;;
     inspect)
@@ -159,14 +159,15 @@ def test_pause_stops_the_labelled_worker_and_reports_preserved_progress(tmp_path
         "canonical_writes_performed=false",
     ):
         assert line in result.stdout
-    assert "stopped edfinder-v3-system-search-p4-opt1" in result.stdout
+    assert "stopped edfinder-v3-system-search-p4-opt1" in result.stderr
 
 
 def test_pause_fails_closed_without_exactly_one_worker(tmp_path):
-    for workers in ("", "one\ntwo\n", "some-other-worker\n"):
+    for workers, message in (("", "found 0"), ("one\ntwo\n", "found 2"),
+                             ("some-other-worker\n", "unexpected V3 Search worker name")):
         result = run_pause(tmp_path, workers=workers)
         assert result.returncode == 64, result.stdout
-        assert "expected exactly one running V3 Search worker" in result.stderr
+        assert message in result.stderr
         assert "result=stopped" not in result.stdout
 
 
