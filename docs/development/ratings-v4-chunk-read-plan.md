@@ -75,3 +75,19 @@ running validator holds its original bundle and the manifest pins the code
 identity of the generation being replayed, so an in-flight replay must finish
 under the code that wrote it. The saving applies to generations built or
 validated after this change.
+
+## Approved identity re-pin
+
+`scripts/ratings_v4/production_generation.py` is one of the nine files covered by
+the independently approved target in
+`sql/v3/proposals/007_ratings_v4_code_upgrade_target.json`, so this change
+re-pins that reviewed target to the identity of the fixed builder, exactly as
+`caf77c6e` re-pinned it when it last changed a covered file. The re-pin is part
+of the review of this candidate, not an installation: nothing here inserts into
+`v3_meta.derived_code_upgrade_target`, edits a manifest, or touches a running
+generation.
+
+The generated `ratings_v4_prod_p4_opt1` generation stays sealed to the identity
+recorded in its own manifest. The parser upgrade path is unaffected: it still
+accepts only the recorded legacy origin, keeps its own pinned target parser
+hash, and now continues from that origin to the fixed identity.
