@@ -3,11 +3,12 @@ describe('ED-Finder V3 foundation', () => {
     cy.intercept('/api/health').as('health');
     cy.intercept('/api/v1/auth/session').as('session');
     cy.visit('/');
-    cy.get('h1').should('contain.text', 'Find your place').and('be.visible');
+    cy.get('h1').should('contain.text', 'Search the galaxy').and('be.visible');
     cy.wait('@health').its('response.statusCode').should('eq', 200);
     cy.wait('@session').its('response.statusCode').should('eq', 200);
     cy.contains('dd', 'Connected').should('be.visible');
     cy.contains('dd', 'Guest').should('be.visible');
+    cy.contains('button', 'Sign in with Frontier').should('be.visible');
   });
 
   it('proxies backend-owned routes to the disposable FastAPI service', () => {

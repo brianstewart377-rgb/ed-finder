@@ -9,14 +9,11 @@
   }));
 </script>
 
-<section class="status-panel" aria-labelledby="connection-title">
-  <div>
-    <p class="eyebrow">Foundation status</p>
-    <h2 id="connection-title">Application connection</h2>
-  </div>
+<section class="status-panel" aria-label="Connection status">
+  <p class="connection-label">Connection status</p>
   <dl>
     <div>
-      <dt>API</dt>
+      <dt>Catalogue connection</dt>
       <dd aria-live="polite">
         {#if health.isPending}Checking…{:else if health.isError}Unavailable{:else}{health
             .data.database === 'connected'
@@ -25,7 +22,7 @@
       </dd>
     </div>
     <div>
-      <dt>Session</dt>
+      <dt>Commander</dt>
       <dd aria-live="polite">
         {#if $auth.loading}Checking…{:else if $auth.error}Unavailable{:else if $auth.authenticated}{$auth
             .user?.commander_name ?? 'Signed in'}{:else}Guest{/if}

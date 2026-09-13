@@ -36,7 +36,7 @@ describe('ED-Finder V3 shell', () => {
     });
     renderPage();
     expect(
-      screen.getByRole('heading', { name: /find your place/i }),
+      screen.getByRole('heading', { name: /search the galaxy/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('navigation', { name: 'Product journey' }),
@@ -48,6 +48,16 @@ describe('ED-Finder V3 shell', () => {
       expect(screen.getByText('Connected')).toBeInTheDocument(),
     );
     expect(screen.getByText('Guest')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Sign in with Frontier' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Explore the galaxy' }),
+    ).toHaveAttribute('href', '/explore');
+    expect(screen.getAllByText('Coming later')).toHaveLength(2);
+    expect(
+      screen.queryByRole('link', { name: 'Plan' }),
+    ).not.toBeInTheDocument();
   });
   it('reports failed bootstrap requests without hiding the shell', async () => {
     mockedGetHealth.mockRejectedValue(new Error('Request failed (503)'));
@@ -56,6 +66,7 @@ describe('ED-Finder V3 shell', () => {
     await waitFor(() =>
       expect(screen.getAllByText('Unavailable')).toHaveLength(2),
     );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(
       screen.getByRole('navigation', { name: 'Product journey' }),
     ).toBeInTheDocument();
