@@ -69,6 +69,13 @@ site OWNER must review them before they become ELIGIBLE. The API never updates a
 canonical body. A source replay artifact stores the exact sanitized bytes with
 their digest, normalizer/code hashes and contribution/evidence lineage.
 
+The new disposable build command `scripts/dev/build_journal_galaxy.py` runs the
+frozen Spansh builder and then the journal reconciliation phase. The recovered
+`v3_spansh` package remains byte-for-byte unchanged because its checksums belong
+to the published canonical/V4 replay contract. No existing production build
+command or scheduler is modified; adopting this orchestration requires the
+normal reviewed release process.
+
 Spansh builds first finish baseline validation, identity indexes and constraints.
 An additional atomic validation phase then applies only allowed scalar fields to
 a never-published READY candidate with no derived build. Current, previously
@@ -77,9 +84,11 @@ enrichment validation receipt. Existing constraints stay enforced; there is no
 replica trigger suppression. The original validation receipt is retained with a
 versioned enrichment decision digest chain.
 
-Every subsequent build carries forward eligible observations reviewed by its
-creation time, using keyset batches of at most 500. Later reviews wait for the next
-build; explicit contribution IDs can be recorded as extra inputs. The publication
+The new build command carries forward eligible observations reviewed by the
+candidate's creation time, using keyset batches of at most 500. Later reviews wait
+for the next build; the separate reconciliation utility can record explicitly
+selected contribution IDs as extra inputs. If enrichment stops, its
+`--all-eligible --apply` mode resumes against the saved READY candidate. The publication
 guard refuses a candidate that omitted an applicable eligible observation, so a
 Spansh refresh cannot silently discard retained journal evidence. Unknown or
 inactive canonical identities stay unresolved. Existing body identity indexes

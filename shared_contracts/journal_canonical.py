@@ -151,6 +151,7 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
         # No private account/commander identifiers enter the public artifact.
         source = _register_source(cur, generation_id, [row['fact_payload'] for row in candidates]) if apply and candidates else None
         results = []
+        planned_bodies = {}
         for candidate in candidates:
             cid = candidate['contribution_id']
             evidence_id = uuid.uuid5(NAMESPACE, f'canonical:{generation_id}:{cid}')
@@ -181,9 +182,23 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                 for field in detail['accepted_fields']:
                     timestamp = datetime.fromisoformat(detail.get('field_observed_at', {}).get(field, observed.isoformat()))
                     field_times[field] = max(field_times.get(field, timestamp), timestamp)
+            plan_key = (key['system_id64'], key['frontier_body_id'])
+            if not apply and plan_key in planned_bodies:
+                body, field_times = planned_bodies[plan_key]
             changes, decisions = reconcile_fields(dict(body), fact, field_times)
             result = {'contribution_id': str(cid), 'status': 'CHANGES_PLANNED' if changes else 'NO_CHANGE',
                       'decisions': decisions, 'changes': changes}
+            if not apply:
+                # Model earlier decisions in this bounded batch so a dry run
+                # agrees with apply when several observations concern one body.
+                next_times = dict(field_times)
+                for field, decision in decisions.items():
+                    if decision == 'PRESERVE_CONFLICT':
+                        continue
+                    observed = datetime.fromisoformat(fact['observed_at'])
+                    prior = field_times.get(field, body.get('source_updated_at'))
+                    next_times[field] = max(observed, prior) if decision == 'UNCHANGED' and prior else observed
+                planned_bodies[plan_key] = ({**body, **changes}, next_times)
             if apply:
                 if changes:
                     # Bounded writes into an unpublished build, with identity and

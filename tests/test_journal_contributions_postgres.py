@@ -158,6 +158,29 @@ async def test_overlapping_events_of_two_verified_commanders_do_not_collapse(acc
 
 
 @pytest.mark.asyncio
+async def test_multi_observation_plan_matches_atomic_apply(account, target):
+    pool, account_id, _, _ = account
+    for radius, timestamp in [(2_000_000, '2026-01-03T00:00:00+00:00'),
+                              (4_000_000, '2026-01-04T00:00:00+00:00')]:
+        import_id, _ = await import_scan(account, radius=radius, timestamp=timestamp)
+        hashes = [bytes(row['content_sha256']).hex() for row in await pool.fetch(
+            'SELECT content_sha256 FROM v3_private.journal_import_file WHERE private_import_id=$1', import_id)]
+        await offer_import(pool, account_id, import_id, file_sha256=hashes)
+    ids = [row['contribution_id'] for row in await pool.fetch(
+        'SELECT contribution_id FROM v3_private.contribution_receipt WHERE contributing_account_id=$1', account_id)]
+    await review(pool, ids=ids, eligible=True, actor_id=account_id, reason='Fixture review')
+    with psycopg.connect(target.dsn, autocommit=True) as conn:
+        gid, schema = generation(conn)
+        plan = reconcile_generation(conn, generation_id=gid, contribution_ids=ids)
+        applied = reconcile_generation(conn, generation_id=gid, contribution_ids=ids, apply=True,
+                                       expected_manifest_sha256=plan['manifest_sha256'])
+        assert [(row['changes'], row['decisions']) for row in plan['results']] == [
+            (row['changes'], row['decisions']) for row in applied['results']]
+        from psycopg import sql
+        assert conn.execute(sql.SQL('SELECT radius_km FROM {}.bodies WHERE body_pk=1').format(sql.Identifier(schema))).fetchone()[0] == 4000
+
+
+@pytest.mark.asyncio
 async def test_verified_http_import_partial_success_retry_and_consent_scope(account, monkeypatch):
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient

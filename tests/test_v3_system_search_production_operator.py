@@ -95,12 +95,23 @@ def test_target_authority_pins_identity_derived_from_lineage_006():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     document = module.build(ROOT)
+    # New declared migrations do not authorize changing the already-reviewed
+    # production target. Reproduce its exact lineage-006 prefix independently
+    # and assert that the future desired schema requires fresh authority.
+    desired_document = dict(document)
+    entries = document['migration_set_entries']
+    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '006_v3_derived_product_lifecycle.sql') + 1
+    prefix = entries[:stop]
+    document = {**document, 'migration_set_entries': prefix,
+                'migration_set_identity': module.migration_set_identity(prefix)}
     payload = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
     expected_sha = hashlib.sha256(payload).hexdigest()
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     assert authority["external_authority"]["schema_identity_sha256"] == expected_sha
     assert expected_sha == "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d"
     assert document["migration_set_entries"][-1]["ledger_name"] == "006_v3_derived_product_lifecycle.sql"
+    assert desired_document['migration_set_entries'][-1]['ledger_name'] == '009_v3_journal_galaxy_contributions.sql'
+    assert desired_document['migration_set_identity'] != document['migration_set_identity']
 
 
 def test_search_status_is_read_only_and_reports_both_products():
