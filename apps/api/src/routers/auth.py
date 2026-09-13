@@ -10,7 +10,7 @@ import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import asyncpg
 import httpx
@@ -791,7 +791,13 @@ async def frontier_callback(
     return_to = _safe_return_to(str(stored['return_to']))
 
     if error or not code:
-        response = RedirectResponse('/?auth=denied#finder', status_code=302)
+        destination = urlsplit(return_to)
+        query = [(key, value) for key, value in parse_qsl(destination.query, keep_blank_values=True)
+                 if key != 'auth']
+        query.append(('auth', 'denied'))
+        response = RedirectResponse(
+            urlunsplit(destination._replace(query=urlencode(query))), status_code=302,
+        )
         _delete_state_cookie(response)
         return response
 

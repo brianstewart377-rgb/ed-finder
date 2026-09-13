@@ -30,9 +30,12 @@ async def offer_import(pool, account_id: uuid.UUID, import_id: uuid.UUID, *, fil
             owned = {row['commander_id'] for row in await verified_commanders(conn, account_id)}
             events = await conn.fetch(
                 '''SELECT e.* FROM v3_private.journal_event e
-                    JOIN v3_private.journal_import_file f USING (journal_file_id, owner_account_id)
-                    WHERE e.private_import_id = $1 AND e.owner_account_id = $2
-                      AND f.content_sha256 = ANY($4::bytea[])
+                    WHERE e.owner_account_id = $2 AND EXISTS (
+                        SELECT 1 FROM v3_private.journal_file_event occurrence
+                        JOIN v3_private.journal_import_file f USING (journal_file_id, owner_account_id)
+                        WHERE occurrence.journal_event_id = e.journal_event_id
+                          AND occurrence.owner_account_id = e.owner_account_id
+                          AND f.private_import_id = $1 AND f.content_sha256 = ANY($4::bytea[]))
                     ORDER BY e.journal_event_id LIMIT $3''', import_id, account_id, MAX_OFFER_EVENTS + 1,
                 [bytes.fromhex(value) for value in file_sha256],
             )
@@ -62,7 +65,7 @@ async def offer_import(pool, account_id: uuid.UUID, import_id: uuid.UUID, *, fil
                        SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[],
                            $5::text[], $6::jsonb[], $7::jsonb[], $8::timestamptz[], $9::uuid[])
                        ON CONFLICT (private_fact_id) DO NOTHING''',
-                    [row[0] for row in batch], [import_id] * len(batch), [account_id] * len(batch),
+                    [row[0] for row in batch], [row[1]['private_import_id'] for row in batch], [account_id] * len(batch),
                     [row[1]['source_run_id'] for row in batch], [FACT_KIND] * len(batch),
                     [{'SystemAddress': row[2]['system_id64'], 'BodyID': row[2]['frontier_body_id']} for row in batch],
                     [row[2] for row in batch], [row[1]['event_timestamp'] for row in batch],
@@ -122,7 +125,7 @@ async def review(pool, *, ids: list[uuid.UUID], eligible: bool, actor_id: uuid.U
             accepted_ids = [row['contribution_id'] for row in rows]
             await conn.execute(
                 '''UPDATE v3_private.contribution_receipt
-                      SET contribution_state = $2, decided_at = transaction_timestamp()
+                      SET contribution_state = $2, decided_at = clock_timestamp()
                     WHERE contribution_id = ANY($1::uuid[])''',
                 accepted_ids, 'ELIGIBLE' if eligible else 'REJECTED',
             )

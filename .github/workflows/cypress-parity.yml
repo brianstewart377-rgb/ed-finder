@@ -125,6 +125,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
           EDFINDER_ACCOUNT_BROWSER_DATABASE: "yes"
+          CORS_ORIGINS: http://localhost:4174
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
           ACCOUNT_FIXTURE_FILE: ${{ runner.temp }}/account-browser-fixture.json
         run: apps/api/.venv/bin/python scripts/dev/seed_account_browser_acceptance.py --output "$ACCOUNT_FIXTURE_FILE"

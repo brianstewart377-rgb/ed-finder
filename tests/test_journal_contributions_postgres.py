@@ -1,6 +1,7 @@
 """Real PG18 flow, on a confirmed empty disposable database only."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
@@ -51,12 +52,12 @@ async def account(target):
     await pool.close()
 
 
-async def import_scan(account, *, radius=3_000_000, timestamp='2026-01-10T00:00:00+00:00'):
+async def import_scan(account, *, radius=3_000_000, timestamp='2026-01-10T00:00:00+00:00', file_suffix=''):
     pool, account_id, commander_id, fid = account
     payload = {'GameVersion': '4.1.0.0', 'SystemAddress': '123', 'BodyID': '1', 'Radius': radius,
                'SurfaceGravity': 9.80665, 'Commander': 'DO NOT PUBLISH', 'FID': fid}
     source = json.dumps(payload, sort_keys=True).encode()
-    content_hash = hashlib.sha256(source + timestamp.encode()).hexdigest()
+    content_hash = hashlib.sha256(source + timestamp.encode() + file_suffix.encode()).hexdigest()
     return await import_journal_batch(pool, account_id=account_id, commander_id=commander_id,
                                      parser_version='test', files=[{'name': 'test.log', 'content_sha256': content_hash,
                                                                   'size_bytes': len(source), 'line_count': 1, 'event_count': 1}],
@@ -114,11 +115,18 @@ async def test_opt_in_review_canonical_merge_retry_and_withdrawal(account, targe
         with pytest.raises(ValueError, match='manifest changed'):
             reconcile_generation(conn, generation_id=gid, contribution_ids=[cid], apply=True, expected_manifest_sha256='0'*64)
         applied = reconcile_generation(conn, generation_id=gid, contribution_ids=[cid], apply=True,
-                                       expected_manifest_sha256=plan['manifest_sha256'])
+                                       expected_manifest_sha256=plan['manifest_sha256'],
+                                       expected_state_sha256=plan['reconciliation_state_sha256'])
         assert applied['published'] is False
         assert conn.execute(body_query).fetchone() == (3000, 1)
+        with pytest.raises(ValueError, match='Reconciliation state'):
+            reconcile_generation(conn, generation_id=gid, contribution_ids=[cid], apply=True,
+                                 expected_manifest_sha256=plan['manifest_sha256'],
+                                 expected_state_sha256=plan['reconciliation_state_sha256'])
+        plan = reconcile_generation(conn, generation_id=gid, contribution_ids=[cid])
         retry = reconcile_generation(conn, generation_id=gid, contribution_ids=[cid], apply=True,
-                                     expected_manifest_sha256=plan['manifest_sha256'])
+                                     expected_manifest_sha256=plan['manifest_sha256'],
+                                       expected_state_sha256=plan['reconciliation_state_sha256'])
         assert retry['results'][0]['status'] == 'ALREADY_RECONCILED'
         assert conn.execute('SELECT count(*) FROM v3_meta.current_canonical_generation').fetchone()[0] == 0
         source = conn.execute("SELECT scope_contract FROM v3_source.source_run WHERE trust_zone='CANONICAL' AND importer_version='journal-galaxy-physical-v1'").fetchall()
@@ -173,7 +181,8 @@ async def test_multi_observation_plan_matches_atomic_apply(account, target):
         gid, schema = generation(conn)
         plan = reconcile_generation(conn, generation_id=gid, contribution_ids=ids)
         applied = reconcile_generation(conn, generation_id=gid, contribution_ids=ids, apply=True,
-                                       expected_manifest_sha256=plan['manifest_sha256'])
+                                       expected_manifest_sha256=plan['manifest_sha256'],
+                                       expected_state_sha256=plan['reconciliation_state_sha256'])
         assert [(row['changes'], row['decisions']) for row in plan['results']] == [
             (row['changes'], row['decisions']) for row in applied['results']]
         from psycopg import sql
@@ -220,7 +229,15 @@ async def test_verified_http_import_partial_success_retry_and_consent_scope(acco
     body = {'parser_version': 'test-verified', 'files': files, 'events': events}
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://testserver',
                            headers={'Origin': 'http://testserver'}) as client:
-        response = await client.post('/api/v1/journal/verified-imports', json=body)
+        response, concurrent_retry = await asyncio.gather(
+            client.post('/api/v1/journal/verified-imports', json=body),
+            client.post('/api/v1/journal/verified-imports', json=body),
+        )
+        assert concurrent_retry.status_code == 200, concurrent_retry.text
+        assert response.json()['import_ids'] == concurrent_retry.json()['import_ids']
+        if response.json()['files_admitted'] == 0:
+            response, concurrent_retry = concurrent_retry, response
+        assert concurrent_retry.json()['events_inserted'] == 0
         assert response.status_code == 200, response.text
         receipt = response.json()
         assert receipt['files_admitted'] == 2
@@ -245,3 +262,44 @@ async def test_verified_http_import_partial_success_retry_and_consent_scope(acco
             'file_sha256': [files[0]['content_sha256']]})).status_code == 403
         user = None
         assert (await client.get('/api/v1/journal/galaxy-contributions')).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_same_timestamp_scan_records_and_selected_duplicate_file_provenance(account):
+    pool, account_id, _, _ = account
+    await import_scan(account, radius=2_000_000)
+    _, different = await import_scan(account, radius=4_000_000)
+    assert different.events_inserted == 1  # Same body/time, different source record.
+    selected_import, duplicate = await import_scan(account, radius=2_000_000, file_suffix='extra-log-lines')
+    assert duplicate.events_inserted == 0 and duplicate.duplicates_skipped == 1
+    selected_hash = bytes(await pool.fetchval(
+        'SELECT content_sha256 FROM v3_private.journal_import_file WHERE private_import_id=$1', selected_import,
+    )).hex()
+    assert (await offer_import(pool, account_id, selected_import, file_sha256=['0'*64]))['new_offers'] == 0
+    assert (await offer_import(pool, account_id, selected_import, file_sha256=[selected_hash]))['new_offers'] == 1
+    assert float(await pool.fetchval(
+        "SELECT pf.fact_payload->'fields'->>'radius_km' FROM v3_private.private_fact pf WHERE owner_account_id=$1",
+        account_id,
+    )) == 2000
+
+
+@pytest.mark.asyncio
+async def test_import_waits_for_concurrent_ownership_revocation(account):
+    pool, account_id, commander_id, _ = account
+    async with pool.acquire() as owner_connection:
+        transaction = owner_connection.transaction()
+        await transaction.start()
+        task = None
+        try:
+            await owner_connection.execute(
+                'UPDATE v3_identity.account_commander_access SET revoked_at=now() WHERE account_id=$1 AND commander_id=$2',
+                account_id, commander_id,
+            )
+            task = asyncio.create_task(import_scan(account))
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(task), timeout=0.2)
+        finally:
+            await transaction.commit()
+        with pytest.raises(ValueError, match='not owned'):
+            await task
+    assert await pool.fetchval('SELECT count(*) FROM v3_private.journal_event WHERE owner_account_id=$1', account_id) == 0

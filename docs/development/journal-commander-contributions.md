@@ -125,3 +125,15 @@ disposable PG18 instance is available; a skip is not a database pass.
 Browser visual acceptance, a real Frontier callback/logout, large-archive segment
 resume, personal Journal/Codex views and operator replacement publication remain
 explicit subsequent acceptance/work items. Draft status is not production readiness.
+
+
+Release review hardening: a malformed Commander/LoadGame timestamp holds the
+entire file; verified Scan identity includes its source-record hash; every
+file occurrence links to its canonical private event so selected-file consent
+works across duplicate observations. Receipt recovery and admission share the
+account transaction lock, and verified owner/FID rows remain locked through
+commit. Operator apply also requires `--expected-state-sha256` from the plan's
+`reconciliation_state_sha256`, alongside its manifest digest. Any intervening
+enrichment or changed selection requires a fresh plan. Review decisions use
+wall-clock write time for the build cutoff; publication completeness uses one
+set-based query against the candidate bodies table.

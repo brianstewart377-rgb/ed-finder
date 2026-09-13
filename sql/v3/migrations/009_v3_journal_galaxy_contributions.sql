@@ -118,24 +118,20 @@ BEGIN
     -- publication requires completeness, so bounded enrichment batches can run.
     -- A later Spansh refresh cannot silently erase previously reviewed facts.
     IF NEW.lifecycle_state = 'PUBLISHED' THEN
-        FOR receipt IN
-            SELECT candidate.contribution_id, candidate.fact_payload
-              FROM v3_private.eligible_journal_galaxy_contribution candidate
-             WHERE candidate.decided_at <= NEW.created_at
-               AND NOT EXISTS (SELECT 1 FROM v3_source.canonical_evidence_group eg
-                                WHERE eg.generation_id = NEW.generation_id
-                                  AND eg.contribution_id = candidate.contribution_id)
-             ORDER BY candidate.contribution_id
-        LOOP
-            EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.bodies
-                            WHERE system_id64=$1 AND frontier_body_id=$2 AND lifecycle_state=''ACTIVE'')',
-                           NEW.relation_schema)
-               INTO applicable USING (receipt.fact_payload->>'system_id64')::bigint,
-                                     (receipt.fact_payload->>'frontier_body_id')::bigint;
-            IF applicable THEN
-                RAISE EXCEPTION 'generation omits an eligible journal contribution; reconcile before publication';
-            END IF;
-        END LOOP;
+        EXECUTE format('SELECT EXISTS (
+            SELECT 1 FROM v3_private.eligible_journal_galaxy_contribution candidate
+            JOIN %I.bodies b
+              ON b.system_id64 = (candidate.fact_payload->>''system_id64'')::bigint
+             AND b.frontier_body_id = (candidate.fact_payload->>''frontier_body_id'')::bigint
+             AND b.lifecycle_state = ''ACTIVE''
+            WHERE candidate.decided_at <= $1
+              AND NOT EXISTS (SELECT 1 FROM v3_source.canonical_evidence_group eg
+                               WHERE eg.generation_id = $2
+                                 AND eg.contribution_id = candidate.contribution_id))', NEW.relation_schema)
+            INTO applicable USING NEW.created_at, NEW.generation_id;
+        IF applicable THEN
+            RAISE EXCEPTION 'generation omits an eligible journal contribution; reconcile before publication';
+        END IF;
     END IF;
     RETURN NEW;
 END;

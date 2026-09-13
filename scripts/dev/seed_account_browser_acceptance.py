@@ -40,7 +40,10 @@ async def seed(output: Path) -> None:
         _upsert_account_and_session,
     )
 
-    pool = await asyncpg.create_pool(target.dsn, min_size=1, max_size=2)
+    async def configure(conn):
+        await conn.set_type_codec('jsonb', schema='pg_catalog', encoder=json.dumps, decoder=json.loads)
+
+    pool = await asyncpg.create_pool(target.dsn, min_size=1, max_size=2, init=configure)
     try:
         sessions = {}
         for width in (1280, 390):

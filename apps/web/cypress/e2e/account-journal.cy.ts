@@ -74,6 +74,7 @@ describe('Verified account and journal product acceptance', () => {
       cy.contains(`F991${width}`).should('be.visible');
       cy.contains('button', 'Unlink').should('be.disabled');
       cy.get('input[type="checkbox"]').should('not.be.checked');
+      cy.get('.commander-link').should('have.attr', 'aria-current', 'page');
       cy.injectAxe();
       cy.checkA11y();
       cy.document().should((document) => {
@@ -93,9 +94,24 @@ describe('Verified account and journal product acceptance', () => {
           contents: Cypress.Buffer.from(journal('F9929999')),
           fileName: 'unlinked.log',
         },
+        {
+          contents: Cypress.Buffer.from(
+            journal(`F991${width}`) +
+              '\n' +
+              JSON.stringify({
+                event: 'Commander',
+                FID: 'F9929999',
+                timestamp: 'invalid',
+              }),
+          ),
+          fileName: 'malformed-identity.log',
+        },
       ]);
       cy.contains('button', 'Import journals').click();
-      cy.wait('@import').then(({ response }) => {
+      cy.wait('@import').then(({ request, response }) => {
+        expect(
+          request.body.files.map((file: { name: string }) => file.name),
+        ).not.to.include('malformed-identity.log');
         expect(response?.statusCode).to.eq(200);
         expect(response?.body.events_inserted).to.be.greaterThan(0);
         expect(response?.body.held_files).to.deep.include({
@@ -104,19 +120,19 @@ describe('Verified account and journal product acceptance', () => {
         });
       });
       cy.contains('unlinked.log: commander not linked').should('be.visible');
+      cy.contains(
+        'malformed-identity.log: Commander identity record has an invalid timestamp',
+      ).should('be.visible');
       cy.contains('No contributions on this page').should('be.visible');
       cy.get('@offer.all').should('have.length', 0);
 
+      cy.get('input[type="checkbox"]').check();
       cy.contains('button', 'Import journals').should('be.enabled').click();
       cy.wait('@import').then(({ response }) => {
         expect(response?.statusCode).to.eq(200);
         expect(response?.body.events_inserted).to.eq(0);
         expect(response?.body.files_skipped).to.eq(1);
       });
-      cy.contains('button', 'Import journals').should('be.enabled');
-      cy.get('input[type="checkbox"]').check();
-      cy.contains('button', 'Import journals').click();
-      cy.wait('@import');
       cy.wait('@offer').then(({ response }) => {
         expect(response?.statusCode).to.eq(200);
         expect(response?.body.new_offers).to.eq(1);

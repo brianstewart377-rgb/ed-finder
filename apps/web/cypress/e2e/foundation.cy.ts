@@ -1,4 +1,56 @@
 describe('ED-Finder V3 foundation', () => {
+  for (const [width, height] of [
+    [1280, 800],
+    [390, 844],
+  ] as const) {
+    it(`keeps home and guest account usable at ${width}x${height}`, () => {
+      cy.viewport(width, height);
+      cy.intercept('GET', '/api/v1/auth/session').as('accountSession');
+      cy.visit('/');
+      cy.wait('@accountSession').its('response.statusCode').should('eq', 200);
+      cy.contains('button', 'Sign in with Frontier').should('be.visible');
+      cy.get('.workspace-header nav a').should('have.length', 2);
+      cy.injectAxe();
+      cy.checkA11y();
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width);
+      });
+      cy.screenshot(`account/home-${Cypress.browser.name}-${width}x${height}`, {
+        capture: 'fullPage',
+        overwrite: true,
+      });
+
+      cy.visit('/account');
+      cy.wait('@accountSession').its('response.statusCode').should('eq', 200);
+      cy.contains('h2', 'Sign in to manage your account').should('be.visible');
+      cy.contains('button', 'Sign in with Frontier')
+        .focus()
+        .should('be.focused');
+      cy.injectAxe();
+      cy.checkA11y();
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width);
+      });
+      cy.screenshot(
+        `account/guest-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'fullPage',
+          overwrite: true,
+        },
+      );
+      cy.reload();
+      cy.wait('@accountSession').its('response.statusCode').should('eq', 200);
+      cy.contains('h2', 'Sign in to manage your account').should('be.visible');
+      cy.get('.workspace-header nav a')
+        .contains('Explore')
+        .focus()
+        .should('be.focused');
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.location('pathname').should('eq', '/explore');
+      cy.get('h1').should('contain.text', 'Chart a promising system');
+    });
+  }
+
   it('loads the shell and exercises the real same-origin bootstrap', () => {
     cy.intercept('/api/health').as('health');
     cy.intercept('/api/v1/auth/session').as('session');

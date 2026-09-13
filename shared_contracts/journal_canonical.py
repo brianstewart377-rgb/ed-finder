@@ -83,7 +83,8 @@ def _register_source(cur, generation_id: uuid.UUID, observations: list[dict]) ->
 
 
 def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: list[uuid.UUID],
-                         apply: bool = False, expected_manifest_sha256: str | None = None) -> dict:
+                         apply: bool = False, expected_manifest_sha256: str | None = None,
+                         expected_state_sha256: str | None = None) -> dict:
     if not 1 <= len(contribution_ids) <= 500 or len(set(contribution_ids)) != len(contribution_ids):
         raise ValueError('Select 1–500 distinct contribution IDs')
     if apply and not re.fullmatch(r'[0-9a-f]{64}', expected_manifest_sha256 or ''):
@@ -111,6 +112,14 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
             raise ValueError('Invalid canonical schema')
         if apply and generation['manifest'] != expected_manifest_sha256:
             raise ValueError('Generation manifest changed; review a fresh plan')
+        state_sha256 = hashlib.sha256(_encoded({
+            'generation_id': str(generation_id), 'manifest': generation['manifest'],
+            'validation_receipt': generation['validation_receipt'],
+            'validation_completed_at': generation['validation_completed_at'].isoformat(),
+            'contribution_ids': sorted(str(value) for value in contribution_ids),
+        })).hexdigest()
+        if apply and state_sha256 != expected_state_sha256:
+            raise ValueError('Reconciliation state or selection changed; review a fresh plan')
         cur.execute("SELECT to_regclass('v3_meta.derived_generation') AS relation")
         if cur.fetchone()['relation'] is not None:
             cur.execute('SELECT 1 FROM v3_meta.derived_generation WHERE canonical_generation_id = %s LIMIT 1', (generation_id,))
@@ -255,6 +264,7 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                            validation_completed_at=transaction_timestamp(), validation_receipt=%s
                            WHERE generation_id=%s''', (Jsonb(receipt), generation_id))
         return {'generation_id': str(generation_id), 'manifest_sha256': generation['manifest'],
+                'reconciliation_state_sha256': state_sha256,
                 'applied': apply, 'published': False, 'results': results}
 
 
@@ -278,9 +288,12 @@ def reconcile_all_eligible(conn, *, generation_id: uuid.UUID) -> dict:
             batch = cur.fetchall()
         if not batch:
             break
+        selected_ids = [row['contribution_id'] for row in batch]
+        plan = reconcile_generation(conn, generation_id=generation_id, contribution_ids=selected_ids)
         result = reconcile_generation(conn, generation_id=generation_id,
-                                      contribution_ids=[row['contribution_id'] for row in batch],
-                                      apply=True, expected_manifest_sha256=batch[0]['manifest'])
+                                      contribution_ids=selected_ids,
+                                      apply=True, expected_manifest_sha256=plan['manifest_sha256'],
+                                      expected_state_sha256=plan['reconciliation_state_sha256'])
         for row in result['results']:
             counts[row['status']] = counts.get(row['status'], 0) + 1
         after = batch[-1]['contribution_id']

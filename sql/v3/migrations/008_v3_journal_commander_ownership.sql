@@ -35,4 +35,20 @@ COMMENT ON INDEX v3_private.journal_event_file_commander_idx IS
 COMMENT ON COLUMN v3_private.journal_event.owner_commander_id IS
     'Explicit commander context; newly verified imports resolve journal FID against a server-verified active owner edge. Never backfill from names or historical default-owner selection.';
 
+-- Preserve every selected-file occurrence even when semantic event dedupe wins.
+CREATE TABLE v3_private.journal_file_event (
+    owner_account_id uuid NOT NULL,
+    journal_file_id uuid NOT NULL,
+    journal_event_id uuid NOT NULL,
+    PRIMARY KEY (journal_file_id, journal_event_id),
+    FOREIGN KEY (journal_file_id, owner_account_id)
+        REFERENCES v3_private.journal_import_file(journal_file_id, owner_account_id),
+    FOREIGN KEY (journal_event_id, owner_account_id)
+        REFERENCES v3_private.journal_event(journal_event_id, owner_account_id)
+);
+COMMENT ON TABLE v3_private.journal_file_event IS
+    'Private file occurrence provenance for selected-file consent; never implies sharing or verified ownership.';
+INSERT INTO v3_private.journal_file_event(owner_account_id, journal_file_id, journal_event_id)
+    SELECT owner_account_id, journal_file_id, journal_event_id FROM v3_private.journal_event;
+
 COMMIT;

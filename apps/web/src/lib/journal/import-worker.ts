@@ -27,6 +27,22 @@ self.onmessage = async (message: MessageEvent<{ files: File[] }>) => {
         // Parsing separately prevents cross-file line dedupe from removing an
         // identity header. The server owns account/commander semantic dedupe.
         const parsed = await parseJournalFilesStreaming([file]);
+        // An identity change must never disappear from ownership classification.
+        if (
+          parsed.observations.some(
+            (row) =>
+              ['Commander', 'LoadGame'].includes(row.event_type) &&
+              (!row.observed_at ||
+                !Number.isFinite(Date.parse(row.observed_at))),
+          )
+        ) {
+          held.push({
+            name: file.name,
+            reason:
+              'Commander identity record has an invalid timestamp; file held for review',
+          });
+          continue;
+        }
         const events = parsed.observations
           .filter(
             (row) =>

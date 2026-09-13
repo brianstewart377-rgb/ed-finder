@@ -27,6 +27,7 @@ def main() -> None:
     selection.add_argument('--all-eligible', action='store_true',
                            help='Apply all eligible observations reviewed before build creation, in bounded batches')
     parser.add_argument('--expected-manifest-sha256')
+    parser.add_argument('--expected-state-sha256')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     import psycopg
@@ -47,6 +48,7 @@ def main() -> None:
             conn, generation_id=args.generation_id,
             contribution_ids=[uuid.UUID(value) for value in ids], apply=args.apply,
             expected_manifest_sha256=args.expected_manifest_sha256,
+            expected_state_sha256=args.expected_state_sha256,
         )
     print(json.dumps(result, sort_keys=True))
 
