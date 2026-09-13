@@ -54,6 +54,30 @@
     "public_ui": "svelte-release-b1616332",
     "live_topology_note": "The accepted bootstrap promotion of 2026-09-10 (release run 34527597963, source b1616332c024e262a0aac03018943abbf619c087) put the active blue slot on 127.0.0.1:58080 and left 127.0.0.1:58081 free, so the unchanged-edge single-active-origin cutover model now holds and the edge was never repointed or recreated. The legacy api and proxy were stopped by that cutover and then retired on 2026-09-10 once their inspect records were archived, so the application network now carries exactly the retained database and the active slot."
   },
+  "accepted_release_schema_compatibility": {
+    "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
+    "source_sha": "b1616332c024e262a0aac03018943abbf619c087",
+    "release_run_id": "34527597963",
+    "manifest_sha256": "ef59711955208daea7459693dd2e01bcadfb3afb26ec67ebd4223236340ba8e6",
+    "images": {
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7f9e70eb562e6740b3c4d59fcad91f65e73784a7e24b62ef00963b1c81e7c31a",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:87ee670681e1e5a4792433c7da7fc5fddbb93c7b5286b2d124b69d1f33ac6d6f"
+    },
+    "compatible_migration_sets": [
+      "sha256:3bd851bf6fc93c74195e2eee82212510ef0c1e7766b996f43de5e332ac802afd",
+      "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
+      "sha256:88e97e26fec1d5695b31fe5fceb5c80c7187ef1d7c2988ac9b332698d1996e88",
+      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc"
+    ],
+    "evidence": "Public health on 2026-09-13 confirms accepted source b1616332 remains database-connected. Migration 006 application in workflow run 34698167474 passed the exact live-ledger hash gate before its later worker dependency failure, and read-only run 34698615774 confirmed its derived-product objects in use. Exact-head 897f560b CI and PostgreSQL 18 integration verified additive migrations 008 and 009, including ownership, consent, publication and reconciliation behavior."
+  },
+  "schema_transition": {
+    "schema_version": "ed-finder/v3-production-schema-transition/v1",
+    "from_schema_identity_sha256": "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d",
+    "from_migration_set_identity": "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc",
+    "to_migration_set_identity": "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
+    "evidence": "Reviewed transition from the retained production ledger through 006 to the exact committed lineage through 009; 007 remains reserved and is not applied."
+  },
   "application_contract": {
     "compose_project": "edfinder-v3-production",
     "compose_sha256": "a06a5f0c237b0433457b5f15632fa28cf922768df4cbc4b5936c9f1759a288f4",
@@ -95,7 +119,7 @@
     "api_env_owner_uid": 0,
     "api_env_mode": "0600",
     "schema_identity_file": "/etc/ed-finder/v3-production/schema-identity.json",
-    "schema_identity_sha256": "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d",
+    "schema_identity_sha256": "a65d55f69bea95c7d91044b81eaa613e7e82916e9b1e17c5e4a2a59d54fe217c",
     "schema_identity_owner_uid": 0,
     "schema_identity_mode": "0600",
     "active_origin_bind": "127.0.0.1:58080",

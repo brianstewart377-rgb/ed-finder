@@ -36,6 +36,10 @@ DEFAULT_AUTHORITY = ROOT / "deploy/v3-production/target-authority.json"
 DEFAULT_COMPOSE = ROOT / "deploy/v3-production/compose.yml"
 TARGET_SCHEMA = "ed-finder/v3-production-target-authority/v1"
 SCHEMA_IDENTITY_SCHEMA = "ed-finder/v3-production-schema-identity/v1"
+SCHEMA_TRANSITION_SCHEMA = "ed-finder/v3-production-schema-transition/v1"
+RELEASE_COMPATIBILITY_SCHEMA = (
+    "ed-finder/v3-production-accepted-release-schema-compatibility/v1"
+)
 RECEIPT_SCHEMA = "ed-finder/v3-production-deployment-receipt/v1"
 CURRENT_SCHEMA = "ed-finder/v3-production-current-release/v1"
 PROJECT = "edfinder-v3-production"
@@ -407,7 +411,71 @@ def validate_authority(value: dict[str, Any]) -> list[str]:
         raise DeploymentError("production secret/schema/receipt modes are not restrictive")
     if not re.fullmatch(r"[0-9a-f]{64}", str(external.get("schema_identity_sha256", ""))):
         raise DeploymentError("production schema identity checksum authority is invalid")
+    transition = value.get("schema_transition")
+    if (
+        not isinstance(transition, dict)
+        or set(transition) != {
+            "schema_version", "from_schema_identity_sha256",
+            "from_migration_set_identity", "to_migration_set_identity", "evidence",
+        }
+        or transition.get("schema_version") != SCHEMA_TRANSITION_SCHEMA
+        or not re.fullmatch(
+            r"[0-9a-f]{64}", str(transition.get("from_schema_identity_sha256", ""))
+        )
+        or not SHA256.fullmatch(str(transition.get("from_migration_set_identity", "")))
+        or not SHA256.fullmatch(str(transition.get("to_migration_set_identity", "")))
+        or transition["from_migration_set_identity"] == transition["to_migration_set_identity"]
+    ):
+        raise DeploymentError("production schema transition authority is invalid")
+    validate_evidence_text(transition.get("evidence"), "production schema transition")
+    compatibility = value.get("accepted_release_schema_compatibility")
+    validate_release_compatibility_shape(compatibility)
+    observed = value.get("observed_runtime", {})
+    accepted = observed.get("accepted_promotion", {}) if isinstance(observed, dict) else {}
+    if (
+        compatibility["source_sha"] != accepted.get("source_sha")
+        or compatibility["release_run_id"] != str(accepted.get("release_run_id", ""))
+        or compatibility["images"] != {
+            "backend": observed.get("api_image"), "web": observed.get("web_image")
+        }
+        or transition["to_migration_set_identity"]
+        not in compatibility["compatible_migration_sets"]
+    ):
+        raise DeploymentError("accepted release compatibility does not bind observed production")
     return []
+
+
+def validate_evidence_text(value: object, label: str) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value) > 2048:
+        raise DeploymentError(f"{label} lacks bounded reviewed evidence")
+    if re.search(
+        r"(?i)(password|passwd|secret|private[-_ ]?key|access[-_ ]?token|dsn|credential)",
+        value,
+    ) or re.search(r"(?i)[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@", value):
+        raise DeploymentError(f"{label} evidence contains secret-like text")
+
+
+def validate_release_compatibility_shape(value: object) -> None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {
+            "schema_version", "source_sha", "release_run_id", "manifest_sha256",
+            "images", "compatible_migration_sets", "evidence",
+        }
+        or value.get("schema_version") != RELEASE_COMPATIBILITY_SCHEMA
+        or not re.fullmatch(r"[0-9a-f]{40}", str(value.get("source_sha", "")))
+        or not RUN_ID.fullmatch(str(value.get("release_run_id", "")))
+        or not re.fullmatch(r"[0-9a-f]{64}", str(value.get("manifest_sha256", "")))
+        or not isinstance(value.get("images"), dict)
+        or set(value["images"]) != {"backend", "web"}
+        or any(not isinstance(image, str) for image in value["images"].values())
+        or not isinstance(value.get("compatible_migration_sets"), list)
+        or not value["compatible_migration_sets"]
+        or value["compatible_migration_sets"] != sorted(set(value["compatible_migration_sets"]))
+        or any(not SHA256.fullmatch(str(item)) for item in value["compatible_migration_sets"])
+    ):
+        raise DeploymentError("accepted release schema compatibility authority is invalid")
+    validate_evidence_text(value.get("evidence"), "accepted release compatibility")
 
 
 def exact_host_guard(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -1086,19 +1154,41 @@ def load_current(directory: Path) -> tuple[dict[str, Any], dict[str, Any], Path]
 def validate_prior_runtime(
     receipt: dict[str, Any], manifest: dict[str, Any], schema: dict[str, Any],
     env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]],
+    compatibility: dict[str, Any] | None = None,
 ) -> str:
     slot = receipt.get("active_slot")
-    if slot not in SLOTS or receipt.get("migration_set_identity") != schema["migration_set_identity"]:
-        raise DeploymentError("prior accepted production receipt is schema-incompatible")
+    recorded_migration_set = receipt.get("migration_set_identity")
+    if slot not in SLOTS or not SHA256.fullmatch(str(recorded_migration_set or "")):
+        raise DeploymentError("prior accepted production receipt is invalid")
     tool = manifest_tool()
     try:
         tool.validate_manifest(
             manifest,
             purpose="rollback",
-            current_migration_set=schema["migration_set_identity"],
+            current_migration_set=recorded_migration_set,
         )
     except tool.ManifestError as exc:
-        raise DeploymentError("prior accepted release is not rollback-compatible") from exc
+        raise DeploymentError("prior accepted release did not support its recorded schema") from exc
+    current_migration_set = schema["migration_set_identity"]
+    if current_migration_set != recorded_migration_set:
+        try:
+            tool.validate_manifest(
+                manifest, purpose="rollback", current_migration_set=current_migration_set
+            )
+        except tool.ManifestError:
+            validate_release_compatibility_shape(compatibility)
+            assert compatibility is not None
+            if (
+                compatibility["source_sha"] != receipt.get("source_sha")
+                or compatibility["release_run_id"] != str(receipt.get("release_run_id", ""))
+                or compatibility["manifest_sha256"] != receipt.get("manifest_sha256")
+                or compatibility["images"] != receipt.get("images")
+                or compatibility["images"] != manifest.get("images")
+                or current_migration_set not in compatibility["compatible_migration_sets"]
+            ):
+                raise DeploymentError(
+                    "prior accepted release lacks reviewed compatibility with current schema"
+                )
     for image in manifest["images"].values():
         verify_image(image, manifest["git_sha"], env, runner)
     for service in (f"api-{slot}", f"web-{slot}"):
@@ -1423,7 +1513,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 receipt_dir
             )
             prior_slot_for_preflight = validate_prior_runtime(
-                prior_for_preflight, prior_manifest_for_preflight, schema, env, runner
+                prior_for_preflight, prior_manifest_for_preflight, schema, env, runner,
+                authority["accepted_release_schema_compatibility"],
             )
         verify_origin_ownership(args.mode, prior_slot_for_preflight, env, runner)
         verify_edge_routes_to_active_origin()
@@ -1493,7 +1584,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         else:
             prior_receipt, prior_manifest, _ = load_current(receipt_dir)
             prior_slot = validate_prior_runtime(
-                prior_receipt, prior_manifest, schema, env, runner
+                prior_receipt, prior_manifest, schema, env, runner,
+                authority["accepted_release_schema_compatibility"],
             )
             if prior_manifest.get("git_sha") == candidate.get("git_sha"):
                 raise DeploymentError("candidate cannot be its own prior release")
