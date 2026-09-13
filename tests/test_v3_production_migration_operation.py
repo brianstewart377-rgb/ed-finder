@@ -194,6 +194,20 @@ def test_ledger_row_and_migration_commit_atomically():
     assert entry["ledger_name"] in combined and entry["sha256"] in combined
 
 
+def test_ledger_row_splices_before_the_actual_terminal_commit():
+    module = _load()
+    entry = module.desired_entries(ROOT)[0]
+    source = "BEGIN;\nSELECT 1;\n  COMMIT;\n-- retained trailing comment\n"
+
+    combined = module.migration_with_atomic_ledger(entry, source)
+
+    assert combined.count("COMMIT;") == 1
+    assert combined.index("INSERT INTO v3_meta.schema_migration") < combined.index(
+        "COMMIT;"
+    )
+    assert combined.endswith("\n-- retained trailing comment\n")
+
+
 def test_a_failed_combined_transaction_has_no_second_ledger_write():
     module = _load()
     entry = module.desired_entries(ROOT)[0]
@@ -393,6 +407,7 @@ def test_receipt_is_written_root_only_with_a_sidecar(tmp_path):
     if os.name == "posix":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+    assert not list(tmp_path.glob(".v3-production-migration-*"))
 
 
 def test_post_mutation_audit_finalization_ignores_later_cancellation():

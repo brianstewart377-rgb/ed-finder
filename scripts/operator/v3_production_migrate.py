@@ -159,22 +159,45 @@ def plan_migrations(
     return live, desired[len(live):]
 
 
-def require_self_transactional(text: str, label: str) -> None:
+def terminal_commit_span(text: str, label: str) -> tuple[int, int]:
     """A migration about to be applied must own its transaction.
 
     Without this, a migration that fails halfway could leave half its statements
     committed, and the operation would then have no honest choice but to stop with
     the database in an unexplained state.
     """
-    statements = [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip() and not line.strip().startswith("--")
-    ]
-    if not statements or statements[0].upper() != "BEGIN;" or statements[-1].upper() != "COMMIT;":
+    statements: list[tuple[int, str]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("--"):
+            statements.append((offset + len(line) - len(line.lstrip()), stripped))
+        offset += len(line)
+    if (
+        not statements
+        or statements[0][1].upper() != "BEGIN;"
+        or statements[-1][1].upper() != "COMMIT;"
+    ):
         raise MigrationError(
             f"{label} does not manage its own transaction (needs BEGIN; ... COMMIT;)"
         )
+    commit_start = statements[-1][0]
+    return commit_start, commit_start + len("COMMIT;")
+
+
+def require_self_transactional(text: str, label: str) -> None:
+    terminal_commit_span(text, label)
+
+
+def migration_with_atomic_ledger(entry: dict[str, str], text: str) -> str:
+    """Insert the ledger row immediately before the validated terminal COMMIT."""
+    commit_start, commit_end = terminal_commit_span(text, entry["path"])
+    ledger = (
+        "INSERT INTO v3_meta.schema_migration (migration_name, migration_sha256)\n"
+        f"  VALUES ('{entry['ledger_name']}', decode('{entry['sha256']}', 'hex'));\n"
+        "COMMIT;"
+    )
+    return text[:commit_start] + ledger + text[commit_end:]
 
 
 def migration_text(entry: dict[str, str], root: Path = ROOT) -> str:
@@ -196,7 +219,6 @@ def apply_migration(
     runner: Callable[..., Any], root: Path = ROOT,
 ) -> None:
     text = migration_text(entry, root)
-    require_self_transactional(text, entry["path"])
     psql = [
         "docker", "exec", "-i", deployer.POSTGRES_CONTAINER, "psql", "-X", "--no-psqlrc",
         "--set", "ON_ERROR_STOP=1", "--username", deployer.DATABASE_USER,
@@ -205,13 +227,7 @@ def apply_migration(
     ]
     # Insert the ledger row before the migration's own terminal COMMIT, so DDL
     # and identity advance are one PostgreSQL transaction with no crash window.
-    stripped = text.rstrip()
-    combined = (
-        stripped[:-len("COMMIT;")]
-        + "INSERT INTO v3_meta.schema_migration (migration_name, migration_sha256)\n"
-        + f"  VALUES ('{entry['ledger_name']}', decode('{entry['sha256']}', 'hex'));\n"
-        + "COMMIT;\n"
-    )
+    combined = migration_with_atomic_ledger(entry, text)
     runner(psql, env=env, input_text=combined)
 
 
@@ -329,22 +345,50 @@ def write_receipt(directory: Path, name: str, payload: dict[str, Any]) -> Path:
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     body = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     digest = hashlib.sha256(body).hexdigest()
-    handle, temp_name = tempfile.mkstemp(prefix=".v3-production-migration-", dir=directory)
+    sidecar_body = f"{digest}  {name}\n".encode("utf-8")
+    receipt_handle, receipt_temp = tempfile.mkstemp(
+        prefix=".v3-production-migration-receipt-", dir=directory
+    )
+    sidecar_handle = -1
+    sidecar_temp: str | None = None
     try:
-        os.fchmod(handle, 0o600)
-        with os.fdopen(handle, "wb") as output:
+        sidecar_handle, sidecar_temp = tempfile.mkstemp(
+            prefix=".v3-production-migration-sidecar-", dir=directory
+        )
+        os.fchmod(receipt_handle, 0o600)
+        with os.fdopen(receipt_handle, "wb") as output:
             output.write(body)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temp_name, directory / name)
-    finally:
+        os.fchmod(sidecar_handle, 0o600)
+        with os.fdopen(sidecar_handle, "wb") as output:
+            output.write(sidecar_body)
+            output.flush()
+            os.fsync(output.fileno())
+
+        # Publish the checksum first, then make the receipt itself the commit
+        # marker. Directory fsyncs make both renames durable across host crash.
+        os.replace(sidecar_temp, directory / f"{name}.sha256")
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            os.unlink(temp_name)
-        except FileNotFoundError:
-            pass
-    sidecar = directory / f"{name}.sha256"
-    sidecar.write_text(f"{digest}  {name}\n", encoding="utf-8")
-    os.chmod(sidecar, 0o600)
+            os.fsync(directory_fd)
+            os.replace(receipt_temp, directory / name)
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        for handle in (receipt_handle, sidecar_handle):
+            try:
+                os.close(handle)
+            except OSError:
+                pass
+        for temp_name in (receipt_temp, sidecar_temp):
+            if temp_name is None:
+                continue
+            try:
+                os.unlink(temp_name)
+            except FileNotFoundError:
+                pass
     return directory / name
 
 
