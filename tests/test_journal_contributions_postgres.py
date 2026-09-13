@@ -195,6 +195,65 @@ async def test_multi_observation_plan_matches_atomic_apply(account, target):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('split_batches,reverse', [(False, False), (True, False), (True, True)])
+async def test_equal_time_conflicts_preserve_catalogue_across_batches(account, target, split_batches, reverse):
+    pool, account_id, _, _ = account
+    for radius in [3_000_000, 4_000_000]:
+        import_id, _ = await import_scan(account, radius=radius, timestamp='2026-05-01T00:00:00+00:00')
+        hashes = [bytes(row['content_sha256']).hex() for row in await pool.fetch(
+            'SELECT content_sha256 FROM v3_private.journal_import_file WHERE private_import_id=$1', import_id)]
+        await offer_import(pool, account_id, import_id, file_sha256=hashes)
+    ids = [row['contribution_id'] for row in await pool.fetch(
+        'SELECT contribution_id FROM v3_private.contribution_receipt WHERE contributing_account_id=$1 ORDER BY contribution_id', account_id)]
+    await review(pool, ids=ids, eligible=True, actor_id=account_id, reason='Equal-time fixture')
+    if reverse:
+        ids.reverse()
+    from psycopg import sql
+    with psycopg.connect(target.dsn, autocommit=True) as conn:
+        gid, schema = generation(conn)
+        for selected in ([[cid] for cid in ids] if split_batches else [ids]):
+            plan = reconcile_generation(conn, generation_id=gid, contribution_ids=selected)
+            assert all(row['decisions']['radius_km'] == 'PRESERVE_CONFLICT' for row in plan['results'])
+            applied = reconcile_generation(conn, generation_id=gid, contribution_ids=selected, apply=True,
+                                           expected_manifest_sha256=plan['manifest_sha256'],
+                                           expected_state_sha256=plan['reconciliation_state_sha256'])
+            assert [(row['changes'], row['decisions']) for row in plan['results']] == [
+                (row['changes'], row['decisions']) for row in applied['results']]
+            assert conn.execute(sql.SQL('SELECT radius_km,surface_gravity_g FROM {}.bodies WHERE body_pk=1')
+                                .format(sql.Identifier(schema))).fetchone() == (1000, 1)
+        assert conn.execute("SELECT count(*) FROM v3_source.canonical_evidence_group WHERE generation_id=%s AND contribution_id=ANY(%s)",
+                            (gid, ids)).fetchone()[0] == 2
+
+
+@pytest.mark.asyncio
+async def test_late_manual_equal_time_conflict_requires_fresh_catalogue(account, target):
+    pool, account_id, _, _ = account
+    ids = []
+    for radius in [3_000_000, 4_000_000]:
+        import_id, _ = await import_scan(account, radius=radius, timestamp='2026-05-02T00:00:00+00:00')
+        hashes = [bytes(row['content_sha256']).hex() for row in await pool.fetch(
+            'SELECT content_sha256 FROM v3_private.journal_import_file WHERE private_import_id=$1', import_id)]
+        await offer_import(pool, account_id, import_id, file_sha256=hashes)
+        ids.append(await pool.fetchval('''SELECT cr.contribution_id FROM v3_private.contribution_receipt cr
+                                          JOIN v3_private.private_fact pf USING(private_fact_id)
+                                         WHERE pf.private_import_id=$1''', import_id))
+    await review(pool, ids=ids[:1], eligible=True, actor_id=account_id, reason='First fixture')
+    with psycopg.connect(target.dsn, autocommit=True) as conn:
+        gid, _ = generation(conn)
+        plan = reconcile_generation(conn, generation_id=gid, contribution_ids=ids[:1])
+        reconcile_generation(conn, generation_id=gid, contribution_ids=ids[:1], apply=True,
+                             expected_manifest_sha256=plan['manifest_sha256'],
+                             expected_state_sha256=plan['reconciliation_state_sha256'])
+    await review(pool, ids=ids[1:], eligible=True, actor_id=account_id, reason='Later conflicting fixture')
+    with psycopg.connect(target.dsn, autocommit=True) as conn:
+        with pytest.raises(ValueError, match='equal-time conflict.*fresh generation'):
+            reconcile_generation(conn, generation_id=gid, contribution_ids=ids[1:])
+        fresh, _ = generation(conn)
+        plan = reconcile_generation(conn, generation_id=fresh, contribution_ids=ids)
+        assert all(row['decisions']['radius_km'] == 'PRESERVE_CONFLICT' for row in plan['results'])
+
+
+@pytest.mark.asyncio
 async def test_verified_http_import_partial_success_retry_and_consent_scope(account, monkeypatch):
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient

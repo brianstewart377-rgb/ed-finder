@@ -17,7 +17,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .journal_galaxy_facts import AUDIENCE, NAMESPACE, CANONICAL_FIELDS, POLICY, exact_id, reconcile_fields
+from .journal_galaxy_facts import AUDIENCE, FACT_KIND, NAMESPACE, CANONICAL_FIELDS, POLICY, exact_id, reconcile_fields
 
 _SCHEMA = re.compile(r'v3_gen_[a-z][a-z0-9_]{0,30}\Z')
 
@@ -91,7 +91,7 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
         raise ValueError('Applying requires the expected generation manifest SHA-256')
     with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
         cur.execute('''SELECT g.relation_schema, g.lifecycle_state, g.published_at,
-                              g.validation_receipt, g.validation_completed_at,
+                              g.validation_receipt, g.validation_completed_at, g.created_at,
                               encode(g.manifest_sha256,'hex') AS manifest,
                               sr.run_state AS build_run_state,
                               EXISTS (SELECT 1 FROM v3_meta.current_canonical_generation c
@@ -137,6 +137,7 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                          JOIN v3_identity.commander commander ON commander.commander_id = a.commander_id
                         WHERE cr.contribution_id = ANY(%s) AND cr.audience_code = %s
                           AND cr.sharing_policy_version = %s AND cr.contribution_state = 'ELIGIBLE'
+                          AND pf.fact_kind = %s
                           AND cr.site_publication_allowed AND cr.api_redistribution_allowed
                           AND pf.withdrawn_at IS NULL AND pi.import_state = 'READY'
                           AND a.revoked_at IS NULL AND a.access_role = 'OWNER' AND owner.account_state = 'ACTIVE'
@@ -147,8 +148,32 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                                          AND ce.subject ~ '^F[1-9][0-9]{0,19}$')
                         ORDER BY cr.contribution_id'''
                     + (' FOR SHARE OF cr, pf, pi, a, owner, commander' if apply else ''),
-                    (contribution_ids, AUDIENCE, POLICY))
+                    (contribution_ids, AUDIENCE, POLICY, FACT_KIND))
         candidates = cur.fetchall()
+        # Inspect all admitted peers before applying any selected observation.
+        # This also sees ties outside the current 500-record batch. Later reviews
+        # enter only by explicit selection (or prior use in this generation).
+        cur.execute('''WITH selected AS (
+                           SELECT * FROM jsonb_to_recordset(%s) AS s(contribution_id uuid, fact_payload jsonb)
+                       )
+                       SELECT s.contribution_id, fields.key AS field
+                         FROM selected s
+                         JOIN v3_private.eligible_journal_galaxy_contribution peer
+                           ON peer.fact_payload->>'system_id64' = s.fact_payload->>'system_id64'
+                          AND peer.fact_payload->>'frontier_body_id' = s.fact_payload->>'frontier_body_id'
+                          AND peer.fact_payload->>'observed_at' = s.fact_payload->>'observed_at'
+                         CROSS JOIN LATERAL jsonb_each(peer.fact_payload->'fields') fields
+                        WHERE peer.decided_at <= %s OR peer.contribution_id = ANY(%s)
+                           OR EXISTS (SELECT 1 FROM v3_source.canonical_evidence_group eg
+                                       WHERE eg.generation_id = %s AND eg.contribution_id = peer.contribution_id)
+                        GROUP BY s.contribution_id, fields.key
+                       HAVING count(DISTINCT fields.value) > 1
+                        ORDER BY s.contribution_id, fields.key''',
+                    (Jsonb([{'contribution_id': str(row['contribution_id']), 'fact_payload': row['fact_payload']}
+                            for row in candidates]), generation['created_at'], contribution_ids, generation_id))
+        conflicts = {}
+        for row in cur.fetchall():
+            conflicts.setdefault(row['contribution_id'], set()).add(row['field'])
         state_sha256 = hashlib.sha256(_encoded({
             'generation_id': str(generation_id), 'manifest': generation['manifest'],
             'validation_receipt': generation['validation_receipt'],
@@ -158,7 +183,8 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
             'normalizer_code': hashlib.sha256(Path(__file__).with_name('journal_galaxy_facts.py').read_bytes()).hexdigest(),
             'eligible_candidates': [
                 {'contribution_id': str(row['contribution_id']),
-                 'private_fact_id': str(row['private_fact_id']), 'payload': row['fact_payload']}
+                 'private_fact_id': str(row['private_fact_id']), 'payload': row['fact_payload'],
+                 'conflicting_fields': sorted(conflicts.get(row['contribution_id'], ()))}
                 for row in candidates
             ],
         })).hexdigest()
@@ -198,10 +224,17 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                 for field in detail['accepted_fields']:
                     timestamp = datetime.fromisoformat(detail.get('field_observed_at', {}).get(field, observed.isoformat()))
                     field_times[field] = max(field_times.get(field, timestamp), timestamp)
+                    if (field in conflicts.get(cid, ()) and observed == datetime.fromisoformat(fact['observed_at'])
+                            and detail['decisions'][field] in ('FILL_MISSING', 'NEWER_OBSERVATION')):
+                        # A manually admitted late tie must not cement a value
+                        # chosen before its peer became eligible. Rebuild from
+                        # the catalogue instead of guessing a rollback value.
+                        raise ValueError('New equal-time conflict with applied evidence; use a fresh generation')
             plan_key = (key['system_id64'], key['frontier_body_id'])
             if not apply and plan_key in planned_bodies:
                 body, field_times = planned_bodies[plan_key]
-            changes, decisions = reconcile_fields(dict(body), fact, field_times)
+            changes, decisions = reconcile_fields(dict(body), fact, field_times,
+                                                  conflicting_fields=frozenset(conflicts.get(cid, ())))
             result = {'contribution_id': str(cid), 'status': 'CHANGES_PLANNED' if changes else 'NO_CHANGE',
                       'decisions': decisions, 'changes': changes}
             if not apply:

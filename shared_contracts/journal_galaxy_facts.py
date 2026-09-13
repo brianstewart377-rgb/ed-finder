@@ -88,7 +88,8 @@ def normalize_scan(event: dict, *, now: datetime | None = None) -> dict:
     }
 
 
-def reconcile_fields(current: dict, observation: dict, field_times: dict[str, datetime]) -> tuple[dict, dict]:
+def reconcile_fields(current: dict, observation: dict, field_times: dict[str, datetime], *,
+                     conflicting_fields: frozenset[str] = frozenset()) -> tuple[dict, dict]:
     """No last-upload-wins. Conflicting unknown/equal/newer facts are preserved.
 
     Missing stable physical values may be filled by an older valid observation.
@@ -117,7 +118,9 @@ def reconcile_fields(current: dict, observation: dict, field_times: dict[str, da
                 raise ValueError('invalid_physical_value')
         existing = current.get(field)
         recorded = field_times.get(field, current.get('source_updated_at'))
-        if existing is None:
+        if field in conflicting_fields:
+            decisions[field] = 'PRESERVE_CONFLICT'
+        elif existing is None:
             changes[field], decisions[field] = value, 'FILL_MISSING'
         elif existing == value:
             decisions[field] = 'UNCHANGED'

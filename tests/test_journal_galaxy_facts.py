@@ -61,3 +61,12 @@ def test_field_provenance_prevents_a_later_processed_older_journal_overwrite():
 def test_arbitrary_canonical_columns_are_rejected():
     with pytest.raises(ValueError, match='unsupported_canonical_field'):
         reconcile_fields({}, {'observed_at': NOW.isoformat(), 'fields': {'source_run_id': 'forged'}}, {})
+
+
+@pytest.mark.parametrize('baseline', [None, 1000, 3000])
+def test_equal_time_peer_conflicts_preserve_even_missing_or_matching_baseline(baseline):
+    current = {'radius_km': baseline, 'source_updated_at': datetime(2020, 1, 1, tzinfo=timezone.utc)}
+    observation = {'observed_at': NOW.isoformat(), 'fields': {'radius_km': 3000, 'surface_gravity_g': 1}}
+    changes, decisions = reconcile_fields(current, observation, {}, conflicting_fields=frozenset({'radius_km'}))
+    assert changes == {'surface_gravity_g': 1}
+    assert decisions == {'radius_km': 'PRESERVE_CONFLICT', 'surface_gravity_g': 'FILL_MISSING'}

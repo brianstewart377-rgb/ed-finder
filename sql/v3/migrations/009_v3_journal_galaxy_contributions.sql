@@ -22,6 +22,13 @@ CREATE UNIQUE INDEX private_fact_journal_identity_idx
 COMMENT ON INDEX v3_private.private_fact_journal_identity_idx IS
     'Use: retry-safe normalized contribution identity without merging commander histories.';
 
+CREATE INDEX journal_physical_observation_peers_idx
+    ON v3_private.private_fact((fact_payload->>'system_id64'),
+                              (fact_payload->>'frontier_body_id'), (fact_payload->>'observed_at'))
+    WHERE fact_kind = 'journal_galaxy_physical_v1' AND withdrawn_at IS NULL;
+COMMENT ON INDEX v3_private.journal_physical_observation_peers_idx IS
+    'Use: find equal-time physical conflicts across bounded reconciliation batches.';
+
 CREATE INDEX journal_contribution_review_idx
     ON v3_private.contribution_receipt(audience_code, sharing_policy_version, offered_at DESC, contribution_id DESC);
 COMMENT ON INDEX v3_private.journal_contribution_review_idx IS
@@ -58,6 +65,7 @@ SELECT cr.contribution_id, cr.decided_at, pf.fact_payload
  WHERE cr.audience_code = 'ED_FINDER_GALAXY'
    AND cr.sharing_policy_version = 'journal-galaxy-physical-v1'
    AND cr.contribution_state = 'ELIGIBLE'
+   AND pf.fact_kind = 'journal_galaxy_physical_v1'
    AND cr.site_publication_allowed AND cr.api_redistribution_allowed
    AND pf.withdrawn_at IS NULL AND pi.import_state = 'READY'
    AND a.access_role = 'OWNER' AND a.revoked_at IS NULL
