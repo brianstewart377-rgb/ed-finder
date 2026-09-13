@@ -2,6 +2,7 @@
   import { auth } from '$lib/auth/auth';
   import WorkspaceHeader from '$lib/components/WorkspaceHeader.svelte';
   import AccountIdentityPanel from '$lib/components/AccountIdentityPanel.svelte';
+  import JournalAccountPanel from '$lib/components/JournalAccountPanel.svelte';
 </script>
 
 <svelte:head><title>Commander account — ED-Finder</title></svelte:head>
@@ -17,7 +18,10 @@
   {#if $auth.loading}
     <p role="status">Loading your account…</p>
   {:else if $auth.authenticated}
-    <AccountIdentityPanel />
+    {#key $auth.user?.account_id}
+      <AccountIdentityPanel />
+      <JournalAccountPanel />
+    {/key}
   {:else if $auth.error}
     <p role="status">
       We couldn’t check your session. Use Retry above to try again.

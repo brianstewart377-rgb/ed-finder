@@ -9,6 +9,7 @@ import {
 import { adminToken } from '$lib/persistence/stores';
 
 export interface AuthUser {
+  account_id: string;
   commander_name: string | null;
   is_owner: boolean;
 }
@@ -39,12 +40,14 @@ export function createAuthStore(
   tokenStore: AuthTokenStore = adminToken,
 ) {
   const state = writable<AuthState>({ ...empty, loading: browser });
+  let operationGeneration = 0;
   const accept = (session: Awaited<ReturnType<AuthApi['session']>>) =>
     state.set({
       loading: false,
       authenticated: session.authenticated,
       user: session.user
         ? {
+            account_id: session.user.account_id,
             commander_name: session.user.commander_name ?? null,
             is_owner: session.user.is_owner,
           }
@@ -70,11 +73,13 @@ export function createAuthStore(
       ($state) => $state.user?.is_owner === true,
     ) as Readable<boolean>,
     async bootstrap() {
+      const generation = ++operationGeneration;
       state.update((value) => ({ ...value, loading: true, error: null }));
       try {
-        accept(await api.session());
+        const session = await api.session();
+        if (generation === operationGeneration) accept(session);
       } catch (error) {
-        fail(error);
+        if (generation === operationGeneration) fail(error);
       }
     },
     signIn() {
@@ -83,25 +88,28 @@ export function createAuthStore(
       location.assign(frontierLoginUrl(returnTo));
     },
     async signOut() {
+      const generation = ++operationGeneration;
       state.update((value) => ({ ...value, error: null }));
       const tokenClearError = tokenStore.clear()
         ? null
         : new Error('The session token could not be cleared in this browser.');
       try {
         const session = await api.logout();
+        if (generation !== operationGeneration) return;
         if (tokenClearError) throw tokenClearError;
         accept(session);
         if (browser && ['/admin', '/operator'].includes(location.pathname))
           location.replace('/');
       } catch (error) {
         const failure = tokenClearError ?? error;
-        fail(failure);
+        if (generation === operationGeneration) fail(failure);
         throw failure;
       }
     },
     async claimOwner(token: string) {
       const trimmed = token.trim();
       if (!trimmed) throw new Error('Admin token is required');
+      const generation = ++operationGeneration;
       state.update((value) => ({ ...value, error: null }));
       let session: Awaited<ReturnType<AuthApi['claimOwner']>>;
       try {
@@ -109,9 +117,10 @@ export function createAuthStore(
       } catch (error) {
         // A rejected one-time owner claim does not invalidate the cookie-backed
         // Frontier session that was required to make the attempt.
-        reportError(error);
+        if (generation === operationGeneration) reportError(error);
         throw error;
       }
+      if (generation !== operationGeneration) return;
       if (!tokenStore.set(trimmed)) {
         accept(session);
         const error = new Error(

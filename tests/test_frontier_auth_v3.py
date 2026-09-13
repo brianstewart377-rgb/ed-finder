@@ -506,6 +506,7 @@ async def test_identity_login_calls_decode_and_me_but_not_capi_or_persists_token
         'issuer': auth_router.FRONTIER_ISSUER,
         'subject': 'stable-parent',
         'commander_name': None,
+        'journal_fid': None,
     }
     assert calls == [
         f'{auth_router.FRONTIER_ISSUER}/token',
@@ -535,6 +536,7 @@ def test_frontier_identity_uses_stable_parent_and_keeps_commander_separate():
         'issuer': auth_router.FRONTIER_ISSUER,
         'subject': 'frontier-parent',
         'commander_name': 'Test Cmdr',
+        'journal_fid': None,
     }
 
 

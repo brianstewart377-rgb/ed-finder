@@ -288,6 +288,7 @@ def test_frontier_identity_uses_parent_account_and_stores_only_commander_name(mo
         'issuer': 'https://auth.frontierstore.net',
         'subject': 'frontier-parent',
         'commander_name': 'Test Cmdr',
+        'journal_fid': None,
     }
 
 

@@ -42,6 +42,11 @@ import {
   getSystemApiSystemId64Get,
   healthApiHealthGet,
   listIdentitiesApiV1AuthIdentitiesGet,
+  listVerifiedCommanders,
+  createVerifiedJournalImport,
+  offerJournalGalaxyFacts,
+  listJournalGalaxyContributions,
+  withdrawJournalGalaxyContribution,
   localSearchEndpointApiLocalSearchPost,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
@@ -57,7 +62,67 @@ import type {
   SearchResponse,
   SystemDetailRow,
   SystemRow,
+  V3JournalImportRequest,
 } from './generated';
+
+export type {
+  VerifiedCommanderResponse,
+  V3JournalImportRequest,
+  V3VerifiedImportReceipt,
+  ContributionRow,
+} from './generated';
+
+export const getVerifiedCommanders = async (signal?: AbortSignal) =>
+  (await listVerifiedCommanders({ throwOnError: true, signal })).data;
+
+export const importVerifiedJournals = async (
+  body: V3JournalImportRequest,
+  signal?: AbortSignal,
+) =>
+  (await createVerifiedJournalImport({ body, throwOnError: true, signal }))
+    .data;
+
+export const offerGalaxyFacts = async (
+  importId: string,
+  fileSha256: string[],
+  signal?: AbortSignal,
+) =>
+  (
+    await offerJournalGalaxyFacts({
+      path: { import_id: importId },
+      body: {
+        policy_version: 'journal-galaxy-physical-v1',
+        share_on_site_and_api: true,
+        file_sha256: fileSha256,
+      },
+      throwOnError: true,
+      signal,
+    })
+  ).data;
+
+export const getGalaxyContributions = async (
+  offset = 0,
+  signal?: AbortSignal,
+) =>
+  (
+    await listJournalGalaxyContributions({
+      query: { offset, limit: 50 },
+      throwOnError: true,
+      signal,
+    })
+  ).data;
+
+export const withdrawGalaxyContribution = async (
+  id: string,
+  signal?: AbortSignal,
+) =>
+  (
+    await withdrawJournalGalaxyContribution({
+      path: { contribution_id: id },
+      throwOnError: true,
+      signal,
+    })
+  ).data;
 
 export {
   ADMIN_TOKEN_SESSION_KEY,

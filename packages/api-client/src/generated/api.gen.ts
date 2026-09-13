@@ -132,6 +132,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/commanders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Verified Commanders */
+        get: operations["listVerifiedCommanders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/identities": {
         parameters: {
             query?: never;
@@ -2174,6 +2191,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/journal/verified-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Verified Journal Import */
+        post: operations["createVerifiedJournalImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/summary": {
         parameters: {
             query?: never;
@@ -2323,6 +2357,75 @@ export interface paths {
         get: operations["getV3ResearchExport"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/galaxy-contributions/imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Offer Journal Galaxy Facts */
+        post: operations["offerJournalGalaxyFacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/galaxy-contributions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Journal Galaxy Contributions */
+        get: operations["listJournalGalaxyContributions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/galaxy-contributions/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review Journal Galaxy Queue */
+        get: operations["reviewJournalGalaxyQueue"];
+        put?: never;
+        /** Decide Journal Galaxy Contributions */
+        post: operations["decideJournalGalaxyContributions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/journal/galaxy-contributions/{contribution_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw Journal Galaxy Contribution */
+        post: operations["withdrawJournalGalaxyContribution"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3251,6 +3354,29 @@ export interface components {
              * @default commander-powerplay/v1
              */
             snapshot_version: string;
+        };
+        /** ContributionRow */
+        ContributionRow: {
+            /**
+             * Contribution Id
+             * Format: uuid
+             */
+            contribution_id: string;
+            /** Contribution State */
+            contribution_state: string;
+            /**
+             * Offered At
+             * Format: date-time
+             */
+            offered_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** Observation */
+            observation: {
+                [key: string]: unknown;
+            };
+            /** Used In Generation */
+            used_in_generation: boolean;
         };
         /** CoordsModel */
         CoordsModel: {
@@ -4774,6 +4900,32 @@ export interface components {
          * @enum {string}
          */
         ObservedSubjectType: "system" | "body" | "facility" | "service" | "economy" | "build" | "simulation" | "cp";
+        /** OfferReceipt */
+        OfferReceipt: {
+            /** New Offers */
+            new_offers: number;
+            /** Already Offered */
+            already_offered: number;
+            /** Skipped */
+            skipped: {
+                [key: string]: number;
+            };
+        };
+        /** OfferRequest */
+        OfferRequest: {
+            /**
+             * Policy Version
+             * @constant
+             */
+            policy_version: "journal-galaxy-physical-v1";
+            /**
+             * Share On Site And Api
+             * @constant
+             */
+            share_on_site_and_api: true;
+            /** File Sha256 */
+            file_sha256: string[];
+        };
         /**
          * OptimiserCandidate
          * @description A single bounded Stage 5A candidate plan.
@@ -5578,6 +5730,18 @@ export interface components {
             }[];
             /** Computed At */
             computed_at?: unknown | null;
+        };
+        /** ReviewRequest */
+        ReviewRequest: {
+            /** Contribution Ids */
+            contribution_ids: string[];
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "ELIGIBLE" | "REJECTED";
+            /** Reason */
+            reason: string;
         };
         /** RingSignalV1 */
         RingSignalV1: {
@@ -7029,6 +7193,13 @@ export interface components {
             /** Last Observed At */
             last_observed_at: string | null;
         };
+        /** V3HeldJournalFile */
+        V3HeldJournalFile: {
+            /** Name */
+            name: string;
+            /** Reason */
+            reason: string;
+        };
         /** V3JournalBodyRow */
         V3JournalBodyRow: {
             /** System Id64 */
@@ -7240,6 +7411,21 @@ export interface components {
             /** Observed At */
             observed_at: string;
         };
+        /** V3VerifiedImportReceipt */
+        V3VerifiedImportReceipt: {
+            /** Import Ids */
+            import_ids: string[];
+            /** Files Admitted */
+            files_admitted: number;
+            /** Files Skipped */
+            files_skipped: number;
+            /** Events Inserted */
+            events_inserted: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /** Held Files */
+            held_files: components["schemas"]["V3HeldJournalFile"][];
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -7333,6 +7519,23 @@ export interface components {
             primary_review_areas?: string[];
             /** Summary */
             summary: string;
+        };
+        /** VerifiedCommanderResponse */
+        VerifiedCommanderResponse: {
+            /**
+             * Commander Id
+             * Format: uuid
+             */
+            commander_id: string;
+            /** Commander Name */
+            commander_name: string;
+            /** Journal Fid */
+            journal_fid: string;
+            /**
+             * Verified At
+             * Format: date-time
+             */
+            verified_at: string;
         };
         /** WatchlistAlert */
         WatchlistAlert: {
@@ -7543,6 +7746,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+        };
+    };
+    listVerifiedCommanders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifiedCommanderResponse"][];
                 };
             };
         };
@@ -11210,6 +11433,39 @@ export interface operations {
             };
         };
     };
+    createVerifiedJournalImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["V3JournalImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3VerifiedImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     getV3JournalSummary: {
         parameters: {
             query?: never;
@@ -11502,6 +11758,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["V3ResearchExportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    offerJournalGalaxyFacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OfferRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listJournalGalaxyContributions: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviewJournalGalaxyQueue: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decideJournalGalaxyContributions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdrawJournalGalaxyContribution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contribution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */

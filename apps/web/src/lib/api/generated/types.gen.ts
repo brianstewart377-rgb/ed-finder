@@ -1537,6 +1537,38 @@ export type CommanderPowerplayResponse = {
 };
 
 /**
+ * ContributionRow
+ */
+export type ContributionRow = {
+    /**
+     * Contribution Id
+     */
+    contribution_id: string;
+    /**
+     * Contribution State
+     */
+    contribution_state: string;
+    /**
+     * Offered At
+     */
+    offered_at: string;
+    /**
+     * Decided At
+     */
+    decided_at: string | null;
+    /**
+     * Observation
+     */
+    observation: {
+        [key: string]: unknown;
+    };
+    /**
+     * Used In Generation
+     */
+    used_in_generation: boolean;
+};
+
+/**
  * CoordsModel
  */
 export type CoordsModel = {
@@ -3954,6 +3986,44 @@ export type ObservedStatus = 'observed_present' | 'observed_absent' | 'confirmed
 export type ObservedSubjectType = 'system' | 'body' | 'facility' | 'service' | 'economy' | 'build' | 'simulation' | 'cp';
 
 /**
+ * OfferReceipt
+ */
+export type OfferReceipt = {
+    /**
+     * New Offers
+     */
+    new_offers: number;
+    /**
+     * Already Offered
+     */
+    already_offered: number;
+    /**
+     * Skipped
+     */
+    skipped: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * OfferRequest
+ */
+export type OfferRequest = {
+    /**
+     * Policy Version
+     */
+    policy_version: 'journal-galaxy-physical-v1';
+    /**
+     * Share On Site And Api
+     */
+    share_on_site_and_api: true;
+    /**
+     * File Sha256
+     */
+    file_sha256: Array<string>;
+};
+
+/**
  * OptimiserCandidate
  *
  * A single bounded Stage 5A candidate plan.
@@ -5241,6 +5311,24 @@ export type RegionalAnalysisResponse = {
      * Computed At
      */
     computed_at?: unknown | null;
+};
+
+/**
+ * ReviewRequest
+ */
+export type ReviewRequest = {
+    /**
+     * Contribution Ids
+     */
+    contribution_ids: Array<string>;
+    /**
+     * Decision
+     */
+    decision: 'ELIGIBLE' | 'REJECTED';
+    /**
+     * Reason
+     */
+    reason: string;
 };
 
 /**
@@ -7613,6 +7701,20 @@ export type V3CodexEntryRow = {
 };
 
 /**
+ * V3HeldJournalFile
+ */
+export type V3HeldJournalFile = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
  * V3JournalBodyRow
  */
 export type V3JournalBodyRow = {
@@ -8000,6 +8102,36 @@ export type V3SaleRow = {
 };
 
 /**
+ * V3VerifiedImportReceipt
+ */
+export type V3VerifiedImportReceipt = {
+    /**
+     * Import Ids
+     */
+    import_ids: Array<string>;
+    /**
+     * Files Admitted
+     */
+    files_admitted: number;
+    /**
+     * Files Skipped
+     */
+    files_skipped: number;
+    /**
+     * Events Inserted
+     */
+    events_inserted: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped: number;
+    /**
+     * Held Files
+     */
+    held_files: Array<V3HeldJournalFile>;
+};
+
+/**
  * ValidationError
  */
 export type ValidationError = {
@@ -8168,6 +8300,28 @@ export type ValidationReviewSummaryResponse = {
      * Summary
      */
     summary: string;
+};
+
+/**
+ * VerifiedCommanderResponse
+ */
+export type VerifiedCommanderResponse = {
+    /**
+     * Commander Id
+     */
+    commander_id: string;
+    /**
+     * Commander Name
+     */
+    commander_name: string;
+    /**
+     * Journal Fid
+     */
+    journal_fid: string;
+    /**
+     * Verified At
+     */
+    verified_at: string;
 };
 
 /**
@@ -8365,6 +8519,24 @@ export type AuthLogoutApiV1AuthLogoutPostResponses = {
 };
 
 export type AuthLogoutApiV1AuthLogoutPostResponse = AuthLogoutApiV1AuthLogoutPostResponses[keyof AuthLogoutApiV1AuthLogoutPostResponses];
+
+export type ListVerifiedCommandersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/commanders';
+};
+
+export type ListVerifiedCommandersResponses = {
+    /**
+     * Response Listverifiedcommanders
+     *
+     * Successful Response
+     */
+    200: Array<VerifiedCommanderResponse>;
+};
+
+export type ListVerifiedCommandersResponse = ListVerifiedCommandersResponses[keyof ListVerifiedCommandersResponses];
 
 export type ListIdentitiesApiV1AuthIdentitiesGetData = {
     body?: never;
@@ -11830,6 +12002,31 @@ export type GetV3JournalImportResponses = {
 
 export type GetV3JournalImportResponse = GetV3JournalImportResponses[keyof GetV3JournalImportResponses];
 
+export type CreateVerifiedJournalImportData = {
+    body: V3JournalImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/verified-imports';
+};
+
+export type CreateVerifiedJournalImportErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateVerifiedJournalImportError = CreateVerifiedJournalImportErrors[keyof CreateVerifiedJournalImportErrors];
+
+export type CreateVerifiedJournalImportResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3VerifiedImportReceipt;
+};
+
+export type CreateVerifiedJournalImportResponse = CreateVerifiedJournalImportResponses[keyof CreateVerifiedJournalImportResponses];
+
 export type GetV3JournalSummaryData = {
     body?: never;
     path?: never;
@@ -12121,3 +12318,168 @@ export type GetV3ResearchExportResponses = {
 };
 
 export type GetV3ResearchExportResponse = GetV3ResearchExportResponses[keyof GetV3ResearchExportResponses];
+
+export type OfferJournalGalaxyFactsData = {
+    body: OfferRequest;
+    path: {
+        /**
+         * Import Id
+         */
+        import_id: string;
+    };
+    query?: never;
+    url: '/api/v1/journal/galaxy-contributions/imports/{import_id}';
+};
+
+export type OfferJournalGalaxyFactsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OfferJournalGalaxyFactsError = OfferJournalGalaxyFactsErrors[keyof OfferJournalGalaxyFactsErrors];
+
+export type OfferJournalGalaxyFactsResponses = {
+    /**
+     * Successful Response
+     */
+    200: OfferReceipt;
+};
+
+export type OfferJournalGalaxyFactsResponse = OfferJournalGalaxyFactsResponses[keyof OfferJournalGalaxyFactsResponses];
+
+export type ListJournalGalaxyContributionsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/galaxy-contributions';
+};
+
+export type ListJournalGalaxyContributionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListJournalGalaxyContributionsError = ListJournalGalaxyContributionsErrors[keyof ListJournalGalaxyContributionsErrors];
+
+export type ListJournalGalaxyContributionsResponses = {
+    /**
+     * Response Listjournalgalaxycontributions
+     *
+     * Successful Response
+     */
+    200: Array<ContributionRow>;
+};
+
+export type ListJournalGalaxyContributionsResponse = ListJournalGalaxyContributionsResponses[keyof ListJournalGalaxyContributionsResponses];
+
+export type ReviewJournalGalaxyQueueData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/galaxy-contributions/review';
+};
+
+export type ReviewJournalGalaxyQueueErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReviewJournalGalaxyQueueError = ReviewJournalGalaxyQueueErrors[keyof ReviewJournalGalaxyQueueErrors];
+
+export type ReviewJournalGalaxyQueueResponses = {
+    /**
+     * Response Reviewjournalgalaxyqueue
+     *
+     * Successful Response
+     */
+    200: Array<ContributionRow>;
+};
+
+export type ReviewJournalGalaxyQueueResponse = ReviewJournalGalaxyQueueResponses[keyof ReviewJournalGalaxyQueueResponses];
+
+export type DecideJournalGalaxyContributionsData = {
+    body: ReviewRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/galaxy-contributions/review';
+};
+
+export type DecideJournalGalaxyContributionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DecideJournalGalaxyContributionsError = DecideJournalGalaxyContributionsErrors[keyof DecideJournalGalaxyContributionsErrors];
+
+export type DecideJournalGalaxyContributionsResponses = {
+    /**
+     * Response Decidejournalgalaxycontributions
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: number;
+    };
+};
+
+export type DecideJournalGalaxyContributionsResponse = DecideJournalGalaxyContributionsResponses[keyof DecideJournalGalaxyContributionsResponses];
+
+export type WithdrawJournalGalaxyContributionData = {
+    body?: never;
+    path: {
+        /**
+         * Contribution Id
+         */
+        contribution_id: string;
+    };
+    query?: never;
+    url: '/api/v1/journal/galaxy-contributions/{contribution_id}/withdraw';
+};
+
+export type WithdrawJournalGalaxyContributionErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type WithdrawJournalGalaxyContributionError = WithdrawJournalGalaxyContributionErrors[keyof WithdrawJournalGalaxyContributionErrors];
+
+export type WithdrawJournalGalaxyContributionResponses = {
+    /**
+     * Response Withdrawjournalgalaxycontribution
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type WithdrawJournalGalaxyContributionResponse = WithdrawJournalGalaxyContributionResponses[keyof WithdrawJournalGalaxyContributionResponses];

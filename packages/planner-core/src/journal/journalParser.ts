@@ -13,7 +13,7 @@ import type {
   JournalParserState,
 } from './types';
 
-export const JOURNAL_PARSER_VERSION = 'journal-import-worker-v2';
+export const JOURNAL_PARSER_VERSION = 'journal-import-worker-v3';
 
 export const SUPPORTED_JOURNAL_EVENTS = [
   'ApproachBody',
@@ -175,11 +175,13 @@ export async function parseJournalFilesStreaming(
   const eventCounts: Record<string, number> = {};
   const manifestFiles: Array<{ name: string; event_count: number }> = [];
   const fileManifest: JournalFileManifestEntry[] = [];
-  let state = cloneState(EMPTY_STATE);
   let linesRead = 0;
   let skippedLines = 0;
 
   for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+    // A folder may contain unrelated commanders or out-of-order sessions.
+    // Restore context only from this file's explicit checkpoint.
+    let state = cloneState(EMPTY_STATE);
     const source = sources[sourceIndex] as JournalFileSource;
     const input = normaliseFileInput(source);
     const file = input.file as FileLike;
@@ -412,7 +414,8 @@ function updateState(state: JournalParserState, raw: Record<string, unknown>): v
     state.body_name = null;
   }
 
-  const commander = textValue(raw.Commander) ?? (eventType === 'Commander' ? textValue(raw.Name) : null);
+  const commander = eventType === 'LoadGame' ? textValue(raw.Commander)
+    : eventType === 'Commander' ? textValue(raw.Name) : null;
   if (commander) state.commander = commander;
   const gameVersion = textValue(raw.gameversion);
   const gameBuild = textValue(raw.build) ?? textValue(raw.gamebuild);
