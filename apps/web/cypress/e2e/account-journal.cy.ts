@@ -140,8 +140,10 @@ describe('Verified account and journal product acceptance', () => {
       cy.contains('System 123 · Body 1 · offered').should('be.visible');
       cy.contains('button', 'Withdraw sharing').should('be.enabled').click();
       cy.contains('System 123 · Body 1 · withdrawn').should('be.visible');
-      cy.contains('button', 'Sign out').focus().should('be.focused');
-      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.contains('button', 'Sign out')
+        .focus()
+        .should('be.focused')
+        .type('{enter}');
       cy.wait('@logout').its('response.statusCode').should('eq', 200);
       cy.contains('h2', 'Sign in to manage your account').should('be.visible');
       cy.get('#journal-files').should('not.exist');
