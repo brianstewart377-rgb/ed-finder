@@ -649,3 +649,29 @@ def test_openapi_exposes_v3_contract_and_hides_registered_callback_alias():
         assert path in paths
     assert '/api/auth/frontier/callback' not in paths
     assert '/api/auth/session' not in paths
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error,code', [('access_denied', None), (None, None)])
+@pytest.mark.parametrize('return_to,expected', [
+    ('/inspect?system=123&filter=#details', '/inspect?system=123&filter=&auth=denied#details'),
+    ('/account?auth=old', '/account?auth=denied'),
+    ('https://untrusted.example/', '/?auth=denied'),
+])
+async def test_cancelled_frontier_login_preserves_validated_return_route(
+    monkeypatch, error, code, return_to, expected,
+):
+    monkeypatch.setattr(settings, 'frontier_client_id', 'client-123')
+    monkeypatch.setattr(settings, 'frontier_client_secret', 'shared-secret')
+
+    async def consume(_pool, state):
+        assert state == 'same-state'
+        return {'return_to': return_to}
+
+    monkeypatch.setattr(auth_router, '_consume_login_state', consume)
+    response = await auth_router.frontier_callback(
+        _request(cookie=f'{settings.auth_state_cookie_name}=same-state'),
+        state='same-state', code=code, error=error, pool=_RecordingPool(),
+    )
+    assert response.headers['location'] == expected
+    assert 'Max-Age=0' in response.headers['set-cookie']

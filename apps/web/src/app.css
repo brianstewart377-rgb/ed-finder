@@ -288,6 +288,11 @@ h2 {
   color: #ffb074;
   text-decoration: none;
 }
+.commander-link[aria-current='page'] {
+  text-decoration: underline;
+  text-underline-offset: 0.3em;
+  text-decoration-thickness: 2px;
+}
 .commander-link span {
   overflow-wrap: anywhere;
 }

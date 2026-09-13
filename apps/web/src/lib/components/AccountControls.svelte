@@ -1,5 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { page } from '$app/state';
   import { LogIn, LogOut, UserRound } from '@lucide/svelte';
   import { auth } from '$lib/auth/auth';
 
@@ -28,7 +29,11 @@
       onclick={() => void auth.bootstrap()}>Retry</button
     >
   {:else if $auth.authenticated}
-    <a class="commander-link" href={resolve('/account')}>
+    <a
+      class="commander-link"
+      href={resolve('/account')}
+      aria-current={page.url.pathname === '/account' ? 'page' : undefined}
+    >
       <UserRound size={17} aria-hidden="true" />
       <span>{$auth.user?.commander_name || 'Commander account'}</span>
     </a>
