@@ -62,25 +62,31 @@
     try {
       let offered = 0;
       for (const pending of [...sharingPending]) {
-        const result = await offerGalaxyFacts(
-          pending.id,
-          pending.hashes,
-          operation.signal,
-        );
-        if (lifetime.signal.aborted) return;
-        offered += result.new_offers;
-        sharingPending = sharingPending.filter(
-          (item) => item.id !== pending.id,
-        );
-        for (const [reason, count] of Object.entries(result.skipped)) {
-          if (count)
-            warnings = [
-              ...warnings,
-              {
-                name: 'Galaxy sharing',
-                reason: `${count} records excluded: ${reason.replaceAll('_', ' ')}`,
-              },
-            ];
+        for (let start = 0; start < pending.hashes.length; start += 200) {
+          const result = await offerGalaxyFacts(
+            pending.id,
+            pending.hashes.slice(start, start + 200),
+            operation.signal,
+          );
+          if (lifetime.signal.aborted) return;
+          offered += result.new_offers;
+          // Drop only successful chunks; a later failure resumes the remainder.
+          const remaining = pending.hashes.slice(start + 200);
+          sharingPending = remaining.length
+            ? sharingPending.map((item) =>
+                item.id === pending.id ? { ...item, hashes: remaining } : item,
+              )
+            : sharingPending.filter((item) => item.id !== pending.id);
+          for (const [reason, count] of Object.entries(result.skipped)) {
+            if (count)
+              warnings = [
+                ...warnings,
+                {
+                  name: 'Galaxy sharing',
+                  reason: `${count} records excluded: ${reason.replaceAll('_', ' ')}`,
+                },
+              ];
+          }
         }
       }
       await refresh();

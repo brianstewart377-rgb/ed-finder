@@ -112,14 +112,6 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
             raise ValueError('Invalid canonical schema')
         if apply and generation['manifest'] != expected_manifest_sha256:
             raise ValueError('Generation manifest changed; review a fresh plan')
-        state_sha256 = hashlib.sha256(_encoded({
-            'generation_id': str(generation_id), 'manifest': generation['manifest'],
-            'validation_receipt': generation['validation_receipt'],
-            'validation_completed_at': generation['validation_completed_at'].isoformat(),
-            'contribution_ids': sorted(str(value) for value in contribution_ids),
-        })).hexdigest()
-        if apply and state_sha256 != expected_state_sha256:
-            raise ValueError('Reconciliation state or selection changed; review a fresh plan')
         cur.execute("SELECT to_regclass('v3_meta.derived_generation') AS relation")
         if cur.fetchone()['relation'] is not None:
             cur.execute('SELECT 1 FROM v3_meta.derived_generation WHERE canonical_generation_id = %s LIMIT 1', (generation_id,))
@@ -157,6 +149,21 @@ def reconcile_generation(conn, *, generation_id: uuid.UUID, contribution_ids: li
                     + (' FOR SHARE OF cr, pf, pi, a, owner, commander' if apply else ''),
                     (contribution_ids, AUDIENCE, POLICY))
         candidates = cur.fetchall()
+        state_sha256 = hashlib.sha256(_encoded({
+            'generation_id': str(generation_id), 'manifest': generation['manifest'],
+            'validation_receipt': generation['validation_receipt'],
+            'validation_completed_at': generation['validation_completed_at'].isoformat(),
+            'contribution_ids': sorted(str(value) for value in contribution_ids),
+            'reconciliation_code': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'normalizer_code': hashlib.sha256(Path(__file__).with_name('journal_galaxy_facts.py').read_bytes()).hexdigest(),
+            'eligible_candidates': [
+                {'contribution_id': str(row['contribution_id']),
+                 'private_fact_id': str(row['private_fact_id']), 'payload': row['fact_payload']}
+                for row in candidates
+            ],
+        })).hexdigest()
+        if apply and state_sha256 != expected_state_sha256:
+            raise ValueError('Reconciliation state or selection changed; review a fresh plan')
         # No private account/commander identifiers enter the public artifact.
         source = _register_source(cur, generation_id, [row['fact_payload'] for row in candidates]) if apply and candidates else None
         results = []

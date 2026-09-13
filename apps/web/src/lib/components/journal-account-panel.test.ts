@@ -109,6 +109,63 @@ describe('private journal import and explicit sharing', () => {
     expect(api.importVerifiedJournals).toHaveBeenCalledOnce();
   });
 
+  it('bounds merged sharing retries and retains only unsuccessful hash chunks', async () => {
+    const hashes = (start: number) =>
+      Array.from({ length: 200 }, (_, index) =>
+        (start + index).toString(16).padStart(64, '0'),
+      );
+    const selectBatch = async (values: string[]) => {
+      vi.mocked(parseJournals).mockResolvedValue({
+        body: {
+          parser_version: 'test',
+          files: values.map((content_sha256, index) => ({
+            name: `file-${index}.log`,
+            content_sha256,
+            size_bytes: 1,
+            line_count: 1,
+            event_count: 1,
+          })),
+          events: [],
+        },
+        held: [],
+      });
+      await fireEvent.change(screen.getByLabelText('Select journal logs'), {
+        target: {
+          files: values.map(
+            (_, index) => new File(['journal'], `file-${index}.log`),
+          ),
+        },
+      });
+    };
+    vi.mocked(api.offerGalaxyFacts)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ new_offers: 1, already_offered: 0, skipped: {} })
+      .mockRejectedValueOnce(new Error('second chunk offline'));
+    render(JournalAccountPanel);
+    await screen.findByText(/F123/);
+    await selectBatch(hashes(1));
+    await fireEvent.click(screen.getByRole('checkbox'));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import journals' }),
+    );
+    await screen.findByText(/Your Journal is saved. Sharing needs a retry/);
+    await selectBatch(hashes(200));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import journals' }),
+    );
+    await screen.findByText(/second chunk offline/);
+    expect(
+      vi.mocked(api.offerGalaxyFacts).mock.calls.map((call) => call[1].length),
+    ).toEqual([200, 200, 199]);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Retry sharing saved import' }),
+    );
+    await waitFor(() => expect(api.offerGalaxyFacts).toHaveBeenCalledTimes(4));
+    expect(vi.mocked(api.offerGalaxyFacts).mock.calls[3][1]).toEqual(
+      hashes(200).slice(1),
+    );
+  });
+
   it('aborts work on account-panel removal and ignores a late response', async () => {
     let complete!: (value: api.V3VerifiedImportReceipt) => void;
     vi.mocked(api.importVerifiedJournals).mockImplementation(

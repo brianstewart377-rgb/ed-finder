@@ -104,9 +104,14 @@ async def test_opt_in_review_canonical_merge_retry_and_withdrawal(account, targe
     cid = await pool.fetchval('SELECT contribution_id FROM v3_private.contribution_receipt WHERE contributing_account_id=$1', account_id)
     with psycopg.connect(target.dsn, autocommit=True) as conn:
         gid, schema = generation(conn)
-        assert reconcile_generation(conn, generation_id=gid, contribution_ids=[cid])['results'][0]['status'] == 'NOT_ELIGIBLE'
+        unreviewed_plan = reconcile_generation(conn, generation_id=gid, contribution_ids=[cid])
+        assert unreviewed_plan['results'][0]['status'] == 'NOT_ELIGIBLE'
     assert await review(pool, ids=[cid], eligible=True, actor_id=account_id, reason='Fixture review') == 1
     with psycopg.connect(target.dsn, autocommit=True) as conn:
+        with pytest.raises(ValueError, match='Reconciliation state'):
+            reconcile_generation(conn, generation_id=gid, contribution_ids=[cid], apply=True,
+                                 expected_manifest_sha256=unreviewed_plan['manifest_sha256'],
+                                 expected_state_sha256=unreviewed_plan['reconciliation_state_sha256'])
         plan = reconcile_generation(conn, generation_id=gid, contribution_ids=[cid])
         assert plan['results'][0]['changes'] == {'radius_km': 3000, 'surface_gravity_g': 1}
         from psycopg import sql
