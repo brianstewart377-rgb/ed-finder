@@ -303,3 +303,38 @@ async def test_import_waits_for_concurrent_ownership_revocation(account):
         with pytest.raises(ValueError, match='not owned'):
             await task
     assert await pool.fetchval('SELECT count(*) FROM v3_private.journal_event WHERE owner_account_id=$1', account_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_review_cutoff_uses_write_time_after_waiting_for_a_lock(account, target):
+    pool, account_id, _, _ = account
+    import_id, _ = await import_scan(account)
+    selected_hash = bytes(await pool.fetchval(
+        'SELECT content_sha256 FROM v3_private.journal_import_file WHERE private_import_id=$1', import_id,
+    )).hex()
+    await offer_import(pool, account_id, import_id, file_sha256=[selected_hash])
+    cid = await pool.fetchval(
+        'SELECT contribution_id FROM v3_private.contribution_receipt WHERE contributing_account_id=$1', account_id,
+    )
+    async with pool.acquire() as blocker, blocker.transaction():
+        await blocker.fetchrow(
+            'SELECT contribution_id FROM v3_private.contribution_receipt WHERE contribution_id=$1 FOR UPDATE', cid,
+        )
+        task = asyncio.create_task(review(pool, ids=[cid], eligible=True, actor_id=account_id, reason='Cutoff test'))
+
+        async def wait_for_review_lock():
+            while not await pool.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
+                "AND wait_event_type='Lock' AND query LIKE '%SELECT cr.contribution_id FROM v3_private.contribution_receipt%')",
+            ):
+                if task.done():
+                    raise AssertionError('Review did not wait for the held receipt')
+
+        await asyncio.wait_for(wait_for_review_lock(), timeout=5)
+        with psycopg.connect(target.dsn, autocommit=True) as conn:
+            gid, _ = generation(conn)
+    assert await task == 1
+    assert await pool.fetchval(
+        'SELECT cr.decided_at > g.created_at FROM v3_private.contribution_receipt cr '
+        'CROSS JOIN v3_meta.canonical_generation g WHERE cr.contribution_id=$1 AND g.generation_id=$2', cid, gid,
+    )
