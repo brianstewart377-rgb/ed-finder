@@ -123,6 +123,7 @@ jobs:
           bash -n scripts/deploy_main.sh
           bash -n scripts/operator/actions/v3-production-inventory.sh
           bash -n scripts/operator/actions/v3-production-promote.sh
+          bash -n scripts/operator/actions/v3-production-migrate.sh
       - name: Reject inline shell password SQL
         run: |
           password_sql_hits="$(

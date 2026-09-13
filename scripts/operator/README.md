@@ -84,6 +84,15 @@ Do not promote a repository helper into a production command merely because it e
   PostgreSQL 18, Redis, NATS, public-auth/TLS edge, Octopus and unrelated
   containers, and allows rollback only to a schema-compatible prior accepted
   immutable production release.
+- `actions/v3-production-migrate.sh` and `v3_production_migrate.py`: the
+  protected manual production schema authority. `plan` is read-only; `apply`
+  requires exact CPython 3.14, an exact-prefix live ledger, compatibility of
+  the active accepted release with every transition prefix, and the deployment
+  lock shared with application promotion. `apply` also authenticates a separate
+  successful exact-head plan run and its receipt before reaching the host. Each
+  migration and its ledger row commit atomically, then the root-owned schema
+  identity is replaced atomically. It never pulls images, changes services, or
+  recreates the edge.
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,
