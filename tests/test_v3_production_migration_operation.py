@@ -14,6 +14,7 @@ import json
 import os
 import stat
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -394,6 +395,55 @@ def test_receipt_is_written_root_only_with_a_sidecar(tmp_path):
         assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
 
 
+def test_post_mutation_audit_finalization_ignores_later_cancellation():
+    module = _load()
+    events: list[str] = []
+    deployer = SimpleNamespace(
+        cancellation_blocked=lambda: nullcontext(),
+    )
+    controller = SimpleNamespace(
+        mark_commit_started=lambda: events.append("marked"),
+    )
+
+    module.begin_audit_finalization(deployer, controller)
+
+    assert events == ["marked"]
+
+
+def test_failed_identity_install_rechecks_the_secured_host_state(tmp_path):
+    module = _load()
+    installed = tmp_path / "schema-identity.json"
+    installed.write_text('{"target":true}\n', encoding="utf-8")
+    before = "a" * 64
+    target = hashlib.sha256(installed.read_bytes()).hexdigest()
+    external = {
+        "schema_identity_file": str(installed),
+        "schema_identity_owner_uid": os.geteuid(),
+        "schema_identity_mode": "0600",
+    }
+    secured: list[Path] = []
+    deployer = _fake_deployer(
+        module,
+        secure_path=lambda path, *_args, **_kwargs: secured.append(path),
+    )
+
+    observed, updated, failures = module.reconcile_schema_identity_after_failure(
+        deployer, external, identity_before=before, identity_target=target,
+    )
+    assert observed == target
+    assert updated is True
+    assert failures == []
+    assert secured == [installed]
+
+    installed.unlink()
+    observed, updated, failures = module.reconcile_schema_identity_after_failure(
+        deployer, external, identity_before=before, identity_target=target,
+    )
+    assert observed is None
+    assert updated is None
+    assert failures == ["post_failure_schema_identity_unverified:FileNotFoundError"]
+
+
 def test_interrupted_unknown_write_state_is_never_reported_as_false():
     module = _load()
     payload = module.receipt_payload(
@@ -456,7 +506,8 @@ def test_operation_uses_the_v3_ledger_and_never_the_v2_applier():
     source = MIGRATE.read_text(encoding="utf-8")
 
     assert "INSERT INTO v3_meta.schema_migration" in source
-    assert "with deployer.controlled_cancellation():" in source
+    assert "with deployer.controlled_cancellation() as cancellation_controller:" in source
+    assert "begin_audit_finalization(deployer, cancellation_controller)" in source
     # It borrows the deployer's read-only probe instead of redefining its own.
     assert "deployer.LEDGER_SQL" in source
     for forbidden in (

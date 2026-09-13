@@ -348,6 +348,47 @@ def write_receipt(directory: Path, name: str, payload: dict[str, Any]) -> Path:
     return directory / name
 
 
+def begin_audit_finalization(deployer: Any, controller: Any | None) -> None:
+    """Make the short, durable audit publication phase cancellation-safe."""
+    if controller is None:
+        return
+    # Block the race between deciding that mutation is over and changing the
+    # handlers. mark_commit_started then ignores cancellation until the receipt
+    # and checksum sidecar are durably published and the process exits.
+    with deployer.cancellation_blocked():
+        controller.mark_commit_started()
+
+
+def observe_schema_identity(deployer: Any, external: dict[str, Any]) -> str:
+    """Read the installed identity through the same host trust boundary."""
+    path = Path(str(external["schema_identity_file"]))
+    deployer.secure_path(
+        path, external["schema_identity_owner_uid"],
+        external["schema_identity_mode"], directory=False,
+    )
+    return deployer.sha256_file(path)
+
+
+def reconcile_schema_identity_after_failure(
+    deployer: Any, external: dict[str, Any], *,
+    identity_before: str | None, identity_target: str | None,
+) -> tuple[str | None, bool | None, list[str]]:
+    """Report what an interrupted/failed atomic identity install actually left."""
+    try:
+        observed = observe_schema_identity(deployer, external)
+    except Exception as exc:
+        return (
+            None,
+            None,
+            [f"post_failure_schema_identity_unverified:{type(exc).__name__}"],
+        )
+    failures = []
+    if observed not in {identity_before, identity_target}:
+        failures.append("post_failure_schema_identity_unexpected")
+    updated = None if identity_before is None else identity_before != observed
+    return observed, updated, failures
+
+
 def receipt_payload(
     authority: dict[str, Any], *, status: str, desired: list[dict[str, str]],
     applied: list[dict[str, str]], pending: list[dict[str, str]],
@@ -356,7 +397,8 @@ def receipt_payload(
     source_sha: str | None = None, workflow_run_id: str | None = None,
     database_access: bool | None = True,
     identity_before_sha256: str | None = None,
-    identity_after_sha256: str | None = None, identity_updated: bool = False,
+    identity_after_sha256: str | None = None,
+    identity_updated: bool | None = False,
     prior_release_compatibility_verified: bool = False,
 ) -> dict[str, Any]:
     return {
@@ -392,7 +434,7 @@ def receipt_payload(
     }
 
 
-def _main(deployer: Any) -> int:
+def _main(deployer: Any, cancellation_controller: Any | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--operation", choices=("authority-gate", "plan", "apply"), default="authority-gate"
@@ -410,6 +452,8 @@ def _main(deployer: Any) -> int:
     pending: list[dict[str, str]] = []
     identity_sha256: str | None = None
     identity_before: str | None = None
+    identity_after: str | None = None
+    identity_updated: bool | None = False
     database_access: bool | None = False
     source_sha = arguments.source_sha if SOURCE_SHA.fullmatch(arguments.source_sha) else None
     workflow_run_id = (
@@ -516,10 +560,16 @@ def _main(deployer: Any) -> int:
         )
         if identity_after != identity_sha256:
             raise MigrationError("target schema identity was not installed")
+        identity_updated = identity_before != identity_after
+        begin_audit_finalization(deployer, cancellation_controller)
         status = "applied"
         failures: list[str] = []
         write_state = bool(applied_now)
     except Exception as exc:
+        # run_command reaps its child on cancellation, timeout and process
+        # failure. Once control reaches this handler, preserve an exact audit
+        # record even if the workflow sends another termination signal.
+        begin_audit_finalization(deployer, cancellation_controller)
         status, failures = "stopped", [str(exc)]
         if migration_in_flight:
             try:
@@ -537,6 +587,13 @@ def _main(deployer: Any) -> int:
                 )
         else:
             write_state = bool(applied_now)
+        identity_after, identity_updated, identity_failures = (
+            reconcile_schema_identity_after_failure(
+                deployer, external, identity_before=identity_before,
+                identity_target=identity_sha256,
+            )
+        )
+        failures.extend(identity_failures)
     finally:
         if lock is not None:
             lock.close()
@@ -546,8 +603,8 @@ def _main(deployer: Any) -> int:
         applied_now=applied_now, identity_sha256=identity_sha256, failures=failures,
         writes=write_state, source_sha=source_sha, workflow_run_id=workflow_run_id,
         database_access=database_access, identity_before_sha256=identity_before,
-        identity_after_sha256=(identity_after if status == "applied" else None),
-        identity_updated=(status == "applied" and identity_before != identity_after),
+        identity_after_sha256=identity_after,
+        identity_updated=identity_updated,
         prior_release_compatibility_verified=True,
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -562,8 +619,8 @@ def main() -> int:
     # Reuse the deployer's process-group-aware cancellation controller. If the
     # workflow is cancelled while psql is active, it terminates and reaps the
     # exact Docker subprocess before the stopped receipt is written.
-    with deployer.controlled_cancellation():
-        return _main(deployer)
+    with deployer.controlled_cancellation() as cancellation_controller:
+        return _main(deployer, cancellation_controller)
 
 
 if __name__ == "__main__":
