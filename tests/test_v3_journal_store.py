@@ -364,22 +364,18 @@ def test_owner_commander_id_only_with_active_edge():
     ))
     import_args = conn.calls_of('private_import_insert')[0]
     assert import_args[2] == COMMANDER_ID
-    # Without an edge the owner_commander_id stays NULL.
+    # A rejected explicit association cannot silently fall back to another owner.
     conn2 = _FakeJournalConn()
     conn2.commander_edge_row = None
-    _asyncio_run(import_journal_batch(
-        _FakeJournalPool(conn2), account_id=ACCOUNT_ID, commander_id=COMMANDER_ID,
-        parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
-    ))
-    import_args2 = conn2.calls_of('private_import_insert')[0]
-    assert import_args2[2] is None
+    with pytest.raises(ValueError, match='not owned'):
+        _asyncio_run(import_journal_batch(
+            _FakeJournalPool(conn2), account_id=ACCOUNT_ID, commander_id=COMMANDER_ID,
+            parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
+        ))
+    assert not conn2.calls_of('private_import_insert')
 
 
-def test_owner_edge_fallback_branch_uses_accounts_active_owner_edge():
-    # Backend fix wave (review 2.7): when no commander_id is supplied (or the
-    # supplied edge is inactive), the store falls back to the account's
-    # active OWNER access edge — the composite FK (owner_account_id,
-    # owner_commander_id) requires an existing edge either way.
+def test_unassigned_import_does_not_infer_commander_from_account_owner_edge():
     OWNER_ID = uuid.UUID('33333333-3333-4333-8333-333333333333')
     conn = _FakeJournalConn()
     conn.owner_edge_row = {'commander_id': OWNER_ID}
@@ -388,19 +384,19 @@ def test_owner_edge_fallback_branch_uses_accounts_active_owner_edge():
         parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
     ))
     import_args = conn.calls_of('private_import_insert')[0]
-    assert import_args[2] == OWNER_ID
+    assert import_args[2] is None
     # Direct edge absent (fake returns None for the 2-arg query) but the
     # account's active OWNER edge present -> OWNER wins.
     conn2 = _FakeJournalConn()
     conn2.commander_edge_row = None
     conn2.owner_edge_row = {'commander_id': OWNER_ID}
-    _asyncio_run(import_journal_batch(
-        _FakeJournalPool(conn2), account_id=ACCOUNT_ID,
-        commander_id=COMMANDER_ID,  # no direct edge -> fallback
-        parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
-    ))
-    import_args2 = conn2.calls_of('private_import_insert')[0]
-    assert import_args2[2] == OWNER_ID
+    with pytest.raises(ValueError, match='not owned'):
+        _asyncio_run(import_journal_batch(
+            _FakeJournalPool(conn2), account_id=ACCOUNT_ID,
+            commander_id=COMMANDER_ID,
+            parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
+        ))
+    assert not conn2.calls_of('private_import_insert')
     # No edge anywhere -> NULL owner_commander_id (composite FK satisfied by
     # the existing account-only case).
     conn3 = _FakeJournalConn()
@@ -479,6 +475,7 @@ def test_same_name_files_both_admitted_and_events_resolve_by_content_sha():
 
 def test_all_sql_is_parameterized():
     conn = _FakeJournalConn()
+    conn.commander_edge_row = {'commander_id': COMMANDER_ID}
     pool = _FakeJournalPool(conn)
     _asyncio_run(import_journal_batch(
         pool, account_id=ACCOUNT_ID, commander_id=COMMANDER_ID,

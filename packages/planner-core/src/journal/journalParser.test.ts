@@ -14,6 +14,24 @@ async function sha256HexOf(bytes: Uint8Array): Promise<string> {
 }
 
 describe('V3 journal parser extensions', () => {
+  it('does not inherit commander, location or game version from another file', async () => {
+    const first = [
+      { event: 'Fileheader', gameversion: '4.1' },
+      { event: 'Commander', FID: 'F123', Name: 'Owner' },
+      { event: 'Location', StarSystem: 'First system', SystemAddress: 123 },
+      { event: 'Died', Commander: 'Other player' },
+    ].map((row) => JSON.stringify(row)).join('\n');
+    const result = await parseJournalFilesStreaming([
+      streamingFile(first, 'first.log'),
+      streamingFile(JSON.stringify({ event: 'Scan', BodyID: 1 }), 'second.log'),
+    ]);
+    expect(result.checkpoints[0]?.state.commander).toBe('Owner');
+    expect(result.checkpoints[1]?.state).toMatchObject({
+      commander: null, system_id64: null, game_version: null,
+    });
+    expect(result.observations.at(-1)?.payload).not.toHaveProperty('SystemAddress');
+    expect(result.observations.at(-1)?.payload).not.toHaveProperty('GameVersion');
+  });
   it('reports per-file SHA-256, size, event and line counts in file_manifest without touching the A-1 client_manifest', async () => {
     const text = [
       JSON.stringify({ timestamp: '2026-08-28T10:00:00Z', event: 'Fileheader', gameversion: '4.1.0.0', build: 'r307504' }),

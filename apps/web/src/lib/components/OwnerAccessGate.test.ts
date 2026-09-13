@@ -37,7 +37,7 @@ describe('OwnerAccessGate', () => {
         authState: {
           ...base,
           authenticated: true,
-          user: { commander_name: 'Cmdr', is_owner: false },
+          user: { account_id: 'test-account', commander_name: 'Cmdr', is_owner: false },
           ownerClaimAvailable: true,
         },
         signIn: vi.fn(),
@@ -65,7 +65,7 @@ describe('OwnerAccessGate', () => {
         authState: {
           ...base,
           authenticated: true,
-          user: { commander_name: 'Cmdr', is_owner: false },
+          user: { account_id: 'test-account', commander_name: 'Cmdr', is_owner: false },
           ownerClaimAvailable: true,
         },
         signIn: vi.fn(),

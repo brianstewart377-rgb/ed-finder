@@ -34,14 +34,14 @@ _RIGHTS_POLICY_VERSION = '1.0'
 _ARTIFACT_KIND = 'JOURNAL_FILE'
 _MEDIA_TYPE = 'text/x-elite-dangerous-journal'
 _RETENTION_CLASS = 'PRIVATE_USER_CONTENT'
-_NORMALIZER_VERSION = 'v3.0'
+_NORMALIZER_VERSION = 'v3.1-commander-observations'
 
 # Deterministic placeholders for the ledger's 32-byte sha256 columns; the
 # code/config/normalizer identity is the journal store itself (no
 # deploy-specific revision is available at runtime).
-_IMPORTER_CODE_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-store:code:1').digest()
+_IMPORTER_CODE_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-store:code:2-commander-observations').digest()
 _IMPORTER_CONFIG_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-store:config:1').digest()
-_NORMALIZER_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-identity:v3.0').digest()
+_NORMALIZER_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-identity:v3.1-commander-observations').digest()
 
 # Column order of v3_private.journal_event (mirrors migration 003 DDL).
 _EVENT_BATCH_INSERT_SQL = '''
@@ -49,14 +49,14 @@ _EVENT_BATCH_INSERT_SQL = '''
         journal_event_id, owner_account_id, private_import_id,
         journal_file_id, source_run_id, event_type,
         event_key, event_payload, event_timestamp,
-        source_record_hash, source_offset
+        source_record_hash, source_offset, owner_commander_id
     )
     SELECT * FROM unnest(
         $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[],
         $6::text[], $7::jsonb[], $8::jsonb[], $9::timestamptz[],
-        $10::bytea[], $11::bigint[]
+        $10::bytea[], $11::bigint[], $12::uuid[]
     )
-    ON CONFLICT (owner_account_id, event_type, event_key) DO NOTHING
+    ON CONFLICT (owner_account_id, owner_commander_id, event_type, event_key) DO NOTHING
 '''
 
 
@@ -90,6 +90,7 @@ async def _insert_event_chunk(
         [row['event_timestamp'] for row in chunk],
         [row['source_record_hash'] for row in chunk],
         [row['source_offset'] for row in chunk],
+        [row['owner_commander_id'] for row in chunk],
     )
     return int(tag.rsplit(' ', 1)[-1])
 
@@ -274,7 +275,8 @@ async def import_journal_batch(
                 )
             rights_policy_id = rights_row['rights_policy_id']
 
-            # (1c) Owner commander: only with an active access edge.
+            # (1c) Explicit ownership only. A historical default owner edge
+            # cannot establish which commander produced an uploaded journal.
             owner_commander_id = None
             if commander_id is not None:
                 edge = await conn.fetchrow(
@@ -282,7 +284,7 @@ async def import_journal_batch(
                     SELECT commander_id
                       FROM v3_identity.account_commander_access
                      WHERE account_id = $1 AND commander_id = $2
-                       AND revoked_at IS NULL
+                       AND revoked_at IS NULL AND access_role = 'OWNER'
                      LIMIT 1
                     ''',
                     account_id,
@@ -290,20 +292,8 @@ async def import_journal_batch(
                 )
                 if edge is not None:
                     owner_commander_id = commander_id
-            if owner_commander_id is None:
-                owner_edge = await conn.fetchrow(
-                    '''
-                    SELECT commander_id
-                      FROM v3_identity.account_commander_access
-                     WHERE account_id = $1 AND revoked_at IS NULL
-                       AND access_role = 'OWNER'
-                     ORDER BY granted_at DESC
-                     LIMIT 1
-                    ''',
-                    account_id,
-                )
-                if owner_edge is not None:
-                    owner_commander_id = owner_edge['commander_id']
+                else:
+                    raise ValueError('Commander is not owned by this account')
 
             # (2) Immutable content-addressed artifacts (shared across
             # accounts by design: content hash only, no personal data).
@@ -485,6 +475,14 @@ async def import_journal_batch(
                     record_hash,
                     event_timestamp=_normalize_ts(event.get('event_timestamp'), required=True),
                 )
+                if owner_commander_id is not None and event_type == 'Scan':
+                    # Verified imports retain distinct scan observations for
+                    # freshness reconciliation. Replaying the same observation
+                    # remains idempotent; a later scan must not be discarded as
+                    # if it were the earlier scan merely because BodyID matches.
+                    event_key['ObservedAt'] = _normalize_ts(
+                        event.get('event_timestamp'), required=True,
+                    ).isoformat()
                 counts = replace(
                     counts,
                     privacy_stripped_fields=counts.privacy_stripped_fields + n_removed,
@@ -492,6 +490,7 @@ async def import_journal_batch(
                 prepared.append({
                     'journal_event_id': uuid.uuid4(),
                     'owner_account_id': account_id,
+                    'owner_commander_id': owner_commander_id,
                     'private_import_id': private_import_id,
                     'journal_file_id': journal_file_id,
                     'source_run_id': source_run_id,

@@ -183,7 +183,7 @@ describe('BigInt-safe streaming journal parser', () => {
     });
   });
 
-  it('streams multi-year files in order and carries state across journal rollover', async () => {
+  it('streams multi-year files in order without attributing an unidentified file to the prior file context', async () => {
     const oldFile = streamingFile([
       journalLine('Fileheader', { timestamp: '2019-01-01T00:00:00Z', gameversion: '3.3' }),
       journalLine('Location', {
@@ -208,7 +208,7 @@ describe('BigInt-safe streaming journal parser', () => {
       'Fileheader', 'Location', 'Fileheader', 'ScanOrganic',
     ]);
     expect(result.observations[3]).toMatchObject({
-      system_id64: '9007199254740999',
+      system_id64: null,
       subject_id: '0',
     });
     expect(result.client_manifest.files).toEqual([

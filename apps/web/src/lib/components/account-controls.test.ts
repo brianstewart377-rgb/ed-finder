@@ -63,7 +63,11 @@ describe('shared account controls', () => {
     state.set({
       ...guest,
       authenticated: true,
-      user: { commander_name: 'Test Commander', is_owner: false },
+      user: {
+        account_id: 'test-account',
+        commander_name: 'Test Commander',
+        is_owner: false,
+      },
     });
     let finish!: () => void;
     vi.mocked(auth.signOut).mockImplementation(
@@ -89,7 +93,11 @@ describe('shared account controls', () => {
     state.set({
       ...guest,
       authenticated: true,
-      user: { commander_name: null, is_owner: true },
+      user: {
+        account_id: 'test-account',
+        commander_name: null,
+        is_owner: true,
+      },
     });
     vi.mocked(auth.signOut).mockImplementation(async () => {
       state.set({ ...guest, error: 'logout unavailable' });

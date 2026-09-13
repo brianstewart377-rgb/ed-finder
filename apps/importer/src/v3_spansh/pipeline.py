@@ -146,6 +146,7 @@ class ImportConfig:
     chunk_systems: int = 500
     require_macmillan: bool = False
     execution_phase: str = "4A"
+    journal_contribution_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not (1 <= self.target_systems <= self.max_systems <= 5_000_000):
@@ -158,9 +159,13 @@ class ImportConfig:
             raise ValueError("generation_key must fit the frozen baseline contract")
         if self.execution_phase not in {"4A", "4B"}:
             raise ValueError("execution_phase must be 4A or 4B")
+        if len(self.journal_contribution_ids) > 500 or len(set(self.journal_contribution_ids)) != len(self.journal_contribution_ids):
+            raise ValueError('Select at most 500 distinct reviewed journal contribution IDs')
+        for contribution_id in self.journal_contribution_ids:
+            UUID(contribution_id)
 
     def payload(self) -> dict[str, Any]:
-        return {
+        result = {
             "generation_key": self.generation_key,
             "target_systems": self.target_systems,
             "max_systems": self.max_systems,
@@ -169,6 +174,11 @@ class ImportConfig:
             "selector_version": SELECTOR_VERSION,
             "execution_phase": self.execution_phase,
         }
+        # Preserve existing source/resume identity exactly when enrichment is
+        # not requested. Opted-in build inputs form part of the new identity.
+        if self.journal_contribution_ids:
+            result['journal_contribution_ids'] = list(self.journal_contribution_ids)
+        return result
 
     @property
     def phase_slug(self) -> str:
@@ -691,6 +701,23 @@ class SpanshV3Pipeline:
                     "UPDATE v3_source.source_run SET run_state='SUCCEEDED',completed_at=%s WHERE source_run_id=%s",
                     (completed, self.source_run_id),
                 )
+                # Identity indexes must exist before any per-body reconciliation.
+                # Carry accepted observations forward on every build once the
+                # additive contribution migration exists. No publication occurs.
+                cur.execute("SELECT to_regclass('v3_private.eligible_journal_galaxy_contribution')")
+                if cur.fetchone()[0] is not None:
+                    from shared_contracts.journal_canonical import reconcile_all_eligible, reconcile_generation
+
+                    receipt['journal_reconciliation'] = reconcile_all_eligible(conn, generation_id=self.generation_id)
+                    if self.config.journal_contribution_ids:
+                        cur.execute("SELECT encode(manifest_sha256,'hex') FROM v3_meta.canonical_generation WHERE generation_id=%s", (self.generation_id,))
+                        receipt['explicit_journal_reconciliation'] = reconcile_generation(
+                            conn, generation_id=self.generation_id,
+                            contribution_ids=[UUID(value) for value in self.config.journal_contribution_ids],
+                            apply=True, expected_manifest_sha256=cur.fetchone()[0],
+                        )
+                elif self.config.journal_contribution_ids:
+                    raise ValueError('Journal contribution migration is required')
                 cur.execute(
                     """UPDATE v3_async.job_attempt SET attempt_state='SUCCEEDED',finished_at=%s
                          WHERE job_id=%s AND attempt_number=%s AND fencing_token=%s""",

@@ -17,6 +17,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--artifact", type=Path, required=True)
     result.add_argument("--artifact-metadata", type=Path, required=True)
     result.add_argument("--generation-key", required=True)
+    result.add_argument('--journal-contribution-id', action='append', default=[],
+                        help='Explicit reviewed contribution UUID to reconcile before validation/publication; repeat up to 500 times')
     result.add_argument("--target-systems", type=int, default=10_000)
     result.add_argument("--max-systems", type=int, default=50_000)
     result.add_argument("--chunk-systems", type=int, default=500)
@@ -44,6 +46,7 @@ def main() -> int:
         max_systems=args.max_systems, chunk_systems=args.chunk_systems,
         require_macmillan=args.require_macmillan,
         execution_phase=args.execution_phase,
+        journal_contribution_ids=tuple(args.journal_contribution_id),
     )
     pipeline = SpanshV3Pipeline(args.dsn, artifact, config)
     if args.publish_only:

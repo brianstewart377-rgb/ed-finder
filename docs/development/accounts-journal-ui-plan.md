@@ -1,5 +1,9 @@
 # Accounts, personal Journal/Codex and log import
 
+The assessment below records the starting state. The subsequent authorized
+implementation and its remaining boundaries are in
+[journal-commander-contributions.md](journal-commander-contributions.md).
+
 This is the implementation assessment requested on 2026-09-13, based on main
 `5937cf6cca8cdaaaa39fe3378df87556c8cdf7da`. It extends the user's UI/account
 review; it does not install migrations, upload personal journals, enable a
