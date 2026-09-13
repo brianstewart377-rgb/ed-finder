@@ -35,6 +35,34 @@ describe('auth store', () => {
     adminToken.clear();
   });
 
+  it('does not restore a stale account response after logout', async () => {
+    let finish!: (value: unknown) => void;
+    const api = {
+      session: vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+      logout: vi.fn().mockResolvedValue(guest),
+      claimOwner: vi.fn(),
+    };
+    const store = createAuthStore(api, createTokenStore().store);
+    const checking = store.bootstrap();
+    await store.signOut();
+    finish({
+      authenticated: true,
+      user: {
+        account_id: 'old-account',
+        commander_name: 'Old',
+        is_owner: false,
+      },
+    });
+    await checking;
+    expect(get(store).authenticated).toBe(false);
+    expect(get(store).user).toBeNull();
+  });
+
   it('bootstraps cookie-backed session state', async () => {
     const api = {
       session: vi.fn().mockResolvedValue(guest),
@@ -212,7 +240,11 @@ describe('auth store', () => {
     expect(localStorage.getItem(ADMIN_TOKEN_SESSION_KEY)).toBeNull();
     expect(get(store)).toMatchObject({
       authenticated: true,
-      user: { commander_name: 'Commander', is_owner: false },
+      user: {
+        account_id: 'account-commander',
+        commander_name: 'Commander',
+        is_owner: false,
+      },
       ownerClaimAvailable: true,
       error: 'Invalid admin token',
     });
@@ -308,7 +340,11 @@ describe('auth store', () => {
     expect(get(store)).toEqual({
       loading: false,
       authenticated: true,
-      user: { commander_name: 'Commander', is_owner: false },
+      user: {
+        account_id: 'account-commander',
+        commander_name: 'Commander',
+        is_owner: false,
+      },
       ownerClaimAvailable: true,
       error: 'Invalid admin token',
     });

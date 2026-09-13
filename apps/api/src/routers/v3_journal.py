@@ -113,6 +113,20 @@ class V3JournalImportReceipt(V1Model):
     finished_at: str
 
 
+class V3HeldJournalFile(V1Model):
+    name: str
+    reason: str
+
+
+class V3VerifiedImportReceipt(V1Model):
+    import_ids: list[str]
+    files_admitted: int
+    files_skipped: int
+    events_inserted: int
+    duplicates_skipped: int
+    held_files: list[V3HeldJournalFile]
+
+
 class V3JournalSummaryResponse(V1Model):
     events_stored: int
     unique_bodies: int
@@ -332,6 +346,119 @@ async def get_v3_journal_import(
         started_at=imported_at or "",
         finished_at=imported_at or "",
     )
+
+
+@router.post('/verified-imports', response_model=V3VerifiedImportReceipt,
+             operation_id='createVerifiedJournalImport')
+@limiter.limit('5/minute')
+async def create_verified_journal_import(
+    request: Request, body: V3JournalImportRequest,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> V3VerifiedImportReceipt:
+    from edfinder_api.journal.commanders import verified_commanders
+    from edfinder_api.journal.ownership import classify_files
+
+    user = await _require_user(request)
+    require_same_origin(request)
+    files = [item.model_dump() for item in body.files]
+    events = [item.model_dump() for item in body.events]
+    names = {item['name'] for item in files}
+    if any(event['source_file'] not in names for event in events):
+        raise HTTPException(422, 'Event refers to a file absent from the manifest')
+    async with pool.acquire() as conn:
+        commanders = {
+            row['journal_fid']: row
+            for row in await verified_commanders(conn, user.account_id)
+        }
+    ownership = classify_files(files, events, set(commanders))
+    held = [V3HeldJournalFile(name=row.name, reason=row.reason)
+            for row in ownership if row.reason is not None]
+    result = V3VerifiedImportReceipt(
+        import_ids=[], files_admitted=0, files_skipped=0,
+        events_inserted=0, duplicates_skipped=0, held_files=held,
+    )
+    # Each commander group commits independently. If a later global failure
+    # interrupts the response, retrying the original selection is file/event
+    # idempotent; held files have never entered the acquisition ledger.
+    for fid, commander in commanders.items():
+        accepted = {row.name for row in ownership if row.reason is None and row.fid == fid}
+        if not accepted:
+            continue
+        # Recover original receipts on retries, scoped to the selected hashes.
+        # Historical unassigned events are held; a prior account-level file hash
+        # is not evidence that its events belong to this verified commander.
+        existing = await pool.fetch(
+            '''SELECT f.content_sha256, f.private_import_id,
+                      EXISTS (SELECT 1 FROM v3_private.journal_event e
+                               WHERE e.journal_file_id=f.journal_file_id) AS has_events,
+                      EXISTS (SELECT 1 FROM v3_private.journal_event e
+                               WHERE e.journal_file_id=f.journal_file_id
+                                 AND e.owner_commander_id IS DISTINCT FROM $3) AS unverified
+                 FROM v3_private.journal_import_file f
+                WHERE f.owner_account_id=$1 AND f.content_sha256=ANY($2::bytea[])''',
+            user.account_id,
+            [bytes.fromhex(item['content_sha256']) for item in files if item['name'] in accepted],
+            commander['commander_id'],
+        )
+        by_hash = {bytes(row['content_sha256']).hex(): row for row in existing}
+        retry_ids = set()
+        for item in files:
+            if item['name'] not in accepted:
+                continue
+            prior = by_hash.get(item['content_sha256'])
+            if prior is None:
+                continue
+            accepted.discard(item['name'])
+            if prior['unverified'] or not prior['has_events']:
+                result.held_files.append(V3HeldJournalFile(name=item['name'], reason='previous_import_needs_ownership_review'))
+            else:
+                result.files_skipped += 1
+                retry_ids.add(str(prior['private_import_id']))
+        result.import_ids.extend(sorted(retry_ids))
+        if not accepted:
+            continue
+        store = _store()
+        try:
+            import_id, counts = await store.import_journal_batch(
+                pool, account_id=user.account_id, commander_id=commander['commander_id'],
+                parser_version=body.parser_version,
+                files=[item for item in files if item['name'] in accepted],
+                events=[event for event in events if event['source_file'] in accepted],
+            )
+        except store.JournalQuotaExceededError as exc:
+            raise HTTPException(429, 'Import paused at the daily quota; retry is safe') from exc
+        except ValueError:
+            # One malformed commander group must not discard the other groups.
+            result.held_files.extend(
+                V3HeldJournalFile(name=name, reason='validation_failed') for name in sorted(accepted)
+            )
+            continue
+        result.import_ids.append(str(import_id))
+        result.files_admitted += counts.files_admitted
+        result.files_skipped += counts.files_skipped
+        result.events_inserted += counts.events_inserted
+        result.duplicates_skipped += counts.duplicates_skipped
+        labels = []
+        for event in events:
+            if event['source_file'] not in accepted or event['event_type'] not in ('Commander', 'LoadGame'):
+                continue
+            payload = event['payload']
+            label = payload.get('Name' if event['event_type'] == 'Commander' else 'Commander')
+            if payload.get('FID') == fid and isinstance(label, str) and label.strip():
+                labels.append((event['event_timestamp'], label.strip()[:128]))
+        if labels:
+            observed_at, label = max(labels)
+            await pool.execute(
+                '''UPDATE v3_identity.commander c
+                      SET commander_name=$2, journal_name_observed_at=$3, updated_at=transaction_timestamp()
+                    WHERE commander_id=$1 AND (journal_name_observed_at IS NULL OR journal_name_observed_at < $3)
+                      AND EXISTS (SELECT 1 FROM v3_identity.account_commander_access a
+                                  WHERE a.commander_id=c.commander_id AND a.account_id=$4
+                                    AND a.access_role='OWNER' AND a.revoked_at IS NULL)''',
+                commander['commander_id'], label, observed_at, user.account_id,
+            )
+    result.import_ids = sorted(set(result.import_ids))
+    return result
 
 
 @router.get("/summary", response_model=V3JournalSummaryResponse, operation_id="getV3JournalSummary")

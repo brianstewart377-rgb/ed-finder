@@ -31,6 +31,11 @@ from edfinder_api.auth import (
 )
 from edfinder_api.config import limiter, settings
 from edfinder_api.deps import get_pool
+from edfinder_api.journal.commanders import (
+    associate_verified_commander,
+    fid_from_customer_id,
+    verified_commanders,
+)
 
 router = APIRouter(prefix='/api/v1/auth', tags=['auth'])
 # Frontier already has this exact callback registered for the live V2 app.
@@ -65,6 +70,15 @@ class ExternalIdentityResponse(BaseModel):
     linked_at: datetime
 
 
+class VerifiedCommanderResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    commander_id: uuid.UUID
+    commander_name: str
+    journal_fid: str
+    verified_at: datetime
+
+
 class OwnerClaimRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -77,6 +91,7 @@ class FrontierIdentity(BaseModel):
     issuer: str
     subject: str
     commander_name: Optional[str] = None
+    journal_fid: Optional[str] = Field(default=None, pattern=r'^F[1-9][0-9]{0,19}$')
 
 
 class FrontierLinkResponse(BaseModel):
@@ -189,6 +204,9 @@ def identity_from_frontier_payloads(
         issuer=issuer,
         subject=subject,
         commander_name=commander_name,
+        # Preserve the token's actual customer identity before parent-account
+        # grouping. A parent_id or display name cannot prove journal ownership.
+        journal_fid=fid_from_customer_id(decoded_user.get('customer_id')),
     )
 
 
@@ -444,7 +462,12 @@ async def _upsert_account_and_session(
                     link_to_account_id is not None,
                 )
 
-            if identity.commander_name:
+            if identity.journal_fid:
+                await associate_verified_commander(
+                    conn, account_id=account_id, issuer=identity.issuer,
+                    fid=identity.journal_fid, verified_at=now,
+                )
+            elif identity.commander_name:
                 commander_id = await conn.fetchval(
                     """
                     SELECT commander.commander_id
@@ -856,6 +879,18 @@ async def auth_logout(
                     )
     delete_session_cookie(response)
     return _session_response(None)
+
+
+@router.get('/commanders', response_model=list[VerifiedCommanderResponse],
+            operation_id='listVerifiedCommanders')
+async def list_verified_commanders(
+    request: Request, pool: asyncpg.Pool = Depends(get_pool),
+):
+    user = await get_request_user(request)
+    if user is None:
+        raise HTTPException(401, 'Sign in before viewing your commanders')
+    async with pool.acquire() as conn:
+        return await verified_commanders(conn, user.account_id)
 
 
 @router.get('/identities', response_model=list[ExternalIdentityResponse])
