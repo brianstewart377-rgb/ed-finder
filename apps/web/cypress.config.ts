@@ -13,6 +13,7 @@ export default defineConfig({
       'cypress/e2e/foundation.cy.ts',
       'cypress/e2e/spatial-foundation.cy.ts',
       'cypress/e2e/product-journey.cy.ts',
+      'cypress/e2e/account-journal.cy.ts',
     ],
     supportFile: 'cypress/support/e2e.ts',
   },

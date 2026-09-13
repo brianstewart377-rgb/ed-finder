@@ -121,6 +121,14 @@ jobs:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: apps/api/.venv/bin/python scripts/checks/data_invariants.py --target-rating-version 3.4
 
+      - name: Seed isolated V3 account browser journeys
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          EDFINDER_ACCOUNT_BROWSER_DATABASE: "yes"
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
+          ACCOUNT_FIXTURE_FILE: ${{ runner.temp }}/account-browser-fixture.json
+        run: apps/api/.venv/bin/python scripts/dev/seed_account_browser_acceptance.py --output "$ACCOUNT_FIXTURE_FILE"
+
       - name: Boot API
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -130,6 +138,8 @@ jobs:
           LOG_LEVEL: WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
           PYTHONPATH: ${{ github.workspace }}
+          AUTH_COOKIE_SECURE: "false"
+          AUTH_SESSION_COOKIE_NAME: edfinder_account_e2e
         working-directory: apps/api/src
         run: |
           nohup ../../../apps/api/.venv/bin/python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8002 > /tmp/cypress-uvicorn.log 2>&1 &
@@ -226,6 +236,7 @@ jobs:
         working-directory: apps/web
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4174
+          CYPRESS_accountFixtureFile: ${{ runner.temp }}/account-browser-fixture.json
         run: pnpm exec cypress run --browser ${{ matrix.browser }}
 
       - name: Preserve normal Product E2E evidence
