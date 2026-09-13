@@ -44,7 +44,8 @@ describe('ED-Finder V3 foundation', () => {
       cy.get('.workspace-header nav a')
         .contains('Explore')
         .focus()
-        .type('{enter}');
+        .should('be.focused');
+      cy.press(Cypress.Keyboard.Keys.ENTER);
       cy.location('pathname').should('eq', '/explore');
       cy.get('h1').should('contain.text', 'Chart a promising system');
     });
