@@ -1658,6 +1658,18 @@ export const createBabylonSession = (
     emit({ type: 'CAMERA_CHANGED', camera });
   };
 
+  const cancelTransition = (
+    current: typeof transition,
+    emit: (event: RuntimeEvent) => void,
+  ): void => {
+    if (!current) return;
+    emit(
+      current.target
+        ? { type: 'TRANSITION_FINISHED', target: current.target }
+        : { type: 'TRANSITION_FINISHED' },
+    );
+  };
+
   const moveCamera = (
     camera: CameraState,
     emit: (event: RuntimeEvent) => void,
@@ -1733,6 +1745,7 @@ export const createBabylonSession = (
     ): RuntimeCommandDispatchResult {
       if (command.type === 'LOAD_SCENE') {
         if (command.scene.kind === 'system') {
+          const interruptedTransition = transition;
           transition = null;
           const replacement = createBabylonSystemScene(engine, command.scene);
           const previous = scene;
@@ -1750,6 +1763,7 @@ export const createBabylonSession = (
             sceneRevision: command.scene.revision,
             renderedLayers: replacement.renderedLayers,
           });
+          cancelTransition(interruptedTransition, emit);
           return { status: 'executed' };
         }
         if (
@@ -1805,6 +1819,7 @@ export const createBabylonSession = (
           });
           return { status: 'executed' };
         }
+        const interruptedTransition = transition;
         transition = null;
         const replacement = createBabylonGalaxyScene(engine, command.scene);
         const previous = scene;
@@ -1822,6 +1837,7 @@ export const createBabylonSession = (
           sceneRevision: command.scene.revision,
           renderedLayers: replacement.renderedLayers,
         });
+        cancelTransition(interruptedTransition, emit);
         return { status: 'executed' };
       }
       if (command.type === 'PATCH_CONTRIBUTION') {

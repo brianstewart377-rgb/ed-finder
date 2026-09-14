@@ -81,6 +81,10 @@
   let cameraTransitionActive = false;
   let transitionCamera: CameraState | SystemCameraState | null = null;
   let pendingPickPoint: { screenX: number; screenY: number } | null = null;
+  type PendingCameraMove =
+    | { type: 'SET_CAMERA'; camera: CameraState; animate: boolean }
+    | { type: 'FLY_TO'; target: SpatialTarget; reducedMotion: boolean };
+  let pendingCameraMove: PendingCameraMove | null = null;
   let hoverFrame: number | null = null;
 
   function setCameraTransitionActive(
@@ -208,23 +212,47 @@
     }
   });
 
-  function setCamera(camera: CameraState, animate = false): void {
+  function dispatchCameraMove(move: PendingCameraMove): void {
     if (!runtime || status.state !== 'ready') return;
-    const reducedMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
+
+    if (move.type === 'SET_CAMERA') {
+      const { camera, animate } = move;
+      const reducedMotion = window.matchMedia(
+        '(prefers-reduced-motion: reduce)',
+      ).matches;
+      const result = runtime.dispatch({
+        type: 'SET_CAMERA',
+        camera,
+        ...(animate ? { transition: { durationMs: 650, reducedMotion } } : {}),
+      });
+      if (result.status === 'executed') {
+        currentCamera = camera;
+        if (animate && !reducedMotion) {
+          transitionCamera = camera;
+          setCameraTransitionActive(true, camera);
+        }
+      }
+      return;
+    }
+
+    const { target, reducedMotion } = move;
     const result = runtime.dispatch({
-      type: 'SET_CAMERA',
-      camera,
-      ...(animate ? { transition: { durationMs: 650, reducedMotion } } : {}),
+      type: 'FLY_TO',
+      target,
+      reducedMotion,
     });
     if (result.status === 'executed') {
-      currentCamera = camera;
-      if (animate && !reducedMotion) {
-        transitionCamera = camera;
-        setCameraTransitionActive(true, camera);
-      }
+      setCameraTransitionActive(!reducedMotion);
     }
+  }
+
+  function setCamera(camera: CameraState, animate = false): void {
+    if (!runtime || status.state !== 'ready') return;
+    if (cameraTransitionActive) {
+      pendingCameraMove = { type: 'SET_CAMERA', camera, animate };
+      return;
+    }
+    dispatchCameraMove({ type: 'SET_CAMERA', camera, animate });
   }
 
   function setSystemCamera(camera: SystemCameraState): void {
@@ -485,6 +513,15 @@
     const reducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches;
+    if (cameraTransitionActive) {
+      pendingCameraMove = {
+        type: 'FLY_TO',
+        target: focusTarget,
+        reducedMotion,
+      };
+      lastFocusRevision = focusRevision;
+      return;
+    }
     const result = runtime.dispatch({
       type: 'FLY_TO',
       target: focusTarget,
@@ -633,7 +670,12 @@
                 : currentCamera),
           );
           transitionCamera = null;
-          if (pendingPickPoint) {
+          const queuedMove = pendingCameraMove;
+          pendingCameraMove = null;
+          if (queuedMove) {
+            dispatchCameraMove(queuedMove);
+          }
+          if (!cameraTransitionActive && pendingPickPoint) {
             const point = pendingPickPoint;
             pendingPickPoint = null;
             runtime?.dispatch({ type: 'PICK', ...point });
@@ -704,6 +746,7 @@
       lastAppliedContributionRevision = undefined;
       cameraTransitionActive = false;
       transitionCamera = null;
+      pendingCameraMove = null;
       pendingPickPoint = null;
       renderedLayerIds = [];
     };

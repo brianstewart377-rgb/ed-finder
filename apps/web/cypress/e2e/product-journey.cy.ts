@@ -32,7 +32,7 @@ const assertSpatialResultsReady = () => {
 const keyboardChooseAnchor = (query: string) => {
   cy.get('#system-search').clear().type(query);
   cy.wait('@autocomplete').its('response.statusCode').should('eq', 200);
-  cy.get('[role="listbox"] [role="option"]').should(
+  cy.get('[role="listbox"] [role="option"]', { timeout: 10_000 }).should(
     'have.length.greaterThan',
     0,
   );
@@ -178,8 +178,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     });
 
     cy.get('[data-system-result="10477373803000"] .inspect-link').click();
-    cy.location('pathname').should('eq', '/inspect');
-    cy.location('search').should('eq', '?system=10477373803000');
+    cy.location('pathname', { timeout: 10_000 }).should('eq', '/inspect');
+    cy.location('search', { timeout: 10_000 }).should(
+      'eq',
+      '?system=10477373803000',
+    );
     cy.get('[data-system-id64="10477373803000"]')
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
@@ -222,7 +225,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       unsafeId,
     );
     cy.get(`[data-system-result="${unsafeId}"] .inspect-link`).click();
-    cy.location('search').should('eq', `?system=${unsafeId}`);
+    cy.location('search', { timeout: 10_000 }).should(
+      'eq',
+      `?system=${unsafeId}`,
+    );
     cy.get(`[data-system-id64="${unsafeId}"]`)
       .should('contain.text', 'V3 Lossless Reach')
       .and('contain.text', unsafeId);
@@ -230,9 +236,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 10_000 })
       .should('contain.text', 'V3 Lossless Reach')
       .and('contain.text', unsafeId);
-    cy.get('[data-testid="selected-system-context"]').should(
-      'contain.text',
-      unsafeId,
-    );
+    cy.get('[data-testid="selected-system-context"]', {
+      timeout: 10_000,
+    }).should('contain.text', unsafeId);
   });
 });

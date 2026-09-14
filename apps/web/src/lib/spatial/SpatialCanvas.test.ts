@@ -530,4 +530,50 @@ describe('SpatialCanvas', () => {
       screenY: 100,
     });
   });
+
+  it('queues camera movements until an in-flight transition settles', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const scene = buildGalaxyReviewFixtureScene();
+    const focusTarget = { kind: 'system' as const, systemId64: '42' };
+    const view = render(SpatialCanvas, {
+      props: { scene, focusTarget, focusRevision: 1 },
+    });
+    await waitFor(() =>
+      expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+        type: 'LOAD_SCENE',
+        scene,
+      }),
+    );
+    await waitFor(() =>
+      expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+        type: 'FLY_TO',
+        target: focusTarget,
+        reducedMotion: false,
+      }),
+    );
+
+    const host = view.container.querySelector('.spatial-canvas');
+    const runtime = adapter.runtimes[0];
+    expect(host).toBeTruthy();
+    expect(runtime).toBeTruthy();
+    runtime?.dispatch.mockClear();
+
+    host?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    );
+    expect(
+      runtime?.dispatch.mock.calls.some(
+        ([command]) => command.type === 'SET_CAMERA',
+      ),
+    ).toBe(false);
+
+    runtime?.emit({ type: 'TRANSITION_FINISHED', target: focusTarget });
+    await waitFor(() =>
+      expect(
+        runtime?.dispatch.mock.calls.some(
+          ([command]) => command.type === 'SET_CAMERA',
+        ),
+      ).toBe(true),
+    );
+  });
 });
