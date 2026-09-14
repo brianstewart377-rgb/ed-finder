@@ -4,6 +4,9 @@
   import { ApiError, getSystem } from '$lib/api/client';
   import { queryKeys } from '$lib/api/query';
   import type { Id64 } from '$lib/domain/id64';
+  import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
+  import type { RuntimeEvent } from '$lib/spatial/contracts';
+  import { buildSystemScene } from '$lib/spatial/system-scene';
 
   let {
     id64,
@@ -16,6 +19,8 @@
   }>();
   let heading = $state<HTMLHeadingElement>();
   let lastFocusedId: Id64 | null = null;
+  let selectedBodyId = $state<number | undefined>();
+  let systemMapRevision = $state(0);
 
   const detail = createQuery(() => ({
     queryKey: queryKeys.system(id64),
@@ -33,6 +38,18 @@
       ? `${x?.toFixed(2)}, ${y?.toFixed(2)}, ${z?.toFixed(2)} ly`
       : null;
   });
+  const systemScene = $derived(
+    detail.data
+      ? buildSystemScene(
+          detail.data,
+          detail.dataUpdatedAt + systemMapRevision,
+          selectedBodyId,
+        )
+      : null,
+  );
+  const selectedBody = $derived(
+    detail.data?.bodies?.find((body) => body.id === selectedBodyId) ?? null,
+  );
 
   $effect(() => {
     if (!autofocusHeading || !detail.data || lastFocusedId === id64) return;
@@ -42,6 +59,17 @@
 
   const integer = (value: number | null | undefined) =>
     typeof value === 'number' ? new Intl.NumberFormat().format(value) : null;
+
+  function selectBody(bodyId: number): void {
+    selectedBodyId = bodyId;
+    systemMapRevision += 1;
+  }
+
+  function handleSystemMapEvent(event: RuntimeEvent): void {
+    if (event.type === 'TARGET_PICKED' && event.target?.kind === 'body') {
+      selectBody(event.target.ref.bodyId);
+    }
+  }
 </script>
 
 <section
@@ -130,5 +158,110 @@
         <dd>{detail.data.stations?.length ?? 0}</dd>
       </div>
     </dl>
+
+    {#if systemScene && systemScene.bodies.length > 0}
+      <section class="system-map-panel" aria-labelledby={`${headingId}-map`}>
+        <div class="system-map-heading">
+          <div>
+            <p class="eyebrow">3D system map</p>
+            <h2 id={`${headingId}-map`}>Explore {detail.data.name}</h2>
+          </div>
+          <span>{systemScene.bodies.length} catalogue bodies</span>
+        </div>
+        <p class="system-map-truth-note">
+          Body classes, radii, arrival distances, and known ring state come from
+          the catalogue. Orbit positions and display sizes are a semantic 3D
+          layout—not physical scale or observed orbital phase.
+        </p>
+        <SpatialCanvas
+          scene={systemScene}
+          onRuntimeEvent={handleSystemMapEvent}
+        />
+        <div class="system-map-browser">
+          <ol aria-label="System bodies">
+            {#each detail.data.bodies ?? [] as body, index (`body-${body.id ?? index}`)}
+              {#if typeof body.id === 'number'}
+                <li>
+                  <button
+                    type="button"
+                    class:active={body.id === selectedBodyId}
+                    aria-pressed={body.id === selectedBodyId}
+                    onclick={() => selectBody(body.id as number)}
+                  >
+                    <strong>{body.name ?? `Body ${body.id}`}</strong>
+                    <span
+                      >{body.subtype ??
+                        body.body_type ??
+                        'Unknown body type'}</span
+                    >
+                  </button>
+                </li>
+              {/if}
+            {/each}
+          </ol>
+          {#if selectedBody}
+            <article
+              class="system-body-card"
+              aria-live="polite"
+              data-selected-body-id={selectedBody.id}
+            >
+              <p class="eyebrow">Selected body</p>
+              <h3>{selectedBody.name ?? `Body ${selectedBody.id}`}</h3>
+              <dl>
+                <div>
+                  <dt>Class</dt>
+                  <dd>
+                    {selectedBody.subtype ??
+                      selectedBody.body_type ??
+                      'Unknown'}
+                  </dd>
+                </div>
+                {#if selectedBody.distance_from_star != null}
+                  <div>
+                    <dt>Arrival distance</dt>
+                    <dd>{integer(selectedBody.distance_from_star)} ls</dd>
+                  </div>
+                {/if}
+                {#if selectedBody.radius != null}
+                  <div>
+                    <dt>Radius</dt>
+                    <dd>{integer(selectedBody.radius)} m</dd>
+                  </div>
+                {/if}
+                <div>
+                  <dt>Rings</dt>
+                  <dd>
+                    {selectedBody.ring_state === 'ringed'
+                      ? `${selectedBody.ring_count ?? selectedBody.rings?.length ?? 1} known`
+                      : selectedBody.ring_state === 'not_ringed'
+                        ? 'None recorded'
+                        : 'Unknown'}
+                  </dd>
+                </div>
+                {#if selectedBody.is_landable != null}
+                  <div>
+                    <dt>Landable</dt>
+                    <dd>{selectedBody.is_landable ? 'Yes' : 'No'}</dd>
+                  </div>
+                {/if}
+                {#if selectedBody.bio_signal_count != null || selectedBody.geo_signal_count != null}
+                  <div>
+                    <dt>Signals</dt>
+                    <dd>
+                      {selectedBody.bio_signal_count ?? 0} biological ·
+                      {selectedBody.geo_signal_count ?? 0} geological
+                    </dd>
+                  </div>
+                {/if}
+              </dl>
+            </article>
+          {:else}
+            <p class="system-body-empty">
+              Select a body in the 3D map or the catalogue list for details.
+            </p>
+          {/if}
+        </div>
+      </section>
+    {/if}
   {/if}
 </section>

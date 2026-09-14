@@ -126,6 +126,35 @@ describe('renderer-neutral spatial runtime lifecycle', () => {
     expect(frames.scheduler.request).not.toHaveBeenCalled();
   });
 
+  it('continues a bounded backend-requested presentation warmup', async () => {
+    const frames = createFrameScheduler();
+    const webGpu = createSession('WEBGPU');
+    webGpu.render
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    const runtime = createManagedSpatialRuntime(
+      {
+        createWebGpu: vi.fn().mockResolvedValue(webGpu),
+        createWebGl2: vi.fn(),
+      },
+      vi.fn(),
+      frames.scheduler,
+    );
+
+    await runtime.start();
+    expect(webGpu.render).toHaveBeenCalledOnce();
+    expect(frames.scheduler.request).toHaveBeenCalledOnce();
+
+    frames.run(1);
+    expect(webGpu.render).toHaveBeenCalledTimes(2);
+    expect(frames.scheduler.request).toHaveBeenCalledTimes(2);
+
+    frames.run(2);
+    expect(webGpu.render).toHaveBeenCalledTimes(3);
+    expect(frames.scheduler.request).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to WebGL2 after a WebGPU initialization failure', async () => {
     const webGl2 = createSession('WEBGL2');
     const runtime = createManagedSpatialRuntime(
@@ -319,6 +348,8 @@ describe('renderer-neutral spatial runtime lifecycle', () => {
     'PATCH_CONTRIBUTION',
     'SET_CAMERA',
     'FLY_TO',
+    'HOVER',
+    'CLEAR_HOVER',
     'PICK',
     'REBUILD_RESOURCES',
   ] as const)('reports %s as explicitly unsupported', (type) => {

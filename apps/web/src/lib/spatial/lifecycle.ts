@@ -29,7 +29,8 @@ export interface SpatialBackendSession {
     emit: (event: RuntimeEvent) => void,
   ): RuntimeCommandDispatchResult;
   resize(viewport: SpatialViewport): void;
-  render(): void;
+  /** Return true when the backend needs another animation frame to present. */
+  render(): boolean | void;
   dispose(): void;
 }
 
@@ -145,7 +146,8 @@ export function createManagedSpatialRuntime(
         return;
       }
       try {
-        scheduledSession.render();
+        const needsAnotherFrame = scheduledSession.render() === true;
+        if (needsAnotherFrame) renderOnNextFrame();
       } catch {
         fail('RUNTIME_FAILED');
       }
@@ -258,7 +260,8 @@ export function createManagedSpatialRuntime(
           session.resize(pendingViewport);
           renderOnNextFrame();
         } else {
-          session.render();
+          const needsAnotherFrame = session.render() === true;
+          if (needsAnotherFrame) renderOnNextFrame();
         }
       } catch {
         return fail('INITIALIZATION_FAILED');

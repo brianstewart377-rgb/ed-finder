@@ -2,6 +2,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
 
+import { authoritativeGalaxyRegionsPlugin } from './vite.galaxy-regions.ts';
+
 const apiTarget = process.env.VITE_DEV_API_TARGET ?? 'http://127.0.0.1:8002';
 const backendProxy = {
   '^/api(?:$|[/?])': apiTarget,
@@ -10,7 +12,7 @@ const backendProxy = {
 };
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [authoritativeGalaxyRegionsPlugin(), tailwindcss(), sveltekit()],
   resolve: { conditions: ['browser'] },
   server: { proxy: backendProxy },
   preview: { proxy: backendProxy },

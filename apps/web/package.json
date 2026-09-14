@@ -22,6 +22,8 @@
     "shared:lint": "cd ../.. && apps/web/node_modules/.bin/eslint --config apps/web/eslint.shared.config.js packages/api-client/src packages/planner-core/src",
     "shared:test": "cd ../.. && apps/web/node_modules/.bin/vitest run --config apps/web/vitest.shared.config.ts",
     "test:e2e": "cypress run --browser chrome",
+    "test:map-diagnostics": "cypress run --browser chrome --config-file cypress.map-diagnostics.config.ts",
+    "map:nebulae": "node scripts/build-nebula-asset.mjs",
     "generate:api": "svelte-kit sync && node scripts/capture-openapi.mjs && openapi-ts"
   },
   "devDependencies": {

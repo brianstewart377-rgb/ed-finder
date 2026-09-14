@@ -1,3 +1,5 @@
+import { GALAXY_REGION_NAMES } from '../../src/lib/spatial/galaxy-regions';
+
 type ProductWindow = Window & { __productRuntimeFailures?: string[] };
 
 const readySelector = '[role="status"][data-renderer-state="ready"]';
@@ -49,6 +51,39 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .and('be.visible');
     cy.get('[data-system-result]').should('have.length.greaterThan', 0);
     assertSpatialResultsReady();
+    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
+      'contain.text',
+      '42/42 regions',
+    );
+    cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
+      .should('contain.text', '5,842 EDAstro nebula landmarks')
+      .and('contain.text', 'EDAstro / CMDR Orvidius')
+      .and('contain.text', 'source CSV');
+    cy.get('[data-galaxy-region-option]').should('have.length', 42);
+    cy.get('.spatial-canvas')
+      .should('have.attr', 'data-rendered-layer-ids')
+      .and('contain', 'galaxy-regions')
+      .and('contain', 'galaxy-nebulae')
+      .and('contain', 'finder-systems');
+    cy.get('.spatial-canvas')
+      .invoke('attr', 'data-system-target-count')
+      .then((count) => expect(Number(count)).to.be.greaterThan(0));
+    cy.contains('button', 'All 42 regions').click();
+    cy.wait(750);
+    cy.get('[data-map-label-kind="region"]')
+      .should('have.length', 42)
+      .then(($labels) => {
+        const names = $labels
+          .toArray()
+          .map((label) => label.textContent?.trim())
+          .sort();
+        expect(names).to.deep.equal([...GALAXY_REGION_NAMES].sort());
+      });
+    cy.get('#explore-region-picker').select('18');
+    cy.get('[data-selected-region-id="18"]').should(
+      'contain.text',
+      'Inner Orion Spur',
+    );
     cy.get(canvasSelector).then(([canvas]) => {
       initialCanvas = canvas as HTMLCanvasElement;
       const initialRevision = Number(
@@ -120,6 +155,14 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'have.length',
       1,
     );
+    cy.get('[data-selected-system-card="10477373803000"]')
+      .should('be.visible')
+      .and('contain.text', 'Achenar')
+      .and('contain.text', 'Primary star');
+    cy.get('[data-commander-history-toggle]')
+      .should('have.attr', 'aria-pressed', 'false')
+      .click()
+      .should('have.attr', 'aria-pressed', 'true');
 
     cy.injectAxe();
     cy.checkA11y();
@@ -140,6 +183,17 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('[data-system-id64="10477373803000"]')
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
+    cy.contains('h2', 'Explore Achenar').should('be.visible');
+    cy.contains(
+      'Body classes, radii, arrival distances, and known ring state come from the catalogue.',
+    ).should('be.visible');
+    cy.get('[aria-label="System camera controls"]').should('be.visible');
+    cy.get('[aria-label="System bodies"] button')
+      .should('have.length.greaterThan', 0)
+      .first()
+      .click()
+      .should('have.attr', 'aria-pressed', 'true');
+    cy.get('[data-selected-body-id]').should('be.visible');
     cy.injectAxe();
     cy.checkA11y();
 

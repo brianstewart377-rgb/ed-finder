@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import type { Id64 } from '$lib/domain/id64';
-import type { ExploreSearchRequest } from './client';
+import type { CatalogueViewportRequest, ExploreSearchRequest } from './client';
 
 export interface OptimiserQueryRequest {
   readonly system_id64: Id64;
@@ -74,6 +74,21 @@ export const queryKeys = {
     [...queryKeys.all, 'explore', 'autocomplete', query] as const,
   explore: (request: ExploreSearchRequest) =>
     [...queryKeys.all, 'explore', 'results', JSON.stringify(request)] as const,
+  catalogueViewport: (request: CatalogueViewportRequest) =>
+    [
+      ...queryKeys.all,
+      'map',
+      'catalogue-stars',
+      JSON.stringify(request),
+    ] as const,
+  commanderViewport: (syncKey: string, request: CatalogueViewportRequest) =>
+    [
+      ...queryKeys.all,
+      'map',
+      'commander-history',
+      syncKey,
+      JSON.stringify(request),
+    ] as const,
   compare: (id64s: readonly Id64[]) =>
     [...queryKeys.all, 'compare', ...id64s] as const,
   optimiser: (request: OptimiserQueryRequest) =>
