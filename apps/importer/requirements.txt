@@ -3,7 +3,7 @@
 # ijson handles streaming JSON; tqdm provides progress bars.
 # numpy backs build_regional_analysis.py's in-memory candidate-pool distance
 # search (see its module docstring) — the only vectorized-math consumer here.
-psycopg[binary]==3.3.4
+psycopg[binary]==3.3.5
 ijson==3.5.1
 tqdm==4.70.0
 pydantic==2.13.5
