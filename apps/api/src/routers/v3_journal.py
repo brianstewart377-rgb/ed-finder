@@ -14,6 +14,7 @@ from the session — never by anything client-supplied.
 from __future__ import annotations
 
 import importlib
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
@@ -28,6 +29,7 @@ from edfinder_api.deps import get_pool
 # Frozen 30-event allowlist — single source of truth is
 # edfinder_api.journal.event_contract.JOURNAL_EVENT_ALLOWLIST (Task 2).
 from edfinder_api.journal.event_contract import JOURNAL_EVENT_ALLOWLIST
+from edfinder_api.routers.v3 import _current as _current_canonical
 
 router = APIRouter(prefix="/api/v1/journal", tags=["v3-journal"])
 
@@ -143,6 +145,29 @@ class V3JournalSystemRow(V1Model):
     first_observed_at: str | None
     last_observed_at: str | None
     visit_count: int
+
+
+class V3JournalViewportVisit(V1Model):
+    kind: str
+    system_id64: str | None
+    system_name: str | None
+    x: float
+    y: float
+    z: float
+    galaxy_region_id: int | None
+    visit_count: int
+    first_visited_at: str
+    last_visited_at: str
+    completion_state: str
+    cell_size: float | None
+
+
+class V3JournalViewportVisitsResponse(V1Model):
+    mode: str
+    visits: list[V3JournalViewportVisit]
+    count: int
+    truncated: bool
+    cell_size: float | None
 
 
 class V3JournalBodyRow(V1Model):
@@ -505,6 +530,55 @@ async def list_v3_journal_systems(
         )
         for row in rows
     ]
+
+
+@router.get(
+    "/viewport-visits",
+    response_model=V3JournalViewportVisitsResponse,
+    operation_id="getV3JournalViewportVisits",
+)
+@limiter.limit("60/minute")
+async def get_v3_journal_viewport_visits(
+    request: Request,
+    min_x: float = Query(...),
+    max_x: float = Query(...),
+    min_y: float = Query(...),
+    max_y: float = Query(...),
+    min_z: float = Query(...),
+    max_z: float = Query(...),
+    zoom: float = Query(..., gt=0, le=5_000),
+    limit: int = Query(20_000, ge=1, le=20_000),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> V3JournalViewportVisitsResponse:
+    user = await _require_user(request)
+    bounds = (min_x, max_x, min_y, max_y, min_z, max_z, zoom)
+    if not all(math.isfinite(value) for value in bounds):
+        raise HTTPException(422, 'viewport bounds and zoom must be finite')
+    relation_schema, _ = await _current_canonical(pool)
+    result = await _projections().viewport_visits(
+        pool, user.account_id, relation_schema,
+        min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y,
+        min_z=min_z, max_z=max_z, zoom=zoom, limit=limit,
+    )
+    visits = [
+        V3JournalViewportVisit(
+            kind=str(row['kind']),
+            system_id64=str(row['system_id64']) if row['system_id64'] is not None else None,
+            system_name=_opt_str(row.get('system_name')),
+            x=float(row['x']), y=float(row['y']), z=float(row['z']),
+            galaxy_region_id=row.get('galaxy_region_id'),
+            visit_count=int(row['visit_count']),
+            first_visited_at=_iso(row.get('first_visited_at')) or '',
+            last_visited_at=_iso(row.get('last_visited_at')) or '',
+            completion_state='complete' if row.get('complete') else 'partial',
+            cell_size=result['cell_size'],
+        )
+        for row in result['rows']
+    ]
+    return V3JournalViewportVisitsResponse(
+        mode=result['mode'], visits=visits, count=len(visits),
+        truncated=bool(result['truncated']), cell_size=result['cell_size'],
+    )
 
 
 @router.get("/bodies", response_model=list[V3JournalBodyRow], operation_id="listV3JournalBodies")

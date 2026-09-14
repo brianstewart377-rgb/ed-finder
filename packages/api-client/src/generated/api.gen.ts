@@ -2242,6 +2242,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/journal/viewport-visits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get V3 Journal Viewport Visits */
+        get: operations["getV3JournalViewportVisits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/bodies": {
         parameters: {
             query?: never;
@@ -7322,6 +7339,46 @@ export interface components {
             /** Visit Count */
             visit_count: number;
         };
+        /** V3JournalViewportVisit */
+        V3JournalViewportVisit: {
+            /** Kind */
+            kind: string;
+            /** System Id64 */
+            system_id64: string | null;
+            /** System Name */
+            system_name: string | null;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z */
+            z: number;
+            /** Galaxy Region Id */
+            galaxy_region_id: number | null;
+            /** Visit Count */
+            visit_count: number;
+            /** First Visited At */
+            first_visited_at: string;
+            /** Last Visited At */
+            last_visited_at: string;
+            /** Completion State */
+            completion_state: string;
+            /** Cell Size */
+            cell_size: number | null;
+        };
+        /** V3JournalViewportVisitsResponse */
+        V3JournalViewportVisitsResponse: {
+            /** Mode */
+            mode: string;
+            /** Visits */
+            visits: components["schemas"]["V3JournalViewportVisit"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Cell Size */
+            cell_size: number | null;
+        };
         /** V3OrganicProgressRow */
         V3OrganicProgressRow: {
             /** Genus */
@@ -11505,6 +11562,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["V3JournalSystemRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3JournalViewportVisits: {
+        parameters: {
+            query: {
+                min_x: number;
+                max_x: number;
+                min_y: number;
+                max_y: number;
+                min_z: number;
+                max_z: number;
+                zoom: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3JournalViewportVisitsResponse"];
                 };
             };
             /** @description Validation Error */

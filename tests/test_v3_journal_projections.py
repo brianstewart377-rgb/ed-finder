@@ -23,6 +23,7 @@ from edfinder_api.journal.projections import (
     sale_history,
     scanned_bodies,
     visited_systems,
+    viewport_visits,
 )
 
 TS1 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -141,6 +142,56 @@ def test_visited_systems_returns_rows_and_passes_pagination():
     sql, args = conn.calls[0]
     assert args == (ACCOUNT_ID, 20, 5)
     assert 'OFFSET $2 LIMIT $3' in sql
+
+
+def test_viewport_visits_uses_published_catalogue_and_account_scope():
+    conn = _FakeProjectionConn()
+    rows = [
+        {'kind': 'marker', 'system_id64': 10477373803, 'system_name': 'Sol',
+         'x': 0.0, 'y': 0.0, 'z': 0.0, 'galaxy_region_id': 1,
+         'visit_count': 4, 'first_visited_at': TS1, 'last_visited_at': TS2,
+         'complete': True},
+    ]
+    conn.fetch_results.append(rows)
+    result = _run(viewport_visits(
+        _FakeProjectionPool(conn), ACCOUNT_ID, 'v3_gen_phase4c',
+        min_x=-10, max_x=10, min_y=-10, max_y=10, min_z=-10, max_z=10,
+        zoom=8, limit=20,
+    ))
+    assert result['mode'] == 'markers'
+    assert result['rows'] == rows
+    assert result['truncated'] is False
+    sql, args = conn.calls[0]
+    assert args == (ACCOUNT_ID, -10, 10, -10, 10, -10, 10, 21)
+    assert 'v3_private.journal_event' in sql
+    assert 'v3_gen_phase4c.systems' in sql
+    assert 'owner_account_id = $1' in sql
+
+
+def test_viewport_visits_density_mode_is_bounded_and_rejects_unsafe_schema():
+    conn = _FakeProjectionConn()
+    conn.fetch_results.append([])
+    result = _run(viewport_visits(
+        _FakeProjectionPool(conn), ACCOUNT_ID, 'v3_gen_phase4c',
+        min_x=-100, max_x=100, min_y=-100, max_y=100, min_z=-100, max_z=100,
+        zoom=100, limit=20,
+    ))
+    assert result['mode'] == 'density'
+    assert result['cell_size'] == 800.0
+    sql, args = conn.calls[0]
+    assert args[-2:] == (800.0, 21)
+    assert 'GROUP BY FLOOR(x_ly / $8)' in sql
+    try:
+        _run(viewport_visits(
+            _FakeProjectionPool(_FakeProjectionConn()), ACCOUNT_ID,
+            'v3_gen_phase4c;DROP TABLE systems',
+            min_x=0, max_x=1, min_y=0, max_y=1, min_z=0, max_z=1,
+            zoom=1, limit=1,
+        ))
+    except ValueError as error:
+        assert 'unsafe' in str(error)
+    else:
+        raise AssertionError('unsafe relation schema must be rejected')
 
 
 def test_scanned_bodies_rows_and_pagination():

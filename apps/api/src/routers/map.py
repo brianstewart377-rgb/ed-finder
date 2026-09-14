@@ -1,4 +1,7 @@
 """Map data endpoints — galaxy regions, cluster hulls, heatmap, timeline."""
+import hashlib
+import math
+import re
 from typing import Optional
 
 import asyncpg
@@ -18,6 +21,65 @@ MAX_MAP_HEATMAP_CELLS = 50_000
 # Real-star viewport lane (the zoom-in detail lane; heatmap is the aggregate lane).
 MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
 MAX_MAP_VIEWPORT_LY = 15_000        # per-axis box guard; wider -> stay on the heatmap
+MAX_V3_MAP_GRID_CELLS = 50_000      # bounded 10 LY cells resolved through the serving index
+V3_GRID_EDGE_LY = 10.0
+_V3_SCHEMA = re.compile(r'^v3_gen_[a-z][a-z0-9_]{0,30}$')
+
+
+def _macro_grid_key(grid_x: int, grid_y: int, grid_z: int) -> int:
+    """Return the canonical importer's stable 10 LY cell identity."""
+    raw = '\x1f'.join(
+        str(part) for part in ('macro-grid-v1', grid_x, grid_y, grid_z)
+    ).encode('utf-8')
+    value = int.from_bytes(hashlib.sha256(raw).digest()[:8], 'big') & ((1 << 63) - 1)
+    return value or 1
+
+
+def _v3_grid_keys(
+    lo_x: float,
+    hi_x: float,
+    lo_y: float,
+    hi_y: float,
+    lo_z: float,
+    hi_z: float,
+) -> list[int] | None:
+    ranges = [
+        range(math.floor(lo_x / V3_GRID_EDGE_LY), math.floor(hi_x / V3_GRID_EDGE_LY) + 1),
+        range(math.floor(lo_y / V3_GRID_EDGE_LY), math.floor(hi_y / V3_GRID_EDGE_LY) + 1),
+        range(math.floor(lo_z / V3_GRID_EDGE_LY), math.floor(hi_z / V3_GRID_EDGE_LY) + 1),
+    ]
+    cell_count = len(ranges[0]) * len(ranges[1]) * len(ranges[2])
+    if cell_count > MAX_V3_MAP_GRID_CELLS:
+        return None
+    return [
+        _macro_grid_key(grid_x, grid_y, grid_z)
+        for grid_x in ranges[0]
+        for grid_y in ranges[1]
+        for grid_z in ranges[2]
+    ]
+
+
+async def _published_v3_schema(conn: asyncpg.Connection) -> str | None:
+    """Resolve the published V3 generation, or ``None`` on a legacy database."""
+    has_pointer = await conn.fetchval(
+        "SELECT to_regclass('v3_meta.current_canonical_generation') IS NOT NULL"
+    )
+    if not has_pointer:
+        return None
+    row = await conn.fetchrow(
+        '''
+        SELECT generation.relation_schema
+          FROM v3_meta.current_canonical_generation current
+          JOIN v3_meta.canonical_generation generation USING (generation_id)
+         WHERE current.singleton
+        '''
+    )
+    if row is None:
+        raise HTTPException(503, 'No published V3 canonical generation')
+    schema = str(row['relation_schema'])
+    if not _V3_SCHEMA.fullmatch(schema):
+        raise HTTPException(500, 'Unsafe canonical generation relation schema')
+    return schema
 
 
 
@@ -385,8 +447,22 @@ async def map_systems(
             or (hi_z - lo_z) > MAX_MAP_VIEWPORT_LY):
         return MapViewportResponse(systems=[], truncated=False)
 
+    async with pool.acquire() as conn:
+        v3_schema = await _published_v3_schema(conn)
+
+    grid_keys = (
+        _v3_grid_keys(lo_x, hi_x, lo_y, hi_y, lo_z, hi_z)
+        if v3_schema is not None else None
+    )
+    # The V3 canonical catalogue deliberately exposes only its bounded 10 LY
+    # serving index. Wide views stay on the aggregate density lane instead of
+    # degrading into a scan of the 198M-row generation.
+    if v3_schema is not None and grid_keys is None:
+        return MapViewportResponse(systems=[], truncated=False)
+
     cache_key = (
-        f'map:systems:v3:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
+        f'map:systems:v4:{v3_schema or "legacy"}:{lo_x:.0f}:{hi_x:.0f}:'
+        f'{lo_y:.0f}:{hi_y:.0f}:'
         f'{lo_z:.0f}:{hi_z:.0f}:{limit}'
     )
     cached = await cache_get(cache_key, redis)
@@ -394,26 +470,66 @@ async def map_systems(
         return JSONResponse(content=cached)
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            WITH candidates AS MATERIALIZED (
-                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
-                       (population IS NOT NULL AND population > 0) AS populated
-                FROM   systems
-                WHERE  x BETWEEN $1 AND $2
-                  AND  y BETWEEN $3 AND $4
-                  AND  z BETWEEN $5 AND $6
-                ORDER BY x, y, z
-                LIMIT  $7
-            )
-            SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
-            FROM   candidates
-            ORDER BY populated DESC,
-                     CASE left(main_star_type, 1)
-                        WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
-                        WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
-                        WHEN 'M' THEN 6 ELSE 7 END,
-                     id64
-        """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
+        if v3_schema is not None:
+            rows = await conn.fetch(f"""
+                WITH candidates AS MATERIALIZED (
+                    SELECT system.id64, system.name,
+                           system.x_ly AS x, system.y_ly AS y, system.z_ly AS z,
+                           star.spectral_class AS main_star_type,
+                           system.galaxy_region_id,
+                           EXISTS (
+                               SELECT 1 FROM {v3_schema}.stations station
+                                WHERE station.system_id64 = system.id64
+                                  AND station.lifecycle_state = 'ACTIVE'
+                           ) AS populated
+                      FROM {v3_schema}.systems system
+                      LEFT JOIN LATERAL (
+                          SELECT body.spectral_class
+                            FROM {v3_schema}.bodies body
+                           WHERE body.system_id64 = system.id64
+                             AND body.is_main_star IS TRUE
+                             AND body.lifecycle_state = 'ACTIVE'
+                           ORDER BY body.body_pk
+                           LIMIT 1
+                      ) star ON TRUE
+                     WHERE system.macro_grid_key = ANY($7::bigint[])
+                       AND system.lifecycle_state = 'ACTIVE'
+                       AND system.x_ly BETWEEN $1 AND $2
+                       AND system.y_ly BETWEEN $3 AND $4
+                       AND system.z_ly BETWEEN $5 AND $6
+                     ORDER BY system.x_ly, system.y_ly, system.z_ly
+                     LIMIT $8
+                )
+                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
+                  FROM candidates
+                 ORDER BY populated DESC,
+                          CASE left(main_star_type, 1)
+                             WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
+                             WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
+                             WHEN 'M' THEN 6 ELSE 7 END,
+                          id64
+            """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, grid_keys, limit + 1)
+        else:
+            rows = await conn.fetch("""
+                WITH candidates AS MATERIALIZED (
+                    SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
+                           (population IS NOT NULL AND population > 0) AS populated
+                    FROM systems
+                    WHERE x BETWEEN $1 AND $2
+                      AND y BETWEEN $3 AND $4
+                      AND z BETWEEN $5 AND $6
+                    ORDER BY x, y, z
+                    LIMIT $7
+                )
+                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
+                FROM candidates
+                ORDER BY populated DESC,
+                         CASE left(main_star_type, 1)
+                            WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
+                            WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
+                            WHEN 'M' THEN 6 ELSE 7 END,
+                         id64
+            """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
 
     truncated = len(rows) > limit
     if truncated:
