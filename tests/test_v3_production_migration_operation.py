@@ -488,11 +488,23 @@ def test_apply_plan_verifier_binds_github_run_receipt_and_exact_lineage():
     migration = _load()
     verifier = _load_path(PLAN_VERIFIER, "migration_plan_verifier")
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
-    desired = migration.desired_entries(ROOT)
+    desired = [
+        {
+            "ledger_name": f"{index:03d}_test.sql",
+            "mode": "auto",
+            "path": f"sql/v3/migrations/{index:03d}_test.sql",
+            "sha256": f"{index:064x}",
+        }
+        for index in range(1, 10)
+    ]
+    applied = [
+        {"ledger_name": entry["ledger_name"], "sha256": entry["sha256"]}
+        for entry in desired[:7]
+    ]
     run_id = "123456789"
     source_sha = "a" * 40
     receipt = migration.receipt_payload(
-        authority, status="planned", desired=desired, applied=desired[:7],
+        authority, status="planned", desired=desired, applied=applied,
         pending=desired[7:], applied_now=[],
         identity_sha256=authority["external_authority"]["schema_identity_sha256"],
         failures=[], writes=False, source_sha=source_sha, workflow_run_id=run_id,
