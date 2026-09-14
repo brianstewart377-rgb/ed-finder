@@ -26,6 +26,7 @@
     buildExploreGalaxyScene,
     createExploreFinderContribution,
   } from '$lib/spatial/explore-scene';
+  import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
@@ -261,14 +262,12 @@
           retainedCamera?.finderRevision === finderRevision
             ? retainedCamera.camera
             : null,
-        spatialContributions: [
-          ...(regionContribution ? [regionContribution] : []),
-          ...(nebulaContribution ? [nebulaContribution] : []),
-          ...(catalogueStarsContribution ? [catalogueStarsContribution] : []),
-          ...(commanderHistoryContribution
-            ? [commanderHistoryContribution]
-            : []),
-        ],
+        spatialContributions: collectGalaxySpatialContributions({
+          regions: regionContribution,
+          nebulae: nebulaContribution,
+          catalogueStars: catalogueStarsContribution,
+          commanderHistory: commanderHistoryContribution,
+        }),
         selectedRegionId,
       },
     ),

@@ -20,16 +20,17 @@ label.
 | Truthful density kernel      | Count-driven accepted cells only; empty data renders no density; 34→40 live replacement is receipted                | Pass for fixtures                 |
 | Product Explore integration  | Authoritative regions and stable selection are in the normal Explore workspace; Product E2E assertions are authored | Implemented                       |
 | Renderer matrix              | Galaxy on WebGPU/forced WebGL2 at 1280×720 and 1440×900 plus System on both backends, 6/6 with 28 captures          | Pass locally                      |
-| Unit/static/build            | 35 files / 286 tests, check, focused lint and production build                                                      | Pass locally                      |
+| Unit/static/build            | 36 files / 289 tests, `svelte-check`, focused lint and production build                                             | Pass locally                      |
 | Normal seeded Product E2E    | Search → map → 42 regions → selection → Inspect → return on Chrome and Firefox                                      | Pending release-head CI           |
 | Owner visual acceptance      | Compare current frames against the supplied high-end Galaxy/region references                                       | Pending owner review              |
-| Bundle hardening             | 987.48 kB Babylon chunk exceeds the 500 kB warning threshold                                                        | Open                              |
+| Bundle hardening             | Route-lazy Babylon adapter plus Babylon module-group manual chunks; largest client chunk 335.74 kB pre-gzip         | Pass locally                      |
 | Production real-star density | Reconciled `v3_spatial.cell_summary` generation, API and client streaming                                           | Not part of this candidate; M3/M4 |
 | Production individual stars  | Generation-matched exact-coordinate viewport packets and aggregate-to-star transition                               | Pending M3/M4                     |
 | Physical GPU budgets         | Receipted representative discrete/integrated GPU results                                                            | Pending M9                        |
 | Stellar icon families        | Stable classification and instance colour/scale tests for every supplied family; exact translation retained         | Implemented; visual review open   |
 | Click-to-system facts        | Central Babylon pick selects lossless Id64 and opens an accessible Explore facts/action card                        | Implemented                       |
 | Commander travel heatmap     | Toggleable journal-only viewport markers/cells under separate `COMMANDER_HISTORY` ownership                         | Implemented; Product E2E pending  |
+| Overlay assembly             | Stable order via `galaxy-overlays.ts`; regions/nebulae/stars/history retain separate owner and source identity      | Pass for current overlays         |
 | Complete nebula inventory    | All 5,842 current Mapcharts CSV rows at exact coordinates, visible EDAstro/CMDR Orvidius credit, schematic extent   | Pass for published CSV            |
 | S1 3-D System Map            | Shared runtime, catalogue body facts/rings, semantic orbit layout, pointer/keyboard selection and facts             | Implemented; Product E2E pending  |
 | System hierarchy/orbits      | Authoritative parent/barycentre relationships and complete orbital elements                                         | Pending data/API readiness        |

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { createBabylonSpatialRuntime } from './babylon/adapter';
   import type {
     CameraState,
     RuntimeEvent,
@@ -510,83 +509,102 @@
 
   onMount(() => {
     let mounted = true;
-    runtime = createBabylonSpatialRuntime(canvas, (nextStatus) => {
-      if (mounted) status = nextStatus;
-    });
-    const activeRuntime = runtime;
-    const unsubscribe = activeRuntime.subscribe((event) => {
+    let activeRuntime: SpatialRuntime | null = null;
+    let observer: ResizeObserver | null = null;
+    let unsubscribe = (): void => undefined;
+    let wheel: ((event: WheelEvent) => void) | null = null;
+
+    const startRuntime = async (): Promise<void> => {
+      const { createBabylonSpatialRuntime } = await import('./babylon/adapter');
       if (!mounted) return;
-      if (event.type === 'TARGET_PICKED') {
-        lastPickedId64 =
-          event.target?.kind === 'system' ? event.target.systemId64 : undefined;
-        lastPickedRegionId =
-          event.target?.kind === 'region' ? event.target.id : undefined;
-      } else if (event.type === 'TARGET_HOVERED') {
-        lastHoveredRegionId =
-          event.target?.kind === 'region' ? event.target.id : undefined;
-      } else if (event.type === 'SCENE_APPLIED') {
-        lastAppliedSceneRevision = event.sceneRevision;
-        renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
-      } else if (event.type === 'CONTRIBUTION_APPLIED') {
-        lastAppliedContributionRevision = event.contributionRevision;
-        renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
-      } else if (event.type === 'CAMERA_CHANGED' && 'focusLy' in event.camera) {
-        currentCamera = event.camera;
-      } else if (
-        event.type === 'CAMERA_CHANGED' &&
-        'systemId64' in event.camera
-      ) {
-        currentSystemCamera = event.camera;
-      } else if (event.type === 'RECOVERED' && scene) {
-        lastLoadedRevision = -1;
-      }
-      onRuntimeEvent?.(event);
-    });
 
-    const resize = (width: number, height: number): void => {
-      const viewport = {
-        width: Math.max(1, Math.round(width)),
-        height: Math.max(1, Math.round(height)),
-        dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+      const nextRuntime = createBabylonSpatialRuntime(canvas, (nextStatus) => {
+        if (mounted) status = nextStatus;
+      });
+      activeRuntime = nextRuntime;
+      runtime = nextRuntime;
+      unsubscribe = nextRuntime.subscribe((event) => {
+        if (!mounted) return;
+        if (event.type === 'TARGET_PICKED') {
+          lastPickedId64 =
+            event.target?.kind === 'system'
+              ? event.target.systemId64
+              : undefined;
+          lastPickedRegionId =
+            event.target?.kind === 'region' ? event.target.id : undefined;
+        } else if (event.type === 'TARGET_HOVERED') {
+          lastHoveredRegionId =
+            event.target?.kind === 'region' ? event.target.id : undefined;
+        } else if (event.type === 'SCENE_APPLIED') {
+          lastAppliedSceneRevision = event.sceneRevision;
+          renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
+        } else if (event.type === 'CONTRIBUTION_APPLIED') {
+          lastAppliedContributionRevision = event.contributionRevision;
+          renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
+        } else if (
+          event.type === 'CAMERA_CHANGED' &&
+          'focusLy' in event.camera
+        ) {
+          currentCamera = event.camera;
+        } else if (
+          event.type === 'CAMERA_CHANGED' &&
+          'systemId64' in event.camera
+        ) {
+          currentSystemCamera = event.camera;
+        } else if (event.type === 'RECOVERED' && scene) {
+          lastLoadedRevision = -1;
+        }
+        onRuntimeEvent?.(event);
+      });
+
+      const resize = (width: number, height: number): void => {
+        if (!activeRuntime) return;
+        const viewport = {
+          width: Math.max(1, Math.round(width)),
+          height: Math.max(1, Math.round(height)),
+          dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        };
+        activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
+        resizeRevision += 1;
+        host
+          .querySelector('canvas')
+          ?.setAttribute('data-resize-revision', String(resizeRevision));
       };
-      activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
-      resizeRevision += 1;
-      host
-        .querySelector('canvas')
-        ?.setAttribute('data-resize-revision', String(resizeRevision));
+
+      observer = new ResizeObserver(([entry]) => {
+        if (!entry) return;
+        resize(entry.contentRect.width, entry.contentRect.height);
+      });
+      observer.observe(host);
+      wheel = (event: WheelEvent): void => {
+        if (!canNavigate) return;
+        event.preventDefault();
+        const pixels =
+          event.deltaY *
+          (event.deltaMode === 1
+            ? 16
+            : event.deltaMode === 2
+              ? host.clientHeight
+              : 1);
+        const boundedPixels = Math.max(-400, Math.min(400, pixels));
+        if (canSystemNavigate) zoomSystem(boundedPixels);
+        else if (currentCamera) zoom(boundedPixels);
+      };
+      host.addEventListener('wheel', wheel, { passive: false });
+      resize(host.clientWidth, host.clientHeight);
+      void nextRuntime.start();
     };
 
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      resize(entry.contentRect.width, entry.contentRect.height);
-    });
-    observer.observe(host);
-    const wheel = (event: WheelEvent): void => {
-      if (!canNavigate) return;
-      event.preventDefault();
-      const pixels =
-        event.deltaY *
-        (event.deltaMode === 1
-          ? 16
-          : event.deltaMode === 2
-            ? host.clientHeight
-            : 1);
-      const boundedPixels = Math.max(-400, Math.min(400, pixels));
-      if (canSystemNavigate) zoomSystem(boundedPixels);
-      else if (currentCamera) zoom(boundedPixels);
-    };
-    host.addEventListener('wheel', wheel, { passive: false });
-    resize(host.clientWidth, host.clientHeight);
-    void activeRuntime.start();
+    void startRuntime();
 
     return () => {
       mounted = false;
       clearHover();
       drag = null;
-      host.removeEventListener('wheel', wheel);
-      observer.disconnect();
+      if (wheel) host.removeEventListener('wheel', wheel);
+      observer?.disconnect();
       unsubscribe();
-      activeRuntime.dispose();
+      activeRuntime?.dispose();
       runtime = null;
       lastLoadedRevision = -1;
       lastFocusRevision = -1;

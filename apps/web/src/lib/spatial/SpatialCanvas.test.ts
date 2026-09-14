@@ -356,6 +356,7 @@ describe('SpatialCanvas', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Zoom in' })).toBeVisible(),
     );
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
     const host = view.container.querySelector('.spatial-canvas')!;
     const runtime = adapter.runtimes[0]!;
     host.dispatchEvent(
@@ -418,6 +419,7 @@ describe('SpatialCanvas', () => {
         screen.getByRole('application', { name: /Interactive 3D system map/ }),
       ).toBeVisible(),
     );
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
     const host = view.container.querySelector('.spatial-canvas')!;
     const runtime = adapter.runtimes[0]!;
     host.dispatchEvent(
