@@ -1,4 +1,5 @@
 import type { SpatialContribution, Truth, Vec3Ly } from './contracts';
+import { fetchStaticAsset } from './spatial-assets.ts';
 
 export const GALAXY_NEBULAE_LAYER_ID = 'galaxy-nebulae';
 export const GALAXY_NEBULAE_ASSET_URL =
@@ -170,10 +171,9 @@ export function parseGalaxyNebulaeAsset(value: unknown): GalaxyNebulaePayload {
 export async function fetchGalaxyNebulae(
   signal?: AbortSignal,
 ): Promise<GalaxyNebulaePayload> {
-  const response = await fetch(GALAXY_NEBULAE_ASSET_URL, { signal });
-  if (!response.ok) {
-    throw new Error(`Nebula asset request failed with HTTP ${response.status}`);
-  }
+  const response = await fetchStaticAsset(GALAXY_NEBULAE_ASSET_URL, {
+    signal,
+  });
   return parseGalaxyNebulaeAsset(await response.json());
 }
 

@@ -75,17 +75,7 @@
   let hoverFrame: number | null = null;
 
   function targetCount(value: SpatialSceneContract | undefined): number {
-    return (
-      value?.contributions.reduce(
-        (total, contribution) =>
-          total +
-          contribution.layers.reduce(
-            (layerTotal, layer) => layerTotal + layer.targetCount,
-            0,
-          ),
-        0,
-      ) ?? 0
-    );
+    return layerTargetCount(value, 'finder-systems');
   }
 
   function layerTargetCount(

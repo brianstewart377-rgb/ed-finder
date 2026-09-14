@@ -3,6 +3,7 @@ import type {
   SpatialContribution,
   Vec3Ly,
 } from './contracts.ts';
+import { fetchStaticAsset } from './spatial-assets.ts';
 
 export const GALAXY_REGIONS_LAYER_ID = 'galaxy-regions';
 export const GALAXY_REGIONS_SCHEMA_VERSION = 1;
@@ -638,12 +639,10 @@ export function galaxyRegionsSceneLayer(
 export async function fetchAuthoritativeGalaxyRegions(
   baseUrl = import.meta.env.BASE_URL,
 ): Promise<GalaxyRegionsPayload> {
-  const response = await fetch(`${baseUrl}${GALAXY_REGION_ASSET_PATH}`, {
-    cache: 'no-cache',
-  });
-  if (!response.ok) {
-    throw new Error(`Galaxy regions request failed: ${response.status}`);
-  }
+  const response = await fetchStaticAsset(
+    `${baseUrl}${GALAXY_REGION_ASSET_PATH}`,
+    { cache: 'no-cache' },
+  );
   const body = await response.text();
   if (
     new TextEncoder().encode(body).byteLength > GALAXY_REGION_ASSET_BUDGET_BYTES

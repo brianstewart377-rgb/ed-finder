@@ -3,3 +3,5 @@ build/
 cypress/artifacts/
 src/lib/api/generated/
 pnpm-lock.yaml
+static/assets/edastro-mapcharts-nebulae.json
+static/map/
