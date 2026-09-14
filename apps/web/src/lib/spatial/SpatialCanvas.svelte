@@ -70,6 +70,7 @@
     moved: boolean;
     orbit: boolean;
   } | null = null;
+  let removeWindowDragListeners: (() => void) | null = null;
   let lastPickedId64 = $state<string | undefined>();
   let lastPickedRegionId = $state<string | undefined>();
   let lastHoveredRegionId = $state<string | undefined>();
@@ -404,7 +405,6 @@
     // focus would otherwise land on the hidden canvas and scroll the page.
     event.preventDefault();
     host.focus({ preventScroll: true });
-    host.setPointerCapture?.(event.pointerId);
     clearHover();
     drag = {
       id: event.pointerId,
@@ -415,13 +415,32 @@
       moved: false,
       orbit: canSystemNavigate || event.shiftKey || event.button === 2,
     };
+    installWindowDragListeners();
+  }
+
+  function installWindowDragListeners(): void {
+    removeWindowDragListeners?.();
+    const move = (event: PointerEvent): void => windowPointerMove(event);
+    const up = (event: PointerEvent): void => windowPointerUp(event);
+    const cancel = (): void => windowPointerCancel();
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    removeWindowDragListeners = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      removeWindowDragListeners = null;
+    };
   }
 
   function pointerMove(event: PointerEvent): void {
-    if (!drag || drag.id !== event.pointerId) {
-      hover(event);
-      return;
-    }
+    if (drag) return;
+    hover(event);
+  }
+
+  function windowPointerMove(event: PointerEvent): void {
+    if (!drag || drag.id !== event.pointerId) return;
     const deltaX = event.clientX - drag.x;
     const deltaY = event.clientY - drag.y;
     if (
@@ -438,18 +457,18 @@
     else pan(-deltaX, -deltaY);
   }
 
-  function pointerUp(event: PointerEvent): void {
+  function windowPointerUp(event: PointerEvent): void {
     if (!drag || drag.id !== event.pointerId) return;
     const completed = drag;
     drag = null;
-    if (host.hasPointerCapture?.(event.pointerId))
-      host.releasePointerCapture(event.pointerId);
+    removeWindowDragListeners?.();
     if (!completed.moved && (canSystemNavigate || !completed.orbit))
       pick(event);
   }
 
-  function cancelDrag(): void {
+  function windowPointerCancel(): void {
     drag = null;
+    removeWindowDragListeners?.();
     clearHover();
   }
 
@@ -669,6 +688,7 @@
       mounted = false;
       clearHover();
       drag = null;
+      removeWindowDragListeners?.();
       if (wheel) host.removeEventListener('wheel', wheel);
       observer?.disconnect();
       unsubscribe();
@@ -786,9 +806,6 @@
   onkeydown={cameraKey}
   onpointerdown={pointerDown}
   onpointermove={pointerMove}
-  onpointerup={pointerUp}
-  onpointercancel={cancelDrag}
-  onlostpointercapture={cancelDrag}
   oncontextmenu={(event) => {
     if (canNavigate) event.preventDefault();
   }}
