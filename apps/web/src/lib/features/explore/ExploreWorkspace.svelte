@@ -21,6 +21,7 @@
     RuntimeEvent,
     SpatialContribution,
     SpatialTarget,
+    SystemCameraState,
   } from '$lib/spatial/contracts';
   import {
     buildExploreGalaxyScene,
@@ -67,6 +68,7 @@
   let hoveredRegionId = $state<string | null>(null);
   let cameraRequest = $state<CameraState | null>(null);
   let cameraRequestRevision = $state(0);
+  let spatialCameraTransitionActive = $state(false);
   let retainedCamera = $state<{
     finderRevision: number;
     camera: CameraState;
@@ -350,15 +352,20 @@
     selectResult(system);
   }
 
+  function retainCamera(camera: CameraState): void {
+    retainedCamera = { finderRevision, camera };
+    if (streamCameraTimer) clearTimeout(streamCameraTimer);
+    streamCameraTimer = setTimeout(() => {
+      streamCamera = camera;
+      streamRevision += 1;
+      streamCameraTimer = null;
+    }, 180);
+  }
+
   function handleRuntimeEvent(event: RuntimeEvent): void {
     if (event.type === 'CAMERA_CHANGED' && 'focusLy' in event.camera) {
-      retainedCamera = { finderRevision, camera: event.camera };
-      if (streamCameraTimer) clearTimeout(streamCameraTimer);
-      streamCameraTimer = setTimeout(() => {
-        streamCamera = event.camera as CameraState;
-        streamRevision += 1;
-        streamCameraTimer = null;
-      }, 180);
+      if (spatialCameraTransitionActive) return;
+      retainCamera(event.camera);
     } else if (event.type === 'TARGET_HOVERED') {
       hoveredRegionId =
         event.target?.kind === 'region' ? event.target.id : null;
@@ -405,6 +412,16 @@
   function requestView(camera: CameraState): void {
     cameraRequest = camera;
     cameraRequestRevision += 1;
+  }
+
+  function handleCameraTransitionChange(
+    active: boolean,
+    camera?: CameraState | SystemCameraState | null,
+  ): void {
+    spatialCameraTransitionActive = active;
+    if (!active && camera && 'focusLy' in camera) {
+      retainCamera(camera);
+    }
   }
 
   function overview(): void {
@@ -817,6 +834,7 @@
         {focusTarget}
         {focusRevision}
         onRuntimeEvent={handleRuntimeEvent}
+        onTransitionChange={handleCameraTransitionChange}
       />
       {#if selectedMapSystem}
         <article

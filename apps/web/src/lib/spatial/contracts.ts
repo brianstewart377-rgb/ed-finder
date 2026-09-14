@@ -220,7 +220,7 @@ export type RuntimeEvent =
     }>
   | Readonly<{ type: 'TARGET_HOVERED'; target?: SpatialTarget }>
   | Readonly<{ type: 'TARGET_PICKED'; target?: SpatialTarget }>
-  | Readonly<{ type: 'TRANSITION_FINISHED'; target: SpatialTarget }>
+  | Readonly<{ type: 'TRANSITION_FINISHED'; target?: SpatialTarget }>
   | Readonly<{
       type: 'RESOURCE_LOST' | 'RECOVERED';
       detail: string;

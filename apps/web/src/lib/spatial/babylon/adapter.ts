@@ -2060,12 +2060,14 @@ export const createBabylonSession = (
         );
         if (progress >= 1) {
           transition = null;
-          if (activeTransition.target) {
-            activeTransition.emit({
-              type: 'TRANSITION_FINISHED',
-              target: activeTransition.target,
-            });
-          }
+          activeTransition.emit(
+            activeTransition.target
+              ? {
+                  type: 'TRANSITION_FINISHED',
+                  target: activeTransition.target,
+                }
+              : { type: 'TRANSITION_FINISHED' },
+          );
         }
       }
       // A demand-rendered WebGPU frame still needs the engine frame boundary:

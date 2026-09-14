@@ -33,8 +33,7 @@ Both browser-validation lanes must exercise the **same V3 frontend and renderer 
 - Primary application target: `apps/web/`.
 - Spatial renderer: Babylon.js.
 - Browser authority: Cypress.
-- Workflow: `.github/workflows/cypress-parity.yml` while migration compatibility
-  naming remains in place.
+- Workflow: `.github/workflows/cypress-parity.yml`.
 - Runtime: the normal application/API contract, never `review_main.py`.
 
 ### Owns

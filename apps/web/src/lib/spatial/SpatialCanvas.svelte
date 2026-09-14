@@ -29,6 +29,7 @@
     contributionPatch = null,
     contributionPatchRevision = 0,
     onRuntimeEvent,
+    onTransitionChange,
   } = $props<{
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
@@ -38,6 +39,10 @@
     contributionPatch?: SpatialContribution | null;
     contributionPatchRevision?: number;
     onRuntimeEvent?: (event: RuntimeEvent) => void;
+    onTransitionChange?: (
+      active: boolean,
+      camera?: CameraState | SystemCameraState | null,
+    ) => void;
   }>();
 
   let canvas: HTMLCanvasElement;
@@ -75,6 +80,14 @@
   let cameraTransitionActive = false;
   let pendingPickPoint: { screenX: number; screenY: number } | null = null;
   let hoverFrame: number | null = null;
+
+  function setCameraTransitionActive(
+    active: boolean,
+    camera?: CameraState | SystemCameraState | null,
+  ): void {
+    cameraTransitionActive = active;
+    onTransitionChange?.(active, camera);
+  }
 
   function targetCount(value: SpatialSceneContract | undefined): number {
     return layerTargetCount(value, 'finder-systems');
@@ -203,8 +216,13 @@
       camera,
       ...(animate ? { transition: { durationMs: 650, reducedMotion } } : {}),
     });
-    if (result.status === 'executed' && (!animate || reducedMotion))
+    if (result.status === 'executed' && !animate) {
       currentCamera = camera;
+    } else if (result.status === 'executed' && reducedMotion) {
+      currentCamera = camera;
+    } else if (result.status === 'executed') {
+      setCameraTransitionActive(true, camera);
+    }
   }
 
   function setSystemCamera(camera: SystemCameraState): void {
@@ -454,7 +472,7 @@
     });
     if (result.status === 'executed') {
       lastFocusRevision = focusRevision;
-      cameraTransitionActive = !reducedMotion;
+      setCameraTransitionActive(!reducedMotion);
     }
   });
 
@@ -580,7 +598,10 @@
         ) {
           currentSystemCamera = event.camera;
         } else if (event.type === 'TRANSITION_FINISHED') {
-          cameraTransitionActive = false;
+          setCameraTransitionActive(
+            false,
+            event.target?.kind === 'body' ? currentSystemCamera : currentCamera,
+          );
           if (pendingPickPoint) {
             const point = pendingPickPoint;
             pendingPickPoint = null;

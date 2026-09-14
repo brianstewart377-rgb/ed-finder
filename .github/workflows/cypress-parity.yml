@@ -4,8 +4,7 @@ name: Cypress Parity
 # - This workflow owns normal Product E2E / Visual Acceptance.
 # - It must not invoke Review Lab runtime, review-only routes, or synthetic Lab
 #   fixtures. Review Lab is a separate deterministic proving environment.
-# - apps/web is the V3 authority. The legacy frontend/ React app is no longer
-#   built or exercised by this gate.
+# - apps/web is the V3 authority and the only browser target for this gate.
 # See docs/development/v3-browser-validation-lanes.md.
 
 on:
@@ -213,19 +212,3 @@ jobs:
             apps/web/cypress/artifacts
           if-no-files-found: warn
           retention-days: 7
-
-  required-check-compatibility:
-    # Administrative compatibility only. Branch protection currently requires
-    # this exact legacy context. This alias contains no browser invocation and
-    # succeeds only when the real Chrome and Firefox Cypress matrix is green.
-    # Delete it once the protected required check is repointed to Cypress.
-    name: Frontend v2 E2E (Playwright)
-    if: always()
-    needs: [cypress-release-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Mirror the Cypress release-gate result
-        env:
-          CYPRESS_RESULT: ${{ needs.cypress-release-gate.result }}
-        run: test "$CYPRESS_RESULT" = success
