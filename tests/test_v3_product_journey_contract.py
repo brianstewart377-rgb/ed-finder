@@ -28,7 +28,7 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
         "cy.intercept('POST', '/api/local/search')",
         'data-system-result',
         'data-last-picked-id64',
-        "cy.location('pathname').should('eq', '/inspect')",
+        "cy.location('pathname', { timeout: 10_000 }).should('eq', '/inspect')",
         '9007199254740993',
         'data-resize-revision',
         'initialCanvas',
