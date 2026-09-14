@@ -1695,13 +1695,6 @@ export const createBabylonSession = (
     };
     emit({ type: 'CAMERA_CHANGED', camera });
   };
-  let pendingApplied:
-    | Readonly<{
-        scene: Scene;
-        event: RuntimeEvent;
-        emit: (event: RuntimeEvent) => void;
-      }>
-    | undefined;
   try {
     scene = createDiagnosticScene(engine);
   } catch (error) {
@@ -1752,15 +1745,11 @@ export const createBabylonSession = (
           warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
           readinessAttemptsRemaining = 120;
           previous?.dispose();
-          pendingApplied = {
-            scene: replacement.scene,
-            event: {
-              type: 'SCENE_APPLIED',
-              sceneRevision: command.scene.revision,
-              renderedLayers: replacement.renderedLayers,
-            },
-            emit,
-          };
+          emit({
+            type: 'SCENE_APPLIED',
+            sceneRevision: command.scene.revision,
+            renderedLayers: replacement.renderedLayers,
+          });
           return { status: 'executed' };
         }
         if (
@@ -1809,15 +1798,11 @@ export const createBabylonSession = (
           hoveredTargetKey = '';
           warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
           readinessAttemptsRemaining = 120;
-          pendingApplied = {
-            scene: product.scene,
-            event: {
-              type: 'SCENE_APPLIED',
-              sceneRevision: command.scene.revision,
-              renderedLayers: product.renderedLayers,
-            },
-            emit,
-          };
+          emit({
+            type: 'SCENE_APPLIED',
+            sceneRevision: command.scene.revision,
+            renderedLayers: product.renderedLayers,
+          });
           return { status: 'executed' };
         }
         transition = null;
@@ -1832,15 +1817,11 @@ export const createBabylonSession = (
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
         readinessAttemptsRemaining = 120;
         previous?.dispose();
-        pendingApplied = {
-          scene: replacement.scene,
-          event: {
-            type: 'SCENE_APPLIED',
-            sceneRevision: command.scene.revision,
-            renderedLayers: replacement.renderedLayers,
-          },
-          emit,
-        };
+        emit({
+          type: 'SCENE_APPLIED',
+          sceneRevision: command.scene.revision,
+          renderedLayers: replacement.renderedLayers,
+        });
         return { status: 'executed' };
       }
       if (command.type === 'PATCH_CONTRIBUTION') {
@@ -1898,16 +1879,12 @@ export const createBabylonSession = (
         productContract = nextContract;
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
         readinessAttemptsRemaining = 120;
-        pendingApplied = {
-          scene: product.scene,
-          event: {
-            type: 'CONTRIBUTION_APPLIED',
-            contributionId: command.contribution.id,
-            contributionRevision: command.contribution.revision,
-            renderedLayers,
-          },
-          emit,
-        };
+        emit({
+          type: 'CONTRIBUTION_APPLIED',
+          contributionId: command.contribution.id,
+          contributionRevision: command.contribution.revision,
+          renderedLayers,
+        });
         return { status: 'executed' };
       }
       if (command.type === 'SET_CAMERA') {
@@ -2107,14 +2084,6 @@ export const createBabylonSession = (
         return readinessAttemptsRemaining > 0 || transition !== null;
       }
       warmupFramesRemaining = Math.max(0, warmupFramesRemaining - 1);
-      if (
-        warmupFramesRemaining === 0 &&
-        pendingApplied?.scene === activeScene
-      ) {
-        const applied = pendingApplied;
-        pendingApplied = undefined;
-        applied.emit(applied.event);
-      }
       return warmupFramesRemaining > 0 || transition !== null;
     },
     dispose() {
@@ -2124,7 +2093,6 @@ export const createBabylonSession = (
       productContract = null;
       systemProduct = null;
       transition = null;
-      pendingApplied = undefined;
       try {
         currentScene?.dispose();
       } finally {

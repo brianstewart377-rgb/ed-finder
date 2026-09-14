@@ -504,13 +504,42 @@
     let unsubscribe = (): void => undefined;
     let wheel: ((event: WheelEvent) => void) | null = null;
 
+    const loadBabylonAdapter = async (): Promise<
+      typeof import('./babylon/adapter')
+    > => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return await import('./babylon/adapter');
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) {
+            await new Promise((resolve) => window.setTimeout(resolve, 80));
+          }
+        }
+      }
+      throw lastError;
+    };
+
     const startRuntime = async (): Promise<void> => {
-      const { createBabylonSpatialRuntime } = await import('./babylon/adapter');
+      let adapter: typeof import('./babylon/adapter');
+      try {
+        adapter = await loadBabylonAdapter();
+      } catch (error) {
+        if (mounted) {
+          status = { state: 'failed', failure: 'INITIALIZATION_FAILED' };
+          console.error('Failed to load the Babylon spatial adapter', error);
+        }
+        return;
+      }
       if (!mounted) return;
 
-      const nextRuntime = createBabylonSpatialRuntime(canvas, (nextStatus) => {
-        if (mounted) status = nextStatus;
-      });
+      const nextRuntime = adapter.createBabylonSpatialRuntime(
+        canvas,
+        (nextStatus) => {
+          if (mounted) status = nextStatus;
+        },
+      );
       activeRuntime = nextRuntime;
       runtime = nextRuntime;
       unsubscribe = nextRuntime.subscribe((event) => {
