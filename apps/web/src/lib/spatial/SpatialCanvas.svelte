@@ -72,6 +72,8 @@
   let lastAppliedContributionRevision = $state<number | undefined>();
   let renderedLayerIds = $state<string[]>([]);
   let pendingHoverPoint: { x: number; y: number } | null = null;
+  let cameraTransitionActive = false;
+  let pendingPickPoint: { screenX: number; screenY: number } | null = null;
   let hoverFrame: number | null = null;
 
   function targetCount(value: SpatialSceneContract | undefined): number {
@@ -445,11 +447,14 @@
     const reducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches;
-    if (
-      runtime.dispatch({ type: 'FLY_TO', target: focusTarget, reducedMotion })
-        .status === 'executed'
-    ) {
+    const result = runtime.dispatch({
+      type: 'FLY_TO',
+      target: focusTarget,
+      reducedMotion,
+    });
+    if (result.status === 'executed') {
       lastFocusRevision = focusRevision;
+      cameraTransitionActive = !reducedMotion;
     }
   });
 
@@ -458,11 +463,15 @@
     const activeCanvas = host.querySelector('canvas');
     if (!activeCanvas) return;
     const bounds = activeCanvas.getBoundingClientRect();
-    runtime.dispatch({
-      type: 'PICK',
+    const point = {
       screenX: event.clientX - bounds.left,
       screenY: event.clientY - bounds.top,
-    });
+    };
+    if (cameraTransitionActive) {
+      pendingPickPoint = point;
+      return;
+    }
+    runtime.dispatch({ type: 'PICK', ...point });
   }
 
   function hover(event: PointerEvent): void {
@@ -570,6 +579,13 @@
           'systemId64' in event.camera
         ) {
           currentSystemCamera = event.camera;
+        } else if (event.type === 'TRANSITION_FINISHED') {
+          cameraTransitionActive = false;
+          if (pendingPickPoint) {
+            const point = pendingPickPoint;
+            pendingPickPoint = null;
+            runtime?.dispatch({ type: 'PICK', ...point });
+          }
         } else if (event.type === 'RECOVERED' && scene) {
           lastLoadedRevision = -1;
         }
@@ -633,6 +649,8 @@
       lastHoveredRegionId = undefined;
       lastAppliedSceneRevision = undefined;
       lastAppliedContributionRevision = undefined;
+      cameraTransitionActive = false;
+      pendingPickPoint = null;
       renderedLayerIds = [];
     };
   });
