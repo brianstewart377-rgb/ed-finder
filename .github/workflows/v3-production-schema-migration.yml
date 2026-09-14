@@ -1,0 +1,202 @@
+name: V3 production schema migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Read-only reviewed plan or protected migration apply
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      target_confirmation:
+        description: Type ed-finder-prod/nb79a3d.mevnode.com
+        required: true
+        type: string
+      plan_run_id:
+        description: Successful reviewed plan run ID (required only for apply)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v3-production-application-authority
+  cancel-in-progress: false
+
+jobs:
+  production-migration:
+    name: Run protected production migration plan or apply
+    if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: v3-production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Require literal target and exact current main after production approval
+        env:
+          TARGET_CONFIRMATION: ${{ inputs.target_confirmation }}
+          OPERATION: ${{ inputs.operation }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+        run: |
+          set -euo pipefail
+          [ "$TARGET_CONFIRMATION" = "ed-finder-prod/nb79a3d.mevnode.com" ] || exit 64
+          case "$OPERATION" in
+            plan) [ -z "$PLAN_RUN_ID" ] || { echo "plan_run_id is apply-only" >&2; exit 64; } ;;
+            apply)
+              [[ "$PLAN_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "apply requires a plan run ID" >&2; exit 64; }
+              [ "$PLAN_RUN_ID" != "$GITHUB_RUN_ID" ] || exit 64
+              ;;
+            *) exit 64 ;;
+          esac
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 64
+          git fetch --no-tags origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" ] || {
+            echo "Canonical main moved while production approval was pending" >&2
+            exit 64
+          }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Download the separately reviewed exact-head plan
+        if: inputs.operation == 'apply'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: v3-production-schema-migration
+          path: ${{ runner.temp }}/reviewed-plan
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.plan_run_id }}
+      - name: Authenticate the reviewed plan run and receipt
+        if: inputs.operation == 'apply'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/operator/v3_production_migration_plan.py \
+            --run-id "$PLAN_RUN_ID" --source-sha "$GITHUB_SHA" \
+            --receipt "$RUNNER_TEMP/reviewed-plan/v3-production-migration.json" \
+            --authority deploy/v3-production/target-authority.json
+      - name: Derive and verify the exact target schema identity
+        env:
+          TARGET_IDENTITY: ${{ runner.temp }}/target-schema-identity.json
+        run: |
+          set -euo pipefail
+          python scripts/operator/v3_schema_identity.py --output "$TARGET_IDENTITY"
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          identity = pathlib.Path(os.environ["TARGET_IDENTITY"])
+          authority = json.loads(pathlib.Path("deploy/v3-production/target-authority.json").read_text())
+          expected = authority["external_authority"]["schema_identity_sha256"]
+          actual = hashlib.sha256(identity.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit("derived target schema identity does not match reviewed authority")
+          PY
+          python scripts/operator/v3_production_deploy.py --operation authority-gate >/dev/null
+      - name: Prepare bounded operation bundle and pinned SSH trust
+        env:
+          SSH_KEY: ${{ secrets.V3_PRODUCTION_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
+          BUNDLE: ${{ runner.temp }}/v3-production-migration-bundle
+          TARGET_IDENTITY: ${{ runner.temp }}/target-schema-identity.json
+        run: |
+          set -euo pipefail
+          [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || exit 64
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || exit 64
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh "$BUNDLE"
+          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" \
+            "$BUNDLE/deploy/v3-production" "$BUNDLE/sql/v3/migrations" "$BUNDLE/sql/r1_v3" \
+            "$BUNDLE/artifacts/schema"
+          install -m 600 /dev/null ~/.ssh/v3_production_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+          install -m 700 scripts/operator/v3_production_deploy.py \
+            scripts/operator/v3_production_migrate.py scripts/operator/v3_schema_identity.py \
+            "$BUNDLE/scripts/operator/"
+          install -m 700 scripts/operator/actions/v3-production-migrate.sh \
+            "$BUNDLE/scripts/operator/actions/"
+          install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
+          install -m 600 deploy/v3-production/target-authority.json "$BUNDLE/deploy/v3-production/"
+          install -m 600 sql/v3/migration-manifest.txt "$BUNDLE/sql/v3/"
+          install -m 600 sql/v3/migrations/*.sql "$BUNDLE/sql/v3/migrations/"
+          install -m 600 sql/r1_v3/001_structural_shell.sql "$BUNDLE/sql/r1_v3/"
+          install -m 600 "$TARGET_IDENTITY" "$BUNDLE/artifacts/schema/target-schema-identity.json"
+      - name: Execute exact production migration authority
+        env:
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_USER: ${{ secrets.V3_PRODUCTION_USER }}
+          BUNDLE: ${{ runner.temp }}/v3-production-migration-bundle
+          RECEIPT: ${{ runner.temp }}/v3-production-migration.json
+          OPERATION: ${{ inputs.operation }}
+          SOURCE_SHA: ${{ github.sha }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          case "$OPERATION" in plan|apply) ;; *) exit 64 ;; esac
+          if [ "$OPERATION" = apply ]; then
+            git fetch --no-tags origin refs/heads/main
+            [ "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA" ] || {
+              echo "Canonical main moved immediately before production apply" >&2
+              exit 64
+            }
+          fi
+          remote_receipt="$RECEIPT.remote"
+          set +e
+          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_production_key -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; work=\"\$(mktemp -d)\"; child=''; cleanup() { rm -rf -- \"\$work\"; }; cancel() { trap '' HUP INT TERM; if [ -n \"\$child\" ]; then kill -TERM \"\$child\" 2>/dev/null || true; set +e; wait \"\$child\"; child_status=\$?; set -e; exit \"\$child_status\"; fi; exit 143; }; trap cleanup EXIT; trap cancel HUP INT TERM; chmod 700 \"\$work\"; tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C \"\$work\"; chmod 700 \"\$work\"; cd \"\$work\"; bash scripts/operator/actions/v3-production-migrate.sh --operation '$OPERATION' --root \"\$work\" --candidate-schema-identity \"\$work/artifacts/schema/target-schema-identity.json\" --source-sha '$SOURCE_SHA' --workflow-run-id '$WORKFLOW_RUN_ID' & child=\$!; wait \"\$child\"" \
+            > "$remote_receipt"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if [ -s "$remote_receipt" ] && python -m json.tool "$remote_receipt" >/dev/null 2>&1; then
+            mv "$remote_receipt" "$RECEIPT"
+          else
+            SOURCE_SHA="$SOURCE_SHA" WORKFLOW_RUN_ID="$WORKFLOW_RUN_ID" python - <<'PY' > "$RECEIPT"
+          import json, os
+          print(json.dumps({
+              "schema_version": "ed-finder/v3-production-migration-receipt/v1",
+              "operation": "production-migration", "status": "stopped",
+              "created_at": None, "source_sha": os.environ["SOURCE_SHA"],
+              "workflow_run_id": os.environ["WORKFLOW_RUN_ID"],
+              "target": {"production": True, "hostname": "ed-finder-prod", "fqdn": "nb79a3d.mevnode.com"},
+              "failures": ["remote_transport_or_receipt_failed"],
+              "desired_ledger_sha256": None, "schema_identity_sha256": None,
+              "schema_identity_before_sha256": None, "schema_identity_after_sha256": None,
+              "prior_release_compatibility_verified": None,
+              "applied_before": [], "pending": [], "applied_now": [],
+              "database_access_performed": None, "database_writes_performed": None,
+              "migrations_performed": None, "service_changes_performed": False,
+              "schema_identity_updated": None, "edge_recreated": False,
+              "protected_resources_changed": False,
+          }, sort_keys=True))
+          PY
+          fi
+          cat "$RECEIPT"
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+      - name: Upload sanitized migration receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-production-schema-migration
+          path: ${{ runner.temp }}/v3-production-migration.json
+          if-no-files-found: warn
+          retention-days: 180

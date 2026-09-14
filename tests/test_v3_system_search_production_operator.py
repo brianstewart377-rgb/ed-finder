@@ -21,7 +21,7 @@ def test_search_production_operation_is_allowlisted_through_trusted_main():
     assert "trusted-main/scripts/operator/actions/v3-system-search-f1.sh" in workflow
     assert ".github/ed-new-ops-requests/*.json" in workflow
     assert "ref: main" in workflow
-    assert "V3 Search start requires root or passwordless sudo before any schema change" in workflow
+    assert "V3 Search start requires root or passwordless sudo for the bounded worker launch" in workflow
     assert workflow.index("V3 Search start requires root or passwordless sudo") < workflow.index(
         "trusted-main/scripts/operator/actions/v3-system-search-f1.sh"
     )
@@ -35,8 +35,8 @@ def test_search_operator_pins_exact_generation_and_migration():
     assert 'MIGRATION_NAME="006_v3_derived_product_lifecycle.sql"' in source
     expected = hashlib.sha256(MIGRATION.read_bytes()).hexdigest()
     assert f'MIGRATION_SHA="{expected}"' in source
-    assert "expected only migration 006 to be pending" in source
-    assert "production migration authority still reports pending migrations" in source
+    assert "trusted migration 006 source hash mismatch" in source
+    assert "migration 006 live ledger hash mismatch" in source
 
 
 def test_search_operator_is_bounded_and_cannot_publish_or_touch_canonical():
@@ -74,20 +74,20 @@ def test_search_worker_dependencies_are_offline_and_pinned():
     assert 'PYTHONPATH="/tmp/v3-search-deps:/work:/work/apps/api/src"' in source
 
 
-def test_search_operator_uses_reviewed_migration_authority_before_worker_launch():
+def test_search_operator_only_verifies_its_required_schema_before_worker_launch():
     source = ACTION.read_text(encoding="utf-8")
-    identity = source.index("install_target_schema_identity")
-    migrate = source.index("apply_pending_migration")
+    verify = source.index("require_search_schema")
     launch = source.index("docker run -d")
-    assert identity < migrate < launch
-    assert "scripts/operator/v3_production_migrate.py" in source
-    assert "--operation plan" in source
-    assert "--operation apply" in source
-    assert "--operation authority-gate" in source
+    assert verify < launch
+    assert 'api_image="$(docker inspect -f' in source
+    assert "active API image identity is empty" in source
+    assert "scripts/operator/v3_production_migrate.py" not in source
+    assert "install_target_schema_identity" not in source
+    assert "apply_pending_migration" not in source
     assert 'dst=/work,readonly' in source
 
 
-def test_target_authority_pins_identity_derived_from_lineage_006():
+def test_target_authority_reviews_transition_from_006_to_current_lineage():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -107,11 +107,15 @@ def test_target_authority_pins_identity_derived_from_lineage_006():
     payload = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
     expected_sha = hashlib.sha256(payload).hexdigest()
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
-    assert authority["external_authority"]["schema_identity_sha256"] == expected_sha
+    transition = authority["schema_transition"]
+    assert transition["from_schema_identity_sha256"] == expected_sha
     assert expected_sha == "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d"
+    assert transition["from_migration_set_identity"] == document["migration_set_identity"]
     assert document["migration_set_entries"][-1]["ledger_name"] == "006_v3_derived_product_lifecycle.sql"
     assert desired_document['migration_set_entries'][-1]['ledger_name'] == '009_v3_journal_galaxy_contributions.sql'
-    assert desired_document['migration_set_identity'] != document['migration_set_identity']
+    assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
+    desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
+    assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
 
 
 def test_search_status_is_read_only_and_reports_both_products():

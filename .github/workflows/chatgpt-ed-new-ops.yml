@@ -302,7 +302,7 @@ jobs:
           stage="/var/tmp/edfinder-v3-search-${source_sha}"
           tar -C trusted-main --exclude=.git -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
-          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- start '$stage' '$source_sha'; else echo 'V3 Search start requires root or passwordless sudo before any schema change' >&2; exit 64; fi"
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- start '$stage' '$source_sha'; else echo 'V3 Search start requires root or passwordless sudo for the bounded worker launch' >&2; exit 64; fi"
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
             < trusted-main/scripts/operator/actions/v3-system-search-f1.sh | tee "$RECEIPT"
 

@@ -118,6 +118,14 @@ def test_production_authority_is_separate_exact_and_authorized():
     assert value["external_authority"]["schema_identity_mode"] == "0600"
     assert re.fullmatch(r"[0-9a-f]{64}", value["external_authority"]["schema_identity_sha256"])
     assert value["external_authority"]["docker_context"] == "default"
+    transition = value["schema_transition"]
+    compatibility = value["accepted_release_schema_compatibility"]
+    assert transition["to_migration_set_identity"] in compatibility["compatible_migration_sets"]
+    assert compatibility["source_sha"] == value["observed_runtime"]["api_build_sha"]
+    assert compatibility["images"] == {
+        "backend": value["observed_runtime"]["api_image"],
+        "web": value["observed_runtime"]["web_image"],
+    }
 
 
 def test_production_compose_owns_only_blue_green_application_slots():
@@ -576,6 +584,70 @@ def test_rollback_comes_only_from_checksum_bound_prior_accepted_release():
     assert "rollback-manifest" not in workflow
 
 
+def test_prior_release_schema_transition_requires_an_exact_reviewed_attestation(monkeypatch):
+    deployer = _load_deployer()
+    source = "a" * 40
+    recorded = "sha256:" + "1" * 64
+    target = "sha256:" + "2" * 64
+    images = {
+        "backend": "registry.example/backend@sha256:" + "3" * 64,
+        "web": "registry.example/web@sha256:" + "4" * 64,
+    }
+    receipt = {
+        "active_slot": "blue", "source_sha": source, "release_run_id": "123",
+        "manifest_sha256": "5" * 64, "migration_set_identity": recorded,
+        "images": images,
+    }
+    manifest = {"git_sha": source, "images": images}
+
+    class FakeManifestError(ValueError):
+        pass
+
+    class ManifestTool:
+        ManifestError = FakeManifestError
+
+        @staticmethod
+        def validate_manifest(_manifest, *, purpose, current_migration_set):
+            assert purpose == "rollback"
+            if current_migration_set != recorded:
+                raise FakeManifestError("not declared by the immutable release")
+
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: ManifestTool)
+    monkeypatch.setattr(deployer, "verify_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(deployer, "smoke", lambda *_args, **_kwargs: None)
+
+    def runner(argv, **_kwargs):
+        service = argv[-1]
+        role = "backend" if "api-" in service else "web"
+        return subprocess.CompletedProcess(
+            argv, 0, f"true\t{images[role]}\t{source}\n", ""
+        )
+
+    assert deployer.validate_prior_runtime(
+        receipt, manifest, {"migration_set_identity": recorded}, {}, runner
+    ) == "blue"
+    with pytest.raises(deployer.DeploymentError, match="compatibility authority"):
+        deployer.validate_prior_runtime(
+            receipt, manifest, {"migration_set_identity": target}, {}, runner
+        )
+
+    attestation = {
+        "schema_version": deployer.RELEASE_COMPATIBILITY_SCHEMA,
+        "source_sha": source, "release_run_id": "123",
+        "manifest_sha256": receipt["manifest_sha256"], "images": images,
+        "compatible_migration_sets": sorted([recorded, target]),
+        "evidence": "reviewed additive-schema integration evidence",
+    }
+    assert deployer.validate_prior_runtime(
+        receipt, manifest, {"migration_set_identity": target}, {}, runner, attestation
+    ) == "blue"
+    with pytest.raises(deployer.DeploymentError, match="lacks reviewed compatibility"):
+        deployer.validate_prior_runtime(
+            receipt, manifest, {"migration_set_identity": target}, {}, runner,
+            {**attestation, "manifest_sha256": "6" * 64},
+        )
+
+
 def _accepted_receipt(deployer, source_sha: str, run_id: str, manifest: bytes) -> dict:
     return {
         "schema_version": deployer.RECEIPT_SCHEMA,
@@ -727,16 +799,18 @@ def test_receipts_are_machine_readable_and_secret_safe_by_contract():
     assert "password=" not in source.lower()
 
 
-def test_runbook_states_no_execution_boundary_and_concrete_first_run_blockers():
+def test_runbook_states_execution_boundary_and_current_transition():
     source = RUNBOOK.read_text(encoding="utf-8")
 
     assert "does **not** authorize executing it during" in source
     assert "No command in this runbook was executed\nagainst production" in source
     assert "root `docker-compose.yml`" in source
     assert "Contabo checkpoint" in source
-    assert "production_migration_authority_absent_or_schema_incompatible" in source
-    assert "production_promotion_cpython314_runtime_unproved" in source
-    assert "production_local_docker_context_authority_missing" in source
+    assert "has no recorded blockers" in source
+    assert "release run `34527597963`" in source
+    assert "workflow run `34698167474`" in source
+    assert "supplemental compatibility attestation" in source
+    assert "additive migrations 008 and 009" in source
     assert "default `python3` used to run inventory" in source
     assert "exactly CPython 3.14" in source
     assert "Docker context `default`" in source
@@ -745,7 +819,6 @@ def test_runbook_states_no_execution_boundary_and_concrete_first_run_blockers():
     assert "application- and data-read-only" in source
     assert "atomically restore the prior pointer" in source
     assert "loopback ports `58080` and `58081`" in source
-    assert "fills a blocker" in source
     assert "stale `edfinder-v3-api:phase4c-r5`" in source
     assert "Redis and NATS are not removed or replaced" in source
 

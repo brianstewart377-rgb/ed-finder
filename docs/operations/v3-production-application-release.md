@@ -20,76 +20,32 @@ an exact `build_sha`, a checksummed migration set, explicit schema compatibility
 and application-only rollback eligibility. Production consumes that artifact;
 it never builds, resolves dependencies, installs packages, or runs `git pull`.
 
-## Current fail-closed state
+## Current production state
 
-The committed `deploy/v3-production/target-authority.json` is intentionally
-`stopped`. Read-only host-status run `34202433965` proved the named production
-containers, retained PostgreSQL 18 container, Redis, NATS, edge, and the
-temporary UI shell.
+The committed production target is authorized and has no recorded blockers.
+The first governed promotion accepted release run `34527597963`, source
+`b1616332c024e262a0aac03018943abbf619c087`, into the blue slot on 2026-09-10.
+Public `/api/health` on 2026-09-13 still reported that exact build with
+`database=connected`.
 
-Reviewed read-only inventory run `34493285192` (2026-09-10, sanitized receipt
-committed under `artifacts/v3-production-inventory-20260910/`) supersedes that
-picture. Without mutation (`db_writes_performed=false`,
-`migrations_performed=false`, `service_changes_performed=false`,
-`env_files_read=false`) it proved:
-
-- the application network `edfinder-v3-production` exists and carries exactly
-  the running `edfinder-v3-api` and `edfinder-v3-production-web-blue` members;
-- Docker context `default` resolves to the local rootful
-  `unix:///var/run/docker.sock` endpoint;
-- loopback ownership is deterministic and exact: `127.0.0.1:58080` is owned by
-  `edfinder-v3-proxy` and `127.0.0.1:58081` by
-  `edfinder-v3-production-web-blue`;
-- the live schema is `edfinder_v3_phase4c_full_20260827_r5`, with migration
-  ledger rows
-  `sha256:364e6153ee392a92faa11189b1b80cb9b8489abdbdb87b87971a20ee88cfa023`
-  read under `BEGIN READ ONLY`;
-- host capacity still satisfies the reviewed blue/green peak.
-
-The helper also records stat-only evidence for the two designated paths the
-authority still has to pin — existence, kind, owner uid and mode for
-`/etc/ed-finder/v3-production/api.env` and
-`/var/lib/ed-finder/v3-production/receipts`. It never reads their contents, and
-an absent path is recorded as a fact rather than a failure. The 2026-09-10
-receipt predates that addition, so the next reviewed run is the one that
-supplies the owner/mode facts the `api_env_file` and `receipt_directory`
-authority fields need.
-
-The retained production database identity is adopted from the running release
-rather than from an aspirational name: role `edfinder_v3`, database
+The retained PostgreSQL 18 database is
 `edfinder_v3_phase4c_full_20260827_r5`, reached as
-`edfinder-v3-phase4c-full-20260827_r5-postgres` on the application network, which
-the retained container now joins.
+`edfinder-v3-phase4c-full-20260827_r5-postgres` by role `edfinder_v3`. Its
+`v3_meta.schema_migration` ledger is the independent V3 lineage rather than the
+V2 `sql/migration-manifest.txt` set. Migration 006 was applied and its exact
+ledger hash verified before the Search worker launch reached its later
+dependency failure in workflow run `34698167474`; read-only status run
+`34698615774` then confirmed the migration's derived-product objects in use.
 
-The live `v3_meta.schema_migration` ledger is the independent V3 lineage, not the
-V2 `sql/migration-manifest.txt` ordered set, and all three of its rows are now
-committed under `sql/` with byte hashes re-verified against the ledger:
-`001_v3_baseline.sql` and `002_v3_accounts_identity.sql` applied
-2026-08-27T12:05:58Z, and `r1_v3/001_structural_shell.sql` applied
-2026-08-31T16:22:56Z. `sql/v3/migration-manifest.txt` records that lineage as
-`<sha256> <ledger-name> <path-under-sql>` so the reviewed ledger and the manifest
-are compared directly, and `scripts/operator/v3_schema_identity.py` derives the
-production schema identity document from it. The schema-identity contract and the
-live-ledger check now carry the applied ledger name explicitly and accept the
-`r1_v3/` naming.
-
-The identity file is authored on the host from that derivation and pinned in the
-target authority. One release-build step remains: a production candidate has to
-declare compatibility with the resulting V3 identity through the existing
-`--compatible-migration-set` flag. That matters because the canonical release
-manifest still derives its own migration set from the V2
-`sql/migration-manifest.txt`, so the production database's V3 identity has to be
-declared as an additional compatible set rather than inferred.
-
-The application-network, api secret file, receipt store and schema identity
-authorities are therefore resolved. `/etc/ed-finder/v3-production/api.env`
-(uid `0`, mode `0600`), `/var/lib/ed-finder/v3-production/receipts`
-(uid `0`, mode `0700`) and
-`/etc/ed-finder/v3-production/schema-identity.json` (uid `0`, mode `0600`) are
-provisioned on the host and pinned with their reviewed evidence, and the runtime
-gate is proven (see below). One blocker remains, and `status` stays `stopped`
-until it is replaced by exact reviewed facts:
-`production_edge_loopback_cutover_topology_authority_missing`.
+The reviewed transition advances that live lineage from 006 through the
+additive migrations 008 and 009; 007 remains reserved. The target schema
+identity is derived reproducibly by
+`scripts/operator/v3_schema_identity.py` and pinned in
+`deploy/v3-production/target-authority.json`. The active accepted release's
+supplemental compatibility attestation is bound to its source SHA, release run,
+manifest checksum and image digests, and covers every intermediate transition
+identity. Schema migration is therefore a separate protected operation that
+must complete before the application preflight and promotion.
 
 ## Live production state and the 2026-09-09 in-place promotion
 
@@ -231,14 +187,23 @@ recreation, and protected-resource changes remain `false`. A transport failure
 that cannot prove whether remote extraction began reports that filesystem fact
 as unknown/may-have-occurred rather than falsely reporting `false`.
 
-No current production migration authority exists in this repository. If the
-fresh complete `public.schema_migrations` filename/checksum ledger cannot be
-mapped to a reviewed `ed-finder/v3-production-schema-identity/v1` file, or the
-candidate release does not explicitly list that identity as compatible,
-preflight emits `production_migration_authority_absent_or_schema_incompatible`.
-It must not invoke `apply_migrations.sh`, baseline a ledger, run SQL migrations,
-or perform application-data writes. A schema delta requires a separate reviewed
-production migration authority; this release path never creates one.
+Schema changes use the separate manual-only
+`.github/workflows/v3-production-schema-migration.yml` authority documented in
+`v3-production-schema-migration.md`. Application promotion still never runs SQL
+migrations. Its preflight reads the complete `v3_meta.schema_migration` ledger
+and requires the installed identity plus candidate release to match it exactly.
+
+The accepted 2026-09-10 release originally recorded the three-row V3 identity.
+The database later advanced additively through migration 006 while the same
+immutable release remained healthy, leaving its historical receipt correctly
+unchanged but insufficient as proof for a later rollback. The target authority
+therefore carries a supplemental compatibility attestation bound to that exact
+release run, manifest checksum, source SHA and image digests. It lists the
+reviewed identities through 006, 008 and 009. The deployer always verifies the
+immutable manifest against its originally recorded schema first; it consults
+the supplemental attestation only for a later schema identity, and refuses any
+binding mismatch. This preserves the original receipt and manifest rather than
+rewriting production history.
 
 ## Persistent application topology
 
@@ -295,29 +260,25 @@ back only to the checksum-bound prior accepted production manifest/receipt,
 only when the fresh live schema identity is still explicitly compatible, and
 with `--pull never`. There is no database rollback in this path.
 
-## Owner sequence after blockers are reviewed away
+## Owner sequence
 
-Reconcile the topology and CPython 3.14 facts above before step 1. Until they
-agree, a governed promotion stops inside preflight rather than at a reviewed
-gate.
+1. Merge the exact reviewed schema-transition authority into `main`.
+2. Dispatch the protected migration `plan` with literal confirmation
+   `ed-finder-prod/nb79a3d.mevnode.com` and review the receipt. It must report
+   the live prefix through 006 with only 008 and 009 pending.
+3. Separately approve and dispatch `apply`, supplying the successful reviewed
+   plan run ID. The workflow authenticates that run and its exact-head receipt
+   before reaching the host. Require the apply receipt to report both migrations
+   applied, no service changes, and the installed target identity matching the
+   final live ledger.
+4. Build exact current `main` through `V3 application immutable release` with
+   `schema_compatibility=backward-compatible`, reviewed compatible migration set
+   `sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e`,
+   non-secret review evidence, and `rollback_eligible=true`.
+5. Dispatch application `preflight` in `upgrade` mode with that exact release
+   run ID and the same literal target confirmation. Review the passed receipt.
+6. Separately approve and dispatch `promote` with the identical run ID and
+   `upgrade` mode, then verify public health and the served build SHA.
 
-1. Dispatch `inventory` and review the sanitized receipt without changing the
-   host. Require the default inventory Python executable,
-   implementation/version, the separate exact-CPython-3.14 executable and
-   availability result, Docker `default` context name and endpoint/host, and
-   bounded ownership of loopback ports `58080` and `58081`; missing or
-   malformed facts keep the corresponding blockers in place.
-2. Land a separate reviewed PR that supplies exact non-secret target and schema
-   authority. Required secrets live only in the protected
-   `v3-production-readonly` / `v3-production` environments as
-   `V3_PRODUCTION_HOST`, `V3_PRODUCTION_PORT`, `V3_PRODUCTION_USER`,
-   `V3_PRODUCTION_SSH_KEY`, and `V3_PRODUCTION_SSH_KNOWN_HOSTS`.
-3. Build a candidate through `V3 application immutable release`, with the
-   observed production migration identity explicitly reviewed as compatible.
-4. Dispatch `preflight` with the exact release run ID and literal confirmation
-   `ed-finder-prod/nb79a3d.mevnode.com`. Review the stopped/passed receipt.
-5. Only after owner approval, dispatch `promote` with the same inputs and the
-   correct `bootstrap` or `upgrade` mode.
-
-If any fact differs, stop. Do not repair infrastructure, alter the database,
-recreate the edge, or adapt a legacy/root Compose command from this runbook.
+If any fact differs, stop. Do not recreate the edge or adapt a legacy/root
+Compose command from this runbook.

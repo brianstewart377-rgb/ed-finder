@@ -103,65 +103,9 @@ latest_status() {
   )::text FROM v3_meta.derived_generation g WHERE g.generation_key='${TARGET_GENERATION_KEY}'; COMMIT;"
 }
 
-install_target_schema_identity() {
-  local api_image="$1" identity_file expected_sha actual_sha authority
-  authority="$REPO_ROOT/deploy/v3-production/target-authority.json"
-  identity_file="$STATE_ROOT/schema-identity-${SOURCE_SHA}.json"
-  python3.14 "$REPO_ROOT/scripts/operator/v3_schema_identity.py" --output "$identity_file" >/dev/null
-  expected_sha="$(python3.14 - "$authority" <<'PY'
-import json, pathlib, sys
-value=json.loads(pathlib.Path(sys.argv[1]).read_text())
-print(value['external_authority']['schema_identity_sha256'])
-PY
-)"
-  actual_sha="$(sha256sum "$identity_file" | awk '{print $1}')"
-  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "target authority schema identity pin is invalid"
-  [ "$actual_sha" = "$expected_sha" ] || fail "derived schema identity does not match target authority pin"
-  [ -d /etc/ed-finder/v3-production ] || fail "production authority directory is missing"
-
-  docker run --rm -i --network none --user 0:0 \
-    --mount type=bind,src=/etc/ed-finder/v3-production,dst=/target \
-    --entrypoint /bin/sh "$api_image" -c '
-      set -eu
-      umask 077
-      temp=/target/.schema-identity.json.new
-      cat > "$temp"
-      chmod 0600 "$temp"
-      chown 0:0 "$temp"
-      mv -f "$temp" /target/schema-identity.json
-    ' < "$identity_file" >/dev/null
-
-  [ "$(sha256sum /etc/ed-finder/v3-production/schema-identity.json | awk '{print $1}')" = "$expected_sha" ] \
-    || fail "installed production schema identity checksum mismatch"
-  printf '%s' "$expected_sha"
-}
-
-apply_pending_migration() {
-  local plan_file apply_file pending_count pending_name
-  plan_file="$STATE_ROOT/migration-plan-${SOURCE_SHA}.json"
-  apply_file="$STATE_ROOT/migration-apply-${SOURCE_SHA}.json"
-  python3.14 "$REPO_ROOT/scripts/operator/v3_production_migrate.py" \
-    --operation plan --authority "$REPO_ROOT/deploy/v3-production/target-authority.json" \
-    --root "$REPO_ROOT" > "$plan_file"
-  read -r pending_count pending_name < <(python3.14 - "$plan_file" <<'PY'
-import json, pathlib, sys
-value=json.loads(pathlib.Path(sys.argv[1]).read_text())
-p=value.get('pending') or []
-print(len(p), p[0]['ledger_name'] if len(p)==1 else '-')
-PY
-)
-  if [ "$pending_count" = "1" ]; then
-    [ "$pending_name" = "$MIGRATION_NAME" ] || fail "unexpected pending production migration: $pending_name"
-    python3.14 "$REPO_ROOT/scripts/operator/v3_production_migrate.py" \
-      --operation apply --authority "$REPO_ROOT/deploy/v3-production/target-authority.json" \
-      --root "$REPO_ROOT" > "$apply_file"
-  elif [ "$pending_count" != "0" ]; then
-    fail "expected only migration 006 to be pending, found $pending_count"
-  fi
-  python3.14 "$REPO_ROOT/scripts/operator/v3_production_migrate.py" \
-    --operation authority-gate --authority "$REPO_ROOT/deploy/v3-production/target-authority.json" \
-    --root "$REPO_ROOT" | grep -F '"pending": 0' >/dev/null \
-    || fail "production migration authority still reports pending migrations"
+require_search_schema() {
+  [ "$(sha256sum "$REPO_ROOT/sql/v3/migrations/006_v3_derived_product_lifecycle.sql" | awk '{print $1}')" = "$MIGRATION_SHA" ] \
+    || fail "trusted migration 006 source hash mismatch"
   local ledger_sha
   ledger_sha="$(db_query "BEGIN READ ONLY; SELECT encode(migration_sha256,'hex') FROM v3_meta.schema_migration WHERE migration_name='${MIGRATION_NAME}'; COMMIT;")"
   [ "$ledger_sha" = "$MIGRATION_SHA" ] || fail "migration 006 live ledger hash mismatch"
@@ -182,19 +126,18 @@ start_operation() {
   exec 9>"$STATE_ROOT/start.lock"
   flock -n 9 || fail "another V3 Search start is in progress"
 
-  local api api_image dsn identity_sha worker_state env_file
+  local api api_image dsn worker_state env_file
   api="$(active_api_container)"
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
-  identity_sha="$(install_target_schema_identity "$api_image")"
-  apply_pending_migration
+  require_search_schema
   require_generation
   dsn="$(api_database_url "$api")"
 
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
     if [ "$worker_state" = "running" ]; then
-      printf 'operation=v3-system-search-f1-start\nresult=already-running\nworker=%s\nschema_identity_sha256=%s\n' "$WORKER" "$identity_sha"
+      printf 'operation=v3-system-search-f1-start\nresult=already-running\nworker=%s\nmigration_006_sha256=%s\n' "$WORKER" "$MIGRATION_SHA"
       printf 'latest_status=%s\n' "$(latest_status)"
       printf 'publication_performed=false\ncanonical_writes_performed=false\n'
       exit 0
@@ -252,7 +195,7 @@ start_operation() {
   printf 'operation=v3-system-search-f1-start\n'
   printf 'result=launched\n'
   printf 'source_sha=%s\n' "$SOURCE_SHA"
-  printf 'schema_identity_sha256=%s\n' "$identity_sha"
+  printf 'migration_006_sha256=%s\n' "$MIGRATION_SHA"
   printf 'migration_006_verified=true\n'
   printf 'generation_key=%s\n' "$TARGET_GENERATION_KEY"
   printf 'worker=%s\n' "$WORKER"
