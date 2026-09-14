@@ -136,7 +136,11 @@ def validate_receipt(
     pending = receipt.get("pending")
     if not isinstance(applied, list) or not isinstance(pending, list):
         raise PlanError("migration plan lineage split is invalid")
-    if applied + pending != desired:
+    expected_applied = [
+        {"ledger_name": entry["ledger_name"], "sha256": entry["sha256"]}
+        for entry in desired[:len(applied)]
+    ]
+    if applied != expected_applied or pending != desired[len(applied):]:
         raise PlanError("migration plan does not bind the exact committed lineage")
 
 
