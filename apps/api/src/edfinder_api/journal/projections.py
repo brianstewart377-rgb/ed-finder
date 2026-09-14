@@ -8,6 +8,7 @@ confidence inputs. Every query is scoped by ``owner_account_id = $1``
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import asyncpg
@@ -27,6 +28,7 @@ BODY_OBSERVATION_TYPES: frozenset[str] = frozenset({
 # review's parameterization audit flags f-string SQL, and this comment is
 # the recorded disposition for these two sites).
 _BODY_OBSERVATION_SQL = ', '.join(repr(value) for value in sorted(BODY_OBSERVATION_TYPES))
+_V3_SCHEMA = re.compile(r'^v3_gen_[a-z][a-z0-9_]{0,30}$')
 
 _UNIQUE_BIO_OBSERVATIONS_SQL = '''
     SELECT COUNT(*)::int
@@ -184,6 +186,106 @@ async def visited_systems(
             limit,
         )
     return [_as_dict(row) for row in rows]
+
+
+async def viewport_visits(
+    pool: asyncpg.Pool,
+    account_id: object,
+    relation_schema: str,
+    *,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+    min_z: float,
+    max_z: float,
+    zoom: float,
+    limit: int,
+) -> dict[str, Any]:
+    """Account-owned journal observations joined to the published catalogue."""
+    if not _V3_SCHEMA.fullmatch(relation_schema):
+        raise ValueError('unsafe canonical generation relation schema')
+    lo_x, hi_x = sorted((min_x, max_x))
+    lo_y, hi_y = sorted((min_y, max_y))
+    lo_z, hi_z = sorted((min_z, max_z))
+    marker_mode = zoom <= 8
+    cell_size = None if marker_mode else float(
+        min(5_000, max(50, round(zoom * 8 / 50) * 50))
+    )
+    observations = f'''
+        WITH observations AS MATERIALIZED (
+            SELECT (event_key->>'SystemAddress')::bigint AS system_id64,
+                   MAX(COALESCE(
+                       event_payload->>'StarSystem',
+                       event_payload->>'System',
+                       event_payload->>'SystemName'
+                   )) AS system_name,
+                   COUNT(*)::bigint AS visit_count,
+                   MIN(event_timestamp) AS first_visited_at,
+                   MAX(event_timestamp) AS last_visited_at,
+                   BOOL_OR(event_type = 'FSSAllBodiesFound') AS complete
+              FROM v3_private.journal_event
+             WHERE owner_account_id = $1
+               AND event_key->>'SystemAddress' ~ '^[0-9]{{1,19}}$'
+             GROUP BY event_key->>'SystemAddress'
+        ), visits AS MATERIALIZED (
+            SELECT observation.system_id64,
+                   COALESCE(observation.system_name, system.name) AS system_name,
+                   system.x_ly, system.y_ly, system.z_ly,
+                   system.galaxy_region_id, observation.visit_count,
+                   observation.first_visited_at, observation.last_visited_at,
+                   observation.complete
+              FROM observations observation
+              JOIN {relation_schema}.systems system
+                ON system.id64 = observation.system_id64
+             WHERE system.lifecycle_state = 'ACTIVE'
+               AND system.x_ly BETWEEN $2 AND $3
+               AND system.y_ly BETWEEN $4 AND $5
+               AND system.z_ly BETWEEN $6 AND $7
+        )
+    '''
+    async with pool.acquire() as conn:
+        if marker_mode:
+            rows = await conn.fetch(
+                observations + '''
+                SELECT 'marker'::text AS kind, system_id64, system_name,
+                       x_ly::real AS x, y_ly::real AS y, z_ly::real AS z,
+                       galaxy_region_id, visit_count, first_visited_at,
+                       last_visited_at, complete
+                  FROM visits
+                 ORDER BY last_visited_at DESC, system_id64
+                 LIMIT $8
+                ''',
+                account_id, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1,
+            )
+        else:
+            rows = await conn.fetch(
+                observations + '''
+                SELECT 'density'::text AS kind, NULL::bigint AS system_id64,
+                       NULL::text AS system_name,
+                       (FLOOR(x_ly / $8) * $8 + $8 / 2)::real AS x,
+                       (FLOOR(y_ly / $8) * $8 + $8 / 2)::real AS y,
+                       (FLOOR(z_ly / $8) * $8 + $8 / 2)::real AS z,
+                       NULL::smallint AS galaxy_region_id,
+                       SUM(visit_count)::bigint AS visit_count,
+                       MIN(first_visited_at) AS first_visited_at,
+                       MAX(last_visited_at) AS last_visited_at,
+                       BOOL_AND(complete) AS complete
+                  FROM visits
+                 GROUP BY FLOOR(x_ly / $8), FLOOR(y_ly / $8), FLOOR(z_ly / $8)
+                 ORDER BY visit_count DESC
+                 LIMIT $9
+                ''',
+                account_id, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z,
+                cell_size, limit + 1,
+            )
+    truncated = len(rows) > limit
+    return {
+        'mode': 'markers' if marker_mode else 'density',
+        'rows': [_as_dict(row) for row in rows[:limit]],
+        'truncated': truncated,
+        'cell_size': cell_size,
+    }
 
 
 async def scanned_bodies(

@@ -7947,6 +7947,86 @@ export type V3JournalSystemRow = {
 };
 
 /**
+ * V3JournalViewportVisit
+ */
+export type V3JournalViewportVisit = {
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * System Id64
+     */
+    system_id64: string | null;
+    /**
+     * System Name
+     */
+    system_name: string | null;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
+    /**
+     * Z
+     */
+    z: number;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id: number | null;
+    /**
+     * Visit Count
+     */
+    visit_count: number;
+    /**
+     * First Visited At
+     */
+    first_visited_at: string;
+    /**
+     * Last Visited At
+     */
+    last_visited_at: string;
+    /**
+     * Completion State
+     */
+    completion_state: string;
+    /**
+     * Cell Size
+     */
+    cell_size: number | null;
+};
+
+/**
+ * V3JournalViewportVisitsResponse
+ */
+export type V3JournalViewportVisitsResponse = {
+    /**
+     * Mode
+     */
+    mode: string;
+    /**
+     * Visits
+     */
+    visits: Array<V3JournalViewportVisit>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Cell Size
+     */
+    cell_size: number | null;
+};
+
+/**
  * V3OrganicProgressRow
  */
 export type V3OrganicProgressRow = {
@@ -12078,6 +12158,64 @@ export type ListV3JournalSystemsResponses = {
 };
 
 export type ListV3JournalSystemsResponse = ListV3JournalSystemsResponses[keyof ListV3JournalSystemsResponses];
+
+export type GetV3JournalViewportVisitsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Min X
+         */
+        min_x: number;
+        /**
+         * Max X
+         */
+        max_x: number;
+        /**
+         * Min Y
+         */
+        min_y: number;
+        /**
+         * Max Y
+         */
+        max_y: number;
+        /**
+         * Min Z
+         */
+        min_z: number;
+        /**
+         * Max Z
+         */
+        max_z: number;
+        /**
+         * Zoom
+         */
+        zoom: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/viewport-visits';
+};
+
+export type GetV3JournalViewportVisitsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetV3JournalViewportVisitsError = GetV3JournalViewportVisitsErrors[keyof GetV3JournalViewportVisitsErrors];
+
+export type GetV3JournalViewportVisitsResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3JournalViewportVisitsResponse;
+};
+
+export type GetV3JournalViewportVisitsResponse = GetV3JournalViewportVisitsResponses[keyof GetV3JournalViewportVisitsResponses];
 
 export type ListV3JournalBodiesData = {
     body?: never;
