@@ -20,6 +20,7 @@ from edfinder_api.review_runtime_guard import validate_review_runtime_env
 from edfinder_api.review_support_routes import router as review_support_router
 from edfinder_api.review_warehouse_planner_evidence import router as review_warehouse_planner_evidence_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
+from edfinder_api.routers.map import router as map_router
 from edfinder_api.routers.meta import router as meta_router
 from edfinder_api.routers.search import router as search_router
 from edfinder_api.routers.simulate import router as simulate_router
@@ -208,5 +209,6 @@ app.include_router(simulation_router)
 app.include_router(review_support_router)
 app.include_router(watchlist_router)
 app.include_router(colony_planner_router)
+app.include_router(map_router)
 app.include_router(review_provenance_cockpit_router)
 app.include_router(review_warehouse_planner_evidence_router)
