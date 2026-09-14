@@ -1,4 +1,4 @@
-name: Cypress Parity
+name: Svelte Web E2E
 
 # Validation lane authority:
 # - This workflow owns normal Product E2E / Visual Acceptance.
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   cypress-release-gate:
-    name: Frontend E2E (Cypress, ${{ matrix.browser }})
+    name: Svelte Web E2E (Cypress, ${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -201,11 +201,11 @@ jobs:
           CYPRESS_accountFixtureFile: ${{ runner.temp }}/account-browser-fixture.json
         run: pnpm exec cypress run --browser ${{ matrix.browser }}
 
-      - name: Preserve normal Product E2E evidence
+      - name: Preserve normal Svelte Web E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cypress-parity-evidence-${{ matrix.browser }}-${{ github.run_attempt }}
+          name: svelte-web-e2e-evidence-${{ matrix.browser }}-${{ github.run_attempt }}
           path: |
             /tmp/cypress-uvicorn.log
             /tmp/cypress-svelte-preview.log

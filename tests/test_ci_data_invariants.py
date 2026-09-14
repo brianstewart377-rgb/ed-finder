@@ -78,8 +78,8 @@ def test_backend_ci_runs_real_unit_suite_instead_of_smoke_only():
     assert 'python -m unittest discover -s tests -p "test_smoke.py"' not in workflow
 
 
-def test_frontend_ci_uses_committed_lockfile_everywhere():
+def test_web_ci_uses_committed_pnpm_lockfile_everywhere():
     workflow = _seeded_ci_workflows()
 
-    assert workflow.count('yarn install --frozen-lockfile --no-progress --non-interactive') >= 3
-    assert 'yarn install --no-progress --non-interactive' not in workflow
+    assert workflow.count('pnpm install --frozen-lockfile') >= 3
+    assert 'yarn install' not in workflow

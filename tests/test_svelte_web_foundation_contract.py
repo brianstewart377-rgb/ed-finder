@@ -194,27 +194,29 @@ def test_openapi_drift_lane_generates_both_clients_from_the_running_api():
     workflow = _read(".github", "workflows", "ci.yml")
     drift_job = workflow.split("  openapi-types:\n", 1)[1]
     script = _read("scripts", "checks", "openapi-drift.sh")
-    react_generator = _read("frontend", "scripts", "types-gen.mjs")
 
     assert 'node-version: "24"' in drift_job
     assert "corepack prepare pnpm@11.25.0 --activate" in drift_job
     assert "pnpm install --frozen-lockfile" in drift_job
     assert "OPENAPI_INPUT: http://127.0.0.1:8000/openapi.json" in drift_job
     assert "git diff --exit-code -- apps/web/src/lib/api/generated" in drift_job
-    assert "git diff --exit-code -- packages/api-client/src/generated/api.gen.ts" in drift_job
-    assert 'VITE_OPENAPI_URL="$OPENAPI_URL"' in script
+    assert (
+        "git diff --exit-code -- apps/web/src/lib/api/generated packages/api-client/src/generated/api.gen.ts"
+        in drift_job
+    )
     assert 'OPENAPI_INPUT="$OPENAPI_URL"' in script
     assert "apps/web/src/lib/api/generated" in script
     assert "packages/api-client/src/generated/api.gen.ts" in script
-    assert "packages/api-client/src/generated/api.gen.ts" in react_generator
+    assert "yarn" not in script
+    assert "frontend" not in script
 
 
-def test_legacy_generated_api_compatibility_shim_stays_public():
+def test_legacy_generated_api_compatibility_shim_stays_public_without_react_gate():
     shim = _read("frontend", "src", "types", "api.gen.ts")
     workflow = _read(".github", "workflows", "ci.yml")
 
     assert shim == "export * from '../../../packages/api-client/src/generated/api.gen';\n"
-    assert "src/types/api.gen.ts" in workflow
+    assert "src/types/api.gen.ts" not in workflow
 
 
 def test_legacy_react_frontend_remains_temporary_source_evidence():

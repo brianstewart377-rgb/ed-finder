@@ -93,7 +93,7 @@ def test_authority_doc_keeps_visual_baseline_ownership_out_of_review_lab():
 def test_v3_map_validation_uses_fresh_babylon_stack_in_both_browser_lanes():
     authority = AUTHORITY_DOC.read_text(encoding='utf-8')
     assert 'The V3 map is a **fresh design** in `apps/web/` using **Babylon.js**' in authority
-    assert 'the old React map is not the visual oracle for the new product' in authority
+    assert 'the legacy `frontend/` React app is no longer built or exercised by the V3 product lane and is not the visual oracle for the new product' in authority
     assert 'Both browser-validation lanes must exercise the **same V3 frontend and renderer stack**' in authority
     assert 'Review Lab may change the **data and environment**' in authority
     assert 'It must not substitute a different frontend framework or renderer.' in authority
