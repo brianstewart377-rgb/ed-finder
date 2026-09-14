@@ -78,6 +78,7 @@
   let renderedLayerIds = $state<string[]>([]);
   let pendingHoverPoint: { x: number; y: number } | null = null;
   let cameraTransitionActive = false;
+  let transitionCamera: CameraState | SystemCameraState | null = null;
   let pendingPickPoint: { screenX: number; screenY: number } | null = null;
   let hoverFrame: number | null = null;
 
@@ -216,12 +217,12 @@
       camera,
       ...(animate ? { transition: { durationMs: 650, reducedMotion } } : {}),
     });
-    if (result.status === 'executed' && !animate) {
+    if (result.status === 'executed') {
       currentCamera = camera;
-    } else if (result.status === 'executed' && reducedMotion) {
-      currentCamera = camera;
-    } else if (result.status === 'executed') {
-      setCameraTransitionActive(true, camera);
+      if (animate && !reducedMotion) {
+        transitionCamera = camera;
+        setCameraTransitionActive(true, camera);
+      }
     }
   }
 
@@ -591,17 +592,28 @@
           event.type === 'CAMERA_CHANGED' &&
           'focusLy' in event.camera
         ) {
-          currentCamera = event.camera;
+          if (cameraTransitionActive) transitionCamera = event.camera;
+          else currentCamera = event.camera;
         } else if (
           event.type === 'CAMERA_CHANGED' &&
           'systemId64' in event.camera
         ) {
-          currentSystemCamera = event.camera;
+          if (cameraTransitionActive) transitionCamera = event.camera;
+          else currentSystemCamera = event.camera;
         } else if (event.type === 'TRANSITION_FINISHED') {
+          if (transitionCamera && 'focusLy' in transitionCamera) {
+            currentCamera = transitionCamera;
+          } else if (transitionCamera && 'systemId64' in transitionCamera) {
+            currentSystemCamera = transitionCamera;
+          }
           setCameraTransitionActive(
             false,
-            event.target?.kind === 'body' ? currentSystemCamera : currentCamera,
+            transitionCamera ??
+              (event.target?.kind === 'body'
+                ? currentSystemCamera
+                : currentCamera),
           );
+          transitionCamera = null;
           if (pendingPickPoint) {
             const point = pendingPickPoint;
             pendingPickPoint = null;
@@ -671,6 +683,7 @@
       lastAppliedSceneRevision = undefined;
       lastAppliedContributionRevision = undefined;
       cameraTransitionActive = false;
+      transitionCamera = null;
       pendingPickPoint = null;
       renderedLayerIds = [];
     };
