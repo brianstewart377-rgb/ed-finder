@@ -120,8 +120,9 @@ jobs:
           install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" \
             "$BUNDLE/deploy/v3-production" "$BUNDLE/sql/v3/migrations" "$BUNDLE/sql/r1_v3" \
             "$BUNDLE/artifacts/schema"
-          install -m 600 /dev/null ~/.ssh/v3_production_key ~/.ssh/known_hosts
+          install -m 600 /dev/null ~/.ssh/v3_production_key
           printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
+          install -m 600 /dev/null ~/.ssh/known_hosts
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null

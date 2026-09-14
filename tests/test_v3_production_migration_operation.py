@@ -342,6 +342,9 @@ def test_governed_migration_workflow_is_manual_protected_and_source_bounded():
     )
     assert "ed-finder-prod/nb79a3d.mevnode.com" in source
     assert "V3_PRODUCTION_SSH_KNOWN_HOSTS" in source
+    assert "install -m 600 /dev/null ~/.ssh/v3_production_key\n" in source
+    assert "install -m 600 /dev/null ~/.ssh/known_hosts\n" in source
+    assert "~/.ssh/v3_production_key ~/.ssh/known_hosts" not in source
     assert "--candidate-schema-identity" in source
     assert "--source-sha '$SOURCE_SHA'" in source
     assert "--workflow-run-id '$WORKFLOW_RUN_ID'" in source
