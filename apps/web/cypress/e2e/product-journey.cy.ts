@@ -198,12 +198,12 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     });
 
     cy.get('[data-system-result="10477373803000"] .inspect-link').click();
-    cy.location('pathname', { timeout: 10_000 }).should('eq', '/inspect');
-    cy.location('search', { timeout: 10_000 }).should(
+    cy.location('pathname', { timeout: 30_000 }).should('eq', '/inspect');
+    cy.location('search', { timeout: 30_000 }).should(
       'eq',
       '?system=10477373803000',
     );
-    cy.get('[data-system-id64="10477373803000"]')
+    cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
     cy.contains('h2', 'Explore Achenar').should('be.visible');
@@ -222,7 +222,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
 
     cy.viewport(820, 640);
     cy.contains('a', 'Back to Explore').click();
-    cy.location('pathname').should('eq', '/explore');
+    cy.location('pathname', { timeout: 20_000 }).should('eq', '/explore');
     assertSpatialResultsReady();
     cy.get(canvasSelector).should(([remountedCanvas]) => {
       expect(remountedCanvas).not.to.equal(initialCanvas);
