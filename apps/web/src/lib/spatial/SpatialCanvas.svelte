@@ -74,6 +74,8 @@
   let lastPickedId64 = $state<string | undefined>();
   let lastPickedRegionId = $state<string | undefined>();
   let lastHoveredRegionId = $state<string | undefined>();
+  let lastSettledFocusId64 = $state<string | undefined>();
+  let lastSettledFocusBodyId = $state<number | undefined>();
   let lastAppliedSceneRevision = $state<number | undefined>();
   let lastAppliedContributionRevision = $state<number | undefined>();
   let renderedLayerIds = $state<string[]>([]);
@@ -687,6 +689,11 @@
           if (cameraTransitionActive) transitionCamera = event.camera;
           else currentSystemCamera = event.camera;
         } else if (event.type === 'TRANSITION_FINISHED') {
+          if (event.target?.kind === 'system') {
+            lastSettledFocusId64 = event.target.systemId64;
+          } else if (event.target?.kind === 'body') {
+            lastSettledFocusBodyId = event.target.ref.bodyId;
+          }
           if (transitionCamera && 'focusLy' in transitionCamera) {
             currentCamera = transitionCamera;
           } else if (transitionCamera && 'systemId64' in transitionCamera) {
@@ -780,6 +787,8 @@
       lastContributionPatchRevision = -1;
       lastPickedRegionId = undefined;
       lastHoveredRegionId = undefined;
+      lastSettledFocusId64 = undefined;
+      lastSettledFocusBodyId = undefined;
       lastAppliedSceneRevision = undefined;
       lastAppliedContributionRevision = undefined;
       cameraTransitionActive = false;
@@ -898,6 +907,8 @@
   data-last-picked-id64={lastPickedId64}
   data-last-picked-region-id={lastPickedRegionId}
   data-last-hovered-region-id={lastHoveredRegionId}
+  data-last-settled-focus-id64={lastSettledFocusId64}
+  data-last-settled-focus-body-id={lastSettledFocusBodyId}
   data-applied-scene-revision={lastAppliedSceneRevision}
   data-applied-contribution-revision={lastAppliedContributionRevision}
   data-camera-revision={canGalaxyNavigate

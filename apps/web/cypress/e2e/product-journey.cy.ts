@@ -102,13 +102,6 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       expect(restoredCanvas).to.equal(initialCanvas);
     });
 
-    let preFocusCameraRevision = -1;
-    cy.get('.spatial-canvas')
-      .invoke('attr', 'data-camera-revision')
-      .then((revision) => {
-        preFocusCameraRevision = Number(revision);
-      });
-
     keyboardChooseAnchor('Achenar');
     cy.get('[data-system-result="10477373803000"] [data-result-select]')
       .should('be.focused')
@@ -150,8 +143,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
 
     cy.get('.spatial-canvas', { timeout: 20_000 }).should(($canvas) => {
       expect($canvas.attr('data-camera-transition-active')).to.equal('false');
-      expect(Number($canvas.attr('data-camera-revision'))).to.be.greaterThan(
-        preFocusCameraRevision,
+      expect($canvas.attr('data-last-settled-focus-id64')).to.equal(
+        '10477373803000',
       );
     });
 
