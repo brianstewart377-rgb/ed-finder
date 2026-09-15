@@ -1,11 +1,10 @@
-name: Cypress Parity
+name: Svelte Web E2E
 
 # Validation lane authority:
 # - This workflow owns normal Product E2E / Visual Acceptance.
 # - It must not invoke Review Lab runtime, review-only routes, or synthetic Lab
 #   fixtures. Review Lab is a separate deterministic proving environment.
-# - Retained frontend/ React coverage below is migration evidence only; apps/web
-#   is the V3 authority as equivalent journeys and visual assertions land.
+# - apps/web is the V3 authority and the only browser target for this gate.
 # See docs/development/v3-browser-validation-lanes.md.
 
 on:
@@ -21,7 +20,7 @@ concurrency:
 
 jobs:
   cypress-release-gate:
-    name: Frontend E2E (Cypress, ${{ matrix.browser }})
+    name: Svelte Web E2E (Cypress, ${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -52,13 +51,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-
-      - name: Set up Node 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
 
       - name: Enable Corepack
         run: corepack enable
@@ -155,49 +147,6 @@ jobs:
           tail -80 /tmp/cypress-uvicorn.log || true
           exit 1
 
-      - name: Install locked frontend dependencies
-        working-directory: frontend
-        run: yarn install --frozen-lockfile --no-progress --non-interactive
-
-      - name: Build production bundle
-        working-directory: frontend
-        run: yarn build
-
-      - name: Start production preview
-        working-directory: frontend
-        env:
-          VITE_DEV_API_TARGET: http://127.0.0.1:8002
-        run: |
-          nohup yarn preview --host 127.0.0.1 --port 4173 --strictPort > /tmp/cypress-vite-preview.log 2>&1 &
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:4173 >/dev/null 2>&1; then
-              echo "Vite preview ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::Vite preview failed to start within 60s"
-          tail -80 /tmp/cypress-vite-preview.log || true
-          exit 1
-
-      - name: Restore Cypress binary cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: ~/.cache/Cypress
-          key: cypress-${{ runner.os }}-15.21.1
-
-      - name: Verify Cypress 15.21.1
-        working-directory: frontend
-        env:
-          CYPRESS_INSTALL_BINARY: '15.21.1'
-        run: npx --yes cypress@15.21.1 verify
-
-      - name: Run retained React Cypress migration evidence
-        working-directory: frontend
-        env:
-          CYPRESS_BASE_URL: http://127.0.0.1:4173
-        run: npx --yes cypress@15.21.1 run --browser ${{ matrix.browser }} --spec cypress/e2e/auth-owner-access.cy.js,cypress/e2e/release-gate.cy.js --config-file cypress.config.cjs
-
       - name: Set up Node 24 for V3 Svelte E2E
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -211,6 +160,18 @@ jobs:
       - name: Install locked Svelte dependencies
         working-directory: apps/web
         run: pnpm install --frozen-lockfile
+
+      - name: Restore Cypress binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-15.21.1
+
+      - name: Verify Cypress 15.21.1
+        working-directory: apps/web
+        env:
+          CYPRESS_INSTALL_BINARY: '15.21.1'
+        run: pnpm exec cypress verify
 
       - name: Build Svelte static bundle
         working-directory: apps/web
@@ -240,32 +201,14 @@ jobs:
           CYPRESS_accountFixtureFile: ${{ runner.temp }}/account-browser-fixture.json
         run: pnpm exec cypress run --browser ${{ matrix.browser }}
 
-      - name: Preserve normal Product E2E evidence
+      - name: Preserve normal Svelte Web E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cypress-parity-evidence-${{ matrix.browser }}-${{ github.run_attempt }}
+          name: svelte-web-e2e-evidence-${{ matrix.browser }}-${{ github.run_attempt }}
           path: |
-            frontend/cypress/artifacts
             /tmp/cypress-uvicorn.log
-            /tmp/cypress-vite-preview.log
             /tmp/cypress-svelte-preview.log
             apps/web/cypress/artifacts
           if-no-files-found: warn
           retention-days: 7
-
-  required-check-compatibility:
-    # Administrative compatibility only. Branch protection currently requires
-    # this exact legacy context. This alias contains no browser invocation and
-    # succeeds only when the real Chrome and Firefox Cypress matrix is green.
-    # Delete it once the protected required check is repointed to Cypress.
-    name: Frontend v2 E2E (Playwright)
-    if: always()
-    needs: [cypress-release-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Mirror the Cypress release-gate result
-        env:
-          CYPRESS_RESULT: ${{ needs.cypress-release-gate.result }}
-        run: test "$CYPRESS_RESULT" = success

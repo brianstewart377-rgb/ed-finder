@@ -39,6 +39,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getProfileSyncApiProfileSyncSyncKeyGet,
+  getExplorationViewportVisitsApiExplorationViewportVisitsGet,
   getSystemApiSystemId64Get,
   healthApiHealthGet,
   listIdentitiesApiV1AuthIdentitiesGet,
@@ -48,6 +49,7 @@ import {
   listJournalGalaxyContributions,
   withdrawJournalGalaxyContribution,
   localSearchEndpointApiLocalSearchPost,
+  mapSystemsApiMapSystemsGet,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
   unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
@@ -59,6 +61,8 @@ import type {
   ExternalIdentityResponse,
   HealthResponse,
   LocalSearchRequest,
+  ExplorationViewportVisitsResponse,
+  MapViewportResponse,
   SearchResponse,
   SystemDetailRow,
   SystemRow,
@@ -329,6 +333,48 @@ export type ExploreSearchResponse = Omit<SearchResponse, 'results'> & {
 
 export type ExploreSearchRequest = LocalSearchRequest;
 
+export type CatalogueViewportRequest = Readonly<{
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+  limit: number;
+}>;
+
+export type CatalogueViewportResponse = Readonly<{
+  systems: readonly Readonly<{
+    id64: Id64;
+    name: string;
+    x: number;
+    y: number;
+    z: number;
+    mainStarClass?: string | null;
+    populated: boolean;
+  }>[];
+  truncated: boolean;
+}>;
+
+export type CommanderViewportVisitsResponse = Readonly<{
+  mode: 'markers' | 'density';
+  visits: readonly Readonly<{
+    kind: 'marker' | 'density';
+    systemId64?: Id64 | null;
+    systemName?: string | null;
+    x: number;
+    y: number;
+    z: number;
+    visitCount: number;
+    firstVisitedAt: string;
+    lastVisitedAt: string;
+    completionState: 'complete' | 'partial';
+    cellSizeLy?: number | null;
+  }>[];
+  count: number;
+  truncated: boolean;
+}>;
+
 function losslessId64(value: unknown): Id64 {
   if (typeof value !== 'string') {
     throw new TypeError('API id64 did not pass through the lossless JSON lane');
@@ -369,6 +415,82 @@ export async function searchExploreSystems(
       ...system,
       id64: losslessId64(system.id64),
     })),
+  };
+}
+
+export async function getCatalogueViewportSystems(
+  request: CatalogueViewportRequest,
+  signal?: AbortSignal,
+): Promise<CatalogueViewportResponse> {
+  const { data } = await mapSystemsApiMapSystemsGet({
+    throwOnError: true,
+    query: {
+      min_x: request.minX,
+      max_x: request.maxX,
+      min_y: request.minY,
+      max_y: request.maxY,
+      min_z: request.minZ,
+      max_z: request.maxZ,
+      limit: request.limit,
+    },
+    signal,
+  });
+  const response = data as MapViewportResponse;
+  return {
+    systems: response.systems.map((system) => ({
+      id64: losslessId64(system.id64),
+      name: system.name,
+      x: system.x,
+      y: system.y,
+      z: system.z,
+      mainStarClass: system.main_star_class,
+      populated: system.populated,
+    })),
+    truncated: response.truncated ?? false,
+  };
+}
+
+export async function getCommanderViewportVisits(
+  syncKey: string,
+  request: CatalogueViewportRequest,
+  cameraDistanceLy: number,
+  signal?: AbortSignal,
+): Promise<CommanderViewportVisitsResponse> {
+  const { data } =
+    await getExplorationViewportVisitsApiExplorationViewportVisitsGet({
+      throwOnError: true,
+      query: {
+        sync_key: syncKey,
+        min_x: request.minX,
+        max_x: request.maxX,
+        min_y: request.minY,
+        max_y: request.maxY,
+        min_z: request.minZ,
+        max_z: request.maxZ,
+        zoom: Math.min(5_000, Math.max(0.001, cameraDistanceLy)),
+        limit: Math.min(20_000, request.limit),
+      },
+      signal,
+    });
+  const response = data as ExplorationViewportVisitsResponse;
+  return {
+    mode: response.mode,
+    visits: (response.visits ?? []).map((visit) => ({
+      kind: visit.kind,
+      systemId64:
+        visit.system_id64 == null ? null : losslessId64(visit.system_id64),
+      systemName: visit.system_name,
+      x: visit.x,
+      y: visit.y,
+      z: visit.z,
+      visitCount: visit.visit_count,
+      firstVisitedAt: visit.first_visited_at,
+      lastVisitedAt: visit.last_visited_at,
+      completionState: visit.completion_state,
+      cellSizeLy: visit.cell_size,
+    })),
+    count: response.count,
+    truncated: response.truncated,
   };
 }
 

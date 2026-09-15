@@ -6,7 +6,7 @@
 #   1. require a local/disposable Postgres + Redis;
 #   2. apply schema/seed with scripts/seed_check.sh;
 #   3. boot the API locally;
-#   4. regenerate both frontend API clients from the same /openapi.json;
+#   4. regenerate the Svelte and shared API clients from the same /openapi.json;
 #   5. fail if git sees drift in either checked-in client.
 #
 # This script deliberately refuses production-looking DATABASE_URL values.
@@ -54,18 +54,6 @@ pick_python() {
   fi
 }
 
-pick_yarn() {
-  if [ -n "${YARN:-}" ]; then
-    printf '%s\n' "$YARN"
-  elif command -v yarn >/dev/null 2>&1; then
-    command -v yarn
-  elif command -v yarn.cmd >/dev/null 2>&1; then
-    command -v yarn.cmd
-  else
-    die "missing yarn. Install frontend dependencies before running this check."
-  fi
-}
-
 pick_pnpm() {
   if [ -n "${PNPM:-}" ]; then
     printf '%s\n' "$PNPM"
@@ -98,7 +86,6 @@ cleanup() {
 trap cleanup EXIT
 
 PYTHON_BIN="$(pick_python)"
-YARN_BIN="$(pick_yarn)"
 PNPM_BIN="$(pick_pnpm)"
 
 "$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
@@ -142,13 +129,7 @@ if ! curl -sf "${API_URL}/api/health" >/dev/null 2>&1; then
   die "API did not become healthy at ${API_URL}/api/health"
 fi
 
-section "Regenerate frontend OpenAPI types"
-(
-  cd "$ROOT/frontend"
-  VITE_OPENAPI_URL="$OPENAPI_URL" "$YARN_BIN" types:gen
-)
-
-section "Regenerate Svelte Hey API client"
+section "Regenerate Svelte and shared API clients"
 (
   cd "$ROOT/apps/web"
   OPENAPI_INPUT="$OPENAPI_URL" "$PNPM_BIN" generate:api

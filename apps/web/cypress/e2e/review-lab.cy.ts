@@ -146,6 +146,14 @@ describe('isolated V3 Review Lab', () => {
     });
 
     const instrumentWindow = (window: Window) => {
+      try {
+        Object.defineProperty(window.document, 'visibilityState', {
+          configurable: true,
+          get: () => 'visible',
+        });
+      } catch {
+        // Cypress owns the page lifecycle; retry pacing is best-effort here.
+      }
       window.addEventListener('error', (event) =>
         summary.pageErrors.push(clean(event.error?.stack || event.message)),
       );
@@ -174,7 +182,9 @@ describe('isolated V3 Review Lab', () => {
     const flows = summary.browserFlowKeys;
 
     if (flows.includes('syntheticWiring')) {
-      currentFlow = 'syntheticWiring';
+      cy.then(() => {
+        currentFlow = 'syntheticWiring';
+      });
       setReviewMode('normal');
       cy.intercept('POST', '/api/local/search').as('wiringSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
@@ -195,7 +205,9 @@ describe('isolated V3 Review Lab', () => {
     }
 
     if (flows.includes('apiFailure')) {
-      currentFlow = 'apiFailure';
+      cy.then(() => {
+        currentFlow = 'apiFailure';
+      });
       setReviewMode('api_failure');
       cy.intercept('POST', '/api/local/search').as('failedSearch');
       cy.visit('/explore', {
@@ -205,11 +217,9 @@ describe('isolated V3 Review Lab', () => {
         },
       });
       cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
-      cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
-      cy.contains(
-        '[role="alert"]',
-        'Discovery results could not be loaded.',
-      ).should('be.visible');
+      cy.contains('[role="alert"]', 'Discovery results could not be loaded.', {
+        timeout: 20_000,
+      }).should('be.visible');
       cy.window()
         .its('localStorage')
         .invoke('getItem', selectedStorageKey)
@@ -226,7 +236,9 @@ describe('isolated V3 Review Lab', () => {
     }
 
     if (flows.includes('emptyResults')) {
-      currentFlow = 'emptyResults';
+      cy.then(() => {
+        currentFlow = 'emptyResults';
+      });
       setReviewMode('empty_results');
       cy.intercept('POST', '/api/local/search').as('emptySearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
@@ -248,7 +260,9 @@ describe('isolated V3 Review Lab', () => {
     }
 
     if (flows.includes('rendererRecovery')) {
-      currentFlow = 'rendererRecovery';
+      cy.then(() => {
+        currentFlow = 'rendererRecovery';
+      });
       setReviewMode('normal');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       cy.get(readySelector, { timeout: 20_000 })

@@ -155,16 +155,19 @@ def test_frontend_packaging_remains_available_but_v2_deploy_path_is_retired():
     assert '.sha256' in package
 
 
-def test_ci_workflow_uses_pinned_yarn_lock_and_packages_frontend_bundle():
+def test_ci_workflow_uses_the_locked_svelte_web_toolchain_not_react_yarn():
     workflow = _read('.github', 'workflows', 'ci.yml')
 
-    assert 'cache: yarn' in workflow
-    assert 'cache-dependency-path: frontend/yarn.lock' in workflow
-    assert 'corepack enable' in workflow
-    assert 'yarn install --frozen-lockfile --no-progress --non-interactive' in workflow
-    assert 'yarn test:ci' in workflow
-    assert 'bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz' in workflow
-    assert 'artifacts/frontend-bundles/frontend-dist-ci.tar.gz.sha256' in workflow
+    assert 'working-directory: apps/web' in workflow
+    assert 'corepack prepare pnpm@11.25.0 --activate' in workflow
+    assert 'pnpm install --frozen-lockfile' in workflow
+    assert 'pnpm check' in workflow
+    assert 'pnpm lint' in workflow
+    assert 'pnpm test' in workflow
+    assert 'pnpm build' in workflow
+    assert 'frontend/yarn.lock' not in workflow
+    assert 'yarn install --frozen-lockfile' not in workflow
+    assert 'yarn test:ci' not in workflow
 
 
 def test_nginx_ci_config_stays_structurally_aligned_with_production_http_and_review_blocks():

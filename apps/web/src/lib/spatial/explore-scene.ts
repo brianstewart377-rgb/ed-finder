@@ -1,9 +1,11 @@
 import type { ExploreSystem } from '$lib/api/client';
 import type { Id64 } from '$lib/domain/id64';
 import type {
+  CameraState,
   GalaxySceneContract,
   GalaxySystemPoint,
   GalaxySystemsPayload,
+  SpatialContribution,
   Vec3Ly,
 } from './contracts';
 
@@ -26,6 +28,25 @@ export function mapExploreSystemPoint(
     systemId64: system.id64,
     name: system.name?.trim() || `System ${system.id64}`,
     positionLy: { x: coords.x, y: coords.y, z: coords.z },
+    ...((system.main_star_type || system.main_star_subtype) && {
+      primaryStar: {
+        ...(system.main_star_type && { type: system.main_star_type }),
+        ...(system.main_star_subtype && { subtype: system.main_star_subtype }),
+      },
+    }),
+    summary: {
+      ...(finiteCoordinate(system.distance) && { distanceLy: system.distance }),
+      ...(finiteCoordinate(system.population) && {
+        population: system.population,
+      }),
+      ...(system.primaryEconomy && { primaryEconomy: system.primaryEconomy }),
+      ...(system.secondaryEconomy && {
+        secondaryEconomy: system.secondaryEconomy,
+      }),
+      ...(system.security && { security: system.security }),
+      ...(system.allegiance && { allegiance: system.allegiance }),
+      ...(system.government && { government: system.government }),
+    },
   };
 }
 
@@ -59,47 +80,78 @@ function sceneCamera(points: readonly GalaxySystemPoint[]): {
   return { focusLy, distanceLy: Math.max(30, radius * 2.4) };
 }
 
+export type ExploreGalaxySceneContext = Readonly<{
+  /** Stable while only selection changes, so Babylon can patch in place. */
+  finderRevision?: number;
+  finderContribution?: SpatialContribution;
+  camera?: CameraState | null;
+  spatialContributions?: readonly SpatialContribution[];
+  selectedRegionId?: string | null;
+}>;
+
+export function createExploreFinderContribution(
+  systems: readonly ExploreSystem[],
+  revision: number,
+): SpatialContribution {
+  const points = systems.flatMap((system) => {
+    const point = mapExploreSystemPoint(system);
+    return point ? [point] : [];
+  });
+  const payload: GalaxySystemsPayload = { systems: points };
+  return {
+    id: 'finder-results',
+    owner: 'FINDER',
+    revision,
+    layers: [
+      {
+        id: 'finder-systems',
+        version: 1,
+        representation: 'AUTHORITATIVE',
+        payload,
+        targetCount: points.length,
+        truncated: false,
+      },
+    ],
+  };
+}
+
 /** Map typed API truth into the renderer-neutral Finder contribution. */
 export function buildExploreGalaxyScene(
   systems: readonly ExploreSystem[],
   selectedSystemId64: Id64 | null,
   revision: number,
+  context: ExploreGalaxySceneContext = {},
 ): GalaxySceneContract {
   const points = systems.flatMap((system) => {
     const point = mapExploreSystemPoint(system);
     return point ? [point] : [];
   });
-  const camera = sceneCamera(points);
-  const payload: GalaxySystemsPayload = { systems: points };
+  const initialCamera = sceneCamera(points);
+  const finderRevision = context.finderRevision ?? revision;
+  const finderContribution =
+    context.finderContribution ??
+    createExploreFinderContribution(systems, finderRevision);
   return {
     kind: 'galaxy',
     revision,
-    camera: {
-      ...camera,
+    camera: context.camera ?? {
+      ...initialCamera,
       bearingRad: 0,
       pitchRad: 0.55,
       projection: 'perspective',
-      revision,
+      revision: finderRevision,
     },
-    selection: selectedSystemId64
-      ? [{ kind: 'system', systemId64: selectedSystemId64 }]
-      : [],
+    selection: [
+      ...(selectedSystemId64
+        ? [{ kind: 'system', systemId64: selectedSystemId64 } as const]
+        : []),
+      ...(context.selectedRegionId
+        ? [{ kind: 'region', id: context.selectedRegionId } as const]
+        : []),
+    ],
     contributions: [
-      {
-        id: 'finder-results',
-        owner: 'FINDER',
-        revision,
-        layers: [
-          {
-            id: 'finder-systems',
-            version: 1,
-            representation: 'AUTHORITATIVE',
-            payload,
-            targetCount: points.length,
-            truncated: false,
-          },
-        ],
-      },
+      finderContribution,
+      ...(context.spatialContributions ?? []),
     ],
   };
 }

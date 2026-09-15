@@ -18,8 +18,10 @@ implementation contract.
 - [`operations/infrastructure-status.md`](operations/infrastructure-status.md)
   — production/runtime authority.
 
-No Search/Grid/Cluster authority has been selected. The roadmap records the
-required decision sequence; audit files are inputs, not a substitute decision.
+Search, spatial-pyramid and cluster architecture is selected by the merged
+[`development/v3-search-spatial-derived-data-decision.md`](development/v3-search-spatial-derived-data-decision.md).
+Schema, builder, validation and publication evidence remain separate delivery
+gates.
 
 ## Supporting documentation
 
@@ -27,6 +29,15 @@ required decision sequence; audit files are inputs, not a substitute decision.
   current spatial authority and supporting Stage 27A audits.
 - [`development/`](development/) contains engineering, acceptance, local-test,
   and coordination material.
+- [`development/v3-babylon-map-delivery-plan.md`](development/v3-babylon-map-delivery-plan.md)
+  translates the current spatial authorities into the Galaxy Map, System Map
+  and colonisation/Architect implementation sequence.
+- [`development/v2-map-review-for-v3-babylon.md`](development/v2-map-review-for-v3-babylon.md)
+  records the complete historical V2 map audit and the preserve/redesign/retire
+  disposition used by the Babylon delivery plan.
+- [`colonisation-redesign/edastro-data-source-inventory.md`](colonisation-redesign/edastro-data-source-inventory.md)
+  audits the current EDAstro Mapcharts CSV catalogue, adopted attribution
+  contract and ranked ED-Finder enrichment candidates.
 - [`operations/`](operations/) contains current boundaries plus explicitly
   retired operational records.
 - [`reference/colonisation/README.md`](reference/colonisation/README.md) defines

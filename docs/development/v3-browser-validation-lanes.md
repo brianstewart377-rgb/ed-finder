@@ -22,7 +22,7 @@ detail. It does **not** make Review Lab a second E2E or visual-regression suite.
 
 ## Fresh Babylon map rule
 
-The V3 map is a **fresh design** in `apps/web/` using **Babylon.js** for the spatial renderer. It is not a visual port of the retained React/R3F map and the old React map is not the visual oracle for the new product.
+The V3 map is a **fresh design** in `apps/web/` using **Babylon.js** for the spatial renderer. It is not a visual port of the legacy React/R3F map; the legacy `frontend/` React app is no longer built or exercised by the V3 product lane and is not the visual oracle for the new product.
 
 Both browser-validation lanes must exercise the **same V3 frontend and renderer stack** when they need the V3 browser surface. Review Lab may change the **data and environment** to create deterministic scenarios. It must not substitute a different frontend framework or renderer.
 
@@ -33,8 +33,7 @@ Both browser-validation lanes must exercise the **same V3 frontend and renderer 
 - Primary application target: `apps/web/`.
 - Spatial renderer: Babylon.js.
 - Browser authority: Cypress.
-- Workflow: `.github/workflows/cypress-parity.yml` while migration compatibility
-  naming remains in place.
+- Workflow: `.github/workflows/cypress-parity.yml`.
 - Runtime: the normal application/API contract, never `review_main.py`.
 
 ### Owns
@@ -57,8 +56,8 @@ Both browser-validation lanes must exercise the **same V3 frontend and renderer 
 - Review Lab containment/teardown proof;
 - generic source-code CI.
 
-The retained `frontend/` Cypress coverage is migration evidence only. It does
-not regain authority over new V3 behaviour.
+Legacy `frontend/` React coverage is no longer part of the V3 product lane. It
+does not regain authority over new V3 behaviour and is not a release gate.
 
 ## Lane 2 — Review Lab
 

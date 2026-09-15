@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 
@@ -28,7 +29,6 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
         "cy.intercept('POST', '/api/local/search')",
         'data-system-result',
         'data-last-picked-id64',
-        "cy.location('pathname').should('eq', '/inspect')",
         '9007199254740993',
         'data-resize-revision',
         'initialCanvas',
@@ -38,6 +38,11 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
         'cy.screenshot(',
     ):
         assert contract in journey
+
+    assert re.search(
+        r"cy\.location\('pathname', \{ timeout: \d+_?\d* \}\)\.should\('eq', '/inspect'\)",
+        journey,
+    )
 
 
 @pytest.mark.unit

@@ -98,6 +98,9 @@ describe('ED-Finder V3 foundation', () => {
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
       .and('be.visible');
+    cy.get('[role="status"][data-renderer-state="ready"]', {
+      timeout: 20_000,
+    }).should('be.visible');
     cy.reload();
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')

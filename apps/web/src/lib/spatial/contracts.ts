@@ -10,6 +10,11 @@ export type RepresentationClass =
 
 export type Vec3Ly = Readonly<{ x: number; y: number; z: number }>;
 
+export type Bounds3Ly = Readonly<{
+  min: Vec3Ly;
+  max: Vec3Ly;
+}>;
+
 export type Provenance = Readonly<{
   source: string;
   observedAt?: string;
@@ -70,7 +75,14 @@ export type LayerContract<TPayload = unknown> = Readonly<{
 export type SpatialContribution = Readonly<{
   id: string;
   owner:
-    'FINDER' | 'CRE' | 'CPE' | 'COMMANDER_HISTORY' | 'POWERPLAY' | 'ROUTES';
+    | 'CATALOGUE'
+    | 'SPATIAL_PLATFORM'
+    | 'FINDER'
+    | 'CRE'
+    | 'CPE'
+    | 'COMMANDER_HISTORY'
+    | 'POWERPLAY'
+    | 'ROUTES';
   revision: number;
   layers: readonly LayerContract[];
 }>;
@@ -80,6 +92,19 @@ export type GalaxySystemPoint = Readonly<{
   systemId64: string;
   name: string;
   positionLy: Vec3Ly;
+  primaryStar?: Readonly<{
+    type?: string;
+    subtype?: string;
+  }>;
+  summary?: Readonly<{
+    distanceLy?: number;
+    population?: number;
+    primaryEconomy?: string;
+    secondaryEconomy?: string;
+    security?: string;
+    allegiance?: string;
+    government?: string;
+  }>;
 }>;
 
 export type GalaxySystemsPayload = Readonly<{
@@ -112,9 +137,12 @@ export type RingDescriptor = Readonly<{
 
 export type BodyVisualDescriptor = Readonly<{
   ref: BodyRef;
+  name: string;
   parent?: BodyRef;
   class?: Truth<string>;
+  subtype?: Truth<string>;
   physicalRadiusM?: Truth<number>;
+  distanceFromArrivalLs?: Truth<number>;
   displayRadius: number;
   orbital?: OrbitalDescriptor;
   rings?: RingDescriptor;
@@ -157,12 +185,15 @@ export type RuntimeCommand =
   | Readonly<{
       type: 'SET_CAMERA';
       camera: CameraState | SystemCameraState;
+      transition?: Readonly<{ durationMs: number; reducedMotion: boolean }>;
     }>
   | Readonly<{
       type: 'FLY_TO';
       target: SpatialTarget;
       reducedMotion: boolean;
     }>
+  | Readonly<{ type: 'HOVER'; screenX: number; screenY: number }>
+  | Readonly<{ type: 'CLEAR_HOVER' }>
   | Readonly<{ type: 'PICK'; screenX: number; screenY: number }>
   | Readonly<{ type: 'RESIZE'; width: number; height: number; dpr: number }>
   | Readonly<{
@@ -173,11 +204,23 @@ export type RuntimeCommand =
 export type RuntimeEvent =
   | Readonly<{ type: 'READY'; backend: 'WEBGPU' | 'WEBGL2' }>
   | Readonly<{
+      type: 'SCENE_APPLIED';
+      sceneRevision: number;
+      renderedLayers: readonly RenderedLayerReceipt[];
+    }>
+  | Readonly<{
+      type: 'CONTRIBUTION_APPLIED';
+      contributionId: string;
+      contributionRevision: number;
+      renderedLayers: readonly RenderedLayerReceipt[];
+    }>
+  | Readonly<{
       type: 'CAMERA_CHANGED';
       camera: CameraState | SystemCameraState;
     }>
+  | Readonly<{ type: 'TARGET_HOVERED'; target?: SpatialTarget }>
   | Readonly<{ type: 'TARGET_PICKED'; target?: SpatialTarget }>
-  | Readonly<{ type: 'TRANSITION_FINISHED'; target: SpatialTarget }>
+  | Readonly<{ type: 'TRANSITION_FINISHED'; target?: SpatialTarget }>
   | Readonly<{
       type: 'RESOURCE_LOST' | 'RECOVERED';
       detail: string;
@@ -191,9 +234,20 @@ export type RuntimeEvent =
       bufferBytes: number;
     }>;
 
+export type RenderedLayerReceipt = Readonly<{
+  contributionId: string;
+  contributionRevision: number;
+  layerId: string;
+  layerVersion: number;
+  representation: RepresentationClass;
+  acceptedTargetCount: number;
+  renderedTargetCount: number;
+  sourceGeneration?: string;
+}>;
+
 export type RuntimeCommandDispatchResult =
   | Readonly<{ status: 'executed' }>
-  | Readonly<{ status: 'ignored'; reason: 'inactive' }>
+  | Readonly<{ status: 'ignored'; reason: 'inactive' | 'stale' }>
   | Readonly<{
       status: 'unsupported';
       command: Exclude<RuntimeCommand['type'], 'RESIZE'>;

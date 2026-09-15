@@ -108,9 +108,8 @@ pnpm test
 pnpm build
 ```
 
-The retained React lane still has protected migration checks where coverage has
-not yet moved. Its commands and retirement conditions are documented in
-[`CLAUDE.md`](CLAUDE.md).
+The retained React tree is historical migration evidence only. It is not built,
+tested, or required as a validation gate.
 
 Before a repository change, run the strict state resolver and the focused tests
 for the touched surface:

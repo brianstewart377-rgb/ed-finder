@@ -36,15 +36,15 @@ pick_python() {
   fi
 }
 
-pick_yarn() {
-  if [ -n "${YARN:-}" ]; then
-    printf '%s\n' "$YARN"
-  elif command -v yarn >/dev/null 2>&1; then
-    command -v yarn
-  elif command -v yarn.cmd >/dev/null 2>&1; then
-    command -v yarn.cmd
+pick_pnpm() {
+  if [ -n "${PNPM:-}" ]; then
+    printf '%s\n' "$PNPM"
+  elif command -v pnpm >/dev/null 2>&1; then
+    command -v pnpm
+  elif command -v pnpm.cmd >/dev/null 2>&1; then
+    command -v pnpm.cmd
   else
-    die "missing yarn. Install Node/Yarn before running frontend checks."
+    die "missing pnpm. Install Node/pnpm before running Svelte web checks."
   fi
 }
 
@@ -60,18 +60,18 @@ PY
 }
 
 PYTHON_BIN="$(pick_python)"
-YARN_BIN="$(pick_yarn)"
+PNPM_BIN="$(pick_pnpm)"
 
 "$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
   || die "local CI parity requires exact CPython 3.14. Set PYTHON to the repository's 3.14 interpreter."
 
 section "Dependency check"
 require_python_module pytest || die "missing Python module pytest. Install test dependencies before running parity checks."
-if [ ! -d "$ROOT/frontend/node_modules" ]; then
-  die "frontend/node_modules is missing. Run 'cd frontend && yarn install' first."
+if [ ! -d "$ROOT/apps/web/node_modules" ]; then
+  die "apps/web/node_modules is missing. Run 'cd apps/web && pnpm install' first."
 fi
 printf 'Python: %s\n' "$PYTHON_BIN"
-printf 'Yarn:   %s\n' "$YARN_BIN"
+printf 'pnpm:   %s\n' "$PNPM_BIN"
 
 section "Backend Python compile"
 (
@@ -165,22 +165,19 @@ section "Migration/apply and CI contract tests"
     -q
 )
 
-section "Frontend operator/API/routing tests"
+section "Svelte web checks"
 (
-  cd "$ROOT/frontend"
-  "$YARN_BIN" test:operator
+  cd "$ROOT/apps/web"
+  "$PNPM_BIN" check
 )
 
-section "Frontend typecheck"
+section "Svelte web lint/format/unit/build"
 (
-  cd "$ROOT/frontend"
-  "$YARN_BIN" typecheck
-)
-
-section "Frontend build"
-(
-  cd "$ROOT/frontend"
-  "$YARN_BIN" build
+  cd "$ROOT/apps/web"
+  "$PNPM_BIN" lint
+  "$PNPM_BIN" format:check
+  "$PNPM_BIN" test
+  "$PNPM_BIN" build
 )
 
 if [ "${LOCAL_CI_SKIP_OPENAPI:-}" = "1" ]; then

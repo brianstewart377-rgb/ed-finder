@@ -136,29 +136,29 @@ Rules:
 - bulk database writes must follow `docs/development/bulk-database-write-safety.md`;
 - do not perform production DB reads/writes from a coding task unless an explicit current production operation authorizes them.
 
-## Frontend
+## Web / Frontend
 
-New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
+`apps/web/` is the sole application frontend and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. React is retired from the product and from validation gates. The legacy `frontend/` tree is historical migration/reference evidence only: do not build it, test it, or treat it as a release gate.
 
 The merged #601 baseline includes Finder, fresh Babylon results, and canonical
 Inspect integration. Keep new implementation in `apps/web/`.
 
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 
-- package manager: Yarn 1.22.22;
-- `yarn.lock` is committed and authoritative;
-- API access should use the existing domain-scoped client modules under `frontend/src/lib/api/`;
-- do not introduce a flat `frontend/src/lib/api.ts` that shadows the API barrel;
+- package manager: pnpm 11.25.0;
+- `apps/web/pnpm-lock.yaml` is committed and authoritative;
+- API access should use the generated facade in `apps/web/src/lib/api/`;
+- do not introduce a flat `apps/web/src/lib/api.ts` that shadows the API barrel;
 - preserve typed API contracts and regenerate/check OpenAPI types when backend response shapes change.
 
-Use these legacy-toolchain commands only to validate the still-current checked-in frontend:
+Use these commands to validate the current application frontend:
 
 ```bash
-cd frontend
-yarn install --frozen-lockfile
-yarn typecheck
-yarn test
-yarn build
+cd apps/web
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm build
 ```
 
 Run focused map/planner/operator/E2E checks when those surfaces are touched.
@@ -180,7 +180,7 @@ Both Codex Review (`chatgpt-codex-connector`) and Octopus Review must satisfy th
 
 Required checks are defined by branch protection and current workflows. Do not weaken tests just to make a PR green.
 
-At minimum, preserve the protected backend, integration, migration/script, canonical safety, frontend, E2E, image-parity, Review Lab and security gates that apply to the change.
+At minimum, preserve the protected backend, integration, migration/script, canonical safety, Svelte web, Cypress E2E, image-parity, Review Lab and security gates that apply to the change.
 
 If a docs/config change invalidates a contract test because the contract itself intentionally changed, update the test to assert the new contract rather than restoring stale text.
 

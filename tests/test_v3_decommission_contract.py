@@ -185,7 +185,7 @@ def test_protected_integration_lane_exercises_postgresql_18():
 def test_backend_coverage_lane_exercises_postgresql_18():
     workflow = _read(".github", "workflows", "coverage.yml")
     backend = workflow[
-        workflow.index("  backend-coverage:") : workflow.index("  frontend-coverage:")
+        workflow.index("  backend-coverage:") : workflow.index("  web-coverage:")
     ]
 
     assert "image: postgres:18-alpine" in backend
