@@ -542,13 +542,34 @@ class _CapiResponse:
         return self.payload
 
 
+class _MalformedJsonCapiResponse:
+    """A 200 /profile response whose body is not valid JSON."""
+
+    def __init__(self, status_code: int = 200):
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        raise ValueError('malformed JSON')
+
+
 async def _run_exchange_with_mocked_frontier(
     monkeypatch: pytest.MonkeyPatch,
     *,
     profile: object = None,
     profile_status: int = 200,
+    profile_response: object = None,
+    profile_error: BaseException | None = None,
 ):
-    """Stub /token, /decode, /me, and /profile, then run the real exchange."""
+    """Stub /token, /decode, /me, and /profile, then run the real exchange.
+
+    ``profile_error``, if set, is raised instead of returning a response for
+    the /profile GET (used to exercise the fail-open exception branch).
+    ``profile_response`` overrides the default success/status response object
+    for /profile (used for a 200 response with a malformed body).
+    """
 
     class _Client:
         def __init__(self, **_kwargs):
@@ -579,6 +600,10 @@ async def _run_exchange_with_mocked_frontier(
                     'parent_id': 'stable-parent',
                 })
             if url.endswith('/profile'):
+                if profile_error is not None:
+                    raise profile_error
+                if profile_response is not None:
+                    return profile_response
                 return _CapiResponse(profile, status_code=profile_status)
             raise AssertionError(f'unexpected GET {url}')
 
@@ -614,6 +639,49 @@ async def test_exchange_fails_open_when_profile_unavailable(
         profile_status=500,  # CAPI error
     )
     assert identity['commander_name'] is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_fails_open_when_profile_request_raises_httpx_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A transport-level failure calling /profile must not break login."""
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile_error=httpx.ConnectError(
+            'CAPI is unreachable',
+            request=httpx.Request('GET', 'https://companion.orerve.net/profile'),
+        ),
+    )
+    assert identity['commander_name'] is None  # login still succeeds
+    assert identity == {
+        'issuer': auth_router.FRONTIER_ISSUER,
+        'subject': 'stable-parent',
+        'commander_name': None,
+        'journal_fid': None,
+    }
+    assert 'access-token' not in str(identity)
+    assert 'discarded-access' not in str(identity)
+
+
+@pytest.mark.asyncio
+async def test_exchange_fails_open_when_profile_body_is_malformed_json(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A 200 /profile response with a malformed body must not break login."""
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile_response=_MalformedJsonCapiResponse(),
+    )
+    assert identity['commander_name'] is None  # login still succeeds
+    assert identity == {
+        'issuer': auth_router.FRONTIER_ISSUER,
+        'subject': 'stable-parent',
+        'commander_name': None,
+        'journal_fid': None,
+    }
+    assert 'access-token' not in str(identity)
+    assert 'discarded-access' not in str(identity)
 
 
 def test_frontier_identity_uses_stable_parent_and_keeps_commander_separate():

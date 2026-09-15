@@ -190,9 +190,10 @@ def identity_from_frontier_payloads(
     if not subject:
         raise HTTPException(502, 'Frontier account identity was empty')
 
-    # Kept as a compatibility parser for a future separately consented CAPI
-    # capability. Normal identity login passes profile=None and never calls
-    # companion.orerve.net.
+    # Identity login now requests scope 'auth capi' and calls
+    # companion.orerve.net/profile fail-open (see _exchange_frontier_code).
+    # The CAPI access token is used only for that one request and is then
+    # discarded: it is never persisted, returned to callers, or logged.
     commander_name: Optional[str] = None
     if isinstance(profile, dict):
         commander = profile.get('commander')
