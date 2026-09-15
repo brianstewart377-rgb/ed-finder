@@ -182,6 +182,7 @@ export function createCatalogueDensityMesh(
   material.diffuseColor = Color3.White();
   material.emissiveColor = new Color3(0.72, 0.72, 0.72);
   material.specularColor = Color3.Black();
+  Object.assign(material, { useVertexColors: true });
   material.opacityTexture = kernel;
   material.alpha = 0.9;
   material.alphaMode = Constants.ALPHA_COMBINE;

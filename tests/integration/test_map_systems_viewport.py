@@ -5,7 +5,7 @@ only our rows fall inside the test bounding box, then asserts the endpoint:
   * filters to the box (out-of-box rows excluded),
   * orders notable-first (populated, then brighter spectral class),
   * honors the cap via `truncated`,
-  * rejects an over-wide box with `too_wide`,
+  * uses the bounded whole-galaxy sample lane for an over-wide box,
   * rejects an out-of-range `limit` at the edge (422).
 """
 import pytest
@@ -64,14 +64,19 @@ async def test_viewport_filters_to_box_and_orders_notable_first(client, seeded_v
         assert 'populated' in system
 
 
-async def test_viewport_rejects_overwide_box(client):
+async def test_viewport_uses_sampled_lane_for_overwide_box(client):
     params = {'min_x': 0, 'max_x': 100_000, 'min_y': 0, 'max_y': 10, 'min_z': 0, 'max_z': 10}
     r = await client.get('/api/map/systems', params=params)
     assert r.status_code == 200, r.text
     body = r.json()
-    # When box is too wide, return empty systems array
-    assert body['systems'] == []
-    assert body['truncated'] is False
+    assert body['truncated'] is True
+    for system in body['systems']:
+        assert 'id64' in system
+        assert 'name' in system
+        assert 'x' in system
+        assert 'y' in system
+        assert 'z' in system
+        assert 'populated' in system
 
 
 async def test_viewport_truncates_at_limit(client, seeded_viewport_systems):

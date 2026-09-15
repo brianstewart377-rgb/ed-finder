@@ -1101,6 +1101,9 @@
     text-wrap: balance;
     line-height: 1.18;
     will-change: left, top;
+    transition:
+      left 90ms ease-out,
+      top 90ms ease-out;
   }
   .galaxy-label--region {
     justify-content: center;

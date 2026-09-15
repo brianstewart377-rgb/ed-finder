@@ -755,7 +755,7 @@ footer {
 }
 .explore-grid {
   display: grid;
-  grid-template-columns: minmax(16rem, 0.52fr) minmax(34rem, 1.48fr);
+  grid-template-columns: minmax(15rem, 0.34fr) minmax(34rem, 1.66fr);
   gap: 1rem;
   align-items: stretch;
 }
@@ -767,7 +767,7 @@ footer {
 }
 .results-panel,
 .map-panel {
-  min-height: calc(100vh - 10.5rem);
+  min-height: calc(100vh - 9.5rem);
 }
 .panel-heading {
   min-height: 5rem;
@@ -971,7 +971,7 @@ footer {
   box-shadow: inset 0 0 0 1px #75d7ff42;
 }
 .map-panel .spatial-canvas {
-  height: clamp(34rem, 76vh, 68rem);
+  height: clamp(42rem, 84vh, 78rem);
   border-width: 0 0 1px;
 }
 .map-panel .renderer-status,
