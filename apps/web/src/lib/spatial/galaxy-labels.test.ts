@@ -154,7 +154,7 @@ describe('Galaxy label projection and layout', () => {
     );
   });
 
-  it('places all 42 region names in ordered atlas rails at Galaxy scale', () => {
+  it('keeps all 42 region names map-anchored at Galaxy scale', () => {
     const regions = Array.from({ length: 42 }, (_, index) =>
       label(
         `region-${index + 1}`,
@@ -173,15 +173,7 @@ describe('Galaxy label projection and layout', () => {
       viewport,
     );
     expect(atlas).toHaveLength(42);
-    expect(
-      atlas.filter((entry) => entry.placement === 'atlas-left'),
-    ).toHaveLength(21);
-    expect(
-      atlas.filter((entry) => entry.placement === 'atlas-right'),
-    ).toHaveLength(21);
+    expect(atlas.every((entry) => entry.placement === 'map')).toBe(true);
     expect(new Set(atlas.map((entry) => entry.text)).size).toBe(42);
-    for (const entry of atlas) {
-      expect(entry.leaderEndXPx).not.toBe(entry.anchorXPx);
-    }
   });
 });

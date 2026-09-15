@@ -141,8 +141,9 @@ export function galaxyLabelCandidates(
   hoveredRegionId?: string,
 ): GalaxyLabelCandidate[] {
   const selectedKeys = new Set(scene.selection.map(targetKey));
-  const candidates: GalaxyLabelCandidate[] = systemPoints(scene).map(
-    (point) => {
+  const candidates: GalaxyLabelCandidate[] = systemPoints(scene)
+    .filter((point) => selectedKeys.has(`system:${point.systemId64}`))
+    .map((point) => {
       const target = { kind: 'system', systemId64: point.systemId64 } as const;
       return {
         key: targetKey(target),
@@ -154,8 +155,7 @@ export function galaxyLabelCandidates(
         hovered: false,
         current: false,
       };
-    },
-  );
+    });
 
   const regions = galaxyRegionsSceneLayer(scene);
   if (!regions) return candidates;
@@ -305,14 +305,7 @@ export function layoutGalaxyLabels(
     );
   });
 
-  const atlasRegions = projected.filter(
-    (entry) => entry.candidate.kind === 'region',
-  );
-  const atlasActive =
-    camera.distanceLy >= 100_000 && atlasRegions.length === 42;
-  const accepted: ProjectedGalaxyLabel[] = atlasActive
-    ? layoutRegionAtlas(atlasRegions, viewport, safe)
-    : [];
+  const accepted: ProjectedGalaxyLabel[] = [];
   const occupiedBoxes: LabelBox[] = accepted.map((label) =>
     estimateBox(label, label.xPx, label.yPx),
   );
@@ -332,7 +325,6 @@ export function layoutGalaxyLabels(
   ] as const;
 
   for (const entry of projected) {
-    if (atlasActive && entry.candidate.kind === 'region') continue;
     if (entry.candidate.kind === 'system' && systemCount >= maximumSystems) {
       continue;
     }
@@ -413,60 +405,4 @@ export function layoutGalaxyLabels(
 function clamp(value: number, minimum: number, maximum: number): number {
   if (maximum < minimum) return (minimum + maximum) / 2;
   return Math.min(maximum, Math.max(minimum, value));
-}
-
-function layoutRegionAtlas(
-  regions: ReadonlyArray<{
-    candidate: GalaxyLabelCandidate;
-    screen: ScreenProjection;
-    priority: number;
-  }>,
-  viewport: GalaxyLabelViewport,
-  safe: { top: number; right: number; bottom: number; left: number },
-): ProjectedGalaxyLabel[] {
-  // Lowest projected x values use the left rail; highest use the right. Each
-  // side is then ordered by source-anchor y, minimizing leader crossings.
-  const split = [...regions].sort(
-    (left, right) =>
-      left.screen.xPx - right.screen.xPx ||
-      left.candidate.key.localeCompare(right.candidate.key),
-  );
-  const midpoint = Math.ceil(split.length / 2);
-  const railWidth = Math.min(230, Math.max(138, viewport.width * 0.22));
-  const leftX = safe.left + railWidth / 2;
-  const rightX = viewport.width - safe.right - railWidth / 2;
-  const makeRail = (
-    entries: typeof split,
-    placement: 'atlas-left' | 'atlas-right',
-    xPx: number,
-  ) =>
-    entries
-      .sort(
-        (left, right) =>
-          left.screen.yPx - right.screen.yPx ||
-          left.candidate.key.localeCompare(right.candidate.key),
-      )
-      .map((entry, index) => {
-        const yPx =
-          safe.top +
-          ((index + 0.5) * (viewport.height - safe.top - safe.bottom)) /
-            entries.length;
-        return {
-          ...entry.candidate,
-          xPx,
-          yPx,
-          anchorXPx: entry.screen.xPx,
-          anchorYPx: entry.screen.yPx,
-          leaderEndXPx:
-            placement === 'atlas-left'
-              ? xPx + railWidth / 2
-              : xPx - railWidth / 2,
-          placement,
-          priority: entry.priority,
-        } satisfies ProjectedGalaxyLabel;
-      });
-  return [
-    ...makeRail(split.slice(0, midpoint), 'atlas-left', leftX),
-    ...makeRail(split.slice(midpoint), 'atlas-right', rightX),
-  ];
 }
