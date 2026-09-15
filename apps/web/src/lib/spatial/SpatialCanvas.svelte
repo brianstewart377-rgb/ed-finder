@@ -85,6 +85,7 @@
     | { type: 'SET_CAMERA'; camera: CameraState; animate: boolean }
     | { type: 'FLY_TO'; target: SpatialTarget; reducedMotion: boolean };
   let pendingCameraMove: PendingCameraMove | null = null;
+  let pendingScene: SpatialSceneContract | null = null;
   let hoverFrame: number | null = null;
 
   function setCameraTransitionActive(
@@ -174,6 +175,22 @@
     })} ly`;
   }
 
+  function applyScene(nextScene: SpatialSceneContract): void {
+    if (!runtime || status.state !== 'ready') return;
+    if (
+      runtime.dispatch({ type: 'LOAD_SCENE', scene: nextScene }).status ===
+      'executed'
+    ) {
+      if (!homeCamera && nextScene.kind === 'galaxy')
+        homeCamera = nextScene.camera;
+      if (nextScene.kind === 'system') {
+        homeSystemCamera = nextScene.camera;
+        currentSystemCamera = nextScene.camera;
+      }
+      lastLoadedRevision = nextScene.revision;
+    }
+  }
+
   $effect(() => {
     if (
       status.state !== 'ready' ||
@@ -183,14 +200,11 @@
     ) {
       return;
     }
-    if (runtime.dispatch({ type: 'LOAD_SCENE', scene }).status === 'executed') {
-      if (!homeCamera && scene.kind === 'galaxy') homeCamera = scene.camera;
-      if (scene.kind === 'system') {
-        homeSystemCamera = scene.camera;
-        currentSystemCamera = scene.camera;
-      }
-      lastLoadedRevision = scene.revision;
+    if (cameraTransitionActive) {
+      pendingScene = scene;
+      return;
     }
+    applyScene(scene);
   });
 
   $effect(() => {
@@ -672,6 +686,11 @@
           transitionCamera = null;
           const queuedMove = pendingCameraMove;
           pendingCameraMove = null;
+          const nextScene = pendingScene;
+          pendingScene = null;
+          if (nextScene) {
+            applyScene(nextScene);
+          }
           if (queuedMove) {
             dispatchCameraMove(queuedMove);
           }
@@ -747,6 +766,7 @@
       cameraTransitionActive = false;
       transitionCamera = null;
       pendingCameraMove = null;
+      pendingScene = null;
       pendingPickPoint = null;
       renderedLayerIds = [];
     };
