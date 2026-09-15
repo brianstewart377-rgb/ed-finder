@@ -205,6 +205,84 @@ Import: /account (rendered only when authenticated) → select .log files
 - **CAPI `204`/latency** — handled by fail-open; the real name may first appear
   on a subsequent login or after a journal import.
 
+### Import root cause (2026-09-15)
+
+Reproduction (Task 5) **did not confirm any of the three leading client-side
+candidates**. Each was independently tested against the actual production
+Vite build (`pnpm build` output, not the dev server) in a real Chromium
+browser, and each passed:
+
+1. **Module Web Worker load/serving.** `pnpm build` emits a self-contained
+   worker chunk at `apps/web/.svelte-kit/output/client/_app/immutable/workers/import-worker-D76Z3pMn.js`
+   (15.56 kB). Inspection shows it has **zero** `import`/`export` statements —
+   `@ed-finder/planner-core/journal`'s `parseJournalFilesStreaming` is fully
+   inlined by Rollup, so there is no cross-chunk ESM resolution for the worker
+   to fail at runtime. The call site in the built `nodes/3.*.js` chunk
+   constructs the worker URL correctly (`new URL('../workers/import-worker-*.js',
+   import.meta.url)`, `{type:'module'}`). Direct proof: with `vite preview`
+   serving the built `client/` output (the same static-file-serving semantics
+   nginx uses; correct `Content-Type: application/javascript`), a
+   `browser_evaluate` script instantiated `new Worker(..., {type:'module'})`
+   against the deployed chunk URL and it returned a complete `{type:'parsed', body:{...4 events...}}`
+   message — the worker loads and runs to completion under a production
+   build. `apps/web/nginx/default.conf.template` (the template actually baked
+   into the V3 web image, `apps/web/Dockerfile:39`) adds no CSP; the only CSP
+   in the repo (`config/security-headers.conf`) already allows
+   `worker-src 'self' blob:'` and is not evidence of a block.
+2. **`accept=".log,.jsonl"` file-picker filter.** Driving the real "Select
+   journal logs" button via Playwright against the production build opened
+   the OS file chooser normally and accepted a `Journal.2026-01-10T000000.01.log`
+   file without issue.
+3. **Disabled-until-selected button.** After the file was attached via
+   `bind:files`, the "Import journals" button's `disabled` attribute cleared
+   as expected (`JournalAccountPanel.svelte:240`).
+4. **Full click-to-receipt chain.** With `vite preview` fronting the built
+   client bundle and a minimal stub backend implementing the exact contracts
+   of `/api/v1/auth/session`, `/api/v1/auth/commanders`,
+   `/api/v1/journal/galaxy-contributions`, and `POST
+   /api/v1/journal/verified-imports`, clicking "Import journals" with the
+   sample `.log` file completed end-to-end: the worker parsed the file, the
+   POST fired with a non-empty body, and the UI rendered
+   `"N events saved · 0 duplicate events · 0 previously imported files"` — the
+   documented success state. No console error, no swallowed exception, no
+   hang.
+
+**Conclusion:** the client-side import chain (button → worker → parser →
+`importVerifiedJournals` → receipt render) is not defective in the way the
+three leading candidates predicted; it was exercised, unmodified, against the
+real production build artifact and completed correctly. The reported
+production symptom therefore was **not reproduced** by this task, which means
+the defect is more likely one of:
+
+- a **real backend/session boundary** difference between production's actual
+  OAuth-issued cookie (`SameSite`/`Secure`/domain, or the edge-proxy chain in
+  `deploy/v3-production/public-auth-edge.nginx.conf`) and the same-origin stub
+  used here — this task did not have production access or a real Frontier
+  session to test that hop;
+- a **real-journal data-shape edge case** that causes every file in a genuine
+  commander's selection to land in `held` inside `import-worker.ts` (size caps,
+  the 50,000-event cap, or the `Commander`/`LoadGame` timestamp guard at
+  `import-worker.ts:31-45`), which silently leaves `receipt` null and only
+  shows `status = 'No files ready to import'` plus per-file reasons — visually
+  easy to mistake for "nothing happened" if the reasons list isn't read
+  closely, since no `role="alert"` fires on that path
+  (`JournalAccountPanel.svelte:122-126`);
+- a genuine **backend-side** behaviour difference from the contract assumed
+  here (not verifiable without production access).
+
+**What Task 6 should do:** do not "fix" the worker bundling, the `accept`
+filter, or the disabled-button affordance — none reproduce a defect. Instead:
+(a) harden `parse.ts`'s `worker.onerror` (`apps/web/src/lib/journal/parse.ts:34-37`)
+to forward the real `ErrorEvent.message`/`filename`/`lineno` instead of the
+generic `"Journal parsing failed"`, since that is the one confirmed
+information-loss point that would obscure whatever the real production error
+is; (b) get one real production console/network trace from the owner (or
+Glitchtip, per `docs/operations/glitchtip-error-tracking.md`) of an actual
+failed import before changing behaviour further, since this task's synthetic
+reproduction could not access production; (c) if the "held" path is
+implicated, consider surfacing "No files ready to import" more prominently
+(e.g. as `role="alert"`) so an all-held selection is not mistaken for a hang.
+
 ## References
 
 - `apps/api/src/routers/auth.py`,
