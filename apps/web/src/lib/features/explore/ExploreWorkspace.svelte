@@ -9,6 +9,7 @@
     getCommanderViewportVisits,
     searchExploreSystems,
     type AutocompleteSystem,
+    type CatalogueViewportResponse,
     type ExploreSearchRequest,
     type ExploreSystem,
   } from '$lib/api/client';
@@ -89,9 +90,10 @@
     revision: 0,
   });
   let streamRevision = $state(0);
-  let viewportCameraFrame: number | null = null;
   let viewportCameraTimeout: number | null = null;
   let pendingViewportCamera: CameraState | null = null;
+  let appliedCataloguePacket = $state<CatalogueViewportResponse | null>(null);
+  let appliedCatalogueRevision = $state(0);
   let layerToggleRevision = $state(0);
   let showTravelHeatmap = $state(false);
   let showNebulae = $state(true);
@@ -168,6 +170,16 @@
     // the layer does not blink out and back in on every pan/zoom settle.
     placeholderData: (previousData) => previousData,
   }));
+  $effect(() => {
+    if (
+      catalogueStars.data &&
+      !catalogueStars.isPlaceholderData &&
+      catalogueStars.dataUpdatedAt !== appliedCatalogueRevision
+    ) {
+      appliedCataloguePacket = catalogueStars.data;
+      appliedCatalogueRevision = catalogueStars.dataUpdatedAt;
+    }
+  });
   const commanderVisits = createQuery(() => ({
     queryKey: queryKeys.commanderViewport(
       $syncKey.value.state.syncKey,
@@ -195,13 +207,18 @@
     staleTime: 20_000,
     placeholderData: (previousData) => previousData,
   }));
+  const cataloguePacketIsCurrent = $derived(
+    catalogueStars.data === appliedCataloguePacket &&
+      !catalogueStars.isPlaceholderData,
+  );
   const filteredCatalogueSystems = $derived(
-    (catalogueStars.data?.systems ?? []).filter((system) => {
+    (appliedCataloguePacket?.systems ?? []).filter((system) => {
       if (!starViewport || !streamCamera) return true;
       // Wide galaxy scale: shape the axis-aligned API sample into the
       // canonical galactic disk so it reads as a swirling star field rather
       // than a rectangular slab, and feather the rim so nothing clips square.
       if (starViewport.wide) return withinGalaxyDisk(system.x, system.z);
+      if (!cataloguePacketIsCurrent) return true;
       const focus = streamCamera.focusLy;
       const horizontalRadius = (starViewport.maxX - starViewport.minX) / 2;
       const verticalRadius = (starViewport.maxY - starViewport.minY) / 2;
@@ -224,17 +241,17 @@
     results.data ? results.data.results : viewportSystems,
   );
   const finderRevision = $derived(
-    results.dataUpdatedAt || catalogueStars.dataUpdatedAt,
+    results.dataUpdatedAt || appliedCatalogueRevision,
   );
   const finderContribution = $derived(
     createExploreFinderContribution(systems, finderRevision),
   );
   const catalogueStarsContribution = $derived(
-    catalogueStars.data
+    appliedCataloguePacket
       ? createCatalogueStarsContribution(
           filteredCatalogueSystems,
-          catalogueStars.dataUpdatedAt,
-          catalogueStars.data.truncated,
+          appliedCatalogueRevision,
+          appliedCataloguePacket.truncated,
         )
       : null,
   );
@@ -301,16 +318,13 @@
         regionResourceRevision +
         streamRevision +
         layerToggleRevision +
-        catalogueStars.dataUpdatedAt +
+        appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
         nebulaResourceRevision,
       {
         finderContribution,
         finderRevision,
-        camera:
-          retainedCamera?.finderRevision === finderRevision
-            ? retainedCamera.camera
-            : null,
+        camera: retainedCamera?.camera ?? null,
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
@@ -420,19 +434,15 @@
   function retainCamera(camera: CameraState): void {
     retainedCamera = { finderRevision, camera };
     pendingViewportCamera = camera;
-    if (viewportCameraFrame === null) {
-      viewportCameraFrame = window.requestAnimationFrame(() => {
-        viewportCameraFrame = null;
-        if (viewportCameraTimeout === null) {
-          viewportCameraTimeout = window.setTimeout(() => {
-            viewportCameraTimeout = null;
-            const nextCamera = pendingViewportCamera;
-            pendingViewportCamera = null;
-            if (nextCamera) streamCamera = nextCamera;
-          }, 180);
-        }
-      });
+    if (viewportCameraTimeout !== null) {
+      window.clearTimeout(viewportCameraTimeout);
     }
+    viewportCameraTimeout = window.setTimeout(() => {
+      viewportCameraTimeout = null;
+      const nextCamera = pendingViewportCamera;
+      pendingViewportCamera = null;
+      if (nextCamera) streamCamera = nextCamera;
+    }, 180);
   }
 
   function handleRuntimeEvent(event: RuntimeEvent): void {
@@ -875,7 +885,8 @@
           {/if}
         </span>
         <span
-          data-catalogue-star-count={catalogueStars.data?.systems.length ?? 0}
+          data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
+            0}
         >
           {#if !starViewport}
             Known-system density · zoom in for individual stars

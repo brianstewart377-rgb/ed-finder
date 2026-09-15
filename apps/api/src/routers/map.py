@@ -414,7 +414,7 @@ async def map_systems(
                     WHERE  x BETWEEN $2 AND $3
                       AND  y BETWEEN $4 AND $5
                       AND  z BETWEEN $6 AND $7
-                    ORDER BY random()
+                    ORDER BY md5(id64::text)
                     LIMIT  $8
                 """, GALAXY_SAMPLE_PERCENT, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z,
                     min(limit, MAX_GALAXY_SAMPLE_SYSTEMS))
@@ -436,7 +436,7 @@ async def map_systems(
                      WHERE s.x_ly BETWEEN $2 AND $3
                        AND s.y_ly BETWEEN $4 AND $5
                        AND s.z_ly BETWEEN $6 AND $7
-                     ORDER BY random()
+                     ORDER BY md5(s.id64::text)
                      LIMIT  $8
                 """, GALAXY_SAMPLE_PERCENT, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z,
                     min(limit, MAX_GALAXY_SAMPLE_SYSTEMS))
