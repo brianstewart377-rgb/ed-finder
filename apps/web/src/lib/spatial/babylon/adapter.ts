@@ -196,7 +196,13 @@ export type BabylonGalaxyReferenceGrid = Readonly<{
   minorMesh: ReturnType<typeof CreateLineSystem> | null;
   majorMesh: ReturnType<typeof CreateLineSystem> | null;
   axisMesh: ReturnType<typeof CreateLineSystem> | null;
+  /** Last zoom-fade factor uploaded into the line vertex colours (0..1). */
+  fade: { applied: number };
 }>;
+
+// LinesMesh ignores `visibility`/`alpha` once per-vertex colours are in use,
+// so the zoom fade has to be written into the colour buffer itself.
+const gridBaseColours = new WeakMap<Mesh, Float32Array>();
 
 export type GalaxyRegionFillMesh = Readonly<{
   regionId: number;
@@ -480,12 +486,16 @@ function createFadedGridLines(
         new Color4(colour.r, colour.g, colour.b, centreAlpha),
         new Color4(colour.r, colour.g, colour.b, edgeAlpha),
       ]),
-      updatable: false,
+      updatable: true,
     },
     scene,
   );
   mesh.isPickable = false;
   mesh.renderingGroupId = 0;
+  gridBaseColours.set(
+    mesh,
+    Float32Array.from(mesh.getVerticesData('color') ?? []),
+  );
   return mesh;
 }
 
@@ -534,7 +544,13 @@ function createGalaxyReferenceGrid(
   if (minorMesh) minorMesh.metadata = metadata;
   if (majorMesh) majorMesh.metadata = metadata;
   if (axisMesh) axisMesh.metadata = metadata;
-  return { spec, minorMesh, majorMesh, axisMesh };
+  return {
+    spec,
+    minorMesh,
+    majorMesh,
+    axisMesh,
+    fade: { applied: Number.NaN },
+  };
 }
 
 function disposeGalaxyReferenceGrid(grid: BabylonGalaxyReferenceGrid): void {
@@ -628,11 +644,20 @@ function updateGalaxyReferenceGridVisibility(
     0,
     Math.min(1, (fadeStartLy - camera.distanceLy) / (fadeStartLy - fadeEndLy)),
   );
+  if (visibility === grid.fade.applied) return;
+  grid.fade.applied = visibility;
   const visible = visibility > 0;
   for (const mesh of [grid.minorMesh, grid.majorMesh, grid.axisMesh]) {
     if (!mesh) continue;
     mesh.setEnabled(visible);
-    mesh.visibility = visibility;
+    if (!visible) continue;
+    const base = gridBaseColours.get(mesh);
+    if (!base) continue;
+    const faded = Float32Array.from(base);
+    for (let index = 3; index < faded.length; index += 4) {
+      faded[index] = base[index]! * visibility;
+    }
+    mesh.updateVerticesData('color', faded, false, false);
   }
 }
 
@@ -1139,17 +1164,13 @@ function nearestStarTargetByScreen(
   );
   const identity = Matrix.Identity();
   const projected = Vector3.Zero();
+  const world = Vector3.Zero();
   let bestIndex = -1;
   let bestDistanceSq = tolerancePx * tolerancePx;
   for (let index = 0; index < product.points.length; index += 1) {
     const point = product.points[index]!;
-    Vector3.ProjectToRef(
-      new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
-      identity,
-      transform,
-      viewport,
-      projected,
-    );
+    world.set(point.positionLy.x, point.positionLy.y, point.positionLy.z);
+    Vector3.ProjectToRef(world, identity, transform, viewport, projected);
     if (projected.z < 0 || projected.z > 1) continue;
     const dx = projected.x - deviceX;
     const dy = projected.y - deviceY;
