@@ -51,12 +51,12 @@
   ): string {
     if (!held.length)
       return 'No recognizable journal files were found in this selection.';
-    const counts = new Map<string, number>();
+    const counts: Record<string, number> = {};
     for (const item of held) {
       const clause = HELD_REASON_CLAUSES[item.reason] ?? item.reason;
-      counts.set(clause, (counts.get(clause) ?? 0) + 1);
+      counts[clause] = (counts[clause] ?? 0) + 1;
     }
-    const parts = [...counts].map(
+    const parts = Object.entries(counts).map(
       ([clause, count]) =>
         `${count} ${count === 1 ? 'file' : 'files'} ${clause}`,
     );
