@@ -600,4 +600,54 @@ describe('Babylon Galaxy camera session', () => {
       target: flightTarget,
     });
   });
+
+  it('picks the star under the cursor, not a nearer star sitting on the view ray', () => {
+    // Seed geometry: Shinrarta Dezhra sits ~137 LY almost directly above
+    // Achenar, so a top-down camera focused on Achenar has SD's marker on the
+    // ray to the focus. The click aimed at the focus must still pick Achenar.
+    const achenar = {
+      systemId64: '10477373803000',
+      name: 'Achenar',
+      positionLy: { x: 67.5, y: -119.47, z: 24.84 },
+    };
+    const shinrarta = {
+      systemId64: '5378341272451',
+      name: 'Shinrarta Dezhra',
+      positionLy: { x: 55.71, y: 17.59, z: 27.15 },
+    };
+    const { session, scene, emit, events } = loadSession({
+      ...fixture,
+      camera: {
+        ...initialCamera,
+        focusLy: achenar.positionLy,
+        distanceLy: 6_000,
+        pitchRad: Math.PI / 2,
+      },
+      selection: [],
+      contributions: [
+        {
+          ...fixture.contributions[0]!,
+          layers: [
+            {
+              ...fixture.contributions[0]!.layers[0]!,
+              payload: { systems: [shinrarta, achenar] },
+              targetCount: 2,
+            },
+          ],
+        },
+      ],
+    });
+    scene.updateTransformMatrix(true);
+    for (const mesh of scene.meshes) mesh.computeWorldMatrix(true);
+    const rayHit = scene.pick(320, 180);
+    expect(rayHit?.hit).toBe(true);
+    expect(rayHit?.thinInstanceIndex).toBe(0);
+
+    session.execute?.({ type: 'PICK', screenX: 320, screenY: 180 }, emit);
+
+    expect(events.at(-1)).toEqual({
+      type: 'TARGET_PICKED',
+      target: { kind: 'system', systemId64: achenar.systemId64 },
+    });
+  });
 });

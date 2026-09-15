@@ -101,6 +101,13 @@ describe('ED-Finder V3 foundation', () => {
     cy.get('[role="status"][data-renderer-state="ready"]', {
       timeout: 20_000,
     }).should('be.visible');
+    // Babylon lazily imports shader chunks as effects compile, so one can
+    // still be in flight when the page reloads. Firefox rejects the aborted
+    // import() with a TypeError; that is the navigation cancelling the
+    // request, not an application failure, and is scoped to this reload only.
+    cy.on('uncaught:exception', (error) =>
+      /dynamically imported module/i.test(error.message) ? false : undefined,
+    );
     cy.reload();
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
