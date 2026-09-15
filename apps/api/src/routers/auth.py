@@ -154,9 +154,10 @@ def build_frontier_authorize_url(*, state: str, code_challenge: str) -> str:
         'response_type': 'code',
         'client_id': settings.frontier_client_id or '',
         'redirect_uri': settings.frontier_redirect_uri,
-        # Identity login deliberately does not request CAPI. /decode and /me
-        # provide the stable verified account subject for this flow.
-        'scope': 'auth',
+        # Identity login requests CAPI so the callback can read the real
+        # in-game commander name from companion /profile. The companion token
+        # is used once for the name and never persisted.
+        'scope': 'auth capi',
         'audience': 'all',
         'state': state,
         'code_challenge': code_challenge,
@@ -267,7 +268,23 @@ async def _exchange_frontier_code(code: str, verifier: str) -> dict[str, Any]:
         raise HTTPException(502, 'Frontier returned an invalid account response')
     # access_token and any refresh_token in token_payload leave scope here and
     # are never returned to callers or written to PostgreSQL.
-    return identity_from_frontier_payloads(decoded, account).model_dump()
+
+    profile: Optional[dict[str, Any]] = None
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=12.0) as capi:
+            profile_response = await capi.get(
+                f"{settings.frontier_capi_base_url.rstrip('/')}/profile",
+                headers=auth_headers,
+            )
+            if profile_response.status_code == 200:
+                parsed = profile_response.json()
+                if isinstance(parsed, dict):
+                    profile = parsed
+            # 204/4xx/5xx: fail open — login proceeds with no CAPI name.
+    except (httpx.HTTPError, ValueError):
+        profile = None
+
+    return identity_from_frontier_payloads(decoded, account, profile).model_dump()
 
 
 async def _consume_login_state(
