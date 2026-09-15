@@ -21,7 +21,7 @@ describe('real catalogue star streaming policy', () => {
     expect(galaxyStarViewport(camera(1_000))?.limit).toBe(12_000);
     expect(galaxyStarViewport(camera(80))?.limit).toBe(1_800);
     expect(galaxyStarViewport(camera(7_001))).toMatchObject({
-      limit: 40_000,
+      limit: 8_000,
       wide: true,
     });
   });
@@ -36,7 +36,7 @@ describe('real catalogue star streaming policy', () => {
   it('uses a bounded real-system sample lane at galaxy scale', () => {
     const viewport = galaxyStarViewport(camera(120_000))!;
     expect(viewport.wide).toBe(true);
-    expect(viewport.limit).toBe(40_000);
+    expect(viewport.limit).toBe(8_000);
     expect(viewport.maxY - viewport.minY).toBeLessThan(15_000);
     expect(viewport.maxX - viewport.minX).toBeGreaterThan(15_000);
     expect(viewport.maxZ - viewport.minZ).toBeGreaterThan(15_000);

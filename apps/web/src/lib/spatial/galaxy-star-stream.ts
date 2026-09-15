@@ -48,7 +48,7 @@ export function galaxyStarViewport(
       maxY: 2_400,
       minZ: -25_000,
       maxZ: 78_000,
-      limit: 40_000,
+      limit: 8_000,
       cameraDistanceLy: camera.distanceLy,
       wide: true,
     };
