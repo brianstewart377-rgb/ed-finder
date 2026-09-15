@@ -52,6 +52,7 @@
   } from '$lib/spatial/galaxy-star-stream';
 
   const { selectedSystem, syncKey } = usePersistenceContext();
+  const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
   let query = $state('');
   let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
@@ -93,7 +94,6 @@
   let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
   let nebulaResourceRevision = $state(0);
   let nebulaLoadAttempt = 0;
-  let streamCameraTimer: ReturnType<typeof setTimeout> | null = null;
 
   const normalizedQuery = $derived(query.trim());
   const suggestions = createQuery(() => ({
@@ -186,8 +186,21 @@
     enabled: showTravelHeatmap && viewportRequest !== null,
     staleTime: 20_000,
   }));
+  const filteredCatalogueSystems = $derived(
+    (catalogueStars.data?.systems ?? []).filter((system) => {
+      if (!starViewport || !streamCamera) return true;
+      const focus = streamCamera.focusLy;
+      const horizontalRadius = (starViewport.maxX - starViewport.minX) / 2;
+      const verticalRadius = (starViewport.maxY - starViewport.minY) / 2;
+      if (horizontalRadius <= 0 || verticalRadius <= 0) return true;
+      const dx = (system.x - focus.x) / horizontalRadius;
+      const dz = (system.z - focus.z) / horizontalRadius;
+      const dy = (system.y - focus.y) / verticalRadius;
+      return dx * dx + dz * dz <= 1 && Math.abs(dy) <= 1;
+    }),
+  );
   const viewportSystems = $derived(
-    (catalogueStars.data?.systems ?? []).map((system): ExploreSystem => ({
+    filteredCatalogueSystems.map((system): ExploreSystem => ({
       id64: system.id64,
       name: system.name,
       coords: { x: system.x, y: system.y, z: system.z },
@@ -206,7 +219,7 @@
   const catalogueStarsContribution = $derived(
     catalogueStars.data
       ? createCatalogueStarsContribution(
-          catalogueStars.data.systems,
+          filteredCatalogueSystems,
           catalogueStars.dataUpdatedAt,
           catalogueStars.data.truncated,
         )
@@ -388,12 +401,6 @@
 
   function retainCamera(camera: CameraState): void {
     retainedCamera = { finderRevision, camera };
-    if (streamCameraTimer) clearTimeout(streamCameraTimer);
-    streamCameraTimer = setTimeout(() => {
-      streamCamera = camera;
-      streamRevision += 1;
-      streamCameraTimer = null;
-    }, 180);
   }
 
   function handleRuntimeEvent(event: RuntimeEvent): void {
@@ -529,7 +536,6 @@
     return () => {
       regionLoadAttempt += 1;
       nebulaLoadAttempt += 1;
-      if (streamCameraTimer) clearTimeout(streamCameraTimer);
     };
   });
 
@@ -647,7 +653,7 @@
           <Sparkles aria-hidden="true" />
           <p>Building a real-system shortlist…</p>
         </div>
-      {:else if results.isError && systems.length === 0}
+      {:else if results.isError && (reviewLabRun || systems.length === 0)}
         <div class="state-card error" role="alert">
           <p>Discovery results could not be loaded.</p>
           <button

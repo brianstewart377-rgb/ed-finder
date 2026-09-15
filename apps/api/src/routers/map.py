@@ -426,18 +426,26 @@ async def map_systems(
             """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
         else:
             rows = await conn.fetch(f"""
-                SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z,
-                       galaxy_region_id,
+                SELECT s.id64, s.name, s.x_ly AS x, s.y_ly AS y, s.z_ly AS z,
+                       s.galaxy_region_id,
                        FALSE AS populated,
-                       NULL::text AS main_star_type
-                  FROM {schema}.systems
-                 WHERE grid_x BETWEEN $1 AND $2
-                   AND grid_y BETWEEN $3 AND $4
-                   AND grid_z BETWEEN $5 AND $6
-                   AND x_ly BETWEEN $7 AND $8
-                   AND y_ly BETWEEN $9 AND $10
-                   AND z_ly BETWEEN $11 AND $12
-                 ORDER BY id64
+                       body.spectral_class AS main_star_type
+                  FROM {schema}.systems s
+                  LEFT JOIN LATERAL (
+                    SELECT b.spectral_class
+                      FROM {schema}.bodies b
+                     WHERE b.system_id64 = s.id64
+                       AND b.is_main_star
+                     ORDER BY b.body_pk
+                     LIMIT 1
+                  ) body ON TRUE
+                 WHERE s.grid_x BETWEEN $1 AND $2
+                   AND s.grid_y BETWEEN $3 AND $4
+                   AND s.grid_z BETWEEN $5 AND $6
+                   AND s.x_ly BETWEEN $7 AND $8
+                   AND s.y_ly BETWEEN $9 AND $10
+                   AND s.z_ly BETWEEN $11 AND $12
+                 ORDER BY s.id64
                  LIMIT $13
             """,
                 math.floor(lo_x / 10), math.floor(hi_x / 10),
