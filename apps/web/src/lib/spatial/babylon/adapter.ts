@@ -1212,18 +1212,11 @@ function pickGalaxyTarget(
     );
     if (selected) return { kind: 'system', systemId64: selected.systemId64 };
   }
-  if (
-    systemHit?.hit &&
-    systemHit.pickedMesh === product.starMesh &&
-    typeof systemHit.thinInstanceIndex === 'number' &&
-    systemHit.thinInstanceIndex >= 0
-  ) {
-    const point = product.points[systemHit.thinInstanceIndex];
-    if (point) return { kind: 'system', systemId64: point.systemId64 };
-  }
-  // Stars render only a few pixels wide, so an exact ray can narrowly miss.
-  // Fall back to the nearest projected star within a small screen tolerance
-  // before considering a region plane, keeping individual stars clickable.
+  // Stars are point targets, so the star whose projection is closest to the
+  // cursor wins. A ray hit alone is not enough: a marker that merely sits in
+  // front along the view ray (e.g. a system a few LY off-axis but nearer the
+  // camera) would otherwise steal a click aimed squarely at the star behind
+  // it. The ray hit remains the answer when no star projects within tolerance.
   const nearestStar = allowNearestStar
     ? nearestStarTargetByScreen(
         engine,
@@ -1234,6 +1227,15 @@ function pickGalaxyTarget(
       )
     : undefined;
   if (nearestStar) return nearestStar;
+  if (
+    systemHit?.hit &&
+    systemHit.pickedMesh === product.starMesh &&
+    typeof systemHit.thinInstanceIndex === 'number' &&
+    systemHit.thinInstanceIndex >= 0
+  ) {
+    const point = product.points[systemHit.thinInstanceIndex];
+    if (point) return { kind: 'system', systemId64: point.systemId64 };
+  }
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
   );
