@@ -148,7 +148,19 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       );
     });
 
-    cy.get(canvasSelector).click('center');
+    cy.get('[data-map-label-key="system:10477373803000"]', {
+      timeout: 20_000,
+    })
+      .should('be.visible')
+      .then(($label) => {
+        const anchorX = Number($label.attr('data-map-label-anchor-x'));
+        const anchorY = Number($label.attr('data-map-label-anchor-y'));
+        expect(Number.isFinite(anchorX)).to.equal(true);
+        expect(Number.isFinite(anchorY)).to.equal(true);
+        expect(anchorX).to.be.greaterThan(0);
+        expect(anchorY).to.be.greaterThan(0);
+        cy.get(canvasSelector).click(anchorX, anchorY);
+      });
     cy.get('.selection-status')
       .should('have.attr', 'data-last-picked-id64', '10477373803000', {
         timeout: 20_000,

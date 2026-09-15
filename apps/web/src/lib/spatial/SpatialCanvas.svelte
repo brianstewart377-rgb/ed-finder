@@ -968,6 +968,8 @@
         data-map-label-kind={label.kind}
         data-map-label-key={label.key}
         data-map-label-selected={label.selected || undefined}
+        data-map-label-anchor-x={label.anchorXPx}
+        data-map-label-anchor-y={label.anchorYPx}
         style:left={`${label.xPx}px`}
         style:top={`${label.yPx}px`}
       >
