@@ -146,6 +146,14 @@ describe('isolated V3 Review Lab', () => {
     });
 
     const instrumentWindow = (window: Window) => {
+      try {
+        Object.defineProperty(window.document, 'visibilityState', {
+          configurable: true,
+          get: () => 'visible',
+        });
+      } catch {
+        // Cypress owns the page lifecycle; retry pacing is best-effort here.
+      }
       window.addEventListener('error', (event) =>
         summary.pageErrors.push(clean(event.error?.stack || event.message)),
       );
