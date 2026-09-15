@@ -272,7 +272,10 @@ async def _exchange_frontier_code(code: str, verifier: str) -> dict[str, Any]:
 
     profile: Optional[dict[str, Any]] = None
     try:
-        async with httpx.AsyncClient(headers=headers, timeout=12.0) as capi:
+        # Short timeout: the commander name is best-effort and login is
+        # load-bearing, so a slow/hung CAPI must not stall sign-in. On timeout
+        # the except below fails open with no name.
+        async with httpx.AsyncClient(headers=headers, timeout=5.0) as capi:
             profile_response = await capi.get(
                 f"{settings.frontier_capi_base_url.rstrip('/')}/profile",
                 headers=auth_headers,
