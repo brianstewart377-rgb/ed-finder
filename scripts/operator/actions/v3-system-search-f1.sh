@@ -10,7 +10,8 @@ TARGET_FQDN="nb79a3d.mevnode.com"
 POSTGRES_CONTAINER="edfinder-v3-phase4c-full-20260827_r5-postgres"
 DATABASE_USER="edfinder_v3"
 DATABASE_NAME="edfinder_v3_phase4c_full_20260827_r5"
-APPLICATION_NETWORK="edfinder-v3-production"
+COMPOSE_PROJECT="edfinder-v3-production"
+WORKER_NETWORK="edfinder-v3-phase4c-full-20260827_r5-network"
 TARGET_GENERATION_KEY="ratings_v4_prod_p4_opt1"
 TARGET_CANONICAL_SEQUENCE="4"
 TARGET_CANONICAL_GENERATION="a7076522-54cd-52f3-a291-4e5406bea230"
@@ -55,7 +56,7 @@ active_api_container() {
     case "$service" in
       api-*) matches+=("$container") ;;
     esac
-  done < <(docker ps --filter "label=com.docker.compose.project=${APPLICATION_NETWORK}" --format '{{.Names}}')
+  done < <(docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" --format '{{.Names}}')
   [ "${#matches[@]}" -eq 1 ] || fail "expected exactly one running production API slot, found ${#matches[@]}"
   printf '%s\n' "${matches[0]}"
 }
@@ -154,7 +155,7 @@ start_operation() {
     --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
     --label "ed-finder.source-sha=${SOURCE_SHA}" \
-    --network "$APPLICATION_NETWORK" \
+    --network "$WORKER_NETWORK" \
     --cpus "$TARGET_CPUS" \
     --memory "$TARGET_MEMORY" \
     --memory-swap "$TARGET_MEMORY" \

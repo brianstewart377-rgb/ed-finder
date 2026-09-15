@@ -9,7 +9,8 @@ TARGET_FQDN="nb79a3d.mevnode.com"
 POSTGRES_CONTAINER="edfinder-v3-phase4c-full-20260827_r5-postgres"
 DATABASE_USER="edfinder_v3"
 DATABASE_NAME="edfinder_v3_phase4c_full_20260827_r5"
-APPLICATION_NETWORK="edfinder-v3-production"
+COMPOSE_PROJECT="edfinder-v3-production"
+WORKER_NETWORK="edfinder-v3-phase4c-full-20260827_r5-network"
 OPERATION_LABEL="ed-finder.operation=ratings-v4-generation"
 STATE_ROOT="${HOME}/.local/state/ed-finder/ratings-v4"
 TARGET_CPUS="16"
@@ -52,7 +53,7 @@ active_api_container() {
     case "$service" in
       api-*) matches+=("$container") ;;
     esac
-  done < <(docker ps --filter "label=com.docker.compose.project=${APPLICATION_NETWORK}" --format '{{.Names}}')
+  done < <(docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" --format '{{.Names}}')
   [ "${#matches[@]}" -eq 1 ] || fail "expected exactly one running production API slot, found ${#matches[@]}"
   printf '%s\n' "${matches[0]}"
 }
@@ -228,7 +229,7 @@ if ! docker inspect "$new_worker" >/dev/null 2>&1; then
     --label "ed-finder.optimization=parallel-encoding-v1" \
     --label "ed-finder.chunk-size=${TARGET_CHUNK_SIZE}" \
     --label "ed-finder.encoder-workers=${TARGET_WORKERS}" \
-    --network "$APPLICATION_NETWORK" \
+    --network "$WORKER_NETWORK" \
     --cpus "$TARGET_CPUS" \
     --memory "$TARGET_MEMORY" \
     --memory-swap "$TARGET_MEMORY" \

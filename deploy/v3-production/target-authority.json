@@ -113,7 +113,11 @@
   "external_authority": {
     "application_network": "edfinder-v3-production",
     "application_network_allowed_containers": [
-      "edfinder-v3-phase4c-full-20260827_r5-postgres"
+      "edfinder-v3-phase4c-full-20260827_r5-postgres",
+      "edfinder-ratings-v4-prod-p4",
+      "edfinder-ratings-v4-prod-p4-opt1",
+      "edfinder-ratings-v4-prod-p4-parallel-v1",
+      "edfinder-v3-system-search-p4-opt1"
     ],
     "api_env_file": "/etc/ed-finder/v3-production/api.env",
     "api_env_owner_uid": 0,
