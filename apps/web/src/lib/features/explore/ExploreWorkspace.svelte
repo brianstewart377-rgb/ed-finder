@@ -885,7 +885,8 @@
           {/if}
         </span>
         <span
-          data-catalogue-star-count={appliedCataloguePacket?.systems.length ?? 0}
+          data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
+            0}
         >
           {#if !starViewport}
             Known-system density · zoom in for individual stars
