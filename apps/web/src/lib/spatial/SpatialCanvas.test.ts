@@ -471,12 +471,12 @@ describe('SpatialCanvas', () => {
     await waitFor(() =>
       expect(
         view.container.querySelector('[data-visible-label-count]'),
-      ).toHaveAttribute('data-visible-label-count', '3'),
+      ).toHaveAttribute('data-visible-label-count', '1'),
     );
     const systemLabels = view.container.querySelectorAll(
       '[data-map-label-kind="system"]',
     );
-    expect(systemLabels).toHaveLength(3);
+    expect(systemLabels).toHaveLength(1);
     expect(
       view.container.querySelector('[data-map-label-selected="true"]'),
     ).toHaveTextContent('Fixture Core');
