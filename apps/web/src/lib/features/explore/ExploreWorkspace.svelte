@@ -208,7 +208,7 @@
     })),
   );
   const systems = $derived(
-    results.data?.results.length ? results.data.results : viewportSystems,
+    results.data ? results.data.results : viewportSystems,
   );
   const finderRevision = $derived(
     results.dataUpdatedAt || catalogueStars.dataUpdatedAt,
