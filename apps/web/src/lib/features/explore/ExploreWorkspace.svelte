@@ -163,6 +163,7 @@
     },
     enabled: viewportRequest !== null,
     staleTime: 20_000,
+    placeholderData: (previousData) => previousData,
   }));
   const commanderVisits = createQuery(() => ({
     queryKey: queryKeys.commanderViewport(
