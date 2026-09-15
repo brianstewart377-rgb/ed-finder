@@ -10,6 +10,7 @@ import {
   Quaternion,
   Vector3,
 } from '@babylonjs/core/Maths/math.vector.js';
+import { Viewport } from '@babylonjs/core/Maths/math.viewport.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
@@ -618,10 +619,21 @@ function updateGalaxyReferenceGridVisibility(
   grid: BabylonGalaxyReferenceGrid,
   camera: CameraState,
 ): void {
-  const visible = camera.distanceLy <= 18_000;
-  grid.minorMesh?.setEnabled(visible);
-  grid.majorMesh?.setEnabled(visible);
-  grid.axisMesh?.setEnabled(visible);
+  // The galactic-plane grid is a zoom-in reference: fully hidden at galaxy
+  // scale and faded in only as the camera closes on a neighbourhood, so it
+  // never rails across the whole star field.
+  const fadeStartLy = 18_000;
+  const fadeEndLy = 8_000;
+  const visibility = Math.max(
+    0,
+    Math.min(1, (fadeStartLy - camera.distanceLy) / (fadeStartLy - fadeEndLy)),
+  );
+  const visible = visibility > 0;
+  for (const mesh of [grid.minorMesh, grid.majorMesh, grid.axisMesh]) {
+    if (!mesh) continue;
+    mesh.setEnabled(visible);
+    mesh.visibility = visibility;
+  }
 }
 
 function selectedGalaxyRegionId(contract: GalaxySceneContract): number | null {
@@ -936,18 +948,55 @@ export function nebulaCloudRadiusLy(
   return kind === 'planetary-nebula' ? 56 : 160;
 }
 
+// Overlapping catalogue points inside this cube collapse to one landmark so the
+// map shows a handful of soft clouds instead of thousands of merged blobs.
+const NEBULA_LANDMARK_CELL_LY = 1_400;
+const NEBULA_LANDMARK_LIMIT = 260;
+// Emission-nebula palette: warm rose, teal, gold, violet, cyan, jade. Balanced
+// so the layer reads as varied landmarks rather than a single blue smear.
+const NEBULA_PALETTE = [
+  [0.86, 0.34, 0.52],
+  [0.3, 0.68, 0.74],
+  [0.9, 0.6, 0.3],
+  [0.58, 0.4, 0.82],
+  [0.34, 0.6, 0.86],
+  [0.4, 0.74, 0.54],
+] as const;
+
+/** Deterministic 0..1 hash from a stable nebula identity. */
+function nebulaIdentityHash(id: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return ((hash >>> 0) % 100_000) / 100_000;
+}
+
 function createGalaxyNebulaeMesh(
   scene: Scene,
   nebulae: GalaxyNebulaeSceneLayer | null,
 ): ReturnType<typeof CreateSphere> | null {
   if (!nebulae?.payload.nebulae.length) return null;
-  const renderedNebulae = nebulae.payload.nebulae.filter(
-    (nebula) => nebula.kind === 'nebula',
-  );
-  if (!renderedNebulae.length) return null;
+  // Keep only diffuse nebulae, then merge near-duplicates onto a coarse grid so
+  // the map presents a few varied landmarks instead of a merged blue field.
+  const seen = new Set<string>();
+  const landmarks: (typeof nebulae.payload.nebulae)[number][] = [];
+  for (const nebula of nebulae.payload.nebulae) {
+    if (nebula.kind !== 'nebula') continue;
+    const position = nebula.positionLy.value;
+    const cellKey = `${Math.round(position.x / NEBULA_LANDMARK_CELL_LY)}:${Math.round(
+      position.y / NEBULA_LANDMARK_CELL_LY,
+    )}:${Math.round(position.z / NEBULA_LANDMARK_CELL_LY)}`;
+    if (seen.has(cellKey)) continue;
+    seen.add(cellKey);
+    landmarks.push(nebula);
+    if (landmarks.length >= NEBULA_LANDMARK_LIMIT) break;
+  }
+  if (!landmarks.length) return null;
   const mesh = CreateSphere(
     'galaxy-nebula-landmarks',
-    { diameter: 2, segments: 12 },
+    { diameter: 2, segments: 16 },
     scene,
   );
   mesh.isPickable = false;
@@ -959,34 +1008,29 @@ function createGalaxyNebulaeMesh(
   material.backFaceCulling = false;
   material.disableDepthWrite = true;
   material.diffuseColor = Color3.White();
-  material.emissiveColor = new Color3(0.32, 0.36, 0.52);
+  material.emissiveColor = new Color3(0.24, 0.26, 0.4);
   material.specularColor = Color3.Black();
-  material.alpha = 0.16;
+  material.alpha = 0.1;
   mesh.material = material;
   mesh.onDisposeObservable.addOnce(() => material.dispose());
 
-  const matrices = new Float32Array(renderedNebulae.length * 16);
-  const colours = new Float32Array(renderedNebulae.length * 4);
-  const palette = [
-    [0.42, 0.2, 0.84],
-    [0.2, 0.48, 0.92],
-    [0.8, 0.3, 0.7],
-    [0.26, 0.62, 0.84],
-    [0.85, 0.4, 0.18],
-    [0.1, 0.65, 0.55],
-    [0.9, 0.2, 0.35],
-    [0.55, 0.75, 0.9],
-  ] as const;
-  renderedNebulae.forEach((nebula, index) => {
-    const radius = nebulaCloudRadiusLy(nebula.kind);
+  const matrices = new Float32Array(landmarks.length * 16);
+  const colours = new Float32Array(landmarks.length * 4);
+  landmarks.forEach((nebula, index) => {
+    const hash = nebulaIdentityHash(nebula.id);
+    // Vary size so clouds read as distinct landmarks, not a uniform stipple.
+    const radius = nebulaCloudRadiusLy(nebula.kind) * (0.65 + hash * 1.25);
     const position = nebula.positionLy.value;
     Matrix.Compose(
-      new Vector3(radius, radius * 0.72, radius),
+      new Vector3(radius, radius * 0.62, radius),
       Quaternion.Identity(),
       new Vector3(position.x, position.y, position.z),
     ).copyToArray(matrices, index * 16);
-    const colour = palette[(nebula.regionId ?? 0) % palette.length]!;
-    colours.set([...colour, 0.2], index * 4);
+    const paletteIndex =
+      (nebula.regionId ?? Math.floor(hash * NEBULA_PALETTE.length)) %
+      NEBULA_PALETTE.length;
+    const colour = NEBULA_PALETTE[paletteIndex]!;
+    colours.set([...colour, 0.1 + hash * 0.06], index * 4);
   });
   mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
   mesh.thinInstanceSetBuffer('color', colours, 4, true);
@@ -1004,7 +1048,7 @@ function createGalaxyNebulaeMesh(
       usageBasis: nebulae.payload.usageBasis,
       sourceByteCount: nebulae.payload.sourceByteCount,
       sourceSha256: nebulae.payload.sourceSha256,
-      renderedPointCount: renderedNebulae.length,
+      renderedPointCount: landmarks.length,
     },
   };
   return mesh;
@@ -1070,11 +1114,54 @@ function createGalaxyVisualFinish(
   return glow;
 }
 
+function nearestStarTargetByScreen(
+  engine: AbstractEngine,
+  product: BabylonGalaxyProduct,
+  deviceX: number,
+  deviceY: number,
+  tolerancePx: number,
+): SpatialTarget | undefined {
+  if (product.points.length === 0) return undefined;
+  const scene = product.scene;
+  const transform = scene.getTransformMatrix();
+  const viewport = new Viewport(
+    0,
+    0,
+    engine.getRenderWidth(),
+    engine.getRenderHeight(),
+  );
+  const identity = Matrix.Identity();
+  const projected = Vector3.Zero();
+  let bestIndex = -1;
+  let bestDistanceSq = tolerancePx * tolerancePx;
+  for (let index = 0; index < product.points.length; index += 1) {
+    const point = product.points[index]!;
+    Vector3.ProjectToRef(
+      new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
+      identity,
+      transform,
+      viewport,
+      projected,
+    );
+    if (projected.z < 0 || projected.z > 1) continue;
+    const dx = projected.x - deviceX;
+    const dy = projected.y - deviceY;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq <= bestDistanceSq) {
+      bestDistanceSq = distanceSq;
+      bestIndex = index;
+    }
+  }
+  if (bestIndex < 0) return undefined;
+  return { kind: 'system', systemId64: product.points[bestIndex]!.systemId64 };
+}
+
 function pickGalaxyTarget(
   engine: AbstractEngine,
   product: BabylonGalaxyProduct,
   screenX: number,
   screenY: number,
+  allowNearestStar = false,
 ): SpatialTarget | undefined {
   const canvas = engine.getRenderingCanvas();
   const scaleX = canvas?.clientWidth
@@ -1089,29 +1176,39 @@ function pickGalaxyTarget(
     screenY * scaleY,
     (mesh) => mesh === product.starMesh || mesh === product.selectedMarker,
   );
-  const hit = systemHit?.hit
-    ? systemHit
-    : product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
-        product.regionFillMeshes.some((fill) => fill.mesh === mesh),
-      );
-  if (hit?.pickedMesh === product.selectedMarker) {
+  if (systemHit?.pickedMesh === product.selectedMarker) {
     const selected = product.points.find((point) =>
       product.selectedMarker?.position.equalsWithEpsilon(
         new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
       ),
     );
-    return selected
-      ? { kind: 'system', systemId64: selected.systemId64 }
-      : undefined;
+    if (selected) return { kind: 'system', systemId64: selected.systemId64 };
   }
   if (
-    hit?.pickedMesh === product.starMesh &&
-    typeof hit.thinInstanceIndex === 'number' &&
-    hit.thinInstanceIndex >= 0
+    systemHit?.hit &&
+    systemHit.pickedMesh === product.starMesh &&
+    typeof systemHit.thinInstanceIndex === 'number' &&
+    systemHit.thinInstanceIndex >= 0
   ) {
-    const point = product.points[hit.thinInstanceIndex];
-    return point ? { kind: 'system', systemId64: point.systemId64 } : undefined;
+    const point = product.points[systemHit.thinInstanceIndex];
+    if (point) return { kind: 'system', systemId64: point.systemId64 };
   }
+  // Stars render only a few pixels wide, so an exact ray can narrowly miss.
+  // Fall back to the nearest projected star within a small screen tolerance
+  // before considering a region plane, keeping individual stars clickable.
+  const nearestStar = allowNearestStar
+    ? nearestStarTargetByScreen(
+        engine,
+        product,
+        screenX * scaleX,
+        screenY * scaleY,
+        12 * Math.max(scaleX, scaleY),
+      )
+    : undefined;
+  if (nearestStar) return nearestStar;
+  const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
+    product.regionFillMeshes.some((fill) => fill.mesh === mesh),
+  );
   const fill = product.regionFillMeshes.find(
     (candidate) => candidate.mesh === hit?.pickedMesh,
   );
@@ -1652,6 +1749,11 @@ export const createBabylonSession = (
   let warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
   let readinessAttemptsRemaining = 120;
   let hoveredTargetKey = '';
+  // Star marker geometry only depends on zoom (distance). Re-uploading the
+  // vertex buffer on every orbit/pan frame churns the GPU and can momentarily
+  // drop the instanced field on some drivers; track the last applied scale so
+  // pure rotation/pan reuses the existing geometry without a re-upload.
+  let lastAppliedStarScale = Number.NaN;
   let transition: {
     from: CameraState;
     to: CameraState;
@@ -1669,15 +1771,18 @@ export const createBabylonSession = (
     applyGalaxyCamera(product.camera, camera);
     const scale =
       galaxyStarMarkerSizeLy(camera.distanceLy) / product.markerSizeLy;
-    product.starMesh.updateVerticesData(
-      'position',
-      product.starVertexPositions.map((value) => value * scale),
-      true,
-    );
-    product.starMesh.thinInstanceRefreshBoundingInfo(true);
-    product.selectedMarker?.scaling.setAll(scale);
-    for (const accent of product.stellarAccentMeshes)
-      accent.scaling.setAll(scale);
+    if (scale !== lastAppliedStarScale) {
+      lastAppliedStarScale = scale;
+      product.starMesh.updateVerticesData(
+        'position',
+        product.starVertexPositions.map((value) => value * scale),
+        true,
+      );
+      product.starMesh.thinInstanceRefreshBoundingInfo(true);
+      product.selectedMarker?.scaling.setAll(scale);
+      for (const accent of product.stellarAccentMeshes)
+        accent.scaling.setAll(scale);
+    }
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     product = { ...product, cameraState: camera, referenceGrid };
@@ -1855,6 +1960,7 @@ export const createBabylonSession = (
         product = replacement;
         productContract = command.scene;
         systemProduct = null;
+        lastAppliedStarScale = Number.NaN;
         emit({ type: 'CAMERA_CHANGED', camera: replacement.cameraState });
         hoveredTargetKey = '';
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2073,6 +2179,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
+          true,
         );
         emit({
           type: 'TARGET_PICKED',

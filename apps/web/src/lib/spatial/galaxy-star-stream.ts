@@ -27,6 +27,51 @@ export type CatalogueViewportSystem = Readonly<{
   populated: boolean;
 }>;
 
+// ---------------------------------------------------------------------------
+// Galactic-disk shaping for the wide sample lane.
+//
+// The API returns a real-system sample bounded by an axis-aligned box. Drawn
+// verbatim that reads as a rectangular slab of points with hard square edges.
+// The Milky Way is a disk, so at galaxy scale we keep only the sample that
+// falls inside the canonical galactic disk and feather the rim so the edge
+// dissolves instead of clipping to a square (or a hard circle). Positions are
+// never moved — this is a visibility mask over real coordinates.
+// ---------------------------------------------------------------------------
+
+/** Sagittarius A* sits ~25,900 LY galactic-north of Sol along +Z. */
+export const GALACTIC_CENTRE_LY = { x: 0, z: 25_900 } as const;
+/** Canonical playable-disk radius in light years. */
+export const GALACTIC_DISK_RADIUS_LY = 46_000;
+const DISK_CORE_FRACTION = 0.86;
+const DISK_RIM_FRACTION = 1.08;
+
+/** Deterministic 0..1 hash of a light-year XZ position (stable per render). */
+function galaxyPositionHash(x: number, z: number): number {
+  const seed = Math.sin(x * 12.9898 + z * 78.233) * 43_758.5453;
+  return seed - Math.floor(seed);
+}
+
+/** Normalised distance from the galactic centre in the disk plane (1 == rim). */
+export function galaxyDiskNormalizedRadius(x: number, z: number): number {
+  const dx = (x - GALACTIC_CENTRE_LY.x) / GALACTIC_DISK_RADIUS_LY;
+  const dz = (z - GALACTIC_CENTRE_LY.z) / GALACTIC_DISK_RADIUS_LY;
+  return Math.hypot(dx, dz);
+}
+
+/**
+ * True when a wide-sample star should remain visible. Everything inside the
+ * core radius is kept; the rim is probabilistically feathered with a
+ * position-stable hash so the disk edge softens rather than clipping.
+ */
+export function withinGalaxyDisk(x: number, z: number): boolean {
+  const radius = galaxyDiskNormalizedRadius(x, z);
+  if (radius <= DISK_CORE_FRACTION) return true;
+  if (radius >= DISK_RIM_FRACTION) return false;
+  const keepProbability =
+    (DISK_RIM_FRACTION - radius) / (DISK_RIM_FRACTION - DISK_CORE_FRACTION);
+  return galaxyPositionHash(x, z) < keepProbability;
+}
+
 /**
  * Exact-star detail is bounded to a 15,000 LY API cube. The deliberately
  * descending budget keeps the medium view rich while close inspection sheds

@@ -4,6 +4,10 @@ import { parseId64 } from '$lib/domain/id64';
 import {
   createCatalogueStarsContribution,
   galaxyStarViewport,
+  galaxyDiskNormalizedRadius,
+  withinGalaxyDisk,
+  GALACTIC_CENTRE_LY,
+  GALACTIC_DISK_RADIUS_LY,
 } from './galaxy-star-stream';
 
 const camera = (distanceLy: number) => ({
@@ -73,5 +77,39 @@ describe('real catalogue star streaming policy', () => {
         ],
       },
     });
+  });
+});
+
+describe('wide galaxy-scale disk shaping', () => {
+  it('keeps the solar neighbourhood and the galactic core', () => {
+    expect(withinGalaxyDisk(0, 0)).toBe(true);
+    expect(withinGalaxyDisk(GALACTIC_CENTRE_LY.x, GALACTIC_CENTRE_LY.z)).toBe(
+      true,
+    );
+    expect(withinGalaxyDisk(1_000, 1_000)).toBe(true);
+  });
+
+  it('drops the rectangular sample corners so nothing clips square', () => {
+    expect(withinGalaxyDisk(-50_000, 78_000)).toBe(false);
+    expect(withinGalaxyDisk(52_000, -25_000)).toBe(false);
+    expect(withinGalaxyDisk(0, 90_000)).toBe(false);
+  });
+
+  it('measures normalised radius from the galactic centre', () => {
+    expect(
+      galaxyDiskNormalizedRadius(GALACTIC_CENTRE_LY.x, GALACTIC_CENTRE_LY.z),
+    ).toBe(0);
+    expect(
+      galaxyDiskNormalizedRadius(
+        GALACTIC_CENTRE_LY.x + GALACTIC_DISK_RADIUS_LY,
+        GALACTIC_CENTRE_LY.z,
+      ),
+    ).toBeCloseTo(1);
+  });
+
+  it('is deterministic for a given position', () => {
+    expect(withinGalaxyDisk(30_000, 60_000)).toBe(
+      withinGalaxyDisk(30_000, 60_000),
+    );
   });
 });
