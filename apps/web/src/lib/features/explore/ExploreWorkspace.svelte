@@ -49,6 +49,7 @@
   import {
     createCatalogueStarsContribution,
     galaxyStarViewport,
+    withinGalaxyDisk,
   } from '$lib/spatial/galaxy-star-stream';
 
   const { selectedSystem, syncKey } = usePersistenceContext();
@@ -163,6 +164,8 @@
     },
     enabled: viewportRequest !== null,
     staleTime: 20_000,
+    // Keep the previous star sample on screen while the next viewport loads so
+    // the layer does not blink out and back in on every pan/zoom settle.
     placeholderData: (previousData) => previousData,
   }));
   const commanderVisits = createQuery(() => ({
@@ -190,10 +193,15 @@
     },
     enabled: showTravelHeatmap && viewportRequest !== null,
     staleTime: 20_000,
+    placeholderData: (previousData) => previousData,
   }));
   const filteredCatalogueSystems = $derived(
     (catalogueStars.data?.systems ?? []).filter((system) => {
-      if (!starViewport || !streamCamera || starViewport.wide) return true;
+      if (!starViewport || !streamCamera) return true;
+      // Wide galaxy scale: shape the axis-aligned API sample into the
+      // canonical galactic disk so it reads as a swirling star field rather
+      // than a rectangular slab, and feather the rim so nothing clips square.
+      if (starViewport.wide) return withinGalaxyDisk(system.x, system.z);
       const focus = streamCamera.focusLy;
       const horizontalRadius = (starViewport.maxX - starViewport.minX) / 2;
       const verticalRadius = (starViewport.maxY - starViewport.minY) / 2;
