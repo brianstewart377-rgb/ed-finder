@@ -21,6 +21,13 @@ MAX_MAP_HEATMAP_CELLS = 50_000
 MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
 MAX_MAP_VIEWPORT_LY = 15_000        # per-axis box guard; wider -> stay on the heatmap
 
+# Whole-galaxy starfield lane. The production heatmap MVs are not populated on
+# the V3 canonical schema yet, so a wide view falls back to a bounded page
+# sample of real canonical systems. Positions are never fabricated; this is a
+# viewport sample, not a synthetic density layer.
+MAX_GALAXY_SAMPLE_SYSTEMS = 40_000
+GALAXY_SAMPLE_PERCENT = 0.05
+
 
 
 
@@ -385,7 +392,70 @@ async def map_systems(
     if ((hi_x - lo_x) > MAX_MAP_VIEWPORT_LY
             or (hi_y - lo_y) > MAX_MAP_VIEWPORT_LY
             or (hi_z - lo_z) > MAX_MAP_VIEWPORT_LY):
-        return MapViewportResponse(systems=[], truncated=False)
+        cache_key = (
+            f'map:systems:sample:v3:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
+            f'{lo_z:.0f}:{hi_z:.0f}:{limit}'
+        )
+        cached = await cache_get(cache_key, redis)
+        if cached is not None:
+            return JSONResponse(content=cached)
+
+        try:
+            schema = await current_generation_schema(pool)
+        except asyncpg.exceptions.UndefinedTableError:
+            schema = None
+
+        async with pool.acquire() as conn:
+            if schema is None:
+                rows = await conn.fetch("""
+                    SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
+                           (population IS NOT NULL AND population > 0) AS populated
+                    FROM   systems TABLESAMPLE SYSTEM ($1::float4)
+                    WHERE  x BETWEEN $2 AND $3
+                      AND  y BETWEEN $4 AND $5
+                      AND  z BETWEEN $6 AND $7
+                    ORDER BY populated DESC, id64
+                    LIMIT  $8
+                """, GALAXY_SAMPLE_PERCENT, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z,
+                    min(limit, MAX_GALAXY_SAMPLE_SYSTEMS))
+            else:
+                rows = await conn.fetch(f"""
+                    SELECT s.id64, s.name, s.x_ly AS x, s.y_ly AS y,
+                           s.z_ly AS z, s.galaxy_region_id,
+                           FALSE AS populated,
+                           body.spectral_class AS main_star_type
+                      FROM {schema}.systems s TABLESAMPLE SYSTEM ($1::float4)
+                      LEFT JOIN LATERAL (
+                        SELECT b.spectral_class
+                          FROM {schema}.bodies b
+                         WHERE b.system_id64 = s.id64
+                           AND b.is_main_star
+                         ORDER BY b.body_pk
+                         LIMIT 1
+                      ) body ON TRUE
+                     WHERE s.x_ly BETWEEN $2 AND $3
+                       AND s.y_ly BETWEEN $4 AND $5
+                       AND s.z_ly BETWEEN $6 AND $7
+                     ORDER BY s.id64
+                     LIMIT  $8
+                """, GALAXY_SAMPLE_PERCENT, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z,
+                    min(limit, MAX_GALAXY_SAMPLE_SYSTEMS))
+
+        systems = [
+            MapViewportSystem(
+                id64=r['id64'],
+                name=r['name'],
+                x=r['x'],
+                y=r['y'],
+                z=r['z'],
+                main_star_class=r['main_star_type'],
+                populated=r['populated'],
+            )
+            for r in rows
+        ]
+        result = MapViewportResponse(systems=systems, truncated=True)
+        await cache_set(cache_key, result.model_dump(mode='json'), settings.ttl_cluster, redis)
+        return result
 
     cache_key = (
         f'map:systems:v3:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'

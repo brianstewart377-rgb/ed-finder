@@ -14,6 +14,7 @@ export type GalaxyStarViewport = Readonly<{
   maxZ: number;
   limit: number;
   cameraDistanceLy: number;
+  wide: boolean;
 }>;
 
 export type CatalogueViewportSystem = Readonly<{
@@ -34,7 +35,24 @@ export type CatalogueViewportSystem = Readonly<{
 export function galaxyStarViewport(
   camera: CameraState | null,
 ): GalaxyStarViewport | null {
-  if (!camera || camera.distanceLy > 7_000) return null;
+  if (!camera) return null;
+  if (camera.distanceLy > 7_000) {
+    // Wide view: use the authoritative region-plane extent, but keep Y
+    // constrained to the galactic disk so the sample reads as a galaxy rather
+    // than a full rectangular point cloud. This is a real-system sample lane,
+    // not a procedural star field.
+    return {
+      minX: -50_000,
+      maxX: 52_000,
+      minY: -2_400,
+      maxY: 2_400,
+      minZ: -25_000,
+      maxZ: 78_000,
+      limit: 8_000,
+      cameraDistanceLy: camera.distanceLy,
+      wide: true,
+    };
+  }
   const horizontalRadius = Math.max(
     24,
     Math.min(7_400, camera.distanceLy * 0.82),
@@ -62,6 +80,7 @@ export function galaxyStarViewport(
     maxZ: camera.focusLy.z + horizontalRadius,
     limit,
     cameraDistanceLy: camera.distanceLy,
+    wide: false,
   };
 }
 

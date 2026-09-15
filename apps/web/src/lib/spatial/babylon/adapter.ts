@@ -108,7 +108,7 @@ export function galaxyStarMarkerSizeLy(distanceLy: number): number {
   }
   // Roughly four screen pixels at ordinary desktop heights. The position stays
   // in exact light years; only the non-factual presentation radius is scaled.
-  return Math.max(0.008, distanceLy * 0.0038);
+  return Math.max(0.008, distanceLy * 0.006);
 }
 
 const createDiagnosticScene = (engine: AbstractEngine): Scene => {
@@ -610,6 +610,20 @@ function regionBaseColor(regionId: number): Color3 {
   return tones[regionId % tones.length]!.clone();
 }
 
+function regionSelectedColor(): Color3 {
+  return new Color3(0.92, 0.55, 0.12);
+}
+
+function updateGalaxyReferenceGridVisibility(
+  grid: BabylonGalaxyReferenceGrid,
+  camera: CameraState,
+): void {
+  const visible = camera.distanceLy <= 18_000;
+  grid.minorMesh?.setEnabled(visible);
+  grid.majorMesh?.setEnabled(visible);
+  grid.axisMesh?.setEnabled(visible);
+}
+
 function selectedGalaxyRegionId(contract: GalaxySceneContract): number | null {
   const target = contract.selection.find(
     (candidate) => candidate.kind === 'region',
@@ -675,8 +689,8 @@ function createGalaxyRegionFillMeshes(
           ? REGION_SELECTED_ALPHA
           : REGION_BASE_ALPHA;
       if (selectedRegionId === regionId) {
-        material.diffuseColor.set(1, 0.38, 0.045);
-        material.emissiveColor.set(1, 0.38, 0.045);
+        material.diffuseColor.copyFrom(regionSelectedColor());
+        material.emissiveColor.copyFrom(regionSelectedColor());
       }
       mesh.material = material;
       return { regionId, regionName, mesh, material };
@@ -692,8 +706,8 @@ export function updateGalaxyRegionFillAppearance(
     const selected = fill.regionId === product.selectedRegionId;
     const hovered = fill.regionId === hoveredRegionId;
     if (selected) {
-      fill.material.diffuseColor.set(1, 0.38, 0.045);
-      fill.material.emissiveColor.set(1, 0.38, 0.045);
+      fill.material.diffuseColor.copyFrom(regionSelectedColor());
+      fill.material.emissiveColor.copyFrom(regionSelectedColor());
       fill.material.alpha = REGION_SELECTED_ALPHA;
     } else if (hovered) {
       fill.material.diffuseColor.set(0.035, 0.56, 0.82);
@@ -919,7 +933,7 @@ export function nebulaCloudRadiusLy(
 ): number {
   // Mapcharts publishes a reference-system coordinate, not a physical boundary.
   // These bounded radii are deliberately schematic map presentation.
-  return kind === 'planetary-nebula' ? 72 : 260;
+  return kind === 'planetary-nebula' ? 56 : 160;
 }
 
 function createGalaxyNebulaeMesh(
@@ -945,9 +959,9 @@ function createGalaxyNebulaeMesh(
   material.backFaceCulling = false;
   material.disableDepthWrite = true;
   material.diffuseColor = Color3.White();
-  material.emissiveColor = new Color3(0.24, 0.32, 0.44);
+  material.emissiveColor = new Color3(0.32, 0.36, 0.52);
   material.specularColor = Color3.Black();
-  material.alpha = 0.24;
+  material.alpha = 0.16;
   mesh.material = material;
   mesh.onDisposeObservable.addOnce(() => material.dispose());
 
@@ -958,6 +972,10 @@ function createGalaxyNebulaeMesh(
     [0.2, 0.48, 0.92],
     [0.8, 0.3, 0.7],
     [0.26, 0.62, 0.84],
+    [0.85, 0.4, 0.18],
+    [0.1, 0.65, 0.55],
+    [0.9, 0.2, 0.35],
+    [0.55, 0.75, 0.9],
   ] as const;
   renderedNebulae.forEach((nebula, index) => {
     const radius = nebulaCloudRadiusLy(nebula.kind);
@@ -968,7 +986,7 @@ function createGalaxyNebulaeMesh(
       new Vector3(position.x, position.y, position.z),
     ).copyToArray(matrices, index * 16);
     const colour = palette[(nebula.regionId ?? 0) % palette.length]!;
-    colours.set([...colour, 0.32], index * 4);
+    colours.set([...colour, 0.2], index * 4);
   });
   mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
   mesh.thinInstanceSetBuffer('color', colours, 4, true);
@@ -1136,6 +1154,7 @@ export const createBabylonGalaxyScene = (
   light.intensity = 0.35;
 
   const referenceGrid = createGalaxyReferenceGrid(scene, cameraState);
+  updateGalaxyReferenceGridVisibility(referenceGrid, cameraState);
   const densityMesh = createCatalogueDensityMesh(scene, density);
   const markerSizeLy = galaxyStarMarkerSizeLy(cameraState.distanceLy);
   const commanderHistoryMesh = createCommanderHistoryMesh(
@@ -1158,9 +1177,10 @@ export const createBabylonGalaxyScene = (
   );
   const starMaterial = new StandardMaterial('finder-system-material', scene);
   starMaterial.disableLighting = true;
-  starMaterial.emissiveColor = new Color3(0.72, 0.72, 0.72);
+  starMaterial.emissiveColor = Color3.White();
   starMaterial.diffuseColor = Color3.White();
   starMaterial.specularColor = Color3.Black();
+  Object.assign(starMaterial, { useVertexColors: true });
   starMesh.material = starMaterial;
   starMesh.hasVertexAlpha = true;
   starMesh.thinInstanceEnablePicking = true;
@@ -1659,6 +1679,7 @@ export const createBabylonSession = (
     for (const accent of product.stellarAccentMeshes)
       accent.scaling.setAll(scale);
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
+    updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     product = { ...product, cameraState: camera, referenceGrid };
     if (productContract) productContract = { ...productContract, camera };
     emit({ type: 'CAMERA_CHANGED', camera });
@@ -1736,6 +1757,7 @@ export const createBabylonSession = (
           product,
           product.cameraState,
         );
+        updateGalaxyReferenceGridVisibility(referenceGrid, product.cameraState);
         product = { ...product, referenceGrid };
       } else if (systemProduct) {
         applySystemCamera(

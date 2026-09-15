@@ -78,15 +78,19 @@
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
   let focusedResultSet = '';
+  let initialGalaxyViewRequested = false;
   let streamCamera = $state<CameraState | null>({
     focusLy: { x: 0, y: 0, z: 0 },
-    distanceLy: 400,
+    distanceLy: 118_000,
     bearingRad: 0,
     pitchRad: 0.55,
     projection: 'perspective',
     revision: 0,
   });
   let streamRevision = $state(0);
+  let viewportCameraFrame: number | null = null;
+  let viewportCameraTimeout: number | null = null;
+  let pendingViewportCamera: CameraState | null = null;
   let layerToggleRevision = $state(0);
   let showTravelHeatmap = $state(false);
   let showNebulae = $state(true);
@@ -188,7 +192,7 @@
   }));
   const filteredCatalogueSystems = $derived(
     (catalogueStars.data?.systems ?? []).filter((system) => {
-      if (!starViewport || !streamCamera) return true;
+      if (!starViewport || !streamCamera || starViewport.wide) return true;
       const focus = streamCamera.focusLy;
       const horizontalRadius = (starViewport.maxX - starViewport.minX) / 2;
       const verticalRadius = (starViewport.maxY - starViewport.minY) / 2;
@@ -322,6 +326,11 @@
   });
 
   function chooseSuggestion(hit: AutocompleteSystem): void {
+    if (viewportCameraTimeout !== null) {
+      window.clearTimeout(viewportCameraTimeout);
+      viewportCameraTimeout = null;
+    }
+    pendingViewportCamera = null;
     anchor = hit;
     query = hit.name;
     autocompleteOpen = false;
@@ -401,6 +410,20 @@
 
   function retainCamera(camera: CameraState): void {
     retainedCamera = { finderRevision, camera };
+    pendingViewportCamera = camera;
+    if (viewportCameraFrame === null) {
+      viewportCameraFrame = window.requestAnimationFrame(() => {
+        viewportCameraFrame = null;
+        if (viewportCameraTimeout === null) {
+          viewportCameraTimeout = window.setTimeout(() => {
+            viewportCameraTimeout = null;
+            const nextCamera = pendingViewportCamera;
+            pendingViewportCamera = null;
+            if (nextCamera) streamCamera = nextCamera;
+          }, 180);
+        }
+      });
+    }
   }
 
   function handleRuntimeEvent(event: RuntimeEvent): void {
@@ -506,6 +529,10 @@
       regionContribution = createGalaxyRegionsContribution(accepted, 1);
       regionResourceRevision += 1;
       regionState = 'ready';
+      if (!initialGalaxyViewRequested) {
+        initialGalaxyViewRequested = true;
+        void tick().then(() => overview());
+      }
     } catch {
       if (attempt !== regionLoadAttempt) return;
       regions = null;

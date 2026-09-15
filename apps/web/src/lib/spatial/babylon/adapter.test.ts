@@ -265,8 +265,8 @@ describe('Babylon spatial adapter boundary', () => {
   });
 
   it('scales only star presentation radius as camera distance changes', () => {
-    expect(galaxyStarMarkerSizeLy(100)).toBeCloseTo(0.38);
-    expect(galaxyStarMarkerSizeLy(1_000)).toBeCloseTo(3.8);
+    expect(galaxyStarMarkerSizeLy(100)).toBeCloseTo(0.6);
+    expect(galaxyStarMarkerSizeLy(1_000)).toBeCloseTo(6);
     expect(() => galaxyStarMarkerSizeLy(0)).toThrow(/positive/u);
   });
 

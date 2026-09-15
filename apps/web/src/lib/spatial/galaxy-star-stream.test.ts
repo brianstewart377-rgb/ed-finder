@@ -20,7 +20,10 @@ describe('real catalogue star streaming policy', () => {
     expect(galaxyStarViewport(camera(5_000))?.limit).toBe(40_000);
     expect(galaxyStarViewport(camera(1_000))?.limit).toBe(12_000);
     expect(galaxyStarViewport(camera(80))?.limit).toBe(1_800);
-    expect(galaxyStarViewport(camera(7_001))).toBeNull();
+    expect(galaxyStarViewport(camera(7_001))).toMatchObject({
+      limit: 8_000,
+      wide: true,
+    });
   });
 
   it('never exceeds the server 15,000 LY per-axis guard', () => {
@@ -28,6 +31,15 @@ describe('real catalogue star streaming policy', () => {
     expect(viewport.maxX - viewport.minX).toBeLessThanOrEqual(15_000);
     expect(viewport.maxY - viewport.minY).toBeLessThanOrEqual(15_000);
     expect(viewport.maxZ - viewport.minZ).toBeLessThanOrEqual(15_000);
+  });
+
+  it('uses a bounded real-system sample lane at galaxy scale', () => {
+    const viewport = galaxyStarViewport(camera(120_000))!;
+    expect(viewport.wide).toBe(true);
+    expect(viewport.limit).toBe(8_000);
+    expect(viewport.maxY - viewport.minY).toBeLessThan(15_000);
+    expect(viewport.maxX - viewport.minX).toBeGreaterThan(15_000);
+    expect(viewport.maxZ - viewport.minZ).toBeGreaterThan(15_000);
   });
 
   it('maps only returned catalogue positions and preserves truncation', () => {
