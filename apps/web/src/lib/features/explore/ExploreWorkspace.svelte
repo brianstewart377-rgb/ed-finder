@@ -662,6 +662,10 @@
             onclick={() => results.refetch()}>Retry search</button
           >
         </div>
+      {:else if reviewLabRun && results.data?.results.length === 0}
+        <div class="state-card" role="status">
+          <p>No systems match this discovery area.</p>
+        </div>
       {:else if systems.length === 0}
         <div class="state-card">
           <p>No systems match this discovery area. Choose another anchor.</p>

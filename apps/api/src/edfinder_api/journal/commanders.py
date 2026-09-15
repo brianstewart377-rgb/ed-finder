@@ -48,7 +48,8 @@ async def associate_verified_commander(
         'SELECT pg_advisory_xact_lock(hashtext($1))', f'frontier-journal:{fid}',
     )
     row = await conn.fetchrow(
-        '''SELECT ce.commander_id, c.commander_state
+        '''SELECT ce.commander_id, c.commander_state, c.commander_name,
+                  c.journal_name_observed_at
              FROM v3_identity.commander_external_identity ce
              JOIN v3_identity.commander c USING (commander_id)
             WHERE ce.provider = $1 AND ce.issuer = $2 AND ce.subject = $3
@@ -59,7 +60,7 @@ async def associate_verified_commander(
         commander_id = uuid.uuid4()
         await conn.execute(
             '''INSERT INTO v3_identity.commander (commander_id, commander_name)
-               VALUES ($1, 'Verified commander')''', commander_id,
+               VALUES ($1, $2)''', commander_id, f'Verified commander {fid}',
         )
         await conn.execute(
             '''INSERT INTO v3_identity.commander_external_identity
@@ -83,6 +84,18 @@ async def associate_verified_commander(
                 WHERE provider = $1 AND issuer = $2 AND subject = $3''',
             PROVIDER, issuer, fid, verified_at,
         )
+        if (
+            not row['commander_name']
+            or row['commander_name'] == 'Verified commander'
+            or row['commander_name'].startswith('Verified commander ')
+        ):
+            await conn.execute(
+                '''UPDATE v3_identity.commander
+                   SET commander_name = $2, updated_at = transaction_timestamp()
+                 WHERE commander_id = $1''',
+                commander_id,
+                f'Verified commander {fid}',
+            )
     await conn.execute(
         '''INSERT INTO v3_identity.account_commander_access
            (account_id, commander_id, access_role, granted_at)
