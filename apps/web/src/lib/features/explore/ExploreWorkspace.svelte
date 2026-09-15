@@ -51,6 +51,8 @@
     galaxyStarViewport,
   } from '$lib/spatial/galaxy-star-stream';
 
+  const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
+
   const { selectedSystem, syncKey } = usePersistenceContext();
   let query = $state('');
   let activeSuggestion = $state(-1);
@@ -117,6 +119,7 @@
   const results = createQuery(() => ({
     queryKey: queryKeys.explore(searchRequest),
     queryFn: ({ signal }) => searchExploreSystems(searchRequest, signal),
+    retry: reviewLabRun ? 0 : undefined,
   }));
   const systems = $derived(results.data?.results ?? []);
   const starViewport = $derived(galaxyStarViewport(streamCamera));

@@ -166,6 +166,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'EDFINDER_REVIEW_OUTPUT_PATH': str(output_path),
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
+        'VITE_REVIEW_LAB': '1',
     }
 
     run_subprocess(['pnpm', 'build'], cwd=FRONTEND_DIR, env_overrides=env, timeout_seconds=TIMEOUTS.frontend_build, failure_code='FRONTEND_BUILD_TIMEOUT')
