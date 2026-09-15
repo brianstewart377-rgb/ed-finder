@@ -85,6 +85,14 @@ describe('Verified account and journal product acceptance', () => {
         { capture: 'fullPage', overwrite: true },
       );
 
+      // Guards the reproduced prod symptom: a build that ships the Import
+      // button without the file picker (stale build predating #journal-files)
+      // must fail here rather than silently rendering an unusable panel.
+      cy.get('label[for="journal-files"]')
+        .should('be.visible')
+        .and('contain.text', 'Select journal logs');
+      cy.get('#journal-files').should('exist');
+
       cy.get('#journal-files').selectFile([
         {
           contents: Cypress.Buffer.from(journal(`F991${width}`)),
@@ -148,4 +156,47 @@ describe('Verified account and journal product acceptance', () => {
       cy.contains('h2', 'Sign in to manage your account').should('be.visible');
     });
   }
+
+  it('explains why an all-held selection produced zero ready files', () => {
+    const fixturePath = Cypress.env('accountFixtureFile');
+    expect(typeof fixturePath, 'guarded disposable account fixture').to.eq(
+      'string',
+    );
+    expect(fixturePath.length).to.be.greaterThan(0);
+    cy.viewport(1280, 800);
+    cy.readFile<AccountFixture>(fixturePath, { log: false }).then((fixture) => {
+      // Dedicated session (not a width session another test consumes/rotates).
+      cy.setCookie(fixture.cookie_name, fixture.sessions['held'], {
+        log: false,
+      });
+    });
+    cy.intercept('GET', '/api/v1/auth/commanders').as('commanders');
+    cy.intercept('POST', '/api/v1/journal/verified-imports').as('import');
+    cy.visit('/account');
+    cy.wait('@commanders').its('response.statusCode').should('eq', 200);
+    cy.get('#journal-files').should('exist');
+
+    // Every selected file is held client-side (invalid Commander/LoadGame
+    // timestamp), so no request is ever sent and the panel must explain why
+    // instead of falling back to a bare "No files ready to import".
+    cy.get('#journal-files').selectFile([
+      {
+        contents: Cypress.Buffer.from(
+          JSON.stringify({
+            event: 'Commander',
+            FID: 'F9911280',
+            timestamp: 'invalid',
+          }),
+        ),
+        fileName: 'no-valid-timestamp.log',
+      },
+    ]);
+    cy.contains('button', 'Import journals').should('be.enabled').click();
+    cy.contains('[role="alert"]', 'All 1 selected file were held').should(
+      'be.visible',
+    );
+    cy.contains('[role="alert"]', /Commander/).should('be.visible');
+    cy.contains('No files ready to import').should('not.exist');
+    cy.get('@import.all').should('have.length', 0);
+  });
 });

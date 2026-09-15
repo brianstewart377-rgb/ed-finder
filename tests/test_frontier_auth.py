@@ -108,7 +108,7 @@ def test_frontier_authorize_url_uses_registered_callback_pkce_and_scopes(monkeyp
         'response_type': ['code'],
         'client_id': ['client-123'],
         'redirect_uri': ['https://ed-finder.app/api/auth/frontier/callback'],
-        'scope': ['auth'],
+        'scope': ['auth capi'],
         'audience': ['all'],
         'state': ['state-value'],
         'code_challenge': ['challenge-value'],

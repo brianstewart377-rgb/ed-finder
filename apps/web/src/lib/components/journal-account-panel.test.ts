@@ -202,4 +202,57 @@ describe('private journal import and explicit sharing', () => {
     ).toBeEnabled();
     expect(screen.getByRole('alert')).toHaveTextContent('Some account data');
   });
+
+  it('surfaces the real worker error text', async () => {
+    vi.mocked(parseJournals).mockRejectedValue(
+      new Error('Worker failed to load: 415'),
+    );
+    render(JournalAccountPanel);
+    await selectFile();
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import journals' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Worker failed to load: 415',
+      ),
+    );
+  });
+
+  it('explains why nothing was imported when every file is held', async () => {
+    vi.mocked(parseJournals).mockResolvedValue({
+      body: { parser_version: 'test', files: [], events: [] },
+      held: [
+        {
+          name: 'huge.log',
+          reason:
+            'Selection exceeds 50,000 events; import this file separately',
+        },
+        {
+          name: 'huge2.log',
+          reason:
+            'Selection exceeds 50,000 events; import this file separately',
+        },
+        {
+          name: 'nocmdr.log',
+          reason:
+            'Commander identity record has an invalid timestamp; file held for review',
+        },
+      ],
+    });
+    render(JournalAccountPanel);
+    await selectFile();
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import journals' }),
+    );
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent('3');
+      expect(alert).toHaveTextContent(/50,000 events/);
+      expect(alert).toHaveTextContent(/Commander/i);
+    });
+    expect(
+      screen.queryByText('No files ready to import'),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -154,9 +154,10 @@ def build_frontier_authorize_url(*, state: str, code_challenge: str) -> str:
         'response_type': 'code',
         'client_id': settings.frontier_client_id or '',
         'redirect_uri': settings.frontier_redirect_uri,
-        # Identity login deliberately does not request CAPI. /decode and /me
-        # provide the stable verified account subject for this flow.
-        'scope': 'auth',
+        # Identity login requests CAPI so the callback can read the real
+        # in-game commander name from companion /profile. The companion token
+        # is used once for the name and never persisted.
+        'scope': 'auth capi',
         'audience': 'all',
         'state': state,
         'code_challenge': code_challenge,
@@ -189,9 +190,10 @@ def identity_from_frontier_payloads(
     if not subject:
         raise HTTPException(502, 'Frontier account identity was empty')
 
-    # Kept as a compatibility parser for a future separately consented CAPI
-    # capability. Normal identity login passes profile=None and never calls
-    # companion.orerve.net.
+    # Identity login now requests scope 'auth capi' and calls
+    # companion.orerve.net/profile fail-open (see _exchange_frontier_code).
+    # The CAPI access token is used only for that one request and is then
+    # discarded: it is never persisted, returned to callers, or logged.
     commander_name: Optional[str] = None
     if isinstance(profile, dict):
         commander = profile.get('commander')
@@ -267,7 +269,26 @@ async def _exchange_frontier_code(code: str, verifier: str) -> dict[str, Any]:
         raise HTTPException(502, 'Frontier returned an invalid account response')
     # access_token and any refresh_token in token_payload leave scope here and
     # are never returned to callers or written to PostgreSQL.
-    return identity_from_frontier_payloads(decoded, account).model_dump()
+
+    profile: Optional[dict[str, Any]] = None
+    try:
+        # Short timeout: the commander name is best-effort and login is
+        # load-bearing, so a slow/hung CAPI must not stall sign-in. On timeout
+        # the except below fails open with no name.
+        async with httpx.AsyncClient(headers=headers, timeout=5.0) as capi:
+            profile_response = await capi.get(
+                f"{settings.frontier_capi_base_url.rstrip('/')}/profile",
+                headers=auth_headers,
+            )
+            if profile_response.status_code == 200:
+                parsed = profile_response.json()
+                if isinstance(parsed, dict):
+                    profile = parsed
+            # 204/4xx/5xx: fail open — login proceeds with no CAPI name.
+    except (httpx.HTTPError, ValueError):
+        profile = None
+
+    return identity_from_frontier_payloads(decoded, account, profile).model_dump()
 
 
 async def _consume_login_state(
@@ -466,6 +487,7 @@ async def _upsert_account_and_session(
                 await associate_verified_commander(
                     conn, account_id=account_id, issuer=identity.issuer,
                     fid=identity.journal_fid, verified_at=now,
+                    commander_name=identity.commander_name,
                 )
             elif identity.commander_name:
                 commander_id = await conn.fetchval(

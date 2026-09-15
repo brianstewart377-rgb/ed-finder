@@ -31,9 +31,11 @@ export function parseJournals(
       if (event.data.type === 'parsed') resolve(event.data);
       else reject(new Error(event.data.message));
     };
-    worker.onerror = () => {
+    worker.onerror = (event) => {
       stop();
-      reject(new Error('Journal parsing failed'));
+      const detail =
+        (event && (event as ErrorEvent).message) || 'Journal parsing failed';
+      reject(new Error(detail));
     };
     worker.postMessage({ files });
   });

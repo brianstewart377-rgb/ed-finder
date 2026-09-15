@@ -22,12 +22,46 @@
   let error = $state('');
   let receipt = $state<V3VerifiedImportReceipt | null>(null);
   let warnings = $state<Array<{ name: string; reason: string }>>([]);
+  let heldSummary = $state('');
   let contributions = $state<ContributionRow[]>([]);
   let page = $state(0);
   let sharingPending = $state<Array<{ id: string; hashes: string[] }>>([]);
   const lifetime = new AbortController();
   let operation = $state<AbortController | null>(null);
   let refreshGeneration = 0;
+
+  // Maps the exact held-reason sentences produced by import-worker.ts to a
+  // short clause used to build the "why nothing was imported" summary below.
+  // Keep in sync with apps/web/src/lib/journal/import-worker.ts.
+  const HELD_REASON_CLAUSES: Record<string, string> = {
+    'File or selection exceeds this importer’s size limit':
+      'exceed the size limit',
+    'Commander identity record has an invalid timestamp; file held for review':
+      'have no valid Commander/LoadGame timestamp',
+    'Selection exceeds 50,000 events; import this file separately':
+      'exceed 50,000 events',
+    'No supported events with valid timestamps':
+      'have no supported events with valid timestamps',
+    'Could not read this file; other files can continue': 'could not be read',
+    'Select up to 200 files per import': 'exceed the 200-file selection limit',
+  };
+
+  function summarizeHeldFiles(
+    held: Array<{ name: string; reason: string }>,
+  ): string {
+    if (!held.length)
+      return 'No recognizable journal files were found in this selection.';
+    const counts: Record<string, number> = {};
+    for (const item of held) {
+      const clause = HELD_REASON_CLAUSES[item.reason] ?? item.reason;
+      counts[clause] = (counts[clause] ?? 0) + 1;
+    }
+    const parts = Object.entries(counts).map(
+      ([clause, count]) =>
+        `${count} ${count === 1 ? 'file' : 'files'} ${clause}`,
+    );
+    return `All ${held.length} selected file${held.length === 1 ? '' : 's'} were held: ${parts.join(', ')}.`;
+  }
 
   async function refresh() {
     const generation = ++refreshGeneration;
@@ -107,6 +141,7 @@
     error = '';
     receipt = null;
     warnings = [];
+    heldSummary = '';
     const contributeThisImport = sharing;
     operation = new AbortController();
     try {
@@ -121,7 +156,8 @@
       if (lifetime.signal.aborted) return;
       warnings = parsed.held;
       if (!parsed.body.files.length) {
-        status = 'No files ready to import';
+        heldSummary = summarizeHeldFiles(parsed.held);
+        status = 'Import held: no files were saved';
         return;
       }
       status = 'Saving journal events…';
@@ -253,6 +289,7 @@
       >{/if}
   </div>
   <p role="status">{status}</p>
+  {#if heldSummary}<p role="alert">{heldSummary}</p>{/if}
   {#if error}<p role="alert">{error}</p>
     <button
       type="button"

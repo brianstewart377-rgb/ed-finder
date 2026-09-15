@@ -1,20 +1,62 @@
 from __future__ import annotations
 
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock
 
+import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 
 os.environ.setdefault('CORS_ORIGINS', 'http://testserver')
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from tests.helpers import db_isolation  # noqa: E402
 
 from edfinder_api.journal.commanders import (  # noqa: E402
     ISSUER, associate_verified_commander, fid_from_customer_id,
 )
 from edfinder_api.journal.ownership import classify_files  # noqa: E402
 from edfinder_api.routers.auth import identity_from_frontier_payloads  # noqa: E402
+
+ACCOUNT_A = uuid.uuid4()
+NOW = datetime.now(timezone.utc)
+
+
+@pytest_asyncio.fixture
+async def db_conn():
+    """A real, disposable-DB-only connection wrapped in a rolled-back transaction.
+
+    Reuses the repo's fail-closed DB isolation helpers (tests/helpers/db_isolation.py)
+    so this never targets a production-looking host/database. Skips (rather than
+    fails) when no local disposable Postgres is reachable, per the project's
+    "real-service tests must skip explicitly when the service is absent" rule.
+    """
+    target = db_isolation.default_target(os.environ)
+    try:
+        conn = await asyncpg.connect(target.dsn)
+    except (OSError, asyncpg.PostgresError) as exc:
+        pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
+        return
+    transaction = conn.transaction()
+    await transaction.start()
+    try:
+        await conn.execute(
+            "INSERT INTO v3_identity.account (account_id) VALUES ($1) "
+            "ON CONFLICT (account_id) DO NOTHING",
+            ACCOUNT_A,
+        )
+        yield conn
+    finally:
+        await transaction.rollback()
+        await conn.close()
 
 
 def test_child_customer_is_preserved_separately_from_parent_account():
@@ -76,6 +118,52 @@ async def test_verified_association_reuses_fid_identity_and_cannot_change_owner(
     assert caught.value.status_code == 409
     assert all('UPDATE' not in call.args[0] and 'INSERT' not in call.args[0]
                for call in conn.execute.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_associate_stores_real_name_on_insert(db_conn):
+    cid = await associate_verified_commander(
+        db_conn, account_id=ACCOUNT_A, issuer=ISSUER,
+        fid='F123', verified_at=NOW, commander_name='Jameson',
+    )
+    name = await db_conn.fetchval(
+        'SELECT commander_name FROM v3_identity.commander WHERE commander_id=$1', cid,
+    )
+    assert name == 'Jameson'
+
+
+@pytest.mark.asyncio
+async def test_associate_replaces_placeholder_with_real_name(db_conn):
+    await associate_verified_commander(
+        db_conn, account_id=ACCOUNT_A, issuer=ISSUER, fid='F123', verified_at=NOW,
+    )  # placeholder created
+    await associate_verified_commander(
+        db_conn, account_id=ACCOUNT_A, issuer=ISSUER, fid='F123',
+        verified_at=NOW, commander_name='Jameson',
+    )
+    name = await db_conn.fetchval(
+        "SELECT commander_name FROM v3_identity.commander"
+        " WHERE commander_id IN (SELECT commander_id FROM"
+        " v3_identity.commander_external_identity WHERE subject='F123')",
+    )
+    assert name == 'Jameson'
+
+
+@pytest.mark.asyncio
+async def test_associate_none_name_does_not_clobber_existing_real_name(db_conn):
+    await associate_verified_commander(
+        db_conn, account_id=ACCOUNT_A, issuer=ISSUER, fid='F123',
+        verified_at=NOW, commander_name='Jameson',
+    )
+    await associate_verified_commander(
+        db_conn, account_id=ACCOUNT_A, issuer=ISSUER, fid='F123', verified_at=NOW,
+    )  # no name supplied on this call (e.g. CAPI fail-open)
+    name = await db_conn.fetchval(
+        "SELECT commander_name FROM v3_identity.commander"
+        " WHERE commander_id IN (SELECT commander_id FROM"
+        " v3_identity.commander_external_identity WHERE subject='F123')",
+    )
+    assert name == 'Jameson'
 
 
 def _event(name, offset, event_type, **payload):

@@ -99,7 +99,7 @@ class _RecordingPool:
         return _AsyncContext(self.connection)
 
 
-def test_frontier_authorize_url_uses_registered_callback_pkce_and_auth_only(
+def test_frontier_authorize_url_uses_registered_callback_pkce_and_capi_scope(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(settings, 'frontier_client_id', 'client-123')
@@ -123,7 +123,7 @@ def test_frontier_authorize_url_uses_registered_callback_pkce_and_auth_only(
         'response_type': ['code'],
         'client_id': ['client-123'],
         'redirect_uri': ['https://ed-finder.app/api/auth/frontier/callback'],
-        'scope': ['auth'],
+        'scope': ['auth capi'],
         'audience': ['all'],
         'state': ['state-value'],
         'code_challenge': ['challenge-value'],
@@ -454,14 +454,18 @@ async def test_frontier_non_object_account_json_returns_bad_gateway(
 
 
 @pytest.mark.asyncio
-async def test_identity_login_calls_decode_and_me_but_not_capi_or_persists_tokens(
+async def test_identity_login_calls_decode_me_and_profile_but_does_not_persist_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    # Identity login now requests CAPI (scope 'auth capi') so it can read the
+    # real commander name; this fixture's /profile has no usable commander
+    # payload, so the parsed identity still carries commander_name=None.
     calls: list[str] = []
 
     class _Response:
-        def __init__(self, payload):
+        def __init__(self, payload, status_code: int = 200):
             self.payload = payload
+            self.status_code = status_code
 
         def raise_for_status(self):
             return None
@@ -494,10 +498,12 @@ async def test_identity_login_calls_decode_and_me_but_not_capi_or_persists_token
                     'iss': auth_router.FRONTIER_ISSUER,
                     'usr': {'customer_id': 'platform-child'},
                 })
-            return _Response({
-                'customer_id': 'platform-child',
-                'parent_id': 'stable-parent',
-            })
+            if url.endswith('/me'):
+                return _Response({
+                    'customer_id': 'platform-child',
+                    'parent_id': 'stable-parent',
+                })
+            return _Response({'lastSystem': {'name': 'Do not retain'}})
 
     monkeypatch.setattr(auth_router.httpx, 'AsyncClient', _Client)
     result = await auth_router._exchange_frontier_code('code', 'verifier')
@@ -512,8 +518,170 @@ async def test_identity_login_calls_decode_and_me_but_not_capi_or_persists_token
         f'{auth_router.FRONTIER_ISSUER}/token',
         f'{auth_router.FRONTIER_ISSUER}/decode',
         f'{auth_router.FRONTIER_ISSUER}/me',
+        f'{settings.frontier_capi_base_url}/profile',
     ]
-    assert all('companion.orerve.net' not in url for url in calls)
+    assert 'discarded-access' not in str(result)
+    assert 'discarded-refresh' not in str(result)
+
+
+def test_authorize_url_requests_capi_scope():
+    url = auth_router.build_frontier_authorize_url(state='s', code_challenge='c')
+    scope = parse_qs(urlsplit(url).query)['scope'][0]
+    assert scope == 'auth capi'
+
+
+class _CapiResponse:
+    def __init__(self, payload: object, status_code: int = 200):
+        self.payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class _MalformedJsonCapiResponse:
+    """A 200 /profile response whose body is not valid JSON."""
+
+    def __init__(self, status_code: int = 200):
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        raise ValueError('malformed JSON')
+
+
+async def _run_exchange_with_mocked_frontier(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    profile: object = None,
+    profile_status: int = 200,
+    profile_response: object = None,
+    profile_error: BaseException | None = None,
+):
+    """Stub /token, /decode, /me, and /profile, then run the real exchange.
+
+    ``profile_error``, if set, is raised instead of returning a response for
+    the /profile GET (used to exercise the fail-open exception branch).
+    ``profile_response`` overrides the default success/status response object
+    for /profile (used for a 200 response with a malformed body).
+    """
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, _url: str, **_kwargs):
+            return _CapiResponse({
+                'access_token': 'discarded-access',
+                'refresh_token': 'discarded-refresh',
+                'token_type': 'Bearer',
+            })
+
+        async def get(self, url: str, **_kwargs):
+            if url.endswith('/decode'):
+                return _CapiResponse({
+                    'iss': auth_router.FRONTIER_ISSUER,
+                    'usr': {'customer_id': 'platform-child'},
+                })
+            if url.endswith('/me'):
+                return _CapiResponse({
+                    'customer_id': 'platform-child',
+                    'parent_id': 'stable-parent',
+                })
+            if url.endswith('/profile'):
+                if profile_error is not None:
+                    raise profile_error
+                if profile_response is not None:
+                    return profile_response
+                return _CapiResponse(profile, status_code=profile_status)
+            raise AssertionError(f'unexpected GET {url}')
+
+    monkeypatch.setattr(auth_router.httpx, 'AsyncClient', _Client)
+    return await auth_router._exchange_frontier_code('code', 'verifier')
+
+
+@pytest.mark.asyncio
+async def test_exchange_populates_commander_name_from_capi(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile={'commander': {'name': 'Jameson'}},
+    )
+    assert identity['commander_name'] == 'Jameson'
+
+
+@pytest.mark.asyncio
+async def test_exchange_fails_open_when_profile_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile=None,
+        profile_status=204,  # game syncing
+    )
+    assert identity['commander_name'] is None  # login still succeeds
+
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile=None,
+        profile_status=500,  # CAPI error
+    )
+    assert identity['commander_name'] is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_fails_open_when_profile_request_raises_httpx_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A transport-level failure calling /profile must not break login."""
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile_error=httpx.ConnectError(
+            'CAPI is unreachable',
+            request=httpx.Request('GET', 'https://companion.orerve.net/profile'),
+        ),
+    )
+    assert identity['commander_name'] is None  # login still succeeds
+    assert identity == {
+        'issuer': auth_router.FRONTIER_ISSUER,
+        'subject': 'stable-parent',
+        'commander_name': None,
+        'journal_fid': None,
+    }
+    assert 'access-token' not in str(identity)
+    assert 'discarded-access' not in str(identity)
+
+
+@pytest.mark.asyncio
+async def test_exchange_fails_open_when_profile_body_is_malformed_json(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A 200 /profile response with a malformed body must not break login."""
+    identity = await _run_exchange_with_mocked_frontier(
+        monkeypatch,
+        profile_response=_MalformedJsonCapiResponse(),
+    )
+    assert identity['commander_name'] is None  # login still succeeds
+    assert identity == {
+        'issuer': auth_router.FRONTIER_ISSUER,
+        'subject': 'stable-parent',
+        'commander_name': None,
+        'journal_fid': None,
+    }
+    assert 'access-token' not in str(identity)
+    assert 'discarded-access' not in str(identity)
 
 
 def test_frontier_identity_uses_stable_parent_and_keeps_commander_separate():
