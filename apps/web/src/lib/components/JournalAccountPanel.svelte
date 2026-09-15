@@ -237,7 +237,7 @@
     <button
       class="primary-button"
       type="button"
-      disabled={busy || !selected?.length || !commanders.length}
+      disabled={busy || !selected?.length}
       onclick={() => void upload()}>Import journals</button
     >
     {#if busy && operation}<button

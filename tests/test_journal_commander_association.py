@@ -50,14 +50,22 @@ def test_parent_or_profile_name_cannot_supply_missing_customer_proof():
 async def test_verified_association_reuses_fid_identity_and_cannot_change_owner():
     commander_id, account_id = uuid.uuid4(), uuid.uuid4()
     conn = AsyncMock()
-    conn.fetchrow.return_value = {'commander_id': commander_id, 'commander_state': 'ACTIVE'}
+    conn.fetchrow.return_value = {
+        'commander_id': commander_id,
+        'commander_state': 'ACTIVE',
+        'commander_name': 'Verified commander',
+        'journal_name_observed_at': None,
+    }
     conn.fetchval.return_value = account_id
     actual = await associate_verified_commander(
         conn, account_id=account_id, issuer=ISSUER, fid='F123',
         verified_at=datetime.now(timezone.utc),
     )
     assert actual == commander_id
-    assert all('commander_name' not in call.args[0] for call in conn.execute.call_args_list)
+    assert any(
+        'SET commander_name = $2' in call.args[0]
+        for call in conn.execute.call_args_list
+    )
     conn.reset_mock()
     conn.fetchval.return_value = uuid.uuid4()
     with pytest.raises(HTTPException) as caught:
