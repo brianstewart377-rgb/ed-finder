@@ -78,7 +78,7 @@
   let lastAppliedContributionRevision = $state<number | undefined>();
   let renderedLayerIds = $state<string[]>([]);
   let pendingHoverPoint: { x: number; y: number } | null = null;
-  let cameraTransitionActive = false;
+  let cameraTransitionActive = $state(false);
   let transitionCamera: CameraState | SystemCameraState | null = null;
   let pendingPickPoint: { screenX: number; screenY: number } | null = null;
   type PendingCameraMove =
@@ -875,6 +875,7 @@
   onpointerleave={clearHover}
   data-scene-target-count={sceneTargetCount}
   data-system-target-count={systemTargetCount}
+  data-camera-transition-active={cameraTransitionActive}
   data-last-picked-id64={lastPickedId64}
   data-last-picked-region-id={lastPickedRegionId}
   data-last-hovered-region-id={lastHoveredRegionId}

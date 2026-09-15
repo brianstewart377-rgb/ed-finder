@@ -102,6 +102,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       expect(restoredCanvas).to.equal(initialCanvas);
     });
 
+    let preFocusCameraRevision = -1;
+    cy.get('.spatial-canvas')
+      .invoke('attr', 'data-camera-revision')
+      .then((revision) => {
+        preFocusCameraRevision = Number(revision);
+      });
+
     keyboardChooseAnchor('Achenar');
     cy.get('[data-system-result="10477373803000"] [data-result-select]')
       .should('be.focused')
@@ -141,9 +148,18 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       ).should('have.attr', 'aria-pressed', 'false');
     });
 
+    cy.get('.spatial-canvas', { timeout: 20_000 }).should(($canvas) => {
+      expect($canvas.attr('data-camera-transition-active')).to.equal('false');
+      expect(Number($canvas.attr('data-camera-revision'))).to.be.greaterThan(
+        preFocusCameraRevision,
+      );
+    });
+
     cy.get(canvasSelector).click('center');
     cy.get('.selection-status')
-      .should('have.attr', 'data-last-picked-id64', '10477373803000')
+      .should('have.attr', 'data-last-picked-id64', '10477373803000', {
+        timeout: 20_000,
+      })
       .and('contain.text', 'Spatial pick selected');
     cy.get('[data-system-result="10477373803000"] [data-result-select]').should(
       'have.attr',

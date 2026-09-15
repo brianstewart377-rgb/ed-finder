@@ -209,6 +209,7 @@ describe('isolated V3 Review Lab', () => {
         },
       });
       cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
+      cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
       cy.contains('[role="alert"]', 'Discovery results could not be loaded.', {
         timeout: 20_000,
       }).should('be.visible');
