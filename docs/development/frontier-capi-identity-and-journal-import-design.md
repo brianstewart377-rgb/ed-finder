@@ -195,8 +195,11 @@ Import: /account (rendered only when authenticated) → select .log files
 
 ## Open items / risks
 
-- **`audience` value** for CAPI (`all` vs `frontier,steam,epic`) — verify with a
-  real login without regressing the working `auth` flow.
+- **`audience` value** for CAPI — **decision (2026-09-15):** keep the current
+  `audience=all` (which already works for the `auth` flow) as the first attempt
+  and only switch to EDMC's explicit `frontier,steam,epic` if the real-login
+  validation shows CAPI rejects `all`. This avoids regressing the working `auth`
+  flow on an unproven change.
 - **Worker-in-prod-build** reproducibility — the defect may be environment/build
   specific and not visible under the dev server.
 - **CAPI `204`/latency** — handled by fail-open; the real name may first appear
