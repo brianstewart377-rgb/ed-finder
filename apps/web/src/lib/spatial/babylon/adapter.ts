@@ -927,6 +927,10 @@ function createGalaxyNebulaeMesh(
   nebulae: GalaxyNebulaeSceneLayer | null,
 ): ReturnType<typeof CreateSphere> | null {
   if (!nebulae?.payload.nebulae.length) return null;
+  const renderedNebulae = nebulae.payload.nebulae.filter(
+    (nebula) => nebula.kind === 'nebula',
+  );
+  if (!renderedNebulae.length) return null;
   const mesh = CreateSphere(
     'galaxy-nebula-landmarks',
     { diameter: 2, segments: 12 },
@@ -947,9 +951,15 @@ function createGalaxyNebulaeMesh(
   mesh.material = material;
   mesh.onDisposeObservable.addOnce(() => material.dispose());
 
-  const matrices = new Float32Array(nebulae.payload.nebulae.length * 16);
-  const colours = new Float32Array(nebulae.payload.nebulae.length * 4);
-  nebulae.payload.nebulae.forEach((nebula, index) => {
+  const matrices = new Float32Array(renderedNebulae.length * 16);
+  const colours = new Float32Array(renderedNebulae.length * 4);
+  const palette = [
+    [0.42, 0.2, 0.84],
+    [0.2, 0.48, 0.92],
+    [0.8, 0.3, 0.7],
+    [0.26, 0.62, 0.84],
+  ] as const;
+  renderedNebulae.forEach((nebula, index) => {
     const radius = nebulaCloudRadiusLy(nebula.kind);
     const position = nebula.positionLy.value;
     Matrix.Compose(
@@ -957,12 +967,8 @@ function createGalaxyNebulaeMesh(
       Quaternion.Identity(),
       new Vector3(position.x, position.y, position.z),
     ).copyToArray(matrices, index * 16);
-    colours.set(
-      nebula.kind === 'planetary-nebula'
-        ? [0.26, 0.74, 1, 0.38]
-        : [0.7, 0.25, 0.92, 0.3],
-      index * 4,
-    );
+    const colour = palette[(nebula.regionId ?? 0) % palette.length]!;
+    colours.set([...colour, 0.32], index * 4);
   });
   mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
   mesh.thinInstanceSetBuffer('color', colours, 4, true);
@@ -980,7 +986,7 @@ function createGalaxyNebulaeMesh(
       usageBasis: nebulae.payload.usageBasis,
       sourceByteCount: nebulae.payload.sourceByteCount,
       sourceSha256: nebulae.payload.sourceSha256,
-      renderedPointCount: nebulae.payload.nebulae.length,
+      renderedPointCount: renderedNebulae.length,
     },
   };
   return mesh;
