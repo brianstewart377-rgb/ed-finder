@@ -69,8 +69,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .invoke('attr', 'data-system-target-count')
       .then((count) => expect(Number(count)).to.be.greaterThan(0));
     cy.contains('button', 'All 42 regions').click();
-    cy.wait(750);
-    cy.get('[data-map-label-kind="region"]')
+    cy.get('[data-map-label-kind="region"]', { timeout: 20_000 })
       .should('have.length', 42)
       .then(($labels) => {
         const names = $labels
@@ -225,13 +224,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       unsafeId,
     );
     cy.get(`[data-system-result="${unsafeId}"] .inspect-link`).click();
+    cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 20_000 })
+      .should('contain.text', 'V3 Lossless Reach')
+      .and('contain.text', unsafeId);
     cy.location('search', { timeout: 10_000 }).should(
       'eq',
       `?system=${unsafeId}`,
     );
-    cy.get(`[data-system-id64="${unsafeId}"]`)
-      .should('contain.text', 'V3 Lossless Reach')
-      .and('contain.text', unsafeId);
     cy.reload();
     cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 10_000 })
       .should('contain.text', 'V3 Lossless Reach')
