@@ -96,6 +96,30 @@
     onTransitionChange?.(active, camera);
   }
 
+  function dispatchPendingFocus(): void {
+    if (
+      status.state !== 'ready' ||
+      !runtime ||
+      !focusTarget ||
+      focusRevision === lastFocusRevision ||
+      scene?.revision !== lastLoadedRevision
+    ) {
+      return;
+    }
+    const reducedMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    const result = runtime.dispatch({
+      type: 'FLY_TO',
+      target: focusTarget,
+      reducedMotion,
+    });
+    if (result.status === 'executed') {
+      lastFocusRevision = focusRevision;
+      setCameraTransitionActive(!reducedMotion);
+    }
+  }
+
   function targetCount(value: SpatialSceneContract | undefined): number {
     return layerTargetCount(value, 'finder-systems');
   }
@@ -536,15 +560,7 @@
       lastFocusRevision = focusRevision;
       return;
     }
-    const result = runtime.dispatch({
-      type: 'FLY_TO',
-      target: focusTarget,
-      reducedMotion,
-    });
-    if (result.status === 'executed') {
-      lastFocusRevision = focusRevision;
-      setCameraTransitionActive(!reducedMotion);
-    }
+    dispatchPendingFocus();
   });
 
   function pick(event: PointerEvent): void {
@@ -693,6 +709,9 @@
           }
           if (queuedMove) {
             dispatchCameraMove(queuedMove);
+          }
+          if (!cameraTransitionActive) {
+            dispatchPendingFocus();
           }
           if (!cameraTransitionActive && pendingPickPoint) {
             const point = pendingPickPoint;
