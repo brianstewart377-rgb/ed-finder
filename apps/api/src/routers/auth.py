@@ -484,6 +484,7 @@ async def _upsert_account_and_session(
                 await associate_verified_commander(
                     conn, account_id=account_id, issuer=identity.issuer,
                     fid=identity.journal_fid, verified_at=now,
+                    commander_name=identity.commander_name,
                 )
             elif identity.commander_name:
                 commander_id = await conn.fetchval(

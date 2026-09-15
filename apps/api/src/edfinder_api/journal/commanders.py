@@ -35,15 +35,24 @@ async def associate_verified_commander(
     issuer: str,
     fid: str,
     verified_at: datetime,
+    commander_name: str | None = None,
 ) -> uuid.UUID:
     """Call only inside the verified OAuth transaction; never from an upload.
 
     Different customers sharing a parent login get different commanders. A
     conflicting owner fails the transaction instead of transferring access or
     attaching the new FID to whichever commander happened to be selected first.
+
+    ``commander_name`` is the real in-game CMDR name (from Frontier CAPI
+    ``/profile``, fail-open). A non-empty name is stored on insert and
+    replaces an existing placeholder; ``None``/empty preserves the current
+    placeholder behaviour so a fail-open login never erases a real name.
     """
     if issuer != ISSUER or not FID_PATTERN.fullmatch(fid):
         raise ValueError('Invalid verified Frontier journal identity')
+    clean_name = commander_name.strip()[:128] if commander_name and commander_name.strip() else None
+    placeholder = f'Verified commander {fid}'
+    stored_name = clean_name or placeholder
     await conn.execute(
         'SELECT pg_advisory_xact_lock(hashtext($1))', f'frontier-journal:{fid}',
     )
@@ -60,7 +69,7 @@ async def associate_verified_commander(
         commander_id = uuid.uuid4()
         await conn.execute(
             '''INSERT INTO v3_identity.commander (commander_id, commander_name)
-               VALUES ($1, $2)''', commander_id, f'Verified commander {fid}',
+               VALUES ($1, $2)''', commander_id, stored_name,
         )
         await conn.execute(
             '''INSERT INTO v3_identity.commander_external_identity
@@ -84,17 +93,25 @@ async def associate_verified_commander(
                 WHERE provider = $1 AND issuer = $2 AND subject = $3''',
             PROVIDER, issuer, fid, verified_at,
         )
-        if (
-            not row['commander_name']
-            or row['commander_name'] == 'Verified commander'
-            or row['commander_name'].startswith('Verified commander ')
-        ):
+        existing = row['commander_name']
+        is_placeholder = (
+            not existing
+            or existing == 'Verified commander'
+            or existing.startswith('Verified commander ')
+        )
+        if clean_name and existing != clean_name:
             await conn.execute(
                 '''UPDATE v3_identity.commander
                    SET commander_name = $2, updated_at = transaction_timestamp()
                  WHERE commander_id = $1''',
-                commander_id,
-                f'Verified commander {fid}',
+                commander_id, clean_name,
+            )
+        elif is_placeholder and existing != placeholder:
+            await conn.execute(
+                '''UPDATE v3_identity.commander
+                   SET commander_name = $2, updated_at = transaction_timestamp()
+                 WHERE commander_id = $1''',
+                commander_id, placeholder,
             )
     await conn.execute(
         '''INSERT INTO v3_identity.account_commander_access
