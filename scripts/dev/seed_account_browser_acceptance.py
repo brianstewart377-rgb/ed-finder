@@ -57,6 +57,18 @@ async def seed(output: Path) -> None:
                 ),
             )
             sessions[str(width)] = token
+        # Dedicated session for the all-held test so it never reuses a session
+        # another test already rotated/invalidated on first use.
+        _, held_token, _ = await _upsert_account_and_session(
+            pool,
+            FrontierIdentity(
+                issuer=FRONTIER_ISSUER,
+                subject='account-browser-fixture-held',
+                journal_fid='F9910000',
+                commander_name='Browser commander held',
+            ),
+        )
+        sessions['held'] = held_token
         # The caller keeps this test-only opaque-cookie fixture out of artifacts.
         descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as handle:

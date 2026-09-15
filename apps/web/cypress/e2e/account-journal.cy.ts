@@ -165,7 +165,8 @@ describe('Verified account and journal product acceptance', () => {
     expect(fixturePath.length).to.be.greaterThan(0);
     cy.viewport(1280, 800);
     cy.readFile<AccountFixture>(fixturePath, { log: false }).then((fixture) => {
-      cy.setCookie(fixture.cookie_name, fixture.sessions['1280'], {
+      // Dedicated session (not a width session another test consumes/rotates).
+      cy.setCookie(fixture.cookie_name, fixture.sessions['held'], {
         log: false,
       });
     });
