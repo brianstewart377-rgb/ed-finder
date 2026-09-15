@@ -55,7 +55,7 @@ describe('Babylon authoritative Galaxy regions renderer', () => {
     });
     expect(product.regionFillMeshes).toHaveLength(GALAXY_REGION_COUNT);
     expect(product.visualGlow.intensity).toBe(0.42);
-    expect(product.visualGlow.blurKernelSize).toBe(32);
+    expect(product.visualGlow.blurKernelSize).toBe(20);
     expect(product.scene.imageProcessingConfiguration.toneMappingType).toBe(
       ImageProcessingConfiguration.TONEMAPPING_ACES,
     );

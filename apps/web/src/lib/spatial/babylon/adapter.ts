@@ -1108,9 +1108,16 @@ function createGalaxyVisualFinish(
       Math.min(4, scene.getEngine().getCaps().maxMSAASamples),
     ),
   });
-  glow.blurKernelSize = 32;
+  glow.blurKernelSize = 20;
   glow.intensity = 0.42;
-  for (const mesh of glowMeshes) glow.addIncludedOnlyMesh(mesh);
+  const includedMeshes = glowMeshes.length
+    ? glowMeshes
+    : [CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene)];
+  if (!glowMeshes.length) {
+    includedMeshes[0]!.isVisible = false;
+    includedMeshes[0]!.isPickable = false;
+  }
+  for (const mesh of includedMeshes) glow.addIncludedOnlyMesh(mesh);
   return glow;
 }
 
@@ -1361,7 +1368,6 @@ export const createBabylonGalaxyScene = (
       densityMesh,
       nebulaMesh,
       commanderHistoryMesh,
-      starMesh,
       selectedMarker,
       ...stellarAccentMeshes,
     ].filter((mesh): mesh is Mesh => mesh !== null),
