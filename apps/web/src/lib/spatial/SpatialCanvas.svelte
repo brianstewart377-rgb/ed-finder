@@ -994,7 +994,7 @@
   .spatial-canvas {
     position: relative;
     width: 100%;
-    height: clamp(20rem, 58vh, 34rem);
+    height: clamp(32rem, 76vh, 68rem);
     overflow: hidden;
     border: 1px solid #344253;
     background: #040508;

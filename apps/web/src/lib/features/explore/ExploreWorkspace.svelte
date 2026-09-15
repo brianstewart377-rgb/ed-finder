@@ -51,8 +51,6 @@
     galaxyStarViewport,
   } from '$lib/spatial/galaxy-star-stream';
 
-  const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
-
   const { selectedSystem, syncKey } = usePersistenceContext();
   let query = $state('');
   let activeSuggestion = $state(-1);
@@ -79,7 +77,14 @@
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
   let focusedResultSet = '';
-  let streamCamera = $state<CameraState | null>(null);
+  let streamCamera = $state<CameraState | null>({
+    focusLy: { x: 0, y: 0, z: 0 },
+    distanceLy: 400,
+    bearingRad: 0,
+    pitchRad: 0.55,
+    projection: 'perspective',
+    revision: 0,
+  });
   let streamRevision = $state(0);
   let layerToggleRevision = $state(0);
   let showTravelHeatmap = $state(false);
@@ -119,9 +124,9 @@
   const results = createQuery(() => ({
     queryKey: queryKeys.explore(searchRequest),
     queryFn: ({ signal }) => searchExploreSystems(searchRequest, signal),
-    retry: reviewLabRun ? 0 : undefined,
+    retry: 0,
   }));
-  const systems = $derived(results.data?.results ?? []);
+
   const starViewport = $derived(galaxyStarViewport(streamCamera));
   const viewportRequest = $derived(
     starViewport
@@ -181,7 +186,20 @@
     enabled: showTravelHeatmap && viewportRequest !== null,
     staleTime: 20_000,
   }));
-  const finderRevision = $derived(results.dataUpdatedAt);
+  const viewportSystems = $derived(
+    (catalogueStars.data?.systems ?? []).map((system): ExploreSystem => ({
+      id64: system.id64,
+      name: system.name,
+      coords: { x: system.x, y: system.y, z: system.z },
+      main_star_type: system.mainStarClass,
+    })),
+  );
+  const systems = $derived(
+    results.data?.results.length ? results.data.results : viewportSystems,
+  );
+  const finderRevision = $derived(
+    results.dataUpdatedAt || catalogueStars.dataUpdatedAt,
+  );
   const finderContribution = $derived(
     createExploreFinderContribution(systems, finderRevision),
   );
@@ -296,6 +314,19 @@
     autocompleteOpen = false;
     selectedSystem.set(hit.id64);
     selectionRevision += 1;
+    streamRevision += 1;
+    streamCamera = {
+      focusLy: {
+        x: hit.x ?? 0,
+        y: hit.y ?? 0,
+        z: hit.z ?? 0,
+      },
+      distanceLy: 400,
+      bearingRad: 0,
+      pitchRad: 0.55,
+      projection: 'perspective',
+      revision: streamRevision,
+    };
     focusTarget = { kind: 'system', systemId64: hit.id64 };
     focusRevision += 1;
   }
@@ -599,26 +630,24 @@
     <section
       class="results-panel"
       aria-labelledby="results-title"
-      aria-busy={results.isFetching}
+      aria-busy={results.isFetching || catalogueStars.isFetching}
     >
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Catalogue results</p>
           <h2 id="results-title">
-            {anchor ? `Near ${anchor.name}` : 'Galaxy-wide shortlist'}
+            {anchor ? `Near ${anchor.name}` : 'Near Sol'}
           </h2>
         </div>
-        {#if results.data}<span
-            >{results.data.count ?? systems.length} shown</span
-          >{/if}
+        <span>{systems.length} shown</span>
       </div>
 
-      {#if results.isPending}
+      {#if results.isPending && catalogueStars.isPending}
         <div class="state-card" role="status">
           <Sparkles aria-hidden="true" />
           <p>Building a real-system shortlist…</p>
         </div>
-      {:else if results.isError}
+      {:else if results.isError && systems.length === 0}
         <div class="state-card error" role="alert">
           <p>Discovery results could not be loaded.</p>
           <button

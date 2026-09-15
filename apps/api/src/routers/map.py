@@ -10,6 +10,7 @@ from edfinder_api.config import settings, limiter, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.models import MapViewportResponse, MapViewportSystem
 from edfinder_api.search_economies import canonical_economy_key, ratings_score_column
+from edfinder_api.v3_schema import current_generation_schema
 
 router = APIRouter(tags=['map'])
 
@@ -393,27 +394,53 @@ async def map_systems(
     if cached is not None:
         return JSONResponse(content=cached)
 
+    try:
+        schema = await current_generation_schema(pool)
+    except asyncpg.exceptions.UndefinedTableError:
+        # Review and integration databases still use the legacy unqualified
+        # catalogue. Production resolves the published V3 generation schema.
+        schema = None
+
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            WITH candidates AS MATERIALIZED (
-                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
-                       (population IS NOT NULL AND population > 0) AS populated
-                FROM   systems
-                WHERE  x BETWEEN $1 AND $2
-                  AND  y BETWEEN $3 AND $4
-                  AND  z BETWEEN $5 AND $6
-                ORDER BY x, y, z
-                LIMIT  $7
-            )
-            SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
-            FROM   candidates
-            ORDER BY populated DESC,
-                     CASE left(main_star_type, 1)
-                        WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
-                        WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
-                        WHEN 'M' THEN 6 ELSE 7 END,
-                     id64
-        """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
+        if schema is None:
+            rows = await conn.fetch("""
+                WITH candidates AS MATERIALIZED (
+                    SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
+                           (population IS NOT NULL AND population > 0) AS populated
+                    FROM   systems
+                    WHERE  x BETWEEN $1 AND $2
+                      AND  y BETWEEN $3 AND $4
+                      AND  z BETWEEN $5 AND $6
+                    ORDER BY x, y, z
+                    LIMIT  $7
+                )
+                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
+                FROM   candidates
+                ORDER BY populated DESC,
+                         CASE left(main_star_type, 1)
+                            WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
+                            WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
+                            WHEN 'M' THEN 6 ELSE 7 END,
+                         id64
+            """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
+        else:
+            rows = await conn.fetch(f"""
+                WITH candidates AS MATERIALIZED (
+                    SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z,
+                           galaxy_region_id,
+                           FALSE AS populated,
+                           NULL::text AS main_star_type
+                    FROM   {schema}.systems
+                    WHERE  x_ly BETWEEN $1 AND $2
+                      AND  y_ly BETWEEN $3 AND $4
+                      AND  z_ly BETWEEN $5 AND $6
+                    ORDER BY x_ly, y_ly, z_ly
+                    LIMIT  $7
+                )
+                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
+                FROM   candidates
+                ORDER BY populated DESC, id64
+            """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
 
     truncated = len(rows) > limit
     if truncated:

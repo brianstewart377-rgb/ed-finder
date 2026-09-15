@@ -27,6 +27,7 @@ from edfinder_api.models import (
     SearchResponse, SearchFilters, LocalSearchRequest,
     GalaxySearchRequest, ClusterSearchRequest, ClusterSearchResponse, AutocompleteResponse,
 )
+from edfinder_api.v3_schema import current_generation_schema
 
 # Single search implementation. If this import fails the app cannot
 # serve search at all — fail loud at startup, not at request time.
@@ -91,9 +92,36 @@ async def autocomplete(
         return cached
 
     try:
+        schema = await current_generation_schema(pool)
+        if schema is None:
+            results = await _ls.local_db_autocomplete(q, pool)
+        else:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    f"""
+                    SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z
+                      FROM {schema}.systems
+                     WHERE name ILIKE $1
+                     ORDER BY name
+                     LIMIT $2
+                    """,
+                    f"{q}%",
+                    limit,
+                )
+            results = [
+                {
+                    "id64": row["id64"],
+                    "name": row["name"],
+                    "x": row["x"],
+                    "y": row["y"],
+                    "z": row["z"],
+                }
+                for row in rows
+            ]
+    except asyncpg.exceptions.UndefinedTableError:
         results = await _ls.local_db_autocomplete(q, pool)
     except Exception as exc:
-        log.error('local_db_autocomplete failed: %s', exc, exc_info=True)
+        log.error('v3 autocomplete failed: %s', exc, exc_info=True)
         return _search_unavailable(f'autocomplete: {exc!r}',
                                     hint='Try again in a few seconds.')
 
