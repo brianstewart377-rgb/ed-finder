@@ -635,8 +635,6 @@ def parse_ledger(result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     value["query_read_only"] = observed["transaction_read_only"] == "on"
     if not value["query_read_only"]:
         return value
-    if entries != sorted(entries, key=lambda item: item["filename"]):
-        return value
     if len({item["filename"] for item in entries}) != len(entries):
         return value
     canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()

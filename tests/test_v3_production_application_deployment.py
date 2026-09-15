@@ -96,6 +96,10 @@ def test_production_authority_is_separate_exact_and_authorized():
     assert value["external_authority"]["application_network"] == "edfinder-v3-production"
     assert value["external_authority"]["application_network_allowed_containers"] == [
         "edfinder-v3-phase4c-full-20260827_r5-postgres",
+        "edfinder-ratings-v4-prod-p4",
+        "edfinder-ratings-v4-prod-p4-opt1",
+        "edfinder-ratings-v4-prod-p4-parallel-v1",
+        "edfinder-v3-system-search-p4-opt1",
     ]
     # The reviewed unchanged-edge cutover authority is published from that
     # receipt.

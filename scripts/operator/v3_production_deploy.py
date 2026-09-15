@@ -967,16 +967,13 @@ def verify_live_schema(schema: dict[str, Any], env: dict[str, str], runner: Call
         or len({item["filename"] for item in ledger}) != len(ledger)
     ):
         raise DeploymentError("production migration ledger entries are invalid")
-    expected = sorted(
-        (
-            {
-                "filename": item["ledger_name"],
-                "checksum_sha256": item["sha256"],
-            }
-            for item in schema["migration_set_entries"]
-        ),
-        key=lambda item: item["filename"],
-    )
+    expected = [
+        {
+            "filename": item["ledger_name"],
+            "checksum_sha256": item["sha256"],
+        }
+        for item in schema["migration_set_entries"]
+    ]
     if (
         observed["database_name"] != DATABASE_NAME
         or observed["server_address"] != "local"
