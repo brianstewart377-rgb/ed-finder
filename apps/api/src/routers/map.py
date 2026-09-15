@@ -1,4 +1,5 @@
 """Map data endpoints — galaxy regions, cluster hulls, heatmap, timeline."""
+import math
 from typing import Optional
 
 import asyncpg
@@ -425,22 +426,24 @@ async def map_systems(
             """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
         else:
             rows = await conn.fetch(f"""
-                WITH candidates AS MATERIALIZED (
-                    SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z,
-                           galaxy_region_id,
-                           FALSE AS populated,
-                           NULL::text AS main_star_type
-                    FROM   {schema}.systems
-                    WHERE  x_ly BETWEEN $1 AND $2
-                      AND  y_ly BETWEEN $3 AND $4
-                      AND  z_ly BETWEEN $5 AND $6
-                    ORDER BY x_ly, y_ly, z_ly
-                    LIMIT  $7
-                )
-                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
-                FROM   candidates
-                ORDER BY populated DESC, id64
-            """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
+                SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z,
+                       galaxy_region_id,
+                       FALSE AS populated,
+                       NULL::text AS main_star_type
+                  FROM {schema}.systems
+                 WHERE grid_x BETWEEN $1 AND $2
+                   AND grid_y BETWEEN $3 AND $4
+                   AND grid_z BETWEEN $5 AND $6
+                   AND x_ly BETWEEN $7 AND $8
+                   AND y_ly BETWEEN $9 AND $10
+                   AND z_ly BETWEEN $11 AND $12
+                 ORDER BY id64
+                 LIMIT $13
+            """,
+                math.floor(lo_x / 10), math.floor(hi_x / 10),
+                math.floor(lo_y / 10), math.floor(hi_y / 10),
+                math.floor(lo_z / 10), math.floor(hi_z / 10),
+                lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
 
     truncated = len(rows) > limit
     if truncated:
