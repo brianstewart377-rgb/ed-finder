@@ -77,11 +77,19 @@ def test_register_cell_levels_is_idempotent(db_conn):
 _TEST_CELL_LEVEL = 30
 _TEST_CELL_SIZE_LY = 100.0
 
+# Matches the three fixture rows `_seed_generation` always inserts.
+SEEDED_SYSTEM_COUNT = 3
 
-def _seed_generation(conn) -> str:
+
+def _seed_generation(conn, *, omit_last: bool = False) -> str:
     """Seed the minimal `v3_meta.canonical_generation` -> `v3_meta.derived_generation`
     chain plus three `v3_derived.system_search` rows with known coordinates and aux
     flags, entirely inside the caller's (rolled-back) transaction.
+
+    `omit_last=True` drops the last of the three fixture systems, simulating an
+    incomplete/short aggregation source (e.g. a partial `system_search` build) while
+    `SEEDED_SYSTEM_COUNT` (the canonical truth) stays at 3 -- this is what
+    `reconcile` must fail closed on.
 
     Mirrors the minimal-fixture pattern in
     `tests/test_journal_contributions_postgres.py`'s `generation()` helper: only the
@@ -93,7 +101,6 @@ def _seed_generation(conn) -> str:
     DEFERRABLE INITIALLY DEFERRED, so it is never checked inside a transaction this
     test always rolls back instead of commits.
     """
-    import json
     import uuid
 
     gid, run_id = uuid.uuid4(), uuid.uuid4()
@@ -148,6 +155,8 @@ def _seed_generation(conn) -> str:
         (1002, 'Beta', 20.0, 20.0, 20.0, 5, 2, 1, False, False),
         (1003, 'Gamma', 150.0, 0.0, 0.0, 5, 0, 0, False, True),
     ]
+    if omit_last:
+        systems = systems[:-1]
     for system_id64, name, x, y, z, body_count, landable_count, station_count, biologicals, terraformable in systems:
         conn.execute(
             """INSERT INTO v3_derived.system_search(
@@ -168,6 +177,11 @@ def _seed_generation(conn) -> str:
 @pytest.fixture
 def seeded_generation(db_conn):
     return _seed_generation(db_conn)
+
+
+@pytest.fixture
+def seeded_generation_missing_one(db_conn):
+    return _seed_generation(db_conn, omit_last=True)
 
 
 def _register_test_cell_level(conn, version: str) -> None:
@@ -279,3 +293,185 @@ def test_build_level_canonical_source_not_implemented(db_conn, seeded_generation
             db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
             level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='canonical',
         )
+
+
+# --- Task 3: reconciliation gate + validation receipt -----------------------------
+
+
+def test_reconcile_passes_when_sum_matches(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
+    result = reconcile(
+        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
+        canonical_count=SEEDED_SYSTEM_COUNT,
+    )
+    assert result['canonical_count'] == SEEDED_SYSTEM_COUNT
+    assert result['per_level_system_sum']
+    assert all(v == SEEDED_SYSTEM_COUNT for v in result['per_level_system_sum'].values())
+
+
+def test_reconcile_fails_closed_on_incomplete_source(db_conn, seeded_generation_missing_one):
+    from scripts.v3_spatial_pyramid import (
+        PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile, ReconciliationError,
+    )
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    # Built from a system_search that is short by one system -> every level's Σ is
+    # 2, not the canonical truth of 3 -> reconciliation must fail closed.
+    build_all_levels(db_conn, derived_generation_id=seeded_generation_missing_one, source='system_search')
+    with pytest.raises(ReconciliationError):
+        reconcile(
+            db_conn, derived_generation_id=seeded_generation_missing_one, version=PYRAMID_VERSION,
+            canonical_count=SEEDED_SYSTEM_COUNT,
+        )
+
+
+def test_reconcile_fails_closed_when_canonical_count_exceeds_built_sum(db_conn, seeded_generation):
+    """Fails closed even when the pyramid build itself is internally consistent: a
+    `canonical_count` the built cells cannot possibly reach (e.g. the caller read a
+    stale/larger canonical count) must still raise, not silently pass.
+    """
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile, ReconciliationError
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
+    with pytest.raises(ReconciliationError):
+        reconcile(
+            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
+            canonical_count=SEEDED_SYSTEM_COUNT + 1,
+        )
+
+
+def test_build_receipt_returns_expected_keys_and_sums(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, build_receipt
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    per_level_cells = build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
+
+    receipt = build_receipt(
+        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
+        source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level_cells,
+    )
+
+    assert receipt['spatial_pyramid_version'] == PYRAMID_VERSION
+    assert receipt['source'] == 'system_search'
+    assert receipt['canonical_count'] == SEEDED_SYSTEM_COUNT
+    assert receipt['reconciliation'] == 'passed'
+    assert receipt['derived_generation_id'] == str(seeded_generation)
+    assert receipt['coverage_at'] is not None
+    assert set(receipt['per_level']) == set(per_level_cells)
+    for level, cell_count in per_level_cells.items():
+        info = receipt['per_level'][level]
+        assert info['cell_count'] == cell_count
+        assert info['system_count_sum'] == SEEDED_SYSTEM_COUNT
+    # No secret-shaped keys/values sneak into the receipt.
+    blob = repr(receipt).lower()
+    for forbidden in ('password', 'secret', 'token', 'dsn', 'apikey'):
+        assert forbidden not in blob
+
+
+def test_build_receipt_raises_when_reconciliation_fails(db_conn, seeded_generation_missing_one):
+    from scripts.v3_spatial_pyramid import (
+        PYRAMID_VERSION, register_cell_levels, build_all_levels, build_receipt, ReconciliationError,
+    )
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    per_level_cells = build_all_levels(
+        db_conn, derived_generation_id=seeded_generation_missing_one, source='system_search',
+    )
+    with pytest.raises(ReconciliationError):
+        build_receipt(
+            db_conn, derived_generation_id=seeded_generation_missing_one, version=PYRAMID_VERSION,
+            source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level_cells,
+        )
+
+
+# --- resolve_source, now that generation fixtures exist (carried-over gap) --------
+
+
+def _seed_generation_with_canonical(conn, *, canonical_count: int, search_count: int) -> str:
+    """Seed a canonical generation with real `{schema}.systems` physical relations
+    (via `v3_meta.create_canonical_generation_relations`, the same stored procedure
+    production canonical builds use), plus a derived generation and `canonical_count`
+    / `search_count`-controlled row counts, so `resolve_source`'s canonical-count
+    comparison query has a real table to run against.
+
+    Returns the derived_generation_id (str).
+    """
+    import uuid
+
+    gid, run_id = uuid.uuid4(), uuid.uuid4()
+    key = 'pyrsrc_' + gid.hex[:16]
+    schema = 'v3_gen_' + key
+    source_id = conn.execute(
+        "INSERT INTO v3_source.source(source_code,display_name,authority_class) "
+        "VALUES(%s,'Fixture','OPERATOR_ADJUDICATION') RETURNING source_id",
+        (key,),
+    ).fetchone()[0]
+    rights_id = conn.execute(
+        "INSERT INTO v3_source.source_rights_policy(source_id,policy_version,rights_class,retention_class,effective_at) "
+        "VALUES(%s,'test','CANONICAL_ELIGIBLE','TEST',now()) RETURNING rights_policy_id",
+        (source_id,),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO v3_source.source_run(source_run_id,source_id,rights_policy_id,acquisition_kind,trust_zone,
+               run_state,idempotency_key,started_at,completed_at,importer_version,importer_code_sha256,
+               importer_config_sha256,normalizer_version,normalizer_sha256)
+           VALUES(%s,%s,%s,'BULK_SNAPSHOT','CANONICAL','SUCCEEDED',%s,now(),now(),'test',%s,%s,'test',%s)""",
+        (run_id, source_id, rights_id, key, b'x' * 32, b'x' * 32, b'x' * 32),
+    )
+    conn.execute(
+        "INSERT INTO v3_meta.canonical_generation(generation_id,generation_key,relation_schema,manifest_sha256,build_source_run_id) "
+        "VALUES(%s,%s,%s,%s,%s)",
+        (gid, key, schema, b'x' * 32, run_id),
+    )
+    # Real physical `{schema}.systems`/`bodies` relations, the same call production
+    # canonical-generation builds make; resolve_source's fallback-count query reads
+    # `{schema}.systems` directly, so a fixture without this would be faking the
+    # comparison rather than exercising it.
+    conn.execute('SELECT v3_meta.create_canonical_generation_relations(%s)', (gid,))
+
+    for i in range(canonical_count):
+        conn.execute(
+            f"""INSERT INTO {schema}.systems
+                   (id64,name,x_ly,y_ly,z_ly,loaded_body_count,grid_x,grid_y,grid_z,
+                    macro_grid_key,source_id,source_run_id,freshness_checked_at)
+                VALUES (%(id)s,%(name)s,%(x)s,0,0,0,0,0,0,0,%(src)s,%(run)s,now())""",
+            {'id': 2000 + i, 'name': f'Canon{i}', 'x': float(i), 'src': source_id, 'run': run_id},
+        )
+
+    dgid = uuid.uuid4()
+    conn.execute(
+        """INSERT INTO v3_meta.derived_generation(
+               derived_generation_id,canonical_generation_id,canonical_publication_sequence,
+               generation_key,mechanics_version,scorer_version,adapter_version,
+               manifest,manifest_sha256,expected_systems,expected_bodies)
+           VALUES(%s,%s,1,%s,'test','test','test','{}'::jsonb,%s,%s,0)""",
+        (dgid, gid, key, b'x' * 32, max(search_count, 1)),
+    )
+    conn.execute(
+        """INSERT INTO v3_meta.derived_product(
+               derived_generation_id,product_code,product_version,manifest,manifest_sha256,expected_rows)
+           VALUES(%s,'system_search','test','{}'::jsonb,%s,%s)""",
+        (dgid, b'x' * 32, max(search_count, 1)),
+    )
+    for i in range(search_count):
+        conn.execute(
+            """INSERT INTO v3_derived.system_search(
+                   derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,
+                   body_count,landable_count,station_count,has_rings,has_biologicals,
+                   has_geologicals,has_terraformable,completeness,confidence)
+               VALUES(%(gen)s,%(sid)s,%(name)s,%(x)s,0,0,cube(ARRAY[%(x)s,0,0]),
+                      0,0,0,false,false,false,false,1.0,1.0)""",
+            {'gen': dgid, 'sid': 3000 + i, 'name': f'Search{i}', 'x': float(i)},
+        )
+    return str(dgid)
+
+
+def test_resolve_source_returns_system_search_when_counts_match(db_conn):
+    from scripts.v3_spatial_pyramid import resolve_source
+    dgid = _seed_generation_with_canonical(db_conn, canonical_count=2, search_count=2)
+    assert resolve_source(db_conn, dgid) == 'system_search'
+
+
+def test_resolve_source_returns_canonical_when_counts_differ(db_conn):
+    from scripts.v3_spatial_pyramid import resolve_source
+    dgid = _seed_generation_with_canonical(db_conn, canonical_count=3, search_count=2)
+    assert resolve_source(db_conn, dgid) == 'canonical'

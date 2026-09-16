@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-'''Register the V3 spatial density pyramid's cell-level ladder + choose a
-generation's aggregation source.
+'''Build, reconcile, and receipt the V3 spatial density pyramid (#2a).
 
-This is the first, foundational piece of the V3 spatial density pyramid
-(#2a): it does not build `v3_spatial.cell_summary` yet (that is a later task
-in this same effort). It only:
+This module:
 
 - registers the versioned `spatial_pyramid_version` cell-size ladder into
-  `v3_spatial.cell_level` (idempotent), and
+  `v3_spatial.cell_level` (idempotent);
 - resolves whether a given derived generation's aggregation should read the
   cheap `v3_derived.system_search` projection or fall back to the canonical
   `{gen}.systems` catalogue, per the source rule in
-  `docs/development/v3-spatial-density-pyramid-design.md`.
+  `docs/development/v3-spatial-density-pyramid-design.md`;
+- aggregates each registered level's occupied cells into
+  `v3_spatial.cell_summary` (`build_level`/`build_all_levels`); and
+- enforces the reconciliation truth gate (`reconcile`) and assembles the
+  sanitized validation receipt (`build_receipt`).
 
-The reconciliation gate (a later task) is the ultimate enforcement of pyramid
-correctness; this module only picks the cheap path when it is provably safe.
+Publication (governed lifecycle + rollback) and the API read path are later
+tasks in this same effort, not implemented here.
 '''
 from __future__ import annotations
 
@@ -194,3 +195,102 @@ def build_all_levels(conn, *, derived_generation_id, version: str = PYRAMID_VERS
             level=lvl.level, cell_size_ly=lvl.cell_size_ly, source=source,
         )
     return counts
+
+
+class ReconciliationError(Exception):
+    '''Raised by `reconcile` when a level's aggregated `Σ system_count` does not
+    exactly match the canonical system count. This is the pyramid's truth gate:
+    it must fail closed on any mismatch, including a level that is short only
+    because its source (`system_search` or the canonical fallback) was itself
+    incomplete when the level was built -- there is no partial-credit pass.
+    '''
+
+
+def reconcile(conn, *, derived_generation_id, version: str, canonical_count: int) -> dict:
+    '''Verify every built level's `Σ system_count` in `v3_spatial.cell_summary`
+    exactly equals `canonical_count`, per
+    `docs/development/v3-spatial-density-pyramid-design.md` ("Reconciliation +
+    validation receipt"). Every occupied cell at a level partitions the full set
+    of systems present at build time, so a level's cell-count sum is exactly the
+    number of distinct systems that level was built from; any deviation from
+    `canonical_count` means the source was incomplete, the wrong generation was
+    aggregated, or `canonical_count` itself is stale -- all fail-closed cases.
+
+    Raises `ReconciliationError` naming the offending level, the expected count,
+    and the actual sum on the first mismatch found. Returns
+    `{'per_level_system_sum': {level: sum, ...}, 'canonical_count': canonical_count}`
+    on success.
+
+    A level with zero rows in `cell_summary` for this generation/version simply
+    does not appear in `per_level_system_sum` (nothing to sum); it is not treated
+    as a mismatch here; callers that require every registered level to have been
+    built should check that separately against `v3_spatial.cell_level`.
+    '''
+    rows = conn.execute(
+        '''SELECT level, sum(system_count)
+             FROM v3_spatial.cell_summary
+            WHERE derived_generation_id=%s AND spatial_pyramid_version=%s
+            GROUP BY level''',
+        (derived_generation_id, version),
+    ).fetchall()
+    per_level_system_sum = {int(level): int(total) for level, total in rows}
+    for level in sorted(per_level_system_sum):
+        actual = per_level_system_sum[level]
+        if actual != canonical_count:
+            raise ReconciliationError(
+                f'level {level}: expected system_count sum {canonical_count}, got {actual}'
+            )
+    return {
+        'per_level_system_sum': per_level_system_sum,
+        'canonical_count': canonical_count,
+    }
+
+
+def build_receipt(conn, *, derived_generation_id, version: str, source: str,
+                   canonical_count: int, per_level: dict[int, int]) -> dict:
+    '''Assemble the sanitized validation receipt the design doc calls for: source
+    path, per-level cell + system counts, reconciliation result, pyramid version,
+    generation ids, and a DB-sourced coverage timestamp. No secrets are read or
+    included -- every value here is a count, id, version string, or timestamp.
+
+    `per_level` is the `level -> occupied cell count` map `build_all_levels`
+    returns. Reconciliation is re-run here (against `canonical_count`) rather
+    than trusted from a prior call, so a receipt can never be produced for a
+    build that does not actually reconcile: this raises `ReconciliationError`
+    (propagated from `reconcile`) instead of emitting a receipt claiming success.
+    Coverage is read via `SELECT now()` rather than `datetime.now()` so the
+    receipt reflects DB time and this module has no wall-clock side effect at
+    import time.
+    '''
+    reconciliation = reconcile(
+        conn, derived_generation_id=derived_generation_id, version=version,
+        canonical_count=canonical_count,
+    )
+
+    row = conn.execute(
+        '''SELECT dg.canonical_generation_id, now()
+             FROM v3_meta.derived_generation dg
+            WHERE dg.derived_generation_id = %s''',
+        (derived_generation_id,),
+    ).fetchone()
+    canonical_generation_id, coverage_at = (row if row else (None, None))
+
+    system_sums = reconciliation['per_level_system_sum']
+    per_level_report = {
+        level: {
+            'cell_count': per_level.get(level),
+            'system_count_sum': system_sums.get(level),
+        }
+        for level in sorted(set(per_level) | set(system_sums))
+    }
+
+    return {
+        'derived_generation_id': str(derived_generation_id),
+        'canonical_generation_id': str(canonical_generation_id) if canonical_generation_id else None,
+        'spatial_pyramid_version': version,
+        'source': source,
+        'canonical_count': canonical_count,
+        'per_level': per_level_report,
+        'reconciliation': 'passed',
+        'coverage_at': coverage_at,
+    }
