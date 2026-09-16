@@ -75,6 +75,20 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
+**F1 follow-up (2026-09-16):** the `system_search` product is now version
+`v3-system-search-2`, with per-body-type count columns added by migration
+`010`. Those counts are not queryable in production until a **rebuild and
+republish through the reviewed V3 migration + derived-product operation**
+runs: apply `010`, re-register the product, `build_available` over the
+published Ratings V4 generation, `validate_product`, then publish — the same
+governed path used for the Ratings V4 publish. This plan does not perform
+that production run. Migration `010` ships as a committed file under
+`sql/v3/migrations/` but is deliberately **not yet declared in
+`sql/v3/migration-manifest.txt`**: declaring it changes the reviewed
+desired-schema identity, which requires fresh external authority (enforced by
+`test_v3_system_search_production_operator`). That manifest declaration +
+authority refresh is part of the governed migration operation, not this PR.
+
 ## Open items
 
 1. **Cluster ownership** — one run per domain, or a shared run with domain

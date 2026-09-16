@@ -23,6 +23,7 @@ def database():
         connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
         connection.execute((ROOT / 'sql/v3/migrations/004_v3_search_spatial_clusters.sql').read_text())
         connection.execute((ROOT / 'sql/v3/migrations/006_v3_derived_product_lifecycle.sql').read_text())
+        connection.execute((ROOT / 'sql/v3/migrations/010_v3_system_search_body_type_counts.sql').read_text())
         yield connection, canonical, metadata, payloads
 
 
@@ -169,6 +170,35 @@ def test_search_can_finish_after_ratings_ready_and_blocks_publication_until_veri
 
     with pytest.raises(ValueError, match='cannot accept'):
         register_product(connection, key)
+
+
+def test_search_projection_populates_body_type_counts(database):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+
+    generation, state, manifest_sha = register_product(connection, key)
+    assert state == 'BUILDING'
+    build_available(connection, generation, manifest_sha)
+
+    row = connection.execute(
+        '''SELECT elw_count, ww_count, ammonia_count, terraformable_count,
+                  gas_giant_count, hmc_count, metal_rich_count, rocky_count,
+                  rocky_ice_count, icy_count, black_hole_count, neutron_count,
+                  white_dwarf_count, other_star_count, ring_count, walkable_count,
+                  bio_signal_total, geo_signal_total, body_count, landable_count
+             FROM v3_derived.system_search
+            WHERE derived_generation_id=%s
+            ORDER BY (elw_count + ww_count) DESC, system_id64
+            LIMIT 1''',
+        (generation_id,),
+    ).fetchone()
+    # Every count is a non-negative int and no per-type count exceeds body_count;
+    # walkable never exceeds landable. Exact per-fixture values are asserted in the
+    # projection-parity test where the fixture is fully controlled.
+    counts = row[:18]
+    assert all(isinstance(v, int) and v >= 0 for v in counts)
+    assert row[15] <= row[19]                     # walkable_count <= landable_count
+    assert max(counts[:14]) <= row[18]            # per body/star type <= body_count
 
 
 def test_existing_search_manifest_rejects_changed_builder_identity(database, monkeypatch):

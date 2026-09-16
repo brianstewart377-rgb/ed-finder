@@ -32,7 +32,8 @@ def projection_database():
                 z_ly float8, galaxy_region_id int, source_updated_at timestamptz);
             CREATE TABLE search_plan_fixture.bodies(
                 body_pk bigint PRIMARY KEY, system_id64 bigint, lifecycle_state text,
-                is_landable bool, terraforming_state_id int);
+                is_landable bool, terraforming_state_id int,
+                atmosphere_classification_id int);
             CREATE INDEX ON search_plan_fixture.bodies(system_id64,body_pk);
             CREATE TABLE search_plan_fixture.body_signal_current(
                 body_pk bigint, signal_type_id int, signal_count int,
@@ -41,6 +42,8 @@ def projection_database():
                 signal_type_id int PRIMARY KEY, public_code text);
             CREATE TABLE search_plan_fixture.terraforming_state(
                 terraforming_state_id int PRIMARY KEY, public_code text);
+            CREATE TABLE search_plan_fixture.atmosphere_classification(
+                atmosphere_classification_id int PRIMARY KEY, public_code text);
             CREATE TABLE search_plan_fixture.galaxy_region(
                 galaxy_region_id int PRIMARY KEY, display_name text);
             CREATE TABLE search_plan_fixture.rings(
@@ -50,6 +53,7 @@ def projection_database():
             CREATE TABLE search_plan_fixture.body_mechanics(
                 derived_generation_id uuid, system_id64 bigint, body_pk bigint,
                 body_class text, is_main_star bool,
+                spectral_class text, terraformable bool,
                 PRIMARY KEY(derived_generation_id,system_id64,body_pk));
             INSERT INTO search_plan_fixture.systems
                 SELECT id,'system-'||id,id,id+1,id+2,NULL,'2026-09-12T00:00:00Z'
@@ -66,30 +70,44 @@ def projection_database():
                 (3,'other_signal');
             INSERT INTO search_plan_fixture.terraforming_state VALUES
                 (1,'terraformable'),(2,'not_terraformable');
+            INSERT INTO search_plan_fixture.atmosphere_classification VALUES
+                (1,'no_atmosphere'),(2,'thin_carbon_dioxide');
             INSERT INTO search_plan_fixture.bodies VALUES
-                (10,1,'ACTIVE',true,1),(11,1,'ACTIVE',false,2),
-                (20,2,'ACTIVE',NULL,NULL),
-                (30,3,'RETIRED',true,1),
-                (50,5,'ACTIVE',false,2),
-                (60,6,'ACTIVE',true,NULL),
-                (99,99,'ACTIVE',true,1);
+                (10,1,'ACTIVE',true,1,1),(11,1,'ACTIVE',false,2,NULL),
+                (20,2,'ACTIVE',NULL,NULL,NULL),
+                (30,3,'RETIRED',true,1,NULL),
+                (50,5,'ACTIVE',false,2,NULL),
+                (60,6,'ACTIVE',true,NULL,NULL);
             INSERT INTO search_plan_fixture.body_signal_current VALUES
                 (10,1,2),(10,2,3),(11,1,1),
                 (20,1,0),(20,2,0),(30,1,5),(30,2,5),
-                (50,3,10),(99,1,100);
+                (50,3,10);
             INSERT INTO search_plan_fixture.rings VALUES
                 (1,'ACTIVE','RING'),(1,'ACTIVE','RING'),(2,'ACTIVE','BELT'),
                 (3,'RETIRED','RING');
             INSERT INTO search_plan_fixture.stations VALUES
                 (1,'ACTIVE'),(1,'ACTIVE'),(1,'RETIRED'),(3,'RETIRED');
             INSERT INTO search_plan_fixture.body_mechanics VALUES
-                ('00000000-0000-0000-0000-000000000001',1,11,'LATE',true),
-                ('00000000-0000-0000-0000-000000000001',1,10,'FIRST',true),
-                ('00000000-0000-0000-0000-000000000001',6,60,'NOT_MAIN',false),
-                ('00000000-0000-0000-0000-000000000001',6,61,'UNKNOWN',NULL),
-                ('00000000-0000-0000-0000-000000000002',8,80,'OTHER_GEN',true),
-                ('00000000-0000-0000-0000-000000000001',9,90,NULL,true),
-                ('00000000-0000-0000-0000-000000000001',9,91,'LATE',true);
+                ('00000000-0000-0000-0000-000000000001',1,11,'LATE',true,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',1,10,'FIRST',true,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',1,12,'Earthlike world',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',1,13,'Water world',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',1,14,'Rocky body',false,NULL,true),
+                ('00000000-0000-0000-0000-000000000001',1,15,'Rocky ice body',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',2,21,'High metal content world',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',2,22,'Metal rich body',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',2,23,'Black Hole',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',3,31,'Ammonia world',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',3,32,'Gas Giant with Ammonia-based Life',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000001',5,51,NULL,false,'N',false),
+                ('00000000-0000-0000-0000-000000000001',5,52,'B9',false,'B9',false),
+                ('00000000-0000-0000-0000-000000000001',5,53,'White Dwarf',false,'DA',false),
+                ('00000000-0000-0000-0000-000000000001',6,60,'NOT_MAIN',false,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',6,61,'UNKNOWN',NULL,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',6,63,'Icy body',false,NULL,false),
+                ('00000000-0000-0000-0000-000000000002',8,80,'OTHER_GEN',true,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',9,90,NULL,true,NULL,NULL),
+                ('00000000-0000-0000-0000-000000000001',9,91,'LATE',true,NULL,NULL);
         """)
         yield connection
 
@@ -125,6 +143,10 @@ def test_projection_matches_legacy_for_sparse_and_adversarial_rows(projection_da
     first = rows[0]
     assert first[9:17] == ('FIRST', 2, 1, 2, True, True, True, True)
     assert first[18:20] == (0.5, 0.3)
+    # elw,ww,ammonia,terraformable,gas_giant,hmc,metal_rich,rocky,rocky_ice,icy,
+    # black_hole,neutron,white_dwarf,other_star,ring_count,walkable_count,
+    # bio_signal_total,geo_signal_total
+    assert first[20:38] == (1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 2, 1, 3, 3)
     # Zero counts, retired bodies, no bodies, and unrelated signals are false.
     for row in rows[1:]:
         assert row[14:17] == (False, False, False)

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 PRODUCT_CODE = 'system_search'
-PRODUCT_VERSION = 'v3-system-search-1'
+PRODUCT_VERSION = 'v3-system-search-2'
 GENERATION_KEY = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
 SCHEMA_NAME = re.compile(r'v3_gen_[a-z][a-z0-9_]{0,30}\Z')
 Progress = Callable[[dict], None]
@@ -63,6 +63,7 @@ def code_identity(root: Path = ROOT) -> dict[str, str]:
         'scripts/v3_system_search.py',
         'sql/v3/migrations/004_v3_search_spatial_clusters.sql',
         'sql/v3/migrations/006_v3_derived_product_lifecycle.sql',
+        'sql/v3/migrations/010_v3_system_search_body_type_counts.sql',
     )
     return {
         name: hashlib.sha256((root / name).read_bytes()).hexdigest()
@@ -129,6 +130,21 @@ def product_manifest(generation: Generation) -> dict:
                 'false means no positive observation in the pinned canonical generation, '
                 'not proof of known absence'
             ),
+            'per_type_counts': (
+                'counts of ACTIVE v3_derived.body_mechanics rows whose normalised '
+                'body_class matches each Finder type; barycentre/belt-cluster bodies '
+                'are excluded from body_mechanics and therefore uncounted'
+            ),
+            'star_counts': (
+                'black_hole/neutron/white_dwarf resolved from body_class or '
+                'spectral_class; other_star_count = star rows (spectral_class present) '
+                'minus those three'
+            ),
+            'walkable_count': 'landable ACTIVE bodies with no/absent atmosphere (atmosphere_classification no_atmosphere or null)',
+            'ring_count': 'ACTIVE canonical RING rows (asteroid BELT rows excluded)',
+            'bio_signal_total': 'sum of biological signal_count over ACTIVE bodies',
+            'geo_signal_total': 'sum of geological signal_count over ACTIVE bodies',
+            'zero_counts': 'a 0 count means no positive observation in the pinned canonical generation, not proven absence',
         },
     }
 
@@ -225,7 +241,12 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
                   s.galaxy_region_id,s.region_name,s.main_star_class,
                   s.body_count,s.landable_count,s.station_count,s.has_rings,
                   s.has_biologicals,s.has_geologicals,s.has_terraformable,
-                  s.source_observed_at,s.completeness,s.confidence
+                  s.source_observed_at,s.completeness,s.confidence,
+                  s.elw_count,s.ww_count,s.ammonia_count,s.terraformable_count,
+                  s.gas_giant_count,s.hmc_count,s.metal_rich_count,s.rocky_count,
+                  s.rocky_ice_count,s.icy_count,s.black_hole_count,s.neutron_count,
+                  s.white_dwarf_count,s.other_star_count,s.ring_count,s.walkable_count,
+                  s.bio_signal_total,s.geo_signal_total
              FROM v3_derived.system_search s
              JOIN v3_derived.system_rating_vector v
                ON v.derived_generation_id=s.derived_generation_id
@@ -256,6 +277,10 @@ body_summary AS (
            (count(*) FILTER (
                WHERE b.lifecycle_state='ACTIVE' AND b.is_landable IS TRUE
            ))::integer AS landable_count,
+           (count(*) FILTER (
+               WHERE b.lifecycle_state='ACTIVE' AND b.is_landable IS TRUE
+                 AND (b.atmosphere_classification_id IS NULL OR atmo.public_code='no_atmosphere')
+           ))::integer AS walkable_count,
            bool_or(
                b.lifecycle_state='ACTIVE'
                AND ts.public_code IN ('terraformable','terraformed','terraforming')
@@ -264,13 +289,45 @@ body_summary AS (
       JOIN target t ON t.system_id64=b.system_id64
  LEFT JOIN v3_vocab.terraforming_state ts
         ON ts.terraforming_state_id=b.terraforming_state_id
+ LEFT JOIN v3_vocab.atmosphere_classification atmo
+        ON atmo.atmosphere_classification_id=b.atmosphere_classification_id
   GROUP BY b.system_id64
 ),
+type_summary AS (
+    SELECT bm.system_id64,
+           (count(*) FILTER (WHERE nk IN ('earth like world','earthlike world','elw')))::integer AS elw_count,
+           (count(*) FILTER (WHERE nk IN ('water world','ww')))::integer AS ww_count,
+           (count(*) FILTER (WHERE nk IN ('ammonia world','ammonia')))::integer AS ammonia_count,
+           (count(*) FILTER (WHERE bm.terraformable IS TRUE))::integer AS terraformable_count,
+           (count(*) FILTER (WHERE nk LIKE '%%gas giant%%'))::integer AS gas_giant_count,
+           (count(*) FILTER (WHERE nk IN ('high metal content world','high metal content body','high metal content','hmc')))::integer AS hmc_count,
+           (count(*) FILTER (WHERE nk IN ('metal rich body','metal rich')))::integer AS metal_rich_count,
+           (count(*) FILTER (WHERE nk IN ('rocky body','rocky')))::integer AS rocky_count,
+           (count(*) FILTER (WHERE nk IN ('rocky ice body','rocky ice world','rocky ice')))::integer AS rocky_ice_count,
+           (count(*) FILTER (WHERE nk IN ('icy body','icy')))::integer AS icy_count,
+           (count(*) FILTER (WHERE nk LIKE '%%black hole%%' OR bm.spectral_class IN ('H','SupermassiveBlackHole')))::integer AS black_hole_count,
+           (count(*) FILTER (WHERE nk='neutron star' OR bm.spectral_class='N'))::integer AS neutron_count,
+           (count(*) FILTER (WHERE nk LIKE '%%white dwarf%%' OR bm.spectral_class LIKE 'D%%'))::integer AS white_dwarf_count,
+           (count(*) FILTER (
+               WHERE bm.spectral_class IS NOT NULL
+                 AND NOT (COALESCE(nk LIKE '%%black hole%%', false) OR bm.spectral_class IN ('H','SupermassiveBlackHole'))
+                 AND NOT (COALESCE(nk='neutron star', false) OR bm.spectral_class='N')
+                 AND NOT (COALESCE(nk LIKE '%%white dwarf%%', false) OR bm.spectral_class LIKE 'D%%')
+           ))::integer AS other_star_count
+      FROM (
+          SELECT bm.system_id64, bm.terraformable, bm.spectral_class,
+                 lower(btrim(regexp_replace(regexp_replace(bm.body_class,'[-]',' ','g'),'\\s+',' ','g'))) AS nk
+            FROM v3_derived.body_mechanics bm
+           WHERE bm.derived_generation_id=%(generation_id)s
+      ) bm
+      JOIN target t ON t.system_id64=bm.system_id64
+  GROUP BY bm.system_id64
+),
 ring_summary AS (
-    SELECT r.system_id64,true AS has_rings
+    SELECT r.system_id64,
+           (count(*) FILTER (WHERE r.lifecycle_state='ACTIVE' AND r.kind='RING'))::integer AS ring_count
       FROM {schema}.rings r
       JOIN target t ON t.system_id64=r.system_id64
-     WHERE r.lifecycle_state='ACTIVE' AND r.kind='RING'
   GROUP BY r.system_id64
 ),
 station_summary AS (
@@ -285,26 +342,31 @@ SELECT %(generation_id)s,t.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
        cube(ARRAY[s.x_ly,s.y_ly,s.z_ly]),
        s.galaxy_region_id,gr.display_name,ms.main_star_class,
        t.loaded_body_count,COALESCE(bs.landable_count,0),
-       COALESCE(ss.station_count,0),COALESCE(rs.has_rings,false),
-       COALESCE(sig.has_biologicals,false),
-       COALESCE(sig.has_geologicals,false),
+       COALESCE(ss.station_count,0),COALESCE(rs.ring_count,0)>0,
+       COALESCE(sig.bio_signal_total,0)>0,
+       COALESCE(sig.geo_signal_total,0)>0,
        COALESCE(bs.has_terraformable,false),
        s.source_updated_at,
-       (SELECT min(value)::double precision/10000
-          FROM unnest(t.completeness) AS value),
-       (SELECT min(value)::double precision/10000
-          FROM unnest(t.confidence) AS value)
+       (SELECT min(value)::double precision/10000 FROM unnest(t.completeness) AS value),
+       (SELECT min(value)::double precision/10000 FROM unnest(t.confidence) AS value),
+       COALESCE(ty.elw_count,0),COALESCE(ty.ww_count,0),COALESCE(ty.ammonia_count,0),
+       COALESCE(ty.terraformable_count,0),COALESCE(ty.gas_giant_count,0),
+       COALESCE(ty.hmc_count,0),COALESCE(ty.metal_rich_count,0),COALESCE(ty.rocky_count,0),
+       COALESCE(ty.rocky_ice_count,0),COALESCE(ty.icy_count,0),
+       COALESCE(ty.black_hole_count,0),COALESCE(ty.neutron_count,0),
+       COALESCE(ty.white_dwarf_count,0),COALESCE(ty.other_star_count,0),
+       COALESCE(rs.ring_count,0),COALESCE(bs.walkable_count,0),
+       COALESCE(sig.bio_signal_total,0),COALESCE(sig.geo_signal_total,0)
   FROM target t
   JOIN {schema}.systems s ON s.id64=t.system_id64
  LEFT JOIN v3_vocab.galaxy_region gr ON gr.galaxy_region_id=s.galaxy_region_id
  LEFT JOIN body_summary bs USING(system_id64)
+ LEFT JOIN type_summary ty USING(system_id64)
  LEFT JOIN ring_summary rs USING(system_id64)
  LEFT JOIN station_summary ss USING(system_id64)
  LEFT JOIN LATERAL (
-    SELECT bool_or(st.public_code='saa_signaltype_biological'
-                   AND bs.signal_count>0) AS has_biologicals,
-           bool_or(st.public_code='saa_signaltype_geological'
-                   AND bs.signal_count>0) AS has_geologicals
+    SELECT sum(bs.signal_count) FILTER (WHERE st.public_code='saa_signaltype_biological')::integer AS bio_signal_total,
+           sum(bs.signal_count) FILTER (WHERE st.public_code='saa_signaltype_geological')::integer AS geo_signal_total
       FROM {schema}.bodies b
       JOIN {schema}.body_signal_current bs ON bs.body_pk=b.body_pk
       JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
@@ -383,7 +445,11 @@ def _insert_chunk(
                 derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,
                 galaxy_region_id,region_name,main_star_class,body_count,landable_count,
                 station_count,has_rings,has_biologicals,has_geologicals,
-                has_terraformable,source_observed_at,completeness,confidence
+                has_terraformable,source_observed_at,completeness,confidence,
+                elw_count,ww_count,ammonia_count,terraformable_count,gas_giant_count,
+                hmc_count,metal_rich_count,rocky_count,rocky_ice_count,icy_count,
+                black_hole_count,neutron_count,white_dwarf_count,other_star_count,
+                ring_count,walkable_count,bio_signal_total,geo_signal_total
             )
             '''
         ) + sql.SQL(projection_query_sql()).format(
