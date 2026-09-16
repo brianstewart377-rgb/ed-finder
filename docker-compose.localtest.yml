@@ -1,0 +1,31 @@
+# Local, reusable test database for V3 derived/search/ratings tests.
+# COMPLETELY SEPARATE FROM PRODUCTION: local-only credentials, a dedicated
+# port and named volume, no production network, data, or secrets. The pytest
+# fixtures additionally refuse any host that is not 127.0.0.1/localhost and any
+# entry database not named ratings_v4_validation.
+#
+# Usage:
+#   docker compose -f docker-compose.localtest.yml up -d
+#   export RATINGS_V4_VALIDATION_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55434/ratings_v4_validation
+#   .venv/Scripts/python.exe -m pytest tests/test_ratings_v4_system_search.py -v
+services:
+  localtest-pg:
+    image: postgres:18
+    container_name: edfinder-localtest-pg18
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ratings_v4_validation
+    ports:
+      - "127.0.0.1:55434:5432"
+    volumes:
+      - edfinder_localtest_pgdata:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ratings_v4_validation"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  edfinder_localtest_pgdata:
