@@ -255,6 +255,49 @@ of authoring it, and it never runs on push/PR — `workflow_dispatch` only.
   ladder is treated as final; `pyramid_v1` stays stable as long as the set of
   `(level, cell_size_ly)` pairs is only extended (new levels, new version) and
   never mutated in place, since `cell_summary` rows key on `(spatial_pyramid_version, level)`.
+
+  **Benchmark (Task 7, 2026-09-16).** Ran the real builder pipeline
+  (`register_cell_levels` -> `resolve_source` -> `build_all_levels` ->
+  `reconcile` -> `build_receipt` -> `mark_pyramid_ready`, then published the
+  fixture generation as current and read it back both via
+  `pyramid_for_current_generation` and a live `GET /api/map/heatmap`) against
+  a bounded-subset fixture on the disposable test DB: 4,000
+  `v3_derived.system_search` rows with real (uniform-random, including
+  negative) coordinates over `x in [-9000, 7000]`, `y in [-1200, 1200]` (thin
+  disc), `z in [-8000, 8000]` LY -- a ~16,000x16,000x2,400 LY box, chosen to
+  span many cells at every registered level on both sides of the origin.
+  Reconciliation passed (`Sum(system_count) == 4000` at every level); the
+  live heatmap read served `"source": "pyramid"` for the published fixture
+  generation. Observed occupied-cell counts:
+
+  | level | cell_size_ly | scale    | occupied cells |
+  |------:|-------------:|----------|----------------:|
+  | 0     | 2560         | wide     | 111 |
+  | 1     | 1280         | wide     | 366 |
+  | 2     | 640          | regional | 2,035 |
+  | 3     | 320          | regional | 3,634 |
+  | 4     | 160          | local    | 3,949 |
+  | 5     | 80           | local    | 3,995 |
+  | 6     | 40           | local    | 4,000 (== system count; no collisions) |
+
+  The ladder is structurally sane on this fixture: cell counts increase
+  monotonically coarse-to-fine, each level partitions the same 4,000 systems
+  exactly (the reconciliation gate passing at every level proves this), and
+  the finest level (40 LY) resolves to one system per cell at this density --
+  i.e. it has room to go finer before hitting the "one star per cell" floor
+  on real (much denser) data. Caveat: this fixture's density (4,000 systems
+  over ~6.1e8 LY^3, roughly 6.6e-6 systems/LY^3) is far sparser than the real
+  ~198M-system canonical catalogue over the actual galactic disc, so these
+  counts calibrate the *mechanics* (ladder plumbing, reconciliation,
+  publish/read path), not real-world per-level cell/system-per-cell ratios --
+  on production data, coarse levels (0-2) will hold far more systems per
+  cell (galaxy-disc clustering, spiral arms) and even level 6 will not stay
+  1:1. No ladder change is made here; a follow-up production-scale (or a
+  denser, disc-shaped synthetic) benchmark is recommended before treating the
+  ladder as final, particularly to check whether level 0's 2,560 LY cell size
+  (which exceeds `/api/map/heatmap`'s `voxel_size` query cap of 2,000, though
+  it remains reachable there as the nearest-match level for `voxel_size`
+  near the cap) is ever actually the best "whole galaxy" fit at real scale.
 - **Legacy `/api/map/heatmap` MV path** — remove vs. explicit fallback.
 - **`cell_key` encoding** — exact text scheme (must satisfy the `^[A-Za-z0-9_.-]{1,64}$` CHECK).
 - **Build scale/runtime** at 198M — chunking/resumability, mirroring existing derived builders.
