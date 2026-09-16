@@ -12,7 +12,11 @@
     type V3VerifiedImportReceipt,
     type ContributionRow,
   } from '$lib/api/client';
-  import { parseJournals } from '$lib/journal/parse';
+  import { streamJournals } from '$lib/journal/parse';
+  import {
+    uploadJournalBatches,
+    type CommittedBatch,
+  } from '$lib/journal/uploader';
 
   let commanders = $state<VerifiedCommanderResponse[]>([]);
   let selected = $state<FileList | undefined>();
@@ -34,16 +38,15 @@
   // short clause used to build the "why nothing was imported" summary below.
   // Keep in sync with apps/web/src/lib/journal/import-worker.ts.
   const HELD_REASON_CLAUSES: Record<string, string> = {
-    'File or selection exceeds this importer’s size limit':
-      'exceed the size limit',
+    'File exceeds this importer’s per-file size limit':
+      'exceed the per-file size limit',
     'Commander identity record has an invalid timestamp; file held for review':
       'have no valid Commander/LoadGame timestamp',
-    'Selection exceeds 50,000 events; import this file separately':
-      'exceed 50,000 events',
     'No supported events with valid timestamps':
       'have no supported events with valid timestamps',
     'Could not read this file; other files can continue': 'could not be read',
-    'Select up to 200 files per import': 'exceed the 200-file selection limit',
+    'Select up to 2000 files per import':
+      'exceed the 2000-file selection limit',
   };
 
   function summarizeHeldFiles(
@@ -144,43 +147,52 @@
     heldSummary = '';
     const contributeThisImport = sharing;
     operation = new AbortController();
+    const committed: CommittedBatch[] = [];
     try {
-      status = 'Reading selected files…';
-      const parsed = await parseJournals(
-        Array.from(selected),
-        operation.signal,
-        (count) => {
-          if (!lifetime.signal.aborted) status = `Read ${count} files`;
+      status = 'Reading and uploading your journals…';
+      const result = await uploadJournalBatches(
+        streamJournals(Array.from(selected), operation.signal),
+        importVerifiedJournals,
+        {
+          parserVersion: 'journal-import-worker-v3',
+          signal: operation.signal,
+          onProgress: (progress) => {
+            if (!lifetime.signal.aborted)
+              status = `Uploaded ${progress.filesCommitted}/${progress.filesParsed} files · ${progress.eventsCommitted} events · batch ${progress.batchesSent}`;
+          },
+          onBatchCommitted: (batch) => committed.push(batch),
         },
       );
       if (lifetime.signal.aborted) return;
-      warnings = parsed.held;
-      if (!parsed.body.files.length) {
-        heldSummary = summarizeHeldFiles(parsed.held);
+      warnings = result.held;
+      receipt = result.receipt;
+      if (operation.signal.aborted) {
+        status = 'Import stopped. Saved events remain; re-import to continue.';
+        return;
+      }
+      if (!result.committedShas.length && !result.failed.length) {
+        heldSummary = summarizeHeldFiles(result.held);
         status = 'Import held: no files were saved';
         return;
       }
-      status = 'Saving journal events…';
-      const saved = await importVerifiedJournals(parsed.body, operation.signal);
-      if (lifetime.signal.aborted) return;
-      receipt = saved;
-      status = 'Import finished';
-      if (contributeThisImport) {
+      status = result.failed.length
+        ? `Import finished — ${result.failed.length} batch${result.failed.length === 1 ? '' : 'es'} need a retry. Re-import to continue; saved events are skipped.`
+        : 'Import finished';
+      if (contributeThisImport && committed.length) {
         const pending = new SvelteMap(
           sharingPending.map((item) => [item.id, item.hashes]),
         );
-        for (const id of saved.import_ids)
-          pending.set(id, [
-            ...new Set([
-              ...(pending.get(id) ?? []),
-              ...parsed.body.files.map((file) => file.content_sha256),
-            ]),
-          ]);
+        for (const batch of committed)
+          for (const id of batch.importIds)
+            pending.set(id, [
+              ...new Set([...(pending.get(id) ?? []), ...batch.shas]),
+            ]);
         sharingPending = [...pending].map(([id, hashes]) => ({ id, hashes }));
         await shareSavedImports();
       } else {
         await refresh();
-        if (!lifetime.signal.aborted) status = 'Import finished';
+        if (!lifetime.signal.aborted && !result.failed.length)
+          status = 'Import finished';
       }
     } catch (cause) {
       if (!lifetime.signal.aborted)
@@ -266,8 +278,8 @@
     </span>
   </div>
   <p class="state-copy">
-    Up to 200 files, 16 MiB per file, 64 MiB total and 50,000 events per import.
-    Larger files remain available for a later import.
+    Up to 2000 files, 32 MiB per file. Large selections upload in batches and
+    resume safely if interrupted.
   </p>
   <label class="journal-sharing-choice">
     <input type="checkbox" bind:checked={sharing} disabled={busy} />
