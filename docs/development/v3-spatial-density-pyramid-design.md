@@ -178,9 +178,30 @@ Hard gates, emitting a sanitized receipt (like the migration/deploy receipts):
 
 ## Open items / risks
 
-- **`system_search` completeness/current-ness** for the target generation
-  (first task; determines source path — reconciliation gate enforces truth either way).
-- **Pyramid level ladder** — propose + benchmark exact sizes/levels.
+- **`system_search` completeness/current-ness** for the target generation —
+  resolved (2026-09-16): `scripts/v3_spatial_pyramid.py:resolve_source(conn,
+  derived_generation_id)` compares the `v3_derived.system_search` row count for
+  that generation against the canonical `{gen}.systems` count for the same
+  generation's pinned `v3_meta.canonical_generation` (joined via
+  `derived_generation.canonical_generation_id`, mirroring how
+  `apps/api/src/edfinder_api/v3_schema.py` resolves a canonical relation
+  schema, but pinned to the named generation rather than "whichever is
+  currently published"). Exact equality selects the cheap `system_search`
+  source; any mismatch (short build, stale rows, resumed/partial chunking)
+  falls back to the canonical catalogue. This is a cheap pre-check only — the
+  build's `Σ system_count == canonical count` reconciliation gate (Task 3) is
+  the hard, self-verifying enforcement regardless of which source is chosen
+  here, so a wrong guess here cannot silently ship an incomplete pyramid.
+- **Pyramid level ladder** — resolved as the deterministic starting ladder in
+  `scripts/v3_spatial_pyramid.py:CELL_LEVELS`, registered under
+  `PYRAMID_VERSION='pyramid_v1'` via the idempotent `register_cell_levels`:
+  power-of-two `cell_size_ly` from 2560 LY (whole-galaxy, level 0) down to 40
+  LY (local, level 6), each tagged `wide`/`regional`/`local`. These are
+  intentionally the initial values only — Task 7 benchmarks per-level cell
+  counts against real data and may add/remove levels or resize before the
+  ladder is treated as final; `pyramid_v1` stays stable as long as the set of
+  `(level, cell_size_ly)` pairs is only extended (new levels, new version) and
+  never mutated in place, since `cell_summary` rows key on `(spatial_pyramid_version, level)`.
 - **Legacy `/api/map/heatmap` MV path** — remove vs. explicit fallback.
 - **`cell_key` encoding** — exact text scheme (must satisfy the `^[A-Za-z0-9_.-]{1,64}$` CHECK).
 - **Build scale/runtime** at 198M — chunking/resumability, mirroring existing derived builders.
