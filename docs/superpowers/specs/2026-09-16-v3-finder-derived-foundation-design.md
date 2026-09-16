@@ -106,7 +106,7 @@ before the generation can publish.
 | Archetype | Anchor economies | Lifting evidence |
 |---|---|---|
 | Paradise | Agriculture + Tourism | ELW / water worlds / terraformable |
-| Mining Hub | Extraction + Refinery | reserves, rings, metal-rich bodies |
+| Mining Hub | Extraction **+ Refinery (both required)** | reserves, rings, metal-rich bodies |
 | Megacomplex | Refinery + Industrial | reserves + build capacity |
 | Research Hub | High-Tech (+ Industrial) | High-Tech potential + capacity |
 | Stronghold | Military + Industrial | Military potential + capacity |
@@ -192,6 +192,12 @@ F1 is planned and built first because F2's summary columns ride on the
    mechanics inputs to finalise `system_search` body-count columns.
 2. **Archetype coefficients / synergy rules** — concrete formulas and tier
    thresholds (config, benchmark-driven; not architecture).
+2a. **Archetype set validation** — confirm against real V4 output that each
+    archetype surfaces meaningfully distinct systems. In particular, "Mining Hub"
+    (Extraction+Refinery, both required — never a mining-only system) and
+    "Megacomplex" (Refinery+Industrial) are two points on the
+    Extraction→Refinery→Industrial chain; if they consistently rank the same
+    candidates, merge them into a single "Industrial Complex" archetype.
 3. **V2 reference source** for the divergence report.
 4. **Search-projection hot-vs-joined boundary** — confirm which summary fields
    live in `system_search` vs `system_archetype` under measured workloads.
