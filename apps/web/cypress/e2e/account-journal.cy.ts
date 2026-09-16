@@ -93,28 +93,31 @@ describe('Verified account and journal product acceptance', () => {
         .and('contain.text', 'Select journal logs');
       cy.get('#journal-files').should('exist');
 
-      cy.get('#journal-files').selectFile([
-        {
-          contents: Cypress.Buffer.from(journal(`F991${width}`)),
-          fileName: 'mine.log',
-        },
-        {
-          contents: Cypress.Buffer.from(journal('F9929999')),
-          fileName: 'unlinked.log',
-        },
-        {
-          contents: Cypress.Buffer.from(
-            journal(`F991${width}`) +
-              '\n' +
-              JSON.stringify({
-                event: 'Commander',
-                FID: 'F9929999',
-                timestamp: 'invalid',
-              }),
-          ),
-          fileName: 'malformed-identity.log',
-        },
-      ]);
+      cy.get('#journal-files').selectFile(
+        [
+          {
+            contents: Cypress.Buffer.from(journal(`F991${width}`)),
+            fileName: 'mine.log',
+          },
+          {
+            contents: Cypress.Buffer.from(journal('F9929999')),
+            fileName: 'unlinked.log',
+          },
+          {
+            contents: Cypress.Buffer.from(
+              journal(`F991${width}`) +
+                '\n' +
+                JSON.stringify({
+                  event: 'Commander',
+                  FID: 'F9929999',
+                  timestamp: 'invalid',
+                }),
+            ),
+            fileName: 'malformed-identity.log',
+          },
+        ],
+        { force: true },
+      );
       cy.contains('button', 'Import journals').click();
       cy.wait('@import').then(({ request, response }) => {
         expect(
@@ -179,18 +182,21 @@ describe('Verified account and journal product acceptance', () => {
     // Every selected file is held client-side (invalid Commander/LoadGame
     // timestamp), so no request is ever sent and the panel must explain why
     // instead of falling back to a bare "No files ready to import".
-    cy.get('#journal-files').selectFile([
-      {
-        contents: Cypress.Buffer.from(
-          JSON.stringify({
-            event: 'Commander',
-            FID: 'F9911280',
-            timestamp: 'invalid',
-          }),
-        ),
-        fileName: 'no-valid-timestamp.log',
-      },
-    ]);
+    cy.get('#journal-files').selectFile(
+      [
+        {
+          contents: Cypress.Buffer.from(
+            JSON.stringify({
+              event: 'Commander',
+              FID: 'F9911280',
+              timestamp: 'invalid',
+            }),
+          ),
+          fileName: 'no-valid-timestamp.log',
+        },
+      ],
+      { force: true },
+    );
     cy.contains('button', 'Import journals').should('be.enabled').click();
     cy.contains('[role="alert"]', 'All 1 selected file were held').should(
       'be.visible',
