@@ -138,7 +138,9 @@ describe('uploadJournalBatches', () => {
           files_admitted: 1,
           events_inserted: 6,
           duplicates_skipped: 2,
-          held_files: [{ name: 'b', reason: 'previous_import_needs_ownership_review' }],
+          held_files: [
+            { name: 'b', reason: 'previous_import_needs_ownership_review' },
+          ],
         }),
       );
     const result = await uploadJournalBatches(
@@ -158,11 +160,17 @@ describe('uploadJournalBatches', () => {
     const submit = vi
       .fn<SubmitFn>()
       .mockRejectedValueOnce(Object.assign(new Error('rate'), { status: 429 }))
-      .mockResolvedValueOnce(receipt({ import_ids: ['imp-1'], files_admitted: 1 }));
-    const result = await uploadJournalBatches(stream(parsedFile('a', 1)), submit, {
-      parserVersion: 'test',
-      ...fastTiming,
-    });
+      .mockResolvedValueOnce(
+        receipt({ import_ids: ['imp-1'], files_admitted: 1 }),
+      );
+    const result = await uploadJournalBatches(
+      stream(parsedFile('a', 1)),
+      submit,
+      {
+        parserVersion: 'test',
+        ...fastTiming,
+      },
+    );
     expect(submit).toHaveBeenCalledTimes(2);
     expect(result.receipt.files_admitted).toBe(1);
     expect(result.failed).toEqual([]);
@@ -173,10 +181,14 @@ describe('uploadJournalBatches', () => {
       .fn<SubmitFn>()
       .mockRejectedValueOnce(new Error('network down'))
       .mockResolvedValueOnce(receipt({ files_admitted: 1 }));
-    const result = await uploadJournalBatches(stream(parsedFile('a', 1)), submit, {
-      parserVersion: 'test',
-      ...fastTiming,
-    });
+    const result = await uploadJournalBatches(
+      stream(parsedFile('a', 1)),
+      submit,
+      {
+        parserVersion: 'test',
+        ...fastTiming,
+      },
+    );
     expect(submit).toHaveBeenCalledTimes(2);
     expect(result.failed).toEqual([]);
   });
@@ -184,8 +196,12 @@ describe('uploadJournalBatches', () => {
   it('does not retry a non-retryable 4xx and keeps uploading later batches', async () => {
     const submit = vi
       .fn<SubmitFn>()
-      .mockRejectedValueOnce(Object.assign(new Error('too big'), { status: 413 }))
-      .mockResolvedValueOnce(receipt({ files_admitted: 1, import_ids: ['imp-2'] }));
+      .mockRejectedValueOnce(
+        Object.assign(new Error('too big'), { status: 413 }),
+      )
+      .mockResolvedValueOnce(
+        receipt({ files_admitted: 1, import_ids: ['imp-2'] }),
+      );
     const result = await uploadJournalBatches(
       stream(parsedFile('a', 6), parsedFile('b', 6)),
       submit,
@@ -202,11 +218,15 @@ describe('uploadJournalBatches', () => {
     const submit = vi
       .fn<SubmitFn>()
       .mockRejectedValue(Object.assign(new Error('rate'), { status: 429 }));
-    const result = await uploadJournalBatches(stream(parsedFile('a', 1)), submit, {
-      parserVersion: 'test',
-      maxRetries: 2,
-      ...fastTiming,
-    });
+    const result = await uploadJournalBatches(
+      stream(parsedFile('a', 1)),
+      submit,
+      {
+        parserVersion: 'test',
+        maxRetries: 2,
+        ...fastTiming,
+      },
+    );
     expect(submit).toHaveBeenCalledTimes(3); // initial + 2 retries
     expect(result.failed).toHaveLength(1);
   });
@@ -220,7 +240,12 @@ describe('uploadJournalBatches', () => {
     const result = await uploadJournalBatches(
       stream(parsedFile('a', 6), parsedFile('b', 6), parsedFile('c', 6)),
       submit,
-      { parserVersion: 'test', maxEvents: 10, signal: controller.signal, ...fastTiming },
+      {
+        parserVersion: 'test',
+        maxEvents: 10,
+        signal: controller.signal,
+        ...fastTiming,
+      },
     );
     // 'a' committed before abort; 'c' never sent.
     expect(result.committedShas).toContain('sha-a');
@@ -252,7 +277,12 @@ describe('uploadJournalBatches', () => {
     await uploadJournalBatches(
       stream(parsedFile('a', 6), parsedFile('b', 6)),
       submit,
-      { parserVersion: 'test', maxEvents: 10, onProgress: progress, ...fastTiming },
+      {
+        parserVersion: 'test',
+        maxEvents: 10,
+        onProgress: progress,
+        ...fastTiming,
+      },
     );
     const last = progress.mock.calls.at(-1)?.[0];
     expect(last.filesCommitted).toBe(2);

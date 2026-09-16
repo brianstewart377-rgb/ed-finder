@@ -17,9 +17,12 @@ export function streamJournals(
 ): AsyncIterable<ParsedFile> {
   return {
     async *[Symbol.asyncIterator]() {
-      const worker = new Worker(new URL('./import-worker.ts', import.meta.url), {
-        type: 'module',
-      });
+      const worker = new Worker(
+        new URL('./import-worker.ts', import.meta.url),
+        {
+          type: 'module',
+        },
+      );
       let reject: ((error: unknown) => void) | null = null;
       const onAbort = () => {
         worker.terminate();
@@ -46,8 +49,7 @@ export function streamJournals(
         });
       try {
         for (;;) {
-          if (signal.aborted)
-            throw new DOMException('Cancelled', 'AbortError');
+          if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
           const reply = await pull();
           if (reply.type === 'done') return;
           if (reply.type === 'error') throw new Error(reply.message);

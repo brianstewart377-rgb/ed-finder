@@ -167,8 +167,7 @@ export async function uploadJournalBatches(
   ): Promise<V3VerifiedImportReceipt> => {
     let attempt = 0;
     for (;;) {
-      if (signal?.aborted)
-        throw new DOMException('Cancelled', 'AbortError');
+      if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       try {
         return await submit(body, signal);
       } catch (error) {
@@ -197,7 +196,8 @@ export async function uploadJournalBatches(
       if (signal?.aborted) throw error; // propagate abort to stop the run
       const reason = errorMessage(error);
       failed.push({ files: names, reason });
-      for (const name of names) held.push({ name, reason: `Upload failed: ${reason}` });
+      for (const name of names)
+        held.push({ name, reason: `Upload failed: ${reason}` });
       return;
     }
     batchesSent += 1;

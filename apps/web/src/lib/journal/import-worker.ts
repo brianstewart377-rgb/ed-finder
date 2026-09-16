@@ -12,8 +12,14 @@ const MAX_FILE_BYTES = 32 * 1024 * 1024;
 let files: File[] = [];
 let index = 0;
 
-function heldFile(name: string, reason: string): { type: 'file'; file: ParsedFile } {
-  return { type: 'file', file: { manifest: [], events: [], held: [{ name, reason }] } };
+function heldFile(
+  name: string,
+  reason: string,
+): { type: 'file'; file: ParsedFile } {
+  return {
+    type: 'file',
+    file: { manifest: [], events: [], held: [{ name, reason }] },
+  };
 }
 
 async function processNext(): Promise<
@@ -45,7 +51,8 @@ async function processNext(): Promise<
       );
     const events = parsed.observations
       .filter(
-        (row) => row.observed_at && Number.isFinite(Date.parse(row.observed_at)),
+        (row) =>
+          row.observed_at && Number.isFinite(Date.parse(row.observed_at)),
       )
       .map((row) => ({
         event_type: row.event_type,
@@ -73,9 +80,7 @@ async function processNext(): Promise<
 }
 
 self.onmessage = async (
-  message: MessageEvent<
-    { type: 'init'; files: File[] } | { type: 'pull' }
-  >,
+  message: MessageEvent<{ type: 'init'; files: File[] } | { type: 'pull' }>,
 ) => {
   const data = message.data;
   if (data.type === 'init') {
