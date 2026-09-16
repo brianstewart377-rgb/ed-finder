@@ -91,6 +91,51 @@ or override this set.
   because the canonical release manifest still derives its own set from the V2
   manifest.
 
+## Programme status — 2026-09-16
+
+Dated snapshot of in-flight work so a lot of recent progress does not confuse
+later sessions. This records the current position only; detailed records live in
+the linked designs/plans. Where this snapshot or a linked current authority
+differs from older prose elsewhere in this file, the newer dated source wins.
+
+- **Identity, journal, account (shipped + deployed).** Frontier OAuth now
+  requests `auth capi` and reads the real in-game commander name from CAPI
+  `/profile` (fail-open; token never persisted); the journal file-import flow
+  works and its imported visits feed the toggleable Commander-History travel
+  heatmap. Merged and **deployed to production 2026-09-16** via governed
+  application promotion. A separate accessible file-picker button and a firefox
+  Cypress-lane stabilisation are merged; the button awaits the next governed
+  deploy. Design:
+  [frontier CAPI identity + journal import](development/frontier-capi-identity-and-journal-import-design.md).
+- **Ratings V4 generation + Finder F1 (in progress).** The Ratings V4 production
+  generation `ratings_v4_prod_p4_opt1` (canonical sequence 4, 198,528,286
+  systems) completed its ratings pass. Finder F1 (PR #734) added body-type count
+  columns to `v3_derived.system_search`, so its `system_search` product is being
+  **rebuilt** (governed `v3-system-search-f1` op) to populate them; the
+  generation is `VALIDATING` until that rebuild reaches READY. Not yet published.
+- **Map — spatial density pyramid #2a (merged; prod build pending).** The
+  reconciled `v3_spatial.cell_summary` builder (generation-scoped, all four aux
+  counters, fail-closed Σ==canonical truth gate) and the `/api/map/heatmap`
+  repoint onto it are merged to `main`, with a manual-only governed build
+  workflow (`v3-spatial-pyramid.yml`). The production pyramid build is
+  **fail-closed-blocked until `ratings_v4_prod_p4_opt1` is READY** (it needs the
+  `system_search` rebuild above to finish first) and writes nothing until then.
+  Serving the pyramid additionally requires the generation-publish cutover and an
+  application deploy — a deliberate, deferred owner step; the map API falls back
+  to a labelled legacy lane meanwhile. Design:
+  [spatial density pyramid](development/v3-spatial-density-pyramid-design.md).
+- **Map — next.** #2b: wire the density contribution into Explore with a semantic
+  zoom cross-fade to real coloured stars and split the oversized Babylon
+  `adapter.ts`; buildable now on fixtures/Review Lab independent of the prod
+  build. A visual-quality pass follows.
+- **Production promotion (corrected).** The governed application promotion path is
+  `authorized` and has accepted promotions — the first `bootstrap` on 2026-09-10
+  and the identity release on 2026-09-16 — with exact CPython 3.14.7 installed on
+  the host. The current detailed boundary is
+  [v3-production-application-release](operations/v3-production-application-release.md);
+  it supersedes the older "still stopped / preconditions pending" phrasing in the
+  Current-V3-state and decision-gate sections below.
+
 ## Product journey and spatial north star
 
 The connected journey is **Explore/Finder → Inspect → Plan → Review/Export**.
@@ -160,8 +205,9 @@ publication evidence; the integration must produce those receipts.
 These remain part of the product direction, sequenced after the current browser
 and decision-gate work:
 
-- Commander History and its non-map Journal, spatial queries, expeditions, and
-  historical playback;
+- Commander History beyond what shipped 2026-09-16 (journal file-import and the
+  map travel heatmap are delivered — see the Programme status section): its
+  non-map Journal views, spatial queries, expeditions, and historical playback;
 - first-class System Map with `BodyRef` identity and honest schematic orbits;
 - Powerplay, Routes, and deeper Colonisation overlays;
 - planned CPE contributions and CRE Digital Twin contributions;
