@@ -297,7 +297,7 @@ git commit -m "feat(spatial): reconciliation gate + validation receipt"
 
 **Files:**
 - Modify: `apps/api/src/routers/map.py` (`map_heatmap` ~172)
-- Test: `tests/test_map_heatmap_pyramid.py`
+- Test: `tests/integration/test_map_heatmap_pyramid.py`
 
 **Interfaces:**
 - Consumes: `pyramid_for_current_generation` (async equivalent via asyncpg in the API — resolve the current published derived generation whose spatial-pyramid product is READY), `cell_summary`.
@@ -334,7 +334,7 @@ git commit -m "feat(spatial): reconciliation gate + validation receipt"
 
 ```bash
 make state-check
-cd apps/api && CORS_ORIGINS=http://testserver python -m uv run pytest ../../tests/test_v3_spatial_pyramid.py ../../tests/test_map_heatmap_pyramid.py -v
+cd apps/api && CORS_ORIGINS=http://testserver python -m uv run pytest ../../tests/test_v3_spatial_pyramid.py ../../tests/integration/test_map_heatmap_pyramid.py -v
 ```
 Expected: PASS.
 
