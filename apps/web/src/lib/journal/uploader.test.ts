@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { V3VerifiedImportReceipt } from '$lib/api/client';
 import {
   uploadJournalBatches,
+  splitFileForUpload,
   type ParsedFile,
   type SubmitFn,
 } from './uploader';
@@ -110,16 +111,63 @@ describe('uploadJournalBatches', () => {
       expect(body.files.length).toBeLessThanOrEqual(2);
   });
 
-  it('sends an oversized single file as its own batch', async () => {
+  it('splits an oversized single file across batches instead of dropping it', async () => {
     const submit = vi.fn<SubmitFn>().mockResolvedValue(receipt());
-    await uploadJournalBatches(
+    const result = await uploadJournalBatches(
       stream(parsedFile('huge', 50), parsedFile('small', 1)),
       submit,
       { parserVersion: 'test', maxEvents: 10, ...fastTiming },
     );
-    expect(submit).toHaveBeenCalledTimes(2);
-    expect(submit.mock.calls[0][0].files.map((f) => f.name)).toEqual(['huge']);
-    expect(submit.mock.calls[1][0].files.map((f) => f.name)).toEqual(['small']);
+    const hugeBatches = submit.mock.calls.filter(([body]) =>
+      body.files.some((f) => f.name === 'huge'),
+    );
+    // 50 events at a 10-event cap -> 5 slices, each carrying the manifest.
+    expect(hugeBatches.length).toBe(5);
+    for (const [body] of hugeBatches) {
+      expect(body.files.map((f) => f.name)).toEqual(['huge']);
+      expect(body.events?.length ?? 0).toBeLessThanOrEqual(10);
+    }
+    const hugeEvents = hugeBatches.reduce(
+      (n, [body]) => n + (body.events?.length ?? 0),
+      0,
+    );
+    expect(hugeEvents).toBe(50); // no event lost
+    // The file sha is committed once despite spanning multiple batches.
+    expect(result.committedShas.filter((s) => s === 'sha-huge')).toEqual([
+      'sha-huge',
+    ]);
+  });
+
+  it('splitFileForUpload keeps a fitting file whole', () => {
+    const parts = splitFileForUpload(parsedFile('a', 3), 1_000_000, 20_000);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].events).toHaveLength(3);
+  });
+
+  it('splitFileForUpload slices an oversized file by bytes, repeating the manifest and preserving every event', () => {
+    const file = parsedFile('big', 10, { blob: 'x'.repeat(200) });
+    const parts = splitFileForUpload(file, 800, 20_000);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) expect(part.manifest).toEqual(file.manifest);
+    expect(parts.flatMap((p) => p.events)).toEqual(file.events); // order + no loss/dup
+  });
+
+  it('splitFileForUpload also slices by event count', () => {
+    const parts = splitFileForUpload(parsedFile('m', 10), 10_000_000, 4);
+    expect(parts.map((p) => p.events.length)).toEqual([4, 4, 2]);
+  });
+
+  it('uses a sub-1MB default byte budget so batches clear the ~1MB edge limit', async () => {
+    const submit = vi.fn<SubmitFn>().mockResolvedValue(receipt());
+    // ~1.5 MB of events in one file, default options (no maxBytes override).
+    const heavy = parsedFile('heavy', 1500, { blob: 'z'.repeat(1000) });
+    await uploadJournalBatches(stream(heavy), submit, {
+      parserVersion: 'test',
+      ...fastTiming,
+    });
+    expect(submit.mock.calls.length).toBeGreaterThan(1);
+    for (const [body] of submit.mock.calls)
+      expect(JSON.stringify(body).length).toBeLessThan(1024 * 1024);
   });
 
   it('aggregates receipts across batches (import_id union + summed counts)', async () => {
