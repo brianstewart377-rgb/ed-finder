@@ -107,7 +107,8 @@ before the generation can publish.
 |---|---|---|
 | Paradise | Agriculture + Tourism | ELW / water worlds / terraformable |
 | Mining Hub | Extraction **+ Refinery (both required)** | reserves, rings, metal-rich bodies |
-| Megacomplex | Refinery + Industrial | reserves + build capacity |
+| Manufacturing Hub | Refinery + Industrial | reserves + build capacity |
+| Megacomplex | Extraction + Refinery + Industrial (**all three**) | full vertical chain: reserves + rings + build capacity |
 | Research Hub | High-Tech (+ Industrial) | High-Tech potential + capacity |
 | Stronghold | Military + Industrial | Military potential + capacity |
 | Flexible / Expansion | broad multi-economy | many economies viable at once |
@@ -193,11 +194,14 @@ F1 is planned and built first because F2's summary columns ride on the
 2. **Archetype coefficients / synergy rules** — concrete formulas and tier
    thresholds (config, benchmark-driven; not architecture).
 2a. **Archetype set validation** — confirm against real V4 output that each
-    archetype surfaces meaningfully distinct systems. In particular, "Mining Hub"
-    (Extraction+Refinery, both required — never a mining-only system) and
-    "Megacomplex" (Refinery+Industrial) are two points on the
-    Extraction→Refinery→Industrial chain; if they consistently rank the same
-    candidates, merge them into a single "Industrial Complex" archetype.
+    archetype surfaces meaningfully distinct systems. The industrial chain is
+    modelled as three rungs: "Mining Hub" (Extraction+Refinery, both required —
+    never a mining-only system), "Manufacturing Hub" (Refinery+Industrial), and
+    "Megacomplex" (Extraction+Refinery+Industrial, all three — the rare full
+    vertical chain). Confirm these three surface distinct candidate sets; a true
+    Megacomplex system is expected to also score well as Mining Hub and
+    Manufacturing Hub, with Best Colony Potential surfacing "Megacomplex" as the
+    headline for it.
 3. **V2 reference source** for the divergence report.
 4. **Search-projection hot-vs-joined boundary** — confirm which summary fields
    live in `system_search` vs `system_archetype` under measured workloads.
