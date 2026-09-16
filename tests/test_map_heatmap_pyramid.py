@@ -27,6 +27,17 @@ import pytest_asyncio
 # collection ("Plugin already registered under a different name"). A plain
 # import instead just binds the same fixture functions (autouse included)
 # into this module's namespace, which pytest picks up without any conflict.
+#
+# Ruff's pyflakes checks don't know about pytest's fixture-lookup-by-name
+# machinery, so it sees two problems that are both intentional here:
+#   * F401 on this import -- the names are never referenced directly in this
+#     module, only resolved by pytest via fixture name matching.
+#   * F811 wherever a test/fixture function below declares a parameter named
+#     `client`/`pool` (matching this import) -- pyflakes reads that as
+#     "redefining" the imported name, but it's actually pytest requesting the
+#     already-imported fixture by name, not a real shadowing bug. Each such
+#     def below carries its own noqa suppression for F811, for the same
+#     reason.
 from tests.integration.conftest import app, client, clean_db, pool  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
@@ -216,7 +227,7 @@ async def _teardown_pyramid_generation(conn, *, dgid, version, gid, run_id, sour
 
 
 @pytest_asyncio.fixture
-async def seeded_pyramid(pool):
+async def seeded_pyramid(pool):  # noqa: F811 -- `pool` fixture requested by name, not a redefinition
     async with pool.acquire() as conn:
         dgid, version, gid, run_id, source_id, prior = await _seed_pyramid_generation(conn)
     try:
@@ -244,7 +255,7 @@ WIDE_BOX = {
 }
 
 
-async def test_heatmap_serves_pyramid_when_published_and_ready(client, seeded_pyramid):
+async def test_heatmap_serves_pyramid_when_published_and_ready(client, seeded_pyramid):  # noqa: F811
     dgid, version = seeded_pyramid
     r = await client.get('/api/map/heatmap', params=IN_BOX)
     assert r.status_code == 200, r.text
@@ -275,7 +286,7 @@ async def test_heatmap_serves_pyramid_when_published_and_ready(client, seeded_py
     assert cell['terraformable_system_count'] == 0
 
 
-async def test_heatmap_truncates_honestly_within_bounds(client, seeded_pyramid):
+async def test_heatmap_truncates_honestly_within_bounds(client, seeded_pyramid):  # noqa: F811
     # 102 real occupied cells fall inside WIDE_BOX (1 primary + 1 "out-of-box"
     # + 100 fillers, all seeded by `seeded_pyramid`) -- comfortably more than
     # the endpoint's minimum allowed `max_cells` (100), so this exercises
@@ -298,7 +309,7 @@ async def test_heatmap_truncates_honestly_within_bounds(client, seeded_pyramid):
     assert body_full['count'] == 102
 
 
-async def test_heatmap_uses_legacy_fallback_when_no_published_pyramid(client):
+async def test_heatmap_uses_legacy_fallback_when_no_published_pyramid(client):  # noqa: F811
     r = await client.get('/api/map/heatmap')
     assert r.status_code == 200, r.text
     body = r.json()
