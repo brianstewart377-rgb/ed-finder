@@ -47,10 +47,14 @@ class FetchError(Exception):
 
 
 def _http_get(url: str, timeout: float) -> bytes:
+    # Only ever fetch over http(s); urllib would otherwise honour file:// etc.
+    if not url.startswith(("http://", "https://")):
+        raise FetchError(f"refusing non-http(s) URL: {url}")
     request = urllib.request.Request(
         url, headers={"User-Agent": "edfinder-drift-monitor/1"}
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- scheme guarded above; monitor targets a fixed public URL
         with urllib.request.urlopen(request, timeout=timeout) as response:
             if not 200 <= response.status < 300:
                 raise FetchError(f"{url} -> HTTP {response.status}")
