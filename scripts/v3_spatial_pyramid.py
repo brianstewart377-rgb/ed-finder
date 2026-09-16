@@ -118,3 +118,79 @@ def resolve_source(conn, derived_generation_id) -> Literal['system_search', 'can
     if int(search_count) == int(canonical_count):
         return 'system_search'
     return 'canonical'
+
+
+_CELL_SUMMARY_INSERT_FROM_SYSTEM_SEARCH = '''
+INSERT INTO v3_spatial.cell_summary
+  (derived_generation_id, spatial_pyramid_version, level, cell_key,
+   origin_x_ly, origin_y_ly, origin_z_ly, system_count,
+   centroid_x_ly, centroid_y_ly, centroid_z_ly,
+   landable_count, station_count, biological_system_count,
+   terraformable_system_count, representative_system_id64)
+SELECT %(gen)s, %(ver)s, %(lvl)s,
+       floor(x_ly/%(sz)s)::bigint || '.' || floor(y_ly/%(sz)s)::bigint
+           || '.' || floor(z_ly/%(sz)s)::bigint,
+       floor(x_ly/%(sz)s)*%(sz)s, floor(y_ly/%(sz)s)*%(sz)s, floor(z_ly/%(sz)s)*%(sz)s,
+       count(*), avg(x_ly), avg(y_ly), avg(z_ly),
+       coalesce(sum(landable_count),0), coalesce(sum(station_count),0),
+       count(*) FILTER (WHERE has_biologicals),
+       count(*) FILTER (WHERE has_terraformable),
+       min(system_id64)
+  FROM v3_derived.system_search
+ WHERE derived_generation_id = %(gen)s
+ GROUP BY 4,5,6,7
+'''
+
+
+def _build_level_canonical(conn, *, derived_generation_id, version, level, cell_size_ly) -> int:
+    '''Canonical-catalogue aggregation fallback, used when `resolve_source`
+    finds `v3_derived.system_search` incomplete for a generation.
+
+    Not implemented in this task: Task 3's reconciliation gate and the
+    `system_search` path above are what this effort exercises first. A real
+    implementation needs a `{schema}.systems` (+ bodies/stations) join
+    equivalent to `v3_system_search.py`'s `projection_query_sql`, scoped to
+    the pinned canonical schema for `derived_generation_id` -- not invented
+    here per the task brief.
+    '''
+    raise NotImplementedError('canonical-source cell aggregation is not implemented yet (TODO)')
+
+
+def build_level(conn, *, derived_generation_id, version, level, cell_size_ly, source) -> int:
+    '''Aggregate one pyramid level's occupied cells into `v3_spatial.cell_summary`
+    with a single set-based INSERT...SELECT...GROUP BY, scoped to
+    `derived_generation_id`. `cell_summary` is insert-only (immutable once
+    written by migration 004's triggers): this never updates existing rows.
+
+    Returns the number of cell rows inserted (one per occupied cell).
+    '''
+    if source == 'system_search':
+        cur = conn.execute(
+            _CELL_SUMMARY_INSERT_FROM_SYSTEM_SEARCH,
+            {
+                'gen': derived_generation_id,
+                'ver': version,
+                'lvl': level,
+                'sz': cell_size_ly,
+            },
+        )
+        return cur.rowcount
+    if source == 'canonical':
+        return _build_level_canonical(
+            conn, derived_generation_id=derived_generation_id, version=version,
+            level=level, cell_size_ly=cell_size_ly,
+        )
+    raise ValueError(f'unknown aggregation source {source!r}')
+
+
+def build_all_levels(conn, *, derived_generation_id, version: str = PYRAMID_VERSION, source) -> dict[int, int]:
+    '''Build every registered `CELL_LEVELS` level for `derived_generation_id`,
+    returning a `level -> occupied cell count` map.
+    '''
+    counts: dict[int, int] = {}
+    for lvl in CELL_LEVELS:
+        counts[lvl.level] = build_level(
+            conn, derived_generation_id=derived_generation_id, version=version,
+            level=lvl.level, cell_size_ly=lvl.cell_size_ly, source=source,
+        )
+    return counts
