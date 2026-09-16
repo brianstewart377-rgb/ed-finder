@@ -1,42 +1,64 @@
-import type { V3JournalImportRequest } from '$lib/api/client';
+import type { ParsedFile } from './uploader';
 
-export interface ParsedImport {
-  body: V3JournalImportRequest;
-  held: Array<{ name: string; reason: string }>;
-}
+type WorkerReply =
+  | { type: 'file'; file: ParsedFile }
+  | { type: 'done' }
+  | { type: 'error'; message: string };
 
-export function parseJournals(
+/**
+ * Expose the parse worker as a pull-driven `AsyncIterable<ParsedFile>`. Each
+ * `next()` asks the worker for exactly one more file, so a slow consumer (an
+ * in-flight batch upload) throttles parsing and memory stays flat regardless of
+ * how many files were selected.
+ */
+export function streamJournals(
   files: File[],
   signal: AbortSignal,
-  progress: (count: number) => void,
-): Promise<ParsedImport> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted)
-      return reject(new DOMException('Cancelled', 'AbortError'));
-    const worker = new Worker(new URL('./import-worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    const stop = () => {
-      worker.terminate();
-      signal.removeEventListener('abort', cancel);
-    };
-    const cancel = () => {
-      stop();
-      reject(new DOMException('Cancelled', 'AbortError'));
-    };
-    signal.addEventListener('abort', cancel, { once: true });
-    worker.onmessage = (event) => {
-      if (event.data.type === 'progress') return progress(event.data.count);
-      stop();
-      if (event.data.type === 'parsed') resolve(event.data);
-      else reject(new Error(event.data.message));
-    };
-    worker.onerror = (event) => {
-      stop();
-      const detail =
-        (event && (event as ErrorEvent).message) || 'Journal parsing failed';
-      reject(new Error(detail));
-    };
-    worker.postMessage({ files });
-  });
+): AsyncIterable<ParsedFile> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const worker = new Worker(
+        new URL('./import-worker.ts', import.meta.url),
+        {
+          type: 'module',
+        },
+      );
+      let reject: ((error: unknown) => void) | null = null;
+      const onAbort = () => {
+        worker.terminate();
+        reject?.(new DOMException('Cancelled', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      worker.postMessage({ type: 'init', files });
+      const pull = () =>
+        new Promise<WorkerReply>((resolve, rej) => {
+          reject = rej;
+          worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+            reject = null;
+            resolve(event.data);
+          };
+          worker.onerror = (event) => {
+            reject = null;
+            rej(
+              new Error(
+                (event as ErrorEvent).message || 'Journal parsing failed',
+              ),
+            );
+          };
+          worker.postMessage({ type: 'pull' });
+        });
+      try {
+        for (;;) {
+          if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+          const reply = await pull();
+          if (reply.type === 'done') return;
+          if (reply.type === 'error') throw new Error(reply.message);
+          yield reply.file;
+        }
+      } finally {
+        signal.removeEventListener('abort', onAbort);
+        worker.terminate();
+      }
+    },
+  };
 }

@@ -7,7 +7,12 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '$lib/api/client';
-import { parseJournals } from '$lib/journal/parse';
+import { streamJournals } from '$lib/journal/parse';
+import {
+  uploadJournalBatches,
+  type CommittedBatch,
+  type UploadResult,
+} from '$lib/journal/uploader';
 import JournalAccountPanel from './JournalAccountPanel.svelte';
 
 vi.mock('$lib/api/client', () => ({
@@ -17,7 +22,8 @@ vi.mock('$lib/api/client', () => ({
   getGalaxyContributions: vi.fn(),
   withdrawGalaxyContribution: vi.fn(),
 }));
-vi.mock('$lib/journal/parse', () => ({ parseJournals: vi.fn() }));
+vi.mock('$lib/journal/parse', () => ({ streamJournals: vi.fn() }));
+vi.mock('$lib/journal/uploader', () => ({ uploadJournalBatches: vi.fn() }));
 vi.mock('$lib/auth/auth', () => ({ auth: { signIn: vi.fn() } }));
 
 const hash = 'a'.repeat(64);
@@ -29,6 +35,26 @@ const saved: api.V3VerifiedImportReceipt = {
   duplicates_skipped: 0,
   held_files: [{ name: 'another.log', reason: 'commander_not_linked' }],
 };
+
+function result(over: Partial<UploadResult> = {}): UploadResult {
+  return {
+    receipt: saved,
+    held: [],
+    committedShas: [hash],
+    failed: [],
+    ...over,
+  };
+}
+
+/** Drive the panel's upload path: emit the given committed batches, then resolve. */
+function mockUpload(res: UploadResult, batches: CommittedBatch[] = []) {
+  vi.mocked(uploadJournalBatches).mockImplementation(
+    async (_source, _submit, options) => {
+      for (const batch of batches) options.onBatchCommitted?.(batch);
+      return res;
+    },
+  );
+}
 
 async function selectFile() {
   await screen.findByText(/F123/);
@@ -55,22 +81,10 @@ describe('private journal import and explicit sharing', () => {
       already_offered: 0,
       skipped: {},
     });
-    vi.mocked(parseJournals).mockResolvedValue({
-      body: {
-        parser_version: 'test',
-        files: [
-          {
-            name: 'mine.log',
-            content_sha256: hash,
-            size_bytes: 7,
-            line_count: 2,
-            event_count: 2,
-          },
-        ],
-        events: [],
-      },
-      held: [],
-    });
+    vi.mocked(streamJournals).mockReturnValue(
+      (async function* () {})() as unknown as AsyncIterable<never>,
+    );
+    mockUpload(result());
   });
   afterEach(cleanup);
 
@@ -88,7 +102,8 @@ describe('private journal import and explicit sharing', () => {
     expect(api.offerGalaxyFacts).not.toHaveBeenCalled();
   });
 
-  it('retries a failed explicit sharing request with only the selected file hashes', async () => {
+  it('offers only the committed batch hashes for the returned import ids', async () => {
+    mockUpload(result(), [{ shas: [hash], importIds: ['original-import'] }]);
     vi.mocked(api.offerGalaxyFacts).mockRejectedValueOnce(new Error('offline'));
     render(JournalAccountPanel);
     await selectFile();
@@ -106,7 +121,6 @@ describe('private journal import and explicit sharing', () => {
       [hash],
       expect.any(AbortSignal),
     );
-    expect(api.importVerifiedJournals).toHaveBeenCalledOnce();
   });
 
   it('bounds merged sharing retries and retains only unsuccessful hash chunks', async () => {
@@ -114,45 +128,29 @@ describe('private journal import and explicit sharing', () => {
       Array.from({ length: 200 }, (_, index) =>
         (start + index).toString(16).padStart(64, '0'),
       );
-    const selectBatch = async (values: string[]) => {
-      vi.mocked(parseJournals).mockResolvedValue({
-        body: {
-          parser_version: 'test',
-          files: values.map((content_sha256, index) => ({
-            name: `file-${index}.log`,
-            content_sha256,
-            size_bytes: 1,
-            line_count: 1,
-            event_count: 1,
-          })),
-          events: [],
-        },
-        held: [],
-      });
-      await fireEvent.change(screen.getByLabelText('Select journal logs'), {
-        target: {
-          files: values.map(
-            (_, index) => new File(['journal'], `file-${index}.log`),
-          ),
-        },
-      });
-    };
     vi.mocked(api.offerGalaxyFacts)
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce({ new_offers: 1, already_offered: 0, skipped: {} })
       .mockRejectedValueOnce(new Error('second chunk offline'));
     render(JournalAccountPanel);
     await screen.findByText(/F123/);
-    await selectBatch(hashes(1));
     await fireEvent.click(screen.getByRole('checkbox'));
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Import journals' }),
-    );
+
+    const importBatch = async (shas: string[]) => {
+      mockUpload(result({ committedShas: shas }), [
+        { shas, importIds: ['original-import'] },
+      ]);
+      await fireEvent.change(screen.getByLabelText('Select journal logs'), {
+        target: { files: [new File(['journal'], 'batch.log')] },
+      });
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Import journals' }),
+      );
+    };
+
+    await importBatch(hashes(1));
     await screen.findByText(/Your Journal is saved. Sharing needs a retry/);
-    await selectBatch(hashes(200));
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Import journals' }),
-    );
+    await importBatch(hashes(200));
     await screen.findByText(/second chunk offline/);
     expect(
       vi.mocked(api.offerGalaxyFacts).mock.calls.map((call) => call[1].length),
@@ -167,12 +165,15 @@ describe('private journal import and explicit sharing', () => {
   });
 
   it('aborts work on account-panel removal and ignores a late response', async () => {
-    let complete!: (value: api.V3VerifiedImportReceipt) => void;
-    vi.mocked(api.importVerifiedJournals).mockImplementation(
-      () =>
-        new Promise((resolve) => {
+    let complete!: (value: UploadResult) => void;
+    let seen!: AbortSignal;
+    vi.mocked(uploadJournalBatches).mockImplementation(
+      (_source, _submit, options) => {
+        seen = options.signal!;
+        return new Promise((resolve) => {
           complete = resolve;
-        }),
+        });
+      },
     );
     const panel = render(JournalAccountPanel);
     await selectFile();
@@ -180,13 +181,10 @@ describe('private journal import and explicit sharing', () => {
     await fireEvent.click(
       screen.getByRole('button', { name: 'Import journals' }),
     );
-    await waitFor(() =>
-      expect(api.importVerifiedJournals).toHaveBeenCalledOnce(),
-    );
-    const signal = vi.mocked(api.importVerifiedJournals).mock.calls[0][1]!;
+    await waitFor(() => expect(uploadJournalBatches).toHaveBeenCalledOnce());
     panel.unmount();
-    expect(signal.aborted).toBe(true);
-    complete(saved);
+    expect(seen.aborted).toBe(true);
+    complete(result());
     await Promise.resolve();
     expect(api.offerGalaxyFacts).not.toHaveBeenCalled();
   });
@@ -204,7 +202,7 @@ describe('private journal import and explicit sharing', () => {
   });
 
   it('surfaces the real worker error text', async () => {
-    vi.mocked(parseJournals).mockRejectedValue(
+    vi.mocked(uploadJournalBatches).mockRejectedValue(
       new Error('Worker failed to load: 415'),
     );
     render(JournalAccountPanel);
@@ -219,27 +217,52 @@ describe('private journal import and explicit sharing', () => {
     );
   });
 
+  it('reports a batch that needs a retry without losing saved work', async () => {
+    mockUpload(
+      result({
+        committedShas: [hash],
+        failed: [{ files: ['bad.log'], reason: 'API 413' }],
+        held: [{ name: 'bad.log', reason: 'Upload failed: API 413' }],
+      }),
+    );
+    render(JournalAccountPanel);
+    await selectFile();
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import journals' }),
+    );
+    await screen.findByText(/need a retry/i);
+    expect(screen.getByText(/bad.log: Upload failed/)).toBeInTheDocument();
+  });
+
   it('explains why nothing was imported when every file is held', async () => {
-    vi.mocked(parseJournals).mockResolvedValue({
-      body: { parser_version: 'test', files: [], events: [] },
-      held: [
-        {
-          name: 'huge.log',
-          reason:
-            'Selection exceeds 50,000 events; import this file separately',
+    mockUpload(
+      result({
+        receipt: {
+          import_ids: [],
+          files_admitted: 0,
+          files_skipped: 0,
+          events_inserted: 0,
+          duplicates_skipped: 0,
+          held_files: [],
         },
-        {
-          name: 'huge2.log',
-          reason:
-            'Selection exceeds 50,000 events; import this file separately',
-        },
-        {
-          name: 'nocmdr.log',
-          reason:
-            'Commander identity record has an invalid timestamp; file held for review',
-        },
-      ],
-    });
+        committedShas: [],
+        held: [
+          {
+            name: 'huge.log',
+            reason: 'File exceeds this importer’s per-file size limit',
+          },
+          {
+            name: 'nocmdr.log',
+            reason:
+              'Commander identity record has an invalid timestamp; file held for review',
+          },
+          {
+            name: 'empty.log',
+            reason: 'No supported events with valid timestamps',
+          },
+        ],
+      }),
+    );
     render(JournalAccountPanel);
     await selectFile();
     await fireEvent.click(
@@ -248,11 +271,8 @@ describe('private journal import and explicit sharing', () => {
     await waitFor(() => {
       const alert = screen.getByRole('alert');
       expect(alert).toHaveTextContent('3');
-      expect(alert).toHaveTextContent(/50,000 events/);
+      expect(alert).toHaveTextContent(/per-file size limit/);
       expect(alert).toHaveTextContent(/Commander/i);
     });
-    expect(
-      screen.queryByText('No files ready to import'),
-    ).not.toBeInTheDocument();
   });
 });
