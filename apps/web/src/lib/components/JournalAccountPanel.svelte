@@ -246,15 +246,25 @@
     Files from unlinked commanders are held for review while your valid files
     continue. Files with multiple commanders are held intact.
   </p>
-  <label for="journal-files">Select journal logs</label>
-  <input
-    id="journal-files"
-    type="file"
-    multiple
-    accept=".log,.jsonl"
-    bind:files={selected}
-    disabled={busy}
-  />
+  <div class="journal-file-select">
+    <input
+      id="journal-files"
+      class="journal-file-input"
+      type="file"
+      multiple
+      accept=".log,.jsonl"
+      bind:files={selected}
+      disabled={busy}
+    />
+    <label for="journal-files" class="secondary-button" class:is-disabled={busy}
+      >Select journal logs</label
+    >
+    <span class="state-copy journal-file-status" aria-live="polite">
+      {selected?.length
+        ? `${selected.length} file${selected.length === 1 ? '' : 's'} selected`
+        : 'No files selected'}
+    </span>
+  </div>
   <p class="state-copy">
     Up to 200 files, 16 MiB per file, 64 MiB total and 50,000 events per import.
     Larger files remain available for a later import.
@@ -355,3 +365,42 @@
     onclick={() => void changePage(1)}>Next</button
   >
 </section>
+
+<style>
+  .journal-file-select {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0.25rem 0 0.5rem;
+  }
+  /* Keep the native file input accessible (focusable + screen-reader labelled)
+     while the styled <label> is the visible button. Not display:none, so
+     keyboard users can Tab to it and press Enter/Space to open the dialog. */
+  .journal-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  label.secondary-button {
+    cursor: pointer;
+  }
+  label.secondary-button.is-disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .journal-file-input:focus-visible + label.secondary-button {
+    outline: 2px solid var(--color-cyan, #4dd0e1);
+    outline-offset: 2px;
+  }
+  .journal-file-status {
+    margin: 0;
+  }
+</style>
