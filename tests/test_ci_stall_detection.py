@@ -47,6 +47,7 @@ CHECKED_WORKFLOWS = (
     'container-image-parity.yml',
     'coverage.yml',
     'cypress-parity.yml',
+    'prod-version-drift.yml',
     'ratings-v4-freeze.yml',
     'ratings-v4-production-accelerate.yml',
     'ratings-v4-production-optimize.yml',
