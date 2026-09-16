@@ -521,3 +521,170 @@ def test_resolve_source_returns_canonical_when_counts_differ(db_conn):
     from scripts.v3_spatial_pyramid import resolve_source
     dgid = _seed_generation_with_canonical(db_conn, canonical_count=3, search_count=2)
     assert resolve_source(db_conn, dgid) == 'canonical'
+
+
+# --- Task 4: register the pyramid derived-product + mark READY; resolve via
+# the current published generation. Architecture (verified against
+# sql/v3/migrations/006_v3_derived_product_lifecycle.sql and
+# scripts/v3_system_search.py): `v3_meta.derived_product.lifecycle_state` is
+# only BUILDING/READY/FAILED and never self-publishes. PUBLISHED + the atomic
+# active pointer are generation-level (`v3_meta.current_derived_generation`,
+# swapped by `v3_meta.publish_derived_generation`), gated on all products
+# being READY. There is no per-pyramid PUBLISHED state or pointer here. -------
+
+
+def _build_reconciled_receipt(conn, derived_generation_id, version=None):
+    """Build every registered level + assemble a real, reconciled `build_receipt`
+    for `derived_generation_id`, the exact input `mark_pyramid_ready` expects.
+    """
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_all_levels, build_receipt
+
+    version = version or PYRAMID_VERSION
+    per_level = build_all_levels(conn, derived_generation_id=derived_generation_id, version=version, source='system_search')
+    return build_receipt(
+        conn, derived_generation_id=derived_generation_id, version=version,
+        source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level,
+    )
+
+
+def _publish_generation_directly(conn, derived_generation_id) -> None:
+    """Walk a fixture `v3_meta.derived_generation` row through the exact
+    BUILDING -> VALIDATING -> READY -> PUBLISHED transition chain enforced by
+    migration 003's `guard_derived_manifest` trigger, then point
+    `v3_meta.current_derived_generation` at it -- the same generation-level
+    mechanism `apps/api/src/routers/ratings_v4.py:_current` and
+    `v3_meta.publish_derived_generation` read/write.
+
+    This bypasses the heavy production `scripts/ratings_v4/production_generation.py`
+    pipeline (chunk replay, content sealing) and `publish_derived_generation`'s
+    canonical-generation compare-and-swap preconditions, since this task only
+    needs a real PUBLISHED generation + current-generation pointer to exercise
+    `pyramid_for_current_generation`'s read path, not a faithful Ratings V4
+    build or a governed publish. `guard_derived_manifest` only guards UPDATE/
+    DELETE (not INSERT), so the earlier direct INSERT in `_seed_generation`
+    (already BUILDING) is unaffected; each UPDATE below is one legal step in
+    its documented transition list.
+    """
+    # content_sha256/source_receipt may only change while OLD.lifecycle_state
+    # is still 'BUILDING' (guard_derived_manifest's source/content seal rule),
+    # so they are set on this first BUILDING->VALIDATING step, not the next one.
+    conn.execute(
+        """UPDATE v3_meta.derived_generation
+              SET lifecycle_state='VALIDATING',
+                  content_sha256=%s, source_receipt='{}'::jsonb
+            WHERE derived_generation_id=%s""",
+        (b'x' * 32, derived_generation_id),
+    )
+    conn.execute(
+        """UPDATE v3_meta.derived_generation
+              SET lifecycle_state='READY', validated_at=now(),
+                  validation_receipt='{"status":"VERIFIED"}'::jsonb
+            WHERE derived_generation_id=%s""",
+        (derived_generation_id,),
+    )
+    conn.execute(
+        "UPDATE v3_meta.derived_generation SET lifecycle_state='PUBLISHED', published_at=now() "
+        "WHERE derived_generation_id=%s",
+        (derived_generation_id,),
+    )
+    conn.execute(
+        """INSERT INTO v3_meta.current_derived_generation(singleton, derived_generation_id, publication_sequence)
+           VALUES(true, %s, 1)
+           ON CONFLICT(singleton) DO UPDATE
+               SET derived_generation_id=EXCLUDED.derived_generation_id,
+                   publication_sequence=EXCLUDED.publication_sequence,
+                   published_at=now()""",
+        (derived_generation_id,),
+    )
+
+
+def test_mark_pyramid_ready_transitions_building_to_ready_with_receipt(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, PRODUCT_CODE, register_cell_levels, mark_pyramid_ready
+
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
+
+    mark_pyramid_ready(
+        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt,
+    )
+
+    row = db_conn.execute(
+        """SELECT lifecycle_state, product_version, validation_receipt, validation_sha256, validated_at
+             FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code=%s""",
+        (seeded_generation, PRODUCT_CODE),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 'READY'
+    assert row[1] == PYRAMID_VERSION
+    assert row[2]['status'] == 'VERIFIED'
+    assert row[2]['reconciliation'] == 'passed'
+    assert row[3] is not None
+    assert row[4] is not None
+
+
+def test_mark_pyramid_ready_is_idempotent(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, PRODUCT_CODE, register_cell_levels, mark_pyramid_ready
+
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
+
+    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
+    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
+
+    rows = db_conn.execute(
+        "SELECT lifecycle_state FROM v3_meta.derived_product WHERE derived_generation_id=%s AND product_code=%s",
+        (seeded_generation, PRODUCT_CODE),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == 'READY'
+
+
+def test_mark_pyramid_ready_rejects_unreconciled_receipt(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready
+
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    with pytest.raises(ValueError):
+        mark_pyramid_ready(
+            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
+            receipt={'reconciliation': 'failed', 'canonical_count': SEEDED_SYSTEM_COUNT},
+        )
+
+
+def test_pyramid_for_current_generation_returns_gen_and_version_when_ready_and_current(db_conn, seeded_generation):
+    import uuid
+    from scripts.v3_spatial_pyramid import (
+        PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready, pyramid_for_current_generation,
+    )
+
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
+    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
+
+    _publish_generation_directly(db_conn, seeded_generation)
+
+    result = pyramid_for_current_generation(db_conn)
+    assert result == (uuid.UUID(seeded_generation), PYRAMID_VERSION)
+
+
+def test_pyramid_for_current_generation_returns_none_when_no_current_generation(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import (
+        PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready, pyramid_for_current_generation,
+    )
+
+    # Product is READY, but nothing has published this generation as current.
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
+    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
+
+    assert pyramid_for_current_generation(db_conn) is None
+
+
+def test_pyramid_for_current_generation_returns_none_when_product_not_ready(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import pyramid_for_current_generation
+
+    # Generation is current/PUBLISHED, but the spatial-pyramid product was
+    # never registered/readied for it.
+    _publish_generation_directly(db_conn, seeded_generation)
+
+    assert pyramid_for_current_generation(db_conn) is None

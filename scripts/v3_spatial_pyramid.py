@@ -20,12 +20,20 @@ tasks in this same effort, not implemented here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
 import re
 from typing import Literal
 
 SCHEMA_NAME = re.compile(r'v3_gen_[a-z][a-z0-9_]{0,30}\Z')
 
 PYRAMID_VERSION = 'pyramid_v1'
+
+# Mirrors scripts/v3_system_search.py's PRODUCT_CODE naming convention
+# (lower_snake_case product name, matching v3_meta.derived_product's
+# `product_code ~ '^[a-z][a-z0-9_]{0,62}$'` CHECK).
+PRODUCT_CODE = 'spatial_pyramid'
 
 
 @dataclass(frozen=True)
@@ -330,3 +338,154 @@ def build_receipt(conn, *, derived_generation_id, version: str, source: str,
         'reconciliation': 'passed',
         'coverage_at': coverage_at,
     }
+
+
+def _json(value) -> str:
+    '''Deterministic JSON, mirroring `scripts/v3_system_search.py`'s `_json`:
+    bytes-like values become hex, datetimes become UTC ISO-8601, and anything
+    else not natively JSON-serializable (e.g. a `uuid.UUID`) falls back to
+    `str()`. Keys are sorted and separators are compact so the same logical
+    value always produces the same digest.
+    '''
+    def convert(item):
+        if isinstance(item, (bytes, bytearray, memoryview)):
+            return bytes(item).hex()
+        if isinstance(item, datetime):
+            return item.astimezone(timezone.utc).isoformat()
+        return str(item)
+
+    return json.dumps(
+        value, default=convert, sort_keys=True, separators=(',', ':'),
+        ensure_ascii=True, allow_nan=False,
+    )
+
+
+def _digest(value) -> bytes:
+    return hashlib.sha256(_json(value).encode()).digest()
+
+
+def _pyramid_product(conn, derived_generation_id):
+    return conn.execute(
+        '''SELECT product_version,lifecycle_state,manifest,manifest_sha256,
+                  expected_rows,validation_receipt,validation_sha256
+             FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code=%s''',
+        (derived_generation_id, PRODUCT_CODE),
+    ).fetchone()
+
+
+def _pyramid_manifest(derived_generation_id, version: str) -> dict:
+    return {
+        'product_code': PRODUCT_CODE,
+        'product_version': version,
+        'derived_generation_id': str(derived_generation_id),
+    }
+
+
+def mark_pyramid_ready(conn, *, derived_generation_id, version: str, receipt: dict) -> None:
+    '''Ensure the spatial-pyramid `v3_meta.derived_product` row exists for
+    `derived_generation_id` and transition it `BUILDING -> READY`, storing the
+    validation `receipt`.
+
+    Mirrors exactly how `scripts/v3_system_search.py` registers its product
+    (`register_product`) and transitions it to READY (`validate_product`):
+    same `v3_meta.derived_product` columns, same idempotent
+    insert-if-absent/verify-if-present manifest check, same
+    `UPDATE ... WHERE lifecycle_state='BUILDING'` compare-and-swap into READY.
+    There is no PUBLISHED state and no per-pyramid pointer here -- publication
+    is generation-level (`v3_meta.current_derived_generation`, swapped by
+    `v3_meta.publish_derived_generation`), out of scope for this function.
+
+    `receipt` must be an already-reconciled `build_receipt` result (i.e.
+    `receipt['reconciliation'] == 'passed'`) with a positive `canonical_count`
+    -- this function stores a receipt, it does not re-run `reconcile` itself,
+    but it refuses to mark a product READY from a receipt that never passed
+    the truth gate.
+
+    Idempotent: calling this again with an identical `(version, receipt)`
+    once the product is already READY is a no-op. Parameterized SQL only.
+    '''
+    if not isinstance(receipt, dict) or receipt.get('reconciliation') != 'passed':
+        raise ValueError('mark_pyramid_ready requires a reconciled build_receipt (reconciliation == "passed")')
+    canonical_count = receipt.get('canonical_count')
+    if not isinstance(canonical_count, int) or isinstance(canonical_count, bool) or canonical_count <= 0:
+        raise ValueError('receipt canonical_count must be a positive integer')
+
+    manifest = _pyramid_manifest(derived_generation_id, version)
+    manifest_sha = _digest(manifest)
+
+    existing = _pyramid_product(conn, derived_generation_id)
+    if existing is None:
+        with conn.transaction():
+            conn.execute(
+                '''INSERT INTO v3_meta.derived_product(
+                       derived_generation_id,product_code,product_version,
+                       manifest,manifest_sha256,expected_rows)
+                   VALUES (%s,%s,%s,%s::jsonb,%s,%s)''',
+                (
+                    derived_generation_id, PRODUCT_CODE, version,
+                    _json(manifest), manifest_sha, canonical_count,
+                ),
+            )
+        existing = _pyramid_product(conn, derived_generation_id)
+
+    if existing is None:
+        raise ValueError('spatial pyramid product registration failed')
+    if (
+        existing[0] != version
+        or existing[2] != manifest
+        or bytes(existing[3]) != manifest_sha
+    ):
+        raise ValueError('existing spatial pyramid product manifest differs from current version/input')
+
+    if existing[1] == 'READY':
+        return  # idempotent no-op: already registered and READY
+
+    if existing[1] != 'BUILDING':
+        raise ValueError(f'spatial pyramid product cannot become READY from state {existing[1]!r}')
+
+    validation_receipt = {**receipt, 'status': 'VERIFIED'}
+    validation_sha = _digest(validation_receipt)
+
+    with conn.transaction():
+        updated = conn.execute(
+            '''UPDATE v3_meta.derived_product
+                  SET lifecycle_state='READY',validation_receipt=%s::jsonb,
+                      validation_sha256=%s,validated_at=now()
+                WHERE derived_generation_id=%s AND product_code=%s
+                  AND lifecycle_state='BUILDING' ''',
+            (_json(validation_receipt), validation_sha, derived_generation_id, PRODUCT_CODE),
+        ).rowcount
+        if updated != 1:
+            raise ValueError('spatial pyramid product READY transition failed')
+
+
+def pyramid_for_current_generation(conn) -> tuple | None:
+    '''Return `(derived_generation_id, spatial_pyramid_version)` for the
+    spatial pyramid belonging to the current *published* derived generation,
+    or `None` if there is no current generation or its spatial-pyramid
+    product is not READY.
+
+    Resolves "current published derived generation" the exact way
+    `apps/api/src/routers/ratings_v4.py:_current` does: join
+    `v3_meta.current_derived_generation` to `v3_meta.derived_generation` and
+    require `lifecycle_state='PUBLISHED'` (the atomic active pointer plus its
+    generation-level PUBLISHED state -- there is no separate per-pyramid
+    pointer or PUBLISHED state to check). That is additionally joined here to
+    this generation's `v3_meta.derived_product` row for `PRODUCT_CODE`,
+    requiring `lifecycle_state='READY'`.
+    '''
+    row = conn.execute(
+        '''SELECT c.derived_generation_id, p.product_version
+             FROM v3_meta.current_derived_generation c
+             JOIN v3_meta.derived_generation d USING (derived_generation_id)
+             JOIN v3_meta.derived_product p
+               ON p.derived_generation_id = c.derived_generation_id
+              AND p.product_code = %s
+            WHERE d.lifecycle_state = 'PUBLISHED'
+              AND p.lifecycle_state = 'READY' ''',
+        (PRODUCT_CODE,),
+    ).fetchone()
+    if row is None:
+        return None
+    return (row[0], row[1])
