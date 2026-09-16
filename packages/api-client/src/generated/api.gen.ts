@@ -1472,13 +1472,20 @@ export interface paths {
         };
         /**
          * Map Heatmap
-         * @description Voxel-aggregated mean score for heatmap rendering.
+         * @description Density-pyramid-aggregated heatmap for map rendering.
          *
-         *     Bins systems into `voxel_size` LY cubes, returns cells containing at
-         *     least `min_systems` rated systems with their (x, y, z) centre and
-         *     mean score. Keeps payload small enough for a full galaxy pull at
-         *     200 LY voxels (≈ a few MB) while giving the frontend a spatial signal
-         *     density map would never provide.
+         *     Reads `v3_spatial.cell_summary` for the reconciled, generation-pinned
+         *     density pyramid of the current *published* derived generation (bounded
+         *     by the optional viewport box, at a level chosen to match `voxel_size`,
+         *     capped at `max_cells` with an honest `truncated` flag) whenever one is
+         *     published and READY, tagged `"source": "pyramid"`.
+         *
+         *     Ratings are excluded from that pyramid's truth gate (it is a physical
+         *     density product, not a rated one), so an `economy`-scored request cannot
+         *     be served from it; that request -- and any request made before a pyramid
+         *     has ever been published -- instead uses the legacy rated-MV/live-
+         *     aggregate lane this endpoint has always served, tagged explicitly
+         *     `"source": "legacy-fallback"` so callers can tell them apart.
          */
         get: operations["map_heatmap_api_map_heatmap_get"];
         put?: never;
@@ -10236,6 +10243,18 @@ export interface operations {
                 max_cells?: number;
                 /** @description Filter to a specific economy score */
                 economy?: string | null;
+                /** @description Bounds min X (LY); omitted = whole galaxy */
+                min_x?: number | null;
+                /** @description Bounds max X (LY); omitted = whole galaxy */
+                max_x?: number | null;
+                /** @description Bounds min Y (LY); omitted = whole galaxy */
+                min_y?: number | null;
+                /** @description Bounds max Y (LY); omitted = whole galaxy */
+                max_y?: number | null;
+                /** @description Bounds min Z (LY); omitted = whole galaxy */
+                min_z?: number | null;
+                /** @description Bounds max Z (LY); omitted = whole galaxy */
+                max_z?: number | null;
             };
             header?: never;
             path?: never;
