@@ -1,0 +1,124 @@
+name: V3 spatial pyramid build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_confirmation:
+        description: Type ed-finder-prod/nb79a3d.mevnode.com
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ed-new-ops
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the reconciled spatial density pyramid to READY
+    if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact dispatched main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require literal target confirmation and exact current main
+        env:
+          TARGET_CONFIRMATION: ${{ inputs.target_confirmation }}
+        run: |
+          set -euo pipefail
+          [ "$TARGET_CONFIRMATION" = "ed-finder-prod/nb79a3d.mevnode.com" ] || exit 64
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 64
+          git fetch --no-tags origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" ] || {
+            echo "Canonical main moved while this dispatch was pending" >&2
+            exit 64
+          }
+
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare offline dependency wheelhouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          printf '%s\n' "$source_sha" > trusted-main/.v3-spatial-pyramid-source-sha
+          rm -rf trusted-main/.v3-spatial-pyramid-wheelhouse
+          mkdir -p trusted-main/.v3-spatial-pyramid-wheelhouse
+          python -m pip download --disable-pip-version-check --only-binary=:all: \
+            --dest trusted-main/.v3-spatial-pyramid-wheelhouse 'psycopg[binary]==3.3.4'
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Stage trusted main and build the pyramid to READY
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-spatial-pyramid-build.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-spatial-pyramid-${source_sha}"
+          tar -C trusted-main --exclude=.git -cf - . | \
+            ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              "bash -s -- build '$stage' '$source_sha'" \
+              < trusted-main/scripts/operator/actions/v3-spatial-pyramid.sh | tee "$RECEIPT"
+
+      - name: Upload build receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-spatial-pyramid-build
+          path: ${{ runner.temp }}/v3-spatial-pyramid-build.txt
+          if-no-files-found: warn
+          retention-days: 30

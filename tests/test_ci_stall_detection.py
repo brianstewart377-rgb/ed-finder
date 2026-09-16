@@ -62,6 +62,7 @@ CHECKED_WORKFLOWS = (
     'v3-production-application-deploy.yml',
     'v3-production-schema-migration.yml',
     'v3-production-schema-contract-diagnostic.yml',
+    'v3-spatial-pyramid.yml',
     'v3-system-search-analyze-stats.yml',
     'v3-system-search-profile.yml',
     'v3-system-search-tune-systemid-stats.yml',

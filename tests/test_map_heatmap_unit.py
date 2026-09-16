@@ -29,6 +29,15 @@ class _FakeConn:
         self.arguments.append(args)
         return self.rows
 
+    async def fetchrow(self, query: str, *args, **kwargs):
+        # No published spatial pyramid in this no-DB fixture: the new
+        # pyramid-resolution check (`_current_spatial_pyramid`) always finds
+        # nothing, so these focused economy/legacy-lane tests keep exercising
+        # exactly the legacy MV/live-aggregate path they were written for.
+        # Deliberately untracked in self.queries/arguments -- those lists are
+        # asserted against as "the" aggregate `.fetch()` call by index.
+        return None
+
 
 class _AcquireContext:
     def __init__(self, conn: _FakeConn) -> None:
@@ -55,6 +64,14 @@ def _map_heatmap_handler():
     return map_heatmap.__wrapped__
 
 
+# Calling `.__wrapped__` directly bypasses FastAPI's dependency injection, so
+# unset `Query(...)` parameters keep their literal default expression (a
+# `Query` sentinel object, not the value it would normally resolve to). Every
+# call below must therefore pass every parameter explicitly; these are the
+# "no bounds requested" values for the six added viewport-bounds parameters.
+NO_BOUNDS = dict(min_x=None, max_x=None, min_y=None, max_y=None, min_z=None, max_z=None)
+
+
 @pytest.mark.parametrize(
     ('economy', 'expected_column'),
     [
@@ -72,6 +89,7 @@ async def test_map_heatmap_uses_canonical_economy_mv_column(economy, expected_co
         min_systems=1,
         max_cells=50_000,
         economy=economy,
+        **NO_BOUNDS,
         pool=pool,
         redis=None,
     )
@@ -96,6 +114,7 @@ async def test_map_heatmap_rejects_invalid_economy():
             min_systems=1,
             max_cells=50_000,
             economy='NotAnEconomy',
+            **NO_BOUNDS,
             pool=pool,
             redis=None,
         )
@@ -117,6 +136,7 @@ async def test_map_heatmap_caps_deterministically_and_reports_truncation():
         min_systems=1,
         max_cells=100,
         economy=None,
+        **NO_BOUNDS,
         pool=pool,
         redis=None,
     )
@@ -148,6 +168,7 @@ async def test_map_heatmap_maximum_compact_json_stays_within_raw_response_budget
         min_systems=1,
         max_cells=50_000,
         economy=None,
+        **NO_BOUNDS,
         pool=_FakePool(rows),
         redis=None,
     )

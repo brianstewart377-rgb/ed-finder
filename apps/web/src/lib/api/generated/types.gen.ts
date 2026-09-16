@@ -10830,6 +10830,42 @@ export type MapHeatmapApiMapHeatmapGetData = {
          * Filter to a specific economy score
          */
         economy?: string | null;
+        /**
+         * Min X
+         *
+         * Bounds min X (LY); omitted = whole galaxy
+         */
+        min_x?: number | null;
+        /**
+         * Max X
+         *
+         * Bounds max X (LY); omitted = whole galaxy
+         */
+        max_x?: number | null;
+        /**
+         * Min Y
+         *
+         * Bounds min Y (LY); omitted = whole galaxy
+         */
+        min_y?: number | null;
+        /**
+         * Max Y
+         *
+         * Bounds max Y (LY); omitted = whole galaxy
+         */
+        max_y?: number | null;
+        /**
+         * Min Z
+         *
+         * Bounds min Z (LY); omitted = whole galaxy
+         */
+        min_z?: number | null;
+        /**
+         * Max Z
+         *
+         * Bounds max Z (LY); omitted = whole galaxy
+         */
+        max_z?: number | null;
     };
     url: '/api/map/heatmap';
 };
