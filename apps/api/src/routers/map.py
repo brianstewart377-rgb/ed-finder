@@ -17,6 +17,13 @@ router = APIRouter(tags=['map'])
 
 MAX_MAP_HEATMAP_CELLS = 50_000
 
+# The reconciled v3 spatial density pyramid's derived-product code
+# (scripts/v3_spatial_pyramid.py:PRODUCT_CODE). Kept as a literal here rather
+# than imported: apps/api ships independently of the repo-tooling `scripts/`
+# package (its own uv env/pyproject), so the two must stay in sync by
+# convention, same as other product codes referenced across that boundary.
+SPATIAL_PYRAMID_PRODUCT_CODE = 'spatial_pyramid'
+
 # Real-star viewport lane (the zoom-in detail lane; heatmap is the aggregate lane).
 MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
 MAX_MAP_VIEWPORT_LY = 15_000        # per-axis box guard; wider -> stay on the heatmap
@@ -169,6 +176,55 @@ async def map_cluster_hulls(
     return result
 
 
+async def _current_spatial_pyramid(conn: asyncpg.Connection) -> Optional[asyncpg.Record]:
+    """Resolve the active reconciled spatial density pyramid: the
+    `spatial_pyramid` `v3_meta.derived_product` (lifecycle_state='READY')
+    belonging to the current *published* `v3_meta.derived_generation`.
+
+    Mirrors `apps/api/src/routers/ratings_v4.py:_current`'s join (current
+    pointer + PUBLISHED generation), additionally joined to the pyramid
+    product exactly as
+    `scripts/v3_spatial_pyramid.py:pyramid_for_current_generation` does.
+    Returns `None` -- meaning "serve the legacy fallback" -- both when the
+    v3_meta/v3_spatial schema is entirely absent (pre-migration DB) and when
+    nothing currently qualifies.
+    """
+    try:
+        return await conn.fetchrow(
+            '''SELECT c.derived_generation_id,
+                      p.product_version AS spatial_pyramid_version,
+                      p.expected_rows AS source_system_count,
+                      p.validated_at AS coverage_at
+                 FROM v3_meta.current_derived_generation c
+                 JOIN v3_meta.derived_generation d USING (derived_generation_id)
+                 JOIN v3_meta.derived_product p
+                   ON p.derived_generation_id = c.derived_generation_id
+                  AND p.product_code = $1
+                WHERE d.lifecycle_state = 'PUBLISHED'
+                  AND p.lifecycle_state = 'READY' ''',
+            SPATIAL_PYRAMID_PRODUCT_CODE,
+        )
+    except (asyncpg.exceptions.UndefinedTableError, asyncpg.exceptions.InvalidSchemaNameError):
+        return None
+
+
+async def _pyramid_level(conn: asyncpg.Connection, version: str, voxel_size: int) -> Optional[asyncpg.Record]:
+    """Pick the registered `v3_spatial.cell_level` row whose `cell_size_ly`
+    best matches the request's `voxel_size`, for the pyramid's own version --
+    the query-time level choice the design doc calls for (semantic scale +
+    budget; the level ladder itself is Task 7's benchmarking concern, not
+    this read path's).
+    """
+    return await conn.fetchrow(
+        '''SELECT level, cell_size_ly
+             FROM v3_spatial.cell_level
+            WHERE spatial_pyramid_version = $1
+            ORDER BY abs(cell_size_ly - $2)
+            LIMIT 1''',
+        version, float(voxel_size),
+    )
+
+
 @router.get('/api/map/heatmap')
 @limiter.limit('30/minute')
 async def map_heatmap(
@@ -182,16 +238,29 @@ async def map_heatmap(
         description='Maximum heatmap cells returned',
     ),
     economy:     Optional[str] = Query(None, description='Filter to a specific economy score'),
+    min_x: Optional[float] = Query(None, description='Bounds min X (LY); omitted = whole galaxy'),
+    max_x: Optional[float] = Query(None, description='Bounds max X (LY); omitted = whole galaxy'),
+    min_y: Optional[float] = Query(None, description='Bounds min Y (LY); omitted = whole galaxy'),
+    max_y: Optional[float] = Query(None, description='Bounds max Y (LY); omitted = whole galaxy'),
+    min_z: Optional[float] = Query(None, description='Bounds min Z (LY); omitted = whole galaxy'),
+    max_z: Optional[float] = Query(None, description='Bounds max Z (LY); omitted = whole galaxy'),
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
-    """Voxel-aggregated mean score for heatmap rendering.
+    """Density-pyramid-aggregated heatmap for map rendering.
 
-    Bins systems into `voxel_size` LY cubes, returns cells containing at
-    least `min_systems` rated systems with their (x, y, z) centre and
-    mean score. Keeps payload small enough for a full galaxy pull at
-    200 LY voxels (≈ a few MB) while giving the frontend a spatial signal
-    density map would never provide.
+    Reads `v3_spatial.cell_summary` for the reconciled, generation-pinned
+    density pyramid of the current *published* derived generation (bounded
+    by the optional viewport box, at a level chosen to match `voxel_size`,
+    capped at `max_cells` with an honest `truncated` flag) whenever one is
+    published and READY, tagged `"source": "pyramid"`.
+
+    Ratings are excluded from that pyramid's truth gate (it is a physical
+    density product, not a rated one), so an `economy`-scored request cannot
+    be served from it; that request -- and any request made before a pyramid
+    has ever been published -- instead uses the legacy rated-MV/live-
+    aggregate lane this endpoint has always served, tagged explicitly
+    `"source": "legacy-fallback"` so callers can tell them apart.
     """
     eco_col = None
     eco_key = None
@@ -201,11 +270,102 @@ async def map_heatmap(
             raise HTTPException(status_code=422, detail=f'Invalid economy: {economy}')
         eco_col = ratings_score_column(eco_key)
 
-    cache_key = f'map:heatmap:v2:{voxel_size}:{min_systems}:{max_cells}:{eco_col or "overall"}'
+    bounds = {
+        'min_x': min_x, 'max_x': max_x, 'min_y': min_y, 'max_y': max_y,
+        'min_z': min_z, 'max_z': max_z,
+    }
+    bounds_key = ':'.join('x' if v is None else f'{v:.3f}' for v in bounds.values())
+
+    cache_key = (
+        f'map:heatmap:v3:{voxel_size}:{min_systems}:{max_cells}:'
+        f'{eco_col or "overall"}:{bounds_key}'
+    )
     cached = await cache_get(cache_key, redis)
     if cached is not None:
         return JSONResponse(content=cached)
 
+    # Ratings are neither an input nor a filter to the pyramid's base density
+    # (design doc "Truth gate"), so an economy-scored request is routed
+    # straight to the legacy lane rather than silently ignoring the filter.
+    pyramid = None
+    level_row = None
+    if economy is None:
+        async with pool.acquire() as conn:
+            pyramid = await _current_spatial_pyramid(conn)
+            if pyramid is not None:
+                level_row = await _pyramid_level(conn, pyramid['spatial_pyramid_version'], voxel_size)
+                if level_row is None:
+                    log.warning(
+                        'spatial pyramid %s has no registered cell_level; falling back to legacy heatmap',
+                        pyramid['spatial_pyramid_version'],
+                    )
+                    pyramid = None
+
+    if pyramid is not None:
+        conditions = [
+            'derived_generation_id = $1', 'spatial_pyramid_version = $2',
+            'level = $3', 'system_count >= $4',
+        ]
+        args: list = [
+            pyramid['derived_generation_id'], pyramid['spatial_pyramid_version'],
+            level_row['level'], min_systems,
+        ]
+
+        def _add_bound(column: str, value: Optional[float], op: str) -> None:
+            if value is None:
+                return
+            args.append(value)
+            conditions.append(f'{column} {op} ${len(args)}')
+
+        _add_bound('centroid_x_ly', min_x, '>=')
+        _add_bound('centroid_x_ly', max_x, '<=')
+        _add_bound('centroid_y_ly', min_y, '>=')
+        _add_bound('centroid_y_ly', max_y, '<=')
+        _add_bound('centroid_z_ly', min_z, '>=')
+        _add_bound('centroid_z_ly', max_z, '<=')
+
+        args.append(max_cells + 1)
+        where_clause = ' AND '.join(conditions)
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(f"""
+                SELECT origin_x_ly, origin_y_ly, origin_z_ly,
+                       centroid_x_ly, centroid_y_ly, centroid_z_ly,
+                       system_count, landable_count, station_count,
+                       biological_system_count, terraformable_system_count
+                  FROM v3_spatial.cell_summary
+                 WHERE {where_clause}
+                 ORDER BY system_count DESC, origin_x_ly, origin_y_ly, origin_z_ly
+                 LIMIT ${len(args)}
+            """, *args)
+
+        truncated = len(rows) > max_cells
+        bounded_rows = rows[:max_cells]
+        coverage_at = pyramid['coverage_at']
+
+        result = {
+            'source': 'pyramid',
+            'generation_id': str(pyramid['derived_generation_id']),
+            'spatial_pyramid_version': pyramid['spatial_pyramid_version'],
+            'source_system_count': pyramid['source_system_count'],
+            'coverage_at': coverage_at.isoformat() if coverage_at else None,
+            'level': level_row['level'],
+            'cell_size_ly': level_row['cell_size_ly'],
+            'voxel_size': voxel_size,
+            'bounds': bounds,
+            'cells': [dict(r) for r in bounded_rows],
+            'count': len(bounded_rows),
+            'max_cells': max_cells,
+            'truncated': truncated,
+        }
+        await cache_set(cache_key, result, settings.ttl_cluster, redis)
+        return result
+
+    # --- Legacy fallback: no current published generation has a READY
+    # spatial pyramid yet (or an economy filter was requested, which the
+    # pyramid's truth gate cannot serve) -- keep the existing rated-MV/
+    # live-aggregate lane, tagged explicitly so callers can tell they are
+    # not reading the reconciled pyramid.
     # Audit §C4 / Phase 5: pick the closest pre-aggregated MV resolution
     # to the request's voxel_size. Cache miss is now an indexed read
     # against ~thousands of rows instead of a 186M-row GROUP BY.
@@ -263,6 +423,7 @@ async def map_heatmap(
     bounded_rows = rows[:max_cells]
 
     result = {
+        'source': 'legacy-fallback',
         'voxel_size': voxel_size,
         'voxel_bucket': _bucket,        # actual MV resolution used
         'economy':    economy,
