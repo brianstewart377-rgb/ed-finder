@@ -348,9 +348,12 @@ async def get_v3_journal_import(
     )
 
 
+# Chunked, resumable imports issue several requests per selection (one per
+# batch), so the limit is higher than a one-shot import needed. Each request is
+# authenticated and content-idempotent, and the client backs off on 429.
 @router.post('/verified-imports', response_model=V3VerifiedImportReceipt,
              operation_id='createVerifiedJournalImport')
-@limiter.limit('5/minute')
+@limiter.limit('30/minute')
 async def create_verified_journal_import(
     request: Request, body: V3JournalImportRequest,
     pool: asyncpg.Pool = Depends(get_pool),
