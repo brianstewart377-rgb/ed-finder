@@ -99,11 +99,15 @@ product (it does not rebuild it):
 
 1. **New migration `010`** — add per-body-type count columns to
    `v3_derived.system_search` (and the `v3_app.system_search` view follows via
-   `SELECT s.*`). Column set (finalised in planning against the V2 slider list):
-   Earth-like, water world, ammonia, terraformable **count**, gas giant,
-   high-metal-content, metal-rich, rocky, icy body counts; **ring count**;
-   **biological-signal count** and **geological-signal count** (distinct from the
-   existing boolean flags); walkable count. Bump `search_projection_version`.
+   `SELECT s.*`). **Full V2-parity slider set** (all 18):
+   - **Planet classes:** Earth-like, water world, ammonia, terraformable
+     **count**, gas giant, high-metal-content, metal-rich, rocky, icy.
+   - **Star classes:** black hole, neutron star, white dwarf, other-star counts.
+   - **Surfaces/features:** walkable count (landable count already exists);
+     **ring count**; **biological-signal count** and **geological-signal count**
+     (distinct from the existing boolean has-* flags).
+
+   Bump `search_projection_version`.
 2. **Extend `scripts/v3_system_search.py`** — add the aggregations to
    `projection_query_sql()` (counting `{schema}.bodies.body_type_id` →
    `v3_vocab.body_type`, and where a slider needs the fine subtype, the source
@@ -197,6 +201,10 @@ Two migrations: `004` (search projection) and `005` (archetype + ranking).
   autocomplete) at these V3 projections and retiring the dead V2 `public.*` SQL.
 - **F4** — the `apps/web` Finder route: the sliders, archetype picker, presets,
   explained result cards, and Inspect/map/save hand-offs.
+  **UI requirement (recorded for F4):** the body-composition sliders live in a
+  **pop-out / toggleable panel** (collapsible drawer or popover), not a
+  permanently visible rail — they must not take up screen real estate unless the
+  user opens them.
 - Region/cluster search internals beyond what F1 already enables.
 - Spatial map pyramid (decision doc §7) and cluster runs (§8) — separate
   derived products.
