@@ -122,13 +122,21 @@ Hard gates, emitting a sanitized receipt (like the migration/deploy receipts):
 
 ### 5. Publication (governed) + rollback
 
-- Lifecycle `BUILDING → VALIDATING → READY → PUBLISHED` with an atomic active
-  spatial-generation pointer (mirroring the derived-product/ratings/search
-  publication pattern); rollback to the prior published pyramid; no in-place mutation.
+- **Corrected model (2026-09-16, from build investigation):** derived *products*
+  (`v3_meta.derived_product`) only have `BUILDING`/`READY`/`FAILED` states and
+  never self-publish — like `system_search`, the pyramid builds its product to
+  **READY** (storing the validation receipt). `PUBLISHED` and the atomic active
+  pointer are **generation-level**: `v3_meta.current_derived_generation`, swapped
+  by `v3_meta.publish_derived_generation(actor, reason)`, which is gated on **all**
+  products for the generation being READY. So the "active pyramid" is whichever
+  belongs to the current published derived generation; there is no per-pyramid
+  PUBLISHED state or pointer. `cell_summary` is never mutated in place.
 - Runs as a **governed operator workflow** (mirroring `v3-system-search-*` /
-  ratings jobs). Builder + validators are developed and proven locally on a
-  **fixture and a bounded subset**; the full-catalogue production build+publish is
-  an **owner-dispatched governed step** (same posture as the deploy).
+  ratings jobs) that builds the pyramid product to READY. Publishing the whole
+  generation (the `publish_derived_generation` cutover) is the existing
+  owner-dispatched governed step. Builder + validators are developed and proven
+  locally on a **fixture and a bounded subset**; the full-catalogue production
+  build is an **owner-dispatched governed step** (same posture as the deploy).
 
 ### 6. API
 

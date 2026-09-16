@@ -273,20 +273,23 @@ git commit -m "feat(spatial): reconciliation gate + validation receipt"
 
 ---
 
-### Task 4: Publication lifecycle + active pointer (TDD)
+### Task 4: Register the pyramid derived-product + mark READY; resolve via current generation (TDD)
+
+**Architecture correction (from Task-4 investigation):** there is **no product-level `PUBLISHED` state and no per-pyramid pointer**. `v3_meta.derived_product.lifecycle_state` is only `BUILDING`/`READY`/`FAILED`; products (like `system_search`) build to **READY** and never publish. `PUBLISHED` + the atomic pointer are **generation-level** (`v3_meta.current_derived_generation`, swapped by `v3_meta.publish_derived_generation(actor, reason)`, gated on **all** products READY). So the pyramid is a derived-product built to READY; publishing the generation is the existing owner/ops cutover (out of scope here); the "active pyramid" is whichever belongs to the current published generation.
 
 **Files:**
 - Modify: `scripts/v3_spatial_pyramid.py`
 - Test: `tests/test_v3_spatial_pyramid.py`
 
 **Interfaces:**
-- Produces: `publish_pyramid(conn, *, derived_generation_id, version, receipt) -> None` and `active_pyramid(conn) -> tuple[uuid, str] | None`, mirroring the derived-product lifecycle in `scripts/v3_system_search.py` (BUILDING→VALIDATING→READY→PUBLISHED + atomic pointer; rollback to prior on failure). Read `v3_system_search.py` for the exact `v3_meta.derived_product` / pointer mechanics and reuse the same pattern for a `spatial-pyramid` product kind.
+- Produces: `mark_pyramid_ready(conn, *, derived_generation_id, version, receipt) -> None` — ensure the spatial-pyramid `v3_meta.derived_product` row exists for the generation and transition it `BUILDING → READY`, storing the validation `receipt` (mirror exactly how `scripts/v3_system_search.py` registers and transitions its product; confirm the `product_code`/columns/allowed transitions in `sql/v3/migrations/006_v3_derived_product_lifecycle.sql`). No PUBLISHED, no pointer swap.
+- Produces: `pyramid_for_current_generation(conn) -> tuple[uuid, str] | None` — return `(derived_generation_id, version)` of the spatial pyramid belonging to the **current published derived generation** (`v3_meta.current_derived_generation`) when its spatial-pyramid product is READY, else `None`. This is what the API (Task 5) uses to find the active pyramid; resolve it the same way the app resolves the active `system_search` generation.
 
-- [ ] **Step 1: Write failing tests** — publish makes `active_pyramid` return this generation+version; a second publish flips the pointer; a failed publish leaves the prior pointer intact.
+- [ ] **Step 1: Write failing tests** — `mark_pyramid_ready` sets the product `lifecycle_state='READY'` (assert the row); `pyramid_for_current_generation` returns the generation+version when that generation is current AND the pyramid product is READY, and `None` when no generation is current or the product isn't READY.
 - [ ] **Step 2: Run to verify fail.**
-- [ ] **Step 3: Implement** mirroring `v3_system_search.py`'s lifecycle for a `spatial-pyramid` product kind (atomic pointer swap; rollback).
+- [ ] **Step 3: Implement** mirroring `v3_system_search.py`'s product registration/READY transition (idempotent; parameterized; the receipt stored on the product row per the migration-006 columns). Do NOT invent a PUBLISHED state or pointer.
 - [ ] **Step 4: Run to verify pass.**
-- [ ] **Step 5: Commit** `feat(spatial): pyramid publication lifecycle + active pointer`.
+- [ ] **Step 5: Commit** `feat(spatial): register pyramid derived-product + mark READY; resolve via current generation`.
 
 ---
 
@@ -297,8 +300,8 @@ git commit -m "feat(spatial): reconciliation gate + validation receipt"
 - Test: `tests/test_map_heatmap_pyramid.py`
 
 **Interfaces:**
-- Consumes: `active_pyramid` (async equivalent via asyncpg in the API), `cell_summary`.
-- Produces: `map_heatmap` reads the active published pyramid: cells by bounds + a level chosen from the requested scale/voxel + target budget; response includes `generation_id`, `source_system_count`, `coverage_at`, `bounds`, `count`, `truncated`, and `cells:[{origin, centroid, system_count, landable_count, station_count, biological_system_count, terraformable_system_count}]`. When no pyramid is published, return the existing legacy path behind an explicit `"source":"legacy-fallback"` flag.
+- Consumes: `pyramid_for_current_generation` (async equivalent via asyncpg in the API — resolve the current published derived generation whose spatial-pyramid product is READY), `cell_summary`.
+- Produces: `map_heatmap` reads the pyramid of the current published generation: cells by bounds + a level chosen from the requested scale/voxel + target budget; response includes `generation_id`, `source_system_count`, `coverage_at`, `bounds`, `count`, `truncated`, and `cells:[{origin, centroid, system_count, landable_count, station_count, biological_system_count, terraformable_system_count}]`. When no current generation has a READY pyramid, return the existing legacy path behind an explicit `"source":"legacy-fallback"` flag.
 
 - [ ] **Step 1: Write failing contract tests** (mirror existing `tests/integration/test_map_systems_viewport.py` style): seed a published pyramid; assert `/api/map/heatmap` returns cells from `cell_summary` with the metadata fields and honest `truncated`; assert the legacy-fallback flag path when none published.
 - [ ] **Step 2: Run to verify fail.**
@@ -335,7 +338,7 @@ cd apps/api && CORS_ORIGINS=http://testserver python -m uv run pytest ../../test
 ```
 Expected: PASS.
 
-- [ ] **Step 2: Bounded-subset build** on the disposable DB (a few-thousand-system fixture generation) end-to-end: `register_cell_levels` → `build_all_levels` → `reconcile` → `publish_pyramid` → hit `/api/map/heatmap`. Record per-level cell counts and confirm they fall within the `cell_level` target bounds; note any ladder adjustment in the design doc (resolves the benchmark open item).
+- [ ] **Step 2: Bounded-subset build** on the disposable DB (a few-thousand-system fixture generation) end-to-end: `register_cell_levels` → `build_all_levels` → `reconcile` → `mark_pyramid_ready` → make the fixture generation current (or assert `pyramid_for_current_generation`) → hit `/api/map/heatmap`. (Generation publish `v3_meta.publish_derived_generation` is the owner/ops step, exercised via the fixture pointer here, not run against prod.) Record per-level cell counts and confirm they fall within the `cell_level` target bounds; note any ladder adjustment in the design doc (resolves the benchmark open item).
 
 - [ ] **Step 3: Self-review** the diff with the `code-review` skill (adversarial pass); fix findings.
 
@@ -357,4 +360,4 @@ PR body notes: truth-gate reconciliation, scope B, source-path decision, that pr
 
 **Placeholder scan:** Core SQL (aggregation, cell-key, reconciliation) is concrete. Publication (Task 4) and the operator workflow (Task 6) are specified as "mirror `scripts/v3_system_search.py` / `v3-system-search-*`" — a concrete existing reference, not a vague placeholder; the implementer reads that file (named) to match the exact lifecycle/pointer mechanics, which are repo-specific and must not be guessed.
 
-**Type/name consistency:** `PYRAMID_VERSION`, `CELL_LEVELS`, `register_cell_levels`, `build_level`, `build_all_levels`, `reconcile`/`ReconciliationError`, `build_receipt`, `publish_pyramid`, `active_pyramid` are defined and consumed consistently across tasks; the API (Task 5) consumes `active_pyramid` + `cell_summary` columns exactly as Task 2 writes them.
+**Type/name consistency:** `PYRAMID_VERSION`, `CELL_LEVELS`, `register_cell_levels`, `build_level`, `build_all_levels`, `reconcile`/`ReconciliationError`, `build_receipt`, `mark_pyramid_ready`, `pyramid_for_current_generation` are defined and consumed consistently across tasks; the API (Task 5) consumes `pyramid_for_current_generation` + `cell_summary` columns exactly as Task 2 writes them. (Task 4 corrected: product→READY + generation-level publish, no per-pyramid PUBLISHED/pointer.)
