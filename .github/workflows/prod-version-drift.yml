@@ -1,0 +1,54 @@
+name: Production version drift
+
+# Read-only monitor: alerts (by failing this scheduled run) when production is
+# serving a build that is behind the latest deployable code on main, or when the
+# web and API halves disagree (a partial deploy). It never mutates anything.
+#
+# It does NOT enforce that prod == main on every commit: docs/ops-only churn and
+# the normal merge->deploy window are tolerated via a grace period. Promotion is
+# still the governed, manual operator step
+# (.github/workflows/v3-production-application-deploy.yml).
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # every 6 hours
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Public base URL to check
+        default: https://ed-finder.app
+        required: false
+      max_lag_hours:
+        description: Hours an un-deployed deployable change may sit before alerting
+        default: '12'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-version-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Production version drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history so live..main and ancestry resolve
+      - name: Set up CPython 3.14 for the drift monitor
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Check production version drift
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://ed-finder.app' }}
+          MAX_LAG_HOURS: ${{ github.event.inputs.max_lag_hours || '12' }}
+          MAIN_SHA: ${{ github.sha }}
+        run: |
+          python scripts/checks/prod_version_drift.py \
+            --base-url "${BASE_URL}" \
+            --main-sha "${MAIN_SHA}" \
+            --max-lag-hours "${MAX_LAG_HOURS}"
