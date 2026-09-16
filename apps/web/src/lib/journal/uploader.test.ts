@@ -91,6 +91,25 @@ describe('uploadJournalBatches', () => {
     expect(submit).toHaveBeenCalledTimes(3);
   });
 
+  it('bounds a batch by file count so the server 200-file cap is never exceeded', async () => {
+    const submit = vi.fn<SubmitFn>().mockResolvedValue(receipt());
+    await uploadJournalBatches(
+      stream(
+        parsedFile('a', 1),
+        parsedFile('b', 1),
+        parsedFile('c', 1),
+        parsedFile('d', 1),
+        parsedFile('e', 1),
+      ),
+      submit,
+      { parserVersion: 'test', maxFiles: 2, ...fastTiming },
+    );
+    // 5 tiny files, cap 2 -> [a,b] [c,d] [e]; nothing is bounded by bytes/events.
+    expect(submit).toHaveBeenCalledTimes(3);
+    for (const [body] of submit.mock.calls)
+      expect(body.files.length).toBeLessThanOrEqual(2);
+  });
+
   it('sends an oversized single file as its own batch', async () => {
     const submit = vi.fn<SubmitFn>().mockResolvedValue(receipt());
     await uploadJournalBatches(

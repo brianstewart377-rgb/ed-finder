@@ -71,9 +71,11 @@ plus a rate-limit bump and an nginx directive. No new API endpoints or shapes
 3. **`uploader.ts` (new, pure, unit-tested)** — consume the `ParsedFile`
    stream and:
    - accumulate whole files into a batch until the next file would exceed
-     **`maxBytes` (default 8 MiB serialized)** or **`maxEvents` (default
-     20,000)**, whichever first; always ≥ 1 whole file per batch so
-     manifest+events stay consistent;
+     **`maxBytes` (default 8 MiB serialized)**, **`maxEvents` (default
+     20,000)**, or **`maxFiles` (default 200, matching the server's
+     `MAX_FILES_PER_IMPORT`; the server also caps events at 50,000/request)**,
+     whichever first; always ≥ 1 whole file per batch so manifest+events stay
+     consistent;
    - a single file larger than the thresholds forms its own batch (never split
      a file's events across batches — the manifest/`source_file` invariant at
      `v3_journal.py:366` requires it);

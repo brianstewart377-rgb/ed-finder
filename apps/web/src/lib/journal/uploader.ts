@@ -50,6 +50,7 @@ export interface UploadOptions {
   parserVersion: string;
   maxBytes?: number; // batch flush threshold, serialized (default 8 MiB)
   maxEvents?: number; // batch flush threshold, event count (default 20,000)
+  maxFiles?: number; // batch flush threshold, file count (default 200)
   maxRetries?: number; // retryable-failure attempts after the first (default 5)
   signal?: AbortSignal;
   onProgress?: (progress: UploadProgress) => void;
@@ -115,6 +116,9 @@ export async function uploadJournalBatches(
 ): Promise<UploadResult> {
   const maxBytes = options.maxBytes ?? 8 * MIB;
   const maxEvents = options.maxEvents ?? 20_000;
+  // Matches the server's MAX_FILES_PER_IMPORT: a batch with more than 200 file
+  // manifest entries is rejected with a non-retryable 422 before the handler runs.
+  const maxFiles = options.maxFiles ?? 200;
   const maxRetries = options.maxRetries ?? 5;
   const isRetryable = options.isRetryable ?? defaultRetryable;
   const backoffMs = options.backoffMs ?? defaultBackoff;
@@ -221,7 +225,8 @@ export async function uploadJournalBatches(
       if (
         batchFiles.length &&
         (batchBytes + fileBytes > maxBytes ||
-          batchEvents.length + file.events.length > maxEvents)
+          batchEvents.length + file.events.length > maxEvents ||
+          batchFiles.length + file.manifest.length > maxFiles)
       )
         await flush();
       batchFiles.push(...file.manifest);
@@ -232,7 +237,11 @@ export async function uploadJournalBatches(
       }
       batchBytes += fileBytes;
       // A single file larger than the thresholds becomes its own batch.
-      if (batchBytes >= maxBytes || batchEvents.length >= maxEvents)
+      if (
+        batchBytes >= maxBytes ||
+        batchEvents.length >= maxEvents ||
+        batchFiles.length >= maxFiles
+      )
         await flush();
       emit();
     }
