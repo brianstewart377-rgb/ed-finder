@@ -138,6 +138,51 @@ Hard gates, emitting a sanitized receipt (like the migration/deploy receipts):
   locally on a **fixture and a bounded subset**; the full-catalogue production
   build is an **owner-dispatched governed step** (same posture as the deploy).
 
+#### Owner run sequence (governed build workflow)
+
+The build-to-READY step is `.github/workflows/v3-spatial-pyramid.yml`
+(`scripts/operator/actions/v3-spatial-pyramid.sh`), authored and validated
+(YAML/shell only) as its own task; it is **not** run against any host as part
+of authoring it, and it never runs on push/PR — `workflow_dispatch` only.
+
+1. **Preconditions** (checked by the action script itself, fail-closed): the
+   pinned target generation (`ratings_v4_prod_p4_opt1`, same canonical
+   generation/sequence the `v3-system-search-*` family pins) must be `READY`,
+   and its `system_search` derived product must already be `READY` — the
+   builder's canonical-catalogue fallback is deliberately unimplemented
+   (`NotImplementedError`), so an incomplete `system_search` is a stop, not a
+   silent slow path. Migration `004_v3_search_spatial_clusters.sql` (schema)
+   and `006_v3_derived_product_lifecycle.sql` (product lifecycle) are hash-
+   verified against both the staged trusted source and the live migration
+   ledger before anything runs.
+2. **Dispatch.** An owner runs the workflow via `workflow_dispatch` on `main`,
+   typing the literal `target_confirmation: ed-finder-prod/nb79a3d.mevnode.com`
+   safety input. The job only proceeds for the `main` ref of this repository,
+   re-verifies `main` has not moved since dispatch, and executes under the
+   `ed-new-operator` GitHub Environment using the `ED_NEW_OPERATOR_*`
+   credential boundary and pinned SSH known-host trust (same boundary as
+   `chatgpt-ed-new-ops.yml` / `v3-system-search-*`) — no new credential surface.
+3. **Build.** Trusted `main` is staged to the host over SSH; the action script
+   resolves the pinned generation, runs `register_cell_levels` →
+   `resolve_source` → `build_all_levels` → `build_receipt` (which re-runs
+   `reconcile`) → `mark_pyramid_ready` inside a single transaction (any
+   failure, including a reconciliation mismatch, rolls the whole attempt
+   back — no partially-built `cell_summary` rows are left behind). The build
+   is idempotent: if the `spatial_pyramid` product is already `READY` for the
+   pinned generation, the action short-circuits and reports `already-ready`.
+4. **Receipt.** The build's `build_receipt` output (reconciliation result,
+   per-level counts, source path, coverage timestamp) is uploaded as the
+   `v3-spatial-pyramid-build` workflow artifact, the same way
+   `v3-system-search-*` / ratings jobs publish their receipts.
+5. **Publish (separate, existing, owner-dispatched step — not this
+   workflow).** Building to READY does **not** make the pyramid live. The
+   pyramid only becomes the one `/api/map/heatmap` serves once its owning
+   derived generation is the current *published* generation — i.e. once an
+   owner runs the existing `v3_meta.publish_derived_generation(actor, reason)`
+   cutover for that generation (gated on **all** of that generation's derived
+   products, including `spatial_pyramid`, being `READY`). This workflow never
+   calls `publish_derived_generation` itself and performs no canonical writes.
+
 ### 6. API
 
 - Repoint `/api/map/heatmap` off the legacy V2 rated MVs onto `cell_summary` for
