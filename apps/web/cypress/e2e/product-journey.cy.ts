@@ -161,10 +161,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         expect(anchorY).to.be.greaterThan(0);
         cy.get(canvasSelector).click(anchorX, anchorY);
       });
-    cy.get('.selection-status')
-      .should('have.attr', 'data-last-picked-id64', '10477373803000', {
-        timeout: 20_000,
-      })
+    // The timeout must be on cy.get (its retry window covers the chained
+    // assertions); passing it as a 4th arg to .should() is silently ignored and
+    // falls back to the 4s default, which a firefox WebGL pick can exceed.
+    cy.get('.selection-status', { timeout: 20_000 })
+      .should('have.attr', 'data-last-picked-id64', '10477373803000')
       .and('contain.text', 'Spatial pick selected');
     cy.get('[data-system-result="10477373803000"] [data-result-select]').should(
       'have.attr',
