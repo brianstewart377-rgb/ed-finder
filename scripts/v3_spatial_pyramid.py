@@ -221,11 +221,28 @@ def reconcile(conn, *, derived_generation_id, version: str, canonical_count: int
     `{'per_level_system_sum': {level: sum, ...}, 'canonical_count': canonical_count}`
     on success.
 
-    A level with zero rows in `cell_summary` for this generation/version simply
-    does not appear in `per_level_system_sum` (nothing to sum); it is not treated
-    as a mismatch here; callers that require every registered level to have been
-    built should check that separately against `v3_spatial.cell_level`.
+    This is the truth gate, so it must not be satisfiable by verifying nothing:
+    before checking any sums, it fetches the set of levels *expected* to exist
+    for `version` from `v3_spatial.cell_level` and raises `ReconciliationError`
+    if that expected set is empty (nothing registered for this version -- there
+    is nothing to reconcile against) or if any expected level is missing from
+    `per_level_system_sum` (e.g. wrong generation/version was aggregated, or a
+    build wrote zero rows) rather than silently treating an absent level as
+    "nothing to sum".
     '''
+    expected_levels = {
+        int(level)
+        for (level,) in conn.execute(
+            '''SELECT level FROM v3_spatial.cell_level
+                WHERE spatial_pyramid_version=%s''',
+            (version,),
+        ).fetchall()
+    }
+    if not expected_levels:
+        raise ReconciliationError(
+            f'no levels registered for version {version!r} -- cannot reconcile'
+        )
+
     rows = conn.execute(
         '''SELECT level, sum(system_count)
              FROM v3_spatial.cell_summary
@@ -234,6 +251,15 @@ def reconcile(conn, *, derived_generation_id, version: str, canonical_count: int
         (derived_generation_id, version),
     ).fetchall()
     per_level_system_sum = {int(level): int(total) for level, total in rows}
+
+    missing_levels = sorted(expected_levels - set(per_level_system_sum))
+    if missing_levels:
+        raise ReconciliationError(
+            f'level(s) {missing_levels} registered for version {version!r} but '
+            f'absent from cell_summary for derived_generation_id={derived_generation_id!r} '
+            '-- wrong generation/version, or a build that wrote nothing'
+        )
+
     for level in sorted(per_level_system_sum):
         actual = per_level_system_sum[level]
         if actual != canonical_count:
@@ -261,19 +287,29 @@ def build_receipt(conn, *, derived_generation_id, version: str, source: str,
     Coverage is read via `SELECT now()` rather than `datetime.now()` so the
     receipt reflects DB time and this module has no wall-clock side effect at
     import time.
-    '''
-    reconciliation = reconcile(
-        conn, derived_generation_id=derived_generation_id, version=version,
-        canonical_count=canonical_count,
-    )
 
+    The `derived_generation` row lookup runs before reconciliation and raises
+    `ValueError` (mirroring `_canonical_schema`'s convention) if the generation
+    id is unresolvable, rather than silently emitting a receipt with
+    `canonical_generation_id`/`coverage_at` set to `None`. It is checked first so
+    an unknown generation id is reported as exactly that, not masked behind
+    `reconcile`'s (also fail-closed, since Task 3's review fix) "missing level"
+    error for a generation that was never built at all.
+    '''
     row = conn.execute(
         '''SELECT dg.canonical_generation_id, now()
              FROM v3_meta.derived_generation dg
             WHERE dg.derived_generation_id = %s''',
         (derived_generation_id,),
     ).fetchone()
-    canonical_generation_id, coverage_at = (row if row else (None, None))
+    if row is None:
+        raise ValueError('unknown derived generation')
+    canonical_generation_id, coverage_at = row
+
+    reconciliation = reconcile(
+        conn, derived_generation_id=derived_generation_id, version=version,
+        canonical_count=canonical_count,
+    )
 
     system_sums = reconciliation['per_level_system_sum']
     per_level_report = {

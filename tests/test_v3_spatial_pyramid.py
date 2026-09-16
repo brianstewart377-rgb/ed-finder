@@ -341,6 +341,37 @@ def test_reconcile_fails_closed_when_canonical_count_exceeds_built_sum(db_conn, 
         )
 
 
+def test_reconcile_raises_when_levels_registered_but_cell_summary_empty(db_conn, seeded_generation):
+    """The previously-vacuous case a reviewer flagged: levels ARE registered in
+    `v3_spatial.cell_level` for `version`, but nothing was ever built into
+    `cell_summary` for this (generation, version) -- e.g. the wrong generation id,
+    the wrong version, or a build that silently wrote zero rows. Since Fix 1,
+    `per_level_system_sum` being empty must raise `ReconciliationError` naming the
+    missing levels, not return a vacuously "passed" dict from a validation loop
+    that ran zero times.
+    """
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, reconcile, ReconciliationError
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    # Deliberately never call build_level/build_all_levels: cell_summary stays
+    # empty for seeded_generation even though PYRAMID_VERSION has levels registered.
+    with pytest.raises(ReconciliationError):
+        reconcile(
+            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
+            canonical_count=SEEDED_SYSTEM_COUNT,
+        )
+
+
+def test_reconcile_raises_when_version_has_no_registered_levels(db_conn, seeded_generation):
+    from scripts.v3_spatial_pyramid import reconcile, ReconciliationError
+    # No register_cell_levels call at all for this version -> v3_spatial.cell_level
+    # has zero rows for it -> nothing to reconcile against.
+    with pytest.raises(ReconciliationError):
+        reconcile(
+            db_conn, derived_generation_id=seeded_generation, version='no_such_version',
+            canonical_count=SEEDED_SYSTEM_COUNT,
+        )
+
+
 def test_build_receipt_returns_expected_keys_and_sums(db_conn, seeded_generation):
     from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, build_receipt
     register_cell_levels(db_conn, PYRAMID_VERSION)
@@ -380,6 +411,21 @@ def test_build_receipt_raises_when_reconciliation_fails(db_conn, seeded_generati
         build_receipt(
             db_conn, derived_generation_id=seeded_generation_missing_one, version=PYRAMID_VERSION,
             source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level_cells,
+        )
+
+
+def test_build_receipt_raises_for_unknown_generation(db_conn):
+    """Fix 2: an unresolvable `derived_generation_id` (e.g. a typo'd or stale id)
+    must raise `ValueError` -- mirroring `_canonical_schema`'s convention -- rather
+    than silently emitting a receipt with `canonical_generation_id`/`coverage_at`
+    set to None.
+    """
+    import uuid
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_receipt
+    with pytest.raises(ValueError):
+        build_receipt(
+            db_conn, derived_generation_id=str(uuid.uuid4()), version=PYRAMID_VERSION,
+            source='system_search', canonical_count=0, per_level={},
         )
 
 
