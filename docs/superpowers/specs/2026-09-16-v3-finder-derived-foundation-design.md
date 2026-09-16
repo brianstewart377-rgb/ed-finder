@@ -70,34 +70,59 @@ Mapping the two user-facing capabilities onto the layers:
   named archetype; the primary/secondary archetype and Best Colony Potential are
   folded into `system_search` as a summary so the picker filters and ranks fast.
 
-### F1 — `v3_derived.system_search` (`004`)
+### F1 — extend the existing `v3_derived.system_search` product
 
-One row per system per generation (~198.5M rows). Contains only "hot" Finder /
-Explore / Inspect facts so request-time queries never join back to canonical.
+**F1 is not greenfield.** The search projection already exists and works:
 
-Columns (grouped):
+- Migration `004_v3_search_spatial_clusters.sql` creates
+  `v3_derived.system_search`, schema `v3_spatial`, the cluster tables, and the
+  published-generation views `v3_app.system_search` / `v3_app.cluster_member`.
+- Migration `006_v3_derived_product_lifecycle.sql` adds `v3_meta.derived_product`,
+  `v3_derived.search_build_chunk`, product-aware write guards, and a publication
+  gate requiring every registered product be READY/VERIFIED before a generation
+  can publish.
+- `scripts/v3_system_search.py` (product code `system_search`, version
+  `v3-system-search-1`) is a working register → `build_available` → `validate`
+  builder that resumes per Ratings chunk. Tests:
+  `tests/test_ratings_v4_search_projection.py`,
+  `tests/test_ratings_v4_system_search.py`.
 
-- **Identity / spatial:** `derived_generation_id`, `id64`, `name`,
-  `x_ly / y_ly / z_ly`, `position_ly cube` (**GiST index** for radius / KNN /
-  "search around here"), `galaxy_region_id`. PK `(derived_generation_id, id64)`.
-- **Slider inputs (body counts):** ELW, water world, ammonia, terraformable,
-  gas giant, high-metal, metal-rich, rocky, icy, rings, bio signals, geo
-  signals, landable, walkable. (Exact column list finalised against the V2
-  slider set during F1 planning.)
-- **Display / filter facts:** population, colony status (free / build /
-  colonised), main star type, primary economy.
-- **Ranking summary (populated by F2):** the seven V4 economy potentials,
-  primary / secondary archetype, Best Colony Potential + tier, buildability,
-  confidence / completeness.
-- **Provenance / freshness fields.**
+The **existing** `system_search` row carries: `id64`, `name`, `x/y/z_ly`,
+`position_ly cube` (GiST-indexed), `galaxy_region_id`, `region_name`,
+`main_star_class`, `body_count`, `landable_count`, `station_count`, boolean
+`has_rings / has_biologicals / has_geologicals / has_terraformable`,
+`source_observed_at`, `completeness`, `confidence`.
 
-Indexes are workload-driven: spatial GiST on `position_ly`, name/autocomplete,
-region, and proven hot filter/ranking fields. Heavy per-archetype detail stays
-in F2's `system_archetype`, not here.
+**The gap F1 closes:** the projection stores only boolean has-* flags, not the
+**per-body-type counts** the V2 sliders filter on. F1 therefore *extends* the
+product (it does not rebuild it):
 
-Deliverables: the migration, a **chunked/resumable builder** (V4-runner
-pattern), and a **coverage validator** proving every expected system is present
-before the generation can publish.
+1. **New migration `010`** — add per-body-type count columns to
+   `v3_derived.system_search` (and the `v3_app.system_search` view follows via
+   `SELECT s.*`). Column set (finalised in planning against the V2 slider list):
+   Earth-like, water world, ammonia, terraformable **count**, gas giant,
+   high-metal-content, metal-rich, rocky, icy body counts; **ring count**;
+   **biological-signal count** and **geological-signal count** (distinct from the
+   existing boolean flags); walkable count. Bump `search_projection_version`.
+2. **Extend `scripts/v3_system_search.py`** — add the aggregations to
+   `projection_query_sql()` (counting `{schema}.bodies.body_type_id` →
+   `v3_vocab.body_type`, and where a slider needs the fine subtype, the source
+   `subType` projection the adapter already exposes), extend the manifest
+   `field_policy` to document each new column's derivation, and bump the product
+   version so a rebuild is required.
+3. **Extend the tests** — `test_ratings_v4_search_projection.py` parity cases and
+   `test_ratings_v4_system_search.py` end-to-end coverage for the new counts,
+   including sparse/adversarial systems (0 bodies, retired bodies, belts-not-rings).
+
+The 7 V4 economy potentials are **not** copied into `system_search`; they are
+joined from `v3_derived.system_rating_vector` / `v3_derived.system_economy_rating`
+(already keyed by generation + system). Archetype summary columns are added by
+**F2**, not here.
+
+Then the product is **rebuilt and republished** through the reviewed V3 migration
++ derived-product operation (migrations `004`/`006`/`010` applied, product rebuilt
+over the published Ratings V4 generation, coverage/position-truth validated, then
+published) — the same governed path as the Ratings V4 publish already completed.
 
 ### F2 — archetype + ranking (`005`)
 
@@ -178,8 +203,11 @@ Two migrations: `004` (search projection) and `005` (archetype + ranking).
 
 ## Implementation plans (split)
 
-1. **Plan F1** — `004` migration, `system_search` builder, coverage validator,
-   query-plan/latency evidence. Buildable and verifiable before F2.
+1. **Plan F1** — migration `010` adding per-body-type count columns to the
+   existing `system_search`; extend `scripts/v3_system_search.py`
+   (`projection_query_sql` + manifest field-policy + version bump); extend the
+   two search tests; rebuild/republish through the reviewed operation. Extends an
+   existing product; buildable and verifiable before F2.
 2. **Plan F2** — `005` migration (`system_archetype` + ranking profile),
    archetype builder, summary fold-in to `system_search`, ranking-profile
    definition, divergence report.
