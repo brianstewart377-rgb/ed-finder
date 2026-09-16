@@ -82,7 +82,12 @@ republish through the reviewed V3 migration + derived-product operation**
 runs: apply `010`, re-register the product, `build_available` over the
 published Ratings V4 generation, `validate_product`, then publish — the same
 governed path used for the Ratings V4 publish. This plan does not perform
-that production run.
+that production run. Migration `010` ships as a committed file under
+`sql/v3/migrations/` but is deliberately **not yet declared in
+`sql/v3/migration-manifest.txt`**: declaring it changes the reviewed
+desired-schema identity, which requires fresh external authority (enforced by
+`test_v3_system_search_production_operator`). That manifest declaration +
+authority refresh is part of the governed migration operation, not this PR.
 
 ## Open items
 
