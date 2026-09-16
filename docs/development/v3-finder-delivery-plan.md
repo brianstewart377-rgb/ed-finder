@@ -75,6 +75,15 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
+**F1 follow-up (2026-09-16):** the `system_search` product is now version
+`v3-system-search-2`, with per-body-type count columns added by migration
+`010`. Those counts are not queryable in production until a **rebuild and
+republish through the reviewed V3 migration + derived-product operation**
+runs: apply `010`, re-register the product, `build_available` over the
+published Ratings V4 generation, `validate_product`, then publish — the same
+governed path used for the Ratings V4 publish. This plan does not perform
+that production run.
+
 ## Open items
 
 1. **Cluster ownership** — one run per domain, or a shared run with domain
