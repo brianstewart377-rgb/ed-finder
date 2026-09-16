@@ -81,15 +81,21 @@ _TEST_CELL_SIZE_LY = 100.0
 SEEDED_SYSTEM_COUNT = 3
 
 
-def _seed_generation(conn, *, omit_last: bool = False) -> str:
+def _seed_generation(conn, *, omit_last: bool = False, systems: list | None = None) -> str:
     """Seed the minimal `v3_meta.canonical_generation` -> `v3_meta.derived_generation`
-    chain plus three `v3_derived.system_search` rows with known coordinates and aux
+    chain plus `v3_derived.system_search` rows with known coordinates and aux
     flags, entirely inside the caller's (rolled-back) transaction.
 
-    `omit_last=True` drops the last of the three fixture systems, simulating an
-    incomplete/short aggregation source (e.g. a partial `system_search` build) while
-    `SEEDED_SYSTEM_COUNT` (the canonical truth) stays at 3 -- this is what
-    `reconcile` must fail closed on.
+    `omit_last=True` drops the last of the three default fixture systems, simulating
+    an incomplete/short aggregation source (e.g. a partial `system_search` build)
+    while `SEEDED_SYSTEM_COUNT` (the canonical truth) stays at 3 -- this is what
+    `reconcile` must fail closed on. `omit_last` is ignored when an explicit
+    `systems` list is passed.
+
+    `systems` overrides the default three-row fixture with a caller-supplied list
+    of the same tuple shape (see the default below), so callers exercising e.g.
+    negative-coordinate cell math don't have to duplicate this whole scaffold.
+    `expected_systems`/`expected_rows` are set to `len(systems)` in that case.
 
     Mirrors the minimal-fixture pattern in
     `tests/test_journal_contributions_postgres.py`'s `generation()` helper: only the
@@ -128,14 +134,27 @@ def _seed_generation(conn, *, omit_last: bool = False) -> str:
         (gid, key, 'v3_gen_' + key, b'x' * 32, run_id),
     )
 
+    # (10,10,10) and (20,20,20) share cell (0,0,0) at size 100ly; (150,0,0) is its
+    # own cell (1,0,0). landable_count 1 & 2 sum to 3 in the shared cell; the first
+    # system has_biologicals; the third has_terraformable.
+    if systems is None:
+        systems = [
+            (1001, 'Alpha', 10.0, 10.0, 10.0, 5, 1, 0, True, False),
+            (1002, 'Beta', 20.0, 20.0, 20.0, 5, 2, 1, False, False),
+            (1003, 'Gamma', 150.0, 0.0, 0.0, 5, 0, 0, False, True),
+        ]
+        if omit_last:
+            systems = systems[:-1]
+    expected_count = len(systems)
+
     dgid = uuid.uuid4()
     conn.execute(
         """INSERT INTO v3_meta.derived_generation(
                derived_generation_id,canonical_generation_id,canonical_publication_sequence,
                generation_key,mechanics_version,scorer_version,adapter_version,
                manifest,manifest_sha256,expected_systems,expected_bodies)
-           VALUES(%s,%s,1,%s,'test','test','test','{}'::jsonb,%s,3,0)""",
-        (dgid, gid, key, b'x' * 32),
+           VALUES(%s,%s,1,%s,'test','test','test','{}'::jsonb,%s,%s,0)""",
+        (dgid, gid, key, b'x' * 32, expected_count),
     )
 
     # v3_derived.system_search is guarded (migration 006) by a v3_meta.derived_product
@@ -143,20 +162,10 @@ def _seed_generation(conn, *, omit_last: bool = False) -> str:
     conn.execute(
         """INSERT INTO v3_meta.derived_product(
                derived_generation_id,product_code,product_version,manifest,manifest_sha256,expected_rows)
-           VALUES(%s,'system_search','test','{}'::jsonb,%s,3)""",
-        (dgid, b'x' * 32),
+           VALUES(%s,'system_search','test','{}'::jsonb,%s,%s)""",
+        (dgid, b'x' * 32, expected_count),
     )
 
-    # (10,10,10) and (20,20,20) share cell (0,0,0) at size 100ly; (150,0,0) is its
-    # own cell (1,0,0). landable_count 1 & 2 sum to 3 in the shared cell; the first
-    # system has_biologicals; the third has_terraformable.
-    systems = [
-        (1001, 'Alpha', 10.0, 10.0, 10.0, 5, 1, 0, True, False),
-        (1002, 'Beta', 20.0, 20.0, 20.0, 5, 2, 1, False, False),
-        (1003, 'Gamma', 150.0, 0.0, 0.0, 5, 0, 0, False, True),
-    ]
-    if omit_last:
-        systems = systems[:-1]
     for system_id64, name, x, y, z, body_count, landable_count, station_count, biologicals, terraformable in systems:
         conn.execute(
             """INSERT INTO v3_derived.system_search(
@@ -239,6 +248,57 @@ def test_build_level_aggregates_counts_and_centroid(db_conn, seeded_generation):
     assert far_cell[2] == 0
     assert far_cell[3] == 1                         # terraformable_system_count
     assert far_cell[5] == '1.0.0'
+
+
+def test_build_level_handles_negative_coordinates(db_conn):
+    """The real galaxy is mostly negative-coordinate space relative to Sol, but
+    every other fixture in this file uses coordinates >= 0. Postgres `floor()`
+    rounds toward negative infinity (not toward zero), so a naive truncation-style
+    cell-key computation would silently misbucket negative coordinates -- this
+    test pins the actual floor-division math for a negative-origin cell.
+
+    Two systems both fall in cell (-1,-1,-1) at 100ly cells: e.g. x=-50 ->
+    floor(-50/100) == -1 (not 0), so cell_key's x component is "-1" and
+    origin_x_ly == -1*100 == -100, not 0/-50.
+    """
+    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_level
+
+    systems = [
+        (2001, 'Negalpha', -50.0, -75.0, -25.0, 5, 1, 0, True, False),
+        (2002, 'Negbeta', -10.0, -99.0, -1.0, 5, 2, 1, False, True),
+    ]
+    dgid = _seed_generation(db_conn, systems=systems)
+    register_cell_levels(db_conn, PYRAMID_VERSION)
+    _register_test_cell_level(db_conn, PYRAMID_VERSION)
+
+    n = build_level(
+        db_conn, derived_generation_id=dgid, version=PYRAMID_VERSION,
+        level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='system_search',
+    )
+    assert n == 1  # both systems fall in the single cell (-1,-1,-1)
+
+    cell = db_conn.execute(
+        """SELECT system_count, landable_count, station_count,
+                  biological_system_count, terraformable_system_count,
+                  centroid_x_ly, centroid_y_ly, centroid_z_ly,
+                  origin_x_ly, origin_y_ly, origin_z_ly, cell_key
+             FROM v3_spatial.cell_summary
+            WHERE derived_generation_id=%s AND level=%s
+            """,
+        (dgid, _TEST_CELL_LEVEL),
+    ).fetchone()
+    assert cell[0] == 2                            # system_count
+    assert cell[1] == 3                             # SUM(landable_count) 1+2
+    assert cell[2] == 1                             # SUM(station_count) 0+1
+    assert cell[3] == 1                             # biological_system_count
+    assert cell[4] == 1                             # terraformable_system_count
+    assert cell[5] == pytest.approx(-30.0)          # centroid_x avg(-50,-10)
+    assert cell[6] == pytest.approx(-87.0)          # centroid_y avg(-75,-99)
+    assert cell[7] == pytest.approx(-13.0)          # centroid_z avg(-25,-1)
+    assert cell[8] == -100.0                        # origin_x_ly = floor(-50/100)*100
+    assert cell[9] == -100.0                        # origin_y_ly = floor(-99/100)*100
+    assert cell[10] == -100.0                       # origin_z_ly = floor(-25/100)*100
+    assert cell[11] == '-1.-1.-1'                   # cell_key
 
 
 def test_build_level_is_insert_only_and_repeat_raises(db_conn, seeded_generation):

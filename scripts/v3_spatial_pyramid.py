@@ -10,12 +10,21 @@ This module:
   `{gen}.systems` catalogue, per the source rule in
   `docs/development/v3-spatial-density-pyramid-design.md`;
 - aggregates each registered level's occupied cells into
-  `v3_spatial.cell_summary` (`build_level`/`build_all_levels`); and
+  `v3_spatial.cell_summary` (`build_level`/`build_all_levels`);
 - enforces the reconciliation truth gate (`reconcile`) and assembles the
-  sanitized validation receipt (`build_receipt`).
+  sanitized validation receipt (`build_receipt`);
+- registers the `spatial_pyramid` `v3_meta.derived_product` row and
+  transitions it `BUILDING -> READY` from that reconciled receipt
+  (`mark_pyramid_ready`); and
+- resolves `(derived_generation_id, spatial_pyramid_version)` for the
+  spatial pyramid belonging to the *currently published* derived generation
+  (`pyramid_for_current_generation`), the same read the API mirrors.
 
-Publication (governed lifecycle + rollback) and the API read path are later
-tasks in this same effort, not implemented here.
+Publishing a derived generation itself (the governed lifecycle cutover +
+rollback via `v3_meta.publish_derived_generation`) is a separate concern and
+out of scope here: this module only marks the pyramid *product* READY within
+an already-building generation and reads whichever generation is *already*
+current.
 '''
 from __future__ import annotations
 
