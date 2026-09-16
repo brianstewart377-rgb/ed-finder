@@ -42,9 +42,9 @@ type_summary AS (
            (count(*) FILTER (WHERE nk.name LIKE '%%white dwarf%%' OR nk.spectral_class LIKE 'D%%'))::integer AS white_dwarf_count,
            (count(*) FILTER (
                WHERE nk.spectral_class IS NOT NULL
-                 AND NOT (nk.name LIKE '%%black hole%%' OR nk.spectral_class IN ('H','SupermassiveBlackHole'))
-                 AND NOT (nk.name='neutron star' OR nk.spectral_class='N')
-                 AND NOT (nk.name LIKE '%%white dwarf%%' OR nk.spectral_class LIKE 'D%%')
+                 AND NOT (COALESCE(nk.name LIKE '%%black hole%%', false) OR nk.spectral_class IN ('H','SupermassiveBlackHole'))
+                 AND NOT (COALESCE(nk.name='neutron star', false) OR nk.spectral_class='N')
+                 AND NOT (COALESCE(nk.name LIKE '%%white dwarf%%', false) OR nk.spectral_class LIKE 'D%%')
            ))::integer AS other_star_count
       FROM (
           SELECT bm.system_id64,bm.terraformable,bm.spectral_class,

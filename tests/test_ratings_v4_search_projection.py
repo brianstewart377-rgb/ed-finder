@@ -77,12 +77,11 @@ def projection_database():
                 (20,2,'ACTIVE',NULL,NULL,NULL),
                 (30,3,'RETIRED',true,1,NULL),
                 (50,5,'ACTIVE',false,2,NULL),
-                (60,6,'ACTIVE',true,NULL,NULL),
-                (99,99,'ACTIVE',true,1,2);
+                (60,6,'ACTIVE',true,NULL,NULL);
             INSERT INTO search_plan_fixture.body_signal_current VALUES
                 (10,1,2),(10,2,3),(11,1,1),
                 (20,1,0),(20,2,0),(30,1,5),(30,2,5),
-                (50,3,10),(99,1,100);
+                (50,3,10);
             INSERT INTO search_plan_fixture.rings VALUES
                 (1,'ACTIVE','RING'),(1,'ACTIVE','RING'),(2,'ACTIVE','BELT'),
                 (3,'RETIRED','RING');
