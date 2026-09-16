@@ -180,3 +180,38 @@ def test_nginx_ci_config_stays_structurally_aligned_with_production_http_and_rev
     normalised_ci = _normalise_nginx_config_for_drift_check(ci)
 
     assert normalised_ci == normalised_production
+
+
+def test_frontend_emits_release_identity_meta_for_the_deploy_smoke():
+    """A promotion fails unless the served '/' HTML carries the exact single-line
+    marker `name="edfinder-build-sha" content="<sha>"` exactly once
+    (scripts/operator/v3_production_deploy.py smoke(); v3_checkpoint_public_smoke).
+    ssr is disabled, so the tag must live in the static app.html, not a component
+    <svelte:head>. This guards against silently dropping it (which blocks every
+    deploy and leaves prod stale).
+    """
+    app_html = _read('apps', 'web', 'src', 'app.html')
+    svelte_config = _read('apps', 'web', 'svelte.config.js')
+    deploy = _read('scripts', 'operator', 'v3_production_deploy.py')
+
+    # Exact byte prefix the smoke matches (single space between attributes).
+    marker_prefix = 'name="edfinder-build-sha" content="'
+    assert marker_prefix in deploy, (
+        'deploy smoke no longer uses this marker — update app.html to match'
+    )
+
+    # The tag must be present AND on one physical line (smoke does a literal
+    # substring byte count; a prettier-wrapped attribute would never match).
+    marker_lines = [
+        line for line in app_html.splitlines()
+        if '<meta name="edfinder-build-sha"' in line
+    ]
+    assert len(marker_lines) == 1, 'exactly one edfinder-build-sha meta line expected'
+    assert (
+        f'{marker_prefix}%sveltekit.env.PUBLIC_BUILD_SHA%"' in marker_lines[0]
+    ), 'meta tag must be single-line and use the PUBLIC_BUILD_SHA build env'
+
+    # %sveltekit.env.X% only resolves for PUBLIC_-prefixed vars; svelte.config.js
+    # derives PUBLIC_BUILD_SHA from the existing VITE_BUILD_SHA (one source).
+    assert 'PUBLIC_BUILD_SHA' in svelte_config
+    assert 'VITE_BUILD_SHA' in svelte_config

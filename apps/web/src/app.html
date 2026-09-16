@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Build identity for release verification; must stay on one line. -->
+    <!-- prettier-ignore -->
+    <meta name="edfinder-build-sha" content="%sveltekit.env.PUBLIC_BUILD_SHA%" />
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
