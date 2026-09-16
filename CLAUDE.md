@@ -23,10 +23,17 @@ Git history, removed workflows, old artifacts, and superseded design documents a
 The V3 application and One Spatial Platform programme is current. PR #601's
 Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
 `main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The non-production live
-checkpoint remains a separate rehearsal boundary. The explicitly V3 production
-application authority is app-only and currently stopped pending reviewed live
-inventory/schema and external network, secret-file, receipt-store, Docker-context
-and unchanged-edge cutover facts; its presence is not permission to deploy.
+checkpoint remains a separate rehearsal boundary. The app-only V3 production
+promotion path is now `authorized` and has accepted governed promotions
+(2026-09-10 bootstrap; the 2026-09-16 identity release), with exact CPython
+3.14.7 installed on the host. Deploys still run **only** through the governed
+application-promotion workflow and its fail-closed target authority — being
+authorized is not blanket permission to promote. Current programme status
+(identity/journal shipped + deployed; Ratings V4 + Finder F1 `system_search`
+rebuild in progress; map spatial density pyramid #2a merged with its prod build
+fail-closed-blocked until the generation is READY; map #2b next) is in
+`docs/ROADMAP.md` "Programme status — 2026-09-16"; the live promotion boundary
+is `docs/operations/v3-production-application-release.md`.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
 owns the application, domain orchestration, routes, panels, and accessible DOM;
