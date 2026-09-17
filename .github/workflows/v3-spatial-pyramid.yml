@@ -146,12 +146,17 @@ jobs:
           # free text on this path (used by the publish sub-command only).
           # SSH does not forward environment variables here (no
           # AcceptEnv/SendEnv), so they cross as a `VAR=value` prefix on the
-          # remote command line, each individually shell-quoted with `%q`
-          # rather than interpolated raw -- this stays out of shell history
-          # since the whole remote command is passed as a single ssh argument
-          # and never echoed.
-          quoted_actor="$(printf '%q' "$SPATIAL_PYRAMID_ACTOR")"
-          quoted_reason="$(printf '%q' "$SPATIAL_PYRAMID_REASON")"
+          # remote command line. sshd parses that remote command line with
+          # the operator account's LOGIN shell (which may not be bash)
+          # before `bash -s` ever runs, so the quoting must be portable
+          # POSIX single-quote escaping that any POSIX shell (dash/sh/bash)
+          # parses identically -- not bash-specific `printf '%q'`, whose
+          # ANSI-C $'...' output a non-bash login shell can mis-parse. This
+          # stays out of shell history since the whole remote command is
+          # passed as a single ssh argument and never echoed.
+          sq() { printf '%s' "$1" | sed "s/'/'\\\\''/g"; }
+          quoted_actor="'$(sq "$SPATIAL_PYRAMID_ACTOR")'"
+          quoted_reason="'$(sq "$SPATIAL_PYRAMID_REASON")'"
           remote_command="SPATIAL_PYRAMID_ACTOR=$quoted_actor SPATIAL_PYRAMID_REASON=$quoted_reason bash -s -- '$OPERATION' '$stage' '$source_sha'"
           ssh -i ~/.ssh/ed_new_operator_key \
               -p "$SSH_PORT" \
