@@ -7,6 +7,22 @@ on:
         description: Type ed-finder-prod/nb79a3d.mevnode.com
         required: true
         type: string
+      operation:
+        description: Sub-command to run
+        required: true
+        type: choice
+        options:
+          - build
+          - publish
+        default: build
+      actor:
+        description: Publish actor (required for operation=publish)
+        required: false
+        type: string
+      reason:
+        description: Publish reason (required for operation=publish)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,7 +33,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build the reconciled spatial density pyramid to READY
+    name: Build or publish the reconciled spatial density pyramid
     if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: ed-new-operator
@@ -30,9 +46,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Require literal target confirmation and exact current main
+      - name: Require literal target confirmation, exact current main, and a valid operation request
         env:
           TARGET_CONFIRMATION: ${{ inputs.target_confirmation }}
+          OPERATION: ${{ inputs.operation }}
+          SPATIAL_PYRAMID_ACTOR: ${{ inputs.actor }}
+          SPATIAL_PYRAMID_REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
           [ "$TARGET_CONFIRMATION" = "ed-finder-prod/nb79a3d.mevnode.com" ] || exit 64
@@ -42,6 +61,20 @@ jobs:
             echo "Canonical main moved while this dispatch was pending" >&2
             exit 64
           }
+          case "$OPERATION" in
+            build|publish) ;;
+            *) echo "operation must be build or publish" >&2; exit 64 ;;
+          esac
+          if [ "$OPERATION" = publish ]; then
+            [ -n "$(printf '%s' "$SPATIAL_PYRAMID_ACTOR" | tr -d '[:space:]')" ] || {
+              echo "actor is required for operation=publish" >&2
+              exit 64
+            }
+            [ -n "$(printf '%s' "$SPATIAL_PYRAMID_REASON" | tr -d '[:space:]')" ] || {
+              echo "reason is required for operation=publish" >&2
+              exit 64
+            }
+          fi
 
       - name: Set up CPython 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -85,16 +118,20 @@ jobs:
           lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
 
-      - name: Stage trusted main and build the pyramid to READY
+      - name: Stage trusted main and run the requested spatial pyramid operation
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-spatial-pyramid-build.txt
+          OPERATION: ${{ inputs.operation }}
+          SPATIAL_PYRAMID_ACTOR: ${{ inputs.actor }}
+          SPATIAL_PYRAMID_REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER"
+          case "$OPERATION" in build|publish) ;; *) exit 64 ;; esac
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-v3-spatial-pyramid-${source_sha}"
           tar -C trusted-main --exclude=.git -cf - . | \
@@ -105,16 +142,27 @@ jobs:
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               "$SSH_USER@$SSH_HOST" \
               "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
+          # SPATIAL_PYRAMID_ACTOR/SPATIAL_PYRAMID_REASON are the only operator
+          # free text on this path (used by the publish sub-command only).
+          # SSH does not forward environment variables here (no
+          # AcceptEnv/SendEnv), so they cross as a `VAR=value` prefix on the
+          # remote command line, each individually shell-quoted with `%q`
+          # rather than interpolated raw -- this stays out of shell history
+          # since the whole remote command is passed as a single ssh argument
+          # and never echoed.
+          quoted_actor="$(printf '%q' "$SPATIAL_PYRAMID_ACTOR")"
+          quoted_reason="$(printf '%q' "$SPATIAL_PYRAMID_REASON")"
+          remote_command="SPATIAL_PYRAMID_ACTOR=$quoted_actor SPATIAL_PYRAMID_REASON=$quoted_reason bash -s -- '$OPERATION' '$stage' '$source_sha'"
           ssh -i ~/.ssh/ed_new_operator_key \
               -p "$SSH_PORT" \
               -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               "$SSH_USER@$SSH_HOST" \
-              "bash -s -- build '$stage' '$source_sha'" \
+              "$remote_command" \
               < trusted-main/scripts/operator/actions/v3-spatial-pyramid.sh | tee "$RECEIPT"
 
-      - name: Upload build receipt
+      - name: Upload operation receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
