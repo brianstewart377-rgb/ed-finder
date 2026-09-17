@@ -173,6 +173,36 @@ def test_build_level_aggregates_density_and_centroid(db_conn):
     assert abs(cell[2] - 15.0) < 1e-9
 
 
+def test_build_level_representative_prefers_distance_over_id64_tiebreak(db_conn):
+    """`representative_system_id64` must be the system nearest the cell's
+    data-centroid, not merely the smallest (or largest) id64 in the cell.
+
+    Three systems share one cell (all within [0,100) on every axis, so they
+    floor-bucket to '0.0.0'): id64 4001 at x=10, id64 4002 at x=15, id64 4003
+    at x=50 (y=z=10 for all three). The data-centroid is x=(10+15+50)/3=25,
+    y=10, z=10. Distances along x from the centroid are unambiguous:
+    4001 -> 15, 4002 -> 10, 4003 -> 25, so 4002 (the *middle* id64, neither
+    the min nor the max of the three) is strictly nearest and must be picked.
+    A builder that ignored distance and fell back to min(id64) would wrongly
+    return 4001; one that fell back to max(id64) would wrongly return 4003.
+    Only genuine distance-to-centroid ordering picks 4002.
+    """
+    from scripts.v3_spatial_pyramid import build_level
+    systems = [(4001, 10.0, 10.0, 10.0), (4002, 15.0, 10.0, 10.0), (4003, 50.0, 10.0, 10.0)]
+    sgid, _schema, _n = _seed_spatial(db_conn, systems=systems)
+    _register_test_level(db_conn)
+    n = build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                    level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    assert n == 1
+    cell = db_conn.execute(
+        "SELECT system_count, representative_system_id64, centroid_x_ly "
+        "FROM v3_spatial.cell_summary WHERE spatial_generation_id=%s AND cell_key='0.0.0'", (sgid,),
+    ).fetchone()
+    assert cell[0] == 3
+    assert cell[1] == 4002            # nearest the x=25 centroid; not min(id64)=4001, not max(id64)=4003
+    assert abs(cell[2] - 25.0) < 1e-9
+
+
 def test_build_level_handles_negative_coordinates(db_conn):
     """Postgres `floor()` rounds toward negative infinity, so a naive
     truncation-style cell-key computation would silently misbucket negative
