@@ -699,11 +699,13 @@ export const mapClusterHullsApiMapClustersHullsGet = <ThrowOnError extends boole
  *
  * Density-pyramid-aggregated heatmap for map rendering.
  *
- * Reads `v3_spatial.cell_summary` for the reconciled, generation-pinned
- * density pyramid of the current *published* derived generation (bounded
- * by the optional viewport box, at a level chosen to match `voxel_size`,
- * capped at `max_cells` with an honest `truncated` flag) whenever one is
- * published and READY, tagged `"source": "pyramid"`.
+ * Reads `v3_spatial.cell_summary` for the currently *published*
+ * `v3_spatial.spatial_generation` (bounded by the optional viewport box,
+ * at a level chosen to match `voxel_size`, capped at `max_cells` with an
+ * honest `truncated` flag) whenever one is published, tagged
+ * `"source": "pyramid"`. The pyramid is independently published against a
+ * pinned `v3_meta.canonical_generation` -- decoupled from the ratings
+ * `derived_generation` lifecycle (migration 011).
  *
  * Ratings are excluded from that pyramid's truth gate (it is a physical
  * density product, not a rated one), so an `economy`-scored request cannot
