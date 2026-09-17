@@ -165,4 +165,75 @@ CREATE TRIGGER cell_summary_truncate
 BEFORE TRUNCATE ON v3_spatial.cell_summary
 FOR EACH STATEMENT EXECUTE FUNCTION v3_spatial.reject_cell_summary_mutation();
 
+-- 6. Publish pointer + audit + CAS function.
+CREATE TABLE v3_spatial.current_spatial_generation (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+    spatial_generation_id uuid NOT NULL REFERENCES v3_spatial.spatial_generation,
+    publication_sequence bigint NOT NULL,
+    published_at timestamptz NOT NULL
+);
+
+CREATE TABLE v3_spatial.spatial_publication_audit (
+    publication_sequence bigint PRIMARY KEY,
+    previous_spatial_generation_id uuid,
+    published_spatial_generation_id uuid NOT NULL,
+    canonical_generation_id uuid NOT NULL,
+    published_at timestamptz NOT NULL,
+    actor text NOT NULL CHECK(btrim(actor) <> ''),
+    reason text NOT NULL CHECK(btrim(reason) <> '')
+);
+
+CREATE FUNCTION v3_spatial.publish_spatial_pyramid(
+    target_ uuid, expected_current_ uuid, expected_sequence_ bigint,
+    expected_canonical_ uuid, actor_ text, reason_ text
+) RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE candidate_ v3_spatial.spatial_generation%ROWTYPE;
+        current_ uuid; sequence_ bigint; canonical_ uuid;
+BEGIN
+    IF actor_ IS NULL OR btrim(actor_)='' OR reason_ IS NULL OR btrim(reason_)='' THEN
+        RAISE EXCEPTION 'publication needs actor and reason';
+    END IF;
+    PERFORM pg_advisory_xact_lock(764004001);
+
+    SELECT generation_id INTO canonical_
+      FROM v3_meta.current_canonical_generation WHERE singleton FOR SHARE;
+    IF canonical_ IS DISTINCT FROM expected_canonical_ THEN
+        RAISE EXCEPTION 'canonical publication changed';
+    END IF;
+
+    SELECT spatial_generation_id, publication_sequence INTO current_, sequence_
+      FROM v3_spatial.current_spatial_generation WHERE singleton FOR UPDATE;
+    IF current_ IS DISTINCT FROM expected_current_
+       OR COALESCE(sequence_,0)<>expected_sequence_ THEN
+        RAISE EXCEPTION 'spatial publication changed';
+    END IF;
+
+    SELECT * INTO candidate_ FROM v3_spatial.spatial_generation
+     WHERE spatial_generation_id=target_ FOR UPDATE;
+    IF NOT FOUND
+       OR candidate_.lifecycle_state NOT IN ('READY','RETIRED')
+       OR candidate_.canonical_generation_id<>canonical_
+       OR candidate_.validation_receipt->>'status'<>'VERIFIED' THEN
+        RAISE EXCEPTION 'candidate is not a READY pyramid for the current canonical generation';
+    END IF;
+
+    sequence_ := COALESCE(sequence_,0)+1;
+    IF current_ IS NOT NULL THEN
+        UPDATE v3_spatial.spatial_generation SET lifecycle_state='RETIRED'
+         WHERE spatial_generation_id=current_;
+    END IF;
+    UPDATE v3_spatial.spatial_generation
+       SET lifecycle_state='PUBLISHED', published_at=now()
+     WHERE spatial_generation_id=target_;
+    INSERT INTO v3_spatial.current_spatial_generation
+        VALUES(true, target_, sequence_, now())
+    ON CONFLICT(singleton) DO UPDATE
+        SET spatial_generation_id=EXCLUDED.spatial_generation_id,
+            publication_sequence=EXCLUDED.publication_sequence,
+            published_at=EXCLUDED.published_at;
+    INSERT INTO v3_spatial.spatial_publication_audit
+        VALUES(sequence_, current_, target_, canonical_, now(), actor_, reason_);
+    RETURN sequence_;
+END $$;
+
 COMMIT;
