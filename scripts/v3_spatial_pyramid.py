@@ -298,6 +298,64 @@ def build_receipt(conn, *, spatial_generation_id, version: str,
     }
 
 
+def mark_pyramid_ready(conn, *, spatial_generation_id, version: str, receipt: dict) -> None:
+    '''Transition the spatial_generation BUILDING/VALIDATING -> READY, storing
+    the VERIFIED validation receipt + its sha. Requires an already-reconciled
+    build_receipt (receipt['reconciliation'] == 'passed') with a positive
+    canonical_count. Idempotent: a no-op when the row is already READY with a
+    matching validation receipt. Parameterised SQL only.'''
+    if not isinstance(receipt, dict) or receipt.get('reconciliation') != 'passed':
+        raise ValueError('mark_pyramid_ready requires a reconciled build_receipt (reconciliation == "passed")')
+    canonical_count = receipt.get('canonical_count')
+    if not isinstance(canonical_count, int) or isinstance(canonical_count, bool) or canonical_count <= 0:
+        raise ValueError('receipt canonical_count must be a positive integer')
+
+    row = conn.execute(
+        '''SELECT lifecycle_state, pyramid_version
+             FROM v3_spatial.spatial_generation WHERE spatial_generation_id=%s''',
+        (spatial_generation_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError('unknown spatial generation')
+    state, existing_version = row
+    if existing_version != version:
+        raise ValueError('spatial generation pyramid_version differs from build version')
+    if state == 'READY':
+        return  # idempotent no-op
+    if state not in ('BUILDING', 'VALIDATING'):
+        raise ValueError(f'spatial generation cannot become READY from state {state!r}')
+
+    validation_receipt = {**receipt, 'status': 'VERIFIED'}
+    validation_sha = _digest(validation_receipt)
+    with conn.transaction():
+        updated = conn.execute(
+            '''UPDATE v3_spatial.spatial_generation
+                  SET lifecycle_state='READY', validation_receipt=%s::jsonb,
+                      validation_sha256=%s, validated_at=now()
+                WHERE spatial_generation_id=%s
+                  AND lifecycle_state IN ('BUILDING','VALIDATING')''',
+            (_json(validation_receipt), validation_sha, spatial_generation_id),
+        ).rowcount
+        if updated != 1:
+            raise ValueError('spatial generation READY transition failed')
+
+
+def spatial_pyramid_for_current(conn) -> tuple | None:
+    '''Return (spatial_generation_id, pyramid_version, canonical_generation_id,
+    expected_systems, validated_at) for the currently published spatial
+    generation, or None. Mirrors the API read exactly.'''
+    row = conn.execute(
+        '''SELECT c.spatial_generation_id, sg.pyramid_version,
+                  sg.canonical_generation_id, sg.expected_systems, sg.validated_at
+             FROM v3_spatial.current_spatial_generation c
+             JOIN v3_spatial.spatial_generation sg USING (spatial_generation_id)
+            WHERE sg.lifecycle_state='PUBLISHED' ''',
+    ).fetchone()
+    if row is None:
+        return None
+    return tuple(row)
+
+
 def _json(value) -> str:
     '''Deterministic JSON, mirroring `scripts/v3_system_search.py`'s `_json`:
     bytes-like values become hex, datetimes become UTC ISO-8601, and anything

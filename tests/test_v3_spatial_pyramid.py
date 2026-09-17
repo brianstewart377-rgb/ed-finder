@@ -342,3 +342,36 @@ def test_build_receipt_raises_for_unknown_generation(db_conn):
             db_conn, spatial_generation_id=str(uuid.uuid4()), version='pyramid_v1',
             canonical_count=0, per_level={},
         )
+
+
+def test_mark_pyramid_ready_transitions_and_is_idempotent(db_conn):
+    from scripts.v3_spatial_pyramid import (
+        register_cell_levels, build_level, build_receipt, canonical_system_count,
+        mark_pyramid_ready,
+    )
+    sgid, _schema, n = _seed_spatial(db_conn)
+    register_cell_levels(db_conn, 'pyramid_v1')
+    _register_test_level(db_conn)
+    build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    # Build the real ladder levels too so reconcile's expected set is satisfied.
+    from scripts.v3_spatial_pyramid import build_all_levels
+    build_all_levels(db_conn, spatial_generation_id=sgid, version='pyramid_v1')
+    count = canonical_system_count(db_conn, sgid)
+    receipt = build_receipt(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                            canonical_count=count, per_level={})
+    mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1', receipt=receipt)
+    state = db_conn.execute(
+        "SELECT lifecycle_state FROM v3_spatial.spatial_generation WHERE spatial_generation_id=%s", (sgid,),
+    ).fetchone()[0]
+    assert state == 'READY'
+    # idempotent no-op
+    mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1', receipt=receipt)
+
+
+def test_mark_pyramid_ready_rejects_unreconciled_receipt(db_conn):
+    from scripts.v3_spatial_pyramid import mark_pyramid_ready
+    sgid, _schema, _n = _seed_spatial(db_conn)
+    with pytest.raises(ValueError):
+        mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                           receipt={'reconciliation': 'not-run'})
