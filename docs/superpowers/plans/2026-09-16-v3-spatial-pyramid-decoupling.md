@@ -20,7 +20,14 @@
 - Publish CAS gates on the candidate's `canonical_generation_id == v3_meta.current_canonical_generation`; rollback = publish a prior READY/RETIRED spatial generation.
 - Branch → PR; `main` protected; **no production DB writes from this coding task**. Full prod build+publish is the owner-dispatched governed workflow only.
 - Parameterised SQL only; no secrets in code/args/logs. CPython 3.14; Ruff `py314`.
-- Tests run against a disposable local Postgres (per `tests/helpers/db_isolation.py`, e.g. `docker-compose.localtest.yml` at `127.0.0.1:55434`, DB `ratings_v4_validation`); apply migrations there with `DATABASE_URL=<disposable> bash scripts/apply_migrations.sh` before integration tests. Never target a production-looking host.
+- **Disposable DB workflow (verified by the controller):** a template DB `spatial_decouple_tmpl` already exists on `edfinder-localtest-pg18` (`127.0.0.1:55434`, user/pass `postgres`/`postgres`) with v3 migrations 001–009 applied (the exact `sql/v3/migration-manifest.txt` lineage; note migration 010 is **not** in that manifest — a pre-existing gap, out of scope here) plus a seeded PUBLISHED canonical generation + `current_canonical_generation` pointer (sequence 1). Before running DB tests for a task, reset a run DB from the template and apply migration 011 directly:
+  ```
+  docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS spatial_decouple_run;"
+  docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "CREATE DATABASE spatial_decouple_run TEMPLATE spatial_decouple_tmpl;"
+  docker exec -i edfinder-localtest-pg18 psql -U postgres -d spatial_decouple_run -v ON_ERROR_STOP=1 < sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql   # once 011 exists (Task 1+)
+  ```
+  Then run pytest with `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55434/spatial_decouple_run`.
+- **All test `db_conn` fixtures MUST resolve the target with `db_isolation.target_from_env(os.environ)` (honors `DATABASE_URL`), NOT `db_isolation.default_target(...)`** — `default_target` hardcodes `127.0.0.1:55432/edfinder` (the persistent `ed-postgres` dev DB, which has no isolated schema and must never receive this migration). When rewriting `tests/test_v3_spatial_pyramid.py`, replace its existing `default_target` call with `target_from_env`. Never target a production-looking host.
 
 ---
 
@@ -41,7 +48,7 @@
 
 **Files:**
 - Create: `sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql`
-- Modify: `sql/v3/migration-manifest.txt` (append the new filename after `010_...`)
+- Modify: `sql/v3/migration-manifest.txt` (append the 011 lineage line after `009_...`; see Step 4 for the exact 3-column format)
 - Test: `tests/integration/test_spatial_generation_lifecycle.py` (create)
 
 **Interfaces:**
@@ -55,9 +62,9 @@ Create `tests/integration/test_spatial_generation_lifecycle.py` (reuse the `db_c
 ```python
 """Migration 011 schema + lifecycle-guard contract, on a disposable DB.
 
-Requires migration 011 already applied to the disposable test database
-(DATABASE_URL=<disposable> bash scripts/apply_migrations.sh). Skips when no
-disposable Postgres is reachable.
+Requires migration 011 already applied to the disposable test database (reset
+from the spatial_decouple_tmpl template + psql-apply 011; see the plan's Global
+Constraints). Skips when no disposable Postgres is reachable.
 """
 from __future__ import annotations
 
@@ -78,7 +85,7 @@ from tests.helpers import db_isolation  # noqa: E402
 
 @pytest.fixture
 def db_conn():
-    target = db_isolation.default_target(os.environ)
+    target = db_isolation.target_from_env(os.environ)
     try:
         conn = psycopg.connect(target.dsn)
     except psycopg.OperationalError as exc:
@@ -245,7 +252,7 @@ CREATE INDEX cell_summary_gen_level
     ON v3_spatial.cell_summary(spatial_generation_id, level);
 
 COMMENT ON COLUMN v3_spatial.cell_summary.representative_system_id64 IS
-    'System nearest the cell data-centroid (tiebreak min(system_id64)); the density->real-star handoff for the map client.';
+    'Canonical id64 of the system nearest the cell data-centroid (tiebreak min(id64)); the density->real-star handoff for the map client.';
 
 -- 4. Lifecycle guard on spatial_generation.
 CREATE FUNCTION v3_spatial.guard_spatial_generation()
@@ -355,16 +362,27 @@ COMMIT;
 
 - [ ] **Step 4: Register the migration in the manifest**
 
-Append `011_v3_spatial_pyramid_decouple.sql` to `sql/v3/migration-manifest.txt` on its own line, immediately after `010_v3_system_search_body_type_counts.sql` (match the exact existing format — bare filename, no path, if that is what the file uses; otherwise mirror the `010` line's format exactly).
+Append the migration-011 line to `sql/v3/migration-manifest.txt` after the last existing lineage line (`009_v3_journal_galaxy_contributions.sql`; migration 010 is not in this manifest — do not add it, that gap is out of scope). The manifest format is three whitespace-separated columns: `<sha256>  <ledger-name>  <path-under-sql>`. Compute the sha256 of the committed migration file (LF endings) and use it verbatim:
+
+```
+sha256=$(git show HEAD:sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql | sha256sum | awk '{print $1}')
+# if not yet committed, hash the working file with LF:
+# sha256=$(sed 's/\r$//' sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql | sha256sum | awk '{print $1}')
+printf '%s  011_v3_spatial_pyramid_decouple.sql  v3/migrations/011_v3_spatial_pyramid_decouple.sql\n' "$sha256" >> sql/v3/migration-manifest.txt
+```
+
+The `<ledger-name>` is the exact `migration_name` recorded in `v3_meta.schema_migration`. This manifest line is what the production migration applier and the Task 5 operator sha-gate both rely on, so the sha must match the committed bytes exactly. (Local disposable-DB testing applies 011 directly via `psql` per the Global Constraints workflow and does not consult this manifest.)
 
 - [ ] **Step 5: Apply the migration and run the tests**
 
-Run:
+Run (reset the run DB from the template, apply 011 directly, then test — per the Global Constraints workflow):
 ```
-DATABASE_URL=<disposable> bash scripts/apply_migrations.sh
-DATABASE_URL=<disposable> python -m pytest tests/integration/test_spatial_generation_lifecycle.py -v
+docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS spatial_decouple_run;"
+docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "CREATE DATABASE spatial_decouple_run TEMPLATE spatial_decouple_tmpl;"
+docker exec -i edfinder-localtest-pg18 psql -U postgres -d spatial_decouple_run -v ON_ERROR_STOP=1 < sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55434/spatial_decouple_run python -m pytest tests/integration/test_spatial_generation_lifecycle.py -v
 ```
-Expected: PASS (3 tests). If the disposable DB already had a prior 011 attempt, recreate it (drop/recreate the database) before applying, since migrations are apply-once via the ledger.
+Expected: PASS (3 tests). Always reset from the template before re-applying 011 — the migration is not re-runnable in place (it `DROP`s then `CREATE`s).
 
 - [ ] **Step 6: Commit**
 
@@ -544,12 +562,14 @@ END $$;
 
 - [ ] **Step 4: Re-apply and run the tests**
 
-Run (recreate the disposable DB first so 011 re-applies cleanly):
+Run (reset the run DB from the template + apply 011, then test):
 ```
-DATABASE_URL=<disposable> bash scripts/apply_migrations.sh
-DATABASE_URL=<disposable> python -m pytest tests/integration/test_spatial_publish.py tests/integration/test_spatial_generation_lifecycle.py -v
+docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS spatial_decouple_run;"
+docker exec edfinder-localtest-pg18 psql -U postgres -d postgres -c "CREATE DATABASE spatial_decouple_run TEMPLATE spatial_decouple_tmpl;"
+docker exec -i edfinder-localtest-pg18 psql -U postgres -d spatial_decouple_run -v ON_ERROR_STOP=1 < sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55434/spatial_decouple_run python -m pytest tests/integration/test_spatial_publish.py tests/integration/test_spatial_generation_lifecycle.py -v
 ```
-Expected: PASS. (`RETIRED→PUBLISHED` rollback is allowed by the Task 1 guard, so re-publishing a prior generation succeeds.)
+Expected: PASS. (`RETIRED→PUBLISHED` rollback is allowed by the Task 1 guard, so re-publishing a prior generation succeeds. The template already carries a PUBLISHED `current_canonical_generation`, so the publish tests run rather than skip.)
 
 - [ ] **Step 5: Commit**
 
@@ -585,9 +605,11 @@ def _seed_spatial(conn, *, systems=None):
     """Seed a canonical_generation + a real {gen}.systems relation + a
     BUILDING spatial_generation. Returns (spatial_generation_id, schema, count).
 
-    Only the columns the builder reads (system_id64, x_ly, y_ly, z_ly) are
+    Only the columns the builder reads (id64, x_ly, y_ly, z_ly) are
     created on the fixture systems table; the real relation has more, but the
-    builder never selects them.
+    builder never selects them. NOTE: the canonical systems table's primary key
+    column is `id64` (not `system_id64`); the builder reads `id64` and stores it
+    into cell_summary.representative_system_id64.
     """
     import uuid
     from psycopg import sql
@@ -616,14 +638,14 @@ def _seed_spatial(conn, *, systems=None):
     )
     conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
     conn.execute(sql.SQL(
-        'CREATE TABLE {}.systems (system_id64 bigint PRIMARY KEY, '
+        'CREATE TABLE {}.systems (id64 bigint PRIMARY KEY, '
         'x_ly double precision NOT NULL, y_ly double precision NOT NULL, z_ly double precision NOT NULL)'
     ).format(sql.Identifier(schema)))
     if systems is None:
         systems = [(1001, 10.0, 10.0, 10.0), (1002, 20.0, 20.0, 20.0), (1003, 150.0, 0.0, 0.0)]
     for sid, x, y, z in systems:
         conn.execute(
-            sql.SQL('INSERT INTO {}.systems(system_id64,x_ly,y_ly,z_ly) VALUES(%s,%s,%s,%s)').format(sql.Identifier(schema)),
+            sql.SQL('INSERT INTO {}.systems(id64,x_ly,y_ly,z_ly) VALUES(%s,%s,%s,%s)').format(sql.Identifier(schema)),
             (sid, x, y, z),
         )
     sgid = conn.execute(
@@ -726,14 +748,14 @@ def canonical_system_count(conn, spatial_generation_id) -> int:
     ).fetchone()[0])
 ```
 
-(c) Replace `build_level`/`build_all_levels` with a canonical-only, spatial-keyed aggregation. The representative star is the system nearest the cell data-centroid, tiebreak `min(system_id64)`:
+(c) Replace `build_level`/`build_all_levels` with a canonical-only, spatial-keyed aggregation. The representative star is the system nearest the cell data-centroid, tiebreak `min(id64)` (the canonical `systems` PK column is `id64`):
 
 ```python
 def build_level(conn, *, spatial_generation_id, version, level, cell_size_ly) -> int:
     '''Aggregate one level's occupied cells from the canonical {gen}.systems
     catalogue into v3_spatial.cell_summary (insert-only). Pure density:
     system_count = COUNT(*); representative = system nearest the cell
-    data-centroid (tiebreak min(system_id64)). Returns rows inserted.'''
+    data-centroid (tiebreak min(id64)). Returns rows inserted.'''
     from psycopg import sql
     schema = canonical_schema_for_spatial(conn, spatial_generation_id)
     stmt = sql.SQL('''
@@ -742,7 +764,7 @@ def build_level(conn, *, spatial_generation_id, version, level, cell_size_ly) ->
            origin_x_ly, origin_y_ly, origin_z_ly, system_count,
            centroid_x_ly, centroid_y_ly, centroid_z_ly, representative_system_id64)
         WITH pts AS (
-            SELECT system_id64, x_ly, y_ly, z_ly,
+            SELECT id64, x_ly, y_ly, z_ly,
                    floor(x_ly/%(sz)s)::bigint AS ix,
                    floor(y_ly/%(sz)s)::bigint AS iy,
                    floor(z_ly/%(sz)s)::bigint AS iz
@@ -753,16 +775,16 @@ def build_level(conn, *, spatial_generation_id, version, level, cell_size_ly) ->
               FROM pts GROUP BY ix, iy, iz
         ), rep AS (
             SELECT DISTINCT ON (p.ix, p.iy, p.iz)
-                   p.ix, p.iy, p.iz, p.system_id64
+                   p.ix, p.iy, p.iz, p.id64
               FROM pts p JOIN agg a USING (ix, iy, iz)
              ORDER BY p.ix, p.iy, p.iz,
                    ((p.x_ly-a.cx)^2 + (p.y_ly-a.cy)^2 + (p.z_ly-a.cz)^2),
-                   p.system_id64
+                   p.id64
         )
         SELECT %(gen)s, %(ver)s, %(lvl)s,
                a.ix || '.' || a.iy || '.' || a.iz,
                a.ix*%(sz)s, a.iy*%(sz)s, a.iz*%(sz)s,
-               a.n, a.cx, a.cy, a.cz, r.system_id64
+               a.n, a.cx, a.cy, a.cz, r.id64
           FROM agg a JOIN rep r USING (ix, iy, iz)
     ''').format(schema=sql.Identifier(schema))
     cur = conn.execute(stmt, {
