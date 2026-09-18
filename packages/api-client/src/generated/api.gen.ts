@@ -1480,7 +1480,7 @@ export interface paths {
          *     honest `truncated` flag) whenever one is published, tagged
          *     `"source": "pyramid"`. The pyramid is independently published against a
          *     pinned `v3_meta.canonical_generation` -- decoupled from the ratings
-         *     `derived_generation` lifecycle (migration 011).
+         *     `derived_generation` lifecycle (migration 012).
          *
          *     Ratings are excluded from that pyramid's truth gate (it is a physical
          *     density product, not a rated one), so an `economy`-scored request cannot
