@@ -1,6 +1,6 @@
 """Integration: GET /api/map/heatmap served from the decoupled, canonical-keyed
 `v3_spatial` density pyramid (`v3_spatial.spatial_generation` /
-`v3_spatial.cell_summary`, migration 011), with an explicit legacy-fallback
+`v3_spatial.cell_summary`, migration 012), with an explicit legacy-fallback
 tag when no such pyramid is currently published.
 
 Lives in `tests/integration/` alongside `test_map_systems_viewport.py`, so it
@@ -8,7 +8,7 @@ picks up this directory's `app`/`client`/`pool`/`clean_db` fixtures natively
 via `tests/integration/conftest.py` (plain directory-based pytest discovery,
 no cross-file import needed).
 
-Requires migration 011 already applied to the disposable test database (reset
+Requires migration 012 already applied to the disposable test database (reset
 from the `spatial_decouple_tmpl` template + psql-apply 011). Mirrors
 `tests/integration/test_spatial_publish.py`'s `_v2_table_shim` / destructive-
 reset-opt-in pattern: this is a V3-only fixture DB with no `public` schema

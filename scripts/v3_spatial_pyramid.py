@@ -17,7 +17,7 @@ This module:
 
 The spatial pyramid is decoupled from the ratings `derived_generation`
 lifecycle: it is keyed to its own `v3_spatial.spatial_generation`, itself
-keyed to a canonical generation (`sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql`).
+keyed to a canonical generation (`sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql`).
 Registering the pyramid as a product, transitioning it BUILDING -> READY, and
 publishing it via `v3_spatial.publish_spatial_pyramid` are separate concerns,
 out of scope here (Task 4).

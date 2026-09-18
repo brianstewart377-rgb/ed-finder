@@ -16,7 +16,7 @@ TARGET_CANONICAL_GENERATION="a7076522-54cd-52f3-a291-4e5406bea230"
 TARGET_CANONICAL_SEQUENCE="4"
 TARGET_EXPECTED_SYSTEMS="198528286"
 PYRAMID_VERSION="pyramid_v1"
-SPATIAL_MIGRATION_NAME="011_v3_spatial_pyramid_decouple.sql"
+SPATIAL_MIGRATION_NAME="012_v3_spatial_pyramid_decouple.sql"
 SPATIAL_MIGRATION_SHA="5ca6a12e969392fe9562e7b2217d77988f4f2b27258ffa84845cb2c5314680ee"
 OPERATION_LABEL="ed-finder.operation=v3-spatial-pyramid-build"
 STATE_ROOT="${HOME}/.local/state/ed-finder/v3-spatial-pyramid"
@@ -74,7 +74,7 @@ api_database_url() {
 }
 
 # The spatial pyramid is decoupled from the ratings derived_generation
-# lifecycle (sql/v3/migrations/011_v3_spatial_pyramid_decouple.sql): this is
+# lifecycle (sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql): this is
 # the only migration this action gates on. Verifies the committed source file
 # on the trusted staged checkout AND the live v3_meta.schema_migration ledger
 # both match the pinned sha256, fail-closed on either mismatch.
@@ -275,7 +275,7 @@ PY
 }
 
 # Publishes the pinned (canonical, version) spatial generation via the CAS
-# v3_spatial.publish_spatial_pyramid function (migration 011). Reads the
+# v3_spatial.publish_spatial_pyramid function (migration 012). Reads the
 # current spatial publish pointer + sequence and the live canonical id in one
 # read-only DB session, then passes every expected value back into the
 # function so a concurrent publish or canonical rollover between the read and

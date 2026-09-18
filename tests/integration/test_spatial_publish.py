@@ -1,6 +1,6 @@
 """Migration 011 publish pointer + CAS function contract, on a disposable DB.
 
-Requires migration 011 already applied to the disposable test database (reset
+Requires migration 012 already applied to the disposable test database (reset
 from the spatial_decouple_tmpl template + psql-apply 011; see the plan's Global
 Constraints). Skips when no disposable Postgres is reachable.
 """

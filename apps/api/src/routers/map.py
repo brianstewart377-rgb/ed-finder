@@ -175,7 +175,7 @@ async def _current_spatial_pyramid(conn: asyncpg.Connection) -> Optional[asyncpg
     by `v3_spatial.current_spatial_generation`.
 
     The spatial pyramid is decoupled from the ratings `derived_generation`
-    lifecycle (migration 011): it is an independently-published artifact
+    lifecycle (migration 012): it is an independently-published artifact
     keyed directly to a `v3_meta.canonical_generation`, not to a ratings
     derived product. Mirrors `scripts/v3_spatial_pyramid.py:
     spatial_pyramid_for_current`. Returns `None` -- meaning "serve the
@@ -244,7 +244,7 @@ async def map_heatmap(
     honest `truncated` flag) whenever one is published, tagged
     `"source": "pyramid"`. The pyramid is independently published against a
     pinned `v3_meta.canonical_generation` -- decoupled from the ratings
-    `derived_generation` lifecycle (migration 011).
+    `derived_generation` lifecycle (migration 012).
 
     Ratings are excluded from that pyramid's truth gate (it is a physical
     density product, not a rated one), so an `economy`-scored request cannot

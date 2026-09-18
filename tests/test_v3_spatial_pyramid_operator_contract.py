@@ -1,7 +1,7 @@
 """Static contract for the governed spatial-pyramid operator script.
 
 No SSH, no DB, no prod: reads the script text and asserts it pins the canonical
-generation, gates on migration 011, and exposes build + publish sub-commands.
+generation, gates on migration 012, and exposes build + publish sub-commands.
 """
 from pathlib import Path
 
@@ -21,9 +21,9 @@ def test_pins_canonical_generation_not_ratings_key():
     assert 'TARGET_GENERATION_KEY' not in text
 
 
-def test_gates_on_migration_011():
+def test_gates_on_migration_012():
     text = _SCRIPT.read_text(encoding='utf-8')
-    assert '011_v3_spatial_pyramid_decouple.sql' in text
+    assert '012_v3_spatial_pyramid_decouple.sql' in text
 
 
 def test_exposes_build_and_publish_commands():
