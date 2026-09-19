@@ -5,15 +5,19 @@
 ED-Finder production is `ed-finder-prod` at `nb79a3d.mevnode.com` on the V3
 replacement infrastructure.
 
-It is currently serving `edfinder-v3-api:release-6a4fe0ef` with
-`edfinder-v3-production-web:release-1dc4d099`, promoted in place on
-2026-09-09T20:02Z outside the governed workflow. Read-only inventory run
-`34493285192` (2026-09-10) confirms the running containers, the
+It served `edfinder-v3-api:release-6a4fe0ef` with
+`edfinder-v3-production-web:release-1dc4d099` from an in-place release on
+2026-09-09T20:02Z made outside the governed workflow. Read-only inventory run
+`34493285192` (2026-09-10) confirmed the running containers, the
 `edfinder-v3-production` application network, exact loopback ownership of
 `58080` and `58081`, and the live schema `edfinder_v3_phase4c_full_20260827_r5`.
-The promotion authority remains `stopped`: there is no canonical release, no
-durable promotion receipt, and no checksum-bound rollback target for what is
-running. See
+Since then the promotion authority has moved to `authorized` and has accepted two
+governed promotions: the first `bootstrap` on 2026-09-10 (which left a durable
+promotion receipt and a checksum-bound rollback target) and the identity release
+on 2026-09-16. The release currently in production is the one recorded by the
+durable promotion receipt store, which is the source of truth for the deployed
+build; deploys still run **only** through the governed application-promotion
+workflow and its fail-closed target authority. See
 [`v3-production-application-release.md`](v3-production-application-release.md).
 
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
@@ -22,9 +26,11 @@ The reviewed V3 application promotion boundary is
 [`v3-production-application-release.md`](v3-production-application-release.md).
 It has its own app-only blue/green Compose authority and is deliberately
 separate from the root/legacy Compose and the Contabo checkpoint. Its committed
-target remains stopped pending a reviewed read-only production inventory,
-schema identity, network/secret/receipt facts, and exact unchanged-edge cutover
-topology. That stopped authority is not permission to deploy.
+target authority is now `authorized`: the reviewed read-only production
+inventory, schema identity, network/secret/receipt facts, and exact
+unchanged-edge cutover topology are provisioned and pinned. Being authorized is
+not blanket permission to deploy — promotions run only through the governed
+workflow and its fail-closed target authority.
 
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
 

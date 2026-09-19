@@ -22,9 +22,12 @@ merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
 The separate Contabo/live checkpoint remains a rehearsal boundary outside
 production.
-The V3 production application promotion authority is now defined independently
-and remains fail-closed until its fresh inventory, schema, network, secret-file,
-receipt-store, Docker-context, and unchanged-edge cutover facts are reviewed.
+The V3 production application promotion authority is defined independently and is
+now `authorized`: its inventory, schema, network, secret-file, receipt-store,
+Docker-context, and unchanged-edge cutover facts have been reviewed and pinned,
+and it has accepted governed promotions (2026-09-10 bootstrap; 2026-09-16
+identity release). Being authorized is not blanket permission to promote —
+deploys run only through the governed application-promotion workflow.
 
 ## Current authority
 
@@ -132,6 +135,7 @@ backup targets, or restore commands.
 
 The separate V3 production application promotion authority is documented in
 [`docs/operations/v3-production-application-release.md`](docs/operations/v3-production-application-release.md).
-Its committed target is fail-closed pending reviewed inventory and schema/edge
-facts; the root Compose and Contabo checkpoint do not become production
-authority.
+Its committed target is `authorized` (inventory and schema/edge facts reviewed
+and pinned) and has accepted governed promotions, but promotions still run only
+through the governed workflow; the root Compose and Contabo checkpoint do not
+become production authority.
