@@ -944,8 +944,10 @@ export function nebulaCloudRadiusLy(
   kind: 'nebula' | 'planetary-nebula',
 ): number {
   // Mapcharts publishes a reference-system coordinate, not a physical boundary.
-  // These bounded radii are deliberately schematic map presentation.
-  return kind === 'planetary-nebula' ? 56 : 160;
+  // These bounded radii are deliberately schematic map presentation — sized so a
+  // landmark reads as a soft cloud at the Galaxy-scale camera (~10^5 ly), not the
+  // sub-pixel dot the earlier 56/160 ly radii produced.
+  return kind === 'planetary-nebula' ? 700 : 2_000;
 }
 
 // Overlapping catalogue points inside this cube collapse to one landmark so the
@@ -1010,7 +1012,7 @@ function createGalaxyNebulaeMesh(
   material.diffuseColor = Color3.White();
   material.emissiveColor = new Color3(0.24, 0.26, 0.4);
   material.specularColor = Color3.Black();
-  material.alpha = 0.1;
+  material.alpha = 0.45;
   mesh.material = material;
   mesh.onDisposeObservable.addOnce(() => material.dispose());
 
@@ -1030,7 +1032,7 @@ function createGalaxyNebulaeMesh(
       (nebula.regionId ?? Math.floor(hash * NEBULA_PALETTE.length)) %
       NEBULA_PALETTE.length;
     const colour = NEBULA_PALETTE[paletteIndex]!;
-    colours.set([...colour, 0.1 + hash * 0.06], index * 4);
+    colours.set([...colour, 0.4 + hash * 0.25], index * 4);
   });
   mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
   mesh.thinInstanceSetBuffer('color', colours, 4, true);
