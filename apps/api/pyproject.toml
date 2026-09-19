@@ -12,7 +12,7 @@ dependencies = [
   "pydantic==2.13.5",
   "pyzmq==27.2.0",
   "redis==8.1.0",
-  "sentry-sdk==2.68.1",
+  "sentry-sdk==2.69.1",
   "slowapi==0.1.10",
   "tornado==6.5.8",
   "uvicorn[standard]==0.52.4",
@@ -28,12 +28,12 @@ test = [
   "coverage==7.16.0",
   "ijson==3.5.1",
   "jsonschema==4.26.0",
-  "numpy==2.5.2",
-  "psycopg[binary]==3.3.4",
+  "numpy==2.5.3",
+  "psycopg[binary]==3.3.5",
   "pytest-asyncio==1.4.0",
   "pytest==9.1.1",
-  "ruff==0.16.5",
-  "tqdm==4.70.0",
+  "ruff==0.16.7",
+  "tqdm==4.70.1",
 ]
 
 [tool.uv]
