@@ -183,8 +183,11 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
             # ── Receive ───────────────────────────────────────────────────
             try:
                 raw = await asyncio.wait_for(socket.recv(), timeout=35.0)
-            except asyncio.TimeoutError:
-                # Quiet feed — flush what we have and reconnect.
+            except (asyncio.TimeoutError, zmq.Again):
+                # Quiet feed — no message within RCVTIMEO / the wait_for window.
+                # pyzmq raises zmq.Again on the socket RCVTIMEO (30s), which fires
+                # before the 35s wait_for; it is a normal quiet-feed cycle, not an
+                # error. Flush what we have and reconnect.
                 break
             except Exception as e:
                 # ZMQ / decode-layer error — flush what we have and reconnect.
