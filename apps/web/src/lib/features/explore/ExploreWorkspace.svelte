@@ -582,6 +582,11 @@
     return () => {
       regionLoadAttempt += 1;
       nebulaLoadAttempt += 1;
+      // Cancel a pending viewport-camera debounce so it can't fire after teardown.
+      if (viewportCameraTimeout !== null) {
+        window.clearTimeout(viewportCameraTimeout);
+        viewportCameraTimeout = null;
+      }
     };
   });
 
