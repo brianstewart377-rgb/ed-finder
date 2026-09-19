@@ -154,6 +154,28 @@ describe('Galaxy label projection and layout', () => {
     );
   });
 
+  it('hovering a region does not change any label placement (emphasis only)', () => {
+    const region = (id: string) =>
+      ({ kind: 'region', text: `Region ${id}`, target: { kind: 'region', id } }) as const;
+    // Clustered so the greedy solver must displace them — the setup that made
+    // hover reorder + reflow neighbours before the fix.
+    const candidates = [
+      label('r1', 0, 0, region('1')),
+      label('r2', 2, 0, region('2')),
+      label('r3', -2, 0, region('3')),
+      label('r4', 0, 3, region('4')),
+    ];
+    const place = (list: GalaxyLabelCandidate[]) =>
+      Object.fromEntries(
+        layoutGalaxyLabels(list, camera, viewport).map((l) => [l.key, `${l.xPx}:${l.yPx}`]),
+      );
+    const base = place(candidates);
+    const withHover = place(
+      candidates.map((c) => (c.key === 'r3' ? { ...c, hovered: true } : c)),
+    );
+    expect(withHover).toEqual(base);
+  });
+
   it('keeps all 42 region names map-anchored at Galaxy scale', () => {
     const regions = Array.from({ length: 42 }, (_, index) =>
       label(
