@@ -1,4 +1,5 @@
-"""Tests for the V3 spatial density pyramid cell-level registry + source resolver.
+"""Tests for the V3 spatial density pyramid cell-level registry + canonical-density
+builder.
 
 Reuses the `db_conn` fixture pattern from
 `tests/test_journal_commander_association.py`: a real, disposable-DB-only
@@ -33,13 +34,23 @@ def db_conn():
     fails) when no local disposable Postgres is reachable, per the project's
     "real-service tests must skip explicitly when the service is absent" rule.
     """
-    target = db_isolation.default_target(os.environ)
+    target = db_isolation.target_from_env(os.environ)
     try:
         conn = psycopg.connect(target.dsn)
     except psycopg.OperationalError as exc:
         pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
         return
     conn.autocommit = False
+    # The V3 spatial schema (migration 012_v3_spatial_pyramid_decouple) is only
+    # present on a disposable DB with the V3 lineage applied. CI lanes that seed
+    # the legacy V2 schema reach a live-but-wrong-schema Postgres, so skip (like
+    # the tests/integration spatial suites do via v3_fixture_db_ready) rather than
+    # erroring on missing v3_spatial/v3_source relations.
+    if conn.execute("SELECT to_regclass('v3_spatial.spatial_generation')").fetchone()[0] is None:
+        conn.rollback()
+        conn.close()
+        pytest.skip('V3 spatial schema (migration 012) not applied to the disposable test DB')
+        return
     try:
         yield conn
     finally:
@@ -72,54 +83,29 @@ def test_register_cell_levels_is_idempotent(db_conn):
     assert n == len(CELL_LEVELS)
 
 
-# Test-only cell level, well outside CELL_LEVELS' real 0-6 ladder but inside the
-# schema's CHECK(level BETWEEN 0 AND 30), so it never collides with a real level.
-_TEST_CELL_LEVEL = 30
-_TEST_CELL_SIZE_LY = 100.0
+def _seed_spatial(conn, *, systems=None):
+    """Seed a canonical_generation + a real {gen}.systems relation + a
+    BUILDING spatial_generation. Returns (spatial_generation_id, schema, count).
 
-# Matches the three fixture rows `_seed_generation` always inserts.
-SEEDED_SYSTEM_COUNT = 3
-
-
-def _seed_generation(conn, *, omit_last: bool = False, systems: list | None = None) -> str:
-    """Seed the minimal `v3_meta.canonical_generation` -> `v3_meta.derived_generation`
-    chain plus `v3_derived.system_search` rows with known coordinates and aux
-    flags, entirely inside the caller's (rolled-back) transaction.
-
-    `omit_last=True` drops the last of the three default fixture systems, simulating
-    an incomplete/short aggregation source (e.g. a partial `system_search` build)
-    while `SEEDED_SYSTEM_COUNT` (the canonical truth) stays at 3 -- this is what
-    `reconcile` must fail closed on. `omit_last` is ignored when an explicit
-    `systems` list is passed.
-
-    `systems` overrides the default three-row fixture with a caller-supplied list
-    of the same tuple shape (see the default below), so callers exercising e.g.
-    negative-coordinate cell math don't have to duplicate this whole scaffold.
-    `expected_systems`/`expected_rows` are set to `len(systems)` in that case.
-
-    Mirrors the minimal-fixture pattern in
-    `tests/test_journal_contributions_postgres.py`'s `generation()` helper: only the
-    FKs `v3_meta.derived_generation` and `v3_derived.system_search` actually require
-    (source/source_run/canonical_generation identity) are created. No canonical
-    `{schema}.systems`/`bodies` relations are needed because `build_level`'s
-    `source='system_search'` path never reads them, and
-    `v3_derived.system_search`'s FK to `v3_derived.system_rating_vector` is
-    DEFERRABLE INITIALLY DEFERRED, so it is never checked inside a transaction this
-    test always rolls back instead of commits.
+    Only the columns the builder reads (id64, x_ly, y_ly, z_ly) are
+    created on the fixture systems table; the real relation has more, but the
+    builder never selects them. NOTE: the canonical systems table's primary key
+    column is `id64` (not `system_id64`); the builder reads `id64` and stores it
+    into cell_summary.representative_system_id64.
     """
     import uuid
+    from psycopg import sql
 
     gid, run_id = uuid.uuid4(), uuid.uuid4()
-    key = 'pyramidtest_' + gid.hex[:16]
+    key = 'spx_' + gid.hex[:16]
+    schema = 'v3_gen_' + key
     source_id = conn.execute(
         "INSERT INTO v3_source.source(source_code,display_name,authority_class) "
-        "VALUES(%s,'Fixture','OPERATOR_ADJUDICATION') RETURNING source_id",
-        (key,),
+        "VALUES(%s,'Fixture','OPERATOR_ADJUDICATION') RETURNING source_id", (key,),
     ).fetchone()[0]
     rights_id = conn.execute(
         "INSERT INTO v3_source.source_rights_policy(source_id,policy_version,rights_class,retention_class,effective_at) "
-        "VALUES(%s,'test','CANONICAL_ELIGIBLE','TEST',now()) RETURNING rights_policy_id",
-        (source_id,),
+        "VALUES(%s,'test','CANONICAL_ELIGIBLE','TEST',now()) RETURNING rights_policy_id", (source_id,),
     ).fetchone()[0]
     conn.execute(
         """INSERT INTO v3_source.source_run(source_run_id,source_id,rights_policy_id,acquisition_kind,trust_zone,
@@ -130,206 +116,144 @@ def _seed_generation(conn, *, omit_last: bool = False, systems: list | None = No
     )
     conn.execute(
         "INSERT INTO v3_meta.canonical_generation(generation_id,generation_key,relation_schema,manifest_sha256,build_source_run_id) "
-        "VALUES(%s,%s,%s,%s,%s)",
-        (gid, key, 'v3_gen_' + key, b'x' * 32, run_id),
+        "VALUES(%s,%s,%s,%s,%s)", (gid, key, schema, b'x' * 32, run_id),
     )
-
-    # (10,10,10) and (20,20,20) share cell (0,0,0) at size 100ly; (150,0,0) is its
-    # own cell (1,0,0). landable_count 1 & 2 sum to 3 in the shared cell; the first
-    # system has_biologicals; the third has_terraformable.
+    conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+    conn.execute(sql.SQL(
+        'CREATE TABLE {}.systems (id64 bigint PRIMARY KEY, '
+        'x_ly double precision NOT NULL, y_ly double precision NOT NULL, z_ly double precision NOT NULL)'
+    ).format(sql.Identifier(schema)))
     if systems is None:
-        systems = [
-            (1001, 'Alpha', 10.0, 10.0, 10.0, 5, 1, 0, True, False),
-            (1002, 'Beta', 20.0, 20.0, 20.0, 5, 2, 1, False, False),
-            (1003, 'Gamma', 150.0, 0.0, 0.0, 5, 0, 0, False, True),
-        ]
-        if omit_last:
-            systems = systems[:-1]
-    expected_count = len(systems)
-
-    dgid = uuid.uuid4()
-    conn.execute(
-        """INSERT INTO v3_meta.derived_generation(
-               derived_generation_id,canonical_generation_id,canonical_publication_sequence,
-               generation_key,mechanics_version,scorer_version,adapter_version,
-               manifest,manifest_sha256,expected_systems,expected_bodies)
-           VALUES(%s,%s,1,%s,'test','test','test','{}'::jsonb,%s,%s,0)""",
-        (dgid, gid, key, b'x' * 32, expected_count),
-    )
-
-    # v3_derived.system_search is guarded (migration 006) by a v3_meta.derived_product
-    # row: inserts are only accepted while that product is BUILDING.
-    conn.execute(
-        """INSERT INTO v3_meta.derived_product(
-               derived_generation_id,product_code,product_version,manifest,manifest_sha256,expected_rows)
-           VALUES(%s,'system_search','test','{}'::jsonb,%s,%s)""",
-        (dgid, b'x' * 32, expected_count),
-    )
-
-    for system_id64, name, x, y, z, body_count, landable_count, station_count, biologicals, terraformable in systems:
+        systems = [(1001, 10.0, 10.0, 10.0), (1002, 20.0, 20.0, 20.0), (1003, 150.0, 0.0, 0.0)]
+    for sid, x, y, z in systems:
         conn.execute(
-            """INSERT INTO v3_derived.system_search(
-                   derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,
-                   body_count,landable_count,station_count,has_rings,has_biologicals,
-                   has_geologicals,has_terraformable,completeness,confidence)
-               VALUES(%(gen)s,%(sid)s,%(name)s,%(x)s,%(y)s,%(z)s,cube(ARRAY[%(x)s,%(y)s,%(z)s]),
-                      %(bc)s,%(lc)s,%(sc)s,false,%(bio)s,false,%(terra)s,1.0,1.0)""",
-            {
-                'gen': dgid, 'sid': system_id64, 'name': name, 'x': x, 'y': y, 'z': z,
-                'bc': body_count, 'lc': landable_count, 'sc': station_count,
-                'bio': biologicals, 'terra': terraformable,
-            },
+            sql.SQL('INSERT INTO {}.systems(id64,x_ly,y_ly,z_ly) VALUES(%s,%s,%s,%s)').format(sql.Identifier(schema)),
+            (sid, x, y, z),
         )
-    return str(dgid)
+    sgid = conn.execute(
+        "INSERT INTO v3_spatial.spatial_generation(canonical_generation_id,pyramid_version,expected_systems) "
+        "VALUES(%s,'pyramid_v1',%s) RETURNING spatial_generation_id", (gid, len(systems)),
+    ).fetchone()[0]
+    return str(sgid), schema, len(systems)
 
 
-@pytest.fixture
-def seeded_generation(db_conn):
-    return _seed_generation(db_conn)
+_TEST_LEVEL = 30
+_TEST_SIZE = 100.0
 
 
-@pytest.fixture
-def seeded_generation_missing_one(db_conn):
-    return _seed_generation(db_conn, omit_last=True)
-
-
-def _register_test_cell_level(conn, version: str) -> None:
+def _register_test_level(conn, version='pyramid_v1'):
     conn.execute(
-        """INSERT INTO v3_spatial.cell_level
-               (spatial_pyramid_version,level,cell_size_ly,intended_scale)
-           VALUES (%s,%s,%s,'test')
-           ON CONFLICT (spatial_pyramid_version,level) DO NOTHING""",
-        (version, _TEST_CELL_LEVEL, _TEST_CELL_SIZE_LY),
+        "INSERT INTO v3_spatial.cell_level(spatial_pyramid_version,level,cell_size_ly,intended_scale) "
+        "VALUES(%s,%s,%s,'test') ON CONFLICT DO NOTHING", (version, _TEST_LEVEL, _TEST_SIZE),
     )
 
 
-def test_build_level_aggregates_counts_and_centroid(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_level
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    _register_test_cell_level(db_conn, PYRAMID_VERSION)
+def test_canonical_schema_for_spatial_resolves_schema(db_conn):
+    from scripts.v3_spatial_pyramid import canonical_schema_for_spatial
+    sgid, schema, _n = _seed_spatial(db_conn)
+    assert canonical_schema_for_spatial(db_conn, sgid) == schema
 
-    n = build_level(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-        level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='system_search',
-    )
-    assert n == 2  # two occupied cells
 
-    origin_cell = db_conn.execute(
-        """SELECT system_count, landable_count, station_count,
-                  biological_system_count, terraformable_system_count,
-                  centroid_x_ly, centroid_y_ly, centroid_z_ly, origin_x_ly,
-                  cell_key, representative_system_id64
-             FROM v3_spatial.cell_summary
-            WHERE derived_generation_id=%s AND level=%s AND origin_x_ly=0
-            """,
-        (seeded_generation, _TEST_CELL_LEVEL),
+def test_canonical_schema_for_spatial_raises_for_unknown_generation(db_conn):
+    import uuid
+    from scripts.v3_spatial_pyramid import canonical_schema_for_spatial
+    with pytest.raises(ValueError):
+        canonical_schema_for_spatial(db_conn, str(uuid.uuid4()))
+
+
+def test_canonical_system_count_matches_seeded_systems(db_conn):
+    from scripts.v3_spatial_pyramid import canonical_system_count
+    sgid, _schema, n = _seed_spatial(db_conn)
+    assert canonical_system_count(db_conn, sgid) == n
+
+
+def test_build_level_aggregates_density_and_centroid(db_conn):
+    from scripts.v3_spatial_pyramid import build_level
+    sgid, _schema, _n = _seed_spatial(db_conn)
+    _register_test_level(db_conn)
+    n = build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                    level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    assert n == 2  # (10,10,10)+(20,20,20) share one cell; (150,0,0) is another
+    cell = db_conn.execute(
+        "SELECT system_count, representative_system_id64, centroid_x_ly "
+        "FROM v3_spatial.cell_summary WHERE spatial_generation_id=%s AND cell_key='0.0.0'", (sgid,),
     ).fetchone()
-    assert origin_cell[0] == 2                      # system_count
-    assert origin_cell[1] == 3                      # SUM(landable_count) 1+2
-    assert origin_cell[2] == 1                      # SUM(station_count) 0+1
-    assert origin_cell[3] == 1                      # biological_system_count (COUNT FILTER)
-    assert origin_cell[4] == 0                      # terraformable_system_count
-    assert origin_cell[5] == pytest.approx(15.0)    # centroid_x avg(10,20)
-    assert origin_cell[6] == pytest.approx(15.0)    # centroid_y avg(10,20)
-    assert origin_cell[7] == pytest.approx(15.0)    # centroid_z avg(10,20)
-    assert origin_cell[9] == '0.0.0'
-    assert origin_cell[10] == 1001                  # min(system_id64)
+    assert cell[0] == 2
+    assert cell[1] == 1001            # nearest the (15,15,15) centroid; tiebreak min id
+    assert abs(cell[2] - 15.0) < 1e-9
 
-    far_cell = db_conn.execute(
-        """SELECT system_count, landable_count, biological_system_count,
-                  terraformable_system_count, origin_x_ly, cell_key
-             FROM v3_spatial.cell_summary
-            WHERE derived_generation_id=%s AND level=%s AND origin_x_ly=100
-            """,
-        (seeded_generation, _TEST_CELL_LEVEL),
+
+def test_build_level_representative_prefers_distance_over_id64_tiebreak(db_conn):
+    """`representative_system_id64` must be the system nearest the cell's
+    data-centroid, not merely the smallest (or largest) id64 in the cell.
+
+    Three systems share one cell (all within [0,100) on every axis, so they
+    floor-bucket to '0.0.0'): id64 4001 at x=10, id64 4002 at x=15, id64 4003
+    at x=50 (y=z=10 for all three). The data-centroid is x=(10+15+50)/3=25,
+    y=10, z=10. Distances along x from the centroid are unambiguous:
+    4001 -> 15, 4002 -> 10, 4003 -> 25, so 4002 (the *middle* id64, neither
+    the min nor the max of the three) is strictly nearest and must be picked.
+    A builder that ignored distance and fell back to min(id64) would wrongly
+    return 4001; one that fell back to max(id64) would wrongly return 4003.
+    Only genuine distance-to-centroid ordering picks 4002.
+    """
+    from scripts.v3_spatial_pyramid import build_level
+    systems = [(4001, 10.0, 10.0, 10.0), (4002, 15.0, 10.0, 10.0), (4003, 50.0, 10.0, 10.0)]
+    sgid, _schema, _n = _seed_spatial(db_conn, systems=systems)
+    _register_test_level(db_conn)
+    n = build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                    level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    assert n == 1
+    cell = db_conn.execute(
+        "SELECT system_count, representative_system_id64, centroid_x_ly "
+        "FROM v3_spatial.cell_summary WHERE spatial_generation_id=%s AND cell_key='0.0.0'", (sgid,),
     ).fetchone()
-    assert far_cell[0] == 1
-    assert far_cell[1] == 0
-    assert far_cell[2] == 0
-    assert far_cell[3] == 1                         # terraformable_system_count
-    assert far_cell[5] == '1.0.0'
+    assert cell[0] == 3
+    assert cell[1] == 4002            # nearest the x=25 centroid; not min(id64)=4001, not max(id64)=4003
+    assert abs(cell[2] - 25.0) < 1e-9
 
 
 def test_build_level_handles_negative_coordinates(db_conn):
-    """The real galaxy is mostly negative-coordinate space relative to Sol, but
-    every other fixture in this file uses coordinates >= 0. Postgres `floor()`
-    rounds toward negative infinity (not toward zero), so a naive truncation-style
-    cell-key computation would silently misbucket negative coordinates -- this
-    test pins the actual floor-division math for a negative-origin cell.
-
-    Two systems both fall in cell (-1,-1,-1) at 100ly cells: e.g. x=-50 ->
-    floor(-50/100) == -1 (not 0), so cell_key's x component is "-1" and
-    origin_x_ly == -1*100 == -100, not 0/-50.
+    """Postgres `floor()` rounds toward negative infinity, so a naive
+    truncation-style cell-key computation would silently misbucket negative
+    coordinates -- this pins the actual floor-division math for a negative
+    origin cell.
     """
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_level
-
-    systems = [
-        (2001, 'Negalpha', -50.0, -75.0, -25.0, 5, 1, 0, True, False),
-        (2002, 'Negbeta', -10.0, -99.0, -1.0, 5, 2, 1, False, True),
-    ]
-    dgid = _seed_generation(db_conn, systems=systems)
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    _register_test_cell_level(db_conn, PYRAMID_VERSION)
-
-    n = build_level(
-        db_conn, derived_generation_id=dgid, version=PYRAMID_VERSION,
-        level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='system_search',
-    )
-    assert n == 1  # both systems fall in the single cell (-1,-1,-1)
-
+    from scripts.v3_spatial_pyramid import build_level
+    systems = [(2001, -50.0, -75.0, -25.0), (2002, -10.0, -99.0, -1.0)]
+    sgid, _schema, _n = _seed_spatial(db_conn, systems=systems)
+    _register_test_level(db_conn)
+    n = build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                    level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    assert n == 1
     cell = db_conn.execute(
-        """SELECT system_count, landable_count, station_count,
-                  biological_system_count, terraformable_system_count,
-                  centroid_x_ly, centroid_y_ly, centroid_z_ly,
-                  origin_x_ly, origin_y_ly, origin_z_ly, cell_key
-             FROM v3_spatial.cell_summary
-            WHERE derived_generation_id=%s AND level=%s
-            """,
-        (dgid, _TEST_CELL_LEVEL),
+        "SELECT system_count, origin_x_ly, origin_y_ly, origin_z_ly, cell_key "
+        "FROM v3_spatial.cell_summary WHERE spatial_generation_id=%s", (sgid,),
     ).fetchone()
-    assert cell[0] == 2                            # system_count
-    assert cell[1] == 3                             # SUM(landable_count) 1+2
-    assert cell[2] == 1                             # SUM(station_count) 0+1
-    assert cell[3] == 1                             # biological_system_count
-    assert cell[4] == 1                             # terraformable_system_count
-    assert cell[5] == pytest.approx(-30.0)          # centroid_x avg(-50,-10)
-    assert cell[6] == pytest.approx(-87.0)          # centroid_y avg(-75,-99)
-    assert cell[7] == pytest.approx(-13.0)          # centroid_z avg(-25,-1)
-    assert cell[8] == -100.0                        # origin_x_ly = floor(-50/100)*100
-    assert cell[9] == -100.0                        # origin_y_ly = floor(-99/100)*100
-    assert cell[10] == -100.0                       # origin_z_ly = floor(-25/100)*100
-    assert cell[11] == '-1.-1.-1'                   # cell_key
+    assert cell[0] == 2
+    assert cell[1] == -100.0
+    assert cell[2] == -100.0
+    assert cell[3] == -100.0
+    assert cell[4] == '-1.-1.-1'
 
 
-def test_build_level_is_insert_only_and_repeat_raises(db_conn, seeded_generation):
-    """`cell_summary` is immutable once written (migration 004 triggers): a second
-    build for the same (generation, version, level) must fail on the primary key
-    rather than silently duplicating or updating rows.
-    """
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_level
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    _register_test_cell_level(db_conn, PYRAMID_VERSION)
-
-    build_level(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-        level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='system_search',
-    )
+def test_build_level_is_insert_only_and_repeat_raises(db_conn):
+    from scripts.v3_spatial_pyramid import build_level
+    sgid, _schema, _n = _seed_spatial(db_conn)
+    _register_test_level(db_conn)
+    build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
     with pytest.raises(psycopg.errors.UniqueViolation):
-        build_level(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='system_search',
-        )
+        build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                    level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
     db_conn.rollback()
 
 
-def test_build_all_levels_returns_level_to_cell_count(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, CELL_LEVELS, register_cell_levels, build_all_levels
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-
-    counts = build_all_levels(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-        source='system_search',
-    )
+def test_build_all_levels_returns_level_to_cell_count(db_conn):
+    from scripts.v3_spatial_pyramid import CELL_LEVELS, build_all_levels, register_cell_levels
+    sgid, _schema, _n = _seed_spatial(db_conn)
+    register_cell_levels(db_conn)
+    counts = build_all_levels(db_conn, spatial_generation_id=sgid)
     assert set(counts) == {lvl.level for lvl in CELL_LEVELS}
     # The coarsest registered level (2560ly cells) must merge all three fixture
     # systems (max separation ~150ly) into a single occupied cell.
@@ -337,414 +261,127 @@ def test_build_all_levels_returns_level_to_cell_count(db_conn, seeded_generation
     assert counts[coarsest.level] == 1
 
 
-def test_build_level_unknown_source_raises(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_level
-    with pytest.raises(ValueError):
-        build_level(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='bogus',
-        )
+def test_reconcile_passes_when_sum_matches_canonical(db_conn):
+    from scripts.v3_spatial_pyramid import build_level, reconcile, canonical_system_count
+    sgid, _schema, n = _seed_spatial(db_conn)
+    _register_test_level(db_conn)
+    build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    count = canonical_system_count(db_conn, sgid)
+    assert count == n
+    result = reconcile(db_conn, spatial_generation_id=sgid, version='pyramid_v1', canonical_count=count)
+    assert result['per_level_system_sum'][_TEST_LEVEL] == n
 
 
-def test_build_level_canonical_source_not_implemented(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_level
-    with pytest.raises(NotImplementedError):
-        build_level(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            level=_TEST_CELL_LEVEL, cell_size_ly=_TEST_CELL_SIZE_LY, source='canonical',
-        )
-
-
-# --- Task 3: reconciliation gate + validation receipt -----------------------------
-
-
-def test_reconcile_passes_when_sum_matches(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
-    result = reconcile(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-        canonical_count=SEEDED_SYSTEM_COUNT,
-    )
-    assert result['canonical_count'] == SEEDED_SYSTEM_COUNT
-    assert result['per_level_system_sum']
-    assert all(v == SEEDED_SYSTEM_COUNT for v in result['per_level_system_sum'].values())
-
-
-def test_reconcile_fails_closed_on_incomplete_source(db_conn, seeded_generation_missing_one):
-    from scripts.v3_spatial_pyramid import (
-        PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile, ReconciliationError,
-    )
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    # Built from a system_search that is short by one system -> every level's Σ is
-    # 2, not the canonical truth of 3 -> reconciliation must fail closed.
-    build_all_levels(db_conn, derived_generation_id=seeded_generation_missing_one, source='system_search')
+def test_reconcile_fails_closed_on_short_level(db_conn):
+    from scripts.v3_spatial_pyramid import build_level, reconcile, ReconciliationError
+    sgid, _schema, n = _seed_spatial(db_conn)
+    _register_test_level(db_conn)
+    build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
     with pytest.raises(ReconciliationError):
-        reconcile(
-            db_conn, derived_generation_id=seeded_generation_missing_one, version=PYRAMID_VERSION,
-            canonical_count=SEEDED_SYSTEM_COUNT,
-        )
+        reconcile(db_conn, spatial_generation_id=sgid, version='pyramid_v1', canonical_count=n + 1)
 
 
-def test_reconcile_fails_closed_when_canonical_count_exceeds_built_sum(db_conn, seeded_generation):
-    """Fails closed even when the pyramid build itself is internally consistent: a
-    `canonical_count` the built cells cannot possibly reach (e.g. the caller read a
-    stale/larger canonical count) must still raise, not silently pass.
+def test_reconcile_raises_when_levels_registered_but_cell_summary_empty(db_conn):
+    """Levels ARE registered in `v3_spatial.cell_level` for `version`, but
+    nothing was ever built into `cell_summary` for this (generation, version):
+    `per_level_system_sum` being empty must raise `ReconciliationError` naming
+    the missing levels, not return a vacuously "passed" dict.
     """
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, reconcile, ReconciliationError
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
-    with pytest.raises(ReconciliationError):
-        reconcile(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            canonical_count=SEEDED_SYSTEM_COUNT + 1,
-        )
-
-
-def test_reconcile_raises_when_levels_registered_but_cell_summary_empty(db_conn, seeded_generation):
-    """The previously-vacuous case a reviewer flagged: levels ARE registered in
-    `v3_spatial.cell_level` for `version`, but nothing was ever built into
-    `cell_summary` for this (generation, version) -- e.g. the wrong generation id,
-    the wrong version, or a build that silently wrote zero rows. Since Fix 1,
-    `per_level_system_sum` being empty must raise `ReconciliationError` naming the
-    missing levels, not return a vacuously "passed" dict from a validation loop
-    that ran zero times.
-    """
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, reconcile, ReconciliationError
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    # Deliberately never call build_level/build_all_levels: cell_summary stays
-    # empty for seeded_generation even though PYRAMID_VERSION has levels registered.
-    with pytest.raises(ReconciliationError):
-        reconcile(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            canonical_count=SEEDED_SYSTEM_COUNT,
-        )
-
-
-def test_reconcile_raises_when_version_has_no_registered_levels(db_conn, seeded_generation):
     from scripts.v3_spatial_pyramid import reconcile, ReconciliationError
-    # No register_cell_levels call at all for this version -> v3_spatial.cell_level
-    # has zero rows for it -> nothing to reconcile against.
+    sgid, _schema, n = _seed_spatial(db_conn)
+    _register_test_level(db_conn)
     with pytest.raises(ReconciliationError):
-        reconcile(
-            db_conn, derived_generation_id=seeded_generation, version='no_such_version',
-            canonical_count=SEEDED_SYSTEM_COUNT,
-        )
+        reconcile(db_conn, spatial_generation_id=sgid, version='pyramid_v1', canonical_count=n)
 
 
-def test_build_receipt_returns_expected_keys_and_sums(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, build_all_levels, build_receipt
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    per_level_cells = build_all_levels(db_conn, derived_generation_id=seeded_generation, source='system_search')
+def test_reconcile_raises_when_version_has_no_registered_levels(db_conn):
+    from scripts.v3_spatial_pyramid import reconcile, ReconciliationError
+    sgid, _schema, n = _seed_spatial(db_conn)
+    with pytest.raises(ReconciliationError):
+        reconcile(db_conn, spatial_generation_id=sgid, version='no_such_version', canonical_count=n)
+
+
+def test_build_receipt_returns_expected_keys_and_sums(db_conn):
+    from scripts.v3_spatial_pyramid import build_all_levels, build_receipt, canonical_system_count, register_cell_levels
+    sgid, _schema, _n = _seed_spatial(db_conn)
+    register_cell_levels(db_conn)
+    per_level_cells = build_all_levels(db_conn, spatial_generation_id=sgid)
+    count = canonical_system_count(db_conn, sgid)
 
     receipt = build_receipt(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-        source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level_cells,
+        db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+        canonical_count=count, per_level=per_level_cells,
     )
 
-    assert receipt['spatial_pyramid_version'] == PYRAMID_VERSION
-    assert receipt['source'] == 'system_search'
-    assert receipt['canonical_count'] == SEEDED_SYSTEM_COUNT
+    assert receipt['spatial_pyramid_version'] == 'pyramid_v1'
+    assert receipt['source'] == 'canonical-catalogue'
+    assert receipt['canonical_count'] == count
     assert receipt['reconciliation'] == 'passed'
-    assert receipt['derived_generation_id'] == str(seeded_generation)
+    assert receipt['spatial_generation_id'] == str(sgid)
     assert receipt['coverage_at'] is not None
     assert set(receipt['per_level']) == set(per_level_cells)
     for level, cell_count in per_level_cells.items():
         info = receipt['per_level'][level]
         assert info['cell_count'] == cell_count
-        assert info['system_count_sum'] == SEEDED_SYSTEM_COUNT
+        assert info['system_count_sum'] == count
     # No secret-shaped keys/values sneak into the receipt.
     blob = repr(receipt).lower()
     for forbidden in ('password', 'secret', 'token', 'dsn', 'apikey'):
         assert forbidden not in blob
 
 
-def test_build_receipt_raises_when_reconciliation_fails(db_conn, seeded_generation_missing_one):
-    from scripts.v3_spatial_pyramid import (
-        PYRAMID_VERSION, register_cell_levels, build_all_levels, build_receipt, ReconciliationError,
-    )
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    per_level_cells = build_all_levels(
-        db_conn, derived_generation_id=seeded_generation_missing_one, source='system_search',
-    )
+def test_build_receipt_raises_when_reconciliation_fails(db_conn):
+    from scripts.v3_spatial_pyramid import build_all_levels, build_receipt, ReconciliationError, register_cell_levels
+    sgid, _schema, n = _seed_spatial(db_conn)
+    register_cell_levels(db_conn)
+    per_level_cells = build_all_levels(db_conn, spatial_generation_id=sgid)
     with pytest.raises(ReconciliationError):
         build_receipt(
-            db_conn, derived_generation_id=seeded_generation_missing_one, version=PYRAMID_VERSION,
-            source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level_cells,
+            db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+            canonical_count=n + 1, per_level=per_level_cells,
         )
 
 
 def test_build_receipt_raises_for_unknown_generation(db_conn):
-    """Fix 2: an unresolvable `derived_generation_id` (e.g. a typo'd or stale id)
-    must raise `ValueError` -- mirroring `_canonical_schema`'s convention -- rather
-    than silently emitting a receipt with `canonical_generation_id`/`coverage_at`
-    set to None.
-    """
     import uuid
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_receipt
+    from scripts.v3_spatial_pyramid import build_receipt
     with pytest.raises(ValueError):
         build_receipt(
-            db_conn, derived_generation_id=str(uuid.uuid4()), version=PYRAMID_VERSION,
-            source='system_search', canonical_count=0, per_level={},
+            db_conn, spatial_generation_id=str(uuid.uuid4()), version='pyramid_v1',
+            canonical_count=0, per_level={},
         )
 
 
-# --- resolve_source, now that generation fixtures exist (carried-over gap) --------
-
-
-def _seed_generation_with_canonical(conn, *, canonical_count: int, search_count: int) -> str:
-    """Seed a canonical generation with real `{schema}.systems` physical relations
-    (via `v3_meta.create_canonical_generation_relations`, the same stored procedure
-    production canonical builds use), plus a derived generation and `canonical_count`
-    / `search_count`-controlled row counts, so `resolve_source`'s canonical-count
-    comparison query has a real table to run against.
-
-    Returns the derived_generation_id (str).
-    """
-    import uuid
-
-    gid, run_id = uuid.uuid4(), uuid.uuid4()
-    key = 'pyrsrc_' + gid.hex[:16]
-    schema = 'v3_gen_' + key
-    source_id = conn.execute(
-        "INSERT INTO v3_source.source(source_code,display_name,authority_class) "
-        "VALUES(%s,'Fixture','OPERATOR_ADJUDICATION') RETURNING source_id",
-        (key,),
+def test_mark_pyramid_ready_transitions_and_is_idempotent(db_conn):
+    from scripts.v3_spatial_pyramid import (
+        register_cell_levels, build_level, build_receipt, canonical_system_count,
+        mark_pyramid_ready,
+    )
+    sgid, _schema, n = _seed_spatial(db_conn)
+    register_cell_levels(db_conn, 'pyramid_v1')
+    _register_test_level(db_conn)
+    build_level(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                level=_TEST_LEVEL, cell_size_ly=_TEST_SIZE)
+    # Build the real ladder levels too so reconcile's expected set is satisfied.
+    from scripts.v3_spatial_pyramid import build_all_levels
+    build_all_levels(db_conn, spatial_generation_id=sgid, version='pyramid_v1')
+    count = canonical_system_count(db_conn, sgid)
+    receipt = build_receipt(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                            canonical_count=count, per_level={})
+    mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1', receipt=receipt)
+    state = db_conn.execute(
+        "SELECT lifecycle_state FROM v3_spatial.spatial_generation WHERE spatial_generation_id=%s", (sgid,),
     ).fetchone()[0]
-    rights_id = conn.execute(
-        "INSERT INTO v3_source.source_rights_policy(source_id,policy_version,rights_class,retention_class,effective_at) "
-        "VALUES(%s,'test','CANONICAL_ELIGIBLE','TEST',now()) RETURNING rights_policy_id",
-        (source_id,),
-    ).fetchone()[0]
-    conn.execute(
-        """INSERT INTO v3_source.source_run(source_run_id,source_id,rights_policy_id,acquisition_kind,trust_zone,
-               run_state,idempotency_key,started_at,completed_at,importer_version,importer_code_sha256,
-               importer_config_sha256,normalizer_version,normalizer_sha256)
-           VALUES(%s,%s,%s,'BULK_SNAPSHOT','CANONICAL','SUCCEEDED',%s,now(),now(),'test',%s,%s,'test',%s)""",
-        (run_id, source_id, rights_id, key, b'x' * 32, b'x' * 32, b'x' * 32),
-    )
-    conn.execute(
-        "INSERT INTO v3_meta.canonical_generation(generation_id,generation_key,relation_schema,manifest_sha256,build_source_run_id) "
-        "VALUES(%s,%s,%s,%s,%s)",
-        (gid, key, schema, b'x' * 32, run_id),
-    )
-    # Real physical `{schema}.systems`/`bodies` relations, the same call production
-    # canonical-generation builds make; resolve_source's fallback-count query reads
-    # `{schema}.systems` directly, so a fixture without this would be faking the
-    # comparison rather than exercising it.
-    conn.execute('SELECT v3_meta.create_canonical_generation_relations(%s)', (gid,))
-
-    for i in range(canonical_count):
-        conn.execute(
-            f"""INSERT INTO {schema}.systems
-                   (id64,name,x_ly,y_ly,z_ly,loaded_body_count,grid_x,grid_y,grid_z,
-                    macro_grid_key,source_id,source_run_id,freshness_checked_at)
-                VALUES (%(id)s,%(name)s,%(x)s,0,0,0,0,0,0,0,%(src)s,%(run)s,now())""",
-            {'id': 2000 + i, 'name': f'Canon{i}', 'x': float(i), 'src': source_id, 'run': run_id},
-        )
-
-    dgid = uuid.uuid4()
-    conn.execute(
-        """INSERT INTO v3_meta.derived_generation(
-               derived_generation_id,canonical_generation_id,canonical_publication_sequence,
-               generation_key,mechanics_version,scorer_version,adapter_version,
-               manifest,manifest_sha256,expected_systems,expected_bodies)
-           VALUES(%s,%s,1,%s,'test','test','test','{}'::jsonb,%s,%s,0)""",
-        (dgid, gid, key, b'x' * 32, max(search_count, 1)),
-    )
-    conn.execute(
-        """INSERT INTO v3_meta.derived_product(
-               derived_generation_id,product_code,product_version,manifest,manifest_sha256,expected_rows)
-           VALUES(%s,'system_search','test','{}'::jsonb,%s,%s)""",
-        (dgid, b'x' * 32, max(search_count, 1)),
-    )
-    for i in range(search_count):
-        conn.execute(
-            """INSERT INTO v3_derived.system_search(
-                   derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,
-                   body_count,landable_count,station_count,has_rings,has_biologicals,
-                   has_geologicals,has_terraformable,completeness,confidence)
-               VALUES(%(gen)s,%(sid)s,%(name)s,%(x)s,0,0,cube(ARRAY[%(x)s,0,0]),
-                      0,0,0,false,false,false,false,1.0,1.0)""",
-            {'gen': dgid, 'sid': 3000 + i, 'name': f'Search{i}', 'x': float(i)},
-        )
-    return str(dgid)
+    assert state == 'READY'
+    # idempotent no-op
+    mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1', receipt=receipt)
 
 
-def test_resolve_source_returns_system_search_when_counts_match(db_conn):
-    from scripts.v3_spatial_pyramid import resolve_source
-    dgid = _seed_generation_with_canonical(db_conn, canonical_count=2, search_count=2)
-    assert resolve_source(db_conn, dgid) == 'system_search'
-
-
-def test_resolve_source_returns_canonical_when_counts_differ(db_conn):
-    from scripts.v3_spatial_pyramid import resolve_source
-    dgid = _seed_generation_with_canonical(db_conn, canonical_count=3, search_count=2)
-    assert resolve_source(db_conn, dgid) == 'canonical'
-
-
-# --- Task 4: register the pyramid derived-product + mark READY; resolve via
-# the current published generation. Architecture (verified against
-# sql/v3/migrations/006_v3_derived_product_lifecycle.sql and
-# scripts/v3_system_search.py): `v3_meta.derived_product.lifecycle_state` is
-# only BUILDING/READY/FAILED and never self-publishes. PUBLISHED + the atomic
-# active pointer are generation-level (`v3_meta.current_derived_generation`,
-# swapped by `v3_meta.publish_derived_generation`), gated on all products
-# being READY. There is no per-pyramid PUBLISHED state or pointer here. -------
-
-
-def _build_reconciled_receipt(conn, derived_generation_id, version=None):
-    """Build every registered level + assemble a real, reconciled `build_receipt`
-    for `derived_generation_id`, the exact input `mark_pyramid_ready` expects.
-    """
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, build_all_levels, build_receipt
-
-    version = version or PYRAMID_VERSION
-    per_level = build_all_levels(conn, derived_generation_id=derived_generation_id, version=version, source='system_search')
-    return build_receipt(
-        conn, derived_generation_id=derived_generation_id, version=version,
-        source='system_search', canonical_count=SEEDED_SYSTEM_COUNT, per_level=per_level,
-    )
-
-
-def _publish_generation_directly(conn, derived_generation_id) -> None:
-    """Walk a fixture `v3_meta.derived_generation` row through the exact
-    BUILDING -> VALIDATING -> READY -> PUBLISHED transition chain enforced by
-    migration 003's `guard_derived_manifest` trigger, then point
-    `v3_meta.current_derived_generation` at it -- the same generation-level
-    mechanism `apps/api/src/routers/ratings_v4.py:_current` and
-    `v3_meta.publish_derived_generation` read/write.
-
-    This bypasses the heavy production `scripts/ratings_v4/production_generation.py`
-    pipeline (chunk replay, content sealing) and `publish_derived_generation`'s
-    canonical-generation compare-and-swap preconditions, since this task only
-    needs a real PUBLISHED generation + current-generation pointer to exercise
-    `pyramid_for_current_generation`'s read path, not a faithful Ratings V4
-    build or a governed publish. `guard_derived_manifest` only guards UPDATE/
-    DELETE (not INSERT), so the earlier direct INSERT in `_seed_generation`
-    (already BUILDING) is unaffected; each UPDATE below is one legal step in
-    its documented transition list.
-    """
-    # content_sha256/source_receipt may only change while OLD.lifecycle_state
-    # is still 'BUILDING' (guard_derived_manifest's source/content seal rule),
-    # so they are set on this first BUILDING->VALIDATING step, not the next one.
-    conn.execute(
-        """UPDATE v3_meta.derived_generation
-              SET lifecycle_state='VALIDATING',
-                  content_sha256=%s, source_receipt='{}'::jsonb
-            WHERE derived_generation_id=%s""",
-        (b'x' * 32, derived_generation_id),
-    )
-    conn.execute(
-        """UPDATE v3_meta.derived_generation
-              SET lifecycle_state='READY', validated_at=now(),
-                  validation_receipt='{"status":"VERIFIED"}'::jsonb
-            WHERE derived_generation_id=%s""",
-        (derived_generation_id,),
-    )
-    conn.execute(
-        "UPDATE v3_meta.derived_generation SET lifecycle_state='PUBLISHED', published_at=now() "
-        "WHERE derived_generation_id=%s",
-        (derived_generation_id,),
-    )
-    conn.execute(
-        """INSERT INTO v3_meta.current_derived_generation(singleton, derived_generation_id, publication_sequence)
-           VALUES(true, %s, 1)
-           ON CONFLICT(singleton) DO UPDATE
-               SET derived_generation_id=EXCLUDED.derived_generation_id,
-                   publication_sequence=EXCLUDED.publication_sequence,
-                   published_at=now()""",
-        (derived_generation_id,),
-    )
-
-
-def test_mark_pyramid_ready_transitions_building_to_ready_with_receipt(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, PRODUCT_CODE, register_cell_levels, mark_pyramid_ready
-
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
-
-    mark_pyramid_ready(
-        db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt,
-    )
-
-    row = db_conn.execute(
-        """SELECT lifecycle_state, product_version, validation_receipt, validation_sha256, validated_at
-             FROM v3_meta.derived_product
-            WHERE derived_generation_id=%s AND product_code=%s""",
-        (seeded_generation, PRODUCT_CODE),
-    ).fetchone()
-    assert row is not None
-    assert row[0] == 'READY'
-    assert row[1] == PYRAMID_VERSION
-    assert row[2]['status'] == 'VERIFIED'
-    assert row[2]['reconciliation'] == 'passed'
-    assert row[3] is not None
-    assert row[4] is not None
-
-
-def test_mark_pyramid_ready_is_idempotent(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, PRODUCT_CODE, register_cell_levels, mark_pyramid_ready
-
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
-
-    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
-    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
-
-    rows = db_conn.execute(
-        "SELECT lifecycle_state FROM v3_meta.derived_product WHERE derived_generation_id=%s AND product_code=%s",
-        (seeded_generation, PRODUCT_CODE),
-    ).fetchall()
-    assert len(rows) == 1
-    assert rows[0][0] == 'READY'
-
-
-def test_mark_pyramid_ready_rejects_unreconciled_receipt(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready
-
-    register_cell_levels(db_conn, PYRAMID_VERSION)
+def test_mark_pyramid_ready_rejects_unreconciled_receipt(db_conn):
+    from scripts.v3_spatial_pyramid import mark_pyramid_ready
+    sgid, _schema, _n = _seed_spatial(db_conn)
     with pytest.raises(ValueError):
-        mark_pyramid_ready(
-            db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION,
-            receipt={'reconciliation': 'failed', 'canonical_count': SEEDED_SYSTEM_COUNT},
-        )
-
-
-def test_pyramid_for_current_generation_returns_gen_and_version_when_ready_and_current(db_conn, seeded_generation):
-    import uuid
-    from scripts.v3_spatial_pyramid import (
-        PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready, pyramid_for_current_generation,
-    )
-
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
-    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
-
-    _publish_generation_directly(db_conn, seeded_generation)
-
-    result = pyramid_for_current_generation(db_conn)
-    assert result == (uuid.UUID(seeded_generation), PYRAMID_VERSION)
-
-
-def test_pyramid_for_current_generation_returns_none_when_no_current_generation(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import (
-        PYRAMID_VERSION, register_cell_levels, mark_pyramid_ready, pyramid_for_current_generation,
-    )
-
-    # Product is READY, but nothing has published this generation as current.
-    register_cell_levels(db_conn, PYRAMID_VERSION)
-    receipt = _build_reconciled_receipt(db_conn, seeded_generation)
-    mark_pyramid_ready(db_conn, derived_generation_id=seeded_generation, version=PYRAMID_VERSION, receipt=receipt)
-
-    assert pyramid_for_current_generation(db_conn) is None
-
-
-def test_pyramid_for_current_generation_returns_none_when_product_not_ready(db_conn, seeded_generation):
-    from scripts.v3_spatial_pyramid import pyramid_for_current_generation
-
-    # Generation is current/PUBLISHED, but the spatial-pyramid product was
-    # never registered/readied for it.
-    _publish_generation_directly(db_conn, seeded_generation)
-
-    assert pyramid_for_current_generation(db_conn) is None
+        mark_pyramid_ready(db_conn, spatial_generation_id=sgid, version='pyramid_v1',
+                           receipt={'reconciliation': 'not-run'})
