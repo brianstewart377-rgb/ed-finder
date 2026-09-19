@@ -17,13 +17,6 @@ router = APIRouter(tags=['map'])
 
 MAX_MAP_HEATMAP_CELLS = 50_000
 
-# The reconciled v3 spatial density pyramid's derived-product code
-# (scripts/v3_spatial_pyramid.py:PRODUCT_CODE). Kept as a literal here rather
-# than imported: apps/api ships independently of the repo-tooling `scripts/`
-# package (its own uv env/pyproject), so the two must stay in sync by
-# convention, same as other product codes referenced across that boundary.
-SPATIAL_PYRAMID_PRODUCT_CODE = 'spatial_pyramid'
-
 # Real-star viewport lane (the zoom-in detail lane; heatmap is the aggregate lane).
 MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
 MAX_MAP_VIEWPORT_LY = 15_000        # per-axis box guard; wider -> stay on the heatmap
@@ -177,32 +170,28 @@ async def map_cluster_hulls(
 
 
 async def _current_spatial_pyramid(conn: asyncpg.Connection) -> Optional[asyncpg.Record]:
-    """Resolve the active reconciled spatial density pyramid: the
-    `spatial_pyramid` `v3_meta.derived_product` (lifecycle_state='READY')
-    belonging to the current *published* `v3_meta.derived_generation`.
+    """Resolve the currently published spatial density pyramid: the
+    `v3_spatial.spatial_generation` (lifecycle_state='PUBLISHED') referenced
+    by `v3_spatial.current_spatial_generation`.
 
-    Mirrors `apps/api/src/routers/ratings_v4.py:_current`'s join (current
-    pointer + PUBLISHED generation), additionally joined to the pyramid
-    product exactly as
-    `scripts/v3_spatial_pyramid.py:pyramid_for_current_generation` does.
-    Returns `None` -- meaning "serve the legacy fallback" -- both when the
-    v3_meta/v3_spatial schema is entirely absent (pre-migration DB) and when
-    nothing currently qualifies.
+    The spatial pyramid is decoupled from the ratings `derived_generation`
+    lifecycle (migration 012): it is an independently-published artifact
+    keyed directly to a `v3_meta.canonical_generation`, not to a ratings
+    derived product. Mirrors `scripts/v3_spatial_pyramid.py:
+    spatial_pyramid_for_current`. Returns `None` -- meaning "serve the
+    legacy fallback" -- both when the v3_spatial schema is entirely absent
+    (pre-migration DB) and when nothing currently qualifies.
     """
     try:
         return await conn.fetchrow(
-            '''SELECT c.derived_generation_id,
-                      p.product_version AS spatial_pyramid_version,
-                      p.expected_rows AS source_system_count,
-                      p.validated_at AS coverage_at
-                 FROM v3_meta.current_derived_generation c
-                 JOIN v3_meta.derived_generation d USING (derived_generation_id)
-                 JOIN v3_meta.derived_product p
-                   ON p.derived_generation_id = c.derived_generation_id
-                  AND p.product_code = $1
-                WHERE d.lifecycle_state = 'PUBLISHED'
-                  AND p.lifecycle_state = 'READY' ''',
-            SPATIAL_PYRAMID_PRODUCT_CODE,
+            '''SELECT sg.spatial_generation_id,
+                      sg.pyramid_version AS spatial_pyramid_version,
+                      sg.canonical_generation_id,
+                      sg.expected_systems AS source_system_count,
+                      sg.validated_at AS coverage_at
+                 FROM v3_spatial.current_spatial_generation c
+                 JOIN v3_spatial.spatial_generation sg USING (spatial_generation_id)
+                WHERE sg.lifecycle_state = 'PUBLISHED' '''
         )
     except (asyncpg.exceptions.UndefinedTableError, asyncpg.exceptions.InvalidSchemaNameError):
         return None
@@ -249,11 +238,13 @@ async def map_heatmap(
 ):
     """Density-pyramid-aggregated heatmap for map rendering.
 
-    Reads `v3_spatial.cell_summary` for the reconciled, generation-pinned
-    density pyramid of the current *published* derived generation (bounded
-    by the optional viewport box, at a level chosen to match `voxel_size`,
-    capped at `max_cells` with an honest `truncated` flag) whenever one is
-    published and READY, tagged `"source": "pyramid"`.
+    Reads `v3_spatial.cell_summary` for the currently *published*
+    `v3_spatial.spatial_generation` (bounded by the optional viewport box,
+    at a level chosen to match `voxel_size`, capped at `max_cells` with an
+    honest `truncated` flag) whenever one is published, tagged
+    `"source": "pyramid"`. The pyramid is independently published against a
+    pinned `v3_meta.canonical_generation` -- decoupled from the ratings
+    `derived_generation` lifecycle (migration 012).
 
     Ratings are excluded from that pyramid's truth gate (it is a physical
     density product, not a rated one), so an `economy`-scored request cannot
@@ -303,11 +294,11 @@ async def map_heatmap(
 
     if pyramid is not None:
         conditions = [
-            'derived_generation_id = $1', 'spatial_pyramid_version = $2',
+            'spatial_generation_id = $1', 'spatial_pyramid_version = $2',
             'level = $3', 'system_count >= $4',
         ]
         args: list = [
-            pyramid['derived_generation_id'], pyramid['spatial_pyramid_version'],
+            pyramid['spatial_generation_id'], pyramid['spatial_pyramid_version'],
             level_row['level'], min_systems,
         ]
 
@@ -331,8 +322,7 @@ async def map_heatmap(
             rows = await conn.fetch(f"""
                 SELECT origin_x_ly, origin_y_ly, origin_z_ly,
                        centroid_x_ly, centroid_y_ly, centroid_z_ly,
-                       system_count, landable_count, station_count,
-                       biological_system_count, terraformable_system_count
+                       system_count, representative_system_id64
                   FROM v3_spatial.cell_summary
                  WHERE {where_clause}
                  ORDER BY system_count DESC, origin_x_ly, origin_y_ly, origin_z_ly
@@ -345,7 +335,8 @@ async def map_heatmap(
 
         result = {
             'source': 'pyramid',
-            'generation_id': str(pyramid['derived_generation_id']),
+            'generation_id': str(pyramid['canonical_generation_id']),
+            'spatial_generation_id': str(pyramid['spatial_generation_id']),
             'spatial_pyramid_version': pyramid['spatial_pyramid_version'],
             'source_system_count': pyramid['source_system_count'],
             'coverage_at': coverage_at.isoformat() if coverage_at else None,
