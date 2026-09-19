@@ -30,10 +30,12 @@ promotion path is now `authorized` and has accepted governed promotions
 application-promotion workflow and its fail-closed target authority — being
 authorized is not blanket permission to promote. Current programme status
 (identity/journal shipped + deployed; Ratings V4 + Finder F1 `system_search`
-rebuild in progress; map spatial density pyramid #2a merged with its prod build
-fail-closed-blocked until the generation is READY; map #2b next) is in
-`docs/ROADMAP.md` "Programme status — 2026-09-16"; the live promotion boundary
-is `docs/operations/v3-production-application-release.md`.
+rebuild in progress and Finder F2a `system_archetype` schema merged (#738); map
+spatial density pyramid decoupled from ratings generation and independently
+published (migration 012, #743), its governed prod build still fail-closed-blocked
+until the generation is READY; map #2b next) is in `docs/ROADMAP.md` "Programme
+status — 2026-09-19"; the live promotion boundary is
+`docs/operations/v3-production-application-release.md`.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
 owns the application, domain orchestration, routes, panels, and accessible DOM;
