@@ -48,7 +48,7 @@ export type SubmitFn = (
 
 export interface UploadOptions {
   parserVersion: string;
-  maxBytes?: number; // batch flush threshold, serialized (default 8 MiB)
+  maxBytes?: number; // batch flush threshold, serialized (default 700 KiB, under the ~1 MB edge limit)
   maxEvents?: number; // batch flush threshold, event count (default 20,000)
   maxFiles?: number; // batch flush threshold, file count (default 200)
   maxRetries?: number; // retryable-failure attempts after the first (default 5)
@@ -60,7 +60,11 @@ export interface UploadOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
-const MIB = 1024 * 1024;
+// The public edge / CDN in front of production rejects request bodies over
+// ~1 MB (nginx's default client_max_body_size) with a 413 before the API is
+// reached, and that limit is not controllable from application code. Keep each
+// batch comfortably under it; a ~500 KB body is known to pass.
+const DEFAULT_MAX_BYTES = 700 * 1024;
 
 // Retry transport failures (no status), 429s, and 5xx. Everything else — a
 // residual 413, a 422 validation error — is deterministic and must not be
@@ -104,6 +108,43 @@ function estimateBytes(file: ParsedFile): number {
 }
 
 /**
+ * Split one parsed file into units that each fit under the byte/event budget,
+ * repeating the file manifest in every slice. A single journal session can
+ * exceed the ~1 MB edge limit on its own, and the server requires every event's
+ * source_file to be present in the same request's manifest — so an oversized
+ * file must be sent as several manifest-carrying slices rather than dropped.
+ * Idempotent: slices dedupe server-side by source_record_hash. Held reasons are
+ * handled by the caller before splitting, so slices carry none.
+ */
+export function splitFileForUpload(
+  file: ParsedFile,
+  maxBytes: number,
+  maxEvents: number,
+): ParsedFile[] {
+  const total = estimateBytes(file);
+  if (
+    file.events.length <= 1 ||
+    (total <= maxBytes && file.events.length <= maxEvents)
+  )
+    return [{ manifest: file.manifest, events: file.events, held: [] }];
+  const manifestBytes = JSON.stringify(file.manifest).length;
+  const perEvent = Math.max(
+    1,
+    Math.ceil((total - manifestBytes) / file.events.length),
+  );
+  const byBytes = Math.floor((maxBytes - manifestBytes) / perEvent);
+  const sliceSize = Math.max(1, Math.min(maxEvents, byBytes));
+  const parts: ParsedFile[] = [];
+  for (let start = 0; start < file.events.length; start += sliceSize)
+    parts.push({
+      manifest: file.manifest,
+      events: file.events.slice(start, start + sliceSize),
+      held: [],
+    });
+  return parts;
+}
+
+/**
  * Consume a stream of parsed files and upload them in bounded, independently
  * committed batches. Each batch is retried on transient failure, and because
  * the server dedupes by content hash, an interrupted run is safe to resume by
@@ -114,7 +155,7 @@ export async function uploadJournalBatches(
   submit: SubmitFn,
   options: UploadOptions,
 ): Promise<UploadResult> {
-  const maxBytes = options.maxBytes ?? 8 * MIB;
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxEvents = options.maxEvents ?? 20_000;
   // Matches the server's MAX_FILES_PER_IMPORT: a batch with more than 200 file
   // manifest entries is rejected with a non-retryable 422 before the handler runs.
@@ -135,7 +176,9 @@ export async function uploadJournalBatches(
     held_files: [],
   };
   const held: HeldItem[] = [];
-  const committedShas: string[] = [];
+  // A Set so a split file (whose sha appears in several sub-batches) is counted
+  // and reported once.
+  const committed = new Set<string>();
   const failed: UploadResult['failed'] = [];
 
   let batchFiles: FileRef[] = [];
@@ -157,7 +200,7 @@ export async function uploadJournalBatches(
   const emit = () =>
     options.onProgress?.({
       filesParsed,
-      filesCommitted: committedShas.length,
+      filesCommitted: committed.size,
       eventsCommitted: receipt.events_inserted,
       batchesSent,
     });
@@ -189,9 +232,9 @@ export async function uploadJournalBatches(
       events: batchEvents,
     };
     resetBatch();
-    let committed: V3VerifiedImportReceipt;
+    let committedReceipt: V3VerifiedImportReceipt;
     try {
-      committed = await submitWithRetry(body);
+      committedReceipt = await submitWithRetry(body);
     } catch (error) {
       if (signal?.aborted) throw error; // propagate abort to stop the run
       const reason = errorMessage(error);
@@ -201,14 +244,17 @@ export async function uploadJournalBatches(
       return;
     }
     batchesSent += 1;
-    for (const id of committed.import_ids) importIds.add(id);
-    receipt.files_admitted += committed.files_admitted;
-    receipt.files_skipped += committed.files_skipped;
-    receipt.events_inserted += committed.events_inserted;
-    receipt.duplicates_skipped += committed.duplicates_skipped;
-    receipt.held_files.push(...committed.held_files);
-    committedShas.push(...shas);
-    options.onBatchCommitted?.({ shas, importIds: committed.import_ids });
+    for (const id of committedReceipt.import_ids) importIds.add(id);
+    receipt.files_admitted += committedReceipt.files_admitted;
+    receipt.files_skipped += committedReceipt.files_skipped;
+    receipt.events_inserted += committedReceipt.events_inserted;
+    receipt.duplicates_skipped += committedReceipt.duplicates_skipped;
+    receipt.held_files.push(...committedReceipt.held_files);
+    for (const sha of shas) committed.add(sha);
+    options.onBatchCommitted?.({
+      shas,
+      importIds: committedReceipt.import_ids,
+    });
     emit();
   };
 
@@ -221,28 +267,32 @@ export async function uploadJournalBatches(
         emit();
         continue;
       }
-      const fileBytes = estimateBytes(file);
-      if (
-        batchFiles.length &&
-        (batchBytes + fileBytes > maxBytes ||
-          batchEvents.length + file.events.length > maxEvents ||
-          batchFiles.length + file.manifest.length > maxFiles)
-      )
-        await flush();
-      batchFiles.push(...file.manifest);
-      batchEvents.push(...file.events);
-      for (const entry of file.manifest) {
-        batchShas.push(entry.content_sha256);
-        batchNames.push(entry.name);
+      // An oversized file is split into manifest-carrying slices so no single
+      // request exceeds the edge body limit; normal files yield one unit.
+      for (const unit of splitFileForUpload(file, maxBytes, maxEvents)) {
+        const unitBytes = estimateBytes(unit);
+        if (
+          batchFiles.length &&
+          (batchBytes + unitBytes > maxBytes ||
+            batchEvents.length + unit.events.length > maxEvents ||
+            batchFiles.length + unit.manifest.length > maxFiles)
+        )
+          await flush();
+        batchFiles.push(...unit.manifest);
+        batchEvents.push(...unit.events);
+        for (const entry of unit.manifest) {
+          batchShas.push(entry.content_sha256);
+          batchNames.push(entry.name);
+        }
+        batchBytes += unitBytes;
+        // A slice at (or over) the thresholds is flushed as its own batch.
+        if (
+          batchBytes >= maxBytes ||
+          batchEvents.length >= maxEvents ||
+          batchFiles.length >= maxFiles
+        )
+          await flush();
       }
-      batchBytes += fileBytes;
-      // A single file larger than the thresholds becomes its own batch.
-      if (
-        batchBytes >= maxBytes ||
-        batchEvents.length >= maxEvents ||
-        batchFiles.length >= maxFiles
-      )
-        await flush();
       emit();
     }
     if (!signal?.aborted) await flush();
@@ -251,5 +301,5 @@ export async function uploadJournalBatches(
   }
 
   receipt.import_ids = [...importIds].sort();
-  return { receipt, held, committedShas, failed };
+  return { receipt, held, committedShas: [...committed], failed };
 }
