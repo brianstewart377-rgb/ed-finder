@@ -91,7 +91,7 @@ or override this set.
   because the canonical release manifest still derives its own set from the V2
   manifest.
 
-## Programme status — 2026-09-16
+## Programme status — 2026-09-19
 
 Dated snapshot of in-flight work so a lot of recent progress does not confuse
 later sessions. This records the current position only; detailed records live in
@@ -107,23 +107,36 @@ differs from older prose elsewhere in this file, the newer dated source wins.
   Cypress-lane stabilisation are merged; the button awaits the next governed
   deploy. Design:
   [frontier CAPI identity + journal import](development/frontier-capi-identity-and-journal-import-design.md).
-- **Ratings V4 generation + Finder F1 (in progress).** The Ratings V4 production
-  generation `ratings_v4_prod_p4_opt1` (canonical sequence 4, 198,528,286
-  systems) completed its ratings pass. Finder F1 (PR #734) added body-type count
-  columns to `v3_derived.system_search`, so its `system_search` product is being
-  **rebuilt** (governed `v3-system-search-f1` op) to populate them; the
-  generation is `VALIDATING` until that rebuild reaches READY. Not yet published.
-- **Map — spatial density pyramid #2a (merged; prod build pending).** The
-  reconciled `v3_spatial.cell_summary` builder (generation-scoped, all four aux
-  counters, fail-closed Σ==canonical truth gate) and the `/api/map/heatmap`
-  repoint onto it are merged to `main`, with a manual-only governed build
-  workflow (`v3-spatial-pyramid.yml`). The production pyramid build is
-  **fail-closed-blocked until `ratings_v4_prod_p4_opt1` is READY** (it needs the
-  `system_search` rebuild above to finish first) and writes nothing until then.
-  Serving the pyramid additionally requires the generation-publish cutover and an
-  application deploy — a deliberate, deferred owner step; the map API falls back
-  to a labelled legacy lane meanwhile. Design:
-  [spatial density pyramid](development/v3-spatial-density-pyramid-design.md).
+- **Ratings V4 generation + Finder F1/F2 (in progress).** The Ratings V4
+  production generation `ratings_v4_prod_p4_opt1` (canonical sequence 4,
+  198,528,286 systems) completed its ratings pass. Finder F1 (PR #734, merged)
+  added body-type count columns to `v3_derived.system_search`, so its
+  `system_search` product is being **rebuilt** (governed `v3-system-search-f1`
+  op) to populate them; the generation is `VALIDATING` until that rebuild reaches
+  READY. Not yet published. Finder F2a (PR #738, merged) added the
+  `system_archetype` product schema (migration `011_v3_system_archetype`) plus
+  the F2 design; the F2 build work follows.
+- **Map — spatial density pyramid (decoupled; #743 merged).** The density pyramid
+  is now modelled as an **independently-published spatial artifact keyed to the
+  canonical generation**, with its own `v3_spatial.spatial_generation` lifecycle
+  and a CAS publish pointer (migration `012_v3_spatial_pyramid_decouple`),
+  decoupled from the ratings `derived_generation` lifecycle (PR #743). This
+  clean-replaces the earlier derived-keyed `cell_summary` model and fixes the
+  production sequencing trap where the ratings generation could publish before any
+  pyramid was built — unrecoverable under migration 006's derived-product guard.
+  `/api/map/heatmap` now serves the canonical-keyed pyramid and falls back to a
+  labelled legacy lane until one is published. The governed build+publish workflow
+  (`v3-spatial-pyramid.yml`, with `build`|`publish` sub-commands) gates only on
+  migration `012` (committed-source + live-ledger sha) and on the pinned canonical
+  generation being the current published one — it is **decoupled from the ratings
+  `derived_generation` lifecycle** and sources density directly from the canonical
+  catalogue. Publish is a separate CAS step (`publish_spatial_pyramid`), then an
+  application deploy — a deliberate, deferred owner step. Note: per the feature-PR precedent (F1 `010`,
+  F2a `011`), migration `012` is intentionally **not** yet declared in
+  `sql/v3/migration-manifest.txt` — declaring it would shift the externally-pinned
+  production schema identity, so manifest declaration and schema-identity re-issue
+  belong to the governed migration operation, not the feature PR. Design:
+  [spatial density pyramid decoupling](superpowers/specs/2026-09-16-v3-spatial-pyramid-decoupling-design.md).
 - **Map — next.** #2b: wire the density contribution into Explore with a semantic
   zoom cross-fade to real coloured stars and split the oversized Babylon
   `adapter.ts`; buildable now on fixtures/Review Lab independent of the prod
@@ -135,6 +148,15 @@ differs from older prose elsewhere in this file, the newer dated source wins.
   [v3-production-application-release](operations/v3-production-application-release.md);
   it supersedes the older "still stopped / preconditions pending" phrasing in the
   Current-V3-state and decision-gate sections below.
+- **Ops — production version-drift monitor (#741, merged).** A scheduled monitor
+  compares the deployed build (`/_app/version.json` and `/api/health` `build_sha`)
+  against `main` HEAD and flags how far production lags `main` (beyond
+  `MAX_LAG_HOURS`), so an un-redeployed artifact is detected rather than mistaken
+  for a fresh deploy.
+- **Journal import — edge batch limit (#742, merged).** Verified-journal import
+  now chunks multi-event imports into sub-~1 MB request batches (a lone event
+  larger than the limit is still sent as-is), complementing the
+  streaming/batched/resumable import (#737).
 
 ## Product journey and spatial north star
 
