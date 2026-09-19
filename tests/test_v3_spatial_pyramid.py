@@ -41,6 +41,16 @@ def db_conn():
         pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
         return
     conn.autocommit = False
+    # The V3 spatial schema (migration 012_v3_spatial_pyramid_decouple) is only
+    # present on a disposable DB with the V3 lineage applied. CI lanes that seed
+    # the legacy V2 schema reach a live-but-wrong-schema Postgres, so skip (like
+    # the tests/integration spatial suites do via v3_fixture_db_ready) rather than
+    # erroring on missing v3_spatial/v3_source relations.
+    if conn.execute("SELECT to_regclass('v3_spatial.spatial_generation')").fetchone()[0] is None:
+        conn.rollback()
+        conn.close()
+        pytest.skip('V3 spatial schema (migration 012) not applied to the disposable test DB')
+        return
     try:
         yield conn
     finally:
