@@ -345,6 +345,120 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('applies the density cross-fade immediately on LOAD_SCENE, without waiting for a camera move', () => {
+    const payload = buildFixtureCatalogueDensity(
+      [
+        { positionLy: { x: 10, y: -5, z: 20 } },
+        { positionLy: { x: 14, y: -3, z: 25 } },
+      ],
+      {
+        generationId: 'fixture:adapter-crossfade-load-v1',
+        pyramidVersion: 'fixture-pyramid-v1',
+        level: 2,
+        cellSizeLy: 100,
+        cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+        boundsLy: {
+          min: { x: -1_000, y: -1_000, z: -1_000 },
+          max: { x: 1_000, y: 1_000, z: 1_000 },
+        },
+        coverageAsOf: '2026-09-13T00:00:00Z',
+      },
+    );
+    const midBandCamera: GalaxySceneContract['camera'] = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: (DENSITY_CROSSFADE_NEAR_LY + DENSITY_CROSSFADE_FAR_LY) / 2,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    };
+    const sceneContract: GalaxySceneContract = {
+      kind: 'galaxy',
+      revision: 1,
+      camera: midBandCamera,
+      selection: [],
+      contributions: [createCatalogueDensityContribution(payload, 1)],
+    };
+
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: sceneContract }, events),
+    ).toEqual({ status: 'executed' });
+
+    const scene = engine.scenes[engine.scenes.length - 1]!;
+    const densityMesh = scene.getMeshByName('catalogue-density-cells');
+    const starMesh = scene.getMeshByName('finder-system-instances');
+
+    expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
+    expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+
+    session.dispose();
+    engine.dispose();
+  });
+
+  it('applies the density cross-fade immediately on PATCH_CONTRIBUTION, without waiting for a camera move', () => {
+    const midBandCamera: GalaxySceneContract['camera'] = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: (DENSITY_CROSSFADE_NEAR_LY + DENSITY_CROSSFADE_FAR_LY) / 2,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    };
+    const sceneContract: GalaxySceneContract = {
+      kind: 'galaxy',
+      revision: 1,
+      camera: midBandCamera,
+      selection: [],
+      contributions: [],
+    };
+
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: sceneContract }, events),
+    ).toEqual({ status: 'executed' });
+
+    const payload = buildFixtureCatalogueDensity(
+      [
+        { positionLy: { x: 10, y: -5, z: 20 } },
+        { positionLy: { x: 14, y: -3, z: 25 } },
+      ],
+      {
+        generationId: 'fixture:adapter-crossfade-patch-v1',
+        pyramidVersion: 'fixture-pyramid-v1',
+        level: 2,
+        cellSizeLy: 100,
+        cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+        boundsLy: {
+          min: { x: -1_000, y: -1_000, z: -1_000 },
+          max: { x: 1_000, y: 1_000, z: 1_000 },
+        },
+        coverageAsOf: '2026-09-13T00:00:00Z',
+      },
+    );
+    const contribution = createCatalogueDensityContribution(payload, 2);
+
+    expect(
+      session.execute?.({ type: 'PATCH_CONTRIBUTION', contribution }, events),
+    ).toEqual({ status: 'executed' });
+
+    const scene = engine.scenes[engine.scenes.length - 1]!;
+    const densityMesh = scene.getMeshByName('catalogue-density-cells');
+    const starMesh = scene.getMeshByName('finder-system-instances');
+
+    expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
+    expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+
+    session.dispose();
+    engine.dispose();
+  });
+
   it('scales only star presentation radius as camera distance changes', () => {
     expect(galaxyStarMarkerSizeLy(100)).toBeCloseTo(0.6);
     expect(galaxyStarMarkerSizeLy(1_000)).toBeCloseTo(6);

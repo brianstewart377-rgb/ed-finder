@@ -560,6 +560,19 @@ function refreshGalaxyReferenceGrid(
   return createGalaxyReferenceGrid(product.scene, camera);
 }
 
+// Applies the density<->star cross-fade opacity derived from the current
+// camera distance. Must be called both whenever the camera moves AND
+// whenever the density mesh (or star mesh) is (re)built on a scene-build
+// path, so a freshly-created mesh never briefly renders at its creation-time
+// alpha before the next camera move corrects it.
+function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
+  const crossfadeT = densityCrossfadeT(product.cameraState.distanceLy);
+  if (product.densityMesh?.material)
+    (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
+  if (product.starMesh?.material)
+    (product.starMesh.material as StandardMaterial).alpha = 1 - crossfadeT;
+}
+
 function createGalaxyRegionBoundaryMesh(
   scene: Scene,
   regions: GalaxyRegionsSceneLayer | null,
@@ -1793,15 +1806,10 @@ export const createBabylonSession = (
       for (const accent of product.stellarAccentMeshes)
         accent.scaling.setAll(scale);
     }
-    const crossfadeT = densityCrossfadeT(camera.distanceLy);
-    if (product.densityMesh?.material)
-      (product.densityMesh.material as StandardMaterial).alpha =
-        0.9 * crossfadeT;
-    if (product.starMesh.material)
-      (product.starMesh.material as StandardMaterial).alpha = 1 - crossfadeT;
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     product = { ...product, cameraState: camera, referenceGrid };
+    applyDensityCrossfade(product);
     if (productContract) productContract = { ...productContract, camera };
     emit({ type: 'CAMERA_CHANGED', camera });
   };
@@ -1977,6 +1985,7 @@ export const createBabylonSession = (
         productContract = command.scene;
         systemProduct = null;
         lastAppliedStarScale = Number.NaN;
+        applyDensityCrossfade(product);
         emit({ type: 'CAMERA_CHANGED', camera: replacement.cameraState });
         hoveredTargetKey = '';
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2043,6 +2052,7 @@ export const createBabylonSession = (
         if (spatialScene) spatialScene.renderedLayers = renderedLayers;
         product = { ...product, densityMesh, renderedLayers };
         productContract = nextContract;
+        applyDensityCrossfade(product);
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
         readinessAttemptsRemaining = 120;
         emit({
