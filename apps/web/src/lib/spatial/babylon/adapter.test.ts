@@ -232,8 +232,54 @@ describe('Babylon spatial adapter boundary', () => {
         affectsSystemPositions: false,
       },
     });
+    // At 2,500 LY the grid is fully faded in: vertex alpha is untouched.
+    expect(product.referenceGrid.fade.applied).toBe(1);
+    const majorAlphas = Array.from(
+      product.referenceGrid.majorMesh?.getVerticesData('color') ?? [],
+    ).filter((_, index) => index % 4 === 3);
+    expect(Math.max(...majorAlphas)).toBeCloseTo(0.25, 5);
 
     product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('fades the galactic-plane grid through the line vertex alpha on zoom', () => {
+    const engine = new NullEngine({
+      renderWidth: 640,
+      renderHeight: 360,
+      textureSize: 512,
+      deterministicLockstep: true,
+      lockstepMaxSteps: 1,
+    });
+    const camera = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective' as const,
+    };
+    const majorAlphasAt = (distanceLy: number): number[] => {
+      const product = createBabylonGalaxyScene(engine, {
+        kind: 'galaxy',
+        revision: 1,
+        camera: { ...camera, distanceLy, revision: 1 },
+        selection: [],
+        contributions: [],
+      });
+      const alphas = Array.from(
+        product.referenceGrid.majorMesh?.getVerticesData('color') ?? [],
+      ).filter((_, index) => index % 4 === 3);
+      const enabled = product.referenceGrid.majorMesh?.isEnabled() ?? false;
+      product.scene.dispose();
+      return enabled ? alphas : [];
+    };
+
+    // Galaxy scale: grid disabled outright, never railing across the field.
+    expect(majorAlphasAt(30_000)).toEqual([]);
+    // Midway through the 18k -> 8k fade band the alpha is halved.
+    expect(Math.max(...majorAlphasAt(13_000))).toBeCloseTo(0.125, 5);
+    // Fully zoomed in: base alpha restored.
+    expect(Math.max(...majorAlphasAt(5_000))).toBeCloseTo(0.25, 5);
+
     engine.dispose();
   });
 
