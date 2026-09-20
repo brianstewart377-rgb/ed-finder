@@ -1,6 +1,17 @@
 # V3 spatial density pyramid (builder + API) — implementation design
 
-**Status:** current implementation design, **not** programme or product authority.
+> **SUPERSEDED (2026-09-19).** This describes the original **derived-keyed**
+> `#2a` model (`v3_spatial.cell_summary` scoped to the ratings
+> `derived_generation`). PR #743 replaced it with an **independently-published,
+> canonical-keyed** pyramid (own `v3_spatial.spatial_generation` lifecycle + CAS
+> publish pointer, migration `012_v3_spatial_pyramid_decouple`). For the current
+> design see
+> [spatial pyramid decoupling design](../superpowers/specs/2026-09-16-v3-spatial-pyramid-decoupling-design.md)
+> and its [plan](../superpowers/plans/2026-09-16-v3-spatial-pyramid-decoupling.md).
+> This document is retained as historical/behaviour evidence only.
+
+**Status:** superseded implementation design (see banner above); **not**
+programme or product authority.
 **Date:** 2026-09-16
 **Target:** `apps/api/` (map API), `scripts/` + a governed operator workflow (builder/publish), `sql/v3/` (existing schema).
 **Scope:** Piece **#2a** of the density-swirl→real-stars map programme (#2a data foundation → #2b client cross-fade + `adapter.ts` split).
