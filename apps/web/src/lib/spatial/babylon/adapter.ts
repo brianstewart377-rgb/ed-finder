@@ -565,12 +565,21 @@ function refreshGalaxyReferenceGrid(
 // whenever the density mesh (or star mesh) is (re)built on a scene-build
 // path, so a freshly-created mesh never briefly renders at its creation-time
 // alpha before the next camera move corrects it.
+//
+// Inert-until-publish contract: while `/api/map/heatmap` still reports
+// `legacy-fallback`, no density layer exists (`product.densityMesh` is
+// null). In that case stars must carry the whole view at full opacity,
+// exactly as today — never fade them without a density layer to blend in.
 function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
+  const starMat = product.starMesh?.material as StandardMaterial | undefined;
+  if (!product.densityMesh?.material) {
+    if (starMat) starMat.alpha = 1;
+    return;
+  }
   const crossfadeT = densityCrossfadeT(product.cameraState.distanceLy);
-  if (product.densityMesh?.material)
-    (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
-  if (product.starMesh?.material)
-    (product.starMesh.material as StandardMaterial).alpha = 1 - crossfadeT;
+  // Density tops out at 0.9 (its material base alpha), not 1.0 — intentional.
+  (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
+  if (starMat) starMat.alpha = 1 - crossfadeT;
 }
 
 function createGalaxyRegionBoundaryMesh(

@@ -268,6 +268,34 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('keeps stars fully opaque when zoomed out with no density layer (inert path)', () => {
+    const engine = new NullEngine();
+    const sceneContract: GalaxySceneContract = {
+      kind: 'galaxy',
+      revision: 1,
+      camera: {
+        focusLy: { x: 0, y: 0, z: 0 },
+        distanceLy: DENSITY_CROSSFADE_FAR_LY + 1,
+        bearingRad: 0,
+        pitchRad: 0.5,
+        projection: 'perspective',
+        revision: 1,
+      },
+      selection: [],
+      contributions: [],
+    };
+
+    const product = createBabylonGalaxyScene(engine, sceneContract);
+
+    expect(product.densityMesh).toBeNull();
+    expect(
+      product.scene.getMeshByName('finder-system-instances')?.material?.alpha,
+    ).toBeCloseTo(1, 5);
+
+    product.scene.dispose();
+    engine.dispose();
+  });
+
   it('cross-fades density and star presentations as the camera zooms through the semantic band', () => {
     const payload = buildFixtureCatalogueDensity(
       [

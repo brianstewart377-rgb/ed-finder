@@ -927,7 +927,7 @@
         <span
           data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
             0}
-          data-density-cell-count={densityContribution ? densityCellCount : 0}
+          data-density-cell-count={densityCellCount}
         >
           {#if densityContribution}
             {densityCellCount.toLocaleString()} density cells{densityTruncated
