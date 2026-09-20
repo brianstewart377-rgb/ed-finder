@@ -11,6 +11,7 @@ import {
   Vector3,
 } from '@babylonjs/core/Maths/math.vector.js';
 import { Viewport } from '@babylonjs/core/Maths/math.viewport.js';
+import { Material } from '@babylonjs/core/Materials/material.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
@@ -68,6 +69,7 @@ import {
   type GalaxyNebulaePayload,
 } from '../galaxy-nebulae';
 import { createCatalogueDensityMesh } from './catalogue-density';
+import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
   buildGalaxyRegionFillGeometry,
   findGalaxyRegionAt,
@@ -1284,6 +1286,8 @@ export const createBabylonGalaxyScene = (
   starMaterial.emissiveColor = Color3.White();
   starMaterial.diffuseColor = Color3.White();
   starMaterial.specularColor = Color3.Black();
+  starMaterial.alpha = 1;
+  starMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
   Object.assign(starMaterial, { useVertexColors: true });
   starMesh.material = starMaterial;
   starMesh.hasVertexAlpha = true;
@@ -1789,6 +1793,12 @@ export const createBabylonSession = (
       for (const accent of product.stellarAccentMeshes)
         accent.scaling.setAll(scale);
     }
+    const crossfadeT = densityCrossfadeT(camera.distanceLy);
+    if (product.densityMesh?.material)
+      (product.densityMesh.material as StandardMaterial).alpha =
+        0.9 * crossfadeT;
+    if (product.starMesh.material)
+      (product.starMesh.material as StandardMaterial).alpha = 1 - crossfadeT;
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     product = { ...product, cameraState: camera, referenceGrid };

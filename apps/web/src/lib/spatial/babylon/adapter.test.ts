@@ -5,6 +5,10 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import type { GalaxySceneContract, SystemSceneContract } from '../contracts';
 import { buildFixtureCatalogueDensity } from '../galaxy-density.fixture';
 import { createCatalogueDensityContribution } from '../galaxy-density';
+import {
+  DENSITY_CROSSFADE_FAR_LY,
+  DENSITY_CROSSFADE_NEAR_LY,
+} from '../galaxy-density-crossfade';
 import { createCommanderHistoryContribution } from '../commander-history';
 import {
   createGalaxyNebulaeContribution,
@@ -261,6 +265,83 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.scene.getMeshByName('catalogue-density-cells')).toBeNull();
 
     product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('cross-fades density and star presentations as the camera zooms through the semantic band', () => {
+    const payload = buildFixtureCatalogueDensity(
+      [
+        { positionLy: { x: 10, y: -5, z: 20 } },
+        { positionLy: { x: 14, y: -3, z: 25 } },
+      ],
+      {
+        generationId: 'fixture:adapter-crossfade-v1',
+        pyramidVersion: 'fixture-pyramid-v1',
+        level: 2,
+        cellSizeLy: 100,
+        cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+        boundsLy: {
+          min: { x: -1_000, y: -1_000, z: -1_000 },
+          max: { x: 1_000, y: 1_000, z: 1_000 },
+        },
+        coverageAsOf: '2026-09-13T00:00:00Z',
+      },
+    );
+    const baseCamera: GalaxySceneContract['camera'] = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 2_500,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    };
+    const sceneContract: GalaxySceneContract = {
+      kind: 'galaxy',
+      revision: 1,
+      camera: baseCamera,
+      selection: [],
+      contributions: [createCatalogueDensityContribution(payload, 1)],
+    };
+
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: sceneContract }, events),
+    ).toEqual({ status: 'executed' });
+
+    const scene = engine.scenes[engine.scenes.length - 1]!;
+    const densityMesh = scene.getMeshByName('catalogue-density-cells');
+    const starMesh = scene.getMeshByName('finder-system-instances');
+    expect(densityMesh).not.toBeNull();
+    expect(starMesh).not.toBeNull();
+
+    const setDistance = (distanceLy: number, revision: number): void => {
+      expect(
+        session.execute?.(
+          {
+            type: 'SET_CAMERA',
+            camera: { ...baseCamera, distanceLy, revision },
+          },
+          events,
+        ),
+      ).toEqual({ status: 'executed' });
+    };
+
+    setDistance(DENSITY_CROSSFADE_NEAR_LY - 1, 2);
+    expect(densityMesh?.material?.alpha).toBeCloseTo(0, 5);
+    expect(starMesh?.material?.alpha).toBeCloseTo(1, 5);
+
+    setDistance((DENSITY_CROSSFADE_NEAR_LY + DENSITY_CROSSFADE_FAR_LY) / 2, 3);
+    expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
+    expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+
+    setDistance(DENSITY_CROSSFADE_FAR_LY + 1, 4);
+    expect(densityMesh?.material?.alpha).toBeCloseTo(0.9, 5);
+    expect(starMesh?.material?.alpha).toBeCloseTo(0, 5);
+
+    session.dispose();
     engine.dispose();
   });
 
