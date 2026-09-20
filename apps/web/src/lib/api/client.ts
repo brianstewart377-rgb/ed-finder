@@ -49,6 +49,7 @@ import {
   listJournalGalaxyContributions,
   withdrawJournalGalaxyContribution,
   localSearchEndpointApiLocalSearchPost,
+  mapHeatmapApiMapHeatmapGet,
   mapSystemsApiMapSystemsGet,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
@@ -356,6 +357,45 @@ export type CatalogueViewportResponse = Readonly<{
   truncated: boolean;
 }>;
 
+export interface MapHeatmapPyramidCell {
+  origin_x_ly: number;
+  origin_y_ly: number;
+  origin_z_ly: number;
+  centroid_x_ly: number;
+  centroid_y_ly: number;
+  centroid_z_ly: number;
+  system_count: number;
+  representative_system_id64: number | string;
+}
+
+export interface MapHeatmapPyramidResponse {
+  source: 'pyramid';
+  generation_id: string;
+  spatial_generation_id: string;
+  spatial_pyramid_version: string;
+  source_system_count: number;
+  coverage_at: string | null;
+  level: number;
+  cell_size_ly: number;
+  voxel_size: number;
+  bounds: {
+    min_x: number | null;
+    max_x: number | null;
+    min_y: number | null;
+    max_y: number | null;
+    min_z: number | null;
+    max_z: number | null;
+  };
+  cells: MapHeatmapPyramidCell[];
+  count: number;
+  max_cells: number;
+  truncated: boolean;
+}
+
+export type MapHeatmapResponse =
+  | MapHeatmapPyramidResponse
+  | { source: 'legacy-fallback'; [k: string]: unknown };
+
 export type CommanderViewportVisitsResponse = Readonly<{
   mode: 'markers' | 'density';
   visits: readonly Readonly<{
@@ -449,6 +489,13 @@ export async function getCatalogueViewportSystems(
     truncated: response.truncated ?? false,
   };
 }
+
+export const getMapHeatmap = async (
+  query: { voxel_size?: number; min_systems?: number; max_cells?: number },
+  signal?: AbortSignal,
+): Promise<MapHeatmapResponse> =>
+  (await mapHeatmapApiMapHeatmapGet({ query, throwOnError: true, signal }))
+    .data as MapHeatmapResponse;
 
 export async function getCommanderViewportVisits(
   syncKey: string,
