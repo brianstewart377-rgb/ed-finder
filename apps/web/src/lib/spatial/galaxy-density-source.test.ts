@@ -72,6 +72,34 @@ describe('mapHeatmapToDensityPayload', () => {
       mapHeatmapToDensityPayload({ ...pyramid, cell_size_ly: 0 }),
     ).toBeNull();
   });
+
+  it('maps a multi-cell pyramid with null bounds.max_* to a non-null payload whose boundsLy.max covers all cell centroids', () => {
+    const nullMaxBounds: MapHeatmapResponse = {
+      ...pyramid,
+      bounds: {
+        min_x: 0,
+        max_x: null,
+        min_y: 0,
+        max_y: null,
+        min_z: 0,
+        max_z: null,
+      },
+    };
+    const p = mapHeatmapToDensityPayload(nullMaxBounds);
+    expect(p).not.toBeNull();
+    // max origin (100) + cell_size_ly (100) = 200 on x; y/z stay at origin + cell size (100)
+    expect(p!.boundsLy.max).toEqual({ x: 200, y: 100, z: 100 });
+    for (const cell of p!.cells) {
+      expect(cell.centroidLy.x).toBeLessThanOrEqual(p!.boundsLy.max.x);
+      expect(cell.centroidLy.y).toBeLessThanOrEqual(p!.boundsLy.max.y);
+      expect(cell.centroidLy.z).toBeLessThanOrEqual(p!.boundsLy.max.z);
+    }
+  });
+
+  it('returns null for an empty cells pyramid response', () => {
+    const empty: MapHeatmapResponse = { ...pyramid, cells: [] };
+    expect(mapHeatmapToDensityPayload(empty)).toBeNull();
+  });
 });
 
 describe('densityContributionFrom', () => {

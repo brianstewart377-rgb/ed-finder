@@ -18,15 +18,22 @@ function minBy(
   return cells.reduce((m, c) => Math.min(m, c[k]), Number.POSITIVE_INFINITY);
 }
 
+function maxBy(
+  cells: MapHeatmapPyramidResponse['cells'],
+  k: 'origin_x_ly' | 'origin_y_ly' | 'origin_z_ly',
+) {
+  return cells.reduce((m, c) => Math.max(m, c[k]), Number.NEGATIVE_INFINITY);
+}
+
 export function mapHeatmapToDensityPayload(
   res: MapHeatmapResponse,
 ): CatalogueDensityPayload | null {
   if (res.source !== 'pyramid') return null;
   const cells = res.cells ?? [];
   if (!cells.length) return null;
-  const originX = res.bounds?.min_x ?? minBy(cells, 'origin_x_ly');
-  const originY = res.bounds?.min_y ?? minBy(cells, 'origin_y_ly');
-  const originZ = res.bounds?.min_z ?? minBy(cells, 'origin_z_ly');
+  const originX = res.bounds.min_x ?? minBy(cells, 'origin_x_ly');
+  const originY = res.bounds.min_y ?? minBy(cells, 'origin_y_ly');
+  const originZ = res.bounds.min_z ?? minBy(cells, 'origin_z_ly');
   try {
     return validateCatalogueDensityPayload({
       schemaVersion: CATALOGUE_DENSITY_SCHEMA_VERSION,
@@ -42,9 +49,9 @@ export function mapHeatmapToDensityPayload(
           z: res.bounds.min_z ?? originZ,
         },
         max: {
-          x: res.bounds.max_x ?? originX + res.cell_size_ly,
-          y: res.bounds.max_y ?? originY + res.cell_size_ly,
-          z: res.bounds.max_z ?? originZ + res.cell_size_ly,
+          x: res.bounds.max_x ?? maxBy(cells, 'origin_x_ly') + res.cell_size_ly,
+          y: res.bounds.max_y ?? maxBy(cells, 'origin_y_ly') + res.cell_size_ly,
+          z: res.bounds.max_z ?? maxBy(cells, 'origin_z_ly') + res.cell_size_ly,
         },
       },
       sourceSystemCount: res.source_system_count,
