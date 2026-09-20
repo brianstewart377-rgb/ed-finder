@@ -7,6 +7,7 @@
     autocompleteSystems,
     getCatalogueViewportSystems,
     getCommanderViewportVisits,
+    getMapHeatmap,
     searchExploreSystems,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
@@ -29,6 +30,8 @@
     createExploreFinderContribution,
   } from '$lib/spatial/explore-scene';
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
+  import { densityContributionFrom } from '$lib/spatial/galaxy-density-source';
+  import { DENSITY_CROSSFADE_NEAR_LY } from '$lib/spatial/galaxy-density-crossfade';
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
@@ -207,6 +210,36 @@
     staleTime: 20_000,
     placeholderData: (previousData) => previousData,
   }));
+  const heatmap = createQuery(() => ({
+    queryKey: ['map-heatmap', streamCamera?.distanceLy ?? 0],
+    queryFn: ({ signal }) =>
+      getMapHeatmap(
+        {
+          voxel_size: Math.max(
+            200,
+            Math.round((streamCamera?.distanceLy ?? 118_000) / 200),
+          ),
+          max_cells: 40_000,
+        },
+        signal,
+      ),
+    // Enabled across the zoomed-out + overlap band; below `nearLy` density is
+    // fully faded so no fetch needed.
+    enabled: (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+    staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
+  }));
+  const densityContribution = $derived(
+    densityContributionFrom(heatmap.data, heatmap.dataUpdatedAt),
+  );
+  const densityCellCount = $derived(
+    heatmap.data && heatmap.data.source === 'pyramid' ? heatmap.data.count : 0,
+  );
+  const densityTruncated = $derived(
+    heatmap.data && heatmap.data.source === 'pyramid'
+      ? heatmap.data.truncated
+      : false,
+  );
   const cataloguePacketIsCurrent = $derived(
     catalogueStars.data === appliedCataloguePacket &&
       !catalogueStars.isPlaceholderData,
@@ -320,7 +353,8 @@
         layerToggleRevision +
         appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
-        nebulaResourceRevision,
+        nebulaResourceRevision +
+        (heatmap.dataUpdatedAt ?? 0),
       {
         finderContribution,
         finderRevision,
@@ -328,6 +362,7 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
+          density: densityContribution,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -892,8 +927,13 @@
         <span
           data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
             0}
+          data-density-cell-count={densityContribution ? densityCellCount : 0}
         >
-          {#if !starViewport}
+          {#if densityContribution}
+            {densityCellCount.toLocaleString()} density cells{densityTruncated
+              ? ' · bounded view'
+              : ''}
+          {:else if !starViewport}
             Known-system density · zoom in for individual stars
           {:else if catalogueStars.isPending}
             Loading exact catalogue stars…
