@@ -93,6 +93,8 @@ export const queryKeys = {
     ] as const,
   compare: (id64s: readonly Id64[]) =>
     [...queryKeys.all, 'compare', ...id64s] as const,
+  watchlist: (accountId: string | null, syncKey: string) =>
+    [...queryKeys.all, 'watchlist', accountId, syncKey] as const,
   optimiser: (request: OptimiserQueryRequest) =>
     [
       ...queryKeys.system(request.system_id64),
