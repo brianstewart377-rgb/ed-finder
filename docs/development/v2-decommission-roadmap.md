@@ -37,7 +37,7 @@ for most of the current V3 application. Confirmed consumers in `apps/api/src`:
 | `systems`, `bodies` (bare `FROM systems`/`FROM bodies`) | `evidence_store/store.py`, `exploration/store.py`, `ingest/eddn_client.py`, `journal_import/store.py` | evidence, exploration, ingest, journal import |
 | `cluster_summary` | `local_search.py`, `search_economies.py`, `routers/meta.py`, `routers/map.py` | search, map |
 | `mv_archetype_rankings`, `system_archetype_scores`, `system_archetype_traits`, `system_regional_analysis` | `routers/archetypes.py`, `routers/simulation.py`, `routers/simulate.py`, `simulation/topology_simulator.py`, `routers/watchlist.py`, `routers/systems.py` | archetypes, simulation, watchlist |
-| `mv_map_regions`, `mv_map_heatmap_{200,500,1000}ly`, `mv_map_timeline_month` | `routers/map.py` | map (legacy heatmap lane) |
+| `mv_map_regions`, `mv_map_heatmap_{200,500,1000}ly`, `mv_map_timeline_month` | `routers/map.py` | map (legacy heatmap/timeline/regions MV lane) |
 
 In addition, `scripts/release/v3_release_manifest.py:49` **derives the release
 manifest from `sql/migration-manifest.txt`** (the V2 manifest), and
@@ -52,17 +52,29 @@ the V3 data-model migration.
 
 ---
 
-## Track A — Map heatmap MV lane (near-term, bounded)
+## Track A — Map MV lanes (near-term, bounded)
 
-The one V2 cluster that can realistically be retired in the near term, because
-its V3 replacement (the decoupled spatial density pyramid, migration `012`,
-merged in #743) is already built.
+Three V2 map-MV clusters live behind `apps/api/src/routers/map.py`: the
+heatmap lane, the timeline lane (`mv_map_timeline_month`), and the regions
+lane (`mv_map_regions`). Only the heatmap lane has a built V3 replacement
+today (the decoupled spatial density pyramid, migration `012`, merged in
+#743). The timeline and regions lanes do **not** have a V3 replacement yet
+and must not be removed alongside the heatmap lane — each gets its own gate
+below (A3, A4).
 
-**Gate A1 — the pyramid serves in production.** Requires the full chain:
-Ratings V4 generation `ratings_v4_prod_p4_opt1` reaches READY (its `system_search`
-F1 rebuild finishing) → the governed `v3-spatial-pyramid.yml` build runs (it is
-fail-closed-blocked until the generation is READY) → the spatial generation is
-published (CAS `publish_spatial_pyramid`) → an application deploy. **In flight.**
+**Gate A1 — migration `012` lands and the pyramid serves in production.**
+Requires the full chain: migration `012_v3_spatial_pyramid_decouple.sql` is
+declared and applied through the governed V3 migration path — it already
+exists as a committed file under `sql/v3/migrations/`, but is **not yet**
+listed in `sql/v3/migration-manifest.txt`, which currently ends at migration
+`009` — → the governed `v3-spatial-pyramid.yml` build runs
+(`scripts/operator/actions/v3-spatial-pyramid.sh` gates only on migration
+`012`'s sha256 matching in both the committed source and the live
+`v3_meta.schema_migration` ledger, plus the pinned current canonical
+generation; PR #743 removed the earlier Ratings-V4/`system_search`-READY
+dependency, so that is **not** a blocker here anymore) → the spatial
+generation is published (CAS `publish_spatial_pyramid`) → an application
+deploy. **In flight.**
 
 **Gate A2 — the economy-scored heatmap gap is resolved.** The pyramid is a
 *pure-density* product; `routers/map.py` explicitly falls back to the legacy MV
@@ -71,14 +83,42 @@ cannot serve. Retiring the legacy lane requires **either** dropping
 economy-scored heatmap **or** extending the pyramid/an adjacent product to
 serve it. This is a product decision, not just an engineering one.
 
+**Gate A3 — the timeline MV lane gets its own V3 replacement.**
+`/api/map/timeline` reads `mv_map_timeline_month` for month-bucketed requests
+(`apps/api/src/routers/map.py:463-468`); only day/week/quarter/year buckets
+are computed live, and even those are capped to a 5-year window under a 5s
+statement timeout. There is no V3-native replacement for month-bucketed
+timeline data today. Retiring `mv_map_timeline_month` requires a dedicated
+V3 replacement + cutover for this endpoint — it is **not** covered by A1/A2,
+and without the MV a full unbounded `systems` aggregation would run under the
+same 5s statement timeout and fail.
+
+**Gate A4 — the regions MV lane gets its own V3 replacement.**
+`/api/map/regions` reads `mv_map_regions`, refreshed nightly
+(`apps/api/src/routers/map.py:60-84`); its fallback is a live
+`AVG()`/`GROUP BY` over `systems` under a 5s statement timeout. There is no
+V3-native replacement for regions today. Retiring `mv_map_regions` requires
+its own V3 replacement + cutover — it is **not** covered by A1/A2, and it
+must not be folded into "if no other consumer remains" once A1+A2 land.
+
 **Removable once A1 + A2 land:**
 
-- `mv_map_heatmap_{200,500,1000}ly`, `mv_map_timeline_month` (and `mv_map_regions`
-  if no other consumer remains) — defined in `sql/009_map_materialised_views.sql`
+- `mv_map_heatmap_{200,500,1000}ly` — defined in `sql/009_map_materialised_views.sql`
   and related V2 migrations;
-- the `map.py` legacy-fallback branch (the `source: 'legacy'` lane);
-- their refresh in `apps/maintenance` (`refresh_map_mviews`) and
-  `scripts/refresh_map_mviews.sh`.
+- the `map.py` legacy-fallback branch for heatmap requests (the
+  `source: 'legacy'` lane, economy-scored case only — see Gate A2).
+
+**Removable only once A3 also lands:** `mv_map_timeline_month`.
+
+**Removable only once A4 also lands:** `mv_map_regions`.
+
+**The shared map-MV refresh job does not retire until A1+A2+A3+A4 all
+land.** `apps/maintenance`'s `refresh_map_mviews` and
+`scripts/refresh_map_mviews.sh` refresh the heatmap, timeline, and regions
+MVs together. Removing that refresh before every consuming endpoint has its
+own replacement would leave `mv_map_timeline_month`/`mv_map_regions` stale
+and push every cache-miss request onto the 5s-statement-timeout live-query
+fallback against the full `systems` table.
 
 **Caveat — shared MVs do NOT leave with the map lane.** `cluster_summary` and
 `mv_archetype_rankings` are queried by the map lane **and** by search /
@@ -92,12 +132,29 @@ consumers migrate.
 Retiring the V2 manifest and SQL tree means removing the `public`-schema data
 model. Sequenced sub-gates:
 
-**B1 — repoint release-manifest derivation (small, fairly independent).**
-Change `scripts/release/v3_release_manifest.py` to derive its set from the V3
-lineage (`sql/v3/migration-manifest.txt` + the governed V3 schema identity)
-instead of `sql/migration-manifest.txt`. Update `scripts/release`-adjacent tests.
-This can proceed largely independently of the app migration, and removes one of
-the two hard dependencies on the V2 manifest.
+**B1 — repoint release-manifest derivation (NOT independent — gated on a
+dual-format validator).** `scripts/operator/v3_production_deploy.py` loads a
+**prior already-accepted** release manifest and calls
+`v3_release_manifest.py`'s `validate_manifest(..., purpose="rollback")`
+against it — both during a normal upgrade's fallback compatibility check
+(`v3_production_deploy.py:1151-1176`) and on the abort/rollback path
+(`v3_production_deploy.py:1752-1759`). Every already-accepted production
+release manifest was built under the current `{path, mode, sha256}` /
+`sql/migration-manifest.txt` contract (`v3_release_manifest.py:48-80`,
+`migration_set()`). If B1 simply swaps that derivation for a V3-only shape,
+`validate_manifest` would no longer recognize historical manifests handed to
+it during rollback, making every already-accepted release ineligible for
+rollback the moment B1 lands.
+
+Fix: before B1 is treated as independently shippable, `v3_release_manifest.py`
+needs a **versioned, dual-format validator** that still accepts and verifies
+historical V2-shaped manifests (for rollback against already-accepted
+releases) *and* accepts the new V3-lineage shape for new releases, plus
+regression test coverage asserting previously-accepted manifests still
+validate. Only once that dual-format validator exists and is covered by
+tests does "switch new-release derivation to the V3 lineage" become safe to
+land on its own; until then B1 is a prerequisite-gated step, not an
+independent one.
 
 **B2 — migrate every app consumer off `public.*` (large).** For each cluster in
 the finding table above, provide a V3-schema replacement and repoint the
@@ -109,16 +166,58 @@ consumer:
 - the archetype MVs (archetypes, simulation, watchlist) onto the V3 archetype
   product (migration `011_v3_system_archetype`, Finder F2).
 
-Then stand up a **V3-native non-prod seed path** so local / CI / Review-Lab /
-checkpoint databases stop bootstrapping from the V2 tree, and migrate the ~12
-contract tests (e.g. `test_body_data_contracts.py`, `test_routes.py`,
-`test_frontier_auth.py`, `test_journal_import.py`, `test_exploration_projection_contract.py`,
-`test_population_nullability_contract.py`, `test_station_link_contracts.py`) to
-assert the V3 lineage instead of V2-manifest registration.
+**B2 also has four live V2-only products the finding table above doesn't
+break out, each with a currently-consuming endpoint and no V3-schema
+replacement in `sql/v3/` or `sql/r1_v3/` today:**
 
-**B3 — delete.** Only after B1 + B2: remove `sql/migration-manifest.txt` and the
-`sql/` V2 `001`–`048` tree (keeping `sql/r1_v3/`, which is part of the V3
-lineage).
+- `routes` (migration `047_routes.sql`) — commander route storage, read and
+  written by `apps/api/src/routes/store.py:110-118`
+  (`INSERT ... ON CONFLICT` against `routes`);
+- the powerplay observation/state tables (migration
+  `046_powerplay_observations.sql`, e.g. `commander_powerplay_events`,
+  `commander_powerplay_state`) — read and written by
+  `apps/api/src/powerplay/store.py:67-103`;
+- the evidence-store tables (migration `030_evidence_store_foundation.sql`);
+- the exploration facts/projection tables (migrations
+  `042_exploration_facts.sql`, `044_exploration_projections.sql`).
+
+Each of these seven products (the three above plus these four) needs its own
+V3-schema replacement and consumer cutover as a prerequisite for B3 — B3 must
+not proceed while any endpoint still resolves against a `public` V2-only
+table for any of them.
+
+Then stand up a **V3-native non-prod seed path** so local / CI / Review-Lab /
+checkpoint databases stop bootstrapping from the V2 tree (this includes
+deciding the Compose init-contract question in the B3 prerequisite below),
+and migrate the ~12 contract tests (e.g. `test_body_data_contracts.py`,
+`test_routes.py`, `test_frontier_auth.py`, `test_journal_import.py`,
+`test_exploration_projection_contract.py`,
+`test_population_nullability_contract.py`, `test_station_link_contracts.py`)
+to assert the V3 lineage instead of V2-manifest registration.
+
+**B3 — delete.** Only after B1 + B2 **and** the Compose init-contract
+prerequisite below: remove `sql/migration-manifest.txt` and the `sql/` V2
+`001`–`048` tree (keeping `sql/r1_v3/`, which is part of the V3 lineage).
+
+**B3 prerequisite — repoint or preserve the Compose init contract.**
+`docker-compose.yml:34-35` (the legacy self-host stack, out of scope per this
+doc's Scope section) and `docker-compose.local.yml:13-14` (the local-dev
+stack) both mount `./sql` at `/docker-entrypoint-initdb.d`, so a fresh
+Postgres volume under either stack bootstraps its schema entirely from the V2
+`sql/` tree — including `seed_preview.sql` and
+`999_refresh_materialized_views.sql`, which reference V2 relations. Deleting
+the V2 `sql/` tree without addressing this would leave both stacks unable to
+create a working schema on a fresh volume. This roadmap does not choose
+between the two available options — whichever step lands B2's non-prod seed
+path must record the choice explicitly:
+
+- repoint both Compose files' init mount to the V3-native seed path (making
+  this part of B2's "V3-native non-prod seed path" work, landing before
+  B3), **or**
+- keep the V2 `sql/` tree specifically for the retained legacy/local Compose
+  stacks (per the existing out-of-scope carve-out for the legacy compose
+  stack) even after the app no longer reads `public.*`, as a permanent
+  retention decision rather than a B3 deletion.
 
 ---
 
@@ -126,11 +225,14 @@ lineage).
 
 | Step | Gated on | Removable at this step |
 |---|---|---|
-| A1 | generation READY → pyramid build → publish → deploy (in flight) | (nothing yet — enables A2) |
-| A2 | economy-scored heatmap resolved (product decision) | `mv_map_heatmap_*`, `mv_map_timeline_month`, `map.py` legacy branch, map-MV refresh |
-| B1 | none (fairly independent) | V2-manifest dependency in `v3_release_manifest.py` |
-| B2 | V3 replacements for `systems`/`bodies`, `cluster_summary`, archetype MVs + V3 non-prod seed path + contract-test migration | the app's `public`-schema dependency |
-| B3 | B1 + B2 complete | `sql/migration-manifest.txt` + `sql/` V2 tree |
+| A1 | migration `012` declared/applied through governed V3 migration path → pyramid build → publish → deploy (in flight) | (nothing yet — enables A2) |
+| A2 | economy-scored heatmap resolved (product decision) | `mv_map_heatmap_*`, `map.py` legacy heatmap branch |
+| A3 | dedicated V3 replacement + cutover for `/api/map/timeline` | `mv_map_timeline_month` |
+| A4 | dedicated V3 replacement + cutover for `/api/map/regions` | `mv_map_regions` |
+| — | A1 + A2 + A3 + A4 all complete | the shared map-MV refresh job (`refresh_map_mviews`, `scripts/refresh_map_mviews.sh`) |
+| B1 | a versioned dual-format manifest validator (accepts old **and** new manifest shapes) with regression coverage over historical accepted manifests | the V2-manifest dependency in `v3_release_manifest.py` for *new* releases (rollback validation of already-accepted releases must keep working) |
+| B2 | V3 replacements for `systems`/`bodies`, `cluster_summary`, archetype MVs, `routes`, powerplay tables, evidence store, exploration facts/projections + a V3 non-prod seed path (incl. the Compose init-contract decision) + contract-test migration | the app's `public`-schema dependency |
+| B3 | B1 + B2 complete, including the Compose init-contract prerequisite | `sql/migration-manifest.txt` + `sql/` V2 tree |
 
 ## Non-goals
 
