@@ -156,6 +156,10 @@ export type BabylonGalaxyProduct = Readonly<{
   cameraState: CameraState;
   points: readonly GalaxySystemPoint[];
   starMesh: ReturnType<typeof CreateSphere>;
+  // Whether `starMesh` carries any FINDER search-result instances. When it
+  // does, the density cross-fade must keep the mesh fully opaque so finder
+  // markers never vanish; only a catalogue-only mesh may fade into density.
+  starMeshHasFinderInstances: boolean;
   starVertexPositions: Float32Array;
   starInstanceMatrices: Float32Array;
   starInstanceColours: Float32Array;
@@ -570,16 +574,54 @@ function refreshGalaxyReferenceGrid(
 // `legacy-fallback`, no density layer exists (`product.densityMesh` is
 // null). In that case stars must carry the whole view at full opacity,
 // exactly as today — never fade them without a density layer to blend in.
+function setStellarAccentAlpha(
+  product: BabylonGalaxyProduct,
+  alpha: number,
+): void {
+  for (const accent of product.stellarAccentMeshes) {
+    const material = accent.material as StandardMaterial | undefined;
+    if (material) material.alpha = alpha;
+  }
+}
+
+function setStarPickable(
+  product: BabylonGalaxyProduct,
+  pickable: boolean,
+): void {
+  if (!product.starMesh) return;
+  product.starMesh.isPickable = pickable;
+  product.starMesh.thinInstanceEnablePicking = pickable;
+}
+
 function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
   const starMat = product.starMesh?.material as StandardMaterial | undefined;
   if (!product.densityMesh?.material) {
+    // Inert-until-publish: with no density layer, stars carry the whole view
+    // at full opacity and stay fully pickable, exactly as before.
     if (starMat) starMat.alpha = 1;
+    setStellarAccentAlpha(product, 1);
+    setStarPickable(product, true);
     return;
   }
   const crossfadeT = densityCrossfadeT(product.cameraState.distanceLy);
   // Density tops out at 0.9 (its material base alpha), not 1.0 — intentional.
   (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
-  if (starMat) starMat.alpha = 1 - crossfadeT;
+  // `starMesh` merges FINDER results with CATALOGUE viewport stars, but only
+  // catalogue stars may cross-fade into the density field. When finder results
+  // are present, keep the mesh fully opaque so search markers never disappear
+  // at wide zoom; only a catalogue-only mesh follows the fade.
+  const catalogueStarAlpha = product.starMeshHasFinderInstances
+    ? 1
+    : 1 - crossfadeT;
+  if (starMat) starMat.alpha = catalogueStarAlpha;
+  // Stellar accent rings (e.g. black-hole halos) live in the glow layer; fade
+  // them with their markers so glowing rings never float over the density
+  // field once the stars themselves have faded out.
+  setStellarAccentAlpha(product, catalogueStarAlpha);
+  // A fully-faded star mesh must not intercept picks (neither the exact ray
+  // nor the nearest-projected-star fallback), so invisible stars can't capture
+  // clicks and block region selection.
+  setStarPickable(product, catalogueStarAlpha > 1e-3);
 }
 
 function createGalaxyRegionBoundaryMesh(
@@ -1201,11 +1243,20 @@ function pickGalaxyTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
-  // Translucent region planes must not intercept a visible system target.
+  // A fully-faded star mesh (density-dominant, no finder results) must not
+  // capture picks; treat it as non-interactive so clicks reach region planes.
+  const starMat = product.starMesh?.material as StandardMaterial | undefined;
+  const starsInteractive =
+    (product.starMesh?.isEnabled() ?? false) && (starMat?.alpha ?? 1) > 1e-3;
+  // Translucent region planes must not intercept a visible system target. A
+  // supplied predicate bypasses Babylon's own `isPickable` gate, so exclude
+  // the star mesh here whenever it is not interactive.
   const systemHit = product.scene.pick(
     screenX * scaleX,
     screenY * scaleY,
-    (mesh) => mesh === product.starMesh || mesh === product.selectedMarker,
+    (mesh) =>
+      (starsInteractive && mesh === product.starMesh) ||
+      mesh === product.selectedMarker,
   );
   if (systemHit?.pickedMesh === product.selectedMarker) {
     const selected = product.points.find((point) =>
@@ -1227,15 +1278,16 @@ function pickGalaxyTarget(
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
-  const nearestStar = allowNearestStar
-    ? nearestStarTargetByScreen(
-        engine,
-        product,
-        screenX * scaleX,
-        screenY * scaleY,
-        12 * Math.max(scaleX, scaleY),
-      )
-    : undefined;
+  const nearestStar =
+    allowNearestStar && starsInteractive
+      ? nearestStarTargetByScreen(
+          engine,
+          product,
+          screenX * scaleX,
+          screenY * scaleY,
+          12 * Math.max(scaleX, scaleY),
+        )
+      : undefined;
   if (nearestStar) return nearestStar;
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
@@ -1264,6 +1316,9 @@ export const createBabylonGalaxyScene = (
   scene.clearColor = new Color4(0.008, 0.014, 0.028, 1);
   const systemLayers = galaxySystemsSceneLayers(contract);
   const points = uniqueGalaxySystemPoints(systemLayers);
+  const starMeshHasFinderInstances = systemLayers.some(
+    (layer) => layer.layerId === 'finder-systems' && layer.points.length > 0,
+  );
   const density = catalogueDensitySceneLayer(contract);
   const commanderHistory = commanderHistorySceneLayer(contract);
   const nebulae = galaxyNebulaeSceneLayer(contract);
@@ -1453,6 +1508,7 @@ export const createBabylonGalaxyScene = (
     cameraState,
     points,
     starMesh,
+    starMeshHasFinderInstances,
     starVertexPositions,
     starInstanceMatrices: matrices,
     starInstanceColours: colours,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   densityContributionFrom,
+  heatmapVoxelSizeForDistance,
   mapHeatmapToDensityPayload,
 } from './galaxy-density-source';
 import type { MapHeatmapResponse } from '$lib/api/client';
@@ -97,6 +98,39 @@ describe('mapHeatmapToDensityPayload', () => {
   it('returns null for an empty cells pyramid response', () => {
     const empty: MapHeatmapResponse = { ...pyramid, cells: [] };
     expect(mapHeatmapToDensityPayload(empty)).toBeNull();
+  });
+
+  it('fails closed (null, no throw) when a pyramid response is missing bounds', () => {
+    const malformed = {
+      ...pyramid,
+      bounds: undefined,
+    } as unknown as MapHeatmapResponse;
+    expect(() => mapHeatmapToDensityPayload(malformed)).not.toThrow();
+    expect(mapHeatmapToDensityPayload(malformed)).toBeNull();
+  });
+
+  it('fails closed (null, no throw) when a pyramid response has malformed cells', () => {
+    const malformed = {
+      ...pyramid,
+      cells: 'not-an-array',
+    } as unknown as MapHeatmapResponse;
+    expect(() => mapHeatmapToDensityPayload(malformed)).not.toThrow();
+    expect(mapHeatmapToDensityPayload(malformed)).toBeNull();
+  });
+});
+
+describe('heatmapVoxelSizeForDistance', () => {
+  it('collapses nearby camera distances onto one voxel size so the query can reuse a cached result', () => {
+    expect(heatmapVoxelSizeForDistance(118_000)).toBe(590);
+    expect(heatmapVoxelSizeForDistance(118_050)).toBe(590);
+    expect(heatmapVoxelSizeForDistance(118_000)).toBe(
+      heatmapVoxelSizeForDistance(118_050),
+    );
+  });
+
+  it('floors at the endpoint minimum voxel size', () => {
+    expect(heatmapVoxelSizeForDistance(100)).toBe(200);
+    expect(heatmapVoxelSizeForDistance(0)).toBe(200);
   });
 });
 

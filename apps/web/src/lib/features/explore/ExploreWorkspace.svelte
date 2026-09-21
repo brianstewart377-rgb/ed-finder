@@ -30,7 +30,10 @@
     createExploreFinderContribution,
   } from '$lib/spatial/explore-scene';
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
-  import { densityContributionFrom } from '$lib/spatial/galaxy-density-source';
+  import {
+    densityContributionFrom,
+    heatmapVoxelSizeForDistance,
+  } from '$lib/spatial/galaxy-density-source';
   import { DENSITY_CROSSFADE_NEAR_LY } from '$lib/spatial/galaxy-density-crossfade';
   import {
     fitGalaxyPlaneCamera,
@@ -210,15 +213,24 @@
     staleTime: 20_000,
     placeholderData: (previousData) => previousData,
   }));
+  // Normalize the raw camera distance to the discrete voxel size once, then key
+  // the query AND its request params by it, so several nearby zoom stops that
+  // round to the same voxel size reuse one cached response instead of issuing a
+  // fresh request (and burning the route's 30-req/min budget) on every settle.
+  const heatmapVoxelSize = $derived(
+    heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
+  );
   const heatmap = createQuery(() => ({
-    queryKey: ['map-heatmap', streamCamera?.distanceLy ?? 0],
+    queryKey: ['map-heatmap', heatmapVoxelSize],
     queryFn: ({ signal }) =>
       getMapHeatmap(
         {
-          voxel_size: Math.max(
-            200,
-            Math.round((streamCamera?.distanceLy ?? 118_000) / 200),
-          ),
+          voxel_size: heatmapVoxelSize,
+          // The density swirl wants every occupied cell, so request the full
+          // aggregate. The endpoint defaults to `min_systems: 5`, which would
+          // drop sparse cells and make a non-truncated payload fail its
+          // count-sum reconciliation against the generation-wide source count.
+          min_systems: 1,
           max_cells: 40_000,
         },
         signal,

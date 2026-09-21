@@ -122,6 +122,17 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     expect(
       screen.queryByText(/Known-system density · zoom in/),
     ).not.toBeInTheDocument();
+    // The density swirl requests every occupied cell (min_systems: 1) so a
+    // non-truncated payload reconciles, and keys by the normalized voxel size
+    // (118_000 ly / 200, rounded) rather than the raw float distance.
+    expect(api.getMapHeatmap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        min_systems: 1,
+        voxel_size: 590,
+        max_cells: 40_000,
+      }),
+      expect.anything(),
+    );
   });
 
   it('reports no density contribution and no error for a legacy-fallback heatmap', async () => {

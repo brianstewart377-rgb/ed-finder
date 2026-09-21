@@ -29,12 +29,17 @@ export function mapHeatmapToDensityPayload(
   res: MapHeatmapResponse,
 ): CatalogueDensityPayload | null {
   if (res.source !== 'pyramid') return null;
-  const cells = res.cells ?? [];
-  if (!cells.length) return null;
-  const originX = res.bounds.min_x ?? minBy(cells, 'origin_x_ly');
-  const originY = res.bounds.min_y ?? minBy(cells, 'origin_y_ly');
-  const originZ = res.bounds.min_z ?? minBy(cells, 'origin_z_ly');
+  // The facade casts external JSON to `MapHeatmapResponse`, so a malformed
+  // `source: 'pyramid'` body (missing/malformed `bounds` or `cells`) is still
+  // possible. Keep every response-shape dereference inside the guarded block
+  // so a bad payload fails closed to `null` rather than throwing out of the
+  // synchronous `$derived` evaluation that maps it.
   try {
+    const cells = res.cells ?? [];
+    if (!cells.length) return null;
+    const originX = res.bounds.min_x ?? minBy(cells, 'origin_x_ly');
+    const originY = res.bounds.min_y ?? minBy(cells, 'origin_y_ly');
+    const originZ = res.bounds.min_z ?? minBy(cells, 'origin_z_ly');
     return validateCatalogueDensityPayload({
       schemaVersion: CATALOGUE_DENSITY_SCHEMA_VERSION,
       generationId: res.generation_id,
@@ -84,6 +89,18 @@ export function densityContributionFrom(
   if (!data) return null;
   const payload = mapHeatmapToDensityPayload(data);
   return payload ? createCatalogueDensityContribution(payload, revision) : null;
+}
+
+/**
+ * Normalize a raw camera distance into the discrete `voxel_size` requested
+ * from `/api/map/heatmap`. Keying the heatmap query by this normalized size
+ * (rather than the raw floating-point distance) lets several nearby zoom stops
+ * collapse onto one cache entry, so the query's `staleTime` can reuse a result
+ * instead of minting a fresh request — and hitting the route's rate limit — on
+ * every debounced zoom settle.
+ */
+export function heatmapVoxelSizeForDistance(distanceLy: number): number {
+  return Math.max(200, Math.round(distanceLy / 200));
 }
 
 export async function loadGalaxyDensityContribution(
