@@ -501,6 +501,78 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('hides nebula landmark clouds at system-selection distance and shows them at galaxy-overview distance', () => {
+    const payload: GalaxyNebulaePayload = {
+      datasetId: 'fixture-nebulae',
+      sourceUrl: 'https://edastro.com/mapcharts/files/nebulae-coordinates.csv',
+      catalogueUrl: 'https://edastro.com/mapcharts/files.html',
+      rightsNotice: 'Copyright © CMDR Orvidius — All Rights Reserved',
+      usageBasis:
+        'Purpose-published automation-ready CSV; non-commercial use accepted by the ED-Finder owner',
+      attribution: 'EDAstro / CMDR Orvidius',
+      sourceLastModified: 'Sun, 13 Sep 2026 15:00:58 GMT',
+      sourceByteCount: 123,
+      sourceSha256: 'a'.repeat(64),
+      nebulae: [
+        {
+          id: 'GMP:1',
+          source: 'GMP',
+          sourceId: '1',
+          name: 'Purple Cloud',
+          systemName: 'Cloud AA-A h1',
+          regionName: null,
+          regionId: 18,
+          kind: 'nebula',
+          positionLy: {
+            value: { x: 125, y: -34, z: 912 },
+            representation: 'AUTHORITATIVE',
+          },
+          poiUrl: null,
+        },
+      ],
+    };
+    const buildContractAt = (distanceLy: number, revision: number) =>
+      ({
+        kind: 'galaxy',
+        revision,
+        camera: {
+          focusLy: { x: 0, y: 0, z: 0 },
+          distanceLy,
+          bearingRad: 0,
+          pitchRad: 0.5,
+          projection: 'perspective',
+          revision,
+        },
+        selection: [],
+        contributions: [createGalaxyNebulaeContribution(payload, revision)],
+      }) satisfies GalaxySceneContract;
+
+    const closeEngine = new NullEngine();
+    // ~400 ly matches ExploreWorkspace's system-selection camera target; the
+    // camera sits inside several landmark clouds at this distance, so the
+    // layer must be fully hidden.
+    const closeProduct = createBabylonGalaxyScene(
+      closeEngine,
+      buildContractAt(400, 1),
+    );
+    expect(closeProduct.nebulaMesh?.isEnabled()).toBe(false);
+    expect(closeProduct.nebulaMesh?.visibility).toBe(0);
+    closeProduct.scene.dispose();
+    closeEngine.dispose();
+
+    const farEngine = new NullEngine();
+    // Galaxy-overview scale (tens of thousands of ly): landmarks stay fully
+    // visible, preserving this branch's existing overview appearance.
+    const farProduct = createBabylonGalaxyScene(
+      farEngine,
+      buildContractAt(118_000, 2),
+    );
+    expect(farProduct.nebulaMesh?.isEnabled()).toBe(true);
+    expect(farProduct.nebulaMesh?.visibility).toBe(1);
+    farProduct.scene.dispose();
+    farEngine.dispose();
+  });
+
   it.each([
     ['WEBGPU', 'webgpu-device-lost', 'webgpu-device-restored'],
     ['WEBGL2', 'webgl2-context-lost', 'webgl2-context-restored'],

@@ -954,6 +954,15 @@ export function nebulaCloudRadiusLy(
 // map shows a handful of soft clouds instead of thousands of merged blobs.
 const NEBULA_LANDMARK_CELL_LY = 1_400;
 const NEBULA_LANDMARK_LIMIT = 260;
+// Landmark clouds are galaxy-overview decoration (base radii ~1,300-3,800 ly
+// after the per-instance hash multiplier). At the ~400 ly system-selection
+// distance (see ExploreWorkspace's SYSTEM camera target) the camera sits
+// inside several overlapping clouds; with back-face culling disabled and
+// alpha raised for landmark visibility that tints the whole view. Fade the
+// layer out well above that distance so it is fully hidden long before the
+// camera reaches system scale, and fully visible at galaxy-overview scale.
+const NEBULA_LANDMARK_FADE_START_LY = 8_000;
+const NEBULA_LANDMARK_FADE_END_LY = 2_000;
 // Emission-nebula palette: warm rose, teal, gold, violet, cyan, jade. Balanced
 // so the layer reads as varied landmarks rather than a single blue smear.
 const NEBULA_PALETTE = [
@@ -1054,6 +1063,28 @@ function createGalaxyNebulaeMesh(
     },
   };
   return mesh;
+}
+
+function updateGalaxyNebulaVisibility(
+  mesh: ReturnType<typeof CreateSphere> | null,
+  camera: CameraState,
+): void {
+  // Opposite direction from the reference grid: nebula landmarks read at
+  // galaxy-overview scale and must be gone well before the camera reaches
+  // system-selection distance (~400 ly), so this fades OUT as the camera
+  // closes in rather than fading in.
+  if (!mesh) return;
+  const visibility = Math.max(
+    0,
+    Math.min(
+      1,
+      (camera.distanceLy - NEBULA_LANDMARK_FADE_END_LY) /
+        (NEBULA_LANDMARK_FADE_START_LY - NEBULA_LANDMARK_FADE_END_LY),
+    ),
+  );
+  const visible = visibility > 0;
+  mesh.setEnabled(visible);
+  mesh.visibility = visibility;
 }
 
 function galaxyNebulaeReceipt(
@@ -1269,6 +1300,7 @@ export const createBabylonGalaxyScene = (
     markerSizeLy,
   );
   const nebulaMesh = createGalaxyNebulaeMesh(scene, nebulae);
+  updateGalaxyNebulaVisibility(nebulaMesh, cameraState);
   const regionFillMeshes = createGalaxyRegionFillMeshes(
     scene,
     regions,
@@ -1793,6 +1825,7 @@ export const createBabylonSession = (
     }
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
+    updateGalaxyNebulaVisibility(product.nebulaMesh, camera);
     product = { ...product, cameraState: camera, referenceGrid };
     if (productContract) productContract = { ...productContract, camera };
     emit({ type: 'CAMERA_CHANGED', camera });
@@ -1871,6 +1904,7 @@ export const createBabylonSession = (
           product.cameraState,
         );
         updateGalaxyReferenceGridVisibility(referenceGrid, product.cameraState);
+        updateGalaxyNebulaVisibility(product.nebulaMesh, product.cameraState);
         product = { ...product, referenceGrid };
       } else if (systemProduct) {
         applySystemCamera(
