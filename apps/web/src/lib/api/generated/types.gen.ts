@@ -2856,6 +2856,40 @@ export type FrontierLinkResponse = {
 };
 
 /**
+ * GalaxyImpactSummary
+ */
+export type GalaxyImpactSummary = {
+    /**
+     * Systems Discovered
+     */
+    systems_discovered: number;
+    /**
+     * Bodies Scanned
+     */
+    bodies_scanned: number;
+    /**
+     * Earth Like Worlds
+     */
+    earth_like_worlds: number;
+    /**
+     * Water Worlds
+     */
+    water_worlds: number;
+    /**
+     * Ammonia Worlds
+     */
+    ammonia_worlds: number;
+    /**
+     * Terraformable Candidates
+     */
+    terraformable_candidates: number;
+    /**
+     * Gas Giants
+     */
+    gas_giants: number;
+};
+
+/**
  * GalaxySearchRequest
  */
 export type GalaxySearchRequest = {
@@ -12062,6 +12096,22 @@ export type CreateVerifiedJournalImportResponses = {
 };
 
 export type CreateVerifiedJournalImportResponse = CreateVerifiedJournalImportResponses[keyof CreateVerifiedJournalImportResponses];
+
+export type GetJournalGalaxyImpactData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/journal/galaxy-impact';
+};
+
+export type GetJournalGalaxyImpactResponses = {
+    /**
+     * Successful Response
+     */
+    200: GalaxyImpactSummary;
+};
+
+export type GetJournalGalaxyImpactResponse = GetJournalGalaxyImpactResponses[keyof GetJournalGalaxyImpactResponses];
 
 export type GetV3JournalSummaryData = {
     body?: never;

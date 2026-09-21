@@ -39,7 +39,10 @@ Count each exact system/body pair once across the account's eligible commanders
 and imports. Re-importing or rescanning never inflates a total. Classify each body
 using its latest recognized planet class (or star type); observations missing a
 classification do not erase a prior known class. Terraformability uses the latest
-non-empty TerraformState independently; only Terraformable counts as a candidate.
+present string or explicit null TerraformState independently; only Terraformable
+counts as a candidate. An explicit empty string or null clears a previous
+candidate status; an absent field preserves the previous known status. A body
+whose latest recognized classification is a star cannot count as terraformable.
 Stable event identity breaks equal-time ties deterministically. Unknown body
 classes count toward bodies scanned but not named planet categories. Gas giants
 include the five Sudarsky classes, water/ammonia life variants, helium-rich and
@@ -51,7 +54,10 @@ identities, not travel destinations, planned routes, or catalogue entries. Bodie
 scanned includes stars and planets. Only complete canonical numeric system/body
 identities count; malformed/missing identities do not produce invented matches.
 WasDiscovered describes a body and does not prove whole-system first-discovery
-credit, so no first-discovery claim is made.
+credit, so no first-discovery claim is made. The
+[Frontier Journal Manual v32](https://hosting.zaonce.net/community/journal/v32/Journal_Manual-v32.pdf),
+sections 6.3 and 15.3, documents these body classifications and the distinction
+between absent and explicitly empty terraforming values.
 
 ## API and safety
 

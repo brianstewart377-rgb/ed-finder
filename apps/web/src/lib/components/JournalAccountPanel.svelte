@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
+  import { useQueryClient } from '@tanstack/svelte-query';
   import { auth } from '$lib/auth/auth';
+  import { queryKeys } from '$lib/api/query';
+  import GalaxyImpactPanel from './GalaxyImpactPanel.svelte';
   import {
     getVerifiedCommanders,
     importVerifiedJournals,
@@ -33,6 +36,38 @@
   const lifetime = new AbortController();
   let operation = $state<AbortController | null>(null);
   let refreshGeneration = 0;
+  const queryClient = useQueryClient();
+  const accountId = $derived(
+    $auth.authenticated ? $auth.user?.account_id : undefined,
+  );
+  const sharedDate = new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+
+  function sharingStatus(state: string): string {
+    switch (state) {
+      case 'OFFERED':
+        return 'Awaiting review';
+      case 'ELIGIBLE':
+        return 'Approved for sharing';
+      case 'REJECTED':
+        return 'Not selected for sharing';
+      case 'WITHDRAWN':
+        return 'Sharing withdrawn';
+      default:
+        return 'Review in progress';
+    }
+  }
+
+  function formatSharedDate(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? 'Date unavailable'
+      : sharedDate.format(date);
+  }
 
   // Maps the exact held-reason sentences produced by import-worker.ts to a
   // short clause used to build the "why nothing was imported" summary below.
@@ -82,12 +117,9 @@
       status = commanders.length
         ? 'Ready to import your journals'
         : 'Sign in again to verify your commander with Frontier';
-    } catch (cause) {
+    } catch {
       if (!lifetime.signal.aborted && generation === refreshGeneration)
-        error =
-          cause instanceof Error
-            ? cause.message
-            : 'Could not load journal account';
+        error = 'Your journal account could not be loaded. Please try again.';
     }
   }
 
@@ -114,13 +146,13 @@
                 item.id === pending.id ? { ...item, hashes: remaining } : item,
               )
             : sharingPending.filter((item) => item.id !== pending.id);
-          for (const [reason, count] of Object.entries(result.skipped)) {
+          for (const count of Object.values(result.skipped)) {
             if (count)
               warnings = [
                 ...warnings,
                 {
                   name: 'Galaxy sharing',
-                  reason: `${count} records excluded: ${reason.replaceAll('_', ' ')}`,
+                  reason: `${count} observations could not be shared. Your private journal is saved.`,
                 },
               ];
           }
@@ -129,9 +161,10 @@
       await refresh();
       if (!lifetime.signal.aborted)
         status = `Journal saved. ${offered} new galaxy observations offered for review`;
-    } catch (cause) {
+    } catch {
       if (!lifetime.signal.aborted)
-        error = `Your Journal is saved. Sharing needs a retry: ${cause instanceof Error ? cause.message : 'request failed'}`;
+        error =
+          'Your Journal is saved. Sharing needs a retry. Please try again.';
     } finally {
       if (!lifetime.signal.aborted) busy = false;
       operation = null;
@@ -146,6 +179,7 @@
     warnings = [];
     heldSummary = '';
     const contributeThisImport = sharing;
+    const importingAccountId = accountId;
     operation = new AbortController();
     const committed: CommittedBatch[] = [];
     try {
@@ -194,16 +228,19 @@
         if (!lifetime.signal.aborted && !result.failed.length)
           status = 'Import finished';
       }
-    } catch (cause) {
+    } catch {
       if (!lifetime.signal.aborted)
         error = operation?.signal.aborted
           ? 'Import stopped. Any events already committed remain saved; retrying is safe.'
-          : cause instanceof Error
-            ? cause.message
-            : 'Import failed; retrying is safe';
+          : 'Import could not finish. Saved progress is safe; please try again.';
     } finally {
       if (!lifetime.signal.aborted) busy = false;
       operation = null;
+      if (committed.length && importingAccountId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.galaxyImpact(importingAccountId),
+        });
+      }
     }
   }
 
@@ -213,9 +250,9 @@
     try {
       await withdrawGalaxyContribution(id, lifetime.signal);
       await refresh();
-    } catch (cause) {
+    } catch {
       if (!lifetime.signal.aborted)
-        error = cause instanceof Error ? cause.message : 'Withdrawal failed';
+        error = 'Sharing could not be withdrawn. Please try again.';
     } finally {
       if (!lifetime.signal.aborted) busy = false;
     }
@@ -283,13 +320,13 @@
   </p>
   <label class="journal-sharing-choice">
     <input type="checkbox" bind:checked={sharing} disabled={busy} />
-    Share eligible physical galaxy facts from this import on ED-Finder and its API
+    Share eligible discoveries on ED-Finder and with apps that use its galaxy data
   </label>
   <p class="state-copy">
     Optional and separate from research sharing. Names, credits and your private
-    history stay private. Contributions need review before publication.
-    Withdrawal stops future use; removing published effects requires a
-    replacement catalogue build.
+    history stay private. Shared observations need review before publication.
+    Withdrawal stops future use; discoveries already published may remain until
+    the galaxy catalogue is updated.
   </p>
   <div class="identity-panel-heading">
     <button
@@ -338,24 +375,28 @@
     </ul>{/if}
 </section>
 
-<section class="identity-panel" aria-labelledby="contribution-title">
-  <h2 id="contribution-title">Your galaxy contributions</h2>
+<GalaxyImpactPanel {accountId} />
+
+<details class="identity-panel galaxy-sharing">
+  <summary>Manage galaxy sharing</summary>
   {#if !contributions.length}<p>
-      No contributions on this page. Personal imports do not enable sharing
-      automatically.
+      No observations shared on this page. Sharing is optional and does not
+      change your impact totals.
     </p>{/if}
   <ul>
-    {#each contributions as contribution (contribution.contribution_id)}
+    {#each contributions as contribution, index (contribution.contribution_id)}
       <li>
-        System {String(contribution.observation.system_id64)} · Body {String(
-          contribution.observation.frontier_body_id,
-        )} · {contribution.contribution_state.toLowerCase()}
+        Observation {page * 50 + index + 1} · Shared on {formatSharedDate(
+          contribution.offered_at,
+        )}
+        · {sharingStatus(contribution.contribution_state)}
         {#if contribution.used_in_generation}
-          · Included in a catalogue build{/if}
+          · Prepared for a galaxy update{/if}
         {#if contribution.contribution_state !== 'WITHDRAWN'}
           <button
             class="quiet-button"
             type="button"
+            aria-label={`Withdraw sharing for observation ${page * 50 + index + 1}`}
             disabled={busy}
             onclick={() => void withdraw(contribution.contribution_id)}
             >Withdraw sharing</button
@@ -376,9 +417,14 @@
     disabled={busy || contributions.length < 50}
     onclick={() => void changePage(1)}>Next</button
   >
-</section>
+</details>
 
 <style>
+  .galaxy-sharing summary {
+    cursor: pointer;
+    font-size: 1.25rem;
+    font-weight: 700;
+  }
   .journal-file-select {
     display: flex;
     align-items: center;
