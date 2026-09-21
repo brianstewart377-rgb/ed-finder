@@ -51,6 +51,9 @@
   } from '$lib/spatial/galaxy-nebulae';
   import { stellarPresentation } from '$lib/spatial/stellar-presentation';
   import WorkspaceHeader from '$lib/components/WorkspaceHeader.svelte';
+  import SystemActions from './SystemActions.svelte';
+  import WatchlistPanel from './WatchlistPanel.svelte';
+  import ComparePanel from './ComparePanel.svelte';
 
   import { createCommanderHistoryContribution } from '$lib/spatial/commander-history';
   import {
@@ -59,7 +62,7 @@
     withinGalaxyDisk,
   } from '$lib/spatial/galaxy-star-stream';
 
-  const { selectedSystem, syncKey } = usePersistenceContext();
+  const { selectedSystem, syncKey, pins, compare } = usePersistenceContext();
   const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
   let query = $state('');
   let activeSuggestion = $state(-1);
@@ -664,6 +667,13 @@
     </p>
   </header>
 
+  <nav class="shortlist-nav" aria-label="Your saved systems">
+    <a href="#saved-systems"
+      >Pinned and watched systems ({$pins.value.length} pinned)</a
+    >
+    <a href="#compare-systems">Compare ({$compare.value.length})</a>
+  </nav>
+
   <section class="finder-bar" aria-labelledby="finder-title">
     <div>
       <p class="eyebrow">Discovery anchor</p>
@@ -812,6 +822,7 @@
               >
                 Inspect <ArrowRight aria-hidden="true" size={16} />
               </a>
+              <div class="finder-actions"><SystemActions {system} /></div>
             </li>
           {/each}
         </ul>
@@ -1060,4 +1071,24 @@
       </p>
     </section>
   </div>
+  <div id="saved-systems"><WatchlistPanel /></div>
+  <div id="compare-systems"><ComparePanel /></div>
 </main>
+
+<style>
+  .shortlist-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    margin-block: 1rem;
+  }
+  .finder-actions {
+    grid-column: 1 / -1;
+    padding: 0 1rem 0.75rem;
+  }
+  #saved-systems,
+  #compare-systems {
+    margin-top: 1.5rem;
+    scroll-margin-top: 5rem;
+  }
+</style>
