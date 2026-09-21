@@ -365,7 +365,6 @@ export interface MapHeatmapPyramidCell {
   centroid_y_ly: number;
   centroid_z_ly: number;
   system_count: number;
-  representative_system_id64: number | string;
 }
 
 export interface MapHeatmapPyramidResponse {

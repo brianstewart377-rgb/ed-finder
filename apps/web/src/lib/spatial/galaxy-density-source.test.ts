@@ -32,7 +32,6 @@ const pyramid = {
       centroid_y_ly: 50,
       centroid_z_ly: 50,
       system_count: 2,
-      representative_system_id64: 1,
     },
     {
       origin_x_ly: 100,
@@ -42,7 +41,6 @@ const pyramid = {
       centroid_y_ly: 50,
       centroid_z_ly: 50,
       system_count: 1,
-      representative_system_id64: 2,
     },
   ],
   count: 2,

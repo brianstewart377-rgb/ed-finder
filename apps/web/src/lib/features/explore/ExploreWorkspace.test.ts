@@ -48,7 +48,6 @@ const pyramidFixture: api.MapHeatmapResponse = {
       centroid_y_ly: 500,
       centroid_z_ly: 500,
       system_count: 120,
-      representative_system_id64: 1,
     },
     {
       origin_x_ly: 1000,
@@ -58,7 +57,6 @@ const pyramidFixture: api.MapHeatmapResponse = {
       centroid_y_ly: 500,
       centroid_z_ly: 500,
       system_count: 80,
-      representative_system_id64: 2,
     },
   ],
   count: 2,

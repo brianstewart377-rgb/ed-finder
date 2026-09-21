@@ -185,7 +185,9 @@ def test_root_layout_owns_the_configured_query_and_persistence_singletons():
 
     owners = []
     for path, source in _application_sources():
-        if path.name == "TestShell.svelte":
+        if path.name == "TestShell.svelte" or path.name.endswith(
+            "TestHost.svelte"
+        ):
             continue
         if re.search(r"\bprovidePersistenceContext\s*\(\s*\)\s*;", source):
             owners.append(path.relative_to(SOURCE).as_posix())
