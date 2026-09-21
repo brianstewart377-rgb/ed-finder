@@ -156,7 +156,11 @@ describe('Galaxy label projection and layout', () => {
 
   it('hovering a region does not change any label placement (emphasis only)', () => {
     const region = (id: string) =>
-      ({ kind: 'region', text: `Region ${id}`, target: { kind: 'region', id } }) as const;
+      ({
+        kind: 'region',
+        text: `Region ${id}`,
+        target: { kind: 'region', id },
+      }) as const;
     // Clustered so the greedy solver must displace them — the setup that made
     // hover reorder + reflow neighbours before the fix.
     const candidates = [
@@ -167,7 +171,10 @@ describe('Galaxy label projection and layout', () => {
     ];
     const place = (list: GalaxyLabelCandidate[]) =>
       Object.fromEntries(
-        layoutGalaxyLabels(list, camera, viewport).map((l) => [l.key, `${l.xPx}:${l.yPx}`]),
+        layoutGalaxyLabels(list, camera, viewport).map((l) => [
+          l.key,
+          `${l.xPx}:${l.yPx}`,
+        ]),
       );
     const base = place(candidates);
     const withHover = place(
