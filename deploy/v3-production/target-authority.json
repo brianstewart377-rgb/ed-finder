@@ -67,16 +67,17 @@
       "sha256:3bd851bf6fc93c74195e2eee82212510ef0c1e7766b996f43de5e332ac802afd",
       "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
       "sha256:88e97e26fec1d5695b31fe5fceb5c80c7187ef1d7c2988ac9b332698d1996e88",
-      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc"
+      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc",
+      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
     ],
     "evidence": "Public health on 2026-09-13 confirms accepted source b1616332 remains database-connected. Migration 006 application in workflow run 34698167474 passed the exact live-ledger hash gate before its later worker dependency failure, and read-only run 34698615774 confirmed its derived-product objects in use. Exact-head 897f560b CI and PostgreSQL 18 integration verified additive migrations 008 and 009, including ownership, consent, publication and reconciliation behavior."
   },
   "schema_transition": {
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
-    "from_schema_identity_sha256": "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d",
-    "from_migration_set_identity": "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc",
-    "to_migration_set_identity": "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
-    "evidence": "Reviewed transition from the retained production ledger through 006 to the exact committed lineage through 009; 007 remains reserved and is not applied."
+    "from_schema_identity_sha256": "a65d55f69bea95c7d91044b81eaa613e7e82916e9b1e17c5e4a2a59d54fe217c",
+    "from_migration_set_identity": "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
+    "to_migration_set_identity": "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
+    "evidence": "Reviewed transition from the committed lineage through 009 to the committed lineage through 012 (additive migration 012_v3_spatial_pyramid_decouple.sql: canonical-keyed spatial density pyramid tables + publish CAS function; clean-replaces the empty/unused derived-keyed pyramid path, clusters untouched). 007/010/011 remain reserved and are not applied. The derived schema identity 4cae7d2b and migration-set identity sha256:17263a97 were produced by scripts/operator/v3_schema_identity.py; the pre-012 derivation reproduced the live authority (a65d55f6, sha256:78e8da38) exactly."
   },
   "application_contract": {
     "compose_project": "edfinder-v3-production",
@@ -123,7 +124,7 @@
     "api_env_owner_uid": 0,
     "api_env_mode": "0600",
     "schema_identity_file": "/etc/ed-finder/v3-production/schema-identity.json",
-    "schema_identity_sha256": "a65d55f69bea95c7d91044b81eaa613e7e82916e9b1e17c5e4a2a59d54fe217c",
+    "schema_identity_sha256": "4cae7d2be2e1909d468b82c6802b265118303cc0fe1c257c2f6c9e963f3a39f5",
     "schema_identity_owner_uid": 0,
     "schema_identity_mode": "0600",
     "active_origin_bind": "127.0.0.1:58080",
