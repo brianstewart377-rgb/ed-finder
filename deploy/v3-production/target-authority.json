@@ -25,17 +25,17 @@
   },
   "observed_runtime": {
     "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7f9e70eb562e6740b3c4d59fcad91f65e73784a7e24b62ef00963b1c81e7c31a",
-    "api_build_sha": "b1616332c024e262a0aac03018943abbf619c087",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:bdfb7e8ba7327a7ba7f0e71eb77ca86d281b2f4731dd0938ccb1775e2a353b29",
+    "api_build_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
     "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:87ee670681e1e5a4792433c7da7fc5fddbb93c7b5286b2d124b69d1f33ac6d6f",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:243459cea15deff9ed5226147cd8fbeab34217c64c672c63750339ffbfffb421",
     "accepted_promotion": {
-      "received_at": "2026-09-10",
-      "release_run_id": "34527597963",
-      "source_sha": "b1616332c024e262a0aac03018943abbf619c087",
-      "mode": "bootstrap",
+      "received_at": "2026-09-19T15:50:39Z",
+      "release_run_id": "35452384535",
+      "source_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
+      "mode": "upgrade",
       "active_slot": "blue",
-      "rollback_kind": "none-first-promotion"
+      "rollback_kind": "prior-accepted-immutable-release"
     },
     "retired_legacy_containers": [
       "edfinder-v3-api",
@@ -51,26 +51,23 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-b1616332",
-    "live_topology_note": "The accepted bootstrap promotion of 2026-09-10 (release run 34527597963, source b1616332c024e262a0aac03018943abbf619c087) put the active blue slot on 127.0.0.1:58080 and left 127.0.0.1:58081 free, so the unchanged-edge single-active-origin cutover model now holds and the edge was never repointed or recreated. The legacy api and proxy were stopped by that cutover and then retired on 2026-09-10 once their inspect records were archived, so the application network now carries exactly the retained database and the active slot."
+    "public_ui": "svelte-release-ab2cb229",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 35452988188 at 2026-09-19T15:50:39Z binds release run 35452384535 and source ab2cb2292bf54f680b2c8a6935227b335642aba0 to active slot blue. Active and public smoke passed; edge_recreated and protected_resources_changed are false. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "b1616332c024e262a0aac03018943abbf619c087",
-    "release_run_id": "34527597963",
-    "manifest_sha256": "ef59711955208daea7459693dd2e01bcadfb3afb26ec67ebd4223236340ba8e6",
+    "source_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
+    "release_run_id": "35452384535",
+    "manifest_sha256": "66edb30d54df56c1564c20e40df498f064bb1d3906db04bb53b7195466abe9de",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7f9e70eb562e6740b3c4d59fcad91f65e73784a7e24b62ef00963b1c81e7c31a",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:87ee670681e1e5a4792433c7da7fc5fddbb93c7b5286b2d124b69d1f33ac6d6f"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:bdfb7e8ba7327a7ba7f0e71eb77ca86d281b2f4731dd0938ccb1775e2a353b29",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:243459cea15deff9ed5226147cd8fbeab34217c64c672c63750339ffbfffb421"
     },
     "compatible_migration_sets": [
       "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
-      "sha256:3bd851bf6fc93c74195e2eee82212510ef0c1e7766b996f43de5e332ac802afd",
-      "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
-      "sha256:88e97e26fec1d5695b31fe5fceb5c80c7187ef1d7c2988ac9b332698d1996e88",
-      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc"
+      "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e"
     ],
-    "evidence": "Public health on 2026-09-13 confirms accepted source b1616332 remains database-connected. Migration 006 application in workflow run 34698167474 passed the exact live-ledger hash gate before its later worker dependency failure, and read-only run 34698615774 confirmed its derived-product objects in use. Exact-head 897f560b CI and PostgreSQL 18 integration verified additive migrations 008 and 009, including ownership, consent, publication and reconciliation behavior."
+    "evidence": "Release artifact from run 35452384535 and accepted promotion receipt from run 35452988188 bind source ab2cb2292bf54f680b2c8a6935227b335642aba0, both image digests and release-file SHA256 66edb30d54df56c1564c20e40df498f064bb1d3906db04bb53b7195466abe9de. The immutable release declares V3 through-009 compatibility. Static review of that source's apps/api/src/routers/map.py shows the pre-publication fallback and migration-012 spatial_generation_id queries; the map source and 012 SQL are byte-identical at 9f6dbff451825b0a3fd8ada4ea50dfa1f5bd22d3. CPython 3.14 offline verification checks exact release bindings and derived 009-to-012 prefix coverage. Live table emptiness and DB integration are not established by this review."
   },
   "schema_transition": {
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
