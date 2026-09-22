@@ -64,11 +64,11 @@
       "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:87ee670681e1e5a4792433c7da7fc5fddbb93c7b5286b2d124b69d1f33ac6d6f"
     },
     "compatible_migration_sets": [
+      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
       "sha256:3bd851bf6fc93c74195e2eee82212510ef0c1e7766b996f43de5e332ac802afd",
       "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e",
       "sha256:88e97e26fec1d5695b31fe5fceb5c80c7187ef1d7c2988ac9b332698d1996e88",
-      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc",
-      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
+      "sha256:cf61b843e81788435c11220997cca4a19ff4db3f5a30fabf2c88b5aa56b06ccc"
     ],
     "evidence": "Public health on 2026-09-13 confirms accepted source b1616332 remains database-connected. Migration 006 application in workflow run 34698167474 passed the exact live-ledger hash gate before its later worker dependency failure, and read-only run 34698615774 confirmed its derived-product objects in use. Exact-head 897f560b CI and PostgreSQL 18 integration verified additive migrations 008 and 009, including ownership, consent, publication and reconciliation behavior."
   },
