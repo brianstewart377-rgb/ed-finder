@@ -42,7 +42,10 @@ Recommended local tools:
 - Git for Windows, including `bash.exe`
 - GNU Make 4.4+ for the repository convenience targets
 - CPython `3.14.x` (the bootstrap and doctor reject other implementations and feature versions)
-- Node.js with Yarn support (`yarn` or `corepack yarn`)
+- Node.js 24 with Corepack — pnpm 11 for the current `apps/web` app. Note: the
+  Windows bootstrap/dev launchers (`bootstrap-windows.ps1`, `start_local_dev.ps1`)
+  still target the retired `frontend/` tree with yarn and are pending update to
+  `apps/web`/pnpm.
 - Docker Desktop
 - PostgreSQL client tools if you want `pg_isready` checks in the doctor output
 

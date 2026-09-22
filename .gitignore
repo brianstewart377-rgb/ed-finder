@@ -179,3 +179,24 @@ artifacts/restore-rehearsals/latest.dump
 ed-finder-deployed.png
 ed-finder-finder-page.png
 tools/
+
+# uv: only apps/api/uv.lock is authoritative. Ignore a stray root-level lock
+# (anchored so apps/api/uv.lock stays tracked — never use a bare `uv.lock`).
+/uv.lock
+
+# Tool caches not otherwise covered
+.ruff_cache/
+
+# Local browser/test scratch dirs (their contents currently collapse via
+# *.log/*.db/*.pyc rules, but the directories themselves are not ignored)
+chrome-artifact/
+.edge-headless/
+.tmp-r1-scan/
+
+# Claude Code runtime lock
+.claude/scheduled_tasks.lock
+
+# Transient CI / Review Lab failure artifacts downloaded into the working tree
+artifacts/firefox-fail-*/
+artifacts/review-lab-fail/
+/review-report-artifact*/
