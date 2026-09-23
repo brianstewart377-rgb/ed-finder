@@ -80,7 +80,7 @@ async function bundleParser() {
     bundle: true,
     format: 'esm',
     platform: 'node',
-    target: 'node20',
+    target: 'node24',
     outfile,
     logLevel: 'silent',
   });
