@@ -323,17 +323,24 @@ publish_operation() {
     expected_sequence="0"
   fi
 
+  # psql only interpolates client-side :'variables' when it reads the SQL from
+  # stdin (or -f), NOT from --command/-c, which passes the string to the server
+  # verbatim (a `:` there is a raw syntax error). The bound-variable quoting
+  # above is the whole trust-boundary mechanism for actor/reason, so the SQL
+  # MUST arrive on stdin: pipe it in via `docker exec -i`. Keep the query as a
+  # single static line with no shell interpolation of the operator free text.
   local sequence
-  sequence="$(docker exec "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
-    --tuples-only --no-align --quiet --set ON_ERROR_STOP=1 \
-    --username "$DATABASE_USER" --dbname "$DATABASE_NAME" \
-    -v target="$target" \
-    -v expected_current="$expected_current" \
-    -v expected_sequence="$expected_sequence" \
-    -v expected_canonical="$canonical" \
-    -v actor="$actor" \
-    -v reason="$reason" \
-    --command "SELECT v3_spatial.publish_spatial_pyramid(:'target'::uuid, NULLIF(:'expected_current','')::uuid, :'expected_sequence'::bigint, :'expected_canonical'::uuid, :'actor', :'reason');")"
+  sequence="$(printf '%s\n' \
+    "SELECT v3_spatial.publish_spatial_pyramid(:'target'::uuid, NULLIF(:'expected_current','')::uuid, :'expected_sequence'::bigint, :'expected_canonical'::uuid, :'actor', :'reason');" \
+    | docker exec -i "$POSTGRES_CONTAINER" psql -X --no-psqlrc --no-password \
+        --tuples-only --no-align --quiet --set ON_ERROR_STOP=1 \
+        --username "$DATABASE_USER" --dbname "$DATABASE_NAME" \
+        -v target="$target" \
+        -v expected_current="$expected_current" \
+        -v expected_sequence="$expected_sequence" \
+        -v expected_canonical="$canonical" \
+        -v actor="$actor" \
+        -v reason="$reason")"
   [[ "$sequence" =~ ^[0-9]+$ ]] || fail "publish_spatial_pyramid did not return a publication sequence"
 
   printf 'operation=v3-spatial-pyramid-publish\n'
