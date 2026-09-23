@@ -109,7 +109,8 @@
         getVerifiedCommanders(lifetime.signal),
         getGalaxyContributions(page * 50, lifetime.signal),
       ]);
-      if (lifetime.signal.aborted || generation !== refreshGeneration) return false;
+      if (lifetime.signal.aborted || generation !== refreshGeneration)
+        return false;
       if (linked.status === 'fulfilled') commanders = linked.value;
       if (rows.status === 'fulfilled') contributions = rows.value;
       if (linked.status === 'rejected' || rows.status === 'rejected')
