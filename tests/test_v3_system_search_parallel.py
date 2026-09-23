@@ -189,6 +189,28 @@ def test_disjoint_ranges_match_serial_rows_and_content_hashes(database):
     _assert_complete_counts(connection, generation_id, chunks=6)
 
 
+def test_signalled_worker_pauses_at_next_chunk_boundary_and_stays_resumable(database):
+    # When a peer range fails, the orchestrator sets a shared stop event so the
+    # remaining workers exit PAUSED at their next chunk boundary instead of
+    # running to completion. A worker signalled before its first chunk commits
+    # must stop immediately, write nothing, and leave an accurate resume cursor.
+    connection, _, _, _ = database
+    key, generation_id = _ready_generation(database, chunk_size=2)
+    parallel.prepare(connection, key, workers=1)
+    stop = Event()
+    stop.set()
+    paused = parallel.run_worker(connection, key, range_id=0, stop=stop)
+    assert paused['status'] == 'PAUSED'
+    assert paused['chunks_seen'] == paused['chunks_written'] == 0
+    assert paused['next_chunk'] == 0
+    assert _ranges(connection, generation_id) == [(0, 0, 6, 0)]
+    # The signalled pause is fully resumable: a fresh worker completes the range.
+    completed = parallel.run_worker(connection, key, range_id=0)
+    assert completed['status'] == 'RANGE_COMPLETE'
+    assert completed['chunks_written'] == 6
+    _assert_complete_counts(connection, generation_id, chunks=6)
+
+
 def test_parallel_resume_skips_compatible_serial_receipts(database):
     connection, _, _, _ = database
     key, generation_id = _ready_generation(database)
