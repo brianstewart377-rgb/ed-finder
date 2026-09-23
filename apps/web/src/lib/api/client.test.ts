@@ -1,5 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Partial mock (preserving every other real export via loadOriginal, per the
+// $lib/api/client mocking convention in SystemDetail.test.ts /
+// SystemOverlay.test.ts) so this file's other tests keep exercising the real
+// generated SDK/transport while getMapHeatmap's test stubs only the one
+// heatmap operation.
+vi.mock('$lib/api/generated/sdk.gen', async (loadOriginal) => {
+  const original =
+    await loadOriginal<typeof import('$lib/api/generated/sdk.gen')>();
+  return {
+    ...original,
+    mapHeatmapApiMapHeatmapGet: vi.fn(async () => ({
+      data: { source: 'pyramid', cells: [] },
+    })),
+  };
+});
+
 import {
   ADMIN_TOKEN_SESSION_KEY,
   ApiError,
@@ -11,6 +27,7 @@ import {
   getAuthSession,
   getGalaxyImpact,
   getHealth,
+  getMapHeatmap,
   getSystem,
   searchExploreSystems,
   startFrontierLink,
@@ -19,6 +36,7 @@ import {
 // Allowed only in a .test. file: exercise the generated client configuration
 // (interceptors) the facade installs, on a route the facade does not wrap.
 import { statusApiStatusGet } from './generated/sdk.gen';
+import * as sdk from './generated/sdk.gen';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -232,5 +250,18 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
   it('re-exports the single shared transport inventory rather than duplicating it', () => {
     expect(LEGACY_ADMIN_ENDPOINTS).toHaveLength(28);
     expect(apiRequest).toBeTypeOf('function');
+  });
+});
+
+describe('getMapHeatmap', () => {
+  it('calls the heatmap SDK with query + throwOnError and returns data', async () => {
+    const out = await getMapHeatmap({ voxel_size: 500, max_cells: 40000 });
+    expect(out).toMatchObject({ source: 'pyramid' });
+    expect(vi.mocked(sdk.mapHeatmapApiMapHeatmapGet)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: { voxel_size: 500, max_cells: 40000 },
+        throwOnError: true,
+      }),
+    );
   });
 });
