@@ -20,6 +20,7 @@ describe('collectGalaxySpatialContributions', () => {
     const result = collectGalaxySpatialContributions({
       regions: contribution('authoritative-galaxy-regions'),
       nebulae: contribution('catalogue:galaxy-nebulae'),
+      density: contribution('catalogue-density'),
       catalogueStars: contribution('catalogue-viewport-stars'),
       commanderHistory: contribution('commander-history'),
     });
@@ -31,6 +32,7 @@ describe('collectGalaxySpatialContributions', () => {
     const result = collectGalaxySpatialContributions({
       regions: null,
       nebulae: contribution('catalogue:galaxy-nebulae'),
+      density: null,
       catalogueStars: null,
       commanderHistory: contribution('commander-history'),
     });
@@ -46,9 +48,18 @@ describe('collectGalaxySpatialContributions', () => {
       collectGalaxySpatialContributions({
         regions: null,
         nebulae: null,
+        density: null,
         catalogueStars: null,
         commanderHistory: null,
       }),
     ).toEqual([]);
+  });
+
+  it('orders catalogue-density beneath catalogue stars', () => {
+    const order = GALAXY_OVERLAY_ORDER as readonly string[];
+    expect(order).toContain('catalogue-density');
+    expect(order.indexOf('catalogue-density')).toBeLessThan(
+      order.indexOf('catalogue-viewport-stars'),
+    );
   });
 });

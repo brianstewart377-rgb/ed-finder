@@ -71,14 +71,16 @@ plus a rate-limit bump and an nginx directive. No new API endpoints or shapes
 3. **`uploader.ts` (new, pure, unit-tested)** — consume the `ParsedFile`
    stream and:
    - accumulate whole files into a batch until the next file would exceed
-     **`maxBytes` (default 8 MiB serialized)**, **`maxEvents` (default
-     20,000)**, or **`maxFiles` (default 200, matching the server's
-     `MAX_FILES_PER_IMPORT`; the server also caps events at 50,000/request)**,
-     whichever first; always ≥ 1 whole file per batch so manifest+events stay
-     consistent;
-   - a single file larger than the thresholds forms its own batch (never split
-     a file's events across batches — the manifest/`source_file` invariant at
-     `v3_journal.py:366` requires it);
+     **`maxBytes` (default 700 KiB serialized — comfortably under the ~1 MB
+     nginx/CDN edge body limit that returns 413 before the API; a ~500 KB body
+     is verified to pass)**, **`maxEvents` (default 20,000)**, or **`maxFiles`
+     (default 200, matching the server's `MAX_FILES_PER_IMPORT`; the server also
+     caps events at 50,000/request)**, whichever first;
+   - a single file larger than the thresholds is **split into slices that each
+     carry the file manifest** (`splitFileForUpload`), so an oversized journal
+     session still uploads across several sub-1 MB requests. The
+     manifest/`source_file` invariant (`v3_journal.py:366`) holds within each
+     slice, and dedup by `source_record_hash` keeps re-sends idempotent;
    - POST each batch via an injected `submit(body, signal)`;
    - **retry** on 429 / 5xx / network with exponential backoff (429 honours
      `Retry-After` when present); **do not** retry other 4xx (e.g. a residual
@@ -102,10 +104,15 @@ plus a rate-limit bump and an nginx directive. No new API endpoints or shapes
    `5/minute → 30/minute`. Chunked uploads issue more requests; the endpoint is
    authenticated and idempotent, and the client backs off on 429 regardless.
 
-6. **nginx (`config/nginx.conf`)** — add `client_max_body_size 32m;` to both
-   `/api/` locations (`:106` and `:224`). Comfortably covers an 8 MiB batch and
-   any worst-case single-file batch; scoped to `/api/` so other paths keep a
-   tight default. SSE (`/api/events/live`) is a separate location, unaffected.
+6. **nginx (`config/nginx.conf`)** — `client_max_body_size 32m` on both `/api/`
+   locations. NOTE: `config/nginx.conf` is only used by the local
+   `docker-compose.yml`; it does **not** govern production. Production serves the
+   web image (`apps/web/nginx/default.conf.template`) behind an edge/CDN whose
+   ~1 MB default returns the 413, and that edge is gated infra outside
+   application code. The **real, deployment-agnostic fix is client-side**:
+   batches (and per-file slices) stay under ~1 MB via `maxBytes` (700 KiB
+   default), so imports clear the edge limit with no infra change. The local
+   nginx allowance just keeps the Review Lab / dev compose from 413ing too.
 
 ### Data types (frontend)
 

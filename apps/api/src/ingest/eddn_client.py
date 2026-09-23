@@ -183,9 +183,25 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
             # ── Receive ───────────────────────────────────────────────────
             try:
                 raw = await asyncio.wait_for(socket.recv(), timeout=35.0)
-            except (asyncio.TimeoutError, Exception):
-                # Timeout or ZMQ error — flush what we have and reconnect
+            except (asyncio.TimeoutError, zmq.Again):
+                # Quiet feed — no message within RCVTIMEO / the wait_for window.
+                # pyzmq raises zmq.Again on the socket RCVTIMEO (30s), which fires
+                # before the 35s wait_for; it is a normal quiet-feed cycle, not an
+                # error. Flush what we have and reconnect.
                 break
+            except Exception as e:
+                # ZMQ / decode-layer error — flush what we have and reconnect.
+                log.debug(f'EDDN recv error: {e}')
+                break
+
+            # A successful receive proves the connection is alive and data is
+            # flowing — even a non-simulation event we filter out below. Advance
+            # the liveness timestamp here so a busy feed carrying only
+            # non-simulation events does not look stalled, while a genuinely
+            # dead/silent connection (recv keeps timing out or erroring, never
+            # reaching this line) correctly lets seconds_since_last_flush() grow
+            # and trip the stall alarm.
+            _last_flush_at = time.time()
 
             # ── Decode ────────────────────────────────────────────────────
             try:
@@ -241,6 +257,10 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
             except Exception as e:
                 log.warning(f'EDDN final flush error: {e}')
             finally:
+                # A final flush happened, so the loop was live — refresh liveness.
+                # Do NOT refresh unconditionally here: a dead connection breaks
+                # into this block with nothing pending, and refreshing then would
+                # mask a stalled ingest from the monitor.
                 _last_flush_at = time.time()
         socket.close()
         ctx.term()
