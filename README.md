@@ -100,7 +100,12 @@ tests/                        Application and repository-governance tests
 Use local or disposable services only. Never point ordinary development or
 test commands at production.
 
-For the V3 web application:
+For the V3 web application, use Node.js 24 LTS and pnpm 11.25.0. The root
+`.nvmrc` and `.node-version` select the locked Node major for local version
+managers; `apps/web/package.json` requires `>=24 <25`. Verify `node --version`
+and `pnpm --version` before running the checks. See the
+[Node runtime upgrade plan](docs/development/node-runtime-upgrade-plan.md)
+for the pin inventory and the separate owner-gated production procedure.
 
 ```bash
 cd apps/web
