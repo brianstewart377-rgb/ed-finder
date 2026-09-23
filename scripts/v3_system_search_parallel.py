@@ -8,10 +8,11 @@ one independent direct Psycopg connection per range and then validates once.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 import platform
 import sys
@@ -168,7 +169,8 @@ def prepare(connection, generation_key: str, *, workers: int) -> dict:
 
 
 def run_worker(connection, generation_key: str, *, range_id: int,
-               max_chunks: int | None = None, progress=None) -> dict:
+               max_chunks: int | None = None, progress=None,
+               stop: threading.Event | None = None) -> dict:
     """Commit one bounded Ratings chunk plus its checkpoint per transaction.
 
     A repeated invocation safely skips committed receipts. A crash rolls back
@@ -210,6 +212,13 @@ def run_worker(connection, generation_key: str, *, range_id: int,
             if product[0] != 'BUILDING':
                 raise ValueError('Search product is not BUILDING')
             if max_chunks is not None and seen >= max_chunks:
+                break
+            # Cooperative stop: when a peer range fails, the orchestrator sets
+            # this event so the remaining workers exit PAUSED at the next chunk
+            # boundary instead of running their (possibly multi-day) range to
+            # completion. Checked here, ordinal/end are already bound, so the
+            # PAUSED return below reports an accurate resume cursor.
+            if stop is not None and stop.is_set():
                 break
             chunk = connection.execute(
                 '''SELECT chunk_ordinal,systems,canonical_input_sha256,content_sha256
@@ -312,10 +321,12 @@ def main(argv=None) -> int:
         def progress(item):
             print(json.dumps({'status': 'PROGRESS', **item}, sort_keys=True), flush=True)
 
+        stop = threading.Event()
+
         def work(index):
             with connect() as connection:
                 return run_worker(connection, args.generation_key, range_id=index,
-                                  max_chunks=args.max_chunks, progress=progress)
+                                  max_chunks=args.max_chunks, progress=progress, stop=stop)
 
         if args.action == 'work':
             result = work(args.range_id)
@@ -328,8 +339,23 @@ def main(argv=None) -> int:
                     if args.action == 'run':
                         # Connections belong to individual worker threads. The
                         # frozen plan survives any process/thread failure.
+                        # as_completed surfaces the first failing range
+                        # immediately (executor.map yields in submission order,
+                        # so a late range's failure hides behind earlier
+                        # still-running ranges); on failure, signal the peers to
+                        # stop at their next chunk boundary rather than run to
+                        # completion before this run reports FAILED.
                         with ThreadPoolExecutor(max_workers=args.workers) as executor:
-                            results = list(executor.map(work, range(args.workers)))
+                            futures = [executor.submit(work, index)
+                                       for index in range(args.workers)]
+                            results = []
+                            try:
+                                for future in as_completed(futures):
+                                    results.append(future.result())
+                            except Exception:
+                                stop.set()
+                                raise
+                        results.sort(key=lambda worker: worker['range_id'])
                         result = {'workers': results, **finalize(connection, args.generation_key)}
     except Exception as exc:
         # Do not expose DSNs, credentials or server-supplied text in logs.
