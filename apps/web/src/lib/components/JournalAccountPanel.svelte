@@ -262,12 +262,22 @@
   }
 
   async function changePage(delta: number) {
+    // Serialize page changes: without this, overlapping next/prev clicks each
+    // capture a different `previous`, and a stale call's rollback could clobber
+    // a newer page that loaded successfully. `busy` also disables the paging
+    // buttons for the duration, so only one change is ever in flight.
+    if (busy) return;
     const previous = page;
     page += delta;
-    // Keep page aligned with the rows actually displayed: if the new page
-    // fails to load, refresh() leaves the prior contributions in place, so
-    // revert page too or the labels/withdraw buttons relabel stale rows.
-    if (!(await refresh())) page = previous;
+    busy = true;
+    try {
+      // Keep page aligned with the rows actually displayed: if the new page
+      // fails to load, refresh() leaves the prior contributions in place, so
+      // revert page too or the labels/withdraw buttons relabel stale rows.
+      if (!(await refresh())) page = previous;
+    } finally {
+      busy = false;
+    }
   }
   onMount(() => {
     void refresh();
