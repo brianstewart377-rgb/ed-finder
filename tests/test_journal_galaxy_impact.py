@@ -37,6 +37,18 @@ def signed_in_user():
     )
 
 
+def test_star_types_use_canonical_journal_spellings():
+    """The Scan star whitelist must carry the canonical journal spellings; a
+    mismatch silently drops those stars from the impact tally. Regression for
+    the SuperMassiveBlackHole misspelling and the missing B_/G_ supergiants."""
+    from edfinder_api.journal.impact import _STAR_TYPES
+
+    assert 'SupermassiveBlackHole' in _STAR_TYPES
+    assert 'SuperMassiveBlackHole' not in _STAR_TYPES
+    assert 'B_BlueWhiteSuperGiant' in _STAR_TYPES
+    assert 'G_WhiteYellowSuperGiant' in _STAR_TYPES
+
+
 @pytest.mark.asyncio
 async def test_galaxy_impact_requires_authentication(monkeypatch):
     app, pool = app_with_user(monkeypatch, None)

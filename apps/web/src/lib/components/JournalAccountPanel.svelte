@@ -101,7 +101,7 @@
     return `All ${held.length} selected file${held.length === 1 ? '' : 's'} were held: ${parts.join(', ')}.`;
   }
 
-  async function refresh() {
+  async function refresh(): Promise<boolean> {
     const generation = ++refreshGeneration;
     error = '';
     try {
@@ -109,7 +109,7 @@
         getVerifiedCommanders(lifetime.signal),
         getGalaxyContributions(page * 50, lifetime.signal),
       ]);
-      if (lifetime.signal.aborted || generation !== refreshGeneration) return;
+      if (lifetime.signal.aborted || generation !== refreshGeneration) return false;
       if (linked.status === 'fulfilled') commanders = linked.value;
       if (rows.status === 'fulfilled') contributions = rows.value;
       if (linked.status === 'rejected' || rows.status === 'rejected')
@@ -117,9 +117,11 @@
       status = commanders.length
         ? 'Ready to import your journals'
         : 'Sign in again to verify your commander with Frontier';
+      return rows.status === 'fulfilled';
     } catch {
       if (!lifetime.signal.aborted && generation === refreshGeneration)
         error = 'Your journal account could not be loaded. Please try again.';
+      return false;
     }
   }
 
@@ -259,8 +261,12 @@
   }
 
   async function changePage(delta: number) {
+    const previous = page;
     page += delta;
-    await refresh();
+    // Keep page aligned with the rows actually displayed: if the new page
+    // fails to load, refresh() leaves the prior contributions in place, so
+    // revert page too or the labels/withdraw buttons relabel stale rows.
+    if (!(await refresh())) page = previous;
   }
   onMount(() => {
     void refresh();

@@ -31,9 +31,9 @@ _STAR_TYPES = (
     'O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y', 'TTS', 'AeBe',
     'W', 'WN', 'WNC', 'WC', 'WO', 'CS', 'C', 'CN', 'CJ', 'CH', 'CHd', 'MS', 'S',
     'D', 'DA', 'DAB', 'DAO', 'DAZ', 'DAV', 'DB', 'DBZ', 'DBV', 'DO', 'DOV',
-    'DQ', 'DC', 'DCV', 'DX', 'N', 'H', 'SuperMassiveBlackHole',
-    'A_BlueWhiteSuperGiant', 'F_WhiteSuperGiant', 'M_RedSuperGiant',
-    'M_RedGiant', 'K_OrangeGiant',
+    'DQ', 'DC', 'DCV', 'DX', 'N', 'H', 'SupermassiveBlackHole',
+    'A_BlueWhiteSuperGiant', 'B_BlueWhiteSuperGiant', 'F_WhiteSuperGiant',
+    'G_WhiteYellowSuperGiant', 'M_RedSuperGiant', 'M_RedGiant', 'K_OrangeGiant',
 )
 
 _SUMMARY_SQL = """
