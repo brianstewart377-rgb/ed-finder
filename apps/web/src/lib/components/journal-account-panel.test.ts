@@ -6,14 +6,18 @@ import {
   waitFor,
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient } from '@tanstack/svelte-query';
+import { tick } from 'svelte';
 import * as api from '$lib/api/client';
+import { queryKeys } from '$lib/api/query';
+import { auth, type AuthState } from '$lib/auth/auth';
 import { streamJournals } from '$lib/journal/parse';
 import {
   uploadJournalBatches,
   type CommittedBatch,
   type UploadResult,
 } from '$lib/journal/uploader';
-import JournalAccountPanel from './JournalAccountPanel.svelte';
+import JournalAccountPanel from './JournalAccountPanelTestHost.svelte';
 
 vi.mock('$lib/api/client', () => ({
   getVerifiedCommanders: vi.fn(),
@@ -21,10 +25,14 @@ vi.mock('$lib/api/client', () => ({
   offerGalaxyFacts: vi.fn(),
   getGalaxyContributions: vi.fn(),
   withdrawGalaxyContribution: vi.fn(),
+  getGalaxyImpact: vi.fn(),
 }));
 vi.mock('$lib/journal/parse', () => ({ streamJournals: vi.fn() }));
 vi.mock('$lib/journal/uploader', () => ({ uploadJournalBatches: vi.fn() }));
-vi.mock('$lib/auth/auth', () => ({ auth: { signIn: vi.fn() } }));
+vi.mock('$lib/auth/auth', async () => {
+  const { writable } = await import('svelte/store');
+  return { auth: { ...writable({}), signIn: vi.fn() } };
+});
 
 const hash = 'a'.repeat(64);
 const saved: api.V3VerifiedImportReceipt = {
@@ -66,6 +74,26 @@ async function selectFile() {
 describe('private journal import and explicit sharing', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    (auth as typeof auth & { set: (value: AuthState) => void }).set({
+      authenticated: true,
+      loading: false,
+      user: {
+        account_id: 'account-one',
+        commander_name: 'Test Commander',
+        is_owner: false,
+      },
+      ownerClaimAvailable: false,
+      error: null,
+    });
+    vi.mocked(api.getGalaxyImpact).mockResolvedValue({
+      systems_discovered: 0,
+      bodies_scanned: 0,
+      earth_like_worlds: 0,
+      water_worlds: 0,
+      ammonia_worlds: 0,
+      terraformable_candidates: 0,
+      gas_giants: 0,
+    });
     vi.mocked(api.getVerifiedCommanders).mockResolvedValue([
       {
         commander_id: 'commander',
@@ -151,7 +179,7 @@ describe('private journal import and explicit sharing', () => {
     await importBatch(hashes(1));
     await screen.findByText(/Your Journal is saved. Sharing needs a retry/);
     await importBatch(hashes(200));
-    await screen.findByText(/second chunk offline/);
+    await waitFor(() => expect(api.offerGalaxyFacts).toHaveBeenCalledTimes(3));
     expect(
       vi.mocked(api.offerGalaxyFacts).mock.calls.map((call) => call[1].length),
     ).toEqual([200, 200, 199]);
@@ -201,7 +229,7 @@ describe('private journal import and explicit sharing', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Some account data');
   });
 
-  it('surfaces the real worker error text', async () => {
+  it('shows a recovery message without exposing raw import errors', async () => {
     vi.mocked(uploadJournalBatches).mockRejectedValue(
       new Error('Worker failed to load: 415'),
     );
@@ -212,10 +240,61 @@ describe('private journal import and explicit sharing', () => {
     );
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
-        'Worker failed to load: 415',
+        'Import could not finish. Saved progress is safe; please try again.',
       ),
     );
   });
+
+  it.each(['complete', 'partial', 'cancelled', 'interrupted'] as const)(
+    'refreshes impact after saved batches when an import is %s',
+    async (outcome) => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const invalidate = vi.spyOn(client, 'invalidateQueries');
+      let importSignal: AbortSignal | undefined;
+      vi.mocked(uploadJournalBatches).mockImplementation(
+        async (_source, _submit, options) => {
+          importSignal = options.signal;
+          options.onBatchCommitted?.({
+            shas: [hash],
+            importIds: ['original-import'],
+          });
+          if (outcome === 'interrupted') throw new Error('connection lost');
+          if (outcome === 'cancelled') {
+            await tick();
+            await fireEvent.click(
+              screen.getByRole('button', { name: 'Stop import' }),
+            );
+          }
+          return result(
+            outcome === 'partial'
+              ? { failed: [{ files: ['retry.log'], reason: 'offline' }] }
+              : {},
+          );
+        },
+      );
+      render(JournalAccountPanel, { props: { client } });
+      await selectFile();
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Import journals' }),
+      );
+      await waitFor(() =>
+        expect(invalidate).toHaveBeenCalledWith({
+          queryKey: queryKeys.galaxyImpact('account-one'),
+        }),
+      );
+      await waitFor(() => expect(api.getGalaxyImpact).toHaveBeenCalledTimes(2));
+      if (outcome === 'cancelled') {
+        expect(importSignal?.aborted).toBe(true);
+        expect(
+          screen.getByText(
+            'Import stopped. Saved events remain; re-import to continue.',
+          ),
+        ).toBeInTheDocument();
+      }
+    },
+  );
 
   it('reports a batch that needs a retry without losing saved work', async () => {
     mockUpload(
