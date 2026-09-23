@@ -269,3 +269,35 @@ async def test_authoritative_star_scan_cannot_retain_terraformable_planet_credit
     await import_events(account, [{**body, 'PlanetClass': 'Water world', 'TerraformState': 'Terraformable'}])
     await import_events(account, [{**body, 'StarType': 'G'}], day=2)
     assert await summary(account) == {**ZERO, 'systems_discovered': 1, 'bodies_scanned': 1}
+
+
+@pytest.mark.asyncio
+async def test_readiness_resolves_through_any_still_ready_file_occurrence(account):
+    """A Scan deduplicated across two imported files still counts while ANY
+    retained occurrence sits in a READY import — even after the import that
+    owns the deduplicated journal_event row is withdrawn. Readiness must be
+    resolved through v3_private.journal_file_event, not the originating import."""
+    pool, account_id, _, _ = account
+    body = [{'SystemAddress': 123, 'BodyID': 1, 'PlanetClass': 'Earthlike body'}]
+    # Same event (identical day/payload → one journal_event) in two distinct
+    # files (differing suffix → differing content_sha256 → two imports).
+    first_import, _ = await import_events(account, body, suffix='fileA')
+    second_import, _ = await import_events(account, body, suffix='fileB')
+    # Dedup keeps a single journal_event but records an occurrence per file.
+    assert await pool.fetchval(
+        'SELECT count(*) FROM v3_private.journal_event WHERE owner_account_id=$1', account_id) == 1
+    assert await pool.fetchval(
+        'SELECT count(*) FROM v3_private.journal_file_event WHERE owner_account_id=$1', account_id) == 2
+    ready = {**ZERO, 'systems_discovered': 1, 'bodies_scanned': 1, 'earth_like_worlds': 1}
+    assert await summary(account) == ready
+    # Withdraw the import the journal_event row is attached to; the second
+    # file's import stays READY, so the scan must still count.
+    await pool.execute(
+        "UPDATE v3_private.private_import SET import_state='WITHDRAWN', withdrawn_at=now() "
+        'WHERE private_import_id=$1', first_import)
+    assert await summary(account) == ready
+    # No READY occurrence remains -> the scan drops out.
+    await pool.execute(
+        "UPDATE v3_private.private_import SET import_state='WITHDRAWN', withdrawn_at=now() "
+        'WHERE private_import_id=$1', second_import)
+    assert await summary(account) == ZERO

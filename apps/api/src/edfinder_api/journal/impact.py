@@ -42,11 +42,6 @@ WITH scans AS MATERIALIZED (
            e.event_key->>'BodyID' AS body_id,
            e.event_payload, e.event_timestamp, e.journal_event_id
       FROM v3_private.journal_event e
-      JOIN v3_private.private_import i
-        ON i.private_import_id = e.private_import_id
-       AND i.owner_account_id = e.owner_account_id
-       AND i.owner_commander_id = e.owner_commander_id
-       AND i.import_state = 'READY'
       JOIN v3_identity.account_commander_access a
         ON a.account_id = e.owner_account_id AND a.commander_id = e.owner_commander_id
        AND a.access_role = 'OWNER' AND a.revoked_at IS NULL
@@ -55,6 +50,24 @@ WITH scans AS MATERIALIZED (
       JOIN v3_identity.account owner
         ON owner.account_id = a.account_id AND owner.account_state = 'ACTIVE'
      WHERE e.owner_account_id = $1 AND e.event_type = 'Scan'
+       -- Resolve readiness through ANY retained file occurrence, not the
+       -- event's originating import. The same Scan can appear in several
+       -- imported files (v3_private.journal_file_event); dedup keeps the
+       -- journal_event attached to its first import, so gating on that import
+       -- alone drops the scan when the first import is later WITHDRAWN/REJECTED
+       -- even though another still-READY, ADMITTED file still retains it.
+       AND EXISTS (
+           SELECT 1 FROM v3_private.journal_file_event fe
+             JOIN v3_private.journal_import_file jif
+               USING (journal_file_id, owner_account_id)
+             JOIN v3_private.private_import pi
+               ON pi.private_import_id = jif.private_import_id
+              AND pi.owner_account_id = jif.owner_account_id
+            WHERE fe.journal_event_id = e.journal_event_id
+              AND fe.owner_account_id = e.owner_account_id
+              AND pi.owner_commander_id = e.owner_commander_id
+              AND pi.import_state = 'READY'
+       )
        AND EXISTS (
            SELECT 1 FROM v3_identity.commander_external_identity ce
             WHERE ce.commander_id = c.commander_id AND ce.provider = $3 AND ce.issuer = $4
