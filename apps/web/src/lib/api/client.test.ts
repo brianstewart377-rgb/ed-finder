@@ -25,6 +25,7 @@ import {
   claimOwner,
   getAuthIdentities,
   getAuthSession,
+  getGalaxyImpact,
   getHealth,
   getMapHeatmap,
   getSystem,
@@ -47,6 +48,32 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     sessionStorage.clear();
+  });
+
+  it('loads private galaxy totals through the generated own-account route with cancellation', async () => {
+    const summary = {
+      systems_discovered: 1302,
+      bodies_scanned: 9000,
+      earth_like_worlds: 6,
+      water_worlds: 4,
+      ammonia_worlds: 2,
+      terraformable_candidates: 7,
+      gas_giants: 38,
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(summary));
+    const controller = new AbortController();
+
+    await expect(getGalaxyImpact(controller.signal)).resolves.toEqual(summary);
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(request).toBeInstanceOf(Request);
+    expect(new URL(request.url).pathname).toBe('/api/v1/journal/galaxy-impact');
+    expect(new URL(request.url).search).toBe('');
+    expect(request.credentials).toBe('include');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
   });
 
   it('delegates ordinary bootstrap operations to the generated SDK over the credentialed same-origin transport', async () => {

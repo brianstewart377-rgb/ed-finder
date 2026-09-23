@@ -2217,6 +2217,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/journal/galaxy-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Journal Galaxy Impact */
+        get: operations["getJournalGalaxyImpact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/summary": {
         parameters: {
             query?: never;
@@ -4188,6 +4205,23 @@ export interface components {
         FrontierLinkResponse: {
             /** Authorization Url */
             authorization_url: string;
+        };
+        /** GalaxyImpactSummary */
+        GalaxyImpactSummary: {
+            /** Systems Discovered */
+            systems_discovered: number;
+            /** Bodies Scanned */
+            bodies_scanned: number;
+            /** Earth Like Worlds */
+            earth_like_worlds: number;
+            /** Water Worlds */
+            water_worlds: number;
+            /** Ammonia Worlds */
+            ammonia_worlds: number;
+            /** Terraformable Candidates */
+            terraformable_candidates: number;
+            /** Gas Giants */
+            gas_giants: number;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
@@ -11483,6 +11517,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getJournalGalaxyImpact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalaxyImpactSummary"];
                 };
             };
         };
