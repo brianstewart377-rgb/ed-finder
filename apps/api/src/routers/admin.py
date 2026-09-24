@@ -4,6 +4,7 @@ Every write endpoint in this module is guarded by `require_admin`, which
 is disabled entirely unless the ADMIN_TOKEN env var is set. Nginx further
 restricts /api/admin/* to 127.0.0.1 as defence in depth.
 """
+import asyncio
 from datetime import datetime, timezone
 from typing   import Any, Optional
 
@@ -264,7 +265,12 @@ async def _run_cluster_rebuild_job(
     *,
     job_run_id: int,
 ) -> None:
-    run_cluster_rebuild(active_jobs)
+    # run_cluster_rebuild() blocks on a synchronous subprocess.run for the full
+    # duration of a cluster rebuild (potentially many minutes over ~186M
+    # systems). This coroutine runs as a FastAPI BackgroundTask on the worker's
+    # event loop, so calling it directly would freeze health checks and every
+    # other request on this worker. Offload it to a thread.
+    await asyncio.to_thread(run_cluster_rebuild, active_jobs)
     job_state = dict(active_jobs.get('cluster_rebuild') or {})
     async with pool.acquire() as conn:
         await _finalize_admin_job_run(

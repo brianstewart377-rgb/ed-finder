@@ -1090,6 +1090,17 @@ Strategies:
     z_cells = math.ceil((max_z - min_z) / cell_size)
     log.info(f"  Grid dims: {x_cells}×{y_cells}×{z_cells} = {fmt_num(x_cells*y_cells*z_cells)} max cells")
 
+    # grid_cell_id packs the axis indices as x*1e8 + y*1e4 + z (base 1e4). A y or
+    # z index >= 10000 overflows its slot and silently collides distinct cells.
+    # Safe at the default cell size (indices in the low hundreds), but --cell-size
+    # is operator-tunable, so fail closed rather than corrupt grid_cell_id.
+    if y_cells > 10000 or z_cells > 10000:
+        raise SystemExit(
+            f"cell-size {cell_size} LY yields {x_cells}×{y_cells}×{z_cells} cells; "
+            f"y and z cell counts must each be <= 10000 for the base-1e4 grid_cell_id "
+            f"packing scheme. Increase --cell-size."
+        )
+
     if _shutdown:
         log.warning("Shutdown after Stage 1.")
         sys.exit(0)

@@ -43,6 +43,18 @@ def test_cluster_rebuild_uses_importer_entrypoint_without_duplicate_python(
     assert active_jobs['cluster_rebuild']['status'] == 'completed'
 
 
+def test_cluster_rebuild_job_offloads_blocking_subprocess_to_thread():
+    # _run_cluster_rebuild_job is an async BackgroundTask that runs on the API
+    # worker's event loop; run_cluster_rebuild() blocks on a synchronous
+    # subprocess.run for the whole rebuild. It must be offloaded to a thread, not
+    # awaited-inline, or it freezes health checks and every other request on the
+    # worker for the duration of the rebuild.
+    source = ADMIN_PATH.read_text(encoding='utf-8')
+    assert 'await asyncio.to_thread(run_cluster_rebuild, active_jobs)' in source
+    # Regression guard against a return to a direct synchronous call in the job.
+    assert '\n    run_cluster_rebuild(active_jobs)\n' not in source
+
+
 def _bash_path(path: Path) -> str:
     resolved = path.resolve()
     if os.name != 'nt':

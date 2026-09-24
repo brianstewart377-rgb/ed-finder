@@ -10,6 +10,7 @@ import type { SpatialContribution } from './contracts';
 export const GALAXY_OVERLAY_ORDER = [
   'authoritative-galaxy-regions',
   'catalogue:galaxy-nebulae',
+  'catalogue-density',
   'catalogue-viewport-stars',
   'commander-history',
 ] as const;
@@ -19,6 +20,7 @@ export type GalaxyOverlayContributionId = (typeof GALAXY_OVERLAY_ORDER)[number];
 export type GalaxyOverlayInput = Readonly<{
   regions: SpatialContribution | null;
   nebulae: SpatialContribution | null;
+  density: SpatialContribution | null;
   catalogueStars: SpatialContribution | null;
   commanderHistory: SpatialContribution | null;
 }>;
@@ -28,6 +30,7 @@ const overlayById: Readonly<
 > = {
   'authoritative-galaxy-regions': 'regions',
   'catalogue:galaxy-nebulae': 'nebulae',
+  'catalogue-density': 'density',
   'catalogue-viewport-stars': 'catalogueStars',
   'commander-history': 'commanderHistory',
 };

@@ -140,6 +140,8 @@ jobs:
               -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
               "$SSH_USER@$SSH_HOST" \
               "set -eu; umask 077; rm -rf '$stage'; mkdir -p '$stage'; tar --no-same-owner --no-same-permissions -C '$stage' -xf -"
           # SPATIAL_PYRAMID_ACTOR/SPATIAL_PYRAMID_REASON are the only operator
@@ -158,11 +160,21 @@ jobs:
           quoted_actor="'$(sq "$SPATIAL_PYRAMID_ACTOR")'"
           quoted_reason="'$(sq "$SPATIAL_PYRAMID_REASON")'"
           remote_command="SPATIAL_PYRAMID_ACTOR=$quoted_actor SPATIAL_PYRAMID_REASON=$quoted_reason bash -s -- '$OPERATION' '$stage' '$source_sha'"
+          # The build sub-command runs for many minutes and streams NOTHING
+          # back until its final receipt JSON, so this channel sits idle for
+          # the whole build. Without SSH-level keepalive a ~300s NAT/proxy
+          # idle-timeout reaps the idle channel mid-build (observed: broken
+          # pipe at ~4m45s, exit 255). ServerAliveInterval keeps the channel
+          # warm every 30s; CountMax tolerates ~10min of a busy host before
+          # declaring the peer dead. The build is one atomic transaction and
+          # fail-closed/idempotent, so a reaped attempt never corrupts state.
           ssh -i ~/.ssh/ed_new_operator_key \
               -p "$SSH_PORT" \
               -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
               "$SSH_USER@$SSH_HOST" \
               "$remote_command" \
               < trusted-main/scripts/operator/actions/v3-spatial-pyramid.sh | tee "$RECEIPT"

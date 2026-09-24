@@ -218,7 +218,10 @@ export function projectGalaxyLabel(
 function priority(candidate: GalaxyLabelCandidate): number {
   if (candidate.kind === 'system' && candidate.selected) return 1_000;
   if (candidate.kind === 'region' && candidate.selected) return 950;
-  if (candidate.hovered) return 900;
+  // Hover is pure emphasis (surfaced via `hovered` on the projected label and
+  // styled in CSS) and must NOT change the solver's sort order — otherwise the
+  // hovered candidate jumps to the front of the greedy pass and reflows every
+  // neighbouring label as the pointer moves. See the hover-stability test.
   if (candidate.current) return 850;
   if (candidate.kind === 'system') return 700;
   if (candidate.text === 'Galactic Centre') return 650;

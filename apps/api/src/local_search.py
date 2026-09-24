@@ -724,6 +724,8 @@ async def _resolve_slot_matches(
                 async with pool.acquire() as conn:
                     detail_rows = await conn.fetch(sql, *detail_params)
             except Exception:
+                # Don't let a DB/query fault masquerade as "no matches" — surface it.
+                log.warning("local_search detail query failed; returning no matches for this slot", exc_info=True)
                 detail_rows = []
 
             matches = []
