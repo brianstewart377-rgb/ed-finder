@@ -70,6 +70,15 @@ Use `ProcessPoolExecutor` with `multiprocessing.get_context('spawn')`, matching
 the existing encoder path. Each worker opens its own read-only psycopg
 connection. No connection or DB cursor crosses process boundaries.
 
+Because the parent connection cannot cross that boundary, each spawned worker
+needs **explicit connection authority** — the parent must pass a full DSN (or
+discrete connection parameters incl. password) to every worker, not derive it
+from the parent handle. `connection.info.dsn` is **not** usable as a fallback:
+psycopg redacts the password from it. Landing therefore threads the same
+connection source the runner already uses (env DSN / connection params) into the
+worker factory alongside the worker count; the worker count alone is
+insufficient.
+
 Static contiguous ranges are the first implementation because they are
 deterministic and easy to reason about. If real chunk-density variance is
 large, switch to a bounded work queue where workers claim batches of chunks.
@@ -130,7 +139,10 @@ volume bounded, but the source is sub-batch results, not whole-range aggregates.
 ## Code identity and rollout
 
 1. Refactor `validate_generation()` in `scripts/ratings_v4/production_generation.py`
-   to accept a validation-worker count, **and** thread that setting through the
+   to accept a validation-worker count **and an explicit connection source** for
+   the spawned workers (a DSN / connection params, since the parent connection
+   cannot cross the process boundary and `connection.info.dsn` redacts the
+   password), **and** thread both through the
    runner: `run_generation.py` currently parses only `--workers`
    (`run_generation.py:288-292`) and calls `validate_generation()` with no worker
    argument (`build_generation()` at `run_generation.py:162,263`). Landing must add
@@ -252,8 +264,16 @@ below.
   - `workers=4` produces the same **deterministic** receipt fields and
     aggregates as `workers=1`. The receipt's wall-clock `elapsed_seconds` is not
     deterministic across runs, so the equality assertion must exclude it (or the
-    clock must be injected/frozen); compare the counts, coverage flags, quality
-    minima/maxima, and content/manifest hashes.
+    clock must be injected/frozen); compare the counts, coverage flags, and
+    quality minima/maxima. **Compare content/manifest hashes only across the same
+    generation identity:** `_digest(payload)` embeds `derived_generation_id`, and
+    `VALIDATING -> READY` is permitted once, so exercising `workers=1` and
+    `workers=4` as two independent committed validations would use two different
+    generations whose hashes cannot match by construction. Either run both worker
+    counts against the *same* generation without committing the terminal
+    transition (a dry-run validation path that returns the receipt it *would*
+    write), or exclude the generation-id-dependent hashes and compare the
+    per-chunk replayed values instead.
   - progress includes `phase=validation` and advances monotonically. Do **not**
     assert global chunk-ordinal ordering: with static contiguous ranges a later
     worker normally completes a sub-batch before the worker owning the earliest
@@ -262,7 +282,15 @@ below.
     range finishes — hiding most parallel progress. Assert instead that each
     worker's own sub-batch records are ordered and that the aggregate
     `validated_systems`/`percent_complete` is non-decreasing.
-  - a worker-side checksum mismatch leaves lifecycle state `VALIDATING`.
+  - a worker-side checksum mismatch leaves lifecycle state `VALIDATING` **and
+    tears down the pool promptly**. Asserting the lifecycle state alone is
+    insufficient — it would still pass if the implementation used
+    `shutdown(wait=True)` and blocked for hours on the other in-flight ranges.
+    The test must prove the bounded-tail behaviour from "Failure and resume":
+    inject a mismatch in one range while another long range is running and assert
+    the run returns without waiting for that range to finish (e.g. the shared
+    cancellation flag is observed / `shutdown(wait=False)` + process termination
+    is invoked / the observed teardown time is bounded).
   - legacy-generation resume behaviour is exercised under the resolution chosen
     for the runtime-guard blocker in "Landing status" (preserved historical-target
     execution, a distinct approved transition, or an explicitly revised
