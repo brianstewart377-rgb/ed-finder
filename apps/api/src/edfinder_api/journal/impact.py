@@ -67,6 +67,7 @@ WITH scans AS MATERIALIZED (
               AND fe.owner_account_id = e.owner_account_id
               AND pi.owner_commander_id = e.owner_commander_id
               AND pi.import_state = 'READY'
+              AND jif.file_state = 'ADMITTED'
        )
        AND EXISTS (
            SELECT 1 FROM v3_identity.commander_external_identity ce

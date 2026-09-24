@@ -301,3 +301,17 @@ async def test_readiness_resolves_through_any_still_ready_file_occurrence(accoun
         "UPDATE v3_private.private_import SET import_state='WITHDRAWN', withdrawn_at=now() "
         'WHERE private_import_id=$1', second_import)
     assert await summary(account) == ZERO
+
+
+@pytest.mark.asyncio
+async def test_readiness_ignores_rejected_files_within_ready_imports(account):
+    """A scan retained only by a REJECTED file must not count even while that
+    file's import is READY: readiness requires an ADMITTED file occurrence."""
+    pool, account_id, _, _ = account
+    await import_events(account, [{'SystemAddress': 123, 'BodyID': 1, 'PlanetClass': 'Earthlike body'}])
+    ready = {**ZERO, 'systems_discovered': 1, 'bodies_scanned': 1, 'earth_like_worlds': 1}
+    assert await summary(account) == ready
+    await pool.execute(
+        "UPDATE v3_private.journal_import_file SET file_state='REJECTED' WHERE owner_account_id=$1",
+        account_id)
+    assert await summary(account) == ZERO
