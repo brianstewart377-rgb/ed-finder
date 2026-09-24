@@ -139,6 +139,7 @@
         </select>
       </label>
       {#if $pins.value.length > 0}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- data: URI download of pins JSON, not route navigation -->
         <a class="text-action" href={exportHref} download="ed-finder-pins.json"
           >Export pins as JSON</a
         >
