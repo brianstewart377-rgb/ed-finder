@@ -74,8 +74,18 @@ Static contiguous ranges are the first implementation because they are
 deterministic and easy to reason about. If real chunk-density variance is
 large, switch to a bounded work queue where workers claim batches of chunks.
 
-Proposed default is `workers=8`, matching the encoder path. Keep a separate
-`MAX_VALIDATION_WORKERS` limit rather than reusing the encoder constant.
+The validation-worker count is a **separate** setting (`--validation-workers`)
+with its own `MAX_VALIDATION_WORKERS` limit, not the encoder constant. Its
+default must stay **conservative (1)**, not 8: the ordinary operator path
+(`scripts/operator/actions/ratings-v4-generation.sh:214-236`) launches
+`run_generation.py` with no worker flag inside a container capped at `--cpus 2
+--memory 12g`, so an 8-way default would silently fan out eight DB readers and
+replay processes under those small limits. The proven `parallel_v1` run used a
+separately accelerated worker container and passed `--validation-workers 8`
+explicitly. Landing therefore keeps the default at 1 and makes the optimized
+operator pass pass `--validation-workers 8` (updating the operator invocation and,
+if 8 processes exceed the standard caps, its container resources) rather than
+changing the no-flag default.
 
 ### Progress
 
@@ -143,6 +153,19 @@ Current remote run:
 - Staged bundle source SHA: `0b9f4003747e7d0f3d0a0c3529f40279471e1765`
 - Staged bundle path: `/var/tmp/edfinder-ratings-v4-0b9f4003747e7d0f3d0a0c3529f40279471e1765/scripts/ratings_v4/`
 - CLI: `--workers 8 --validation-workers 8`
+
+**Durability gap (landing prerequisite).** The exact implementation that
+produced the published generation currently exists *only* at that `/var/tmp`
+staging path. SHA `0b9f4003…` is **not** reachable from `git rev-list --all`, and
+no copy of the parallel validator lives in the repo (`scripts/ratings_v4/` still
+holds the serial validator). If that temporary production bundle is cleaned up,
+the code behind the live generation cannot be inspected, reproduced, or used as
+the landing baseline — even though its output is the published generation. Before
+the staging host is reclaimed, archive the exact staged
+`scripts/ratings_v4/` bundle as a durable, reviewable artifact (a reachable
+commit or a checked-in patch under version control, with its SHA recorded here),
+so the landing session diffs against the proven source rather than
+reconstructing it.
 
 ## Outcome (2026-09-16)
 
@@ -231,7 +254,14 @@ below.
     deterministic across runs, so the equality assertion must exclude it (or the
     clock must be injected/frozen); compare the counts, coverage flags, quality
     minima/maxima, and content/manifest hashes.
-  - progress includes `phase=validation` and is emitted in chunk order.
+  - progress includes `phase=validation` and advances monotonically. Do **not**
+    assert global chunk-ordinal ordering: with static contiguous ranges a later
+    worker normally completes a sub-batch before the worker owning the earliest
+    range, so a global-order assertion would either fail on immediate reporting or
+    force the implementation to buffer later workers' events until the earliest
+    range finishes — hiding most parallel progress. Assert instead that each
+    worker's own sub-batch records are ordered and that the aggregate
+    `validated_systems`/`percent_complete` is non-decreasing.
   - a worker-side checksum mismatch leaves lifecycle state `VALIDATING`.
   - legacy-generation resume behaviour is exercised under the resolution chosen
     for the runtime-guard blocker in "Landing status" (preserved historical-target
