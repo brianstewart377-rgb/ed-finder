@@ -89,8 +89,15 @@ parallel execution:
 - `worker_id` or batch identifier
 - `elapsed_seconds`
 
-The parent emits one progress record per completed batch, which keeps log volume
-bounded while still making the phase observable.
+One progress record per *completed range* is not enough: with the static
+one-range-per-worker model a range can run for hours, so the parent would stay
+silent — and the `chunk_ordinal`/`percent_complete` fields would not advance —
+for that whole span. Progress must be emitted *while* a range is running.
+Concretely: workers report per **sub-batch** (a bounded number of chunks) over
+an interprocess channel — a `multiprocessing.Queue` the parent drains, or the
+bounded work-queue model of the Worker section where each claimed batch yields a
+progress record on completion. The parent still throttles emission to keep log
+volume bounded, but the source is sub-batch results, not whole-range aggregates.
 
 ## Failure and resume
 
@@ -112,7 +119,15 @@ bounded while still making the phase observable.
 
 ## Code identity and rollout
 
-1. Refactor `validate_generation()` in `scripts/ratings_v4/production_generation.py`.
+1. Refactor `validate_generation()` in `scripts/ratings_v4/production_generation.py`
+   to accept a validation-worker count, **and** thread that setting through the
+   runner: `run_generation.py` currently parses only `--workers`
+   (`run_generation.py:288-292`) and calls `validate_generation()` with no worker
+   argument (`build_generation()` at `run_generation.py:162,263`). Landing must add
+   the `--validation-workers` parser argument, its bounds check against
+   `MAX_VALIDATION_WORKERS`, the `build_generation()` signature/call change, and
+   CLI tests — otherwise the documented `--validation-workers 8` invocation fails
+   as an unknown option.
 2. Add tests proving `workers=1` and `workers>1` produce identical receipts
    across the deterministic fields (see "Test plan"; `elapsed_seconds` excluded).
 3. Build a new generation image. The new `code_identity()` hash is recorded in
@@ -139,8 +154,11 @@ The run completed successfully and is the currently published generation:
 - Receipt `VERIFIED`: 198,528,286 systems (all replayed), 1,389,698,002 ratings,
   577,709,320 physical bodies, 740,001,532 eligible opportunities;
   `every_system_replayed` and `every_stored_chunk_read_back` true.
-- Total run ≈ 10.5 h (`elapsed_seconds` 37,769), of which validation ≈ 6.7 h —
-  vs the ~90 h serial projection. The target was met.
+- Validation ≈ 10.5 h (`elapsed_seconds` 37,769). That field is measured by
+  `validate_generation()` from its own entry to the receipt write
+  (`scripts/ratings_v4/production_generation.py:297,354`), so it times the
+  validation phase only, not the whole generation run. Against the ~90 h serial
+  projection that is an ≈ 8.5× speed-up. The target was met.
 
 ## Landing status (deferred)
 
@@ -172,6 +190,19 @@ The correct landing path, for the governance session:
 - Decouple `tests/test_ratings_v4_resume_upgrade.py` from live identity: the
   `to_code_sha256_lf == generation.code_identity()` assertion must be pinned to
   the frozen 007 legacy target, not to whatever the current tree hashes to.
+- Pinning that assertion alone is **not sufficient**. The resume test does not
+  just check a receipt — it *executes a resume* of the legacy generation, and
+  `resume_upgrade.approved_target()` (`scripts/ratings_v4/resume_upgrade.py:74-85`)
+  raises `parser upgrade target differs from independently approved identity`
+  whenever the immutable 007 DB row no longer equals the live `code_identity()`.
+  Once the parallel validator lands and changes `code_identity()`, that runtime
+  guard fails *before* the pinned assertion is ever reached. So the landing path
+  must additionally do one of: (a) preserve execution of the historical 007
+  target code so the legacy resume still runs against a matching identity (e.g.
+  the fixture resumes under the pinned legacy SHAs, not the live tree); (b)
+  introduce a distinct approved transition for the new identity; or (c) explicitly
+  retire and revise the legacy-resume behaviour this test documents. Decide which
+  in the governance session — this is a landing blocker, not a test-only tweak.
 - Introduce a new, distinct upgrade authority (its own `upgrade_id` + proposal +
   approved target) **only if** an existing older generation actually needs to be
   upgraded in place — not merely to land new-generation code.
@@ -187,8 +218,9 @@ below.
   read throughput and host CPU scale like the encoder phase, i.e. validation in
   the low tens of hours.
 - Measured result (see "Outcome"): the `parallel_v1` run validated the full
-  galaxy in ≈ 6.7 hours (total run ≈ 10.5 h), comfortably beating the target and
-  removing validation as the lifecycle tail.
+  galaxy in ≈ 10.5 hours (`elapsed_seconds` 37,769, the validation phase only),
+  an ≈ 8.5× speed-up over the ~90 h serial projection — comfortably beating the
+  target and removing validation as the lifecycle tail.
 
 ## Test plan
 
@@ -201,6 +233,9 @@ below.
     minima/maxima, and content/manifest hashes.
   - progress includes `phase=validation` and is emitted in chunk order.
   - a worker-side checksum mismatch leaves lifecycle state `VALIDATING`.
-  - resumed generation behavior is unchanged.
+  - legacy-generation resume behaviour is exercised under the resolution chosen
+    for the runtime-guard blocker in "Landing status" (preserved historical-target
+    execution, a distinct approved transition, or an explicitly revised
+    legacy-resume path) — not merely a re-pinned assertion.
 - Add a runtime profile script or fixture-level benchmark that reports serial
   versus parallel throughput on a representative multi-chunk subset.
