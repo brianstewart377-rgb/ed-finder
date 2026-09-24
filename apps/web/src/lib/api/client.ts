@@ -47,6 +47,7 @@ import {
   createVerifiedJournalImport,
   offerJournalGalaxyFacts,
   listJournalGalaxyContributions,
+  getJournalGalaxyImpact,
   withdrawJournalGalaxyContribution,
   localSearchEndpointApiLocalSearchPost,
   mapHeatmapApiMapHeatmapGet,
@@ -75,10 +76,14 @@ export type {
   V3JournalImportRequest,
   V3VerifiedImportReceipt,
   ContributionRow,
+  GalaxyImpactSummary,
 } from './generated';
 
 export const getVerifiedCommanders = async (signal?: AbortSignal) =>
   (await listVerifiedCommanders({ throwOnError: true, signal })).data;
+
+export const getGalaxyImpact = async (signal?: AbortSignal) =>
+  (await getJournalGalaxyImpact({ throwOnError: true, signal })).data;
 
 export const importVerifiedJournals = async (
   body: V3JournalImportRequest,

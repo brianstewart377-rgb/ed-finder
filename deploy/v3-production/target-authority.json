@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:bdfb7e8ba7327a7ba7f0e71eb77ca86d281b2f4731dd0938ccb1775e2a353b29",
-    "api_build_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:243459cea15deff9ed5226147cd8fbeab34217c64c672c63750339ffbfffb421",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:91003f0e29fedcc9b92c025319d82cca549b235748e7d71ac69dd6c2a760e4b5",
+    "api_build_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:4310b5032a722a3a55123b34e9afac1069842d1d6ab4ba35eb33b17aa81ac3a6",
     "accepted_promotion": {
-      "received_at": "2026-09-19T15:50:39Z",
-      "release_run_id": "35452384535",
-      "source_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
+      "received_at": "2026-09-23T09:50:04Z",
+      "release_run_id": "35844553223",
+      "source_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
       "mode": "upgrade",
-      "active_slot": "blue",
+      "active_slot": "green",
       "rollback_kind": "prior-accepted-immutable-release"
     },
     "retired_legacy_containers": [
@@ -51,23 +51,22 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-ab2cb229",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 35452988188 at 2026-09-19T15:50:39Z binds release run 35452384535 and source ab2cb2292bf54f680b2c8a6935227b335642aba0 to active slot blue. Active and public smoke passed; edge_recreated and protected_resources_changed are false. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-8055f268",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 35845165546 at 2026-09-23T09:50:04Z binds release run 35844553223 and source 8055f2685a80c5b41005f9cc632abd1cda31d89e to active slot green, promoted from the prior accepted blue release ab2cb2292bf54f680b2c8a6935227b335642aba0. Active, staging and public smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "ab2cb2292bf54f680b2c8a6935227b335642aba0",
-    "release_run_id": "35452384535",
-    "manifest_sha256": "66edb30d54df56c1564c20e40df498f064bb1d3906db04bb53b7195466abe9de",
+    "source_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
+    "release_run_id": "35844553223",
+    "manifest_sha256": "8d4a4b659b93c72010b41771d8deb0e79aa0daf7f539fa95c5e2f125bc9e68a8",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:bdfb7e8ba7327a7ba7f0e71eb77ca86d281b2f4731dd0938ccb1775e2a353b29",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:243459cea15deff9ed5226147cd8fbeab34217c64c672c63750339ffbfffb421"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:91003f0e29fedcc9b92c025319d82cca549b235748e7d71ac69dd6c2a760e4b5",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:4310b5032a722a3a55123b34e9afac1069842d1d6ab4ba35eb33b17aa81ac3a6"
     },
     "compatible_migration_sets": [
-      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
-      "sha256:78e8da38e961a62f13c9ca87059d6cf23e66e2091d22afef07d4a12c7f48d02e"
+      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
     ],
-    "evidence": "Release artifact from run 35452384535 and accepted promotion receipt from run 35452988188 bind source ab2cb2292bf54f680b2c8a6935227b335642aba0, both image digests and release-file SHA256 66edb30d54df56c1564c20e40df498f064bb1d3906db04bb53b7195466abe9de. The immutable release declares V3 through-009 compatibility. Static review of that source's apps/api/src/routers/map.py shows the pre-publication fallback and migration-012 spatial_generation_id queries; the map source and 012 SQL are byte-identical at 9f6dbff451825b0a3fd8ada4ea50dfa1f5bd22d3. CPython 3.14 offline verification checks exact release bindings and derived 009-to-012 prefix coverage. Live table emptiness and DB integration are not established by this review."
+    "evidence": "Release artifact from run 35844553223 and accepted promotion receipt from run 35845165546 bind source 8055f2685a80c5b41005f9cc632abd1cda31d89e, both image digests and release-file SHA256 8d4a4b659b93c72010b41771d8deb0e79aa0daf7f539fa95c5e2f125bc9e68a8. Live prod ran governed migration 012 (apply run 35825732119): the schema migration-set identity is sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe (through-012), matching this release's declared compatibility and the preflight/promote receipts. This app-only upgrade performed no migrations; the pyramid_v1 spatial generation is published (sequence 1) and /api/map/heatmap serves source=pyramid over 198528286 systems."
   },
   "schema_transition": {
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
