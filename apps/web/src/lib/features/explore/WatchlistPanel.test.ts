@@ -431,7 +431,6 @@ describe('saved systems panel', () => {
     await fireEvent.click(
       await screen.findByRole('button', {
         name: 'Retry watchlist',
-        exact: true,
       }),
     );
     await waitFor(() =>
