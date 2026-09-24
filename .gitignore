@@ -169,6 +169,9 @@ artifacts/frontend-bundles/*.tar.gz
 artifacts/frontend-bundles/*.tar.gz.sha256
 artifacts/restore-rehearsals/latest.dump
 
+# Local, non-product side project (CAD/3D); not part of the repo
+artifacts/mouse-house/
+
 # Tool and session artifacts
 .mcp.json
 .superpowers/

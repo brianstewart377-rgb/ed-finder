@@ -11,14 +11,17 @@ because it changes `code_identity()` (see "Landing status").
 ## Problem
 
 `validate_generation()` currently replays every derived chunk sequentially on
-one Python process. On the current full-galaxy run this is averaging roughly
-36k systems/minute, so a complete validation is approximately 79 hours.
-The build phase used eight encoder workers, so validation has become the
-dominant tail of the generation lifecycle.
+one Python process. At the serial validator's average of roughly
+36k systems/minute, a complete validation of 198,528,286 systems is on the order
+of 90 hours (198,528,286 ÷ 36,000 ≈ 5,515 minutes ≈ 92 hours). The build phase
+used eight encoder workers, so validation has become the dominant tail of the
+generation lifecycle.
 
-The running `ratings_v4_prod_p4_opt1` generation must be left alone. This design
-is for a future generation image and does not alter the current `VALIDATING`
-process.
+Historical context: at the time this was written the `ratings_v4_prod_p4_opt1`
+serial generation was mid-validation and had to be left alone. It is now paused
+and superseded — `parallel_v1` (built and validated by this design) is the
+published generation. This design targets a fresh generation image and did not
+alter that in-flight serial process.
 
 ## Constraints
 
@@ -91,8 +94,16 @@ bounded while still making the phase observable.
 
 ## Failure and resume
 
-- Workers are read-only. Any worker failure cancels the remaining work and
-  leaves the generation in `VALIDATING`.
+- Workers are read-only. Any worker failure leaves the generation in
+  `VALIDATING`. Note that with a static one-range-per-worker model the other
+  ranges are already running when a failure is observed, and neither
+  `Future.cancel()` nor `shutdown(cancel_futures=True)` can stop in-flight
+  `ProcessPoolExecutor` work — so an early checksum failure can leave the
+  remaining processes scanning their multi-hour ranges before the error
+  propagates. To bound that tail the implementation must either poll a shared
+  cancellation flag between chunks or terminate the worker pool on the failure
+  path (`ProcessPoolExecutor.shutdown(wait=False)` plus process termination),
+  rather than relying on future cancellation.
 - No `validation_receipt` or `validated_at` is written until every chunk has
   been replayed successfully.
 - Version 1 does not checkpoint partial validation. A failed run restarts from
@@ -102,7 +113,8 @@ bounded while still making the phase observable.
 ## Code identity and rollout
 
 1. Refactor `validate_generation()` in `scripts/ratings_v4/production_generation.py`.
-2. Add tests proving `workers=1` and `workers>1` produce identical receipts.
+2. Add tests proving `workers=1` and `workers>1` produce identical receipts
+   across the deterministic fields (see "Test plan"; `elapsed_seconds` excluded).
 3. Build a new generation image. The new `code_identity()` hash is recorded in
    the new generation manifest.
 4. Run a new full generation key or a bounded rehearsal before relying on it.
@@ -128,34 +140,65 @@ The run completed successfully and is the currently published generation:
   577,709,320 physical bodies, 740,001,532 eligible opportunities;
   `every_system_replayed` and `every_stored_chunk_read_back` true.
 - Total run ≈ 10.5 h (`elapsed_seconds` 37,769), of which validation ≈ 6.7 h —
-  vs the ~79 h serial projection. The 10–15 h target was met.
+  vs the ~90 h serial projection. The target was met.
 
 ## Landing status (deferred)
 
 This design is documented; the code is **not yet in the repo**. Bringing the
 parallel validator into `scripts/ratings_v4/` changes `code_identity()`, because
 that function SHA-hashes `production_generation.py` and `run_generation.py`
-themselves. Those SHAs are pinned in the independently approved
+themselves. Those SHAs are pinned in
 `sql/v3/proposals/007_ratings_v4_code_upgrade_target.json`, and
-`tests/test_ratings_v4_resume_upgrade.py` asserts
-`to_code_sha256_lf == generation.code_identity()`. Landing therefore requires a
-governed regeneration of the 007 approved target, not a routine feature PR, and
-is deferred to a dedicated governance session together with the test plan below.
+`tests/test_ratings_v4_resume_upgrade.py` currently asserts
+`to_code_sha256_lf == generation.code_identity()`.
+
+**The 007 target must be preserved, not regenerated.**
+`007_ratings_v4_code_upgrade.sql` installs the target behind an
+UPDATE/DELETE/TRUNCATE trigger that makes the approved row immutable, and
+`resume_upgrade.py` defines it as the one-off `ratings-v4-direct-parser-1`
+transition for the legacy generation. Replacing those pinned SHAs would either
+fail to apply against an existing installation or make the repository identity
+disagree with the already-approved database row, breaking verification of that
+historical upgrade. So the earlier "regenerate the 007 target" idea is not
+viable.
+
+The correct landing path, for the governance session:
+
+- Keep 007 and its JSON exactly as-is (it is the frozen legacy-generation
+  transition).
+- A freshly created generation already records its own current `code_identity()`
+  in its manifest, so the parallel validator needs no upgrade authority to run
+  as a new generation (this is exactly how `parallel_v1` ran in production).
+- Decouple `tests/test_ratings_v4_resume_upgrade.py` from live identity: the
+  `to_code_sha256_lf == generation.code_identity()` assertion must be pinned to
+  the frozen 007 legacy target, not to whatever the current tree hashes to.
+- Introduce a new, distinct upgrade authority (its own `upgrade_id` + proposal +
+  approved target) **only if** an existing older generation actually needs to be
+  upgraded in place — not merely to land new-generation code.
+
+This is deferred to a dedicated governance session together with the test plan
+below.
 
 ## Expected impact
 
-- Current serial long-run average: about 36k systems/minute, roughly 79 hours
-  for the full 198,528,286 systems.
-- Eight-way parallel validation should target roughly 6-8x that rate, assuming
-  Postgres read throughput and host CPU scale like the encoder phase.
-- A realistic target is full validation in roughly 10-15 hours instead of
-  roughly 79 hours, with the exact figure to be confirmed on a rehearsal.
+- Serial baseline: about 36k systems/minute, which for the full 198,528,286
+  systems projects to roughly 90 hours of validation.
+- Eight-way parallel validation targeted a 6–8x improvement, assuming Postgres
+  read throughput and host CPU scale like the encoder phase, i.e. validation in
+  the low tens of hours.
+- Measured result (see "Outcome"): the `parallel_v1` run validated the full
+  galaxy in ≈ 6.7 hours (total run ≈ 10.5 h), comfortably beating the target and
+  removing validation as the lifecycle tail.
 
 ## Test plan
 
 - Extend `tests/test_ratings_v4_production_generation.py` for:
   - `workers=1` produces the current receipt shape.
-  - `workers=4` produces the exact same receipt and aggregates as `workers=1`.
+  - `workers=4` produces the same **deterministic** receipt fields and
+    aggregates as `workers=1`. The receipt's wall-clock `elapsed_seconds` is not
+    deterministic across runs, so the equality assertion must exclude it (or the
+    clock must be injected/frozen); compare the counts, coverage flags, quality
+    minima/maxima, and content/manifest hashes.
   - progress includes `phase=validation` and is emitted in chunk order.
   - a worker-side checksum mismatch leaves lifecycle state `VALIDATING`.
   - resumed generation behavior is unchanged.
