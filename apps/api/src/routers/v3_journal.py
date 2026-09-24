@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from edfinder_api.auth import AuthenticatedUser, get_request_user, require_same_origin
@@ -135,6 +135,16 @@ class V3JournalSummaryResponse(V1Model):
     last_imported_at: str | None
     event_counts: dict[str, int]
     imported_files: int
+
+
+class GalaxyImpactSummary(V1Model):
+    systems_discovered: int = Field(ge=0)
+    bodies_scanned: int = Field(ge=0)
+    earth_like_worlds: int = Field(ge=0)
+    water_worlds: int = Field(ge=0)
+    ammonia_worlds: int = Field(ge=0)
+    terraformable_candidates: int = Field(ge=0)
+    gas_giants: int = Field(ge=0)
 
 
 class V3JournalSystemRow(V1Model):
@@ -467,6 +477,27 @@ async def create_verified_journal_import(
                 )
     result.import_ids = sorted(set(result.import_ids))
     return result
+
+
+@router.get('/galaxy-impact', response_model=GalaxyImpactSummary, operation_id='getJournalGalaxyImpact')
+@limiter.limit('30/minute')
+async def get_journal_galaxy_impact(
+    request: Request,
+    response: Response,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> GalaxyImpactSummary:
+    from edfinder_api.journal.impact import GalaxyImpactUnavailable, galaxy_impact
+
+    user = await _require_user(request)
+    response.headers['Cache-Control'] = 'private, no-store'
+    try:
+        counts = await galaxy_impact(pool, user.account_id)
+    except (GalaxyImpactUnavailable, TimeoutError, asyncpg.QueryCanceledError) as exc:
+        raise HTTPException(
+            503, 'Your galaxy impact is unavailable right now. Please try again.',
+            headers={'Cache-Control': 'private, no-store'},
+        ) from exc
+    return GalaxyImpactSummary(**counts)
 
 
 @router.get("/summary", response_model=V3JournalSummaryResponse, operation_id="getV3JournalSummary")

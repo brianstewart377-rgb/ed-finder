@@ -31,3 +31,25 @@ def test_exposes_build_and_publish_commands():
     assert 'publish_spatial_pyramid' in text
     assert ' build)' in text or 'build)' in text
     assert ' publish)' in text or 'publish)' in text
+
+
+def test_publish_psql_variables_are_delivered_on_stdin_not_command():
+    """psql interpolates client-side :'variables' only when it reads the SQL
+    from stdin (or -f), never from --command/-c -- there the string reaches the
+    server verbatim and a bare `:` is a syntax error.
+
+    The publish path binds actor/reason (the only operator free text that
+    crosses into the DB) as :'quoted' psql variables; that quoting IS the
+    trust boundary. So the publish SELECT must arrive on psql's stdin
+    (`docker exec -i` + a pipe), and no --command/-c string may carry a
+    :'variable'. Regression guard for the publish syntax-error bug.
+    """
+    text = _SCRIPT.read_text(encoding='utf-8')
+    assert ":'target'" in text and ":'actor'" in text and ":'reason'" in text
+    assert 'docker exec -i "$POSTGRES_CONTAINER" psql' in text
+    for line in text.splitlines():
+        if '--command' in line or ' -c ' in line:
+            assert ":'" not in line, (
+                'psql --command/-c line carries a client-side :variable that '
+                f'psql will not interpolate: {line.strip()}'
+            )

@@ -22,9 +22,13 @@ merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
 The separate Contabo/live checkpoint remains a rehearsal boundary outside
 production.
-The V3 production application promotion authority is now defined independently
-and remains fail-closed until its fresh inventory, schema, network, secret-file,
-receipt-store, Docker-context, and unchanged-edge cutover facts are reviewed.
+The V3 production application promotion authority is defined independently and is
+now `authorized`: its inventory, schema, network, secret-file, receipt-store,
+Docker-context, and unchanged-edge cutover facts have been reviewed and pinned,
+and it has accepted the first governed `bootstrap` promotion (2026-09-10);
+ROADMAP's programme status additionally records the 2026-09-16 identity release
+deployed via the governed path. Being authorized is not blanket permission to
+promote — deploys run only through the governed application-promotion workflow.
 
 ## Current authority
 
@@ -96,7 +100,12 @@ tests/                        Application and repository-governance tests
 Use local or disposable services only. Never point ordinary development or
 test commands at production.
 
-For the V3 web application:
+For the V3 web application, use Node.js 24 LTS and pnpm 11.25.0. The root
+`.nvmrc` and `.node-version` select the locked Node major for local version
+managers; `apps/web/package.json` requires `>=24 <25`. Verify `node --version`
+and `pnpm --version` before running the checks. See the
+[Node runtime upgrade plan](docs/development/node-runtime-upgrade-plan.md)
+for the pin inventory and the separate owner-gated production procedure.
 
 ```bash
 cd apps/web
@@ -132,6 +141,9 @@ backup targets, or restore commands.
 
 The separate V3 production application promotion authority is documented in
 [`docs/operations/v3-production-application-release.md`](docs/operations/v3-production-application-release.md).
-Its committed target is fail-closed pending reviewed inventory and schema/edge
-facts; the root Compose and Contabo checkpoint do not become production
-authority.
+Its committed target is `authorized` (inventory and schema/edge facts reviewed
+and pinned) and has accepted the first governed `bootstrap` promotion (the later
+2026-09-16 identity release is recorded in ROADMAP's programme status), but
+promotions still run only through the governed workflow; the root Compose and
+Contabo checkpoint do not
+become production authority.

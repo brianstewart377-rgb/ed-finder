@@ -68,6 +68,8 @@ export function optimiserRequestFingerprint(
 export const queryKeys = {
   all: ['ed-finder'] as const,
   auth: () => [...queryKeys.all, 'auth'] as const,
+  galaxyImpact: (accountId: string) =>
+    [...queryKeys.auth(), accountId, 'galaxy-impact'] as const,
   health: () => [...queryKeys.all, 'health'] as const,
   system: (id64: Id64) => [...queryKeys.all, 'system', id64] as const,
   autocomplete: (query: string) =>

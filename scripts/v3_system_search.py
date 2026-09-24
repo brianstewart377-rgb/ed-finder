@@ -395,23 +395,49 @@ def _insert_chunk(
     ordinal, systems, canonical_input_sha, ratings_content_sha = chunk
     ordinal = int(ordinal)
     systems = int(systems)
+    if ordinal < 0 or not 1 <= systems <= 1000:
+        raise ValueError('Search chunk is outside the bounded Ratings contract')
     source_sha = _source_projection_sha(
         generation, manifest_sha, ordinal,
         bytes(canonical_input_sha), bytes(ratings_content_sha),
     )
 
     with connection.transaction():
+        # Match the insert guard's base -> product lock order. Shared locks
+        # permit disjoint chunks while excluding lifecycle/publication changes.
+        base = connection.execute(
+            '''SELECT lifecycle_state FROM v3_meta.derived_generation
+                WHERE derived_generation_id=%s FOR SHARE''',
+            (generation.identifier,),
+        ).fetchone()
+        if base is None or base[0] not in {'BUILDING', 'VALIDATING', 'READY'}:
+            raise ValueError('generation cannot accept Search rows')
         product = connection.execute(
             '''SELECT lifecycle_state,manifest_sha256
                  FROM v3_meta.derived_product
                 WHERE derived_generation_id=%s AND product_code=%s
-                FOR UPDATE''',
+                FOR SHARE''',
             (generation.identifier, PRODUCT_CODE),
         ).fetchone()
         if product is None or product[0] != 'BUILDING':
             raise ValueError('Search product is not BUILDING')
         if bytes(product[1]) != manifest_sha:
             raise ValueError('Search product manifest changed')
+
+        # A committed Ratings receipt is the stable per-chunk mutex. Both the
+        # serial and parallel paths use it before checking Search's receipt.
+        # NO KEY UPDATE also permits the receipt's deferred FK KEY SHARE lock.
+        source = connection.execute(
+            '''SELECT systems,canonical_input_sha256,content_sha256
+                 FROM v3_derived.build_chunk
+                WHERE derived_generation_id=%s AND chunk_ordinal=%s
+                FOR NO KEY UPDATE''',
+            (generation.identifier, ordinal),
+        ).fetchone()
+        if (source is None or int(source[0]) != systems
+                or bytes(source[1]) != bytes(canonical_input_sha)
+                or bytes(source[2]) != bytes(ratings_content_sha)):
+            raise ValueError('Search Ratings chunk source changed')
 
         receipt = connection.execute(
             '''SELECT projection_version,source_projection_sha256,content_sha256,systems
@@ -440,6 +466,10 @@ def _insert_chunk(
         if preexisting:
             raise ValueError('unreceipted Search rows already exist for chunk')
 
+        # Bulk-write safety exception: only derived Search rows/receipts are
+        # inserted. No canonical systems/bodies/clusters/ratings are updated.
+        # Keep origin triggers and FKs active: they enforce insert-only data,
+        # generation lifecycle, and the atomic receipt contract.
         query = sql.SQL(
             '''INSERT INTO v3_derived.system_search(
                 derived_generation_id,system_id64,name,x_ly,y_ly,z_ly,position_ly,

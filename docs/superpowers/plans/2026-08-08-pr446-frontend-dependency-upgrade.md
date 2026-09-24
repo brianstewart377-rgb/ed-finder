@@ -1,5 +1,11 @@
 # PR #446 Frontend Dependency Upgrade (minus Tailwind) Implementation Plan
 
+> Historical React/Yarn migration plan. Its Node 20/22 references record the
+> environment at the time, not current setup instructions. The current
+> [V3 stack decision](../../development/v3-application-stack-decision.md)
+> locks Node.js 24 LTS and pnpm 11 for `apps/web/`; the retained `frontend/`
+> tree is not a current build or validation lane.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land every dependency bump from Dependabot PR #446 except Tailwind CSS (and its directly-coupled PostCSS plugin), on a fresh branch, in three risk-tiered commits, each independently verified.
