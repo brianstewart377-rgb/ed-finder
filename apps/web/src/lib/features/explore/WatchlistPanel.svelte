@@ -44,9 +44,34 @@
     entry: Record<string, unknown> | WatchlistEntry,
   ): number | null {
     const coords = [numeric(entry.x), numeric(entry.y), numeric(entry.z)];
-    return coords.every((value): value is number => value !== null)
-      ? Math.hypot(...coords)
-      : null;
+    if (!coords.every((value): value is number => value !== null)) return null;
+    // (0,0,0) is the legacy placeholder for missing coordinates; only Sol truly
+    // sits at the galactic origin, so treat any other all-zero row as unknown
+    // rather than reporting it as 0 ly from Sol (repo coordinate contract).
+    if (coords.every((value) => value === 0) && entry.name !== 'Sol') return null;
+    return Math.hypot(...coords);
+  }
+  function referenceDistance(
+    entry: Record<string, unknown> | WatchlistEntry,
+  ): number | null {
+    // Legacy pin snapshots use distance 0 as the sentinel for a galaxy-wide
+    // search with no reference; treat it as unavailable (matches compare-metrics).
+    const value = numeric((entry as Record<string, unknown>).distance);
+    return value !== null && value > 0 ? value : null;
+  }
+  function populationLabel(
+    entry: Record<string, unknown> | WatchlistEntry,
+  ): string {
+    // Zero on an inhabited system means unknown headcount, not literally zero
+    // people (matches the comparison panel's population formatter).
+    const row = entry as Record<string, unknown>;
+    const value = numeric(row.population);
+    if (value === null || value < 0) return 'Unknown';
+    if (value === 0)
+      return row.is_colonised === true || row.is_being_colonised === true
+        ? 'Population unknown'
+        : 'Uninhabited';
+    return value.toLocaleString();
   }
   function score(
     entry: Record<string, unknown> | WatchlistEntry,
@@ -211,8 +236,8 @@
                     >{/if}</td
                 >
                 <td
-                  >{numeric(entry.distance) !== null
-                    ? `${numeric(entry.distance)?.toFixed(1)} ly`
+                  >{referenceDistance(entry) !== null
+                    ? `${referenceDistance(entry)?.toFixed(1)} ly`
                     : 'Unknown'}</td
                 >
                 <td>{formattedDate(entry.pinned_at)}</td>
@@ -349,10 +374,7 @@
                       >{distance(entry)?.toFixed(1)} ly from Sol</span
                     >{/if}</td
                 >
-                <td
-                  >{numeric(entry.population)?.toLocaleString() ??
-                    'Unknown'}</td
-                >
+                <td>{populationLabel(entry)}</td>
                 <td>{score(entry) ?? 'Unknown'}</td>
                 <td
                   >{archetype(entry)}{#if label(entry.secondary_archetype)}<span

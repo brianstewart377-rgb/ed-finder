@@ -271,6 +271,39 @@ describe('saved systems panel', () => {
     ).toMatchObject({ watchlist: [] });
   });
 
+  it('treats legacy zero sentinels as unknown (coords, reference distance, inhabited population)', async () => {
+    services.pins.set([
+      {
+        id64,
+        name: 'Ghost',
+        pinned_at: '2026-09-01T12:00:00Z',
+        x: 0,
+        y: 0,
+        z: 0,
+        archetype_score: 50,
+        primary_archetype: 'industrial',
+        distance: 0,
+      },
+    ]);
+    getMock.mockResolvedValue({
+      sync_key: 'commander-a-key-1234',
+      watchlist: [{ ...entry, population: 0, is_colonised: true }],
+    });
+    render(WatchlistTestHost);
+    const pins = await screen.findByRole('table', { name: 'Pinned systems' });
+    // distance 0 is the "no reference" sentinel, not a measured 0.0 ly.
+    expect(within(pins).queryByText('0.0 ly')).not.toBeInTheDocument();
+    // (0,0,0) on a non-Sol system is unknown, not 0 ly from Sol.
+    expect(within(pins).queryByText(/ly from Sol/)).not.toBeInTheDocument();
+    // Zero population on an inhabited system is unknown, not literal zero.
+    const watched = await screen.findByRole('table', {
+      name: 'Watched systems',
+    });
+    expect(
+      within(watched).getByText('Population unknown'),
+    ).toBeInTheDocument();
+  });
+
   it('shows a retryable error without exposing backend text or credentials', async () => {
     getMock
       .mockRejectedValueOnce(

@@ -59,10 +59,23 @@ export function createWatchlistQuery() {
         ? addWatchlist(change.syncKey, change.id64)
         : removeWatchlist(change.syncKey, change.id64),
     onSuccess: async (_result, change) => {
-      // Account/key changes during the request must not update the new user's list.
+      // The backend scopes watchlists by sync_key alone, so a successful
+      // add/remove must invalidate every cached watchlist for that key — not
+      // only the account captured when the mutation began. Otherwise an account
+      // switch that keeps the same key leaves the current view showing stale
+      // membership until an unrelated refetch. queryKeys.watchlist is
+      // [...all, 'watchlist', accountId, syncKey]; match on the syncKey slot.
+      const [namespace, resource] = queryKeys.watchlist(null, change.syncKey);
       await client.invalidateQueries({
-        queryKey: queryKeys.watchlist(change.accountId, change.syncKey),
-        exact: true,
+        predicate: (cached) => {
+          const key = cached.queryKey;
+          return (
+            Array.isArray(key) &&
+            key[0] === namespace &&
+            key[1] === resource &&
+            key[3] === change.syncKey
+          );
+        },
       });
     },
   }));
