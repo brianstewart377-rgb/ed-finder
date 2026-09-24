@@ -768,6 +768,24 @@ async def handle_colonisation_status(pool: asyncpg.Pool, header: dict, message: 
 # ---------------------------------------------------------------------------
 # Batch DB flush
 # ---------------------------------------------------------------------------
+async def _savepoint_execute(conn, sql, *args):
+    """Run a single write inside its own SAVEPOINT.
+
+    A row-level error (for example a bad ``economy_type`` cast or an integer
+    overflow from the untrusted public EDDN feed) then rolls back only this row
+    instead of aborting the whole batch transaction. In PostgreSQL the first
+    statement error in a transaction poisons it — every later statement raises
+    ``InFailedSQLTransactionError`` and the eventual COMMIT is silently turned
+    into a ROLLBACK — so without a per-row SAVEPOINT one poison record discarded
+    the entire buffered batch (including rows that had already succeeded). The
+    error is re-raised so the caller's per-row handler can count it and continue;
+    the surrounding transaction stays usable and every good row still commits.
+    """
+    async with conn.transaction():
+        return await conn.execute(sql, *args)
+
+
+# ---------------------------------------------------------------------------
 async def flush_pending(pool: asyncpg.Pool):
     """
     Flush pending systems and bodies to DB in a single transaction.
@@ -814,7 +832,7 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert systems ────────────────────────────────────────
                 for sys in systems_snapshot:
                     try:
-                        status = await conn.execute("""
+                        status = await _savepoint_execute(conn, """
                             INSERT INTO systems (
                                 id64, name, x, y, z,
                                 primary_economy, population,
@@ -897,7 +915,7 @@ async def flush_pending(pool: asyncpg.Pool):
                 # just wrote.
                 for body in bodies_snapshot:
                     try:
-                        status = await conn.execute("""
+                        status = await _savepoint_execute(conn, """
                             INSERT INTO bodies (
                                 id, system_id64, name, body_type, subtype, is_main_star,
                                 distance_from_star, radius, mass, gravity,
@@ -1009,7 +1027,8 @@ async def flush_pending(pool: asyncpg.Pool):
 
                 for ring in resolved_rings_snapshot:
                     try:
-                        status = await conn.execute(
+                        status = await _savepoint_execute(
+                            conn,
                             BODY_RING_UPSERT_SQL,
                             ring.get('system_id64'), ring.get('body_id'), ring.get('source_body_id'), ring.get('body_name'),
                             ring.get('ring_name'), ring.get('ring_type'), ring.get('ring_class'),
@@ -1030,12 +1049,13 @@ async def flush_pending(pool: asyncpg.Pool):
 
                 if affected_colonisation_system_ids:
                     try:
-                        evidence_promotion = await promote_canonical_evidence_for_systems(
-                            conn,
-                            system_ids=affected_colonisation_system_ids,
-                            evidence_types=['colonisation_status'],
-                            trigger_context='eddn_colonisation_listener',
-                        )
+                        async with conn.transaction():
+                            evidence_promotion = await promote_canonical_evidence_for_systems(
+                                conn,
+                                system_ids=affected_colonisation_system_ids,
+                                evidence_types=['colonisation_status'],
+                                trigger_context='eddn_colonisation_listener',
+                            )
                         if evidence_promotion['warnings']:
                             log.debug(
                                 'EDDN colonisation evidence promotion warnings',
@@ -1052,12 +1072,13 @@ async def flush_pending(pool: asyncpg.Pool):
 
                 if affected_dirty_system_ids:
                     try:
-                        coverage_evidence = await promote_canonical_evidence_for_systems(
-                            conn,
-                            system_ids=affected_dirty_system_ids,
-                            evidence_types=['body_completeness', 'ring_composition'],
-                            trigger_context='eddn_full_listener',
-                        )
+                        async with conn.transaction():
+                            coverage_evidence = await promote_canonical_evidence_for_systems(
+                                conn,
+                                system_ids=affected_dirty_system_ids,
+                                evidence_types=['body_completeness', 'ring_composition'],
+                                trigger_context='eddn_full_listener',
+                            )
                         if coverage_evidence['warnings']:
                             log.debug(
                                 'EDDN canonical coverage evidence promotion warnings',

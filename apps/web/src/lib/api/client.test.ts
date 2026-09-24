@@ -1,5 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Partial mock (preserving every other real export via loadOriginal, per the
+// $lib/api/client mocking convention in SystemDetail.test.ts /
+// SystemOverlay.test.ts) so this file's other tests keep exercising the real
+// generated SDK/transport while getMapHeatmap's test stubs only the one
+// heatmap operation.
+vi.mock('$lib/api/generated/sdk.gen', async (loadOriginal) => {
+  const original =
+    await loadOriginal<typeof import('$lib/api/generated/sdk.gen')>();
+  return {
+    ...original,
+    mapHeatmapApiMapHeatmapGet: vi.fn(async () => ({
+      data: { source: 'pyramid', cells: [] },
+    })),
+  };
+});
+
 import {
   ADMIN_TOKEN_SESSION_KEY,
   ApiError,
@@ -9,7 +25,9 @@ import {
   claimOwner,
   getAuthIdentities,
   getAuthSession,
+  getGalaxyImpact,
   getHealth,
+  getMapHeatmap,
   getSystem,
   searchExploreSystems,
   startFrontierLink,
@@ -18,6 +36,7 @@ import {
 // Allowed only in a .test. file: exercise the generated client configuration
 // (interceptors) the facade installs, on a route the facade does not wrap.
 import { statusApiStatusGet } from './generated/sdk.gen';
+import * as sdk from './generated/sdk.gen';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -29,6 +48,32 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     sessionStorage.clear();
+  });
+
+  it('loads private galaxy totals through the generated own-account route with cancellation', async () => {
+    const summary = {
+      systems_discovered: 1302,
+      bodies_scanned: 9000,
+      earth_like_worlds: 6,
+      water_worlds: 4,
+      ammonia_worlds: 2,
+      terraformable_candidates: 7,
+      gas_giants: 38,
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(summary));
+    const controller = new AbortController();
+
+    await expect(getGalaxyImpact(controller.signal)).resolves.toEqual(summary);
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(request).toBeInstanceOf(Request);
+    expect(new URL(request.url).pathname).toBe('/api/v1/journal/galaxy-impact');
+    expect(new URL(request.url).search).toBe('');
+    expect(request.credentials).toBe('include');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
   });
 
   it('delegates ordinary bootstrap operations to the generated SDK over the credentialed same-origin transport', async () => {
@@ -205,5 +250,18 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
   it('re-exports the single shared transport inventory rather than duplicating it', () => {
     expect(LEGACY_ADMIN_ENDPOINTS).toHaveLength(28);
     expect(apiRequest).toBeTypeOf('function');
+  });
+});
+
+describe('getMapHeatmap', () => {
+  it('calls the heatmap SDK with query + throwOnError and returns data', async () => {
+    const out = await getMapHeatmap({ voxel_size: 500, max_cells: 40000 });
+    expect(out).toMatchObject({ source: 'pyramid' });
+    expect(vi.mocked(sdk.mapHeatmapApiMapHeatmapGet)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: { voxel_size: 500, max_cells: 40000 },
+        throwOnError: true,
+      }),
+    );
   });
 });

@@ -1,5 +1,10 @@
 # PR #446 frontend dependency upgrade (minus Tailwind) — design
 
+> Historical React/Yarn migration design. Its Node 20/22 references preserve
+> earlier CI evidence. The current
+> [V3 stack decision](../../development/v3-application-stack-decision.md)
+> locks Node.js 24 LTS and pnpm 11 for `apps/web/`.
+
 ## Context
 
 Dependabot PR #446 (`frontend-dependencies` group, 39 updates) bundles ~30

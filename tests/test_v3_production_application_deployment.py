@@ -132,6 +132,24 @@ def test_production_authority_is_separate_exact_and_authorized():
     }
 
 
+
+@pytest.mark.parametrize(
+    "field", ["source_sha", "release_run_id", "api_image", "web_image"]
+)
+def test_authority_rejects_a_compatibility_attestation_for_another_observed_release(field):
+    deployer = _load_deployer()
+    authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
+    observed = authority["observed_runtime"]
+    if field in {"source_sha", "release_run_id"}:
+        observed["accepted_promotion"][field] = {
+            "source_sha": "f" * 40, "release_run_id": "99999999999",
+        }[field]
+    else:
+        observed[field] = "registry.example/different@sha256:" + "f" * 64
+    with pytest.raises(deployer.DeploymentError, match="does not bind observed production"):
+        deployer.validate_authority(authority)
+
+
 def test_production_compose_owns_only_blue_green_application_slots():
     value = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     services = value["services"]
@@ -588,7 +606,11 @@ def test_rollback_comes_only_from_checksum_bound_prior_accepted_release():
     assert "rollback-manifest" not in workflow
 
 
-def test_prior_release_schema_transition_requires_an_exact_reviewed_attestation(monkeypatch):
+@pytest.mark.parametrize(
+    "mismatch",
+    ["source_sha", "release_run_id", "manifest_sha256", "backend", "web", "target", "manifest_images"],
+)
+def test_prior_release_schema_transition_requires_an_exact_reviewed_attestation(monkeypatch, mismatch):
     deployer = _load_deployer()
     source = "a" * 40
     recorded = "sha256:" + "1" * 64
@@ -645,10 +667,23 @@ def test_prior_release_schema_transition_requires_an_exact_reviewed_attestation(
     assert deployer.validate_prior_runtime(
         receipt, manifest, {"migration_set_identity": target}, {}, runner, attestation
     ) == "blue"
+    invalid = json.loads(json.dumps(attestation))
+    invalid_manifest = json.loads(json.dumps(manifest))
+    if mismatch in {"source_sha", "release_run_id", "manifest_sha256"}:
+        invalid[mismatch] = {
+            "source_sha": "b" * 40,
+            "release_run_id": "124",
+            "manifest_sha256": "6" * 64,
+        }[mismatch]
+    elif mismatch in {"backend", "web"}:
+        invalid["images"][mismatch] = "registry.example/different@sha256:" + "7" * 64
+    elif mismatch == "target":
+        invalid["compatible_migration_sets"] = [recorded]
+    else:
+        invalid_manifest["images"]["backend"] = "registry.example/different@sha256:" + "7" * 64
     with pytest.raises(deployer.DeploymentError, match="lacks reviewed compatibility"):
         deployer.validate_prior_runtime(
-            receipt, manifest, {"migration_set_identity": target}, {}, runner,
-            {**attestation, "manifest_sha256": "6" * 64},
+            receipt, invalid_manifest, {"migration_set_identity": target}, {}, runner, invalid,
         )
 
 

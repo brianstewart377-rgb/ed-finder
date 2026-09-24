@@ -87,7 +87,7 @@ def test_search_operator_only_verifies_its_required_schema_before_worker_launch(
     assert 'dst=/work,readonly' in source
 
 
-def test_target_authority_reviews_transition_from_006_to_current_lineage():
+def test_target_authority_reviews_transition_from_009_to_012_lineage():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -95,12 +95,13 @@ def test_target_authority_reviews_transition_from_006_to_current_lineage():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     document = module.build(ROOT)
-    # New declared migrations do not authorize changing the already-reviewed
-    # production target. Reproduce its exact lineage-006 prefix independently
-    # and assert that the future desired schema requires fresh authority.
+    # The reviewed transition now runs from the applied through-009 lineage to
+    # the through-012 desired lineage (additive migration 012 declares the
+    # canonical-keyed spatial pyramid). Reproduce the exact through-009 prefix
+    # independently and assert the transition + the through-012 desired identity.
     desired_document = dict(document)
     entries = document['migration_set_entries']
-    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '006_v3_derived_product_lifecycle.sql') + 1
+    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '009_v3_journal_galaxy_contributions.sql') + 1
     prefix = entries[:stop]
     document = {**document, 'migration_set_entries': prefix,
                 'migration_set_identity': module.migration_set_identity(prefix)}
@@ -109,10 +110,10 @@ def test_target_authority_reviews_transition_from_006_to_current_lineage():
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     transition = authority["schema_transition"]
     assert transition["from_schema_identity_sha256"] == expected_sha
-    assert expected_sha == "05bbf65bcb06d59249cd0436aeeca6e529934f999cafc099aa5af8fa7cf4303d"
+    assert expected_sha == "a65d55f69bea95c7d91044b81eaa613e7e82916e9b1e17c5e4a2a59d54fe217c"
     assert transition["from_migration_set_identity"] == document["migration_set_identity"]
-    assert document["migration_set_entries"][-1]["ledger_name"] == "006_v3_derived_product_lifecycle.sql"
-    assert desired_document['migration_set_entries'][-1]['ledger_name'] == '009_v3_journal_galaxy_contributions.sql'
+    assert document["migration_set_entries"][-1]["ledger_name"] == "009_v3_journal_galaxy_contributions.sql"
+    assert desired_document['migration_set_entries'][-1]['ledger_name'] == '012_v3_spatial_pyramid_decouple.sql'
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()

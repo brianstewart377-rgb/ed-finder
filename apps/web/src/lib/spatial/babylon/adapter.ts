@@ -11,6 +11,7 @@ import {
   Vector3,
 } from '@babylonjs/core/Maths/math.vector.js';
 import { Viewport } from '@babylonjs/core/Maths/math.viewport.js';
+import { Material } from '@babylonjs/core/Materials/material.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
@@ -68,6 +69,7 @@ import {
   type GalaxyNebulaePayload,
 } from '../galaxy-nebulae';
 import { createCatalogueDensityMesh } from './catalogue-density';
+import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
   buildGalaxyRegionFillGeometry,
   findGalaxyRegionAt,
@@ -154,6 +156,10 @@ export type BabylonGalaxyProduct = Readonly<{
   cameraState: CameraState;
   points: readonly GalaxySystemPoint[];
   starMesh: ReturnType<typeof CreateSphere>;
+  // Whether `starMesh` carries any FINDER search-result instances. When it
+  // does, the density cross-fade must keep the mesh fully opaque so finder
+  // markers never vanish; only a catalogue-only mesh may fade into density.
+  starMeshHasFinderInstances: boolean;
   starVertexPositions: Float32Array;
   starInstanceMatrices: Float32Array;
   starInstanceColours: Float32Array;
@@ -558,6 +564,66 @@ function refreshGalaxyReferenceGrid(
   return createGalaxyReferenceGrid(product.scene, camera);
 }
 
+// Applies the density<->star cross-fade opacity derived from the current
+// camera distance. Must be called both whenever the camera moves AND
+// whenever the density mesh (or star mesh) is (re)built on a scene-build
+// path, so a freshly-created mesh never briefly renders at its creation-time
+// alpha before the next camera move corrects it.
+//
+// Inert-until-publish contract: while `/api/map/heatmap` still reports
+// `legacy-fallback`, no density layer exists (`product.densityMesh` is
+// null). In that case stars must carry the whole view at full opacity,
+// exactly as today — never fade them without a density layer to blend in.
+function setStellarAccentAlpha(
+  product: BabylonGalaxyProduct,
+  alpha: number,
+): void {
+  for (const accent of product.stellarAccentMeshes) {
+    const material = accent.material as StandardMaterial | undefined;
+    if (material) material.alpha = alpha;
+  }
+}
+
+function setStarPickable(
+  product: BabylonGalaxyProduct,
+  pickable: boolean,
+): void {
+  if (!product.starMesh) return;
+  product.starMesh.isPickable = pickable;
+  product.starMesh.thinInstanceEnablePicking = pickable;
+}
+
+function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
+  const starMat = product.starMesh?.material as StandardMaterial | undefined;
+  if (!product.densityMesh?.material) {
+    // Inert-until-publish: with no density layer, stars carry the whole view
+    // at full opacity and stay fully pickable, exactly as before.
+    if (starMat) starMat.alpha = 1;
+    setStellarAccentAlpha(product, 1);
+    setStarPickable(product, true);
+    return;
+  }
+  const crossfadeT = densityCrossfadeT(product.cameraState.distanceLy);
+  // Density tops out at 0.9 (its material base alpha), not 1.0 — intentional.
+  (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
+  // `starMesh` merges FINDER results with CATALOGUE viewport stars, but only
+  // catalogue stars may cross-fade into the density field. When finder results
+  // are present, keep the mesh fully opaque so search markers never disappear
+  // at wide zoom; only a catalogue-only mesh follows the fade.
+  const catalogueStarAlpha = product.starMeshHasFinderInstances
+    ? 1
+    : 1 - crossfadeT;
+  if (starMat) starMat.alpha = catalogueStarAlpha;
+  // Stellar accent rings (e.g. black-hole halos) live in the glow layer; fade
+  // them with their markers so glowing rings never float over the density
+  // field once the stars themselves have faded out.
+  setStellarAccentAlpha(product, catalogueStarAlpha);
+  // A fully-faded star mesh must not intercept picks (neither the exact ray
+  // nor the nearest-projected-star fallback), so invisible stars can't capture
+  // clicks and block region selection.
+  setStarPickable(product, catalogueStarAlpha > 1e-3);
+}
+
 function createGalaxyRegionBoundaryMesh(
   scene: Scene,
   regions: GalaxyRegionsSceneLayer | null,
@@ -944,14 +1010,25 @@ export function nebulaCloudRadiusLy(
   kind: 'nebula' | 'planetary-nebula',
 ): number {
   // Mapcharts publishes a reference-system coordinate, not a physical boundary.
-  // These bounded radii are deliberately schematic map presentation.
-  return kind === 'planetary-nebula' ? 56 : 160;
+  // These bounded radii are deliberately schematic map presentation — sized so a
+  // landmark reads as a soft cloud at the Galaxy-scale camera (~10^5 ly), not the
+  // sub-pixel dot the earlier 56/160 ly radii produced.
+  return kind === 'planetary-nebula' ? 700 : 2_000;
 }
 
 // Overlapping catalogue points inside this cube collapse to one landmark so the
 // map shows a handful of soft clouds instead of thousands of merged blobs.
 const NEBULA_LANDMARK_CELL_LY = 1_400;
 const NEBULA_LANDMARK_LIMIT = 260;
+// Landmark clouds are galaxy-overview decoration (base radii ~1,300-3,800 ly
+// after the per-instance hash multiplier). At the ~400 ly system-selection
+// distance (see ExploreWorkspace's SYSTEM camera target) the camera sits
+// inside several overlapping clouds; with back-face culling disabled and
+// alpha raised for landmark visibility that tints the whole view. Fade the
+// layer out well above that distance so it is fully hidden long before the
+// camera reaches system scale, and fully visible at galaxy-overview scale.
+const NEBULA_LANDMARK_FADE_START_LY = 8_000;
+const NEBULA_LANDMARK_FADE_END_LY = 2_000;
 // Emission-nebula palette: warm rose, teal, gold, violet, cyan, jade. Balanced
 // so the layer reads as varied landmarks rather than a single blue smear.
 const NEBULA_PALETTE = [
@@ -1010,7 +1087,7 @@ function createGalaxyNebulaeMesh(
   material.diffuseColor = Color3.White();
   material.emissiveColor = new Color3(0.24, 0.26, 0.4);
   material.specularColor = Color3.Black();
-  material.alpha = 0.1;
+  material.alpha = 0.45;
   mesh.material = material;
   mesh.onDisposeObservable.addOnce(() => material.dispose());
 
@@ -1030,7 +1107,7 @@ function createGalaxyNebulaeMesh(
       (nebula.regionId ?? Math.floor(hash * NEBULA_PALETTE.length)) %
       NEBULA_PALETTE.length;
     const colour = NEBULA_PALETTE[paletteIndex]!;
-    colours.set([...colour, 0.1 + hash * 0.06], index * 4);
+    colours.set([...colour, 0.4 + hash * 0.25], index * 4);
   });
   mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
   mesh.thinInstanceSetBuffer('color', colours, 4, true);
@@ -1052,6 +1129,28 @@ function createGalaxyNebulaeMesh(
     },
   };
   return mesh;
+}
+
+function updateGalaxyNebulaVisibility(
+  mesh: ReturnType<typeof CreateSphere> | null,
+  camera: CameraState,
+): void {
+  // Opposite direction from the reference grid: nebula landmarks read at
+  // galaxy-overview scale and must be gone well before the camera reaches
+  // system-selection distance (~400 ly), so this fades OUT as the camera
+  // closes in rather than fading in.
+  if (!mesh) return;
+  const visibility = Math.max(
+    0,
+    Math.min(
+      1,
+      (camera.distanceLy - NEBULA_LANDMARK_FADE_END_LY) /
+        (NEBULA_LANDMARK_FADE_START_LY - NEBULA_LANDMARK_FADE_END_LY),
+    ),
+  );
+  const visible = visibility > 0;
+  mesh.setEnabled(visible);
+  mesh.visibility = visibility;
 }
 
 function galaxyNebulaeReceipt(
@@ -1177,11 +1276,20 @@ function pickGalaxyTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
-  // Translucent region planes must not intercept a visible system target.
+  // A fully-faded star mesh (density-dominant, no finder results) must not
+  // capture picks; treat it as non-interactive so clicks reach region planes.
+  const starMat = product.starMesh?.material as StandardMaterial | undefined;
+  const starsInteractive =
+    (product.starMesh?.isEnabled() ?? false) && (starMat?.alpha ?? 1) > 1e-3;
+  // Translucent region planes must not intercept a visible system target. A
+  // supplied predicate bypasses Babylon's own `isPickable` gate, so exclude
+  // the star mesh here whenever it is not interactive.
   const systemHit = product.scene.pick(
     screenX * scaleX,
     screenY * scaleY,
-    (mesh) => mesh === product.starMesh || mesh === product.selectedMarker,
+    (mesh) =>
+      (starsInteractive && mesh === product.starMesh) ||
+      mesh === product.selectedMarker,
   );
   if (systemHit?.pickedMesh === product.selectedMarker) {
     const selected = product.points.find((point) =>
@@ -1203,15 +1311,16 @@ function pickGalaxyTarget(
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
-  const nearestStar = allowNearestStar
-    ? nearestStarTargetByScreen(
-        engine,
-        product,
-        screenX * scaleX,
-        screenY * scaleY,
-        12 * Math.max(scaleX, scaleY),
-      )
-    : undefined;
+  const nearestStar =
+    allowNearestStar && starsInteractive
+      ? nearestStarTargetByScreen(
+          engine,
+          product,
+          screenX * scaleX,
+          screenY * scaleY,
+          12 * Math.max(scaleX, scaleY),
+        )
+      : undefined;
   if (nearestStar) return nearestStar;
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
@@ -1240,6 +1349,9 @@ export const createBabylonGalaxyScene = (
   scene.clearColor = new Color4(0.008, 0.014, 0.028, 1);
   const systemLayers = galaxySystemsSceneLayers(contract);
   const points = uniqueGalaxySystemPoints(systemLayers);
+  const starMeshHasFinderInstances = systemLayers.some(
+    (layer) => layer.layerId === 'finder-systems' && layer.points.length > 0,
+  );
   const density = catalogueDensitySceneLayer(contract);
   const commanderHistory = commanderHistorySceneLayer(contract);
   const nebulae = galaxyNebulaeSceneLayer(contract);
@@ -1267,6 +1379,7 @@ export const createBabylonGalaxyScene = (
     markerSizeLy,
   );
   const nebulaMesh = createGalaxyNebulaeMesh(scene, nebulae);
+  updateGalaxyNebulaVisibility(nebulaMesh, cameraState);
   const regionFillMeshes = createGalaxyRegionFillMeshes(
     scene,
     regions,
@@ -1284,6 +1397,8 @@ export const createBabylonGalaxyScene = (
   starMaterial.emissiveColor = Color3.White();
   starMaterial.diffuseColor = Color3.White();
   starMaterial.specularColor = Color3.Black();
+  starMaterial.alpha = 1;
+  starMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
   Object.assign(starMaterial, { useVertexColors: true });
   starMesh.material = starMaterial;
   starMesh.hasVertexAlpha = true;
@@ -1427,6 +1542,7 @@ export const createBabylonGalaxyScene = (
     cameraState,
     points,
     starMesh,
+    starMeshHasFinderInstances,
     starVertexPositions,
     starInstanceMatrices: matrices,
     starInstanceColours: colours,
@@ -1791,7 +1907,9 @@ export const createBabylonSession = (
     }
     const referenceGrid = refreshGalaxyReferenceGrid(product, camera);
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
+    updateGalaxyNebulaVisibility(product.nebulaMesh, camera);
     product = { ...product, cameraState: camera, referenceGrid };
+    applyDensityCrossfade(product);
     if (productContract) productContract = { ...productContract, camera };
     emit({ type: 'CAMERA_CHANGED', camera });
   };
@@ -1869,6 +1987,7 @@ export const createBabylonSession = (
           product.cameraState,
         );
         updateGalaxyReferenceGridVisibility(referenceGrid, product.cameraState);
+        updateGalaxyNebulaVisibility(product.nebulaMesh, product.cameraState);
         product = { ...product, referenceGrid };
       } else if (systemProduct) {
         applySystemCamera(
@@ -1967,6 +2086,7 @@ export const createBabylonSession = (
         productContract = command.scene;
         systemProduct = null;
         lastAppliedStarScale = Number.NaN;
+        applyDensityCrossfade(product);
         emit({ type: 'CAMERA_CHANGED', camera: replacement.cameraState });
         hoveredTargetKey = '';
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2033,6 +2153,7 @@ export const createBabylonSession = (
         if (spatialScene) spatialScene.renderedLayers = renderedLayers;
         product = { ...product, densityMesh, renderedLayers };
         productContract = nextContract;
+        applyDensityCrossfade(product);
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
         readinessAttemptsRemaining = 120;
         emit({

@@ -37,6 +37,7 @@ const journal = (fid: string) =>
       SystemAddress: 123,
       BodyID: 1,
       BodyName: 'Browser fixture A',
+      PlanetClass: 'Earthlike body',
       Radius: 3000000,
       SurfaceGravity: 9.80665,
     },
@@ -64,6 +65,7 @@ describe('Verified account and journal product acceptance', () => {
         },
       );
       cy.intercept('GET', '/api/v1/auth/commanders').as('commanders');
+      cy.intercept('GET', '/api/v1/journal/galaxy-impact').as('impact');
       cy.intercept('POST', '/api/v1/journal/verified-imports').as('import');
       cy.intercept('POST', '/api/v1/journal/galaxy-contributions/imports/*').as(
         'offer',
@@ -71,6 +73,8 @@ describe('Verified account and journal product acceptance', () => {
       cy.intercept('POST', '/api/v1/auth/logout').as('logout');
       cy.visit('/account');
       cy.wait('@commanders').its('response.statusCode').should('eq', 200);
+      cy.wait('@impact').its('response.statusCode').should('eq', 200);
+      cy.contains('h2', 'Your Galaxy Impact').should('be.visible');
       cy.contains(`F991${width}`).should('be.visible');
       cy.contains('button', 'Unlink').should('be.disabled');
       cy.get('input[type="checkbox"]').should('not.be.checked');
@@ -134,7 +138,12 @@ describe('Verified account and journal product acceptance', () => {
       cy.contains(
         'malformed-identity.log: Commander identity record has an invalid timestamp',
       ).should('be.visible');
-      cy.contains('No contributions on this page').should('be.visible');
+      cy.contains('dt', 'Bodies scanned').next('dd').should('have.text', '1');
+      cy.contains('dt', 'Earth-Like Worlds')
+        .next('dd')
+        .should('have.text', '1');
+      cy.contains('summary', 'Manage galaxy sharing').click();
+      cy.contains('No observations shared on this page').should('be.visible');
       cy.get('@offer.all').should('have.length', 0);
 
       cy.get('input[type="checkbox"]').check();
@@ -148,9 +157,10 @@ describe('Verified account and journal product acceptance', () => {
         expect(response?.statusCode).to.eq(200);
         expect(response?.body.new_offers).to.eq(1);
       });
-      cy.contains('System 123 · Body 1 · offered').should('be.visible');
+      cy.contains('Awaiting review').should('be.visible');
+      cy.contains('dt', 'Bodies scanned').next('dd').should('have.text', '1');
       cy.contains('button', 'Withdraw sharing').should('be.enabled').click();
-      cy.contains('System 123 · Body 1 · withdrawn').should('be.visible');
+      cy.contains('Sharing withdrawn').should('be.visible');
       cy.contains('button', 'Sign out').focus().should('be.focused').click();
       cy.wait('@logout').its('response.statusCode').should('eq', 200);
       cy.contains('h2', 'Sign in to manage your account').should('be.visible');

@@ -164,7 +164,9 @@
   const systemTargetCount = $derived(layerTargetCount(scene, 'finder-systems'));
   const visibleGalaxyLabels = $derived.by(() => {
     // Resize revision invalidates the CSS-pixel projection even when the
-    // accepted scene and camera are unchanged.
+    // accepted scene and camera are unchanged. Read it explicitly so it stays a
+    // reactive dependency of this $derived — do not remove.
+    void resizeRevision;
     if (
       !canGalaxyNavigate ||
       scene?.kind !== 'galaxy' ||
@@ -176,7 +178,7 @@
       galaxyLabelCandidates(scene, lastHoveredRegionId),
       currentCamera,
       {
-        width: Math.max(1, host.clientWidth + resizeRevision * 0),
+        width: Math.max(1, host.clientWidth),
         height: Math.max(1, host.clientHeight),
       },
     );
@@ -187,9 +189,11 @@
     ),
   );
   const currentGrid = $derived.by(() => {
+    // Keep resizeRevision a reactive dependency (see visibleGalaxyLabels).
+    void resizeRevision;
     if (!canGalaxyNavigate || !currentCamera || !host) return null;
     return galaxyReferenceGrid(currentCamera, {
-      width: Math.max(1, host.clientWidth + resizeRevision * 0),
+      width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
     });
   });
