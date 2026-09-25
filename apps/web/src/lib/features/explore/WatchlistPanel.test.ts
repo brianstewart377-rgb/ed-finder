@@ -299,9 +299,7 @@ describe('saved systems panel', () => {
     const watched = await screen.findByRole('table', {
       name: 'Watched systems',
     });
-    expect(
-      within(watched).getByText('Population unknown'),
-    ).toBeInTheDocument();
+    expect(within(watched).getByText('Population unknown')).toBeInTheDocument();
   });
 
   it('shows a retryable error without exposing backend text or credentials', async () => {

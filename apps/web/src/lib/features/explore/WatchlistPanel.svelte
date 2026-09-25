@@ -48,7 +48,8 @@
     // (0,0,0) is the legacy placeholder for missing coordinates; only Sol truly
     // sits at the galactic origin, so treat any other all-zero row as unknown
     // rather than reporting it as 0 ly from Sol (repo coordinate contract).
-    if (coords.every((value) => value === 0) && entry.name !== 'Sol') return null;
+    if (coords.every((value) => value === 0) && entry.name !== 'Sol')
+      return null;
     return Math.hypot(...coords);
   }
   function referenceDistance(
