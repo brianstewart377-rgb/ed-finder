@@ -28,6 +28,18 @@ describe('Svelte Query application contract', () => {
     ]);
   });
 
+  it('isolates watchlists by both account and sync credential', () => {
+    expect(queryKeys.watchlist('account-a', 'sync-a')).not.toEqual(
+      queryKeys.watchlist('account-b', 'sync-a'),
+    );
+    expect(queryKeys.watchlist('account-a', 'sync-a')).not.toEqual(
+      queryKeys.watchlist('account-a', 'sync-b'),
+    );
+    expect(queryKeys.watchlist(null, 'sync-a')).not.toEqual(
+      queryKeys.watchlist('account-a', 'sync-a'),
+    );
+  });
+
   it('fingerprints every optimiser request input deterministically', () => {
     const base: OptimiserQueryRequest = {
       system_id64: parseId64('9007199254740993'),

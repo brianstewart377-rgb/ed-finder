@@ -33,6 +33,7 @@ import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
 import { client } from './generated/client.gen';
 import {
+  addWatchlistApiV2WatchlistSyncKeyId64Post,
   authLogoutApiV1AuthLogoutPost,
   authSessionApiV1AuthSessionGet,
   autocompleteApiLocalAutocompleteGet,
@@ -41,6 +42,7 @@ import {
   getProfileSyncApiProfileSyncSyncKeyGet,
   getExplorationViewportVisitsApiExplorationViewportVisitsGet,
   getSystemApiSystemId64Get,
+  getWatchlistApiV2WatchlistSyncKeyGet,
   healthApiHealthGet,
   listIdentitiesApiV1AuthIdentitiesGet,
   listVerifiedCommanders,
@@ -54,6 +56,7 @@ import {
   mapSystemsApiMapSystemsGet,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
+  removeWatchlistApiV2WatchlistSyncKeyId64Delete,
   unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
 } from './generated/sdk.gen';
 import type {
@@ -281,11 +284,14 @@ export type ExploreSystem = Readonly<
     | 'archetype_confidence'
     | 'overall_development_potential'
     | 'buildability_score'
+    | 'purity_score'
     | 'build_complexity'
     | 'est_total_slots'
     | 'tags'
     | 'elw_count'
     | 'ww_count'
+    | 'ammonia_count'
+    | 'landable_count'
     | 'terraformable_count'
     | 'bio_signal_total'
     | 'geo_signal_total'
@@ -558,6 +564,147 @@ export async function getSystem(
   });
   const detail = data.record ?? data.system;
   return { ...detail, id64: losslessId64(detail.id64) };
+}
+
+/** Existing sync-key watchlist rows; optional snapshots may be absent or null. */
+export interface WatchlistEntry {
+  readonly system_id64: Id64;
+  readonly name: string;
+  readonly x?: number | null;
+  readonly y?: number | null;
+  readonly z?: number | null;
+  readonly population?: number | null;
+  readonly is_colonised?: boolean | null;
+  readonly added_at?: string | null;
+  readonly last_checked_at?: string | null;
+  readonly last_status?: string | null;
+  readonly score?: number | null;
+  readonly economy_suggestion?: string | null;
+  readonly primary_archetype?: string | null;
+  readonly secondary_archetype?: string | null;
+  readonly archetype_score?: number | null;
+  readonly buildability_score?: number | null;
+  readonly purity_score?: number | null;
+  readonly alert_min_development_score?: number | null;
+  readonly alert_min_score?: number | null;
+  readonly alert_economy?: string | null;
+}
+
+export interface WatchlistResponse {
+  readonly sync_key: string;
+  readonly watchlist: readonly WatchlistEntry[];
+}
+
+function watchlistRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new TypeError('The watchlist response is invalid');
+  return value as Record<string, unknown>;
+}
+
+function watchlistNumber(
+  row: Record<string, unknown>,
+  field: string,
+): number | null {
+  const value = row[field];
+  if (value == null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    throw new TypeError(`The watchlist ${field} is invalid`);
+  return value;
+}
+
+function watchlistString(
+  row: Record<string, unknown>,
+  field: string,
+): string | null {
+  const value = row[field];
+  if (value == null) return null;
+  if (typeof value !== 'string')
+    throw new TypeError(`The watchlist ${field} is invalid`);
+  return value;
+}
+
+function normalizeWatchlistEntry(value: unknown): WatchlistEntry {
+  const row = watchlistRecord(value);
+  if (typeof row.name !== 'string' || !row.name.trim())
+    throw new TypeError('The watchlist system name is invalid');
+  if (row.is_colonised != null && typeof row.is_colonised !== 'boolean')
+    throw new TypeError('The watchlist colonisation status is invalid');
+  return {
+    system_id64: losslessId64(row.system_id64),
+    name: row.name,
+    x: watchlistNumber(row, 'x'),
+    y: watchlistNumber(row, 'y'),
+    z: watchlistNumber(row, 'z'),
+    population: watchlistNumber(row, 'population'),
+    is_colonised: row.is_colonised ?? null,
+    added_at: watchlistString(row, 'added_at'),
+    last_checked_at: watchlistString(row, 'last_checked_at'),
+    last_status: watchlistString(row, 'last_status'),
+    score: watchlistNumber(row, 'score'),
+    economy_suggestion: watchlistString(row, 'economy_suggestion'),
+    primary_archetype: watchlistString(row, 'primary_archetype'),
+    secondary_archetype: watchlistString(row, 'secondary_archetype'),
+    archetype_score: watchlistNumber(row, 'archetype_score'),
+    buildability_score: watchlistNumber(row, 'buildability_score'),
+    purity_score: watchlistNumber(row, 'purity_score'),
+    alert_min_development_score: watchlistNumber(
+      row,
+      'alert_min_development_score',
+    ),
+    alert_min_score: watchlistNumber(row, 'alert_min_score'),
+    alert_economy: watchlistString(row, 'alert_economy'),
+  };
+}
+
+export async function getWatchlist(
+  syncKey: string,
+  signal?: AbortSignal,
+): Promise<WatchlistResponse> {
+  const { data } = await getWatchlistApiV2WatchlistSyncKeyGet({
+    throwOnError: true,
+    path: { sync_key: syncKey },
+    signal,
+  });
+  // The existing backend has no response model, so the SDK returns unknown.
+  // Validate that established shape here without changing the API contract.
+  const response = watchlistRecord(data);
+  if (response.sync_key !== syncKey || !Array.isArray(response.watchlist))
+    throw new TypeError('The watchlist response is invalid');
+  return {
+    sync_key: syncKey,
+    watchlist: response.watchlist.map(normalizeWatchlistEntry),
+  };
+}
+
+export async function addWatchlist(
+  syncKey: string,
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<{ readonly ok: true; readonly sync_key: string }> {
+  const { data } = await addWatchlistApiV2WatchlistSyncKeyId64Post({
+    throwOnError: true,
+    path: { sync_key: syncKey, id64: parseId64(id64) as unknown as number },
+    signal,
+  });
+  const response = watchlistRecord(data);
+  if (response.ok !== true || response.sync_key !== syncKey)
+    throw new TypeError('The watchlist save response is invalid');
+  return { ok: true, sync_key: syncKey };
+}
+
+export async function removeWatchlist(
+  syncKey: string,
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<{ readonly ok: true }> {
+  const { data } = await removeWatchlistApiV2WatchlistSyncKeyId64Delete({
+    throwOnError: true,
+    path: { sync_key: syncKey, id64: parseId64(id64) as unknown as number },
+    signal,
+  });
+  if (watchlistRecord(data).ok !== true)
+    throw new TypeError('The watchlist remove response is invalid');
+  return { ok: true };
 }
 
 export function optimiserCandidates<
