@@ -25,18 +25,18 @@ Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
 `main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The non-production live
 checkpoint remains a separate rehearsal boundary. The app-only V3 production
 promotion path is now `authorized` and has accepted governed promotions
-(2026-09-10 bootstrap; the 2026-09-16 identity release), with exact CPython
-3.14.7 installed on the host. Deploys still run **only** through the governed
-application-promotion workflow and its fail-closed target authority — being
-authorized is not blanket permission to promote. Current programme status
-(identity/journal shipped + deployed; Ratings V4 + Finder F1 `system_search`
-rebuild in progress and Finder F2a `system_archetype` schema merged (#738); map
-spatial density pyramid decoupled from ratings generation with its own
-independent publish lifecycle (migration 012, #743) but not yet built/published
-to prod, its governed prod build gating only on migration 012 + the current
-published canonical generation (not the ratings generation);
-map #2b next) is in `docs/ROADMAP.md` "Programme status — 2026-09-19"; the live
-promotion boundary is
+(2026-09-10 bootstrap; identity 2026-09-16; density-swirl `8055f268` 2026-09-23;
+`bed755b9` 2026-09-26), with exact CPython 3.14.7 installed on the host. Deploys
+still run **only** through the governed application-promotion workflow and its
+fail-closed target authority — being authorized is not blanket permission to
+promote. Current programme status (prod app on `bed755b9` shipping
+watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
+identity/journal shipped; Finder F1 `system_search` rebuild in progress and Finder
+**F2b `system_archetype` builder merged (#771)** — F2c ranking profile + governed
+archetype build next; the ratings derived generation is not yet published; **the
+current gap is UI** — Colony Planner and Finder archetype UI are the top UI-only
+parity gaps, backends live) is in `docs/ROADMAP.md` "Programme status —
+2026-09-26"; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit

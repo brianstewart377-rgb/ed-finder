@@ -91,6 +91,48 @@ or override this set.
   because the canonical release manifest still derives its own set from the V2
   manifest.
 
+## Programme status — 2026-09-26
+
+Current position (supersedes the 2026-09-19 snapshot below where they differ;
+newer dated source wins).
+
+- **Production app promoted to `bed755b9` (2026-09-26).** Governed
+  release → preflight → promote (release run 36196769987, promote run
+  36197361462) flipped the active slot green→blue; all smoke (`/`, `/api/health`,
+  `/api/v1/auth/session`, `/openapi.json`) 200; app-only upgrade (no migrations;
+  migration-set identity unchanged at `sha256:17263a97…` through-012). This ships
+  to users: **watchlist / pins / comparison** (PR #769), the **personal Galaxy
+  Impact scoreboard** (#758), the **map region-label/nebulae fix** (#753), and the
+  search-perf (#757/#766) + journal (#767) fixes. Accepted-release attestation
+  synced to `bed755b9` (`deploy/v3-production/target-authority.json`, PR #770); the
+  version-drift monitor is green.
+- **Map — density swirl LIVE (since 2026-09-23, `8055f268`).** The canonical-keyed
+  spatial pyramid is built + published (sequence 1) and `/api/map/heatmap` serves
+  `source=pyramid` over 198,528,286 systems, deployed end-to-end.
+- **Finder F2b — `system_archetype` builder MERGED (PR #771).** The archetype
+  ranking engine (pure fit model `v3-archetype-1` + chunked/resumable builder:
+  register → build_available → validate_product → CLI, mirroring `system_search`)
+  now fills migration `011`'s tables from Ratings V4. `validate_product` promotes
+  the *product* to READY on VERIFIED (required by migration 006's publish gate;
+  not publishing). Review follow-ups (P1 follow-mode completion, base-READY-before-
+  promote, content-seal verification, CLI exit status, coverage/summary gate
+  completeness, model completeness→confidence) fixed on
+  `fix/v3-finder-f2b-review-followups`. Not wired into the V3 manifest (governed
+  op, per the 010/011 precedent).
+- **Finder — next.** **F2c** (published ranking profile + V2 divergence report),
+  then the **governed production build/publish** of the `system_archetype` product;
+  a read-only authorized prod-sample **coefficient-calibration probe** is a
+  pre-build follow-up. Finder F1 `system_search` rebuild (parallel chunk-range,
+  #757/#766) continues; the ratings derived generation is not yet published.
+- **The current gap is UI, not backend.** A V2→V3 parity inventory (2026-09-26)
+  shows the remaining V2 features are overwhelmingly **UI-only** (backends already
+  live): the highest-value are the **Colony Planner** (`/plan` is a placeholder;
+  `colony_planner`/`optimiser` routers live) and the **Finder advanced ranking UI**
+  (archetype picker + weight sliders + S/A/B/C/D tiers; `search`/`archetypes`
+  backends live, fields already typed in `apps/web/src/lib/api/client.ts`), then
+  region/cluster search, My Work drafts hub, search tuning, and the owner/ops
+  surfaces. Next execution focus: the **Finder archetype UI**.
+
 ## Programme status — 2026-09-19
 
 Dated snapshot of in-flight work so a lot of recent progress does not confuse
