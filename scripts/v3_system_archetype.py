@@ -464,6 +464,280 @@ def build_available(
     }
 
 
+def _gate_coverage(connection, generation_id: str) -> tuple[bool, list[str], dict]:
+    '''Hard gate 1: every system in system_rating_vector has exactly
+    len(ARCHETYPE_KEYS) system_archetype rows and exactly one
+    system_archetype_summary row. Set-based; never fetches per-row data.'''
+    n_keys = len(model.ARCHETYPE_KEYS)
+    vector_count = int(connection.execute(
+        'SELECT count(*) FROM v3_derived.system_rating_vector WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()[0])
+    archetype_rows = int(connection.execute(
+        'SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()[0])
+    summary_rows = int(connection.execute(
+        'SELECT count(*) FROM v3_derived.system_archetype_summary WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()[0])
+    bad_archetype = int(connection.execute(
+        '''SELECT count(*) FROM (
+               SELECT v.system_id64, count(a.archetype_key) AS n
+                 FROM v3_derived.system_rating_vector v
+                 LEFT JOIN v3_derived.system_archetype a
+                   ON a.derived_generation_id=v.derived_generation_id
+                  AND a.system_id64=v.system_id64
+                WHERE v.derived_generation_id=%s
+                GROUP BY v.system_id64
+               HAVING count(a.archetype_key)<>%s
+           ) bad''',
+        (generation_id, n_keys),
+    ).fetchone()[0])
+    bad_summary = int(connection.execute(
+        '''SELECT count(*) FROM (
+               SELECT v.system_id64, count(s.system_id64) AS n
+                 FROM v3_derived.system_rating_vector v
+                 LEFT JOIN v3_derived.system_archetype_summary s
+                   ON s.derived_generation_id=v.derived_generation_id
+                  AND s.system_id64=v.system_id64
+                WHERE v.derived_generation_id=%s
+                GROUP BY v.system_id64
+               HAVING count(s.system_id64)<>1
+           ) bad''',
+        (generation_id,),
+    ).fetchone()[0])
+
+    reasons = []
+    if bad_archetype:
+        reasons.append(
+            f'coverage: {bad_archetype} system(s) do not have exactly '
+            f'{n_keys} system_archetype rows'
+        )
+    if bad_summary:
+        reasons.append(
+            f'coverage: {bad_summary} system(s) do not have exactly one '
+            'system_archetype_summary row'
+        )
+    ok = vector_count > 0 and bad_archetype == 0 and bad_summary == 0
+    counts = {
+        'systems': vector_count,
+        'archetype_rows': archetype_rows,
+        'summary_rows': summary_rows,
+    }
+    return ok, reasons, counts
+
+
+def _tier_case_expression() -> tuple[str, list]:
+    '''Build a fully-parameterized SQL CASE mirroring model.tier_of, so the
+    invariant gate never hardcodes/duplicates the tier thresholds.'''
+    clauses = []
+    params: list = []
+    for threshold, name in model._TIERS:
+        clauses.append('WHEN archetype_score>=%s THEN %s')
+        params.extend([threshold, name])
+    return 'CASE ' + ' '.join(clauses) + " ELSE 'D' END", params
+
+
+def _gate_score_and_tier(connection, generation_id: str) -> tuple[bool, list[str]]:
+    '''Hard gate 2: archetype_score in [0,100] and tier consistent with
+    tier_of(score). Set-based; the CASE expression is built from
+    model._TIERS so it cannot drift from the pure model.'''
+    case_sql, case_params = _tier_case_expression()
+    bad = int(connection.execute(
+        f'''SELECT count(*) FROM v3_derived.system_archetype
+             WHERE derived_generation_id=%s
+               AND (archetype_score<0 OR archetype_score>100
+                    OR tier<>{case_sql})''',
+        (generation_id, *case_params),
+    ).fetchone()[0])
+    if bad:
+        return False, [
+            f'invariants: {bad} system_archetype row(s) have an out-of-range '
+            'score or a tier inconsistent with tier_of(score)'
+        ]
+    return True, []
+
+
+def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, list[str]]:
+    '''Hard gate 3: each summary's primary_archetype/best_colony_potential/
+    best_tier equals the system's max-scoring archetype row (ties broken by
+    ARCHETYPE_KEYS order, matching model.summarise). Set-based via a window
+    function; the tie-break order is passed as a bound array parameter.'''
+    bad = int(connection.execute(
+        '''WITH ranked AS (
+               SELECT system_id64, archetype_key, archetype_score, tier,
+                      row_number() OVER (
+                          PARTITION BY system_id64
+                          ORDER BY archetype_score DESC,
+                                   array_position(%s::text[], archetype_key) ASC
+                      ) AS rnk
+                 FROM v3_derived.system_archetype
+                WHERE derived_generation_id=%s
+           )
+           SELECT count(*)
+             FROM v3_derived.system_archetype_summary s
+             JOIN ranked r ON r.system_id64=s.system_id64 AND r.rnk=1
+            WHERE s.derived_generation_id=%s
+              AND (s.primary_archetype<>r.archetype_key
+                   OR s.best_colony_potential<>r.archetype_score
+                   OR s.best_tier<>r.tier)''',
+        (list(model.ARCHETYPE_KEYS), generation_id, generation_id),
+    ).fetchone()[0])
+    if bad:
+        return False, [
+            f"invariants: {bad} summary row(s) do not match their system's "
+            'top archetype row (primary_archetype/best_colony_potential/best_tier)'
+        ]
+    return True, []
+
+
+def _gate_chunk_seals(
+    connection, generation: Generation, manifest_sha: bytes,
+) -> tuple[bool, list[str], int]:
+    '''Hard gate 4: reproducible from generation + archetype_version — every
+    archetype_build_chunk receipt's source seal is recomputed from the
+    generation, manifest and the immutable Ratings chunk it was built from.'''
+    rows = connection.execute(
+        '''SELECT b.chunk_ordinal,b.systems,b.canonical_input_sha256,b.content_sha256,
+                  a.archetype_version,a.source_projection_sha256,a.systems
+             FROM v3_derived.build_chunk b
+             JOIN v3_derived.archetype_build_chunk a
+               ON a.derived_generation_id=b.derived_generation_id
+              AND a.chunk_ordinal=b.chunk_ordinal
+            WHERE b.derived_generation_id=%s
+            ORDER BY b.chunk_ordinal''',
+        (generation.identifier,),
+    ).fetchall()
+    reasons: list[str] = []
+    for ordinal, systems, canonical_input_sha, ratings_content_sha, version, source_sha, archetype_systems in rows:
+        ordinal = int(ordinal)
+        if version != PRODUCT_VERSION:
+            reasons.append(
+                f'reproducibility: chunk {ordinal} archetype_version {version!r} '
+                f'does not match {PRODUCT_VERSION!r}'
+            )
+            continue
+        if int(archetype_systems) != int(systems):
+            reasons.append(
+                f'reproducibility: chunk {ordinal} systems count {archetype_systems} '
+                f'does not match Ratings chunk systems {systems}'
+            )
+            continue
+        expected_source = _source_projection_sha(
+            generation, manifest_sha, ordinal,
+            bytes(canonical_input_sha), bytes(ratings_content_sha),
+        )
+        if bytes(source_sha) != expected_source:
+            reasons.append(
+                f'reproducibility: chunk {ordinal} source seal does not match '
+                'generation+manifest+Ratings inputs'
+            )
+    return not reasons, reasons, len(rows)
+
+
+def validate_product(connection, generation: Generation, manifest_sha: bytes) -> dict:
+    '''Coverage + invariant hard gates for the Archetype product.
+
+    Read-only: never mutates v3_meta.derived_product or the base generation's
+    lifecycle. Promoting the product to READY is the governed build/publish
+    operation's job, not this diagnostic. `INCOMPLETE` while the base Ratings
+    generation has not reached VALIDATING/READY or the archetype build has not
+    covered every Ratings chunk yet; `VERIFIED` only once the base is ready
+    and every hard gate passes; `FAILED` with `reasons` if a gate is violated
+    despite full coverage. Every gate failure is collected rather than raised,
+    so an operator sees the whole picture in one call.
+    '''
+    generation = _generation(connection, generation.key)
+    product = _product(connection, generation.identifier)
+    if product is None:
+        raise ValueError('Archetype product is not registered')
+    if bytes(product[3]) != manifest_sha:
+        raise ValueError('Archetype product manifest changed')
+    if product[1] == 'READY':
+        receipt = product[5]
+        if not isinstance(receipt, dict) or receipt.get('status') != 'VERIFIED':
+            raise ValueError('READY Archetype product has no VERIFIED receipt')
+        return receipt
+    if product[1] != 'BUILDING':
+        raise ValueError('Archetype product cannot be validated from current state')
+
+    rating_chunks = int(connection.execute(
+        'SELECT count(*) FROM v3_derived.build_chunk WHERE derived_generation_id=%s',
+        (generation.identifier,),
+    ).fetchone()[0])
+    archetype_chunks = int(connection.execute(
+        'SELECT count(*) FROM v3_derived.archetype_build_chunk WHERE derived_generation_id=%s',
+        (generation.identifier,),
+    ).fetchone()[0])
+
+    coverage_ok, coverage_reasons, counts = _gate_coverage(connection, generation.identifier)
+    base_ready = generation.state in {'VALIDATING', 'READY'}
+    chunks_complete = rating_chunks > 0 and archetype_chunks == rating_chunks
+
+    if not (base_ready and chunks_complete and coverage_ok):
+        reasons = []
+        if not base_ready:
+            reasons.append(
+                f'base generation not ready for validation (state={generation.state})'
+            )
+        if not chunks_complete:
+            reasons.append(
+                f'coverage: archetype build incomplete ({archetype_chunks}/'
+                f'{rating_chunks} Ratings chunks built)'
+            )
+        reasons.extend(coverage_reasons)
+        return {
+            'status': 'INCOMPLETE',
+            'derived_generation_id': generation.identifier,
+            'product_code': PRODUCT_CODE,
+            'base_lifecycle_state': generation.state,
+            'expected_systems': generation.expected_systems,
+            'systems': counts['systems'],
+            'archetype_rows': counts['archetype_rows'],
+            'every_system_has_all_archetypes': coverage_ok,
+            'summary_matches_max': False,
+            'reasons': reasons,
+        }
+
+    score_tier_ok, score_tier_reasons = _gate_score_and_tier(connection, generation.identifier)
+    summary_ok, summary_reasons = _gate_summary_matches_max(connection, generation.identifier)
+    seals_ok, seal_reasons, chunk_count = _gate_chunk_seals(connection, generation, manifest_sha)
+
+    all_reasons = [*score_tier_reasons, *summary_reasons, *seal_reasons]
+    if all_reasons:
+        return {
+            'status': 'FAILED',
+            'derived_generation_id': generation.identifier,
+            'product_code': PRODUCT_CODE,
+            'base_lifecycle_state': generation.state,
+            'expected_systems': generation.expected_systems,
+            'systems': counts['systems'],
+            'archetype_rows': counts['archetype_rows'],
+            'every_system_has_all_archetypes': coverage_ok and score_tier_ok,
+            'summary_matches_max': summary_ok,
+            'reasons': all_reasons,
+        }
+
+    return {
+        'status': 'VERIFIED',
+        'derived_generation_id': generation.identifier,
+        'product_code': PRODUCT_CODE,
+        'product_version': PRODUCT_VERSION,
+        'base_lifecycle_state': generation.state,
+        'expected_systems': generation.expected_systems,
+        'systems': counts['systems'],
+        'archetype_rows': counts['archetype_rows'],
+        'chunks': chunk_count,
+        'every_system_has_all_archetypes': True,
+        'summary_matches_max': True,
+        'coverage_complete': True,
+        'seals_verified': seals_ok,
+        'reasons': [],
+        'product_manifest_sha256': manifest_sha.hex(),
+    }
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generation-key', required=True)
