@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-green",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:91003f0e29fedcc9b92c025319d82cca549b235748e7d71ac69dd6c2a760e4b5",
-    "api_build_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
-    "web_slot_container": "edfinder-v3-production-web-green",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:4310b5032a722a3a55123b34e9afac1069842d1d6ab4ba35eb33b17aa81ac3a6",
+    "api_container": "edfinder-v3-production-api-blue",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:6d1c18641deec3ef7f36b6af8c4abb97ed8a2333a19c18d36b3bd593b660d251",
+    "api_build_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
+    "web_slot_container": "edfinder-v3-production-web-blue",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:07c946e8c15e742c50411ca16a064828302568044434b040225d1eea54bf9b3a",
     "accepted_promotion": {
-      "received_at": "2026-09-23T09:50:04Z",
-      "release_run_id": "35844553223",
-      "source_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
+      "received_at": "2026-09-25T22:35:23Z",
+      "release_run_id": "36196769987",
+      "source_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
       "mode": "upgrade",
-      "active_slot": "green",
+      "active_slot": "blue",
       "rollback_kind": "prior-accepted-immutable-release"
     },
     "retired_legacy_containers": [
@@ -51,22 +51,23 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-8055f268",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 35845165546 at 2026-09-23T09:50:04Z binds release run 35844553223 and source 8055f2685a80c5b41005f9cc632abd1cda31d89e to active slot green, promoted from the prior accepted blue release ab2cb2292bf54f680b2c8a6935227b335642aba0. Active, staging and public smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-bed755b9",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 36197361462 at 2026-09-25T22:35:23Z binds release run 36196769987 and source bed755b944eb6cb226e1726b2a51582ba9fa9bdb to active slot blue, promoted from the prior accepted green release 8055f2685a80c5b41005f9cc632abd1cda31d89e. Active smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are all false and the retained database, edge, redis and nats containers were preserved. This app-only upgrade shipped #758 (Galaxy Impact scoreboard), #769 (Finder watchlist/pins/compare), #753 (map label/nebulae fix) and the search/journal fixes. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "8055f2685a80c5b41005f9cc632abd1cda31d89e",
-    "release_run_id": "35844553223",
-    "manifest_sha256": "8d4a4b659b93c72010b41771d8deb0e79aa0daf7f539fa95c5e2f125bc9e68a8",
+    "source_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
+    "release_run_id": "36196769987",
+    "manifest_sha256": "4034f55e2f552e3219d88c66639cc70835bd28b77084ca1a4ff00530b0fade1a",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:91003f0e29fedcc9b92c025319d82cca549b235748e7d71ac69dd6c2a760e4b5",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:4310b5032a722a3a55123b34e9afac1069842d1d6ab4ba35eb33b17aa81ac3a6"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:6d1c18641deec3ef7f36b6af8c4abb97ed8a2333a19c18d36b3bd593b660d251",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:07c946e8c15e742c50411ca16a064828302568044434b040225d1eea54bf9b3a"
     },
     "compatible_migration_sets": [
-      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
+      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
+      "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf"
     ],
-    "evidence": "Release artifact from run 35844553223 and accepted promotion receipt from run 35845165546 bind source 8055f2685a80c5b41005f9cc632abd1cda31d89e, both image digests and release-file SHA256 8d4a4b659b93c72010b41771d8deb0e79aa0daf7f539fa95c5e2f125bc9e68a8. Live prod ran governed migration 012 (apply run 35825732119): the schema migration-set identity is sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe (through-012), matching this release's declared compatibility and the preflight/promote receipts. This app-only upgrade performed no migrations; the pyramid_v1 spatial generation is published (sequence 1) and /api/map/heatmap serves source=pyramid over 198528286 systems."
+    "evidence": "Release artifact from run 36196769987 and accepted promotion receipt from run 36197361462 bind source bed755b944eb6cb226e1726b2a51582ba9fa9bdb, both image digests (backend 6d1c1864, web 07c946e8) and release-file SHA256 4034f55e2f552e3219d88c66639cc70835bd28b77084ca1a4ff00530b0fade1a. Reviewed backward-compatible upgrade from the prior accepted release 8055f2685a80c5b41005f9cc632abd1cda31d89e (green): sql/v3/migration-manifest.txt is byte-identical across 8055f268..bed755b9, so the live derived schema migration-set identity is unchanged at sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe (through-012); the preflight (run 36197145573) and promote (run 36197361462) receipts both reported that identity with migrations_performed=false. The sealed release additionally recorded its canonical application migration-set identity sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf (derived from sql/migration-manifest.txt lineage 001..048); both are listed as compatible. This app-only upgrade performed no migrations (013_v3_system_search_parallel.sql is a committed file only, not declared in the V3 manifest); the pyramid_v1 spatial generation remains published (sequence 1) and /api/map/heatmap serves source=pyramid over 198528286 systems."
   },
   "schema_transition": {
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
