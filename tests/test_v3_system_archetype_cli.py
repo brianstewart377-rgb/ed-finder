@@ -130,6 +130,54 @@ def test_run_follow_stops_once_max_chunks_reached(database, monkeypatch):
     assert result['chunks_written'] == 1
 
 
+def test_run_follow_keeps_polling_while_base_is_still_building(database, monkeypatch):
+    """Finding #1 (P1): archetype_chunks==rating_chunks can be momentarily
+    true while the base Ratings generation is still BUILDING -- run() must not
+    treat that as final, or later Ratings chunks would get no archetype rows.
+    Build to full (transient) chunk-count parity while the base is BUILDING,
+    then seal the base mid-poll and confirm the loop only completes after.
+    """
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+
+    poll_calls = []
+
+    def fake_sleep(seconds):
+        poll_calls.append(seconds)
+        if len(poll_calls) == 1:
+            # Base seals mid-poll -- the loop must have been polling, not
+            # already returned BUILT on the first (premature) chunk-count match.
+            _ready_ratings(database, generation_id)
+
+    monkeypatch.setattr(builder.time, 'sleep', fake_sleep)
+
+    result = builder.run(connection, key, follow=True, poll_seconds=0.01)
+    assert result['status'] == 'BUILT'
+    assert len(poll_calls) == 1
+
+    row = connection.execute(
+        'SELECT lifecycle_state FROM v3_meta.derived_generation WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()
+    assert row[0] == 'READY'
+
+
+def test_cli_validate_returns_nonzero_exit_when_not_verified(database, monkeypatch, capsys):
+    """Finding #4: --validate must fail closed on exit code (not just the
+    printed receipt) whenever the result is not VERIFIED."""
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', _fixture_dsn(connection))
+
+    # Do not seal/validate the base Ratings generation, so --validate returns
+    # INCOMPLETE rather than VERIFIED.
+    exit_code = builder.main(['--generation-key', key, '--validate'])
+    assert exit_code != 0
+
+    receipt = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert receipt['status'] == 'INCOMPLETE'
+
+
 def test_code_identity_lists_model_and_migration():
     ident = builder.code_identity()
     assert 'scripts/v3_system_archetype_model.py' in ident
