@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -781,9 +782,74 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
     return receipt
 
 
+def run(
+    connection,
+    generation_key: str,
+    *,
+    follow: bool = False,
+    poll_seconds: float = 5.0,
+    max_chunks: int | None = None,
+    progress: Progress | None = None,
+) -> dict:
+    '''register_product then build_available in a poll loop.
+
+    Mirrors v3_system_search.run's follow-loop shape, but termination is
+    coverage-based rather than validate_product-based: the Archetype product
+    is never promoted here. validate_product already promotes idempotently
+    on VERIFIED, so this loop only builds -- promotion/validation is the
+    separate `--validate` CLI mode (or a direct validate_product call).
+    '''
+    if not isinstance(poll_seconds, (int, float)) or poll_seconds <= 0:
+        raise ValueError('poll_seconds must be positive')
+    generation, state, manifest_sha = register_product(connection, generation_key)
+    if state not in {'BUILDING', 'READY'}:
+        raise ValueError('Archetype product cannot be built from current state')
+    total_seen = total_written = 0
+
+    while True:
+        result = build_available(
+            connection, generation, manifest_sha,
+            max_chunks=max_chunks, progress=progress,
+        )
+        total_seen += result['chunks_seen']
+        total_written += result['chunks_written']
+
+        rating_chunks = int(connection.execute(
+            'SELECT count(*) FROM v3_derived.build_chunk WHERE derived_generation_id=%s',
+            (generation.identifier,),
+        ).fetchone()[0])
+        archetype_chunks = int(connection.execute(
+            'SELECT count(*) FROM v3_derived.archetype_build_chunk WHERE derived_generation_id=%s',
+            (generation.identifier,),
+        ).fetchone()[0])
+        complete = rating_chunks > 0 and archetype_chunks == rating_chunks
+
+        if complete:
+            return {
+                'status': 'BUILT',
+                'derived_generation_id': generation.identifier,
+                'product_code': PRODUCT_CODE,
+                'chunks_seen': total_seen,
+                'chunks_written': total_written,
+            }
+        if not follow or max_chunks is not None:
+            return {
+                'status': 'INCOMPLETE',
+                'derived_generation_id': generation.identifier,
+                'product_code': PRODUCT_CODE,
+                'chunks_seen': total_seen,
+                'chunks_written': total_written,
+            }
+        time.sleep(float(poll_seconds))
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generation-key', required=True)
+    parser.add_argument('--follow', action='store_true')
+    parser.add_argument('--poll-seconds', type=float, default=5.0)
+    parser.add_argument('--max-chunks', type=int)
+    parser.add_argument('--validate', action='store_true')
     return parser.parse_args(argv)
 
 
@@ -796,15 +862,19 @@ def main(argv=None) -> int:
     try:
         import psycopg
         with psycopg.connect(dsn, autocommit=True) as connection:
-            generation, state, manifest_sha = register_product(connection, args.generation_key)
-            result = {
-                'status': 'REGISTERED',
-                'derived_generation_id': generation.identifier,
-                'product_code': PRODUCT_CODE,
-                'product_version': PRODUCT_VERSION,
-                'base_lifecycle_state': state,
-                'manifest_sha256': manifest_sha.hex(),
-            }
+            if args.validate:
+                generation, _, manifest_sha = register_product(connection, args.generation_key)
+                result = validate_product(connection, generation, manifest_sha)
+            else:
+                result = run(
+                    connection, args.generation_key,
+                    follow=args.follow,
+                    poll_seconds=args.poll_seconds,
+                    max_chunks=args.max_chunks,
+                    progress=lambda item: print(json.dumps(
+                        {'status': 'PROGRESS', **item}, sort_keys=True
+                    ), flush=True),
+                )
     except Exception as exc:
         print(json.dumps({'status': 'FAILED', 'error': type(exc).__name__}), file=sys.stderr)
         return 1
