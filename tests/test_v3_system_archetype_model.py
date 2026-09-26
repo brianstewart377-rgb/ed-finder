@@ -66,3 +66,23 @@ def test_flexible_rewards_breadth():
     fb = {f.key: f for f in fit_all(broad)}['flexible']
     fn = {f.key: f for f in fit_all(narrow)}['flexible']
     assert fb.score > fn.score
+
+
+def test_low_completeness_lowers_anchored_confidence():
+    # Finding #8: confidence must fold BOTH min(confidence) AND
+    # min(completeness) over the required anchors, not confidence alone.
+    v = _vectors(
+        pot=(90,0,0,0,0,90,0), qual=(90,None,None,None,None,90,None),
+        opp={1: (10, 80.0), 6: (10, 80.0)},
+        completeness=(0.5,0,0,0,0,0.5,0),
+    )
+    p = {f.key: f for f in fit_all(v)}['paradise']
+    # min(confidence[1,6])=1.0 (default) * min(completeness[1,6])=0.5
+    assert p.confidence == 0.5
+
+
+def test_flexible_confidence_folds_mean_completeness():
+    v = _vectors(pot=(60,)*7, qual=(60,)*7, completeness=(0.5,)*7)
+    f = {f.key: f for f in fit_all(v)}['flexible']
+    # mean(confidence)=1.0 (default) * mean(completeness)=0.5
+    assert f.confidence == 0.5

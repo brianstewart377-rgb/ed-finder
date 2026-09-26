@@ -98,7 +98,14 @@ def _fit_anchored(v: SystemVectors, key: str) -> ArchetypeFit:
 
     raw = core * spec * cap + synergy
     score = round(_clamp(raw, 0, 100))
-    conf = min(v.confidence[a - 1] for a in required) * (SPEC_UNKNOWN_CONF if unknown else 1.0)
+    # Confidence folds BOTH the minimum anchor confidence AND the minimum
+    # anchor evidence completeness (design doc Sec.5 "Gating / confidence"):
+    # low completeness must widen uncertainty even when confidence is high.
+    conf = (
+        min(v.confidence[a - 1] for a in required)
+        * min(v.completeness[a - 1] for a in required)
+        * (SPEC_UNKNOWN_CONF if unknown else 1.0)
+    )
 
     explanation = {
         'anchors': list(required),
@@ -121,7 +128,9 @@ def _fit_flexible(v: SystemVectors) -> ArchetypeFit:
         if v.pot[ordinal - 1] >= BREADTH_POT and q >= BREADTH_QUAL:
             breadth += 1
     score = round(_clamp(100.0 * min(1.0, breadth / BREADTH_TARGET), 0, 100))
-    conf = sum(v.confidence) / len(v.confidence)
+    # Analogous to the anchored fit: fold mean completeness (over the same
+    # breadth economies) into confidence alongside mean confidence.
+    conf = (sum(v.confidence) / len(v.confidence)) * (sum(v.completeness) / len(v.completeness))
     explanation = {'anchors': [], 'breadth': breadth, 'breadth_target': BREADTH_TARGET}
     return ArchetypeFit('flexible', score, tier_of(score), round(conf, 6), explanation)
 
