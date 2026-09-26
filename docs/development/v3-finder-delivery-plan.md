@@ -75,6 +75,19 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
+**Status (2026-09-26):** F1 merged (PR #734; `system_search` v2 with body-type
+counts). F2 split into F2a (schema `011`, PR #738, merged) → **F2b** (the
+`system_archetype` builder: pure fit model `v3-archetype-1` + chunked/resumable
+register→build→validate→CLI, mirroring `system_search`; **merged PR #771**, review
+follow-ups on `fix/v3-finder-f2b-review-followups`) → **F2c** (published ranking
+profile + V2 divergence report — next). `validate_product` promotes the product to
+READY on VERIFIED (required by migration 006's publish gate); the governed
+production build/publish of the archetype product, and a read-only authorized
+prod-sample coefficient-calibration probe, are pre-F3 follow-ups. **F4 (the
+`apps/web` Finder UI — archetype picker + weight sliders + S/A/B/C/D tiers) is the
+current highest-value gap**; the backends (search/archetypes) are live and typed
+in `apps/web/src/lib/api/client.ts`.
+
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration
 `010`. Those counts are not queryable in production until a **rebuild and
