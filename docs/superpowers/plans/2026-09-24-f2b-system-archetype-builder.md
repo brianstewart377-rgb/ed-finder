@@ -87,7 +87,7 @@ def database():
 **Real builder signatures (mirror `scripts/v3_system_search.py`):**
 - `register_product(connection, generation_key) -> (generation: Generation, state: str, manifest_sha: bytes)` — returns the base **lifecycle state** (`'BUILDING'` etc.), NOT a product version.
 - `build_available(connection, generation: Generation, manifest_sha: bytes) -> {'chunks_written': int, ...}` — takes the Generation object + manifest_sha, not a key. Skips chunks with an existing receipt (resumable).
-- `validate_product(connection, generation: Generation, manifest_sha: bytes) -> {'status': 'VERIFIED'|'INCOMPLETE'|..., 'base_lifecycle_state': str, ...}` — `INCOMPLETE` while the base generation is still `BUILDING`; `VERIFIED` only after `_ready_ratings`. Never mutates lifecycle.
+- `validate_product(connection, generation: Generation, manifest_sha: bytes) -> {'status': 'VERIFIED'|'INCOMPLETE'|..., 'base_lifecycle_state': str, ...}` — `INCOMPLETE` while the base generation is still `BUILDING`; `VERIFIED` only after `_ready_ratings`. On `VERIFIED` it promotes the **product** row (`v3_meta.derived_product`) `BUILDING -> READY` and stores the `validation_receipt`/`validation_sha256`/`validated_at`, mirroring `v3_system_search.validate_product` — this product-level promotion is REQUIRED (migration 006's publish gate rejects a generation with any non-`READY`/`VERIFIED` product), and is idempotent when already `READY`. It never touches the **base generation's** lifecycle and never calls `publish_derived_generation` (publishing is the separate governed op).
 
 Canonical test skeleton (adapt for archetype; mirrors the search build test):
 
@@ -578,7 +578,7 @@ git commit -m "feat(finder): F2b build_available — compute+seal archetype chun
 
 **Interfaces:**
 - Consumes: `build_available` (Task 3).
-- Produces: `validate_product(connection, generation_key)->dict` returning a receipt `{'status': 'VERIFIED'|'FAILED', 'systems': int, 'archetype_rows': int, 'every_system_has_all_archetypes': bool, 'summary_matches_max': bool, 'reasons': list[str]}`. `validate_product` **does not** change lifecycle state (that is the governed publish op).
+- Produces: `validate_product(connection, generation, manifest_sha)->dict` returning a receipt `{'status': 'VERIFIED'|'INCOMPLETE'|'FAILED', 'base_lifecycle_state': str, 'systems': int, 'archetype_rows': int, 'every_system_has_all_archetypes': bool, 'invariants_ok': bool, 'summary_matches_max': bool, 'reasons': list[str], ...}`. On `VERIFIED`, `validate_product` promotes the **product** row `BUILDING -> READY` + stores the receipt (mirrors `v3_system_search.validate_product`; REQUIRED so migration 006's publish gate can later accept the generation) — idempotent when already `READY`, leaves the product `BUILDING` on `INCOMPLETE`/`FAILED`, never touches the base-generation lifecycle, and never publishes. (Correction: an earlier draft said "does not change lifecycle" — that conflated product-`READY` promotion with publishing; the product promotion is required and is not publishing.)
 
 Hard gates:
 1. Every system in `system_rating_vector` has exactly `len(ARCHETYPE_KEYS)` `system_archetype` rows and exactly one `system_archetype_summary` row.
