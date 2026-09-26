@@ -1,13 +1,16 @@
-"""F2b Task 4: validate_product — coverage + invariant hard gates (read-only).
+"""F2b Task 4: validate_product — coverage + invariant hard gates.
 
 Mirrors tests/test_ratings_v4_system_search.py's fixture/harness pattern and
-docs/superpowers/plans/2026-09-24-f2b-system-archetype-builder.md's "Test
-harness & builder API (AUTHORITATIVE)" section: validate_product takes the
-real Generation object + manifest_sha, is read-only (never promotes
-v3_meta.derived_product to READY -- that is the governed build/publish
-operation's job), returns INCOMPLETE while the base Ratings generation has not
-reached READY (even once every archetype chunk is built), and VERIFIED only
-once the base is READY *and* the coverage/invariant hard gates all pass.
+scripts/v3_system_search.py's validate_product lifecycle behaviour:
+validate_product takes the real Generation object + manifest_sha, returns
+INCOMPLETE while the base Ratings generation has not reached READY (even
+once every archetype chunk is built, product stays BUILDING), and VERIFIED
+only once the base is READY *and* the coverage/invariant hard gates all
+pass -- at which point it promotes the archetype v3_meta.derived_product row
+from BUILDING to READY with the VERIFIED receipt, exactly mirroring the
+Search product. Calling it again once READY is idempotent: it returns the
+stored VERIFIED receipt without re-promoting. It never calls
+publish_derived_generation -- publishing remains a separate governed op.
 """
 from pathlib import Path
 import sys
@@ -109,16 +112,27 @@ def test_archetype_builds_resumes_and_validates(database):
     assert verified['systems'] == 12
     assert verified['archetype_rows'] == 12 * len(ARCHETYPE_KEYS)
     assert verified['every_system_has_all_archetypes'] is True
+    assert verified['invariants_ok'] is True
     assert verified['summary_matches_max'] is True
     assert verified['reasons'] == []
 
-    # Read-only: validate_product never self-promotes the product to READY.
-    assert _product_lifecycle_state(connection, generation_id) == 'BUILDING'
+    # VERIFIED promotes the archetype product to READY, mirroring the Search
+    # product's validate_product -- otherwise publish_derived_generation
+    # permanently rejects the generation for an unverified derived product.
+    row = connection.execute(
+        '''SELECT lifecycle_state, validation_receipt
+             FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code=%s''',
+        (generation_id, builder.PRODUCT_CODE),
+    ).fetchone()
+    assert row[0] == 'READY'
+    assert row[1]['status'] == 'VERIFIED'
 
-    # Reproducible: calling again from the same generation + archetype_version
-    # recomputes the identical verdict without any write in between.
+    # Idempotent: calling again once READY returns the stored VERIFIED
+    # receipt without erroring or re-promoting.
     again = builder.validate_product(connection, generation, manifest_sha)
     assert again == verified
+    assert _product_lifecycle_state(connection, generation_id) == 'READY'
 
 
 def test_validate_incomplete_with_no_archetype_coverage(database):

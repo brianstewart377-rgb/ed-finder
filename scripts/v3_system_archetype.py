@@ -639,14 +639,21 @@ def _gate_chunk_seals(
 def validate_product(connection, generation: Generation, manifest_sha: bytes) -> dict:
     '''Coverage + invariant hard gates for the Archetype product.
 
-    Read-only: never mutates v3_meta.derived_product or the base generation's
-    lifecycle. Promoting the product to READY is the governed build/publish
-    operation's job, not this diagnostic. `INCOMPLETE` while the base Ratings
-    generation has not reached VALIDATING/READY or the archetype build has not
-    covered every Ratings chunk yet; `VERIFIED` only once the base is ready
-    and every hard gate passes; `FAILED` with `reasons` if a gate is violated
-    despite full coverage. Every gate failure is collected rather than raised,
-    so an operator sees the whole picture in one call.
+    Mirrors v3_system_search.validate_product's lifecycle behaviour: on
+    VERIFIED this promotes the archetype v3_meta.derived_product row from
+    BUILDING to READY (guarded UPDATE + rowcount check), storing the VERIFIED
+    receipt and its validation_sha256. It never touches the base generation's
+    own lifecycle and never calls publish_derived_generation -- publishing
+    remains a separate governed operation. `INCOMPLETE` while the base
+    Ratings generation has not reached VALIDATING/READY or the archetype
+    build has not covered every Ratings chunk yet (product stays BUILDING);
+    `VERIFIED` only once the base is ready and every hard gate passes
+    (product promoted to READY); `FAILED` with `reasons` if a gate is
+    violated despite full coverage (product stays BUILDING). Calling this
+    again once the product is READY is idempotent: it returns the stored
+    VERIFIED receipt without re-promoting or re-validating. Every gate
+    failure is collected rather than raised, so an operator sees the whole
+    picture in one call.
     '''
     generation = _generation(connection, generation.key)
     product = _product(connection, generation.identifier)
@@ -714,12 +721,13 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
             'expected_systems': generation.expected_systems,
             'systems': counts['systems'],
             'archetype_rows': counts['archetype_rows'],
-            'every_system_has_all_archetypes': coverage_ok and score_tier_ok,
+            'every_system_has_all_archetypes': coverage_ok,
+            'invariants_ok': score_tier_ok,
             'summary_matches_max': summary_ok,
             'reasons': all_reasons,
         }
 
-    return {
+    receipt = {
         'status': 'VERIFIED',
         'derived_generation_id': generation.identifier,
         'product_code': PRODUCT_CODE,
@@ -730,12 +738,47 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
         'archetype_rows': counts['archetype_rows'],
         'chunks': chunk_count,
         'every_system_has_all_archetypes': True,
+        'invariants_ok': True,
         'summary_matches_max': True,
         'coverage_complete': True,
         'seals_verified': seals_ok,
         'reasons': [],
         'product_manifest_sha256': manifest_sha.hex(),
     }
+
+    validation_digest = hashlib.sha256()
+    validation_digest.update(manifest_sha)
+    chunk_rows = connection.execute(
+        '''SELECT chunk_ordinal,source_projection_sha256,content_sha256,systems
+             FROM v3_derived.archetype_build_chunk
+            WHERE derived_generation_id=%s
+            ORDER BY chunk_ordinal''',
+        (generation.identifier,),
+    ).fetchall()
+    for ordinal, source_sha, content_sha, systems in chunk_rows:
+        validation_digest.update(_json({
+            'chunk_ordinal': int(ordinal),
+            'source_projection_sha256': bytes(source_sha).hex(),
+            'content_sha256': bytes(content_sha).hex(),
+            'systems': int(systems),
+        }).encode())
+    validation_digest.update(_json(receipt).encode())
+    validation_sha = validation_digest.digest()
+
+    with connection.transaction():
+        updated = connection.execute(
+            '''UPDATE v3_meta.derived_product
+                  SET lifecycle_state='READY',validation_receipt=%s::jsonb,
+                      validation_sha256=%s,validated_at=now()
+                WHERE derived_generation_id=%s AND product_code=%s
+                  AND lifecycle_state='BUILDING' ''',
+            (_json(receipt), validation_sha, generation.identifier, PRODUCT_CODE),
+        ).rowcount
+        if updated != 1:
+            refreshed = _product(connection, generation.identifier)
+            if refreshed is None or refreshed[1] != 'READY':
+                raise ValueError('Archetype product validation state changed')
+    return receipt
 
 
 def parse_args(argv=None):
