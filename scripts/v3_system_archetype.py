@@ -143,8 +143,12 @@ def product_manifest(generation: Generation) -> dict:
             'archetype_score': 'round(clamp(core*spec*cap + synergy_bonus, 0, 100)); flexible uses breadth instead of core/spec/cap',
             'tier': 'S>=88, A>=76, B>=60, C>=45, else D',
             'confidence': (
-                'min(confidence[a] for a in required anchors), multiplied by '
-                'spec_unknown_conf when any anchor quality was bounded-null'
+                'min(confidence[a] for a in required anchors) * '
+                'min(evidence_completeness[a] for a in required anchors), '
+                'multiplied by spec_unknown_conf when any anchor quality was '
+                'bounded-null; each factor is within [0, 1] so the product is '
+                'bounded [0, 1]. flexible uses mean(confidence) * '
+                'mean(evidence_completeness) over all anchors instead of min.'
             ),
             'primary_archetype': 'highest archetype_score, ties broken by archetype_keys order',
             'secondary_archetype': 'next highest archetype_score; null only if every other score is 0',
@@ -876,6 +880,21 @@ def run(
         total_written += result['chunks_written']
 
         generation = _generation(connection, generation_key)
+        if generation.state == 'FAILED':
+            # FAILED is a legal terminal state for the base Ratings generation
+            # (BUILDING/VALIDATING -> FAILED per the derived_generation
+            # lifecycle trigger) from which READY is unreachable. Stop
+            # polling immediately rather than looping forever waiting for a
+            # seal that will never happen -- mirrors v3_system_search.run
+            # only ever completing via a base that can still reach READY.
+            return {
+                'status': 'FAILED',
+                'derived_generation_id': generation.identifier,
+                'product_code': PRODUCT_CODE,
+                'chunks_seen': total_seen,
+                'chunks_written': total_written,
+                'error': 'base_generation_failed',
+            }
         rating_row = connection.execute(
             '''SELECT count(*),coalesce(sum(systems),0)
                  FROM v3_derived.build_chunk WHERE derived_generation_id=%s''',

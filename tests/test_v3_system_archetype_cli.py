@@ -162,6 +162,50 @@ def test_run_follow_keeps_polling_while_base_is_still_building(database, monkeyp
     assert row[0] == 'READY'
 
 
+def _fail_ratings(database, generation_id):
+    connection, _, _, _ = database
+    connection.execute(
+        '''UPDATE v3_meta.derived_generation
+              SET lifecycle_state='FAILED', failed_at=now(), failure=%s
+            WHERE derived_generation_id=%s''',
+        ('test_induced_failure', generation_id),
+    )
+
+
+def test_run_follow_stops_when_base_generation_fails(database, monkeypatch):
+    """P1 finding: FAILED is a legal terminal state for the base Ratings
+    generation (BUILDING/VALIDATING -> FAILED). If that transition happens
+    while `run(follow=True)` is polling, `base_sealed` never becomes true and
+    there is no terminal branch, so the loop must otherwise poll forever.
+    Drive one poll, flip the base to FAILED during it, and assert the loop
+    stops promptly with a failed signal instead of continuing to poll.
+    """
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+
+    poll_calls = []
+
+    def fake_sleep(seconds):
+        poll_calls.append(seconds)
+        if len(poll_calls) == 1:
+            _fail_ratings(database, generation_id)
+        elif len(poll_calls) > 3:
+            pytest.fail('run() kept polling after the base generation failed')
+
+    monkeypatch.setattr(builder.time, 'sleep', fake_sleep)
+
+    result = builder.run(connection, key, follow=True, poll_seconds=0.01)
+    assert result['status'] == 'FAILED'
+    assert result['derived_generation_id'] == str(generation_id)
+    assert len(poll_calls) == 1
+
+    row = connection.execute(
+        'SELECT lifecycle_state FROM v3_meta.derived_generation WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()
+    assert row[0] == 'FAILED'
+
+
 def test_cli_validate_returns_nonzero_exit_when_not_verified(database, monkeypatch, capsys):
     """Finding #4: --validate must fail closed on exit code (not just the
     printed receipt) whenever the result is not VERIFIED."""
