@@ -85,8 +85,11 @@ READY on VERIFIED (required by migration 006's publish gate). Next is **F2c**
 (published ranking profile + divergence report), then **F3** — which is still
 unfinished: `apps/api/src/routers/archetypes.py` continues to query the legacy
 `mv_archetype_rankings` / `system_archetype_scores` / `systems` relations, not the
-V3 `v3_derived.system_archetype` projections, and there is no
-rank-by-selected-archetype API yet. A read-only authorized prod-sample
+V3 `v3_derived.system_archetype` projections. A rank-by-selected-archetype
+endpoint already exists (`GET /api/archetypes/rankings` orders by the selected
+archetype's score column) but it is **legacy-backed** (`mv_archetype_rankings`);
+F3 repoints it (and `POST /api/local/search`) onto the V3 projections via the
+published ranking profile. A read-only authorized prod-sample
 coefficient-calibration probe and the governed production run (build the product to
 READY, then **publish the owning generation** via
 `v3_meta.publish_derived_generation`) are pre-F3/rollout follow-ups. Only **after

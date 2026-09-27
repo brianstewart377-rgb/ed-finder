@@ -35,9 +35,10 @@ identity/journal shipped; Finder F1 `system_search` rebuild in progress and Find
 **F2b `system_archetype` builder merged (#771)** — next is **F2c** (ranking
 profile) then **F3** (point the Finder API at the V3 projections; `archetypes.py`
 still queries legacy relations), then the governed run that builds the product to
-READY and **publishes the owning generation**; the ratings derived generation is
-not yet published; the Finder archetype UI (F4) is gated on F2c/F3, not UI-only
-yet) is in `docs/ROADMAP.md` "Programme status —
+READY and **publishes the owning generation**; the published derived generation is
+`ratings_v4_prod_p4_parallel_v1` (seq 1) — outstanding are the F1 `system_search`
+rebuild + F2b `system_archetype` product build; the Finder archetype UI (F4) is
+gated on F2c/F3, not UI-only yet) is in `docs/ROADMAP.md` "Programme status —
 2026-09-26"; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
 
