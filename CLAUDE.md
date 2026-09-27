@@ -32,10 +32,12 @@ fail-closed target authority — being authorized is not blanket permission to
 promote. Current programme status (prod app on `bed755b9` shipping
 watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; Finder F1 `system_search` rebuild in progress and Finder
-**F2b `system_archetype` builder merged (#771)** — F2c ranking profile + governed
-archetype build next; the ratings derived generation is not yet published; **the
-current gap is UI** — Colony Planner and Finder archetype UI are the top UI-only
-parity gaps, backends live) is in `docs/ROADMAP.md` "Programme status —
+**F2b `system_archetype` builder merged (#771)** — next is **F2c** (ranking
+profile) then **F3** (point the Finder API at the V3 projections; `archetypes.py`
+still queries legacy relations), then the governed run that builds the product to
+READY and **publishes the owning generation**; the ratings derived generation is
+not yet published; the Finder archetype UI (F4) is gated on F2c/F3, not UI-only
+yet) is in `docs/ROADMAP.md` "Programme status —
 2026-09-26"; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
 

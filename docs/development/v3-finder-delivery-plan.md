@@ -81,12 +81,19 @@ counts). F2 split into F2a (schema `011`, PR #738, merged) → **F2b** (the
 register→build→validate→CLI, mirroring `system_search`; **merged PR #771**, review
 follow-ups on `fix/v3-finder-f2b-review-followups`) → **F2c** (published ranking
 profile + V2 divergence report — next). `validate_product` promotes the product to
-READY on VERIFIED (required by migration 006's publish gate); the governed
-production build/publish of the archetype product, and a read-only authorized
-prod-sample coefficient-calibration probe, are pre-F3 follow-ups. **F4 (the
-`apps/web` Finder UI — archetype picker + weight sliders + S/A/B/C/D tiers) is the
-current highest-value gap**; the backends (search/archetypes) are live and typed
-in `apps/web/src/lib/api/client.ts`.
+READY on VERIFIED (required by migration 006's publish gate). Next is **F2c**
+(published ranking profile + divergence report), then **F3** — which is still
+unfinished: `apps/api/src/routers/archetypes.py` continues to query the legacy
+`mv_archetype_rankings` / `system_archetype_scores` / `systems` relations, not the
+V3 `v3_derived.system_archetype` projections, and there is no
+rank-by-selected-archetype API yet. A read-only authorized prod-sample
+coefficient-calibration probe and the governed production run (build the product to
+READY, then **publish the owning generation** via
+`v3_meta.publish_derived_generation`) are pre-F3/rollout follow-ups. Only **after
+F2c + F3** does **F4** (the `apps/web` Finder UI — archetype picker + weight
+sliders + S/A/B/C/D tiers) become genuinely UI-only; today the result fields are
+typed in `apps/web/src/lib/api/client.ts` but the ranking API and prod archetype
+data do not yet exist.
 
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration

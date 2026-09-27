@@ -119,19 +119,32 @@ newer dated source wins).
   completeness, model completeness→confidence) fixed on
   `fix/v3-finder-f2b-review-followups`. Not wired into the V3 manifest (governed
   op, per the 010/011 precedent).
-- **Finder — next.** **F2c** (published ranking profile + V2 divergence report),
-  then the **governed production build/publish** of the `system_archetype` product;
-  a read-only authorized prod-sample **coefficient-calibration probe** is a
-  pre-build follow-up. Finder F1 `system_search` rebuild (parallel chunk-range,
-  #757/#766) continues; the ratings derived generation is not yet published.
-- **The current gap is UI, not backend.** A V2→V3 parity inventory (2026-09-26)
-  shows the remaining V2 features are overwhelmingly **UI-only** (backends already
-  live): the highest-value are the **Colony Planner** (`/plan` is a placeholder;
-  `colony_planner`/`optimiser` routers live) and the **Finder advanced ranking UI**
-  (archetype picker + weight sliders + S/A/B/C/D tiers; `search`/`archetypes`
-  backends live, fields already typed in `apps/web/src/lib/api/client.ts`), then
-  region/cluster search, My Work drafts hub, search tuning, and the owner/ops
-  surfaces. Next execution focus: the **Finder archetype UI**.
+- **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
+  divergence report), then **F3** (point the Finder search/ranking API at the V3
+  projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
+  still queries `mv_archetype_rankings` / `system_archetype_scores` / `systems`,
+  not `v3_derived.system_archetype`), then the **governed production run** that
+  builds the `system_archetype` product to READY and **publishes the owning
+  derived generation** (`v3_meta.publish_derived_generation`; a product's own
+  lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
+  product). A read-only authorized prod-sample **coefficient-calibration probe** is
+  a pre-build follow-up. The Finder F1 `system_search` rebuild currently running in
+  production is the **serial** path; the parallel chunk-range work (#757/#766) is
+  **code-only, its rollout not yet executed** (see
+  `docs/development/system-search-parallel-rebuild.md`). The ratings derived
+  generation is not yet published.
+- **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
+  inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
+  several backends are genuinely live (map, journal, watchlist just shipped). But
+  the two marquee gaps are NOT pure-UI yet: the **Finder advanced ranking UI**
+  (archetype picker + weight sliders + S/A/B/C/D tiers) needs **F2c + F3** first
+  (no ranking-by-archetype API exists, and prod has no built `system_archetype`
+  data), and the **Colony Planner** UI (`/plan` placeholder; `colony_planner`/
+  `optimiser` routers deployed) needs its backend's real data path confirmed in
+  prod. Result fields (`archetype_score`/`tier`/…) are already typed in
+  `apps/web/src/lib/api/client.ts`. Next execution focus: **F2c → F3**, then the
+  Finder archetype UI (F4). Lower-priority UI-mostly gaps: region/cluster search,
+  My Work drafts hub, search tuning, owner/ops surfaces.
 
 ## Programme status — 2026-09-19
 
