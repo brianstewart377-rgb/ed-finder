@@ -300,6 +300,60 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     return _digest({'archetypes': archetype_rows, 'summaries': summary_rows})
 
 
+def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
+    '''Batched form of _chunk_content_sha for the reproducibility gate: the
+    gate previously called _chunk_content_sha once per chunk (two queries
+    each), which is 2 x chunk_count sequential round trips at galaxy scale.
+    This recomputes every chunk's content digest for the whole generation in
+    two bounded round trips -- one query for all archetype rows, one for all
+    summary rows, both ordered by chunk_ordinal -- then groups and digests
+    per chunk_ordinal in Python. The per-chunk row shape and ordering fed to
+    _digest are byte-identical to _chunk_content_sha's single-chunk query
+    (chunk_ordinal is only used for grouping and is not part of the digested
+    payload), so stored and recomputed digests still match exactly.
+    '''
+    archetype_rows = connection.execute(
+        '''SELECT v.chunk_ordinal, a.system_id64, a.archetype_key, a.archetype_score,
+                  a.tier, round(a.confidence::numeric, 6), a.archetype_version,
+                  a.explanation
+             FROM v3_derived.system_archetype a
+             JOIN v3_derived.system_rating_vector v
+               ON v.derived_generation_id=a.derived_generation_id
+              AND v.system_id64=a.system_id64
+            WHERE a.derived_generation_id=%s
+            ORDER BY v.chunk_ordinal, a.system_id64, a.archetype_key''',
+        (generation_id,),
+    ).fetchall()
+    summary_rows = connection.execute(
+        '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
+                  s.best_colony_potential, s.best_tier,
+                  round(s.archetype_confidence::numeric, 6)
+             FROM v3_derived.system_archetype_summary s
+             JOIN v3_derived.system_rating_vector v
+               ON v.derived_generation_id=s.derived_generation_id
+              AND v.system_id64=s.system_id64
+            WHERE s.derived_generation_id=%s
+            ORDER BY v.chunk_ordinal, s.system_id64''',
+        (generation_id,),
+    ).fetchall()
+
+    archetypes_by_chunk: dict[int, list] = {}
+    for ordinal, *row in archetype_rows:
+        archetypes_by_chunk.setdefault(int(ordinal), []).append(tuple(row))
+    summaries_by_chunk: dict[int, list] = {}
+    for ordinal, *row in summary_rows:
+        summaries_by_chunk.setdefault(int(ordinal), []).append(tuple(row))
+
+    ordinals = set(archetypes_by_chunk) | set(summaries_by_chunk)
+    return {
+        ordinal: _digest({
+            'archetypes': archetypes_by_chunk.get(ordinal, []),
+            'summaries': summaries_by_chunk.get(ordinal, []),
+        })
+        for ordinal in ordinals
+    }
+
+
 def _build_chunk(
     connection,
     generation: Generation,
@@ -650,6 +704,9 @@ def _gate_chunk_seals(
             ORDER BY b.chunk_ordinal''',
         (generation.identifier,),
     ).fetchall()
+    # Recompute every chunk's content digest in one batched pass (bounded
+    # round trips) rather than once per chunk -- see _chunk_content_shas.
+    actual_content_shas = _chunk_content_shas(connection, generation.identifier)
     reasons: list[str] = []
     for (
         ordinal, systems, canonical_input_sha, ratings_content_sha,
@@ -678,7 +735,12 @@ def _gate_chunk_seals(
                 'generation+manifest+Ratings inputs'
             )
             continue
-        actual_content_sha = _chunk_content_sha(connection, generation.identifier, ordinal)
+        # A chunk with no materialized archetype/summary rows at all never
+        # appears in the batched map (nothing to group), but must still
+        # compare against the digest of an empty chunk, not a vacuous match.
+        actual_content_sha = actual_content_shas.get(
+            ordinal, _digest({'archetypes': [], 'summaries': []}),
+        )
         if bytes(stored_content_sha) != actual_content_sha:
             reasons.append(
                 f'reproducibility: chunk {ordinal} content seal does not match '
@@ -968,9 +1030,13 @@ def main(argv=None) -> int:
         print(json.dumps({'status': 'FAILED', 'error': type(exc).__name__}), file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
-    # --validate must fail closed on the exit code even though the receipt is
-    # still printed: a caller that only checks the exit code (e.g. CI/ops
-    # tooling) must not treat FAILED/INCOMPLETE validation as success.
+    # Fail closed on the exit code even though the receipt is still printed:
+    # a caller that only checks the exit code (e.g. CI/ops tooling) must not
+    # treat a FAILED result -- e.g. --follow stopping because the base
+    # Ratings generation went terminal -- as success in either mode, and
+    # must not treat a non-VERIFIED --validate result as success.
+    if result.get('status') == 'FAILED':
+        return 1
     if args.validate and result.get('status') != 'VERIFIED':
         return 1
     return 0

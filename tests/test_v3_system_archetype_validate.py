@@ -333,11 +333,46 @@ def test_gate_chunk_seals_recomputes_and_checks_content_sha(database, monkeypatc
     ok, reasons, n = builder._gate_chunk_seals(connection, generation, manifest_sha)
     assert ok and n == 3 and reasons == []
 
-    monkeypatch.setattr(builder, '_chunk_content_sha', lambda *a, **k: b'\x00' * 32)
+    monkeypatch.setattr(builder, '_chunk_content_shas', lambda *a, **k: {
+        0: b'\x00' * 32, 1: b'\x00' * 32, 2: b'\x00' * 32,
+    })
     ok, reasons, n = builder._gate_chunk_seals(connection, generation, manifest_sha)
     assert not ok
     assert n == 3
     assert all('content seal' in r for r in reasons)
+
+
+def test_gate_chunk_seals_recompute_is_bounded_round_trips(database):
+    """Finding #6 (P1): the reproducibility gate previously called
+    _chunk_content_sha once per chunk, and that helper ran two queries per
+    call -- 2 x chunk_count sequential round trips at galaxy scale. The fix
+    recomputes every chunk's content digest in a small, bounded number of
+    round trips (one query for all archetype rows + one for all summary
+    rows, grouped in Python), regardless of chunk_count.
+    """
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    generation, _, manifest_sha = builder.register_product(connection, key)
+    builder.build_available(connection, generation, manifest_sha)
+
+    calls = []
+    real_execute = connection.execute
+
+    def counting_execute(*args, **kwargs):
+        calls.append(args[0] if args else kwargs.get('query'))
+        return real_execute(*args, **kwargs)
+
+    connection.execute = counting_execute
+    try:
+        ok, reasons, n = builder._gate_chunk_seals(connection, generation, manifest_sha)
+    finally:
+        connection.execute = real_execute
+
+    assert ok and n == 3 and reasons == []
+    # Bounded: the chunk/receipt row query + a small constant number of
+    # queries to recompute all chunks' content digests -- NOT 2 * chunk_count
+    # (which would be 6 here, and grows unboundedly with chunk_count).
+    assert len(calls) <= 3
 
 
 def test_module_never_reads_public_schema():

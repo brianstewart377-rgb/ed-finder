@@ -222,6 +222,34 @@ def test_cli_validate_returns_nonzero_exit_when_not_verified(database, monkeypat
     assert receipt['status'] == 'INCOMPLETE'
 
 
+def test_cli_follow_returns_nonzero_exit_when_base_generation_fails(database, monkeypatch, capsys):
+    """P1 finding: main() only fail-closes the exit code for --validate. A
+    --follow run whose run() result is status='FAILED' (base Ratings
+    generation went terminal) must ALSO exit nonzero -- otherwise CI/ops
+    tooling that only checks the exit code treats a failed generation as
+    success, even though the FAILED receipt was printed."""
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', _fixture_dsn(connection))
+
+    poll_calls = []
+
+    def fake_sleep(seconds):
+        poll_calls.append(seconds)
+        if len(poll_calls) == 1:
+            _fail_ratings(database, generation_id)
+
+    monkeypatch.setattr(builder.time, 'sleep', fake_sleep)
+
+    exit_code = builder.main([
+        '--generation-key', key, '--follow', '--poll-seconds', '0.01',
+    ])
+    assert exit_code != 0
+
+    receipt = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert receipt['status'] == 'FAILED'
+
+
 def test_code_identity_lists_model_and_migration():
     ident = builder.code_identity()
     assert 'scripts/v3_system_archetype_model.py' in ident
