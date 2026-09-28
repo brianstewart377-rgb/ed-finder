@@ -199,6 +199,97 @@ async def test_local_search_v3_honours_terraformable_hard_filter(database):
 
 
 @pytest.mark.asyncio
+async def test_local_search_v3_reference_coords_non_galaxy_wide_returns_results_and_count(database):
+    """The primary path: `reference_coords` set and `galaxy_wide=False` --
+    the router's required/default shape (`galaxy_wide` defaults False and
+    `reference_coords` is required unless `galaxy_wide` is true).
+
+    This is a regression test for a CRITICAL review finding: every
+    non-galaxy-wide request added 3 tie-break distance params (for the
+    ORDER BY) after the WHERE params, but the old `_v3_count_sql` param
+    slicing only dropped the trailing 2 (limit/offset), leaving 3 stray
+    params on the count query and crashing every such request with an
+    asyncpg `InterfaceError`. Both `results` and `count`/`total` must come
+    back correctly for this to have caught that.
+    """
+    connection, _, _, _ = database
+    _build_published_generation(database)
+
+    rows = connection.execute('''
+        SELECT system_id64, x_ly, y_ly, z_ly FROM v3_app.system_search
+    ''').fetchall()
+    expected_ids = {
+        system_id64 for system_id64, x, y, z in rows
+        if (x * x + y * y + z * z) ** 0.5 <= 500.0
+    }
+    assert expected_ids, 'fixture must contain at least one system within 500 ly of Sol'
+    assert len(expected_ids) < len(rows), 'fixture must contain at least one out-of-range system too'
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await local_search.local_db_search_v3(
+            {
+                'galaxy_wide': False,
+                'reference_coords': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+                'size': 50,
+                'from': 0,
+            },
+            pool,
+        )
+    finally:
+        await pool.close()
+
+    returned_ids = {row['id64'] for row in result['results']}
+    assert returned_ids == expected_ids
+    assert result['count'] == len(expected_ids)
+    assert result['total'] == len(expected_ids)
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_require_bio_excludes_non_bio_systems(database):
+    connection, _, _, _ = database
+    _build_published_generation(database)
+
+    all_flags = dict(connection.execute('''
+        SELECT system_id64, has_biologicals FROM v3_app.system_search
+    ''').fetchall())
+    expected_ids = {system_id64 for system_id64, flag in all_flags.items() if flag}
+    assert expected_ids, 'fixture must contain at least one biological system'
+    assert len(expected_ids) < len(all_flags), 'fixture must contain at least one non-bio system too'
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'size': 50, 'from': 0, 'require_bio': True},
+            pool,
+        )
+    finally:
+        await pool.close()
+
+    returned_ids = {row['id64'] for row in result['results']}
+    assert returned_ids == expected_ids
+    assert result['total'] == len(expected_ids)
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_rejects_unsupported_population_filter():
+    """`v3_app.system_search` has no population column at all -- a caller
+    who explicitly asks for a population filter must get a 422, not a
+    silently-ignored filter (silent-wrong-results)."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search.local_db_search_v3(
+            {
+                'galaxy_wide': True,
+                'filters': {'population': {'value': 0, 'comparison': 'equal'}},
+            },
+            object(),  # never touched -- validation happens before any DB access
+        )
+    assert excinfo.value.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_local_search_v3_requires_published_generation():
     """No published generation -> 404, not a silently empty result set."""
     from fastapi import HTTPException
@@ -245,7 +336,6 @@ def test_local_search_v3_reads_no_legacy_relation():
             local_search._current_derived_generation,
             local_search._v3_hard_filters,
             local_search._build_v3_system_record,
-            local_search._v3_count_sql,
         )
     )
     forbidden = (

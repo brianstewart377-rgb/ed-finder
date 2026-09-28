@@ -30,7 +30,7 @@ from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
 from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS
-from edfinder_api.ranking.ranking_sql import build_ranked_query
+from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
@@ -563,12 +563,20 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 # read paths for itself) — do not wire this into `local_db_galaxy_search`
 # or `local_db_cluster_search` without repeating this repoint for them too.
 #
-# TODO(F3 follow-up): `star_types`, `require_bio`, `require_geo`, and
-# `population`/min-distance filters have no corresponding
-# `ranking.profile.HARD_FILTER_KEYS` entry yet, so they are accepted on the
-# request but not yet enforced against `v3_app.system_search`. Extending
-# HARD_FILTER_KEYS is a profile-module change (F2c Task 1/2 territory), out
-# of scope for this repoint.
+# `star_types`, `require_bio`, and `require_geo` map onto the
+# `main_star_class_in` / `has_biologicals` / `has_geologicals`
+# `ranking.profile.HARD_FILTER_KEYS` entries (see `_v3_hard_filters` below).
+# `population`/min-population filters have no corresponding
+# `v3_app.system_search` column at all (no population projection exists in
+# the F1 relation), so `local_db_search_v3` rejects a request that asks for
+# one with HTTP 422 rather than silently ignoring it — silently dropping a
+# filter a caller explicitly asked for would return results the caller
+# would read as "no matches for that filter" when really the filter was
+# never applied.
+#
+# TODO(F3 follow-up): `min_distance` (the lower bound of the distance range
+# filter) still has no `HARD_FILTER_KEYS` entry and is silently ignored by
+# the V3 path — only the upper bound (`max_distance_ly`) is enforced today.
 async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg.Record:
     row = await connection.fetchrow('''
         SELECT c.derived_generation_id, c.publication_sequence
@@ -625,6 +633,15 @@ def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
 
     if not ctx.galaxy_wide and ctx.has_reference_coords:
         hard_filters['max_distance_ly'] = ctx.max_dist
+
+    if ctx.require_bio:
+        hard_filters['has_biologicals'] = True
+
+    if ctx.require_geo:
+        hard_filters['has_geologicals'] = True
+
+    if ctx.star_types:
+        hard_filters['main_star_class_in'] = list(ctx.star_types)
 
     return hard_filters
 
@@ -698,20 +715,6 @@ def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, 
     }
 
 
-def _v3_count_sql(sql: str, params: list[Any]) -> tuple[str, list[Any]]:
-    """Derive a `COUNT(*)` query from a `build_ranked_query` SELECT.
-
-    Reuses the exact FROM/JOIN/WHERE text `build_ranked_query` produced
-    (including every hard filter) instead of re-deriving filter predicates
-    here, so the count can never drift from what the page actually filtered
-    on. Strips the `ORDER BY ... LIMIT ... OFFSET ...` tail (irrelevant to a
-    count) and drops the trailing limit/offset params, which
-    `build_ranked_query` always appends last.
-    """
-    body = sql.split('ORDER BY', 1)[0]
-    return f'SELECT COUNT(*) FROM (\n{body}\n) t', params[:-2]
-
-
 async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     """V3-native ranked search for `POST /api/local/search`.
 
@@ -722,6 +725,17 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     """
     t0 = time.time()
     ctx = _parse_local_search_context(body)
+
+    if ctx.population_value is not None:
+        # `v3_app.system_search` has no population column at all (see the
+        # module comment above): a caller who explicitly asked for a
+        # population filter must get a clear 422, not results that were
+        # silently never filtered on population.
+        raise HTTPException(
+            422,
+            'population filter is not supported by V3 Finder search '
+            '(v3_app.system_search has no population column).',
+        )
 
     economy_filter = ctx.economy_filter
     picked_economy = None
@@ -740,7 +754,13 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         limit=ctx.size,
         offset=ctx.from_idx,
     )
-    count_sql, count_params = _v3_count_sql(sql, params)
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
 
     try:
         async with pool.acquire() as conn:

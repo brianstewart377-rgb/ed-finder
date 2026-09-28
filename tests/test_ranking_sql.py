@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 from edfinder_api.ranking.profile import PROFILE_SPEC  # noqa: E402
-from edfinder_api.ranking.ranking_sql import build_ranked_query  # noqa: E402
+from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query  # noqa: E402
 
 LEGACY_RELATIONS = (
     "mv_archetype_rankings",
@@ -218,3 +218,123 @@ def test_limit_and_offset_are_parameterized():
     assert "LIMIT" in sql and "OFFSET" in sql
     assert "24" not in sql and "48" not in sql
     assert 24 in params and 48 in params
+
+
+def test_has_biologicals_and_geologicals_hard_filters():
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"has_biologicals": True, "has_geologicals": True},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert "has_biologicals" in where
+    assert "has_geologicals" in where
+    assert params.count(True) >= 2
+
+
+def test_main_star_class_in_hard_filter():
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"main_star_class_in": ["K", "M"]},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert "main_star_class IN" in where
+    assert "K" in params and "M" in params
+
+
+# --- build_count_query -------------------------------------------------------
+
+
+def test_build_count_query_has_no_order_limit_offset():
+    sql, params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"has_rings": True},
+        reference_coords=None,
+    )
+    assert "ORDER BY" not in sql
+    assert "LIMIT" not in sql
+    assert "OFFSET" not in sql
+    assert "count(" in sql.lower()
+    _assert_no_legacy(sql)
+    assert True in params
+
+
+def test_build_count_query_placeholder_count_matches_params():
+    sql, params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype="mining_hub",
+        picked_economy=None,
+        hard_filters={"min_development_score": 60, "elw_count_min": 1},
+        reference_coords=(1.0, 2.0, 3.0),
+    )
+    placeholder_indices = {int(m) for m in re.findall(r"\$(\d+)", sql)}
+    assert placeholder_indices == set(range(1, len(params) + 1))
+
+
+def test_build_count_query_params_are_a_prefix_of_ranked_query_params():
+    """The CRITICAL regression this guards: `build_count_query`'s params must
+    be exactly the WHERE-clause params -- no tie-break distance params, no
+    limit/offset -- so the count query's `$n` placeholders always match the
+    argument list a caller passes it."""
+    hard_filters = {"min_development_score": 60, "elw_count_min": 1}
+    reference_coords = (1.0, 2.0, 3.0)
+
+    ranked_sql, ranked_params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype="mining_hub",
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        limit=24,
+        offset=0,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype="mining_hub",
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
+
+    assert count_params == ranked_params[:len(count_params)]
+    # ranked adds 3 tie-break distance params (reference_coords present) + 2
+    # limit/offset params beyond the shared WHERE params.
+    assert len(ranked_params) == len(count_params) + 5
+    _assert_no_legacy(count_sql)
+
+
+def test_build_count_query_without_reference_coords_matches_ranked_where_params():
+    hard_filters = {"has_rings": True}
+
+    ranked_sql, ranked_params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+    )
+
+    assert count_params == ranked_params[:len(count_params)]
+    # No reference_coords means no tie-break distance params; only the
+    # trailing limit/offset params (2) differ from the shared WHERE params.
+    assert len(ranked_params) == len(count_params) + 2

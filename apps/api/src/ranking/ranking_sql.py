@@ -39,6 +39,9 @@ real `v3_app.system_search` (or cross-relation) predicate:
 | `terraformable_count_min`    | `s.terraformable_count >= $n`                     |
 | `landable_count_min`         | `s.landable_count >= $n`                          |
 | `has_rings`                  | `s.has_rings = $n` (explicit true/false)          |
+| `has_biologicals`            | `s.has_biologicals = $n` (explicit true/false)    |
+| `has_geologicals`            | `s.has_geologicals = $n` (explicit true/false)    |
+| `main_star_class_in`         | `s.main_star_class IN ($n, ...)`                  |
 | `min_development_score`      | `<primary_score_expr> >= $n` (see below)          |
 | `max_distance_ly`            | `<distance_expr> <= $n` (needs `reference_coords`)|
 | `galaxy_region`              | `s.galaxy_region_id = $n`                         |
@@ -131,30 +134,24 @@ def _distance_expr(builder: _ParamBuilder, reference_coords: tuple[float, float,
     )
 
 
-def build_ranked_query(
-    spec: dict[str, Any],
+def _build_common(
+    builder: _ParamBuilder,
     *,
     picked_archetype: str | None,
-    picked_economy: str | None,
+    picked_economy: str | None,  # accepted, not yet used — see module docstring's economy-pick TODO
     hard_filters: dict[str, Any],
     reference_coords: tuple[float, float, float] | None,
-    limit: int,
-    offset: int,
-) -> tuple[str, list[Any]]:
-    """Build a parameterized, generation-agnostic ranked SELECT.
+) -> tuple[list[str], list[str], str, str]:
+    """Build the joins, WHERE clauses and score expressions shared by both
+    `build_ranked_query` and `build_count_query`.
 
-    Returns `(sql, params)` where `sql` uses only `$1..$n` placeholders (no
-    literal values) and `params` is the matching positional argument list
-    for asyncpg. Pure — never opens a database connection.
-
-    `spec` is accepted (rather than reading the module-level `PROFILE_SPEC`
-    directly) so callers can pass a resolved `RANKING_VERSIONS[version]` for
-    a future non-default profile without this function changing shape; the
-    current implementation only depends on the fixed `HARD_FILTER_KEYS`
-    contract and `uncertainty`/`tie_break` field names within `spec`.
+    This is the single place hard filters are translated into predicates —
+    both callers go through it so the count and the ranked page can never
+    drift onto different filter semantics. Returns
+    `(joins, where_clauses, primary_score_expr, uncertainty_expr)`; each
+    caller assembles its own final SQL text (a ranked SELECT with
+    ORDER BY/LIMIT/OFFSET, or a bare COUNT(*)) from these pieces.
     """
-
-    builder = _ParamBuilder()
 
     joins = ["LEFT JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
 
@@ -190,6 +187,15 @@ def build_ranked_query(
         elif key == "has_rings":
             param = builder.add(bool(value))
             where_clauses.append(f"s.has_rings = {param}")
+        elif key == "has_biologicals":
+            param = builder.add(bool(value))
+            where_clauses.append(f"s.has_biologicals = {param}")
+        elif key == "has_geologicals":
+            param = builder.add(bool(value))
+            where_clauses.append(f"s.has_geologicals = {param}")
+        elif key == "main_star_class_in":
+            placeholders = ", ".join(builder.add(v) for v in value)
+            where_clauses.append(f"s.main_star_class IN ({placeholders})")
         elif key == "min_development_score":
             param = builder.add(int(value))
             where_clauses.append(f"{primary_score_expr} >= {param}")
@@ -206,6 +212,45 @@ def build_ranked_query(
             where_clauses.append(f"{distance_expr} <= {param}")
         # Every HARD_FILTER_KEYS member is handled above; nothing falls
         # through silently for a *known* key.
+
+    return joins, where_clauses, primary_score_expr, uncertainty_expr
+
+
+def build_ranked_query(
+    spec: dict[str, Any],
+    *,
+    picked_archetype: str | None,
+    picked_economy: str | None,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float] | None,
+    limit: int,
+    offset: int,
+) -> tuple[str, list[Any]]:
+    """Build a parameterized, generation-agnostic ranked SELECT.
+
+    Returns `(sql, params)` where `sql` uses only `$1..$n` placeholders (no
+    literal values) and `params` is the matching positional argument list
+    for asyncpg. Pure — never opens a database connection.
+
+    `spec` is accepted (rather than reading the module-level `PROFILE_SPEC`
+    directly) so callers can pass a resolved `RANKING_VERSIONS[version]` for
+    a future non-default profile without this function changing shape; the
+    current implementation only depends on the fixed `HARD_FILTER_KEYS`
+    contract and `uncertainty`/`tie_break` field names within `spec`.
+
+    See `build_count_query` for the matching `COUNT(*)` query over the same
+    WHERE clause — the two share `_build_common` so a page's filter and its
+    total can never drift apart.
+    """
+
+    builder = _ParamBuilder()
+    joins, where_clauses, primary_score_expr, uncertainty_expr = _build_common(
+        builder,
+        picked_archetype=picked_archetype,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
 
     order_terms = [f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"]
     if reference_coords is not None:
@@ -229,5 +274,45 @@ def build_ranked_query(
         f"ORDER BY {', '.join(order_terms)}\n"
         f"LIMIT {limit_param} OFFSET {offset_param}"
     )
+
+    return sql, builder.params
+
+
+def build_count_query(
+    spec: dict[str, Any],
+    *,
+    picked_archetype: str | None,
+    picked_economy: str | None,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float] | None,
+) -> tuple[str, list[Any]]:
+    """Build the `COUNT(*)` companion to `build_ranked_query`'s SELECT.
+
+    Uses exactly the same joins and WHERE predicates as `build_ranked_query`
+    (via the shared `_build_common` helper) for the same arguments, so the
+    reported total can never drift from what the page actually filtered on.
+    Carries no ORDER BY, no tie-break distance params, and no LIMIT/OFFSET —
+    none of those affect a row count. Pure — never opens a database
+    connection.
+    """
+
+    builder = _ParamBuilder()
+    joins, where_clauses, _primary_score_expr, _uncertainty_expr = _build_common(
+        builder,
+        picked_archetype=picked_archetype,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}\n" if where_clauses else ""
+    joins_sql = "\n".join(joins)
+
+    sql = (
+        "SELECT count(*)\n"
+        "FROM v3_app.system_search s\n"
+        f"{joins_sql}\n"
+        f"{where_sql}"
+    ).rstrip()
 
     return sql, builder.params

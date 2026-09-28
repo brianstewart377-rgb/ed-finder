@@ -19,7 +19,15 @@ pytestmark = pytest.mark.asyncio
 # --- Happy paths ------------------------------------------------------------
 
 async def test_local_search_runs_via_local_db_search(client):
-    """Real DB call, real seed data → 200 + non-empty results."""
+    """Real DB call, real seed data → 200 + non-empty results.
+
+    `POST /api/local/search` was repointed onto the V3 ranked-search path
+    (`local_search.local_db_search_v3`, F2c/F3 Task 3) -- it no longer runs
+    via `local_db_search` and no longer reports `source: 'local_db'`.
+    Responses now echo the ranking profile identity instead
+    (`f'v3:{RANKING_VERSION}'`)."""
+    from edfinder_api.ranking.profile import RANKING_VERSION
+
     payload = {
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 1000}},
@@ -30,12 +38,22 @@ async def test_local_search_runs_via_local_db_search(client):
     body = r.json()
     assert 'results' in body
     assert isinstance(body['results'], list)
-    assert body.get('source') == 'local_db', f"expected local_db source, got {body.get('source')!r}"
+    assert body.get('source') == f'v3:{RANKING_VERSION}', \
+        f"expected v3 ranked-search source, got {body.get('source')!r}"
 
 
 async def test_local_search_extraction_economy_uses_extraction_column(client):
-    """Audit §C5 regression test: filtering by economy=Extraction must
-    rank by score_extraction, NOT silently fall back to overall score."""
+    """Audit §C5 regression test, updated for the V3 repoint.
+
+    V3's `v3_app.system_search` / `system_archetype_summary` carry no
+    per-economy potential column yet, so `picked_economy` currently falls
+    back to the same no-pick primary score (`best_colony_potential`) --
+    a documented gap in `ranking_sql.py` (see its "Economy-picked ranking"
+    section), not a silent bug. What must still hold under the repoint is
+    that results come back ordered by the ranking profile's actual sort key
+    (`primary_score * uncertainty_factor DESC`), which the response exposes
+    as `archetype_score` and `uncertainty_factor` -- not some other,
+    unrelated ordering."""
     payload = {
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 100000}, 'economy': 'Extraction'},
@@ -46,8 +64,13 @@ async def test_local_search_extraction_economy_uses_extraction_column(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get('display_economy') == 'Extraction'
-    scores = [row.get('archetype_score') for row in body['results'] if row.get('archetype_score') is not None]
-    assert scores == sorted(scores, reverse=True), f"archetype_score should descend, got {scores}"
+    combined = [
+        row['archetype_score'] * row['uncertainty_factor']
+        for row in body['results']
+        if row.get('archetype_score') is not None and row.get('uncertainty_factor') is not None
+    ]
+    assert combined == sorted(combined, reverse=True), \
+        f"primary_score * uncertainty_factor should descend, got {combined}"
 
 
 # --- 503 on DB failure (the core Phase 2 contract) --------------------------
@@ -55,12 +78,17 @@ async def test_local_search_extraction_economy_uses_extraction_column(client):
 async def test_local_search_returns_503_on_db_failure(client):
     """If the SQL builder raises, the API must surface a 503 with a
     problem-details body — not silently degrade to an inline fallback
-    that produces different ordering (audit §C5)."""
+    that produces different ordering (audit §C5).
+
+    `/api/local/search` runs via `local_db_search_v3` since the V3 repoint
+    (F2c/F3 Task 3); patch that function, not the retired `local_db_search`
+    call site, or this test would silently stop exercising the failure path
+    it claims to cover."""
 
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')
 
-    with patch('routers.search._ls.local_db_search', boom):
+    with patch('routers.search._ls.local_db_search_v3', boom):
         r = await client.post('/api/local/search', json={
             'reference_coords': {'x': 0, 'y': 0, 'z': 0},
             'filters':          {'distance': {'min': 0, 'max': 100}},
