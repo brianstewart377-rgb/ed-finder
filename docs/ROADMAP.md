@@ -91,6 +91,68 @@ or override this set.
   because the canonical release manifest still derives its own set from the V2
   manifest.
 
+## Programme status — 2026-09-26
+
+Current position (supersedes the 2026-09-19 snapshot below where they differ;
+newer dated source wins).
+
+- **Production app promoted to `bed755b9`** (promote receipt `received_at`
+  `2026-09-25T22:35:23Z` per `deploy/v3-production/target-authority.json`).
+  Governed release → preflight → promote (release run 36196769987, promote run
+  36197361462) flipped the active slot green→blue; all smoke (`/`, `/api/health`,
+  `/api/v1/auth/session`, `/openapi.json`) 200; app-only upgrade (no migrations;
+  migration-set identity unchanged at `sha256:17263a97…` through-012). This ships
+  to users: **watchlist / pins / comparison** (PR #769), the **personal Galaxy
+  Impact scoreboard** (#758), the **map region-label/nebulae fix** (#753), and the
+  search-perf (#757/#766) + journal (#767) fixes. Accepted-release attestation
+  synced to `bed755b9` (`deploy/v3-production/target-authority.json`, PR #770); the
+  version-drift monitor is green.
+- **Map — density swirl LIVE (since 2026-09-23, `8055f268`).** The canonical-keyed
+  spatial pyramid is built + published (sequence 1) and `/api/map/heatmap` serves
+  `source=pyramid` over 198,528,286 systems, deployed end-to-end.
+- **Finder F2b — `system_archetype` builder MERGED (PR #771).** The archetype
+  ranking engine (pure fit model `v3-archetype-1` + chunked/resumable builder:
+  register → build_available → validate_product → CLI, mirroring `system_search`)
+  now fills migration `011`'s tables from Ratings V4. `validate_product` promotes
+  the *product* to READY on VERIFIED (required by migration 006's publish gate;
+  not publishing). Review follow-ups (P1 follow-mode completion, base-READY-before-
+  promote, content-seal verification, CLI exit status, coverage/summary gate
+  completeness, model completeness→confidence) are being **addressed on
+  `fix/v3-finder-f2b-review-followups` (PR #775, in review — NOT yet merged to
+  `main`)**, so `main` still carries the pre-fix builder; treat those blockers as
+  open until #775 lands. Not wired into the V3 manifest (governed op, per the
+  010/011 precedent).
+- **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
+  divergence report), then **F3** (point the Finder search/ranking API at the V3
+  projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
+  still queries `mv_archetype_rankings` / `system_archetype_scores` / `systems`,
+  not `v3_derived.system_archetype`), then the **governed production run** that
+  builds the `system_archetype` product to READY and **publishes the owning
+  derived generation** (`v3_meta.publish_derived_generation`; a product's own
+  lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
+  product). A read-only authorized prod-sample **coefficient-calibration probe** is
+  a pre-build follow-up. The Finder F1 `system_search` rebuild currently running in
+  production is the **serial** path; the parallel chunk-range work (#757/#766) is
+  **code-only, its rollout not yet executed** (see
+  `docs/development/system-search-parallel-rebuild.md`). The published derived
+  generation is **`ratings_v4_prod_p4_parallel_v1`** (`current_derived_generation`
+  at sequence 1, per `ratings-v4-parallel-validation-design.md`); the superseded
+  `ratings_v4_prod_p4_opt1` candidate is unpublished. Outstanding within the
+  derived programme are the F1 `system_search` product rebuild and the F2b
+  `system_archetype` product build/publish.
+- **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
+  inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
+  several backends are genuinely live (map, journal, watchlist just shipped). But
+  the two marquee gaps are NOT pure-UI yet: the **Finder advanced ranking UI**
+  (archetype picker + weight sliders + S/A/B/C/D tiers) needs **F2c + F3** first
+  (no ranking-by-archetype API exists, and prod has no built `system_archetype`
+  data), and the **Colony Planner** UI (`/plan` placeholder; `colony_planner`/
+  `optimiser` routers deployed) needs its backend's real data path confirmed in
+  prod. Result fields (`archetype_score`/`tier`/…) are already typed in
+  `apps/web/src/lib/api/client.ts`. Next execution focus: **F2c → F3**, then the
+  Finder archetype UI (F4). Lower-priority UI-mostly gaps: region/cluster search,
+  My Work drafts hub, search tuning, owner/ops surfaces.
+
 ## Programme status — 2026-09-19
 
 Dated snapshot of in-flight work so a lot of recent progress does not confuse

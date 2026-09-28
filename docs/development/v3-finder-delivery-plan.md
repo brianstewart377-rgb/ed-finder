@@ -75,6 +75,29 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
+**Status (2026-09-26):** F1 merged (PR #734; `system_search` v2 with body-type
+counts). F2 split into F2a (schema `011`, PR #738, merged) → **F2b** (the
+`system_archetype` builder: pure fit model `v3-archetype-1` + chunked/resumable
+register→build→validate→CLI, mirroring `system_search`; **merged PR #771**, review
+follow-ups on `fix/v3-finder-f2b-review-followups`) → **F2c** (published ranking
+profile + V2 divergence report — next). `validate_product` promotes the product to
+READY on VERIFIED (required by migration 006's publish gate). Next is **F2c**
+(published ranking profile + divergence report), then **F3** — which is still
+unfinished: `apps/api/src/routers/archetypes.py` continues to query the legacy
+`mv_archetype_rankings` / `system_archetype_scores` / `systems` relations, not the
+V3 `v3_derived.system_archetype` projections. A rank-by-selected-archetype
+endpoint already exists (`GET /api/archetypes/rankings` orders by the selected
+archetype's score column) but it is **legacy-backed** (`mv_archetype_rankings`);
+F3 repoints it (and `POST /api/local/search`) onto the V3 projections via the
+published ranking profile. A read-only authorized prod-sample
+coefficient-calibration probe and the governed production run (build the product to
+READY, then **publish the owning generation** via
+`v3_meta.publish_derived_generation`) are pre-F3/rollout follow-ups. Only **after
+F2c + F3** does **F4** (the `apps/web` Finder UI — archetype picker + weight
+sliders + S/A/B/C/D tiers) become genuinely UI-only; today the result fields are
+typed in `apps/web/src/lib/api/client.ts` but the ranking API and prod archetype
+data do not yet exist.
+
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration
 `010`. Those counts are not queryable in production until a **rebuild and
