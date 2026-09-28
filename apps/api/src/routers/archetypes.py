@@ -9,12 +9,16 @@ Endpoints:
     POST /api/archetypes/simulate          build simulation scoring
     GET  /api/archetypes/profiles          preset rerank profiles
 
-All routes use the mv_archetype_rankings materialized view for reads
-(non-blocking, pre-joined). Rationale and score_breakdown JSONB are
-fetched from system_archetype_scores on demand (single-row lookups).
+`/rankings` (F3 Task 4) reads generation-pinned from the published V3
+`v3_app.system_archetype`/`v3_app.system_search` projections via the ranking
+profile (`edfinder_api.ranking`) — it no longer touches the legacy
+`mv_archetype_rankings` materialized view and has no cache layer. The
+remaining routes (`/rerank`, `/system/{id64}`, `/simulate`, `/profiles`) are
+still legacy V2: `/rerank` and `/system/{id64}` read `system_archetype_scores`
+directly; `/simulate` and `/profiles` are unaffected either way. They are out
+of scope for this task (tracked as F3 slice 2).
 
-Cache strategy:
-    rankings  → Redis key arch:v{ver}:rank:{archetype}:{region}:{min}:{lim}:{off}  TTL 600s
+Cache strategy (legacy routes only):
     system    → Redis key arch:v{ver}:sys:{id64}                                   TTL 300s
     rerank    → Redis key arch:v{ver}:rerank:{hash}                                TTL 120s
     profiles  → Redis key arch:profiles                                            TTL 3600s
@@ -25,6 +29,7 @@ Route scope:
 
 import hashlib
 import json
+import math
 import time
 from typing import Any, Optional
 
@@ -33,6 +38,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from edfinder_api.config import log, limiter
 from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
+from edfinder_api.local_search import _current_derived_generation
 from edfinder_api.mechanics.confidence import (
     ConfidenceLayer,
     archetype_numeric_confidence_to_canonical,
@@ -47,6 +53,8 @@ from edfinder_api.models import (
     BuildSimulateResponse,
     SystemArchetypeResponse,
 )
+from edfinder_api.ranking.profile import ARCHETYPE_KEYS, PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS
+from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
 from edfinder_api.state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
 
 router = APIRouter(prefix='/api/archetypes', tags=['archetypes'])
@@ -78,6 +86,23 @@ _SCORE_COL: dict[str, str] = {
     'ax_forward_base':          'score_ax_forward_base',
     'military_industrial':      'score_military_industrial',
     'flexible_multirole':       'score_flexible_multirole',
+}
+
+# V3-native archetype labels (F3 Task 4). `ARCHETYPE_KEYS` (imported from
+# `edfinder_api.ranking.profile`) is the 8-key set the V3 `system_archetype`
+# builder (`scripts/v3_system_archetype_model.py`) actually scores every
+# system against -- distinct from the 10-key legacy `_SCORE_COL`/
+# `_ARCHETYPE_LABELS` set above, which stays wired to `/rerank`, `/system`
+# and `/simulate` (untouched by this task).
+_V3_ARCHETYPE_LABELS: dict[str, str] = {
+    'paradise':            'Paradise World',
+    'mining_hub':          'Mining Hub',
+    'manufacturing_hub':   'Manufacturing Hub',
+    'megacomplex':         'Megacomplex',
+    'research_hub':        'Research Hub',
+    'stronghold':          'Stronghold',
+    'population_capital':  'Population Capital',
+    'flexible':            'Flexible Multi-Role Colony',
 }
 
 # Preset rerank profiles
@@ -237,17 +262,212 @@ def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str,
 
 
 # ---------------------------------------------------------------------------
-# GET /api/archetypes/rankings
+# GET /api/archetypes/rankings (F3 Task 4 — V3, generation-pinned)
 # ---------------------------------------------------------------------------
+# Repointed off the legacy `mv_archetype_rankings` materialized view onto the
+# published V3 `v3_app.system_archetype` / `v3_app.system_search` projections
+# via `ranking.ranking_sql.build_ranked_query`/`build_count_query`, mirroring
+# the `local_db_search_v3` pattern in `edfinder_api.local_search` (F3 Task 3):
+# a plain, DB-pool-taking helper function that the thin, rate-limited route
+# handler delegates to, so the helper stays directly unit-testable without
+# going through slowapi's `Request`-bound limiter decorator.
+#
+# `min_slots` and `max_contamination` have no `v3_app.system_archetype`
+# column at all (no slot-count or contamination projection exists in the F2b
+# relation) -- like `local_db_search_v3`'s population-filter handling, a
+# caller who explicitly asks for either gets a clear 422 rather than a
+# silently-ignored filter. `has_elw=false` is the same story: V3 only
+# exposes `elw_count` (an `elw_count_min` hard filter), which can express
+# "has at least one ELW" but not "has exactly zero" -- so an explicit
+# `has_elw=false` also 422s rather than being silently dropped or
+# misapplied.
+#
+# `max_distance_ly` and the always-shown `distance_to_sol` both measure from
+# Sol at the coordinate origin (the same `(0, 0, 0)` convention
+# `local_search.py`'s `SOL_ID64` guard and the legacy
+# `SQRT(x*x + y*y + z*z)` this endpoint replaces both rely on), so
+# `reference_coords` is always `(0.0, 0.0, 0.0)` here -- never `None`.
+async def _archetype_rankings_v3(
+    *,
+    archetype: str,
+    min_score: int,
+    galaxy_region: Optional[int],
+    max_distance_ly: Optional[float],
+    has_elw: Optional[bool],
+    min_slots: Optional[int],
+    max_contamination: Optional[float],
+    limit: int,
+    offset: int,
+    pool: asyncpg.Pool,
+) -> dict:
+    t0 = time.monotonic()
+
+    if archetype not in ARCHETYPE_KEYS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown archetype '{archetype}'. "
+                f"Valid values: {sorted(ARCHETYPE_KEYS)}"
+            ),
+        )
+    if min_slots is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                'min_slots is not supported by V3 archetype rankings '
+                '(v3_app.system_archetype has no slot-count column).'
+            ),
+        )
+    if max_contamination is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                'max_contamination is not supported by V3 archetype rankings '
+                '(v3_app.system_archetype has no contamination column).'
+            ),
+        )
+    if has_elw is False:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                'has_elw=false is not supported by V3 archetype rankings '
+                '(v3_app.system_search only exposes elw_count, not an '
+                'exact-zero filter).'
+            ),
+        )
+
+    hard_filters: dict[str, Any] = {'min_development_score': min_score}
+    if galaxy_region is not None:
+        hard_filters['galaxy_region'] = galaxy_region
+    if max_distance_ly is not None:
+        hard_filters['max_distance_ly'] = max_distance_ly
+    if has_elw:
+        hard_filters['elw_count_min'] = 1
+
+    reference_coords = (0.0, 0.0, 0.0)
+
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=archetype,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        limit=limit,
+        offset=offset,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=archetype,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
+
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(readonly=True):
+                await _current_derived_generation(conn)
+                rows = await conn.fetch(sql, *params)
+                total = await conn.fetchval(count_sql, *count_params)
+    except HTTPException:
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        raise HTTPException(503, 'Archetype rankings are unavailable') from exc
+    except asyncpg.PostgresError as e:
+        log.error('archetypes.rankings DB error: %s', e)
+        raise HTTPException(
+            status_code=503,
+            detail={'type': 'https://httpstatuses.com/503',
+                    'title': 'Database error', 'status': 503, 'detail': str(e)},
+        )
+
+    query_ms = int((time.monotonic() - t0) * 1000)
+    results = [_build_v3_ranking_row(row, archetype) for row in rows]
+
+    return {
+        'archetype':       archetype,
+        'archetype_label': _V3_ARCHETYPE_LABELS.get(archetype, archetype),
+        'results':         results,
+        'total':           int(total) if total is not None else len(results),
+        'count':           len(results),
+        'source':          f'v3:{RANKING_VERSION}',
+        'query_ms':        query_ms,
+    }
+
+
+def _v3_ranking_tier(score: Any) -> str:
+    s = float(score or 0)
+    if s >= TIER_THRESHOLDS['S']:
+        return 'S'
+    if s >= TIER_THRESHOLDS['A']:
+        return 'A'
+    if s >= TIER_THRESHOLDS['B']:
+        return 'B'
+    if s >= TIER_THRESHOLDS['C']:
+        return 'C'
+    return 'D'
+
+
+def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
+    """Shape one `build_ranked_query` row into an `ArchetypeRankingRow`.
+
+    `build_ranked_query` selects `s.*` (the `v3_app.system_search` columns)
+    plus `primary_score` (= `a.archetype_score` for a picked archetype) and
+    `uncertainty_factor` (= `a.confidence * s.completeness`) -- it never
+    selects `a.confidence` directly, so `archetype_confidence` here is
+    reconstructed as `uncertainty_factor / completeness` rather than a raw
+    column read.
+    """
+    x, y, z = row.get('x_ly'), row.get('y_ly'), row.get('z_ly')
+    distance_to_sol = (
+        round(math.sqrt(x * x + y * y + z * z), 2)
+        if x is not None and y is not None and z is not None
+        else None
+    )
+
+    completeness = row.get('completeness')
+    uncertainty_factor = row.get('uncertainty_factor')
+    archetype_confidence = None
+    if completeness and uncertainty_factor is not None and completeness > 0:
+        archetype_confidence = round(float(uncertainty_factor) / float(completeness), 4)
+
+    score = float(row['primary_score']) if row['primary_score'] is not None else 0.0
+    elw_count = row.get('elw_count')
+
+    return {
+        'id64':                row['system_id64'],
+        'name':                row['name'],
+        'coords':              {'x': x, 'y': y, 'z': z},
+        'distance_to_sol':     distance_to_sol,
+        'score':               score,
+        'tier':                _v3_ranking_tier(score),
+        'primary_archetype':   archetype,
+        'secondary_archetype': None,
+        'archetype_confidence': archetype_confidence,
+        'overall_development_potential': None,
+        'buildability_score':  None,
+        'build_complexity':    None,
+        'purity_score':        None,
+        'contamination_risk':  None,
+        'confidence':          archetype_confidence,
+        'has_elw':             bool(elw_count) if elw_count is not None else None,
+        'elw_count':           elw_count,
+        'landable_count':      row.get('landable_count'),
+        'est_total_slots':     None,
+        'tags':                [],
+        'completeness':        completeness,
+    }
+
 
 @router.get(
     '/rankings',
     response_model=ArchetypeRankingsResponse,
     summary='Ranked systems by colony archetype',
     description=(
-        'Returns systems ranked by a specific colony archetype score. '
-        'Uses the mv_archetype_rankings materialized view for fast reads. '
-        'Slot counts are ESTIMATED — not authoritative.'
+        'Returns systems ranked by a specific colony archetype score, read '
+        'generation-pinned from the published V3 `v3_app.system_archetype` '
+        'projection via the ranking profile.'
     ),
 )
 @limiter.limit('60/minute')
@@ -263,143 +483,19 @@ async def get_archetype_rankings(
     limit:           int            = Query(50,  ge=1,  le=500),
     offset:          int            = Query(0,   ge=0),
 ):
-    t0 = time.monotonic()
-
-    if archetype not in _SCORE_COL:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Unknown archetype '{archetype}'. "
-                f"Valid values: {sorted(_SCORE_COL.keys())}"
-            ),
-        )
-
-    score_col = _SCORE_COL[archetype]
-    pool  = get_pool()
-    redis = get_redis()
-
-    # Cache key
-    ver     = await _cache_version(redis)
-    ck_args = f"{archetype}:{galaxy_region}:{min_score}:{min_slots}:{limit}:{offset}"
-    cache_key = f"arch:v{ver}:rank:{ck_args}"
-
-    cached = await _cache_get(redis, cache_key)
-    if cached:
-        cached['_cached'] = True
-        return cached
-
-    # Build WHERE clauses dynamically
-    where_parts = [
-        f"{score_col} >= $1",
-        "confidence >= 0.70",
-    ]
-    params: list = [min_score]
-    idx = 2
-
-    if galaxy_region is not None:
-        where_parts.append(f"galaxy_region_id = ${idx}")
-        params.append(galaxy_region)
-        idx += 1
-
-    if max_distance_ly is not None:
-        where_parts.append(f"SQRT(x*x + y*y + z*z) <= ${idx}")
-        params.append(max_distance_ly)
-        idx += 1
-
-    if has_elw is not None:
-        where_parts.append(f"has_elw = ${idx}")
-        params.append(has_elw)
-        idx += 1
-
-    if min_slots is not None:
-        where_parts.append(f"est_total_slots >= ${idx}")
-        params.append(min_slots)
-        idx += 1
-
-    if max_contamination is not None:
-        where_parts.append(f"contamination_risk <= ${idx}")
-        params.append(max_contamination)
-        idx += 1
-
-    where_sql = ' AND '.join(where_parts)
-
-    # Count query
-    count_sql = f"SELECT COUNT(*) FROM mv_archetype_rankings WHERE {where_sql}"
-
-    # Results query
-    results_sql = f"""
-        SELECT
-            id64, name, x, y, z,
-            SQRT(x*x + y*y + z*z) AS distance_to_sol,
-            primary_archetype, secondary_archetype, archetype_confidence,
-            {score_col}                AS score,
-            overall_development_potential,
-            buildability_score, build_complexity,
-            purity_score, contamination_risk, confidence,
-            has_elw, has_black_hole, has_neutron_star,
-            elw_count, landable_count, est_total_slots,
-            display_tags
-        FROM mv_archetype_rankings
-        WHERE {where_sql}
-        ORDER BY {score_col} DESC, overall_development_potential DESC
-        LIMIT ${idx} OFFSET ${idx + 1}
-    """
-    params_results = params + [limit, offset]
-    idx += 2
-
-    try:
-        async with pool.acquire() as conn:
-            total_row = await conn.fetchrow(count_sql, *params)
-            total     = int(total_row[0]) if total_row else 0
-            rows      = await conn.fetch(results_sql, *params_results)
-    except asyncpg.PostgresError as e:
-        log.error('archetypes.rankings DB error: %s', e)
-        raise HTTPException(
-            status_code=503,
-            detail={'type': 'https://httpstatuses.com/503',
-                    'title': 'Database error', 'status': 503, 'detail': str(e)},
-        )
-
-    query_ms = int((time.monotonic() - t0) * 1000)
-
-    results = [
-        {
-            'id64':           row['id64'],
-            'name':           row['name'],
-            'coords':         {'x': row['x'], 'y': row['y'], 'z': row['z']},
-            'distance_to_sol': row['distance_to_sol'],
-            'score':          row['score'],
-            'tier':           _tier(row['score']),
-            'primary_archetype':       row['primary_archetype'],
-            'secondary_archetype':     row['secondary_archetype'],
-            'archetype_confidence':    row['archetype_confidence'],
-            'overall_development_potential': row['overall_development_potential'],
-            'buildability_score':      row['buildability_score'],
-            'build_complexity':        row['build_complexity'],
-            'purity_score':            row['purity_score'],
-            'contamination_risk':      row['contamination_risk'],
-            'confidence':              row['confidence'],
-            'has_elw':                 row['has_elw'],
-            'elw_count':               row['elw_count'],
-            'landable_count':          row['landable_count'],
-            'est_total_slots':         row['est_total_slots'],
-            'tags':                    list(row['display_tags'] or []),
-        }
-        for row in rows
-    ]
-
-    response = {
-        'archetype':       archetype,
-        'archetype_label': _ARCHETYPE_LABELS.get(archetype, archetype),
-        'results':         results,
-        'total':           total,
-        'count':           len(results),
-        'source':          'mv_archetype_rankings',
-        'query_ms':        query_ms,
-    }
-
-    await _cache_set(redis, cache_key, response, ttl=600)
-    return response
+    pool = get_pool()
+    return await _archetype_rankings_v3(
+        archetype=archetype,
+        min_score=min_score,
+        galaxy_region=galaxy_region,
+        max_distance_ly=max_distance_ly,
+        has_elw=has_elw,
+        min_slots=min_slots,
+        max_contamination=max_contamination,
+        limit=limit,
+        offset=offset,
+        pool=pool,
+    )
 
 
 # ---------------------------------------------------------------------------
