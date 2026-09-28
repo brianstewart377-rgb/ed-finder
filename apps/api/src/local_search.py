@@ -26,8 +26,11 @@ import time
 from typing import Any, Dict, Optional
 
 import asyncpg
+from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
+from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS
+from edfinder_api.ranking.ranking_sql import build_ranked_query
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
@@ -543,6 +546,233 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
               total, len(rows), ctx.from_idx, elapsed)
 
     return _build_local_search_response(rows, total, ctx, elapsed)
+
+
+# ---------------------------------------------------------------------------
+# V3 ranked search (F3 slice 1) — POST /api/local/search ONLY.
+# ---------------------------------------------------------------------------
+# `local_db_search` above stays exactly as it was and remains the sole
+# implementation backing `/api/search/galaxy` (via `local_db_galaxy_search`
+# below) and `/api/search/cluster` (via `local_db_cluster_search`), pending
+# their own F3 slice-2 repoint (see
+# docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md).
+# `local_db_search_v3` is a **forked**, independent implementation used only
+# by `routers/search.py::local_search_endpoint`. This is not a second
+# implementation of the same route (the "ONE search implementation" rule in
+# this module's header is about a single route never carrying two competing
+# read paths for itself) — do not wire this into `local_db_galaxy_search`
+# or `local_db_cluster_search` without repeating this repoint for them too.
+#
+# TODO(F3 follow-up): `star_types`, `require_bio`, `require_geo`, and
+# `population`/min-distance filters have no corresponding
+# `ranking.profile.HARD_FILTER_KEYS` entry yet, so they are accepted on the
+# request but not yet enforced against `v3_app.system_search`. Extending
+# HARD_FILTER_KEYS is a profile-module change (F2c Task 1/2 territory), out
+# of scope for this repoint.
+async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg.Record:
+    row = await connection.fetchrow('''
+        SELECT c.derived_generation_id, c.publication_sequence
+        FROM v3_meta.current_derived_generation c
+        JOIN v3_meta.derived_generation d USING(derived_generation_id)
+        WHERE d.lifecycle_state='PUBLISHED'
+    ''')
+    if row is None:
+        raise HTTPException(404, 'No published Ratings V4 generation')
+    return row
+
+
+def _v3_min_filter(body_filters: dict, key: str) -> int | None:
+    rng = body_filters.get(key) or {}
+    if not isinstance(rng, dict):
+        return None
+    value = rng.get('min')
+    return int(value) if value else None
+
+
+def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
+    """Map `LocalSearchContext` fields onto the `HARD_FILTER_KEYS` convention.
+
+    Only keys `ranking.ranking_sql.build_ranked_query` actually understands
+    are ever set here — anything else is safely ignored by the builder, but
+    we avoid emitting it at all so the mapping stays self-documenting.
+    """
+    body_filters = normalise_body_filters(ctx.body_filters)
+    hard_filters: dict[str, Any] = {}
+
+    elw_min = _v3_min_filter(body_filters, 'elw_count')
+    if elw_min:
+        hard_filters['elw_count_min'] = elw_min
+
+    ww_min = _v3_min_filter(body_filters, 'ww_count')
+    if ww_min:
+        hard_filters['ww_count_min'] = ww_min
+
+    terra_min = _v3_min_filter(body_filters, 'terraformable_count') or 0
+    if ctx.require_terra:
+        terra_min = max(terra_min, 1)
+    if terra_min:
+        hard_filters['terraformable_count_min'] = terra_min
+
+    landable_min = _v3_min_filter(body_filters, 'landable_count')
+    if landable_min:
+        hard_filters['landable_count_min'] = landable_min
+
+    if ctx.min_development_score and ctx.min_development_score > 0:
+        hard_filters['min_development_score'] = ctx.min_development_score
+
+    if ctx.galaxy_region_id:
+        hard_filters['galaxy_region'] = int(ctx.galaxy_region_id)
+
+    if not ctx.galaxy_wide and ctx.has_reference_coords:
+        hard_filters['max_distance_ly'] = ctx.max_dist
+
+    return hard_filters
+
+
+def _v3_tier(score: Any) -> str | None:
+    if score is None:
+        return None
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(s):
+        return None
+    if s >= TIER_THRESHOLDS['S']:
+        return 'S'
+    if s >= TIER_THRESHOLDS['A']:
+        return 'A'
+    if s >= TIER_THRESHOLDS['B']:
+        return 'B'
+    if s >= TIER_THRESHOLDS['C']:
+        return 'C'
+    return 'D'
+
+
+def _v3_distance(row: asyncpg.Record, reference_coords: tuple[float, float, float] | None) -> float | None:
+    if reference_coords is None:
+        return None
+    rx, ry, rz = reference_coords
+    dx = row['x_ly'] - rx
+    dy = row['y_ly'] - ry
+    dz = row['z_ly'] - rz
+    return round(math.sqrt(dx * dx + dy * dy + dz * dz), 2)
+
+
+def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, float, float] | None) -> dict:
+    primary_score = row.get('primary_score')
+    return {
+        'id64':              row['system_id64'],
+        'id':                str(row['system_id64']),
+        'name':              row['name'],
+        'coords':            {'x': row['x_ly'], 'y': row['y_ly'], 'z': row['z_ly']},
+        'distance':          _v3_distance(row, reference_coords),
+        'main_star':         row.get('main_star_class'),
+        'main_star_type':    row.get('main_star_class'),
+        'archetype_score':   float(primary_score) if primary_score is not None else None,
+        'archetype_tier':    _v3_tier(primary_score),
+        'uncertainty_factor': row.get('uncertainty_factor'),
+        'confidence':        row.get('confidence'),
+        'completeness':      row.get('completeness'),
+        'body_count':        row.get('body_count'),
+        'station_count':     row.get('station_count'),
+        'landable_count':    row.get('landable_count'),
+        'elw_count':         row.get('elw_count'),
+        'ww_count':          row.get('ww_count'),
+        'ammonia_count':     row.get('ammonia_count'),
+        'gas_giant_count':   row.get('gas_giant_count'),
+        'terraformable_count': row.get('terraformable_count'),
+        'bio_signal_total':  row.get('bio_signal_total'),
+        'geo_signal_total':  row.get('geo_signal_total'),
+        'neutron_count':     row.get('neutron_count'),
+        'black_hole_count':  row.get('black_hole_count'),
+        'white_dwarf_count': row.get('white_dwarf_count'),
+        'has_rings':         row.get('has_rings'),
+        'has_biologicals':   row.get('has_biologicals'),
+        'has_geologicals':   row.get('has_geologicals'),
+        'has_terraformable': row.get('has_terraformable'),
+        'galaxy_region_id':  row.get('galaxy_region_id'),
+        'galaxy_region':     row.get('region_name'),
+        'tags':              [],
+        'source':            'v3_app',
+    }
+
+
+def _v3_count_sql(sql: str, params: list[Any]) -> tuple[str, list[Any]]:
+    """Derive a `COUNT(*)` query from a `build_ranked_query` SELECT.
+
+    Reuses the exact FROM/JOIN/WHERE text `build_ranked_query` produced
+    (including every hard filter) instead of re-deriving filter predicates
+    here, so the count can never drift from what the page actually filtered
+    on. Strips the `ORDER BY ... LIMIT ... OFFSET ...` tail (irrelevant to a
+    count) and drops the trailing limit/offset params, which
+    `build_ranked_query` always appends last.
+    """
+    body = sql.split('ORDER BY', 1)[0]
+    return f'SELECT COUNT(*) FROM (\n{body}\n) t', params[:-2]
+
+
+async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
+    """V3-native ranked search for `POST /api/local/search`.
+
+    Generation-pinned, reads only `v3_app.system_search` +
+    `v3_app.system_archetype_summary` through
+    `ranking.ranking_sql.build_ranked_query` — no legacy V2 relation and no
+    other schema's relation is ever touched here.
+    """
+    t0 = time.time()
+    ctx = _parse_local_search_context(body)
+
+    economy_filter = ctx.economy_filter
+    picked_economy = None
+    if economy_filter and economy_filter not in ('any', 'Any', 'Unknown', ''):
+        picked_economy = canonical_economy_key(economy_filter)
+
+    hard_filters = _v3_hard_filters(ctx)
+    reference_coords = (ctx.rx, ctx.ry, ctx.rz) if ctx.has_reference_coords else None
+
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        limit=ctx.size,
+        offset=ctx.from_idx,
+    )
+    count_sql, count_params = _v3_count_sql(sql, params)
+
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(readonly=True):
+                await _current_derived_generation(conn)
+                rows = await conn.fetch(sql, *params)
+                total = await conn.fetchval(count_sql, *count_params)
+    except HTTPException:
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        raise HTTPException(503, 'Finder search is unavailable') from exc
+
+    results = [_build_v3_system_record(row, reference_coords) for row in rows]
+    elapsed = round((time.time() - t0) * 1000)
+    log.debug('local_db_search_v3: %d total, returning %d (from=%d) in %dms',
+              total, len(results), ctx.from_idx, elapsed)
+
+    resp: dict[str, Any] = {
+        'results':  results,
+        'count':    len(results),
+        'total':    int(total) if total is not None else len(results),
+        'source':   f'v3:{RANKING_VERSION}',
+        'query_ms': elapsed,
+        'display_economy': ctx.economy_filter or 'overall',
+    }
+    if ctx.radius_capped:
+        resp['warning'] = (
+            f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "
+            f"(requested {int(ctx.max_dist_req):,} LY)."
+        )
+    return resp
 
 
 # ---------------------------------------------------------------------------

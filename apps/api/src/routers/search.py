@@ -191,12 +191,16 @@ async def local_search_endpoint(
         return cached
 
     try:
-        result = await _ls.local_db_search(body_dict, pool)
+        result = await _ls.local_db_search_v3(body_dict, pool)
+    except HTTPException:
+        # A deliberate 4xx from the V3 path (e.g. no published Ratings V4
+        # generation yet) — let FastAPI handle it, don't mask it as a 503.
+        raise
     except Exception as exc:
         # Surface — don't mask. The previous code masked here and silently
         # served different ordering than callers expected (audit §C5).
         log.error(
-            'local_db_search failed: type=%s repr=%r sqlstate=%s',
+            'local_db_search_v3 failed: type=%s repr=%r sqlstate=%s',
             type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
             exc_info=True,
         )
