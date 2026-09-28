@@ -26,7 +26,8 @@ Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
 checkpoint remains a separate rehearsal boundary. The app-only V3 production
 promotion path is now `authorized` and has accepted governed promotions
 (2026-09-10 bootstrap; identity 2026-09-16; density-swirl `8055f268` 2026-09-23;
-`bed755b9` 2026-09-26), with exact CPython 3.14.7 installed on the host. Deploys
+`bed755b9` 2026-09-25 per the accepted-release attestation), with exact CPython
+3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
 promote. Current programme status (prod app on `bed755b9` shipping
