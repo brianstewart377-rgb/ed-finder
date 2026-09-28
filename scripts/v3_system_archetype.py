@@ -143,8 +143,12 @@ def product_manifest(generation: Generation) -> dict:
             'archetype_score': 'round(clamp(core*spec*cap + synergy_bonus, 0, 100)); flexible uses breadth instead of core/spec/cap',
             'tier': 'S>=88, A>=76, B>=60, C>=45, else D',
             'confidence': (
-                'min(confidence[a] for a in required anchors), multiplied by '
-                'spec_unknown_conf when any anchor quality was bounded-null'
+                'min(confidence[a] for a in required anchors) * '
+                'min(evidence_completeness[a] for a in required anchors), '
+                'multiplied by spec_unknown_conf when any anchor quality was '
+                'bounded-null; each factor is within [0, 1] so the product is '
+                'bounded [0, 1]. flexible uses mean(confidence) * '
+                'mean(evidence_completeness) over all anchors instead of min.'
             ),
             'primary_archetype': 'highest archetype_score, ties broken by archetype_keys order',
             'secondary_archetype': 'next highest archetype_score; null only if every other score is 0',
@@ -272,7 +276,7 @@ def _read_chunk_vectors(connection, generation_id: str, ordinal: int) -> dict[in
 def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     archetype_rows = connection.execute(
         '''SELECT a.system_id64, a.archetype_key, a.archetype_score, a.tier,
-                  round(a.confidence::numeric, 6)
+                  round(a.confidence::numeric, 6), a.archetype_version, a.explanation
              FROM v3_derived.system_archetype a
              JOIN v3_derived.system_rating_vector v
                ON v.derived_generation_id=a.derived_generation_id
@@ -294,6 +298,105 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
         (generation_id, ordinal),
     ).fetchall()
     return _digest({'archetypes': archetype_rows, 'summaries': summary_rows})
+
+
+_CONTENT_CHUNK_ITERSIZE = 1000
+
+
+def _grouped_by_ordinal(cursor):
+    '''Fold an ordinal-ordered server-side cursor into (ordinal, [rows...])
+    groups, stripping the leading chunk_ordinal column (used only to group,
+    never digested). Peak memory is one chunk's rows, not the whole stream.'''
+    current: int | None = None
+    bucket: list = []
+    for row in cursor:
+        ordinal = int(row[0])
+        if current is None:
+            current = ordinal
+        elif ordinal != current:
+            yield current, bucket
+            current, bucket = ordinal, []
+        bucket.append(tuple(row[1:]))
+    if current is not None:
+        yield current, bucket
+
+
+def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
+    '''Streaming, memory-bounded recompute of every chunk's content digest for
+    the reproducibility gate.
+
+    The gate must recompute each archetype_build_chunk's content_sha256 from
+    the materialized rows. Doing that per chunk was 2 x chunk_count sequential
+    round trips; fetching the whole generation into memory at once (an earlier
+    fix) OOMs at galaxy scale (198M systems x len(ARCHETYPE_KEYS) rows). This
+    instead opens two ordered server-side cursors -- one over all archetype
+    rows, one over all summary rows, both ORDER BY chunk_ordinal -- and folds
+    them together by chunk_ordinal, emitting one digest per chunk. Peak memory
+    is a single chunk's rows (bounded <=1000 systems), round trips are bounded
+    (paged fetches, not one query per chunk), and because chunk_ordinal is
+    only used to group (never fed to _digest) the per-chunk payload shape and
+    ordering are byte-identical to _chunk_content_sha's single-chunk query, so
+    stored and recomputed digests still match exactly.
+
+    Server-side cursors require an explicit transaction block even under an
+    autocommit connection; the wrapping transaction is read-only.
+    '''
+    result: dict[int, bytes] = {}
+    with connection.transaction():
+        with (
+            connection.cursor(name='archetype_content_sha') as archetype_cursor,
+            connection.cursor(name='summary_content_sha') as summary_cursor,
+        ):
+            archetype_cursor.itersize = _CONTENT_CHUNK_ITERSIZE
+            summary_cursor.itersize = _CONTENT_CHUNK_ITERSIZE
+            archetype_cursor.execute(
+                '''SELECT v.chunk_ordinal, a.system_id64, a.archetype_key, a.archetype_score,
+                          a.tier, round(a.confidence::numeric, 6), a.archetype_version,
+                          a.explanation
+                     FROM v3_derived.system_archetype a
+                     JOIN v3_derived.system_rating_vector v
+                       ON v.derived_generation_id=a.derived_generation_id
+                      AND v.system_id64=a.system_id64
+                    WHERE a.derived_generation_id=%s
+                    ORDER BY v.chunk_ordinal, a.system_id64, a.archetype_key''',
+                (generation_id,),
+            )
+            summary_cursor.execute(
+                '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
+                          s.best_colony_potential, s.best_tier,
+                          round(s.archetype_confidence::numeric, 6)
+                     FROM v3_derived.system_archetype_summary s
+                     JOIN v3_derived.system_rating_vector v
+                       ON v.derived_generation_id=s.derived_generation_id
+                      AND v.system_id64=s.system_id64
+                    WHERE s.derived_generation_id=%s
+                    ORDER BY v.chunk_ordinal, s.system_id64''',
+                (generation_id,),
+            )
+
+            archetype_groups = _grouped_by_ordinal(archetype_cursor)
+            summary_groups = _grouped_by_ordinal(summary_cursor)
+            archetype_head = next(archetype_groups, None)
+            summary_head = next(summary_groups, None)
+            while archetype_head is not None or summary_head is not None:
+                if archetype_head is None:
+                    ordinal = summary_head[0]
+                elif summary_head is None:
+                    ordinal = archetype_head[0]
+                else:
+                    ordinal = min(archetype_head[0], summary_head[0])
+                archetypes: list = []
+                summaries: list = []
+                if archetype_head is not None and archetype_head[0] == ordinal:
+                    archetypes = archetype_head[1]
+                    archetype_head = next(archetype_groups, None)
+                if summary_head is not None and summary_head[0] == ordinal:
+                    summaries = summary_head[1]
+                    summary_head = next(summary_groups, None)
+                result[ordinal] = _digest(
+                    {'archetypes': archetypes, 'summaries': summaries},
+                )
+    return result
 
 
 def _build_chunk(
@@ -466,10 +569,13 @@ def build_available(
 
 
 def _gate_coverage(connection, generation_id: str) -> tuple[bool, list[str], dict]:
-    '''Hard gate 1: every system in system_rating_vector has exactly
-    len(ARCHETYPE_KEYS) system_archetype rows and exactly one
-    system_archetype_summary row. Set-based; never fetches per-row data.'''
+    '''Hard gate 1: every system in system_rating_vector has exactly the
+    ARCHETYPE_KEYS set of system_archetype rows (not merely 8 rows of any
+    regex-valid key), each stamped with the expected archetype_version, and
+    exactly one system_archetype_summary row. Set-based; never fetches
+    per-row data.'''
     n_keys = len(model.ARCHETYPE_KEYS)
+    expected_keys = sorted(model.ARCHETYPE_KEYS)
     vector_count = int(connection.execute(
         'SELECT count(*) FROM v3_derived.system_rating_vector WHERE derived_generation_id=%s',
         (generation_id,),
@@ -484,16 +590,21 @@ def _gate_coverage(connection, generation_id: str) -> tuple[bool, list[str], dic
     ).fetchone()[0])
     bad_archetype = int(connection.execute(
         '''SELECT count(*) FROM (
-               SELECT v.system_id64, count(a.archetype_key) AS n
+               SELECT v.system_id64,
+                      array_agg(a.archetype_key ORDER BY a.archetype_key)
+                          FILTER (WHERE a.archetype_key IS NOT NULL) AS keys,
+                      bool_or(a.archetype_version IS DISTINCT FROM %s) AS bad_version
                  FROM v3_derived.system_rating_vector v
                  LEFT JOIN v3_derived.system_archetype a
                    ON a.derived_generation_id=v.derived_generation_id
                   AND a.system_id64=v.system_id64
                 WHERE v.derived_generation_id=%s
                 GROUP BY v.system_id64
-               HAVING count(a.archetype_key)<>%s
+               HAVING array_agg(a.archetype_key ORDER BY a.archetype_key)
+                          FILTER (WHERE a.archetype_key IS NOT NULL) IS DISTINCT FROM %s::text[]
+                   OR bool_or(a.archetype_version IS DISTINCT FROM %s)
            ) bad''',
-        (generation_id, n_keys),
+        (PRODUCT_VERSION, generation_id, expected_keys, PRODUCT_VERSION),
     ).fetchone()[0])
     bad_summary = int(connection.execute(
         '''SELECT count(*) FROM (
@@ -512,8 +623,9 @@ def _gate_coverage(connection, generation_id: str) -> tuple[bool, list[str], dic
     reasons = []
     if bad_archetype:
         reasons.append(
-            f'coverage: {bad_archetype} system(s) do not have exactly '
-            f'{n_keys} system_archetype rows'
+            f'coverage: {bad_archetype} system(s) do not have exactly the '
+            f'{n_keys} expected archetype_key values at archetype_version '
+            f'{PRODUCT_VERSION!r}'
         )
     if bad_summary:
         reasons.append(
@@ -561,10 +673,13 @@ def _gate_score_and_tier(connection, generation_id: str) -> tuple[bool, list[str
 
 
 def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, list[str]]:
-    '''Hard gate 3: each summary's primary_archetype/best_colony_potential/
-    best_tier equals the system's max-scoring archetype row (ties broken by
-    ARCHETYPE_KEYS order, matching model.summarise). Set-based via a window
-    function; the tie-break order is passed as a bound array parameter.'''
+    '''Hard gate 3: each summary's full row -- primary_archetype,
+    secondary_archetype, best_colony_potential, best_tier and
+    archetype_confidence -- matches the system's top-2 scoring archetype rows
+    (ties broken by ARCHETYPE_KEYS order, matching model.summarise). Set-based
+    via a window function; the tie-break order is passed as a bound array
+    parameter. archetype_confidence is compared with a small float tolerance
+    (the stored value was already rounded to 6dp by model.summarise).'''
     bad = int(connection.execute(
         '''WITH ranked AS (
                SELECT system_id64, archetype_key, archetype_score, tier,
@@ -575,20 +690,40 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
                       ) AS rnk
                  FROM v3_derived.system_archetype
                 WHERE derived_generation_id=%s
+           ),
+           top2 AS (
+               SELECT system_id64,
+                      max(archetype_key) FILTER (WHERE rnk=1) AS primary_key,
+                      max(archetype_score) FILTER (WHERE rnk=1) AS s1,
+                      max(tier) FILTER (WHERE rnk=1) AS tier1,
+                      max(archetype_key) FILTER (WHERE rnk=2) AS secondary_key,
+                      max(archetype_score) FILTER (WHERE rnk=2) AS s2
+                 FROM ranked
+                WHERE rnk<=2
+                GROUP BY system_id64
            )
            SELECT count(*)
              FROM v3_derived.system_archetype_summary s
-             JOIN ranked r ON r.system_id64=s.system_id64 AND r.rnk=1
+             JOIN top2 t ON t.system_id64=s.system_id64
             WHERE s.derived_generation_id=%s
-              AND (s.primary_archetype<>r.archetype_key
-                   OR s.best_colony_potential<>r.archetype_score
-                   OR s.best_tier<>r.tier)''',
+              AND (s.primary_archetype<>t.primary_key
+                   OR s.best_colony_potential<>t.s1
+                   OR s.best_tier<>t.tier1
+                   OR s.secondary_archetype IS DISTINCT FROM
+                          (CASE WHEN t.s2>0 THEN t.secondary_key END)
+                   OR abs(s.archetype_confidence -
+                          LEAST(
+                              (t.s1-t.s2)::double precision
+                                  / GREATEST(t.s1,1)::double precision * 2,
+                              1.0
+                          )) > 1e-6)''',
         (list(model.ARCHETYPE_KEYS), generation_id, generation_id),
     ).fetchone()[0])
     if bad:
         return False, [
             f"invariants: {bad} summary row(s) do not match their system's "
-            'top archetype row (primary_archetype/best_colony_potential/best_tier)'
+            'top-2 archetype rows (primary_archetype/secondary_archetype/'
+            'best_colony_potential/best_tier/archetype_confidence)'
         ]
     return True, []
 
@@ -598,10 +733,14 @@ def _gate_chunk_seals(
 ) -> tuple[bool, list[str], int]:
     '''Hard gate 4: reproducible from generation + archetype_version — every
     archetype_build_chunk receipt's source seal is recomputed from the
-    generation, manifest and the immutable Ratings chunk it was built from.'''
+    generation, manifest and the immutable Ratings chunk it was built from,
+    AND the receipt's content_sha256 is recomputed from the materialized
+    system_archetype/system_archetype_summary rows themselves (not merely
+    trusted from the stored receipt) so a corrupted/drifted materialization
+    cannot pass reproducibility on a still-matching source seal alone.'''
     rows = connection.execute(
         '''SELECT b.chunk_ordinal,b.systems,b.canonical_input_sha256,b.content_sha256,
-                  a.archetype_version,a.source_projection_sha256,a.systems
+                  a.archetype_version,a.source_projection_sha256,a.content_sha256,a.systems
              FROM v3_derived.build_chunk b
              JOIN v3_derived.archetype_build_chunk a
                ON a.derived_generation_id=b.derived_generation_id
@@ -610,8 +749,14 @@ def _gate_chunk_seals(
             ORDER BY b.chunk_ordinal''',
         (generation.identifier,),
     ).fetchall()
+    # Recompute every chunk's content digest in one batched pass (bounded
+    # round trips) rather than once per chunk -- see _chunk_content_shas.
+    actual_content_shas = _chunk_content_shas(connection, generation.identifier)
     reasons: list[str] = []
-    for ordinal, systems, canonical_input_sha, ratings_content_sha, version, source_sha, archetype_systems in rows:
+    for (
+        ordinal, systems, canonical_input_sha, ratings_content_sha,
+        version, source_sha, stored_content_sha, archetype_systems,
+    ) in rows:
         ordinal = int(ordinal)
         if version != PRODUCT_VERSION:
             reasons.append(
@@ -634,6 +779,18 @@ def _gate_chunk_seals(
                 f'reproducibility: chunk {ordinal} source seal does not match '
                 'generation+manifest+Ratings inputs'
             )
+            continue
+        # A chunk with no materialized archetype/summary rows at all never
+        # appears in the batched map (nothing to group), but must still
+        # compare against the digest of an empty chunk, not a vacuous match.
+        actual_content_sha = actual_content_shas.get(
+            ordinal, _digest({'archetypes': [], 'summaries': []}),
+        )
+        if bytes(stored_content_sha) != actual_content_sha:
+            reasons.append(
+                f'reproducibility: chunk {ordinal} content seal does not match '
+                'the materialized system_archetype/system_archetype_summary rows'
+            )
     return not reasons, reasons, len(rows)
 
 
@@ -646,15 +803,26 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
     receipt and its validation_sha256. It never touches the base generation's
     own lifecycle and never calls publish_derived_generation -- publishing
     remains a separate governed operation. `INCOMPLETE` while the base
-    Ratings generation has not reached VALIDATING/READY or the archetype
+    Ratings generation has not reached READY (VALIDATING is a transient,
+    still-reversible-to-FAILED state and does not count) or the archetype
     build has not covered every Ratings chunk yet (product stays BUILDING);
-    `VERIFIED` only once the base is ready and every hard gate passes
+    `VERIFIED` only once the base is READY and every hard gate passes
     (product promoted to READY); `FAILED` with `reasons` if a gate is
     violated despite full coverage (product stays BUILDING). Calling this
     again once the product is READY is idempotent: it returns the stored
     VERIFIED receipt without re-promoting or re-validating. Every gate
     failure is collected rather than raised, so an operator sees the whole
     picture in one call.
+
+    INCOMPLETE vs FAILED on the coverage gate: INCOMPLETE means the archetype
+    build has not finished yet (missing Ratings chunks, or fewer archetype/
+    summary rows than expected -- still building). FAILED means coverage is
+    row-count-complete (every Ratings chunk has an archetype receipt, and
+    every system already has exactly len(ARCHETYPE_KEYS) archetype rows and
+    exactly one summary row in aggregate) but `_gate_coverage`'s exact-key-set
+    / archetype_version check still fails for some system -- that is a hard
+    invariant violation on a set that will never grow further, not a
+    still-building state, so it must be reported as FAILED.
     '''
     generation = _generation(connection, generation.key)
     product = _product(connection, generation.identifier)
@@ -680,10 +848,31 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
     ).fetchone()[0])
 
     coverage_ok, coverage_reasons, counts = _gate_coverage(connection, generation.identifier)
-    base_ready = generation.state in {'VALIDATING', 'READY'}
+    # VERIFIED (and promotion) requires the base to be fully READY, not merely
+    # VALIDATING -- VALIDATING is a transient, reversible-on-FAILED state for
+    # the base generation, so the Archetype product must not promote against it.
+    base_ready = generation.state == 'READY'
     chunks_complete = rating_chunks > 0 and archetype_chunks == rating_chunks
+    # Row-count completeness: every system already has, in aggregate, exactly
+    # the full ARCHETYPE_KEYS count of archetype rows and exactly one summary
+    # row. This separates "still building / rows genuinely missing" (INCOMPLETE)
+    # from "coverage is complete but the exact-key-set / archetype_version is
+    # malformed" (FAILED). _gate_coverage's set-based check rejects both, but
+    # only the latter is a hard invariant violation on a set that will never
+    # grow -- it must not masquerade as still-in-progress.
+    row_counts_complete = (
+        counts['systems'] > 0
+        and counts['archetype_rows'] == counts['systems'] * len(model.ARCHETYPE_KEYS)
+        and counts['summary_rows'] == counts['systems']
+    )
 
     if not (base_ready and chunks_complete and coverage_ok):
+        # Coverage is complete-but-corrupt (all chunks receipted, full row
+        # counts) yet the exact-key/version invariant fails -> FAILED, not the
+        # still-building INCOMPLETE.
+        malformed_complete = (
+            base_ready and chunks_complete and row_counts_complete and not coverage_ok
+        )
         reasons = []
         if not base_ready:
             reasons.append(
@@ -696,7 +885,7 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
             )
         reasons.extend(coverage_reasons)
         return {
-            'status': 'INCOMPLETE',
+            'status': 'FAILED' if malformed_complete else 'INCOMPLETE',
             'derived_generation_id': generation.identifier,
             'product_code': PRODUCT_CODE,
             'base_lifecycle_state': generation.state,
@@ -798,6 +987,17 @@ def run(
     is never promoted here. validate_product already promotes idempotently
     on VERIFIED, so this loop only builds -- promotion/validation is the
     separate `--validate` CLI mode (or a direct validate_product call).
+
+    Completion requires more than archetype_chunks==rating_chunks: while the
+    base Ratings generation is still BUILDING, its own build_chunk count is
+    still growing, so archetype_chunks can transiently equal rating_chunks
+    (e.g. right after this loop catches up) without every Ratings chunk that
+    will ever exist having been built yet. Mirroring how
+    v3_system_search.run only finishes via validate_product (which itself
+    requires the base to be VALIDATING/READY), this loop refreshes the base
+    generation every iteration and only treats equal chunk counts as final
+    once the base has sealed its source (lifecycle VALIDATING or READY) with
+    its full expected system coverage -- otherwise it keeps polling.
     '''
     if not isinstance(poll_seconds, (int, float)) or poll_seconds <= 0:
         raise ValueError('poll_seconds must be positive')
@@ -814,15 +1014,39 @@ def run(
         total_seen += result['chunks_seen']
         total_written += result['chunks_written']
 
-        rating_chunks = int(connection.execute(
-            'SELECT count(*) FROM v3_derived.build_chunk WHERE derived_generation_id=%s',
+        generation = _generation(connection, generation_key)
+        if generation.state == 'FAILED':
+            # FAILED is a legal terminal state for the base Ratings generation
+            # (BUILDING/VALIDATING -> FAILED per the derived_generation
+            # lifecycle trigger) from which READY is unreachable. Stop
+            # polling immediately rather than looping forever waiting for a
+            # seal that will never happen -- mirrors v3_system_search.run
+            # only ever completing via a base that can still reach READY.
+            return {
+                'status': 'FAILED',
+                'derived_generation_id': generation.identifier,
+                'product_code': PRODUCT_CODE,
+                'chunks_seen': total_seen,
+                'chunks_written': total_written,
+                'error': 'base_generation_failed',
+            }
+        rating_row = connection.execute(
+            '''SELECT count(*),coalesce(sum(systems),0)
+                 FROM v3_derived.build_chunk WHERE derived_generation_id=%s''',
             (generation.identifier,),
-        ).fetchone()[0])
+        ).fetchone()
+        rating_chunks, rating_systems = int(rating_row[0]), int(rating_row[1])
         archetype_chunks = int(connection.execute(
             'SELECT count(*) FROM v3_derived.archetype_build_chunk WHERE derived_generation_id=%s',
             (generation.identifier,),
         ).fetchone()[0])
-        complete = rating_chunks > 0 and archetype_chunks == rating_chunks
+        base_sealed = generation.state in {'VALIDATING', 'READY'}
+        complete = (
+            base_sealed
+            and rating_chunks > 0
+            and archetype_chunks == rating_chunks
+            and rating_systems == generation.expected_systems
+        )
 
         if complete:
             return {
@@ -879,6 +1103,15 @@ def main(argv=None) -> int:
         print(json.dumps({'status': 'FAILED', 'error': type(exc).__name__}), file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
+    # Fail closed on the exit code even though the receipt is still printed:
+    # a caller that only checks the exit code (e.g. CI/ops tooling) must not
+    # treat a FAILED result -- e.g. --follow stopping because the base
+    # Ratings generation went terminal -- as success in either mode, and
+    # must not treat a non-VERIFIED --validate result as success.
+    if result.get('status') == 'FAILED':
+        return 1
+    if args.validate and result.get('status') != 'VERIFIED':
+        return 1
     return 0
 
 

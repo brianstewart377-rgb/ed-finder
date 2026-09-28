@@ -67,7 +67,7 @@ def test_register_is_idempotent_and_pins_manifest(database):
     generation2, state2, manifest_sha2 = builder.register_product(connection, key)
 
     assert state1 == state2 == 'BUILDING'
-    assert builder.PRODUCT_VERSION == ARCHETYPE_VERSION == 'v3-archetype-1'
+    assert builder.PRODUCT_VERSION == ARCHETYPE_VERSION == 'v3-archetype-2'
     assert manifest_sha1 == manifest_sha2
     assert generation1.identifier == generation2.identifier == str(generation_id)
 
@@ -77,7 +77,7 @@ def test_register_is_idempotent_and_pins_manifest(database):
             WHERE derived_generation_id=%s''',
         (generation_id,),
     ).fetchone()
-    assert product_code == ('system_archetype', 'v3-archetype-1', 'BUILDING')
+    assert product_code == ('system_archetype', 'v3-archetype-2', 'BUILDING')
 
 
 def test_manifest_includes_coefficients_and_anchors(database):
@@ -88,7 +88,7 @@ def test_manifest_includes_coefficients_and_anchors(database):
     manifest = builder.product_manifest(generation)
 
     assert manifest['product_code'] == 'system_archetype'
-    assert manifest['product_version'] == 'v3-archetype-1'
+    assert manifest['product_version'] == 'v3-archetype-2'
     coefficients = manifest['coefficients']
     assert coefficients['alpha'] == 0.6
     assert coefficients['spec_floor'] == 0.85
@@ -109,6 +109,26 @@ def test_manifest_includes_coefficients_and_anchors(database):
     assert anchors['research_hub'] == {'required': [4], 'supporting': [3]}
     assert anchors['flexible'] == {'required': [], 'supporting': []}
     assert manifest_sha == builder._digest(manifest)
+
+
+def test_manifest_confidence_policy_describes_completeness_factor(database):
+    """Finding #2 (P2): Fix #8 (v3_system_archetype_model._fit_anchored) made
+    confidence = min(confidence[a]) * min(completeness[a]) * spec_unknown_conf,
+    but field_policy['confidence'] still described only the first and third
+    factors. Since register_product re-versions the persisted manifest on any
+    manifest change, that stale text would otherwise be embedded verbatim in
+    the DB. Assert the documented formula names all three factors.
+    """
+    connection, _, _, _ = database
+    key, _, _, _ = _ratings_generation(database)
+
+    generation, _, _ = builder.register_product(connection, key)
+    confidence_policy = builder.product_manifest(generation)['field_policy']['confidence']
+
+    assert 'min(confidence[a]' in confidence_policy
+    assert 'min(evidence_completeness[a]' in confidence_policy or 'min(completeness[a]' in confidence_policy
+    assert 'spec_unknown_conf' in confidence_policy
+    assert '[0, 1]' in confidence_policy or '[0,1]' in confidence_policy
 
 
 def test_existing_archetype_manifest_rejects_changed_builder_identity(database, monkeypatch):
