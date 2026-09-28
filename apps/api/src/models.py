@@ -261,6 +261,15 @@ class SystemRow(BaseModel):
     black_hole_count:     Optional[int] = None
     white_dwarf_count:    Optional[int] = None
 
+    # F2c/F3 confidence badge (V3 ranking path only; None on legacy rows).
+    # `confidence` is the raw per-archetype/economy confidence used by the
+    # ranking profile's uncertainty modifier; `completeness` is the
+    # `v3_app.system_search` data-completeness fraction it is multiplied
+    # against. Explicit (not left to `extra='allow'`) so clients can render
+    # a confidence badge without depending on undocumented extra keys.
+    confidence:           Optional[float] = None
+    completeness:         Optional[float] = None
+
 
 # Backwards-compatible alias — older imports used `SystemModel`.
 SystemModel = SystemRow
@@ -354,6 +363,24 @@ class SystemDetailRow(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 # Response wrappers
 # ══════════════════════════════════════════════════════════════════════
+class RankingIdentity(BaseModel):
+    """Echoes the versioned V3 ranking profile + pinned derived generation
+    that produced a ranked response (F2c/F3 Task 5), so a client or an
+    operator can tell exactly which profile+generation combination is
+    behind a given result set without spelunking through logs.
+
+    `ranking_sha256` is `edfinder_api.ranking.profile.ranking_sha256()` at
+    response time -- it must always equal the live profile's hash, never a
+    value baked in ahead of time.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    ranking_version:       str
+    ranking_sha256:        str
+    derived_generation_id: int
+    publication_sequence:  int
+
+
 class SearchResponse(BaseModel):
     """`/api/local/search` response."""
     # Envelope-level forbid: any unrecognised top-level key is a sign
@@ -382,6 +409,9 @@ class SearchResponse(BaseModel):
     # Surfaces the radius-cap notice from `local_db_search`. UI can
     # render this as a small banner next to the results count.
     warning:          Optional[str] = None
+    # Ranking-identity block (F2c/F3 Task 5). Only set by the V3 path
+    # (`local_db_search_v3`); None on the legacy `local_db_search` response.
+    ranking:          Optional[RankingIdentity] = None
 
 
 class SystemDetailResponse(BaseModel):
@@ -844,6 +874,10 @@ class ArchetypeRankingRow(BaseModel):
     purity_score:        Optional[float]  = None
     contamination_risk:  Optional[float]  = None
     confidence:          Optional[float]  = None
+    # F2c/F3 confidence badge (Task 5): the `v3_app.system_search`
+    # data-completeness fraction the uncertainty modifier multiplies
+    # `confidence` against. Explicit, not left to `extra='allow'`.
+    completeness:        Optional[float]  = None
     has_elw:             Optional[bool]   = None
     elw_count:           Optional[int]    = None
     landable_count:      Optional[int]    = None
@@ -863,6 +897,9 @@ class ArchetypeRankingsResponse(BaseModel):
     source:          Optional[str] = None
     query_ms:        Optional[int] = None
     _cached:         Optional[bool] = None
+    # Ranking-identity block (F2c/F3 Task 5) -- always set by the V3
+    # `/rankings` path.
+    ranking:         Optional[RankingIdentity] = None
 
 
 # ── Request: POST /api/archetypes/rerank ─────────────────────────────

@@ -29,7 +29,7 @@ import asyncpg
 from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
-from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS
+from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS, ranking_sha256
 from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
 from edfinder_api.search_economies import (
     ratings_score_column,
@@ -765,7 +765,7 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     try:
         async with pool.acquire() as conn:
             async with conn.transaction(readonly=True):
-                await _current_derived_generation(conn)
+                generation_row = await _current_derived_generation(conn)
                 rows = await conn.fetch(sql, *params)
                 total = await conn.fetchval(count_sql, *count_params)
     except HTTPException:
@@ -786,6 +786,12 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         'source':   f'v3:{RANKING_VERSION}',
         'query_ms': elapsed,
         'display_economy': ctx.economy_filter or 'overall',
+        'ranking': {
+            'ranking_version': RANKING_VERSION,
+            'ranking_sha256': ranking_sha256(),
+            'derived_generation_id': generation_row['derived_generation_id'],
+            'publication_sequence': generation_row['publication_sequence'],
+        },
     }
     if ctx.radius_capped:
         resp['warning'] = (

@@ -53,7 +53,13 @@ from edfinder_api.models import (
     BuildSimulateResponse,
     SystemArchetypeResponse,
 )
-from edfinder_api.ranking.profile import ARCHETYPE_KEYS, PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS
+from edfinder_api.ranking.profile import (
+    ARCHETYPE_KEYS,
+    PROFILE_SPEC,
+    RANKING_VERSION,
+    TIER_THRESHOLDS,
+    ranking_sha256,
+)
 from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
 from edfinder_api.state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
 
@@ -366,7 +372,7 @@ async def _archetype_rankings_v3(
     try:
         async with pool.acquire() as conn:
             async with conn.transaction(readonly=True):
-                await _current_derived_generation(conn)
+                generation_row = await _current_derived_generation(conn)
                 rows = await conn.fetch(sql, *params)
                 total = await conn.fetchval(count_sql, *count_params)
     except HTTPException:
@@ -393,6 +399,12 @@ async def _archetype_rankings_v3(
         'count':           len(results),
         'source':          f'v3:{RANKING_VERSION}',
         'query_ms':        query_ms,
+        'ranking': {
+            'ranking_version': RANKING_VERSION,
+            'ranking_sha256': ranking_sha256(),
+            'derived_generation_id': generation_row['derived_generation_id'],
+            'publication_sequence': generation_row['publication_sequence'],
+        },
     }
 
 
@@ -413,11 +425,14 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     """Shape one `build_ranked_query` row into an `ArchetypeRankingRow`.
 
     `build_ranked_query` selects `s.*` (the `v3_app.system_search` columns)
-    plus `primary_score` (= `a.archetype_score` for a picked archetype) and
-    `uncertainty_factor` (= `a.confidence * s.completeness`) -- it never
-    selects `a.confidence` directly, so `archetype_confidence` here is
-    reconstructed as `uncertainty_factor / completeness` rather than a raw
-    column read.
+    plus `primary_score` (= `a.archetype_score` for a picked archetype),
+    `ranking_confidence` (= the raw `a.confidence` confidence factor the
+    uncertainty modifier reads), and `uncertainty_factor`
+    (= `a.confidence * s.completeness`). `archetype_confidence` is read
+    directly from `ranking_confidence` rather than reconstructed by dividing
+    `uncertainty_factor` back out by `completeness` -- the division is
+    undefined at `completeness = 0` and conflates the archetype's judgement
+    confidence with the general data-completeness fraction.
     """
     x, y, z = row.get('x_ly'), row.get('y_ly'), row.get('z_ly')
     distance_to_sol = (
@@ -427,10 +442,10 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     )
 
     completeness = row.get('completeness')
-    uncertainty_factor = row.get('uncertainty_factor')
-    archetype_confidence = None
-    if completeness and uncertainty_factor is not None and completeness > 0:
-        archetype_confidence = round(float(uncertainty_factor) / float(completeness), 4)
+    ranking_confidence = row.get('ranking_confidence')
+    archetype_confidence = (
+        round(float(ranking_confidence), 4) if ranking_confidence is not None else None
+    )
 
     score = float(row['primary_score']) if row['primary_score'] is not None else 0.0
     elw_count = row.get('elw_count')

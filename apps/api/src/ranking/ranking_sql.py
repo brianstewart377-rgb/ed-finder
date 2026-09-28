@@ -141,16 +141,25 @@ def _build_common(
     picked_economy: str | None,  # accepted, not yet used — see module docstring's economy-pick TODO
     hard_filters: dict[str, Any],
     reference_coords: tuple[float, float, float] | None,
-) -> tuple[list[str], list[str], str, str]:
+) -> tuple[list[str], list[str], str, str, str]:
     """Build the joins, WHERE clauses and score expressions shared by both
     `build_ranked_query` and `build_count_query`.
 
     This is the single place hard filters are translated into predicates —
     both callers go through it so the count and the ranked page can never
     drift onto different filter semantics. Returns
-    `(joins, where_clauses, primary_score_expr, uncertainty_expr)`; each
-    caller assembles its own final SQL text (a ranked SELECT with
+    `(joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr)`;
+    each caller assembles its own final SQL text (a ranked SELECT with
     ORDER BY/LIMIT/OFFSET, or a bare COUNT(*)) from these pieces.
+
+    `confidence_expr` is the *raw* confidence factor that feeds the
+    uncertainty modifier (`a.confidence` for a picked archetype, else
+    `sum.archetype_confidence`). It is exposed as its own selectable
+    expression so a response can echo the confidence badge by selecting the
+    real column directly, rather than dividing `uncertainty_factor` back out
+    by `completeness` (which is undefined at completeness=0 and conflates the
+    per-archetype judgement confidence with the general data-completeness
+    fraction).
     """
 
     joins = ["LEFT JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
@@ -166,12 +175,14 @@ def _build_common(
         # archetype row, `a.archetype_score` is already NULL, so the
         # `primary_score_expr * uncertainty_expr` ORDER BY term is NULL
         # either way and `NULLS LAST` sorts it after every scored system.
-        uncertainty_expr = "a.confidence * s.completeness"
+        confidence_expr = "a.confidence"
     else:
         # No pick and economy-pick both fall back to best_colony_potential
         # today — see the module docstring's "Economy-picked ranking" TODO.
         primary_score_expr = "sum.best_colony_potential"
-        uncertainty_expr = "sum.archetype_confidence * s.completeness"
+        confidence_expr = "sum.archetype_confidence"
+
+    uncertainty_expr = f"{confidence_expr} * s.completeness"
 
     where_clauses: list[str] = []
 
@@ -213,7 +224,7 @@ def _build_common(
         # Every HARD_FILTER_KEYS member is handled above; nothing falls
         # through silently for a *known* key.
 
-    return joins, where_clauses, primary_score_expr, uncertainty_expr
+    return joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr
 
 
 def build_ranked_query(
@@ -244,7 +255,7 @@ def build_ranked_query(
     """
 
     builder = _ParamBuilder()
-    joins, where_clauses, primary_score_expr, uncertainty_expr = _build_common(
+    joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr = _build_common(
         builder,
         picked_archetype=picked_archetype,
         picked_economy=picked_economy,
@@ -267,6 +278,7 @@ def build_ranked_query(
     sql = (
         "SELECT s.*, "
         f"({primary_score_expr}) AS primary_score, "
+        f"({confidence_expr}) AS ranking_confidence, "
         f"({uncertainty_expr}) AS uncertainty_factor\n"
         "FROM v3_app.system_search s\n"
         f"{joins_sql}\n"
@@ -297,7 +309,7 @@ def build_count_query(
     """
 
     builder = _ParamBuilder()
-    joins, where_clauses, _primary_score_expr, _uncertainty_expr = _build_common(
+    joins, where_clauses, _primary_score_expr, _confidence_expr, _uncertainty_expr = _build_common(
         builder,
         picked_archetype=picked_archetype,
         picked_economy=picked_economy,
