@@ -125,7 +125,7 @@ def test_score_and_tier_constraints_reject_out_of_range(database):
             '''INSERT INTO v3_derived.system_archetype(
                    derived_generation_id,system_id64,archetype_key,archetype_version,
                    archetype_score,tier,confidence,explanation)
-               VALUES(%s,%s,'paradise','v3-archetype-1',75,'A',0.9,'{}'::jsonb)''',
+               VALUES(%s,%s,'paradise','v3-archetype-2',75,'A',0.9,'{}'::jsonb)''',
             (generation_id, system_id64),
         )
     assert connection.execute(
@@ -140,7 +140,7 @@ def test_score_and_tier_constraints_reject_out_of_range(database):
                 '''INSERT INTO v3_derived.system_archetype(
                        derived_generation_id,system_id64,archetype_key,archetype_version,
                        archetype_score,tier,confidence,explanation)
-                   VALUES(%s,%s,'industrial','v3-archetype-1',101,'S',0.9,'{}'::jsonb)''',
+                   VALUES(%s,%s,'industrial','v3-archetype-2',101,'S',0.9,'{}'::jsonb)''',
                 (generation_id, system_id64),
             )
 
@@ -150,7 +150,7 @@ def test_score_and_tier_constraints_reject_out_of_range(database):
                 '''INSERT INTO v3_derived.system_archetype(
                        derived_generation_id,system_id64,archetype_key,archetype_version,
                        archetype_score,tier,confidence,explanation)
-                   VALUES(%s,%s,'military','v3-archetype-1',50,'X',0.9,'{}'::jsonb)''',
+                   VALUES(%s,%s,'military','v3-archetype-2',50,'X',0.9,'{}'::jsonb)''',
                 (generation_id, system_id64),
             )
 

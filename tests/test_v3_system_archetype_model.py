@@ -14,7 +14,7 @@ def test_tier_thresholds():
     assert [tier_of(s) for s in (88, 87, 76, 60, 45, 44, 0)] == ['S','A','A','B','C','D','D']
 
 def test_version_and_key_set():
-    assert ARCHETYPE_VERSION == 'v3-archetype-1'
+    assert ARCHETYPE_VERSION == 'v3-archetype-2'
     assert set(ARCHETYPE_KEYS) == {
         'paradise','mining_hub','manufacturing_hub','megacomplex',
         'research_hub','stronghold','population_capital','flexible',

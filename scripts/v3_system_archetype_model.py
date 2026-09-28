@@ -1,4 +1,4 @@
-'''Pure, DB-free V3 archetype fit model (v3-archetype-1).
+'''Pure, DB-free V3 archetype fit model (v3-archetype-2).
 
 Economy ordinals: 1=Agriculture 2=Refinery 3=Industrial 4=HighTech
 5=Military 6=Tourism 7=Extraction.
@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-ARCHETYPE_VERSION = 'v3-archetype-1'
+# v3-archetype-2: confidence now multiplies in min(evidence_completeness)
+# over the required anchors (see _fit_anchored/_fit_flexible), which changes
+# every persisted confidence value relative to v3-archetype-1. Bumped so
+# reproducibility/manifest identity reflects the formula that produced the
+# stored rows -- nothing has ever been published under v3-archetype-1.
+ARCHETYPE_VERSION = 'v3-archetype-2'
 
 # key -> (required anchor ordinals, supporting ordinals)
 _ANCHORS: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {

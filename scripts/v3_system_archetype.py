@@ -300,58 +300,103 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     return _digest({'archetypes': archetype_rows, 'summaries': summary_rows})
 
 
+_CONTENT_CHUNK_ITERSIZE = 1000
+
+
+def _grouped_by_ordinal(cursor):
+    '''Fold an ordinal-ordered server-side cursor into (ordinal, [rows...])
+    groups, stripping the leading chunk_ordinal column (used only to group,
+    never digested). Peak memory is one chunk's rows, not the whole stream.'''
+    current: int | None = None
+    bucket: list = []
+    for row in cursor:
+        ordinal = int(row[0])
+        if current is None:
+            current = ordinal
+        elif ordinal != current:
+            yield current, bucket
+            current, bucket = ordinal, []
+        bucket.append(tuple(row[1:]))
+    if current is not None:
+        yield current, bucket
+
+
 def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
-    '''Batched form of _chunk_content_sha for the reproducibility gate: the
-    gate previously called _chunk_content_sha once per chunk (two queries
-    each), which is 2 x chunk_count sequential round trips at galaxy scale.
-    This recomputes every chunk's content digest for the whole generation in
-    two bounded round trips -- one query for all archetype rows, one for all
-    summary rows, both ordered by chunk_ordinal -- then groups and digests
-    per chunk_ordinal in Python. The per-chunk row shape and ordering fed to
-    _digest are byte-identical to _chunk_content_sha's single-chunk query
-    (chunk_ordinal is only used for grouping and is not part of the digested
-    payload), so stored and recomputed digests still match exactly.
+    '''Streaming, memory-bounded recompute of every chunk's content digest for
+    the reproducibility gate.
+
+    The gate must recompute each archetype_build_chunk's content_sha256 from
+    the materialized rows. Doing that per chunk was 2 x chunk_count sequential
+    round trips; fetching the whole generation into memory at once (an earlier
+    fix) OOMs at galaxy scale (198M systems x len(ARCHETYPE_KEYS) rows). This
+    instead opens two ordered server-side cursors -- one over all archetype
+    rows, one over all summary rows, both ORDER BY chunk_ordinal -- and folds
+    them together by chunk_ordinal, emitting one digest per chunk. Peak memory
+    is a single chunk's rows (bounded <=1000 systems), round trips are bounded
+    (paged fetches, not one query per chunk), and because chunk_ordinal is
+    only used to group (never fed to _digest) the per-chunk payload shape and
+    ordering are byte-identical to _chunk_content_sha's single-chunk query, so
+    stored and recomputed digests still match exactly.
+
+    Server-side cursors require an explicit transaction block even under an
+    autocommit connection; the wrapping transaction is read-only.
     '''
-    archetype_rows = connection.execute(
-        '''SELECT v.chunk_ordinal, a.system_id64, a.archetype_key, a.archetype_score,
-                  a.tier, round(a.confidence::numeric, 6), a.archetype_version,
-                  a.explanation
-             FROM v3_derived.system_archetype a
-             JOIN v3_derived.system_rating_vector v
-               ON v.derived_generation_id=a.derived_generation_id
-              AND v.system_id64=a.system_id64
-            WHERE a.derived_generation_id=%s
-            ORDER BY v.chunk_ordinal, a.system_id64, a.archetype_key''',
-        (generation_id,),
-    ).fetchall()
-    summary_rows = connection.execute(
-        '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
-                  s.best_colony_potential, s.best_tier,
-                  round(s.archetype_confidence::numeric, 6)
-             FROM v3_derived.system_archetype_summary s
-             JOIN v3_derived.system_rating_vector v
-               ON v.derived_generation_id=s.derived_generation_id
-              AND v.system_id64=s.system_id64
-            WHERE s.derived_generation_id=%s
-            ORDER BY v.chunk_ordinal, s.system_id64''',
-        (generation_id,),
-    ).fetchall()
+    result: dict[int, bytes] = {}
+    with connection.transaction():
+        with (
+            connection.cursor(name='archetype_content_sha') as archetype_cursor,
+            connection.cursor(name='summary_content_sha') as summary_cursor,
+        ):
+            archetype_cursor.itersize = _CONTENT_CHUNK_ITERSIZE
+            summary_cursor.itersize = _CONTENT_CHUNK_ITERSIZE
+            archetype_cursor.execute(
+                '''SELECT v.chunk_ordinal, a.system_id64, a.archetype_key, a.archetype_score,
+                          a.tier, round(a.confidence::numeric, 6), a.archetype_version,
+                          a.explanation
+                     FROM v3_derived.system_archetype a
+                     JOIN v3_derived.system_rating_vector v
+                       ON v.derived_generation_id=a.derived_generation_id
+                      AND v.system_id64=a.system_id64
+                    WHERE a.derived_generation_id=%s
+                    ORDER BY v.chunk_ordinal, a.system_id64, a.archetype_key''',
+                (generation_id,),
+            )
+            summary_cursor.execute(
+                '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
+                          s.best_colony_potential, s.best_tier,
+                          round(s.archetype_confidence::numeric, 6)
+                     FROM v3_derived.system_archetype_summary s
+                     JOIN v3_derived.system_rating_vector v
+                       ON v.derived_generation_id=s.derived_generation_id
+                      AND v.system_id64=s.system_id64
+                    WHERE s.derived_generation_id=%s
+                    ORDER BY v.chunk_ordinal, s.system_id64''',
+                (generation_id,),
+            )
 
-    archetypes_by_chunk: dict[int, list] = {}
-    for ordinal, *row in archetype_rows:
-        archetypes_by_chunk.setdefault(int(ordinal), []).append(tuple(row))
-    summaries_by_chunk: dict[int, list] = {}
-    for ordinal, *row in summary_rows:
-        summaries_by_chunk.setdefault(int(ordinal), []).append(tuple(row))
-
-    ordinals = set(archetypes_by_chunk) | set(summaries_by_chunk)
-    return {
-        ordinal: _digest({
-            'archetypes': archetypes_by_chunk.get(ordinal, []),
-            'summaries': summaries_by_chunk.get(ordinal, []),
-        })
-        for ordinal in ordinals
-    }
+            archetype_groups = _grouped_by_ordinal(archetype_cursor)
+            summary_groups = _grouped_by_ordinal(summary_cursor)
+            archetype_head = next(archetype_groups, None)
+            summary_head = next(summary_groups, None)
+            while archetype_head is not None or summary_head is not None:
+                if archetype_head is None:
+                    ordinal = summary_head[0]
+                elif summary_head is None:
+                    ordinal = archetype_head[0]
+                else:
+                    ordinal = min(archetype_head[0], summary_head[0])
+                archetypes: list = []
+                summaries: list = []
+                if archetype_head is not None and archetype_head[0] == ordinal:
+                    archetypes = archetype_head[1]
+                    archetype_head = next(archetype_groups, None)
+                if summary_head is not None and summary_head[0] == ordinal:
+                    summaries = summary_head[1]
+                    summary_head = next(summary_groups, None)
+                result[ordinal] = _digest(
+                    {'archetypes': archetypes, 'summaries': summaries},
+                )
+    return result
 
 
 def _build_chunk(
@@ -768,6 +813,16 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
     VERIFIED receipt without re-promoting or re-validating. Every gate
     failure is collected rather than raised, so an operator sees the whole
     picture in one call.
+
+    INCOMPLETE vs FAILED on the coverage gate: INCOMPLETE means the archetype
+    build has not finished yet (missing Ratings chunks, or fewer archetype/
+    summary rows than expected -- still building). FAILED means coverage is
+    row-count-complete (every Ratings chunk has an archetype receipt, and
+    every system already has exactly len(ARCHETYPE_KEYS) archetype rows and
+    exactly one summary row in aggregate) but `_gate_coverage`'s exact-key-set
+    / archetype_version check still fails for some system -- that is a hard
+    invariant violation on a set that will never grow further, not a
+    still-building state, so it must be reported as FAILED.
     '''
     generation = _generation(connection, generation.key)
     product = _product(connection, generation.identifier)
@@ -798,8 +853,26 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
     # the base generation, so the Archetype product must not promote against it.
     base_ready = generation.state == 'READY'
     chunks_complete = rating_chunks > 0 and archetype_chunks == rating_chunks
+    # Row-count completeness: every system already has, in aggregate, exactly
+    # the full ARCHETYPE_KEYS count of archetype rows and exactly one summary
+    # row. This separates "still building / rows genuinely missing" (INCOMPLETE)
+    # from "coverage is complete but the exact-key-set / archetype_version is
+    # malformed" (FAILED). _gate_coverage's set-based check rejects both, but
+    # only the latter is a hard invariant violation on a set that will never
+    # grow -- it must not masquerade as still-in-progress.
+    row_counts_complete = (
+        counts['systems'] > 0
+        and counts['archetype_rows'] == counts['systems'] * len(model.ARCHETYPE_KEYS)
+        and counts['summary_rows'] == counts['systems']
+    )
 
     if not (base_ready and chunks_complete and coverage_ok):
+        # Coverage is complete-but-corrupt (all chunks receipted, full row
+        # counts) yet the exact-key/version invariant fails -> FAILED, not the
+        # still-building INCOMPLETE.
+        malformed_complete = (
+            base_ready and chunks_complete and row_counts_complete and not coverage_ok
+        )
         reasons = []
         if not base_ready:
             reasons.append(
@@ -812,7 +885,7 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
             )
         reasons.extend(coverage_reasons)
         return {
-            'status': 'INCOMPLETE',
+            'status': 'FAILED' if malformed_complete else 'INCOMPLETE',
             'derived_generation_id': generation.identifier,
             'product_code': PRODUCT_CODE,
             'base_lifecycle_state': generation.state,
