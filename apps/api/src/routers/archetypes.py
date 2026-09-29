@@ -371,7 +371,10 @@ async def _archetype_rankings_v3(
 
     try:
         async with pool.acquire() as conn:
-            async with conn.transaction(readonly=True):
+            # REPEATABLE READ so the generation pin, the ranked page and the
+            # COUNT share one snapshot — a governed publish mid-request can no
+            # longer return a page and a total from two different generations.
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
                 generation_row = await _current_derived_generation(conn)
                 rows = await conn.fetch(sql, *params)
                 total = await conn.fetchval(count_sql, *count_params)

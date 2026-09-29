@@ -53,15 +53,50 @@ ARCHETYPE_KEYS: Final[tuple[str, ...]] = (
 # C>=45, else D.
 TIER_THRESHOLDS: Final[dict[str, int]] = {"S": 88, "A": 76, "B": 60, "C": 45}
 
+# The body/feature-count columns `v3_app.system_search` projects (F1
+# `010_v3_system_search_body_type_counts.sql` + the earlier `landable_count`).
+# Every one is a real non-negative integer column, so every one supports both
+# a `>= min` and a `<= max` hard filter — the ranking-SQL builder maps
+# `<col>_min`/`<col>_max` onto `s.<col> >= $n` / `s.<col> <= $n`. This is the
+# single source of truth for which body-count filters are projection-backed;
+# `local_search._v3_hard_filters` rejects any requested body filter that does
+# not resolve into this set rather than silently dropping it.
+BODY_COUNT_COLUMNS: Final[tuple[str, ...]] = (
+    "elw_count",
+    "ww_count",
+    "ammonia_count",
+    "gas_giant_count",
+    "landable_count",
+    "terraformable_count",
+    "bio_signal_total",
+    "geo_signal_total",
+    "neutron_count",
+    "black_hole_count",
+    "white_dwarf_count",
+    "hmc_count",
+    "metal_rich_count",
+    "rocky_count",
+    "rocky_ice_count",
+    "icy_count",
+    "other_star_count",
+    "ring_count",
+    "walkable_count",
+)
+
+# The `<col>_min` / `<col>_max` hard-filter keys generated from the count
+# columns above, in a fixed (column-order, then min-before-max) order so the
+# hashed identity is deterministic.
+_BODY_COUNT_FILTER_KEYS: Final[tuple[str, ...]] = tuple(
+    f"{col}_{bound}" for col in BODY_COUNT_COLUMNS for bound in ("min", "max")
+)
+
 # Hard filters are applied first, before any score/order computation, and
 # never gate on uncertainty (unknown != absent). Keys mirror the F1
-# `system_search` facts + body-type counts plus the distance/region bounds
-# from `docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md`.
+# `system_search` facts + body-type counts (both range bounds) plus the
+# distance/region bounds from
+# `docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md`.
 HARD_FILTER_KEYS: Final[tuple[str, ...]] = (
-    "elw_count_min",
-    "ww_count_min",
-    "terraformable_count_min",
-    "landable_count_min",
+    *_BODY_COUNT_FILTER_KEYS,
     "has_rings",
     "has_biologicals",
     "has_geologicals",

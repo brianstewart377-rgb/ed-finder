@@ -61,18 +61,22 @@ keys safely" for a key that is known but inapplicable to this call. Any
 `hard_filters` key outside `HARD_FILTER_KEYS` (typos, future/removed keys) is
 ignored the same way.
 
-## Economy-picked ranking (documented gap)
+## Economy-picked ranking (not yet supported — fail closed)
 
 `system_search` / `system_archetype*` carry no per-economy potential column
 today (no `economy_potential`/`potential_score` projection exists yet, and
 `PROFILE_SPEC["primary_score_rule"]["economy"]` names an aspirational
-`potential_score` field that has no backing relation). Rather than invent a
-column, `picked_economy` currently **falls back to the same no-pick primary
-score** (`sum.best_colony_potential`). This is a deliberate placeholder:
+`potential_score` field that has no backing relation). Rather than silently
+rank a requested economy by the overall `best_colony_potential` — which
+returns results that look economy-tuned but are not — a non-None
+`picked_economy` **raises `ValueError`** in `_build_common`. The HTTP layer
+(`local_search.local_db_search_v3`) rejects a concrete economy with a 422
+before ever calling the builder, so the only economy value that reaches a
+successful query is "no pick".
 
     TODO(F2c/F3 follow-up): once a per-economy potential projection exists
     (tracked as a future Finder derived-data task), branch picked_economy
-    onto its real column instead of the best_colony_potential fallback.
+    onto its real column and lift both the builder guard and the 422.
 
 ## Uncertainty modifier
 
@@ -97,16 +101,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from .profile import HARD_FILTER_KEYS
+from .profile import BODY_COUNT_COLUMNS, HARD_FILTER_KEYS
 
-# Count-minimum hard filters that map 1:1 onto a `v3_app.system_search`
-# integer column via `column >= $n`.
-_COUNT_MIN_FILTER_COLUMNS: dict[str, str] = {
-    "elw_count_min": "elw_count",
-    "ww_count_min": "ww_count",
-    "terraformable_count_min": "terraformable_count",
-    "landable_count_min": "landable_count",
-}
+# Body-count range filters map 1:1 onto a `v3_app.system_search` integer
+# column: `<col>_min` -> `s.<col> >= $n`, `<col>_max` -> `s.<col> <= $n`.
+# `BODY_COUNT_COLUMNS` (in `profile.py`) is the single source of truth for
+# which columns exist; both bounds are supported for every one.
+_BODY_COUNT_COLUMN_SET: frozenset[str] = frozenset(BODY_COUNT_COLUMNS)
+_COUNT_BOUND_OPS: tuple[tuple[str, str], ...] = (("_min", ">="), ("_max", "<="))
+
+
+def _count_filter_column(key: str) -> tuple[str, str] | None:
+    """Resolve a `<col>_min` / `<col>_max` hard-filter key to its
+    `(column, comparison_operator)`, or `None` if `key` is not a body-count
+    range filter. Non-count keys that merely contain "min"/"max" (e.g.
+    `min_development_score`, `max_distance_ly`) do not end in `_min`/`_max`
+    over a known count column, so they fall through to their own branches.
+    """
+    for suffix, op in _COUNT_BOUND_OPS:
+        if key.endswith(suffix) and key[: -len(suffix)] in _BODY_COUNT_COLUMN_SET:
+            return key[: -len(suffix)], op
+    return None
 
 
 class _ParamBuilder:
@@ -162,6 +177,21 @@ def _build_common(
     fraction).
     """
 
+    if picked_economy:
+        # No per-economy potential projection exists yet (the
+        # `PROFILE_SPEC["primary_score_rule"]["economy"]` `potential_score`
+        # field has no backing `system_search`/`system_archetype*` column).
+        # Silently ranking a requested economy by the overall
+        # `best_colony_potential` returned results that *looked* economy-tuned
+        # but were not. Fail closed here so no caller can reach that path;
+        # `local_search.local_db_search_v3` rejects a picked economy with a
+        # 422 before it ever calls the builder.
+        raise ValueError(
+            "picked_economy is not supported by the V3 ranking profile yet: "
+            "no per-economy potential projection exists "
+            f"(requested economy={picked_economy!r})."
+        )
+
     joins = ["LEFT JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
 
     if picked_archetype:
@@ -177,8 +207,8 @@ def _build_common(
         # either way and `NULLS LAST` sorts it after every scored system.
         confidence_expr = "a.confidence"
     else:
-        # No pick and economy-pick both fall back to best_colony_potential
-        # today — see the module docstring's "Economy-picked ranking" TODO.
+        # No-pick ranking: the F2b no-pick primary score. (A concrete
+        # `picked_economy` never reaches here — it is rejected above.)
         primary_score_expr = "sum.best_colony_potential"
         confidence_expr = "sum.archetype_confidence"
 
@@ -191,10 +221,11 @@ def _build_common(
             # Unknown/typo'd/future key: ignore safely rather than erroring.
             continue
 
-        if key in _COUNT_MIN_FILTER_COLUMNS:
-            column = _COUNT_MIN_FILTER_COLUMNS[key]
+        count_filter = _count_filter_column(key)
+        if count_filter is not None:
+            column, op = count_filter
             param = builder.add(int(value))
-            where_clauses.append(f"s.{column} >= {param}")
+            where_clauses.append(f"s.{column} {op} {param}")
         elif key == "has_rings":
             param = builder.add(bool(value))
             where_clauses.append(f"s.has_rings = {param}")

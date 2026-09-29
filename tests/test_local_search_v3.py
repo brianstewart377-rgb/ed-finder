@@ -199,6 +199,43 @@ async def test_local_search_v3_honours_terraformable_hard_filter(database):
 
 
 @pytest.mark.asyncio
+async def test_local_search_v3_honours_body_count_max_bound(database):
+    """Finding #7: an upper bound (`max`) on a body count is a real
+    constraint, not silently dropped. `terraformable_count: {max: 0}` must
+    return exactly the systems with zero terraformable bodies -- proving both
+    that `max` is enforced at all and that `max: 0` (the audit's key case) is
+    treated as a meaningful exclusion, not a no-op."""
+    connection, _, _, _ = database
+    _build_published_generation(database)
+
+    all_counts = dict(connection.execute('''
+        SELECT system_id64, terraformable_count FROM v3_app.system_search
+    ''').fetchall())
+    expected_ids = {system_id64 for system_id64, count in all_counts.items() if count == 0}
+    assert expected_ids, 'fixture must contain at least one zero-terraformable system'
+    assert len(expected_ids) < len(all_counts), 'fixture must contain at least one excluded system too'
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await local_search.local_db_search_v3(
+            {
+                'galaxy_wide': True,
+                'size': 50,
+                'from': 0,
+                'body_filters': {'terraformable_count': {'max': 0}},
+            },
+            pool,
+        )
+    finally:
+        await pool.close()
+
+    returned_ids = {row['id64'] for row in result['results']}
+    assert returned_ids == expected_ids
+    assert result['total'] == len(expected_ids)
+    assert all(row['terraformable_count'] == 0 for row in result['results'])
+
+
+@pytest.mark.asyncio
 async def test_local_search_v3_reference_coords_non_galaxy_wide_returns_results_and_count(database):
     """The primary path: `reference_coords` set and `galaxy_wide=False` --
     the router's required/default shape (`galaxy_wide` defaults False and
@@ -302,7 +339,7 @@ async def test_local_search_v3_requires_published_generation():
             return False
 
     class _Connection:
-        def transaction(self, *, readonly=True):
+        def transaction(self, *, isolation=None, readonly=True):
             return _Transaction()
 
         async def fetchrow(self, *_args, **_kwargs):
@@ -344,3 +381,58 @@ def test_local_search_v3_reads_no_legacy_relation():
         'public.',
     )
     assert not any(term in src for term in forbidden)
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_rejects_concrete_economy_with_422():
+    """Finding #8: selecting a concrete economy must fail closed (no
+    per-economy potential projection exists) rather than silently rank by
+    overall colony potential while advertising the requested economy. This
+    raises before any pool use."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'economy': 'extraction'}, None,
+        )
+    assert excinfo.value.status_code == 422
+    assert 'economy' in str(excinfo.value.detail).lower()
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_rejects_unknown_body_filter_with_422():
+    """Finding #7: a body filter with no v3_app.system_search projection must
+    422, not be silently dropped (which reads as 'no matches')."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'body_filters': {'not_a_real_body': {'min': 1}}},
+            None,
+        )
+    assert excinfo.value.status_code == 422
+
+
+def test_v3_hard_filters_maps_every_declared_body_count_min_and_max():
+    """Finding #7: every declared body-count field maps onto BOTH range bounds
+    (min -> <col>_min, max -> <col>_max); a max of 0 is a real constraint."""
+    from edfinder_api.ranking.profile import BODY_COUNT_COLUMNS
+
+    ctx = local_search._parse_local_search_context({
+        'galaxy_wide': True,
+        'body_filters': {
+            'elw_count': {'min': 2, 'max': 5},
+            'ammonia_count': {'max': 0},
+        },
+    })
+    hard = local_search._v3_hard_filters(ctx)
+    assert hard['elw_count_min'] == 2
+    assert hard['elw_count_max'] == 5
+    # max of 0 is emitted (meaningful "no ammonia" constraint), min of 0 is not
+    assert hard['ammonia_count_max'] == 0
+    assert 'ammonia_count_min' not in hard
+    # sanity: every mapped key is a real HARD_FILTER_KEY for a projected column
+    from edfinder_api.ranking.profile import HARD_FILTER_KEYS
+    for k in hard:
+        assert k in HARD_FILTER_KEYS
+    assert set(BODY_COUNT_COLUMNS)  # non-empty source of truth

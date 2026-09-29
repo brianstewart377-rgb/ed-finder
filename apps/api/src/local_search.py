@@ -37,6 +37,7 @@ from edfinder_api.search_economies import (
     cluster_count_column,
     economy_enum_value,
     BODY_FILTER_COLS,
+    BODY_FILTER_ALIASES,
     normalise_body_filters,
     canonical_economy_key,
 )
@@ -589,41 +590,75 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg
     return row
 
 
-def _v3_min_filter(body_filters: dict, key: str) -> int | None:
-    rng = body_filters.get(key) or {}
-    if not isinstance(rng, dict):
-        return None
-    value = rng.get('min')
-    return int(value) if value else None
+async def resolve_published_generation(pool: asyncpg.Pool) -> asyncpg.Record:
+    """Resolve the current PUBLISHED derived generation (id + sequence).
+
+    Public wrapper around `_current_derived_generation` for callers (the
+    search router's cache-key builder) that need the pinned generation
+    *before* entering the ranked read — so a warm cache entry can never be
+    served while no generation is published (404), and the cache key can be
+    scoped to the exact generation the results would be computed under.
+    """
+    async with pool.acquire() as conn:
+        return await _current_derived_generation(conn)
+
+
+# Body-filter request keys that resolve to a real `v3_app.system_search`
+# column: the canonical/short names (`BODY_FILTER_COLS`) plus the camelCase
+# aliases (`BODY_FILTER_ALIASES`). A body filter outside this set has no
+# projection, so `_v3_hard_filters` rejects it (422) rather than dropping it.
+_KNOWN_BODY_FILTER_KEYS: frozenset[str] = frozenset(BODY_FILTER_COLS) | frozenset(BODY_FILTER_ALIASES)
 
 
 def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
-    """Map `LocalSearchContext` fields onto the `HARD_FILTER_KEYS` convention.
+    """Map `LocalSearchContext` body/feature filters onto the
+    `HARD_FILTER_KEYS` convention.
 
-    Only keys `ranking.ranking_sql.build_ranked_query` actually understands
-    are ever set here — anything else is safely ignored by the builder, but
-    we avoid emitting it at all so the mapping stays self-documenting.
+    Every declared body-count field resolves (via `BODY_FILTER_COLS`) to a
+    real `v3_app.system_search` column, and **both** range bounds are
+    enforced: `min` -> `<col>_min` (`s.<col> >= n`), `max` -> `<col>_max`
+    (`s.<col> <= n`). A `max` of 0 is a real constraint ("none of this body
+    type") and is emitted; a `min` of 0 (or below) is a no-op over a
+    non-negative count and is skipped.
+
+    A body-filter key that does not resolve to a projected column is rejected
+    with HTTP 422 rather than silently dropped — silently ignoring a filter
+    the caller explicitly set would return results the caller reads as "no
+    matches for that filter" when the filter was never applied.
     """
-    body_filters = normalise_body_filters(ctx.body_filters)
+    raw_body_filters = ctx.body_filters or {}
+    for key in raw_body_filters:
+        if key not in _KNOWN_BODY_FILTER_KEYS:
+            raise HTTPException(
+                422,
+                f"Unsupported body filter '{key}' — no v3_app.system_search "
+                "projection exists for it.",
+            )
+
+    body_filters = normalise_body_filters(raw_body_filters)
     hard_filters: dict[str, Any] = {}
 
-    elw_min = _v3_min_filter(body_filters, 'elw_count')
-    if elw_min:
-        hard_filters['elw_count_min'] = elw_min
+    for key, rng in body_filters.items():
+        col = BODY_FILTER_COLS.get(key)
+        if col is None:
+            # A camelCase alias whose snake_case canonical
+            # `normalise_body_filters` already added (and which carries the
+            # value); skip the alias key itself.
+            continue
+        if not isinstance(rng, dict):
+            continue
+        mn = rng.get('min')
+        mx = rng.get('max')
+        if mn is not None and int(mn) > 0:
+            hard_filters[f'{col}_min'] = int(mn)
+        if mx is not None:
+            hard_filters[f'{col}_max'] = int(mx)
 
-    ww_min = _v3_min_filter(body_filters, 'ww_count')
-    if ww_min:
-        hard_filters['ww_count_min'] = ww_min
-
-    terra_min = _v3_min_filter(body_filters, 'terraformable_count') or 0
+    # require_terra means "at least one terraformable body": a floor of 1,
+    # never weaker than an explicit terraformable_count minimum.
     if ctx.require_terra:
-        terra_min = max(terra_min, 1)
-    if terra_min:
-        hard_filters['terraformable_count_min'] = terra_min
-
-    landable_min = _v3_min_filter(body_filters, 'landable_count')
-    if landable_min:
-        hard_filters['landable_count_min'] = landable_min
+        existing_terra_min = int(hard_filters.get('terraformable_count_min', 0))
+        hard_filters['terraformable_count_min'] = max(existing_terra_min, 1)
 
     if ctx.min_development_score and ctx.min_development_score > 0:
         hard_filters['min_development_score'] = ctx.min_development_score
@@ -738,9 +773,19 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         )
 
     economy_filter = ctx.economy_filter
-    picked_economy = None
     if economy_filter and economy_filter not in ('any', 'Any', 'Unknown', ''):
-        picked_economy = canonical_economy_key(economy_filter)
+        # No per-economy potential projection exists yet, so a concrete
+        # economy cannot actually be ranked by that economy's potential.
+        # Reject it rather than silently ranking by overall colony potential
+        # while advertising the requested economy (which returned results
+        # that looked economy-tuned but were not).
+        raise HTTPException(
+            422,
+            'economy-specific ranking is not yet supported by V3 Finder '
+            'search (no per-economy potential projection exists); '
+            'use economy="any".',
+        )
+    picked_economy = None
 
     hard_filters = _v3_hard_filters(ctx)
     reference_coords = (ctx.rx, ctx.ry, ctx.rz) if ctx.has_reference_coords else None
@@ -764,7 +809,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
 
     try:
         async with pool.acquire() as conn:
-            async with conn.transaction(readonly=True):
+            # REPEATABLE READ so the generation pin, the page SELECT and the
+            # COUNT all read one snapshot: a governed publish between the
+            # statements can no longer hand back a G1 page with a G2 total,
+            # or a total pinned to a different generation than the results.
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
                 generation_row = await _current_derived_generation(conn)
                 rows = await conn.fetch(sql, *params)
                 total = await conn.fetchval(count_sql, *count_params)
@@ -785,7 +834,7 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         'total':    int(total) if total is not None else len(results),
         'source':   f'v3:{RANKING_VERSION}',
         'query_ms': elapsed,
-        'display_economy': ctx.economy_filter or 'overall',
+        'display_economy': 'overall',  # only "any"/no-pick reaches here (concrete economy → 422 above)
         'ranking': {
             'ranking_version': RANKING_VERSION,
             'ranking_sha256': ranking_sha256(),

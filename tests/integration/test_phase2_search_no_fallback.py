@@ -42,18 +42,19 @@ async def test_local_search_runs_via_local_db_search(client):
         f"expected v3 ranked-search source, got {body.get('source')!r}"
 
 
-async def test_local_search_extraction_economy_uses_extraction_column(client):
-    """Audit §C5 regression test, updated for the V3 repoint.
+async def test_local_search_concrete_economy_is_rejected_not_silently_overall(client):
+    """A concrete economy must fail closed (finding #8).
 
     V3's `v3_app.system_search` / `system_archetype_summary` carry no
-    per-economy potential column yet, so `picked_economy` currently falls
-    back to the same no-pick primary score (`best_colony_potential`) --
-    a documented gap in `ranking_sql.py` (see its "Economy-picked ranking"
-    section), not a silent bug. What must still hold under the repoint is
-    that results come back ordered by the ranking profile's actual sort key
-    (`primary_score * uncertainty_factor DESC`), which the response exposes
-    as `archetype_score` and `uncertainty_factor` -- not some other,
-    unrelated ordering."""
+    per-economy potential column yet. The earlier repoint silently ranked a
+    requested economy by the overall `best_colony_potential` while echoing
+    `display_economy: 'Extraction'` -- results that looked economy-tuned but
+    were not. The contract is now fail-closed: a concrete economy returns 422
+    (no per-economy projection), and only `economy: 'any'` (no pick) succeeds.
+
+    This also replaces the prior version of this test, which asserted 200 for
+    Extraction and -- because its fixture rows all shared the same score --
+    passed even when the economy was ignored (audit finding #25)."""
     payload = {
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 100000}, 'economy': 'Extraction'},
@@ -61,9 +62,19 @@ async def test_local_search_extraction_economy_uses_extraction_column(client):
         'sort_by':          'development',
     }
     r = await client.post('/api/local/search', json=payload)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body.get('display_economy') == 'Extraction'
+    assert r.status_code == 422, r.text
+    assert 'economy' in r.text.lower()
+
+    # The no-pick ('any') path still succeeds and ranks by overall potential,
+    # ordered by the profile's actual sort key (score * uncertainty DESC).
+    r_any = await client.post('/api/local/search', json={
+        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+        'filters':          {'distance': {'min': 0, 'max': 100000}, 'economy': 'any'},
+        'size':             3,
+    })
+    assert r_any.status_code == 200, r_any.text
+    body = r_any.json()
+    assert body.get('display_economy') == 'overall'
     combined = [
         row['archetype_score'] * row['uncertainty_factor']
         for row in body['results']

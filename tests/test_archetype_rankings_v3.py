@@ -336,7 +336,7 @@ async def test_archetype_rankings_v3_requires_published_generation():
             return False
 
     class _Connection:
-        def transaction(self, *, readonly=True):
+        def transaction(self, *, isolation=None, readonly=True):
             return _Transaction()
 
         async def fetchrow(self, *_args, **_kwargs):

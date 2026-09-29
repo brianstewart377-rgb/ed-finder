@@ -73,18 +73,32 @@ def test_no_pick_orders_by_best_colony_potential():
     assert 0 in params
 
 
-def test_economy_pick_falls_back_to_best_colony_potential():
-    sql, _ = build_ranked_query(
-        PROFILE_SPEC,
-        picked_archetype=None,
-        picked_economy="extraction",
-        hard_filters={},
-        reference_coords=None,
-        limit=10,
-        offset=0,
-    )
-    assert "best_colony_potential" in sql
-    _assert_no_legacy(sql)
+def test_economy_pick_is_rejected_not_silently_ranked_by_overall():
+    # A concrete economy has no per-economy potential projection yet, so the
+    # builder MUST fail closed rather than silently rank by overall colony
+    # potential (which returned results that looked economy-tuned but were not).
+    import pytest
+
+    for builder_fn in (build_ranked_query, build_count_query):
+        with pytest.raises(ValueError):
+            if builder_fn is build_ranked_query:
+                builder_fn(
+                    PROFILE_SPEC,
+                    picked_archetype=None,
+                    picked_economy="extraction",
+                    hard_filters={},
+                    reference_coords=None,
+                    limit=10,
+                    offset=0,
+                )
+            else:
+                builder_fn(
+                    PROFILE_SPEC,
+                    picked_archetype=None,
+                    picked_economy="extraction",
+                    hard_filters={},
+                    reference_coords=None,
+                )
 
 
 def test_hard_filters_are_where_not_order():
@@ -249,6 +263,89 @@ def test_main_star_class_in_hard_filter():
     where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
     assert "main_star_class IN" in where
     assert "K" in params and "M" in params
+
+
+# --- body-count range filters (finding #7: min AND max, every column) --------
+
+
+def test_every_body_count_column_supports_min_and_max_bounds():
+    from edfinder_api.ranking.profile import BODY_COUNT_COLUMNS
+
+    for col in BODY_COUNT_COLUMNS:
+        sql, params = build_ranked_query(
+            PROFILE_SPEC,
+            picked_archetype=None,
+            picked_economy=None,
+            hard_filters={f"{col}_min": 2, f"{col}_max": 9},
+            reference_coords=None,
+            limit=10,
+            offset=0,
+        )
+        where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+        assert f"s.{col} >=" in where, f"{col} min not enforced"
+        assert f"s.{col} <=" in where, f"{col} max not enforced"
+        assert 2 in params and 9 in params
+
+
+def test_body_count_max_zero_is_a_real_constraint_not_dropped():
+    # "0 ELW bodies" is a meaningful exclusion filter, not a no-op. A `max` of
+    # zero must produce `s.elw_count <= $n` with 0 bound (finding #7 dropped it).
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"elw_count_max": 0},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert "s.elw_count <=" in where
+    assert 0 in params
+
+
+def test_body_count_max_filter_shared_by_ranked_and_count_queries():
+    hard_filters = {"ammonia_count_max": 3, "ww_count_min": 1}
+    ranked_sql, ranked_params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+    )
+    for sql in (ranked_sql, count_sql):
+        where = sql.split("WHERE", 1)[1]
+        assert "s.ammonia_count <=" in where
+        assert "s.ww_count >=" in where
+    # count params are the WHERE-clause prefix of the ranked params
+    assert count_params == ranked_params[: len(count_params)]
+
+
+def test_min_development_score_not_mistaken_for_a_count_min_filter():
+    # `min_development_score` contains "min" but is NOT a `<col>_min` count
+    # filter — it must still map to the primary-score expression, not a
+    # bogus `s.min_development_sc >= n` column predicate.
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"min_development_score": 55},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert "best_colony_potential" in where
+    assert "min_development_sc" not in where
 
 
 # --- build_count_query -------------------------------------------------------

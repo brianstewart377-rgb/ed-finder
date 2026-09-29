@@ -28,6 +28,7 @@ from edfinder_api.models import (
     GalaxySearchRequest, ClusterSearchRequest, ClusterSearchResponse, AutocompleteResponse,
 )
 from edfinder_api.v3_schema import current_generation_schema
+from edfinder_api.ranking.profile import RANKING_VERSION, ranking_sha256
 
 # Single search implementation. If this import fails the app cannot
 # serve search at all — fail loud at startup, not at request time.
@@ -36,9 +37,29 @@ import edfinder_api.local_search as _ls
 router = APIRouter(tags=['search'])
 
 AUTOCOMPLETE_CACHE_VERSION = 'v3'
-SEARCH_CACHE_VERSION = 'v4'
+# Bumped v4 -> v5 at the F3 V3 cutover: pre-cutover `search:v4:*` entries were
+# written by the legacy code path (different semantics, no generation/ranking
+# identity) and must never be served after the repoint.
+SEARCH_CACHE_VERSION = 'v5'
 GALAXY_CACHE_VERSION = 'v4'
 CLUSTER_CACHE_VERSION = 'v4'
+
+
+def _search_cache_key(body_dict: dict, generation_row) -> str:
+    """Build the `/api/local/search` cache key.
+
+    Scoped to (a) the cutover namespace version, (b) the ranking identity
+    (`RANKING_VERSION` + `ranking_sha256()`), (c) the resolved PUBLISHED
+    generation (id + sequence), and (d) the full request body. So a warm
+    entry can never be served across a cutover, a ranking-formula change, or
+    a governed publish — each shifts the namespace and misses the old key.
+    """
+    return (
+        f"search:{SEARCH_CACHE_VERSION}:{RANKING_VERSION}:{ranking_sha256()}:"
+        f"g{generation_row['derived_generation_id']}:"
+        f"s{generation_row['publication_sequence']}:"
+        f"{json.dumps(body_dict, sort_keys=True, default=str)}"
+    )
 
 
 def _complete_coords(coords) -> dict | None:
@@ -180,12 +201,20 @@ async def local_search_endpoint(
         'galaxy_wide':    req.galaxy_wide,
     }
 
-    # Cache key includes every dimension that affects the result set,
-    # otherwise the cache silently serves stale data when sliders move
-    # (this was the original bug behind the inline-fallback's existence).
-    cache_key = (
-        f"search:{SEARCH_CACHE_VERSION}:{json.dumps(body_dict, sort_keys=True, default=str)}"
-    )
+    # Resolve the pinned PUBLISHED generation BEFORE consulting the cache.
+    # This does two things a body-only key could not: (a) a request with no
+    # published generation gets a 404 even on a cache hit, instead of a warm
+    # entry masking the unavailable product; (b) the cache key is scoped to
+    # the exact generation + ranking identity, so a governed publish or a
+    # ranking-formula change can never serve a stale/legacy entry. A pinned
+    # generation lookup is a single-row indexed read on v3_meta.
+    generation_row = await _ls.resolve_published_generation(pool)
+
+    # Cache key includes every dimension that affects the result set — the
+    # request body, the ranking identity, AND the resolved generation —
+    # otherwise the cache silently serves stale data when sliders move, when
+    # the ranking changes, or when a new generation is published.
+    cache_key = _search_cache_key(body_dict, generation_row)
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
