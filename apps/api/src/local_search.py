@@ -30,7 +30,12 @@ from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
 from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS, ranking_sha256
-from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
+from edfinder_api.ranking.ranking_sql import (
+    build_count_query,
+    build_ranked_query,
+    SORT_DISTANCE,
+    SORT_SCORE,
+)
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
@@ -235,9 +240,16 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
     ry = float(ref["y"]) if ref_has_coords else 0.0
     rz = float(ref["z"]) if ref_has_coords else 0.0
 
-    dist_filter = filters.get("distance", {})
-    min_dist = float(dist_filter.get("min", 0))
-    max_dist_req = float(dist_filter.get("max", 500))
+    # RangeFilter.model_dump() emits omitted bounds as an explicit ``None``
+    # (the key is present), so ``dict.get("min", 0)`` returns ``None`` for a
+    # one-sided range and ``float(None)`` used to raise TypeError -> 503 for a
+    # perfectly valid ``{"max": 500}`` / ``{"min": 10}`` request. Normalise the
+    # optional bounds explicitly instead.
+    dist_filter = filters.get("distance") or {}
+    _min_raw = dist_filter.get("min")
+    _max_raw = dist_filter.get("max")
+    min_dist = float(_min_raw) if _min_raw is not None else 0.0
+    max_dist_req = float(_max_raw) if _max_raw is not None else 500.0
     max_dist = min(max_dist_req, MAX_SEARCH_RADIUS)
     radius_capped = max_dist < max_dist_req
 
@@ -609,6 +621,15 @@ async def resolve_published_generation(pool: asyncpg.Pool) -> asyncpg.Record:
 # projection, so `_v3_hard_filters` rejects it (422) rather than dropping it.
 _KNOWN_BODY_FILTER_KEYS: frozenset[str] = frozenset(BODY_FILTER_COLS) | frozenset(BODY_FILTER_ALIASES)
 
+# `LocalSearchRequest.sort_by` -> ranking-builder ordering mode. The request
+# model already lowercases and maps the legacy 'rating' alias onto
+# 'development'; anything not in this map is rejected (422) by
+# `local_db_search_v3` rather than silently ignored.
+_SORT_BY_TO_MODE: dict[str, str] = {
+    'development': SORT_SCORE,
+    'distance': SORT_DISTANCE,
+}
+
 
 def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
     """Map `LocalSearchContext` body/feature filters onto the
@@ -668,6 +689,11 @@ def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
 
     if not ctx.galaxy_wide and ctx.has_reference_coords:
         hard_filters['max_distance_ly'] = ctx.max_dist
+        # Lower distance bound (annulus search): only meaningful with a
+        # reference point and a positive minimum. Enforced on both the page
+        # and the count via the shared builder.
+        if ctx.min_dist and ctx.min_dist > 0:
+            hard_filters['min_distance_ly'] = ctx.min_dist
 
     if ctx.require_bio:
         hard_filters['has_biologicals'] = True
@@ -761,11 +787,17 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     t0 = time.time()
     ctx = _parse_local_search_context(body)
 
-    if ctx.population_value is not None:
-        # `v3_app.system_search` has no population column at all (see the
-        # module comment above): a caller who explicitly asked for a
-        # population filter must get a clear 422, not results that were
-        # silently never filtered on population.
+    # `v3_app.system_search` has no population column at all (see the module
+    # comment above): a caller who explicitly asked for ANY population
+    # constraint must get a clear 422, not results that were silently never
+    # filtered on population. Check the raw filter for every declared shape --
+    # the legacy `{value, comparison}` form AND the `{min, max}` range form --
+    # since only the former reaches `ctx.population_value` (a range would
+    # otherwise be dropped in silence).
+    _pop_filter = (body.get('filters') or {}).get('population') or {}
+    if isinstance(_pop_filter, dict) and any(
+        _pop_filter.get(k) is not None for k in ('value', 'min', 'max')
+    ):
         raise HTTPException(
             422,
             'population filter is not supported by V3 Finder search '
@@ -787,6 +819,19 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         )
     picked_economy = None
 
+    # Map the request's sort_by onto a builder ordering mode, rejecting
+    # anything unsupported rather than silently keeping score-first order for
+    # a caller who asked for something else (the UI sends 'development' or
+    # 'distance'; the model normalises 'rating' -> 'development').
+    sort_by = (ctx.sort_by or 'development').strip().lower()
+    if sort_by not in _SORT_BY_TO_MODE:
+        raise HTTPException(
+            422,
+            f"unsupported sort_by {sort_by!r}; supported: "
+            f"{', '.join(sorted(_SORT_BY_TO_MODE))}.",
+        )
+    sort_mode = _SORT_BY_TO_MODE[sort_by]
+
     hard_filters = _v3_hard_filters(ctx)
     reference_coords = (ctx.rx, ctx.ry, ctx.rz) if ctx.has_reference_coords else None
 
@@ -798,6 +843,7 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         reference_coords=reference_coords,
         limit=ctx.size,
         offset=ctx.from_idx,
+        sort=sort_mode,
     )
     count_sql, count_params = build_count_query(
         PROFILE_SPEC,

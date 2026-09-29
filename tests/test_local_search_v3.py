@@ -436,3 +436,50 @@ def test_v3_hard_filters_maps_every_declared_body_count_min_and_max():
     for k in hard:
         assert k in HARD_FILTER_KEYS
     assert set(BODY_COUNT_COLUMNS)  # non-empty source of truth
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_rejects_population_range_with_422():
+    """Finding #16: a population *range* ({min}/{max}) must 422 like the
+    legacy {value} shape, not be silently ignored."""
+    from fastapi import HTTPException
+
+    for pop in ({'min': 100}, {'max': 0}, {'value': 0, 'comparison': 'equal'}):
+        with pytest.raises(HTTPException) as excinfo:
+            await local_search.local_db_search_v3(
+                {'galaxy_wide': True, 'filters': {'population': pop}}, None,
+            )
+        assert excinfo.value.status_code == 422, pop
+
+
+@pytest.mark.asyncio
+async def test_local_search_v3_rejects_unsupported_sort_by_with_422():
+    """Finding #15: an unsupported sort_by must 422, not be silently ignored
+    (which kept score-first order for a caller who asked for something else)."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'sort_by': 'population'}, None,
+        )
+    assert excinfo.value.status_code == 422
+
+
+def test_parse_context_one_sided_distance_does_not_crash():
+    """Finding #17: a one-sided distance range ({max} only or {min} only) must
+    parse cleanly. `RangeFilter.model_dump()` emits the omitted bound as None,
+    which used to blow up `float(None)` -> TypeError -> 503."""
+    # max only
+    ctx = local_search._parse_local_search_context({
+        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+        'filters': {'distance': {'min': None, 'max': 500}},
+    })
+    assert ctx.min_dist == 0.0
+    assert ctx.max_dist_req == 500.0
+    # min only
+    ctx2 = local_search._parse_local_search_context({
+        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+        'filters': {'distance': {'min': 10, 'max': None}},
+    })
+    assert ctx2.min_dist == 10.0
+    assert ctx2.max_dist_req == 500.0  # default upper bound when omitted

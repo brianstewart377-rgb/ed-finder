@@ -348,6 +348,100 @@ def test_min_development_score_not_mistaken_for_a_count_min_filter():
     assert "min_development_sc" not in where
 
 
+# --- distance range + sort (findings #14, #15) -------------------------------
+
+
+def test_min_distance_ly_emits_lower_bound_when_reference_present():
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"min_distance_ly": 100.0, "max_distance_ly": 500.0},
+        reference_coords=(0.0, 0.0, 0.0),
+        limit=10,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert ">= $" in where and "<= $" in where, "annulus needs both bounds"
+    assert 100.0 in params and 500.0 in params
+
+
+def test_min_distance_ly_ignored_without_reference():
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"min_distance_ly": 100.0},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    assert 100.0 not in params
+
+
+def test_min_distance_shared_by_ranked_and_count():
+    hard_filters = {"min_distance_ly": 50.0, "max_distance_ly": 400.0}
+    ref = (1.0, 2.0, 3.0)
+    _, ranked_params = build_ranked_query(
+        PROFILE_SPEC, picked_archetype=None, picked_economy=None,
+        hard_filters=hard_filters, reference_coords=ref, limit=10, offset=0,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC, picked_archetype=None, picked_economy=None,
+        hard_filters=hard_filters, reference_coords=ref,
+    )
+    assert count_params == ranked_params[: len(count_params)]
+    assert 50.0 in count_params and 400.0 in count_params
+
+
+def test_sort_distance_orders_distance_first_then_score():
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=(0.0, 0.0, 0.0),
+        limit=10,
+        offset=0,
+        sort="distance",
+    )
+    order_by = sql.split("ORDER BY", 1)[1]
+    # first ordering term is the distance expression (ASC), score comes after
+    first_term = order_by.split(",")[0]
+    assert "sqrt(" in first_term and "ASC" in first_term
+    assert order_by.index("sqrt(") < order_by.index("best_colony_potential")
+
+
+def test_sort_score_is_default_and_orders_score_first():
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=(0.0, 0.0, 0.0),
+        limit=10,
+        offset=0,
+    )
+    order_by = sql.split("ORDER BY", 1)[1]
+    assert order_by.index("best_colony_potential") < order_by.index("sqrt(")
+
+
+def test_sort_distance_without_reference_falls_back_to_score_order():
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+        sort="distance",
+    )
+    order_by = sql.split("ORDER BY", 1)[1]
+    assert "sqrt(" not in order_by  # no reference -> no distance term at all
+    assert "best_colony_potential" in order_by
+
+
 # --- build_count_query -------------------------------------------------------
 
 

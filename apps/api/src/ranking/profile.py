@@ -102,6 +102,7 @@ HARD_FILTER_KEYS: Final[tuple[str, ...]] = (
     "has_geologicals",
     "main_star_class_in",
     "min_development_score",
+    "min_distance_ly",
     "max_distance_ly",
     "galaxy_region",
 )

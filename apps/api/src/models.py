@@ -533,8 +533,11 @@ class LocalSearchRequest(BaseModel):
     filters:          Optional[SearchFilters] = None
     reference_coords: Optional[CoordsModel]   = None
     sort_by:          Optional[str]            = 'development'
-    size:             int                      = Field(default=50, le=500)
-    from_:            int                      = Field(default=0, ge=0, alias='from')
+    # size: 1..500. A missing lower bound let size=-1 through Pydantic and
+    # become a negative SQL LIMIT (a DB error surfaced as a 503); from_ needs
+    # an upper bound so an oversized offset can't overflow asyncpg int encoding.
+    size:             int                      = Field(default=50, ge=1, le=500)
+    from_:            int                      = Field(default=0, ge=0, le=2_147_483_647, alias='from')
     body_filters:     Optional[BodyFilters]    = None
     require_bio:      Optional[bool]           = None
     require_geo:      Optional[bool]           = None

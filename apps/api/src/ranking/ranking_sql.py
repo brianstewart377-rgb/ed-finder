@@ -99,7 +99,7 @@ and docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from .profile import BODY_COUNT_COLUMNS, HARD_FILTER_KEYS
 
@@ -252,10 +252,25 @@ def _build_common(
             distance_expr = _distance_expr(builder, reference_coords)
             param = builder.add(float(value))
             where_clauses.append(f"{distance_expr} <= {param}")
+        elif key == "min_distance_ly":
+            if reference_coords is None:
+                # No reference point to measure distance from: safely ignored,
+                # like max_distance_ly above.
+                continue
+            distance_expr = _distance_expr(builder, reference_coords)
+            param = builder.add(float(value))
+            where_clauses.append(f"{distance_expr} >= {param}")
         # Every HARD_FILTER_KEYS member is handled above; nothing falls
         # through silently for a *known* key.
 
     return joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr
+
+
+# Ordering modes `build_ranked_query` supports. Callers (the search router)
+# reject any other `sort_by` with a 422 rather than silently ignoring it.
+SORT_SCORE: Final[str] = "score"
+SORT_DISTANCE: Final[str] = "distance"
+SUPPORTED_SORTS: Final[frozenset[str]] = frozenset({SORT_SCORE, SORT_DISTANCE})
 
 
 def build_ranked_query(
@@ -267,12 +282,23 @@ def build_ranked_query(
     reference_coords: tuple[float, float, float] | None,
     limit: int,
     offset: int,
+    sort: str = SORT_SCORE,
 ) -> tuple[str, list[Any]]:
     """Build a parameterized, generation-agnostic ranked SELECT.
 
     Returns `(sql, params)` where `sql` uses only `$1..$n` placeholders (no
     literal values) and `params` is the matching positional argument list
     for asyncpg. Pure — never opens a database connection.
+
+    `sort` selects the primary ordering:
+    - `SORT_SCORE` (default): weighted score (`primary_score * uncertainty`)
+      DESC, then nearest-distance, then `system_id64` — the ranking profile's
+      canonical order.
+    - `SORT_DISTANCE`: nearest reference distance ASC first, then weighted
+      score DESC, then `system_id64`. Requires `reference_coords`; without a
+      reference there is nothing to measure distance from, so it falls back to
+      score order. Any value outside `SUPPORTED_SORTS` is the caller's error
+      (the router 422s before calling this).
 
     `spec` is accepted (rather than reading the module-level `PROFILE_SPEC`
     directly) so callers can pass a resolved `RANKING_VERSIONS[version]` for
@@ -282,7 +308,8 @@ def build_ranked_query(
 
     See `build_count_query` for the matching `COUNT(*)` query over the same
     WHERE clause — the two share `_build_common` so a page's filter and its
-    total can never drift apart.
+    total can never drift apart. (Sort order does not affect a count, so
+    `build_count_query` takes no `sort`.)
     """
 
     builder = _ParamBuilder()
@@ -294,10 +321,21 @@ def build_ranked_query(
         reference_coords=reference_coords,
     )
 
-    order_terms = [f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"]
-    if reference_coords is not None:
-        tie_break_distance_expr = _distance_expr(builder, reference_coords)
-        order_terms.append(f"{tie_break_distance_expr} ASC")
+    score_term = f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"
+    distance_term = (
+        f"{_distance_expr(builder, reference_coords)} ASC"
+        if reference_coords is not None
+        else None
+    )
+
+    if sort == SORT_DISTANCE and distance_term is not None:
+        # Nearest-first: distance ASC primary, weighted score as tie-break.
+        order_terms = [distance_term, score_term]
+    else:
+        # Canonical ranking order: weighted score primary, distance tie-break.
+        order_terms = [score_term]
+        if distance_term is not None:
+            order_terms.append(distance_term)
     order_terms.append("s.system_id64 ASC")
 
     limit_param = builder.add(int(limit))
