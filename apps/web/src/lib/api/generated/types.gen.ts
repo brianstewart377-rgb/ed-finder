@@ -56,6 +56,10 @@ export type ArchetypeRankingRow = {
      */
     tier: 'S' | 'A' | 'B' | 'C' | 'D';
     /**
+     * Selected Archetype
+     */
+    selected_archetype?: string | null;
+    /**
      * Primary Archetype
      */
     primary_archetype?: string | null;
@@ -91,6 +95,10 @@ export type ArchetypeRankingRow = {
      * Confidence
      */
     confidence?: number | null;
+    /**
+     * Completeness
+     */
+    completeness?: number | null;
     /**
      * Has Elw
      */
@@ -146,6 +154,7 @@ export type ArchetypeRankingsResponse = {
      * Query Ms
      */
     query_ms?: number | null;
+    ranking?: RankingIdentity | null;
 };
 
 /**
@@ -4979,6 +4988,37 @@ export type RangeFilter = {
 };
 
 /**
+ * RankingIdentity
+ *
+ * Echoes the versioned V3 ranking profile + pinned derived generation
+ * that produced a ranked response (F2c/F3 Task 5), so a client or an
+ * operator can tell exactly which profile+generation combination is
+ * behind a given result set without spelunking through logs.
+ *
+ * `ranking_sha256` is `edfinder_api.ranking.profile.ranking_sha256()` at
+ * response time -- it must always equal the live profile's hash, never a
+ * value baked in ahead of time.
+ */
+export type RankingIdentity = {
+    /**
+     * Ranking Version
+     */
+    ranking_version: string;
+    /**
+     * Ranking Sha256
+     */
+    ranking_sha256: string;
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: number;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+};
+
+/**
  * RatingExplanationResponse
  */
 export type RatingExplanationResponse = {
@@ -6034,6 +6074,7 @@ export type SearchResponse = {
      * Warning
      */
     warning?: string | null;
+    ranking?: RankingIdentity | null;
 };
 
 /**
@@ -7531,6 +7572,14 @@ export type SystemRow = {
      * White Dwarf Count
      */
     white_dwarf_count?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
+     * Completeness
+     */
+    completeness?: number | null;
     [key: string]: unknown;
 };
 

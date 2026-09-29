@@ -744,7 +744,7 @@ export const mapSystemsApiMapSystemsGet = <ThrowOnError extends boolean = false>
 /**
  * Ranked systems by colony archetype
  *
- * Returns systems ranked by a specific colony archetype score. Uses the mv_archetype_rankings materialized view for fast reads. Slot counts are ESTIMATED — not authoritative.
+ * Returns systems ranked by a specific colony archetype score, read generation-pinned from the published V3 `v3_app.system_archetype` projection via the ranking profile.
  */
 export const getArchetypeRankingsApiArchetypesRankingsGet = <ThrowOnError extends boolean = false>(options: Options<GetArchetypeRankingsApiArchetypesRankingsGetData, ThrowOnError>): RequestResult<GetArchetypeRankingsApiArchetypesRankingsGetResponses, GetArchetypeRankingsApiArchetypesRankingsGetErrors, ThrowOnError> => (options.client ?? client).get<GetArchetypeRankingsApiArchetypesRankingsGetResponses, GetArchetypeRankingsApiArchetypesRankingsGetErrors, ThrowOnError>({ url: '/api/archetypes/rankings', ...options });
 
