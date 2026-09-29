@@ -208,7 +208,21 @@ async def local_search_endpoint(
     # the exact generation + ranking identity, so a governed publish or a
     # ranking-formula change can never serve a stale/legacy entry. A pinned
     # generation lookup is a single-row indexed read on v3_meta.
-    generation_row = await _ls.resolve_published_generation(pool)
+    try:
+        generation_row = await _ls.resolve_published_generation(pool)
+    except HTTPException:
+        # Deliberate 4xx (e.g. 404 no published generation, 503 products not
+        # ready) — surface it, don't mask.
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        # The V3 derived schema is not deployed here — genuine unavailability,
+        # not an internal bug. Surface a clean 503 rather than an uncaught 500.
+        log.error('resolve_published_generation missing schema: %r', exc)
+        return _search_unavailable(
+            f'local search: {type(exc).__name__}: {exc}',
+            hint='The V3 Finder schema is not available; check /api/health.',
+        )
 
     # Cache key includes every dimension that affects the result set — the
     # request body, the ranking identity, AND the resolved generation —

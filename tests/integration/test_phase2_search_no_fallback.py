@@ -18,7 +18,7 @@ pytestmark = pytest.mark.asyncio
 
 # --- Happy paths ------------------------------------------------------------
 
-async def test_local_search_runs_via_local_db_search(client):
+async def test_local_search_runs_via_local_db_search(client, v3_derived_ready):
     """Real DB call, real seed data → 200 + non-empty results.
 
     `POST /api/local/search` was repointed onto the V3 ranked-search path
@@ -42,7 +42,7 @@ async def test_local_search_runs_via_local_db_search(client):
         f"expected v3 ranked-search source, got {body.get('source')!r}"
 
 
-async def test_local_search_concrete_economy_is_rejected_not_silently_overall(client):
+async def test_local_search_concrete_economy_is_rejected_not_silently_overall(client, v3_derived_ready):
     """A concrete economy must fail closed (finding #8).
 
     V3's `v3_app.system_search` / `system_archetype_summary` carry no
@@ -86,7 +86,7 @@ async def test_local_search_concrete_economy_is_rejected_not_silently_overall(cl
 
 # --- 503 on DB failure (the core Phase 2 contract) --------------------------
 
-async def test_local_search_returns_503_on_db_failure(client):
+async def test_local_search_returns_503_on_db_failure(client, v3_derived_ready):
     """If the SQL builder raises, the API must surface a 503 with a
     problem-details body — not silently degrade to an inline fallback
     that produces different ordering (audit §C5).
