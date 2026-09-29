@@ -348,7 +348,15 @@ def build_ranked_query(
         "SELECT s.*, "
         f"({primary_score_expr}) AS primary_score, "
         f"({confidence_expr}) AS ranking_confidence, "
-        f"({uncertainty_expr}) AS uncertainty_factor\n"
+        f"({uncertainty_expr}) AS uncertainty_factor, "
+        # The system's ACTUAL no-pick summary facts (always joined via `sum`),
+        # aliased so a response can report the real primary/secondary archetype
+        # and overall best potential rather than inventing them from the
+        # selected archetype (finding #20). NULL for a system with no summary.
+        "sum.primary_archetype AS summary_primary_archetype, "
+        "sum.secondary_archetype AS summary_secondary_archetype, "
+        "sum.best_colony_potential AS summary_best_colony_potential, "
+        "sum.archetype_confidence AS summary_archetype_confidence\n"
         "FROM v3_app.system_search s\n"
         f"{joins_sql}\n"
         f"{where_sql}"

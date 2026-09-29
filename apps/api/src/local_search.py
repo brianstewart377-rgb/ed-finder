@@ -749,6 +749,15 @@ def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, 
         'main_star_type':    row.get('main_star_class'),
         'archetype_score':   float(primary_score) if primary_score is not None else None,
         'archetype_tier':    _v3_tier(primary_score),
+        # The system's actual summary facts (finding #20): its strongest
+        # archetype, runner-up, and overall best colony potential -- read from
+        # the joined summary rather than omitted or inferred.
+        'primary_archetype':   row.get('summary_primary_archetype'),
+        'secondary_archetype': row.get('summary_secondary_archetype'),
+        'best_colony_potential': (
+            float(row['summary_best_colony_potential'])
+            if row.get('summary_best_colony_potential') is not None else None
+        ),
         'uncertainty_factor': row.get('uncertainty_factor'),
         'confidence':        row.get('confidence'),
         'completeness':      row.get('completeness'),

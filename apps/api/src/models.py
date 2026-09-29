@@ -868,6 +868,10 @@ class ArchetypeRankingRow(BaseModel):
     distance_to_sol:  Optional[float]       = None
     score:            float
     tier:             TierValue
+    # The archetype the caller ranked BY (echoes the request). Distinct from
+    # `primary_archetype`, which is the system's own strongest archetype read
+    # from the summary -- the two often differ.
+    selected_archetype:   Optional[str]   = None
     primary_archetype:    Optional[str]   = None
     secondary_archetype:  Optional[str]   = None
     archetype_confidence: Optional[float] = None

@@ -282,11 +282,9 @@ def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str,
 # column at all (no slot-count or contamination projection exists in the F2b
 # relation) -- like `local_db_search_v3`'s population-filter handling, a
 # caller who explicitly asks for either gets a clear 422 rather than a
-# silently-ignored filter. `has_elw=false` is the same story: V3 only
-# exposes `elw_count` (an `elw_count_min` hard filter), which can express
-# "has at least one ELW" but not "has exactly zero" -- so an explicit
-# `has_elw=false` also 422s rather than being silently dropped or
-# misapplied.
+# silently-ignored filter. `has_elw` maps onto the elw_count range filters:
+# true -> `elw_count_min = 1` (at least one ELW), false -> `elw_count_max = 0`
+# (exactly zero), so both directions are honoured rather than dropped.
 #
 # `max_distance_ly` and the always-shown `distance_to_sol` both measure from
 # Sol at the coordinate origin (the same `(0, 0, 0)` convention
@@ -332,23 +330,18 @@ async def _archetype_rankings_v3(
                 '(v3_app.system_archetype has no contamination column).'
             ),
         )
-    if has_elw is False:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                'has_elw=false is not supported by V3 archetype rankings '
-                '(v3_app.system_search only exposes elw_count, not an '
-                'exact-zero filter).'
-            ),
-        )
-
     hard_filters: dict[str, Any] = {'min_development_score': min_score}
     if galaxy_region is not None:
         hard_filters['galaxy_region'] = galaxy_region
     if max_distance_ly is not None:
         hard_filters['max_distance_ly'] = max_distance_ly
-    if has_elw:
+    # has_elw True -> at least one ELW (elw_count >= 1); False -> exactly zero
+    # (elw_count <= 0). Both are now expressible via the elw_count_min /
+    # elw_count_max hard filters, so has_elw=false is honoured rather than 422'd.
+    if has_elw is True:
         hard_filters['elw_count_min'] = 1
+    elif has_elw is False:
+        hard_filters['elw_count_max'] = 0
 
     reference_coords = (0.0, 0.0, 0.0)
 
@@ -460,10 +453,17 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
         'distance_to_sol':     distance_to_sol,
         'score':               score,
         'tier':                _v3_ranking_tier(score),
-        'primary_archetype':   archetype,
-        'secondary_archetype': None,
+        # The system's ACTUAL primary/secondary archetype and overall best
+        # potential, read from the summary (finding #20) -- not the requested
+        # archetype. The requested one is exposed as `selected_archetype`.
+        'selected_archetype':  archetype,
+        'primary_archetype':   row.get('summary_primary_archetype'),
+        'secondary_archetype': row.get('summary_secondary_archetype'),
         'archetype_confidence': archetype_confidence,
-        'overall_development_potential': None,
+        'overall_development_potential': (
+            float(row['summary_best_colony_potential'])
+            if row.get('summary_best_colony_potential') is not None else None
+        ),
         'buildability_score':  None,
         'build_complexity':    None,
         'purity_score':        None,
@@ -493,7 +493,7 @@ async def get_archetype_rankings(
     request: Request,
     archetype:       str            = Query(..., description='Colony archetype key'),
     min_score:       int            = Query(40,  ge=0,   le=100),
-    galaxy_region:   Optional[int]  = Query(None),
+    galaxy_region:   Optional[int]  = Query(None, ge=0, le=2_147_483_647),
     max_distance_ly: Optional[float]= Query(None, ge=0),
     has_elw:         Optional[bool] = Query(None),
     min_slots:       Optional[int]  = Query(None, ge=0),

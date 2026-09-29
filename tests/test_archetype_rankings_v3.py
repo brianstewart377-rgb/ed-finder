@@ -208,6 +208,44 @@ async def test_archetype_rankings_v3_orders_by_archetype_score_with_count(databa
 
 
 @pytest.mark.asyncio
+async def test_archetype_rankings_v3_reports_actual_summary_not_invented_archetype(database):
+    """Finding #20: each row must report the system's ACTUAL primary/secondary
+    archetype and overall best potential (from the summary), with the requested
+    archetype echoed separately as `selected_archetype` -- not the requested
+    key stamped onto `primary_archetype` with `secondary=None`/potential=None."""
+    connection, _, _, _ = database
+    _build_published_generation(database)
+
+    archetype_key = _pick_scored_archetype_key(connection)
+    summary = {
+        sid: (primary, secondary, best)
+        for sid, primary, secondary, best in connection.execute('''
+            SELECT system_id64, primary_archetype, secondary_archetype,
+                   best_colony_potential
+              FROM v3_app.system_archetype_summary
+        ''').fetchall()
+    }
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await archetypes._archetype_rankings_v3(
+            archetype=archetype_key, min_score=0, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=50, offset=0, pool=pool,
+        )
+    finally:
+        await pool.close()
+
+    assert result['results'], 'need at least one ranked row'
+    for row in result['results']:
+        assert row['selected_archetype'] == archetype_key
+        expected_primary, expected_secondary, expected_best = summary[row['id64']]
+        assert row['primary_archetype'] == expected_primary
+        assert row['secondary_archetype'] == expected_secondary
+        assert row['overall_development_potential'] == float(expected_best)
+
+
+@pytest.mark.asyncio
 async def test_archetype_rankings_v3_honours_max_distance_hard_filter_and_count(database):
     connection, _, _, _ = database
     _build_published_generation(database)
@@ -307,21 +345,37 @@ async def test_archetype_rankings_v3_rejects_max_contamination():
 
 
 @pytest.mark.asyncio
-async def test_archetype_rankings_v3_rejects_has_elw_false():
-    with pytest.raises(HTTPException) as excinfo:
-        await archetypes._archetype_rankings_v3(
-            archetype='mining_hub',
-            min_score=40,
-            galaxy_region=None,
-            max_distance_ly=None,
-            has_elw=False,
-            min_slots=None,
-            max_contamination=None,
-            limit=50,
-            offset=0,
-            pool=object(),
-        )
-    assert excinfo.value.status_code == 422
+async def test_archetype_rankings_v3_has_elw_maps_to_elw_count_bounds(monkeypatch):
+    """Finding #23: has_elw is honoured in BOTH directions now that
+    system_search exposes elw_count with min+max range filters -- true ->
+    elw_count_min=1 (at least one ELW), false -> elw_count_max=0 (exactly
+    zero). Neither 422s. Capture the hard_filters handed to the builder and
+    bail before any pool use."""
+    captured: dict = {}
+
+    def _fake_build_ranked(spec, **kwargs):
+        captured.clear()
+        captured.update(kwargs['hard_filters'])
+        raise RuntimeError('stop-before-pool')
+
+    monkeypatch.setattr(archetypes, 'build_ranked_query', _fake_build_ranked)
+
+    async def _run(has_elw):
+        with pytest.raises(RuntimeError):
+            await archetypes._archetype_rankings_v3(
+                archetype='mining_hub', min_score=40, galaxy_region=None,
+                max_distance_ly=None, has_elw=has_elw, min_slots=None,
+                max_contamination=None, limit=50, offset=0, pool=object(),
+            )
+        return dict(captured)
+
+    false_filters = await _run(False)
+    assert false_filters.get('elw_count_max') == 0
+    assert 'elw_count_min' not in false_filters
+
+    true_filters = await _run(True)
+    assert true_filters.get('elw_count_min') == 1
+    assert 'elw_count_max' not in true_filters
 
 
 @pytest.mark.asyncio
