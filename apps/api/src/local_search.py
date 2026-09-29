@@ -590,6 +590,14 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 # TODO(F3 follow-up): `min_distance` (the lower bound of the distance range
 # filter) still has no `HARD_FILTER_KEYS` entry and is silently ignored by
 # the V3 path — only the upper bound (`max_distance_ly`) is enforced today.
+# The derived products a V3 Finder ranked read depends on. Publication only
+# blocks *registered* products that aren't READY, so a generation could be
+# published with one of these never registered at all -- its `v3_app.*` view
+# would then be empty, indistinguishable from "no matching systems". Requiring
+# both to be READY lets us signal explicit unavailability instead.
+_REQUIRED_FINDER_PRODUCTS: frozenset[str] = frozenset({'system_search', 'system_archetype'})
+
+
 async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg.Record:
     row = await connection.fetchrow('''
         SELECT c.derived_generation_id, c.publication_sequence
@@ -599,6 +607,30 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg
     ''')
     if row is None:
         raise HTTPException(404, 'No published Ratings V4 generation')
+
+    # A published generation whose Finder products were never registered/built
+    # exposes EMPTY v3_app.* views. Distinguish "product unavailable" from
+    # "genuinely no matches" by requiring both products to be READY for this
+    # pinned generation; if not, fail explicitly (503) rather than serving an
+    # empty result that reads as a valid search with no hits.
+    ready = await connection.fetch(
+        '''
+        SELECT product_code
+        FROM v3_meta.derived_product
+        WHERE derived_generation_id = $1
+          AND lifecycle_state = 'READY'
+          AND product_code = ANY($2::text[])
+        ''',
+        row['derived_generation_id'],
+        list(_REQUIRED_FINDER_PRODUCTS),
+    )
+    missing = _REQUIRED_FINDER_PRODUCTS - {r['product_code'] for r in ready}
+    if missing:
+        raise HTTPException(
+            503,
+            'Finder ranking products are not available for the published '
+            f'generation (missing/not-ready: {", ".join(sorted(missing))}).',
+        )
     return row
 
 
@@ -876,6 +908,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         raise
     except (asyncpg.exceptions.UndefinedTableError,
             asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        # Record the underlying cause server-side (the outer route rethrows a
+        # generic HTTPException, which FastAPI would not log) so a missing/
+        # renamed V3 relation is diagnosable rather than an opaque 503.
+        log.error('local_db_search_v3 missing relation: %r (sqlstate=%s)',
+                  exc, getattr(exc, 'sqlstate', None))
         raise HTTPException(503, 'Finder search is unavailable') from exc
 
     results = [_build_v3_system_record(row, reference_coords) for row in rows]

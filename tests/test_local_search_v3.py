@@ -483,3 +483,37 @@ def test_parse_context_one_sided_distance_does_not_crash():
     })
     assert ctx2.min_dist == 10.0
     assert ctx2.max_dist_req == 500.0  # default upper bound when omitted
+
+
+@pytest.mark.asyncio
+async def test_current_derived_generation_503_when_required_product_missing():
+    """Finding #19: a published generation whose Finder products were never
+    registered/built must signal explicit unavailability (503), not an empty
+    result that reads as 'no matches'."""
+    from fastapi import HTTPException
+
+    class _Conn:
+        async def fetchrow(self, *_a, **_k):
+            return {'derived_generation_id': 'g1', 'publication_sequence': 1}
+
+        async def fetch(self, *_a, **_k):
+            return [{'product_code': 'system_search'}]  # system_archetype missing
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search._current_derived_generation(_Conn())
+    assert excinfo.value.status_code == 503
+    assert 'system_archetype' in str(excinfo.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_current_derived_generation_ok_when_both_products_ready():
+    class _Conn:
+        async def fetchrow(self, *_a, **_k):
+            return {'derived_generation_id': 'g1', 'publication_sequence': 3}
+
+        async def fetch(self, *_a, **_k):
+            return [{'product_code': 'system_search'},
+                    {'product_code': 'system_archetype'}]
+
+    row = await local_search._current_derived_generation(_Conn())
+    assert row['publication_sequence'] == 3

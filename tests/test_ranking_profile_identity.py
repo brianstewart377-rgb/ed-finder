@@ -34,11 +34,32 @@ def test_unknown_version_raises():
         raise AssertionError("resolve() should raise KeyError for an unknown version")
 
 
+# Pinned, human-reviewed digest for the current ranking identity. THIS is the
+# review gate (finding #18): PROFILE_SPEC["ranking_sha256"] is computed from the
+# live definition, so the self-consistency check below moves both sides
+# together and can never flag a spec change. Pinning the digest here forces any
+# change to the hashed ranking definition (score rule, uncertainty curve, tier
+# thresholds, hard-filter key set, archetype keys) to be a deliberate edit to
+# this constant -- at which point the author must also decide whether
+# RANKING_VERSION needs to bump.
+EXPECTED_RANKING_SHA256 = "7a0035507045668f37c714b64f79baa290c1fdb1c96d5a3676511eed070243ed"
+
+
 def test_ranking_sha_is_stable_and_matches_recorded():
     # the recorded sha in the spec must equal the sha recomputed from the live spec
     assert ranking_sha256() == PROFILE_SPEC["ranking_sha256"]
     # stable across repeated calls (deterministic canonicalisation)
     assert ranking_sha256() == ranking_sha256()
+
+
+def test_ranking_sha_matches_pinned_reviewed_digest():
+    assert ranking_sha256() == EXPECTED_RANKING_SHA256, (
+        "Ranking identity changed. If this is intentional, update "
+        "EXPECTED_RANKING_SHA256 to the new digest AND decide whether "
+        "RANKING_VERSION must bump (a shipped/pinned profile must not mutate "
+        "in place). If unintentional, you changed the hashed ranking spec by "
+        "accident."
+    )
 
 
 def test_tier_thresholds_match_projection_contract():

@@ -375,6 +375,8 @@ async def _archetype_rankings_v3(
         raise
     except (asyncpg.exceptions.UndefinedTableError,
             asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        log.error('archetype_rankings_v3 missing relation: %r (sqlstate=%s)',
+                  exc, getattr(exc, 'sqlstate', None))
         raise HTTPException(503, 'Archetype rankings are unavailable') from exc
     except asyncpg.PostgresError as e:
         log.error('archetypes.rankings DB error: %s', e)
