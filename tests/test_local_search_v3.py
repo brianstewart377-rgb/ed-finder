@@ -138,16 +138,19 @@ async def test_local_search_v3_orders_by_best_colony_potential_with_no_pick(data
     _build_published_generation(database)
 
     summary_rows = connection.execute('''
-        SELECT system_id64, best_colony_potential, archetype_confidence
+        SELECT system_id64, best_colony_potential
           FROM v3_app.system_archetype_summary
     ''').fetchall()
-    completeness = dict(connection.execute('''
-        SELECT system_id64, completeness FROM v3_app.system_search
+    # No-pick uncertainty uses the system's general evidence confidence
+    # (s.confidence), not the summary's classification-separation confidence.
+    evidence = dict(connection.execute('''
+        SELECT system_id64, confidence * completeness AS factor
+          FROM v3_app.system_search
     ''').fetchall())
     expected_order = [
-        system_id64 for system_id64, _, _ in sorted(
+        system_id64 for system_id64, _ in sorted(
             summary_rows,
-            key=lambda row: (-(row[1] * row[2] * completeness[row[0]]), row[0]),
+            key=lambda row: (-(row[1] * evidence[row[0]]), row[0]),
         )
     ]
     assert len(expected_order) == 12  # authoritative fixture: 12 systems

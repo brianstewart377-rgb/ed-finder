@@ -377,7 +377,11 @@ class RankingIdentity(BaseModel):
 
     ranking_version:       str
     ranking_sha256:        str
-    derived_generation_id: int
+    # v3_meta.current_derived_generation.derived_generation_id is a UUID (see
+    # sql/v3/migrations/006). Declaring it int made FastAPI response-model
+    # validation reject every real ranked response as a 500. Match the Ratings
+    # V4 response models: carry it as the UUID string.
+    derived_generation_id: str
     publication_sequence:  int
 
 

@@ -214,14 +214,20 @@ async def local_search_endpoint(
         # Deliberate 4xx (e.g. 404 no published generation, 503 products not
         # ready) — surface it, don't mask.
         raise
-    except (asyncpg.exceptions.UndefinedTableError,
-            asyncpg.exceptions.InvalidSchemaNameError) as exc:
-        # The V3 derived schema is not deployed here — genuine unavailability,
-        # not an internal bug. Surface a clean 503 rather than an uncaught 500.
-        log.error('resolve_published_generation missing schema: %r', exc)
+    except Exception as exc:
+        # The pre-cache generation lookup runs before the ranked-read try block
+        # below, so without this it would bypass the route's error boundary and
+        # surface as an uncaught 500 (missing V3 schema, connection acquire
+        # failure, etc.). Classify it as search unavailability (503), the same
+        # as a failure from the ranked read itself.
+        log.error(
+            'resolve_published_generation failed: type=%s repr=%r sqlstate=%s',
+            type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            exc_info=True,
+        )
         return _search_unavailable(
             f'local search: {type(exc).__name__}: {exc}',
-            hint='The V3 Finder schema is not available; check /api/health.',
+            hint='Retry in a few seconds; if the problem persists, check /api/health.',
         )
 
     # Cache key includes every dimension that affects the result set — the

@@ -930,7 +930,7 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         'ranking': {
             'ranking_version': RANKING_VERSION,
             'ranking_sha256': ranking_sha256(),
-            'derived_generation_id': generation_row['derived_generation_id'],
+            'derived_generation_id': str(generation_row['derived_generation_id']),
             'publication_sequence': generation_row['publication_sequence'],
         },
     }

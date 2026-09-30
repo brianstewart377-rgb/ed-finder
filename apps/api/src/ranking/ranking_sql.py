@@ -91,7 +91,10 @@ facts. So the modifier is built as:
   picked archetype, `a.archetype_score` (the primary score) is already
   NULL, so the `primary_score * uncertainty_factor` ORDER BY term is NULL
   either way and `NULLS LAST` places it after every scored system.
-- no-pick / economy-picked: `sum.archetype_confidence * s.completeness`.
+- no-pick: `s.confidence * s.completeness` — the system's general evidence
+  confidence (matching the spec's `confidence * completeness` factor and the
+  `confidence` badge), NOT `sum.archetype_confidence` (which is classification
+  separation and would zero out fully-observed but ambiguous systems).
 
 See docs/superpowers/plans/2026-09-27-v3-finder-f2c-f3-ranking.md (Task 2)
 and docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md.
@@ -209,8 +212,16 @@ def _build_common(
     else:
         # No-pick ranking: the F2b no-pick primary score. (A concrete
         # `picked_economy` never reaches here — it is rejected above.)
+        # Uncertainty uses the system's general EVIDENCE confidence
+        # (`s.confidence`), per PROFILE_SPEC's `confidence * completeness`
+        # factor — NOT `sum.archetype_confidence`, which is classification
+        # separation between the top two archetypes. Separation would drive a
+        # fully-observed system with two equally strong fits to a factor of
+        # zero (ranking it below poorly-observed systems) and would disagree
+        # with the `confidence` badge the response already reports from
+        # `s.confidence`.
         primary_score_expr = "sum.best_colony_potential"
-        confidence_expr = "sum.archetype_confidence"
+        confidence_expr = "s.confidence"
 
     uncertainty_expr = f"{confidence_expr} * s.completeness"
 

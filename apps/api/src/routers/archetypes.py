@@ -400,7 +400,7 @@ async def _archetype_rankings_v3(
         'ranking': {
             'ranking_version': RANKING_VERSION,
             'ranking_sha256': ranking_sha256(),
-            'derived_generation_id': generation_row['derived_generation_id'],
+            'derived_generation_id': str(generation_row['derived_generation_id']),
             'publication_sequence': generation_row['publication_sequence'],
         },
     }
@@ -424,13 +424,18 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
 
     `build_ranked_query` selects `s.*` (the `v3_app.system_search` columns)
     plus `primary_score` (= `a.archetype_score` for a picked archetype),
-    `ranking_confidence` (= the raw `a.confidence` confidence factor the
-    uncertainty modifier reads), and `uncertainty_factor`
-    (= `a.confidence * s.completeness`). `archetype_confidence` is read
-    directly from `ranking_confidence` rather than reconstructed by dividing
-    `uncertainty_factor` back out by `completeness` -- the division is
-    undefined at `completeness = 0` and conflates the archetype's judgement
-    confidence with the general data-completeness fraction.
+    `ranking_confidence` (= the raw `a.confidence` selected-fit confidence the
+    uncertainty modifier reads), `uncertainty_factor`
+    (= `a.confidence * s.completeness`), and the summary aliases
+    (`summary_primary_archetype`/`summary_secondary_archetype`/
+    `summary_best_colony_potential`/`summary_archetype_confidence`).
+
+    Two distinct confidences are surfaced, never reconstructed by dividing
+    `uncertainty_factor` back out by `completeness` (undefined at
+    `completeness = 0`): `confidence` is the selected fit's evidence
+    confidence (`ranking_confidence`), and `archetype_confidence` is the
+    summary's classification-separation confidence for the system's own
+    primary/secondary archetypes (`summary_archetype_confidence`).
     """
     x, y, z = row.get('x_ly'), row.get('y_ly'), row.get('z_ly')
     distance_to_sol = (
@@ -440,9 +445,18 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     )
 
     completeness = row.get('completeness')
+    # `confidence` (badge) = the selected fit's evidence confidence
+    # (a.confidence, exposed as ranking_confidence). `archetype_confidence`
+    # keeps its established meaning: the summary's classification-separation
+    # confidence for the system's own primary/secondary archetypes -- read from
+    # the summary alias, not overwritten with the selected-fit value.
     ranking_confidence = row.get('ranking_confidence')
-    archetype_confidence = (
+    selected_fit_confidence = (
         round(float(ranking_confidence), 4) if ranking_confidence is not None else None
+    )
+    summary_confidence = row.get('summary_archetype_confidence')
+    archetype_confidence = (
+        round(float(summary_confidence), 4) if summary_confidence is not None else None
     )
 
     score = float(row['primary_score']) if row['primary_score'] is not None else 0.0
@@ -470,7 +484,7 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
         'build_complexity':    None,
         'purity_score':        None,
         'contamination_risk':  None,
-        'confidence':          archetype_confidence,
+        'confidence':          selected_fit_confidence,
         'has_elw':             bool(elw_count) if elw_count is not None else None,
         'elw_count':           elw_count,
         'landable_count':      row.get('landable_count'),
