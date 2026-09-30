@@ -170,6 +170,44 @@ async def test_local_search_v3_orders_by_best_colony_potential_with_no_pick(data
 
 
 @pytest.mark.asyncio
+async def test_local_search_v3_maps_summary_to_declared_fields(database):
+    """Codex P2: the V3 record must expose the joined summary's development
+    potential and archetype-classification confidence under the DECLARED
+    SearchResult fields (`overall_development_potential` / `archetype_confidence`)
+    -- the same names the legacy builder emits -- not an undocumented
+    `best_colony_potential` key that left both declared fields null for every
+    V3 result (so Finder tuning + confidence displays saw only nulls)."""
+    connection, _, _, _ = database
+    _build_published_generation(database)
+
+    expected = {
+        sid: (bcp, ac)
+        for sid, bcp, ac in connection.execute('''
+            SELECT system_id64, best_colony_potential, archetype_confidence
+              FROM v3_app.system_archetype_summary
+        ''').fetchall()
+    }
+    assert expected, 'fixture must expose summary rows'
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'size': 50, 'from': 0}, pool,
+        )
+    finally:
+        await pool.close()
+
+    assert result['results'], 'expected ranked results'
+    for row in result['results']:
+        # the undocumented alias must be gone entirely
+        assert 'best_colony_potential' not in row
+        exp_bcp, exp_ac = expected[row['id64']]
+        assert row['overall_development_potential'] == pytest.approx(float(exp_bcp))
+        if exp_ac is not None:
+            assert row['archetype_confidence'] == pytest.approx(float(exp_ac))
+
+
+@pytest.mark.asyncio
 async def test_local_search_v3_honours_terraformable_hard_filter(database):
     connection, _, _, _ = database
     _build_published_generation(database)

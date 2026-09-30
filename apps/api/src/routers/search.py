@@ -258,7 +258,24 @@ async def local_search_endpoint(
             hint='Reduce search radius or filter scope; if persistent, retry shortly.',
         )
 
-    await cache_set(cache_key, result, settings.ttl_search, redis)
+    # Store under the generation the result was ACTUALLY computed under, not the
+    # one resolved before the cache lookup. A governed publish landing between
+    # resolve_published_generation() above and the ranked read makes
+    # local_db_search_v3() compute against the newer generation; keying the
+    # store off the pre-resolve generation would file that newer data under the
+    # old generation's key, to be served verbatim if that generation is ever
+    # republished/rolled back. `result['ranking']` reports the exact snapshot the
+    # rows came from (derived_generation_id + publication_sequence), so the
+    # stored value always matches its key. With no race the two keys are
+    # byte-identical, so this is a no-op in the common path.
+    ranking_identity = result.get('ranking') or {}
+    store_key = (
+        _search_cache_key(body_dict, ranking_identity)
+        if ranking_identity.get('derived_generation_id') is not None
+        and ranking_identity.get('publication_sequence') is not None
+        else cache_key
+    )
+    await cache_set(store_key, result, settings.ttl_search, redis)
     background_tasks.add_task(log_slow, 'local_search', (time.time() - t0) * 1000)
     return result
 

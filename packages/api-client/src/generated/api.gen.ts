@@ -5574,7 +5574,7 @@ export interface components {
             /** Ranking Sha256 */
             ranking_sha256: string;
             /** Derived Generation Id */
-            derived_generation_id: number;
+            derived_generation_id: string;
             /** Publication Sequence */
             publication_sequence: number;
         };

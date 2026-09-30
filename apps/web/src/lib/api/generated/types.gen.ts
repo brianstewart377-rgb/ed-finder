@@ -5011,7 +5011,7 @@ export type RankingIdentity = {
     /**
      * Derived Generation Id
      */
-    derived_generation_id: number;
+    derived_generation_id: string;
     /**
      * Publication Sequence
      */

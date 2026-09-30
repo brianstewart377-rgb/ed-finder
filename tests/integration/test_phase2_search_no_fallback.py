@@ -112,6 +112,53 @@ async def test_local_search_returns_503_on_db_failure(client, v3_derived_ready):
            'unavailable' in body.get('title', '').lower(), body
 
 
+async def test_local_search_caches_under_result_generation_not_preresolve(client):
+    """Cache-poisoning guard (Codex P2): if a governed publish lands between
+    `resolve_published_generation()` and the ranked read, `local_db_search_v3`
+    computes against the NEWER generation. The cache entry must be stored under
+    the generation the result was ACTUALLY computed under (`result['ranking']`),
+    not the pre-resolve generation -- otherwise newer data is filed under the
+    old key and served verbatim if that generation is ever republished/rolled
+    back. With no race the two keys are identical, so this only changes the
+    racing case."""
+    stored = {}
+
+    async def resolve_old(pool):
+        # pre-cache resolve sees the OLD generation
+        return {'derived_generation_id': 'gen-OLD', 'publication_sequence': 1}
+
+    async def search_returns_new(body, pool):
+        # a publish landed before the ranked read: results are from gen-NEW
+        return {
+            'results': [], 'count': 0, 'total': 0,
+            'source': 'v3:test', 'query_ms': 1, 'display_economy': 'overall',
+            'ranking': {
+                'ranking_version': 'test', 'ranking_sha256': 'sha',
+                'derived_generation_id': 'gen-NEW',
+                'publication_sequence': 2,
+            },
+        }
+
+    async def capture_set(key, value, ttl, redis):
+        stored['key'] = key
+
+    with (
+        patch('routers.search._ls.resolve_published_generation', resolve_old),
+        patch('routers.search._ls.local_db_search_v3', search_returns_new),
+        patch('routers.search.cache_get', AsyncMock(return_value=None)),
+        patch('routers.search.cache_set', capture_set),
+    ):
+        r = await client.post('/api/local/search', json={
+            'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+            'filters':          {'distance': {'min': 0, 'max': 100}},
+            'size':             5,
+        })
+
+    assert r.status_code == 200, r.text
+    assert 'ggen-NEW' in stored['key'] and 's2' in stored['key'], stored
+    assert 'ggen-OLD' not in stored['key'], stored
+
+
 async def test_galaxy_search_returns_503_on_db_failure(client):
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')

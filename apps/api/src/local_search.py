@@ -782,13 +782,21 @@ def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, 
         'archetype_score':   float(primary_score) if primary_score is not None else None,
         'archetype_tier':    _v3_tier(primary_score),
         # The system's actual summary facts (finding #20): its strongest
-        # archetype, runner-up, and overall best colony potential -- read from
-        # the joined summary rather than omitted or inferred.
+        # archetype, runner-up, overall development potential, and archetype
+        # classification confidence -- read from the joined summary rather than
+        # omitted or inferred. These map onto the DECLARED SearchResult fields
+        # (overall_development_potential / archetype_confidence) the same way
+        # the legacy builder does; emitting an undocumented key instead left
+        # both declared fields null for every V3 result.
         'primary_archetype':   row.get('summary_primary_archetype'),
         'secondary_archetype': row.get('summary_secondary_archetype'),
-        'best_colony_potential': (
+        'overall_development_potential': (
             float(row['summary_best_colony_potential'])
             if row.get('summary_best_colony_potential') is not None else None
+        ),
+        'archetype_confidence': (
+            float(row['summary_archetype_confidence'])
+            if row.get('summary_archetype_confidence') is not None else None
         ),
         'uncertainty_factor': row.get('uncertainty_factor'),
         'confidence':        row.get('confidence'),
