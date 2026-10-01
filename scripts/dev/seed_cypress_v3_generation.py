@@ -34,9 +34,11 @@ from scripts.v3_system_search import (  # noqa: E402
 
 FIXTURE_DIR = ROOT / 'tests/fixtures/cypress_v3_sources'
 
-# Same derived-build migration set test_local_search_v3.py applies on top of the
-# 001 baseline. Applied only if the derived schema is not already present, so
-# this is a no-op against a Cypress DB whose migrations already include V3.
+# The Cypress edfinder database is built from sql/migration-manifest.txt, which
+# lists ONLY legacy sql/*.sql -- it has no V3 schema at all. So the seed brings
+# up the V3 baseline + the exact derived-build migration set that
+# test_local_search_v3.py's fixture proves is sufficient ({001} + these five).
+BASELINE_MIGRATION = '001_v3_baseline.sql'
 DERIVED_MIGRATIONS = (
     '003_ratings_v4_derived.sql',
     '004_v3_search_spatial_clusters.sql',
@@ -63,7 +65,11 @@ def _ensure_migrations(connection) -> None:
         "SELECT to_regclass('v3_app.system_archetype_summary') IS NOT NULL").fetchone()[0]
     if present:
         return
-    for name in DERIVED_MIGRATIONS:
+    have_baseline = connection.execute(
+        "SELECT EXISTS(SELECT 1 FROM information_schema.schemata "
+        "WHERE schema_name='v3_meta')").fetchone()[0]
+    names = DERIVED_MIGRATIONS if have_baseline else (BASELINE_MIGRATION, *DERIVED_MIGRATIONS)
+    for name in names:
         connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
 
 
