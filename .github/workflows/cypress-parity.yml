@@ -113,6 +113,17 @@ jobs:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: apps/api/.venv/bin/python scripts/checks/data_invariants.py --target-rating-version 3.4
 
+      - name: Seed V3 published generation (F3 finder)
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
+        run: apps/api/.venv/bin/python scripts/dev/seed_cypress_v3_generation.py
+
+      - name: Assert legacy/V3 journey-system consistency
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: apps/api/.venv/bin/python scripts/checks/assert_legacy_v3_consistency.py
+
       - name: Seed isolated V3 account browser journeys
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
