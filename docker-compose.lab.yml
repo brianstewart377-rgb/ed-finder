@@ -1,0 +1,60 @@
+# docker-compose.lab.yml — always-on Review Lab override for the Contabo box.
+#
+# Usage (always with the base review compose first):
+#   BUILD_SHA=$(git rev-parse HEAD) \
+#     docker compose -f docker-compose.review.yml -f docker-compose.lab.yml up -d
+#
+# The base docker-compose.review.yml is NEVER modified: the CI `Review Lab`
+# gate consumes it alone. This override only ADDS the web service, resource
+# caps, restart policy, loopback bindings, and CORS for the tunneled origin.
+services:
+  review-postgres:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2g
+
+  review-redis:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+
+  review-api:
+    restart: unless-stopped
+    environment:
+      # The web service proxies /api same-origin, so CORS is mostly moot; these
+      # cover direct API access over the tunnel (http://localhost:8001) for
+      # debugging. review_main already includes the product search router.
+      CORS_ORIGINS: http://localhost:4174,http://127.0.0.1:4174,http://localhost:8001,http://127.0.0.1:8001
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 3g
+
+  review-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to a 40-char git sha (scripts/dev/lab_refresh.sh does this)}
+    depends_on:
+      review-api:
+        condition: service_started
+    environment:
+      EDFINDER_API_UPSTREAM: review-api:8000
+    ports:
+      - "127.0.0.1:4174:8080"
+    networks:
+      - review
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
