@@ -120,7 +120,12 @@ async def test_local_search_caches_under_result_generation_not_preresolve(client
     not the pre-resolve generation -- otherwise newer data is filed under the
     old key and served verbatim if that generation is ever republished/rolled
     back. With no race the two keys are identical, so this only changes the
-    racing case."""
+    racing case.
+
+    Patches on `edfinder_api.routers.search` -- the module the app actually
+    registered. `apps/api/src` is also on sys.path, so a bare `routers.search`
+    is a SEPARATE module object whose `cache_get`/`cache_set` names the handler
+    never calls; patching there silently no-ops."""
     stored = {}
 
     async def resolve_old(pool):
@@ -143,10 +148,10 @@ async def test_local_search_caches_under_result_generation_not_preresolve(client
         stored['key'] = key
 
     with (
-        patch('routers.search._ls.resolve_published_generation', resolve_old),
-        patch('routers.search._ls.local_db_search_v3', search_returns_new),
-        patch('routers.search.cache_get', AsyncMock(return_value=None)),
-        patch('routers.search.cache_set', capture_set),
+        patch('edfinder_api.routers.search._ls.resolve_published_generation', resolve_old),
+        patch('edfinder_api.routers.search._ls.local_db_search_v3', search_returns_new),
+        patch('edfinder_api.routers.search.cache_get', AsyncMock(return_value=None)),
+        patch('edfinder_api.routers.search.cache_set', capture_set),
     ):
         r = await client.post('/api/local/search', json={
             'reference_coords': {'x': 0, 'y': 0, 'z': 0},
@@ -155,8 +160,10 @@ async def test_local_search_caches_under_result_generation_not_preresolve(client
         })
 
     assert r.status_code == 200, r.text
-    assert 'ggen-NEW' in stored['key'] and 's2' in stored['key'], stored
-    assert 'ggen-OLD' not in stored['key'], stored
+    # stored under the generation the result was ACTUALLY computed under (gen-NEW),
+    # never the pre-resolve generation (gen-OLD).
+    assert 'ggen-NEW' in stored.get('key', '') and 's2' in stored.get('key', ''), stored
+    assert 'ggen-OLD' not in stored.get('key', ''), stored
 
 
 async def test_galaxy_search_returns_503_on_db_failure(client):

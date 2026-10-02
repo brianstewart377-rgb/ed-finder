@@ -38,13 +38,27 @@ FIXTURE_DIR = ROOT / 'tests/fixtures/cypress_v3_sources'
 # lists ONLY legacy sql/*.sql -- it has no V3 schema at all. So the seed brings
 # up the V3 baseline + the exact derived-build migration set that
 # test_local_search_v3.py's fixture proves is sufficient ({001} + these five).
-BASELINE_MIGRATION = '001_v3_baseline.sql'
-DERIVED_MIGRATIONS = (
-    '003_ratings_v4_derived.sql',
-    '004_v3_search_spatial_clusters.sql',
-    '006_v3_derived_product_lifecycle.sql',
-    '010_v3_system_search_body_type_counts.sql',
-    '011_v3_system_archetype.sql',
+# Apply each required migration ONLY if the object it creates is still missing.
+# Two live shapes must both work: (a) the Cypress edfinder DB with NO V3 schema,
+# and (b) a DB where the account-browser seed already ran derive_entries
+# (001-006/008/009/012 present, but NOT the Finder migrations 010/011). A flat
+# "apply the derived set" list would re-run 003/004/006 in case (b) and error,
+# so probe-then-apply instead. (migration file, probe true-when-already-applied.)
+_MIGRATION_PROBES: tuple[tuple[str, str], ...] = (
+    ('001_v3_baseline.sql',
+     "SELECT to_regnamespace('v3_meta') IS NOT NULL"),
+    ('003_ratings_v4_derived.sql',
+     "SELECT to_regclass('v3_derived.system_rating_vector') IS NOT NULL"),
+    ('004_v3_search_spatial_clusters.sql',
+     "SELECT to_regclass('v3_derived.system_search') IS NOT NULL"),
+    ('006_v3_derived_product_lifecycle.sql',
+     "SELECT to_regclass('v3_meta.derived_product') IS NOT NULL"),
+    ('010_v3_system_search_body_type_counts.sql',
+     "SELECT EXISTS(SELECT 1 FROM information_schema.columns "
+     "WHERE table_schema='v3_derived' AND table_name='system_search' "
+     "AND column_name='elw_count')"),
+    ('011_v3_system_archetype.sql',
+     "SELECT to_regclass('v3_derived.system_archetype_summary') IS NOT NULL"),
 )
 
 # Mirrors tests/test_local_search_v3.py::_ratings_generation (chunk_size=4). The
@@ -61,16 +75,9 @@ def _published_sequence(connection) -> int | None:
 
 
 def _ensure_migrations(connection) -> None:
-    present = connection.execute(
-        "SELECT to_regclass('v3_app.system_archetype_summary') IS NOT NULL").fetchone()[0]
-    if present:
-        return
-    have_baseline = connection.execute(
-        "SELECT EXISTS(SELECT 1 FROM information_schema.schemata "
-        "WHERE schema_name='v3_meta')").fetchone()[0]
-    names = DERIVED_MIGRATIONS if have_baseline else (BASELINE_MIGRATION, *DERIVED_MIGRATIONS)
-    for name in names:
-        connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
+    for name, probe in _MIGRATION_PROBES:
+        if not connection.execute(probe).fetchone()[0]:
+            connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
 
 
 def seed_cypress_v3_generation(connection, fixture_dir: Path = FIXTURE_DIR) -> int:

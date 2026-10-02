@@ -113,6 +113,19 @@ jobs:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: apps/api/.venv/bin/python scripts/checks/data_invariants.py --target-rating-version 3.4
 
+      - name: Seed isolated V3 account browser journeys
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          EDFINDER_ACCOUNT_BROWSER_DATABASE: "yes"
+          CORS_ORIGINS: http://localhost:4174
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
+          ACCOUNT_FIXTURE_FILE: ${{ runner.temp }}/account-browser-fixture.json
+        run: apps/api/.venv/bin/python scripts/dev/seed_account_browser_acceptance.py --output "$ACCOUNT_FIXTURE_FILE"
+
+      # MUST run after the account-browser seed: that step requires a FRESH V3
+      # namespace (no v3_identity) and applies derive_entries (001-006/008/009/012).
+      # This seed then adds only the missing Finder migrations (010/011) and
+      # publishes the derived generation the F3 endpoints read.
       - name: Seed V3 published generation (F3 finder)
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -123,15 +136,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: apps/api/.venv/bin/python scripts/checks/assert_legacy_v3_consistency.py
-
-      - name: Seed isolated V3 account browser journeys
-        env:
-          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
-          EDFINDER_ACCOUNT_BROWSER_DATABASE: "yes"
-          CORS_ORIGINS: http://localhost:4174
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
-          ACCOUNT_FIXTURE_FILE: ${{ runner.temp }}/account-browser-fixture.json
-        run: apps/api/.venv/bin/python scripts/dev/seed_account_browser_acceptance.py --output "$ACCOUNT_FIXTURE_FILE"
 
       - name: Boot API
         env:
