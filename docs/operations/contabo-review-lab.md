@@ -25,9 +25,28 @@ cd /opt/ed-finder
 scripts/dev/lab_refresh.sh main        # or a PR branch name
 ```
 
-This builds images, starts the stack, seeds synthetic review data (and
-publishes a V3 generation once PR #777 is on the ref so the Finder returns
-results), and runs a smoke check. It writes `.lab.env` (BUILD_SHA) for systemd.
+This builds images, starts the stack, bootstraps the legacy schema, seeds
+synthetic review data, and runs a smoke check. It writes `.lab.env`
+(BUILD_SHA) for systemd. The base lab needs **only Docker** — schema + seed
+run inside the containers.
+
+### Optional: V3 Finder results (refs that include PR #777)
+
+The F3 Finder reads a published V3 generation. On refs that carry
+`scripts/dev/seed_cypress_v3_generation.py`, `lab_refresh.sh` publishes it
+automatically — but that seed needs the apps/api **test** venv (it imports
+`scripts/*` and uses psycopg, which the production api image does not carry).
+Create it once, then refresh:
+
+```bash
+python -m pip install uv==0.11.33
+uv sync --project apps/api --frozen --group test --no-install-project
+scripts/dev/lab_refresh.sh main
+```
+
+Without that venv the lab still runs; on a pre-#777 ref the Finder uses the
+legacy path, and on a post-#777 ref `lab_refresh.sh` prints the exact command
+above and the Finder 404s until you run it.
 
 ## Always-on across reboots
 

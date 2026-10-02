@@ -10,6 +10,12 @@
 services:
   review-postgres:
     restart: unless-stopped
+    # Loopback-only host port so the optional post-#777 V3 Finder seed can run
+    # from the apps/api test venv on the host (it needs psycopg + the scripts/
+    # modules the production api image does not carry). The base lab never uses
+    # this; the legacy schema+seed run inside the containers.
+    ports:
+      - "127.0.0.1:55435:5432"
     deploy:
       resources:
         limits:
@@ -42,7 +48,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        BUILD_SHA: ${BUILD_SHA:?set BUILD_SHA to a 40-char git sha (scripts/dev/lab_refresh.sh does this)}
+        # Empty default so operational commands (up/exec/down reusing images)
+        # parse without BUILD_SHA in the env; an actual `build` with it unset
+        # still hard-fails via the Dockerfile's 40-char-hex guard, so
+        # scripts/dev/lab_refresh.sh (which exports it) stays the build path.
+        BUILD_SHA: ${BUILD_SHA:-}
     depends_on:
       review-api:
         condition: service_started

@@ -393,6 +393,28 @@ Record the clean run in the PR description. Commit any fixes the smoke test requ
 
 **Type/name consistency:** compose service names (`review-postgres`, `review-redis`, `review-api`, `review-web`), the override filename, `EDFINDER_API_UPSTREAM=review-api:8000`, `BUILD_SHA`, `.lab.env`, `/opt/ed-finder`, and the `4174`/`8080`/`8001`/`5432` ports are used identically across Tasks 1-5.
 
+## Execution deviations (recorded during implementation)
+
+The local smoke test (Task 5) surfaced four corrections, all applied + verified:
+
+1. **Seed path + schema bootstrap.** The review DB needs the legacy schema
+   applied before seeding, and the seed runs at the mounted path
+   `/workspace/scripts/dev/review_environment_seed.py` via `compose run --rm`
+   (not `exec` with a relative path). `lab_refresh.sh` now mirrors
+   `scripts/dev/review_lab/lifecycle.py` (`bootstrap_schema` + `seed_review_database`)
+   in-container — so the base lab stays host=just-Docker.
+2. **BUILD_SHA guard.** Changed `${BUILD_SHA:?}` → `${BUILD_SHA:-}` so
+   operational `up`/`exec`/`down` parse without it; an actual `build` still
+   hard-fails via the Dockerfile's 40-hex check (lab_refresh exports it).
+3. **V3 seed mechanism.** `seed_cypress_v3_generation.py` imports `scripts/*`
+   and uses psycopg (a test-group dep) — neither is in the production api image,
+   so it cannot run via `compose run review-api`. It runs from the apps/api test
+   venv on the host against the review DB, which the override now exposes on
+   `127.0.0.1:55435`. Documented as an opt-in prerequisite in the runbook.
+4. **Windows-only note:** running the in-container seed from Git Bash needs
+   `MSYS_NO_PATHCONV=1`; irrelevant on the Linux box (the committed script is
+   correct for the target).
+
 ## Dependency note
 
 The V3 Finder payoff depends on **PR #777** (the F3 search repoint + `seed_cypress_v3_generation.py`) reaching the ref the lab tracks. Until then the lab runs on `main`'s legacy search path and the refresh script skips the V3 seed automatically. No task here blocks on #777; the lab is useful immediately and upgrades itself when #777 merges.
