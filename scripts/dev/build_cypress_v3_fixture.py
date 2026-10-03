@@ -32,13 +32,17 @@ sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 TEMPLATE_DIR = ROOT / 'tests/fixtures/ratings_v4_sources'
 
-# Template system id64 -> (curated id64, curated name). The third selected
-# system is kept verbatim as a distinct extra search result.
+# Template system id64 -> (curated id64, curated name, (x_ly, y_ly, z_ly)). The
+# third selected system is kept verbatim as a distinct extra search result.
 #  - Sol (has an is_main_star body) becomes journey Achenar.
 #  - Alioth becomes the lossless big-int system.
-REWRITE: dict[int, tuple[int, str]] = {
-    10477373803: (10477373803000, 'Achenar'),
-    1109989017963: (9007199254740993, 'V3 Lossless Reach'),
+# Coordinates are rewritten to EXACTLY match the legacy journey records
+# (sql/seed_preview.sql Achenar; cypress-parity.yml lossless top-up) so the
+# legacy<->V3 parity gate holds spatially, not just by name -- autocomplete/detail
+# read legacy coords while Finder renders V3 coords, and they must agree.
+REWRITE: dict[int, tuple[int, str, tuple[float, float, float]]] = {
+    10477373803: (10477373803000, 'Achenar', (67.50, -119.47, 24.84)),
+    1109989017963: (9007199254740993, 'V3 Lossless Reach', (18.25, -7.5, 42.75)),
 }
 THIRD_SYSTEM = 158872029  # kept verbatim (distinct 3rd result)
 SELECTED = (*REWRITE, THIRD_SYSTEM)
@@ -56,9 +60,12 @@ def _canonical_bytes(obj) -> bytes:
 def _rewrite_system(system: dict) -> dict:
     out = copy.deepcopy(system)
     if out['id64'] in REWRITE:
-        new_id, new_name = REWRITE[out['id64']]
+        new_id, new_name, (x_ly, y_ly, z_ly) = REWRITE[out['id64']]
         out['id64'] = new_id
         out['name'] = new_name
+        # system_search is built from these canonical coords (scripts/v3_system_search
+        # selects s.x_ly/y_ly/z_ly); grid_* are not read by the search product.
+        out['x_ly'], out['y_ly'], out['z_ly'] = x_ly, y_ly, z_ly
     return out
 
 
@@ -117,9 +124,13 @@ def build(template_dir: Path) -> tuple[dict, bytes, list[dict]]:
             if old_id not in selected:
                 continue
             if old_id in REWRITE:
-                new_id, new_name = REWRITE[old_id]
+                new_id, new_name, coords = REWRITE[old_id]
                 payload['system']['id64'] = new_id
                 payload['system']['name'] = new_name
+                # Keep the raw dump's coords consistent with the canonical rewrite
+                # (not read by the build, but avoids a misleading fixture artifact).
+                if isinstance(payload['system'].get('coords'), dict):
+                    payload['system']['coords'] = {'x': coords[0], 'y': coords[1], 'z': coords[2]}
             members.append(payload)
     return curated, metadata_bytes, members
 

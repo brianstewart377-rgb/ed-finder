@@ -21,11 +21,17 @@ def test_cypress_fixture_has_journey_systems():
     from domain.ratings_v4_canonical import load_source_fixture
 
     canonical, _metadata, _subtypes = load_source_fixture(FIXTURE)
-    ids = {s['id64']: s['name'] for s in canonical['systems']}
-    assert ids.get(ACHENAR) == 'Achenar'
-    assert ids.get(LOSSLESS) == 'V3 Lossless Reach'
+    by_id = {s['id64']: s for s in canonical['systems']}
+    assert by_id.get(ACHENAR, {}).get('name') == 'Achenar'
+    assert by_id.get(LOSSLESS, {}).get('name') == 'V3 Lossless Reach'
     assert len(canonical['systems']) >= 3
     assert any(b['system_id64'] == ACHENAR for b in canonical['bodies'])
+    # Coordinates must match the legacy journey records so the legacy<->V3 parity
+    # gate holds spatially (not just by name).
+    achenar = by_id[ACHENAR]
+    assert (achenar['x_ly'], achenar['y_ly'], achenar['z_ly']) == (67.50, -119.47, 24.84)
+    lossless = by_id[LOSSLESS]
+    assert (lossless['x_ly'], lossless['y_ly'], lossless['z_ly']) == (18.25, -7.5, 42.75)
     # Achenar (ex-Sol) must retain a main-star body so detail/classification is real.
     assert any(b['system_id64'] == ACHENAR and b.get('is_main_star')
                for b in canonical['bodies'])
