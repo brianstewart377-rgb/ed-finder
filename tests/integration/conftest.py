@@ -104,6 +104,46 @@ _V3_FIXTURE_RELATIONS = (
 )
 
 
+@pytest_asyncio.fixture
+async def v3_derived_ready():
+    """Skip a test unless the V3 derived pipeline is published in this DB.
+
+    The protected `Backend integration (PG+Redis)` lane seeds the V2 schema
+    only, so tests that exercise the V3-repointed search endpoints
+    (`/api/local/search` reads `v3_meta`/`v3_app` via the ranking profile)
+    must skip there rather than fail on a missing `v3_meta` relation. They run
+    for real against the dedicated V3 fixture DB. Requires the published
+    generation AND both Finder products to be READY -- the exact precondition
+    `local_search._current_derived_generation` enforces at request time.
+    """
+    conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+    try:
+        if await conn.fetchval("SELECT to_regclass('v3_meta.current_derived_generation')") is None:
+            pytest.skip("V3 derived schema absent (V2-only lane)")
+        published = await conn.fetchval(
+            """
+            SELECT c.derived_generation_id
+            FROM v3_meta.current_derived_generation c
+            JOIN v3_meta.derived_generation d USING(derived_generation_id)
+            WHERE d.lifecycle_state='PUBLISHED'
+            """
+        )
+        if published is None:
+            pytest.skip("no published V3 derived generation in this DB")
+        ready = await conn.fetch(
+            """
+            SELECT product_code FROM v3_meta.derived_product
+            WHERE derived_generation_id=$1 AND lifecycle_state='READY'
+              AND product_code = ANY($2::text[])
+            """,
+            published, ['system_search', 'system_archetype'],
+        )
+        if {r['product_code'] for r in ready} < {'system_search', 'system_archetype'}:
+            pytest.skip("V3 Finder products not READY in this DB")
+    finally:
+        await conn.close()
+
+
 @pytest.fixture(scope="session")
 def v3_fixture_db_ready():
     import asyncio

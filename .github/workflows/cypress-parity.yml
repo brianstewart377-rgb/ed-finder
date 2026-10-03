@@ -122,6 +122,21 @@ jobs:
           ACCOUNT_FIXTURE_FILE: ${{ runner.temp }}/account-browser-fixture.json
         run: apps/api/.venv/bin/python scripts/dev/seed_account_browser_acceptance.py --output "$ACCOUNT_FIXTURE_FILE"
 
+      # MUST run after the account-browser seed: that step requires a FRESH V3
+      # namespace (no v3_identity) and applies derive_entries (001-006/008/009/012).
+      # This seed then adds only the missing Finder migrations (010/011) and
+      # publishes the derived generation the F3 endpoints read.
+      - name: Seed V3 published generation (F3 finder)
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/api/src
+        run: apps/api/.venv/bin/python scripts/dev/seed_cypress_v3_generation.py
+
+      - name: Assert legacy/V3 journey-system consistency
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: apps/api/.venv/bin/python scripts/checks/assert_legacy_v3_consistency.py
+
       - name: Boot API
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder

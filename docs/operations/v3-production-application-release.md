@@ -282,3 +282,43 @@ with `--pull never`. There is no database rollback in this path.
 
 If any fact differs, stop. Do not recreate the edge or adapt a legacy/root
 Compose command from this runbook.
+
+## F3 Finder cutover — product-publish promotion gate
+
+The F3 change (PR #777) repoints `POST /api/local/search` and
+`GET /api/archetypes/rankings` off legacy relations onto the published
+`v3_app.*` V3 projections. **Merging #777 is not authorization to promote it.**
+
+Fail-closed gate: the F3 endpoint cutover MUST NOT be promoted to production
+until the `system_search` **and** `system_archetype` derived products are built,
+`VERIFIED`, and published against the live published Ratings V4 generation
+`ratings_v4_prod_p4_parallel_v1`. The endpoints resolve the published generation
+and require both Finder products to be `READY` for it; if either is missing the
+production Finder returns `404` (no published generation) or `503` (products not
+ready), not results. Promoting the application image ahead of the product
+publish would therefore take the production Finder down.
+
+**Schema prerequisite — register and apply migrations 010 and 011 first.** The
+governed production schema identity is derived from `sql/v3/migration-manifest.txt`
+(`scripts/operator/v3_schema_identity.py`), which currently stops at 006/008/009/012
+and does **not** include `010_v3_system_search_body_type_counts.sql` or
+`011_v3_system_archetype.sql`. Those migrations create the body-count columns and
+`system_archetype*` relations the F3 queries and the Finder product builders
+require. On the live lineage the builders and endpoints would otherwise hit
+missing schema, and applying the files outside the manifest would make the
+application's exact-ledger preflight reject production (the live
+`v3_meta.schema_migration` ledger must match the derived identity). Therefore,
+before the product build and this cutover: add 010 and 011 to the governed V3
+migration manifest and compatibility authority, and apply them through the
+reviewed V3 migration operation. (The disposable Cypress seed sidesteps this by
+executing both files directly via `scripts/dev/seed_cypress_v3_generation.py`;
+that is acceptable only for the throwaway CI database, never the governed path.)
+
+Outstanding before promotion (tracked in `docs/ROADMAP.md`): registering +
+applying 010/011 per the prerequisite above, the F1 `system_search` rebuild, and
+the F2b `system_archetype` product build against the live
+`ratings_v4_prod_p4_parallel_v1` generation. The CI gap this gate protects
+against — a cutover with no published V3 generation to read — is closed for the
+browser lane by `scripts/dev/seed_cypress_v3_generation.py` (it publishes a real
+derived generation into the Cypress database through the genuine
+build→validate→publish pipeline); production parity is this gate, not that seed.

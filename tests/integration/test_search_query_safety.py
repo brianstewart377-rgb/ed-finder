@@ -36,7 +36,7 @@ async def test_every_connection_has_a_statement_timeout(pool):
     )
 
 
-async def test_galaxy_wide_count_is_capped(client):
+async def test_galaxy_wide_count_is_capped(client, v3_derived_ready):
     """Galaxy-wide searches must NOT run COUNT(*) over the full systems
     table. We expect total ≤ 10_000 and total_is_capped=True if the
     seed grew past the cap (it doesn't today, but the contract holds)."""
@@ -55,7 +55,7 @@ async def test_galaxy_wide_count_is_capped(client):
     )
 
 
-async def test_local_search_total_is_not_capped(client):
+async def test_local_search_total_is_not_capped(client, v3_derived_ready):
     """Distance-bounded local searches keep the precise total — only the
     galaxy_wide path is allowed to truncate."""
     r = await client.post('/api/local/search', json={
@@ -69,7 +69,7 @@ async def test_local_search_total_is_not_capped(client):
     assert not body.get('total_is_capped'), body
 
 
-async def test_galaxy_wide_search_preserves_distance_when_reference_is_present(client):
+async def test_galaxy_wide_search_preserves_distance_when_reference_is_present(client, v3_derived_ready):
     r = await client.post('/api/local/search', json={
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'economy': 'any'},

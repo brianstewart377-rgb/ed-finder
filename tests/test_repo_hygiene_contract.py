@@ -6,6 +6,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_VISIBLE_ROOT_FILES = {
+    'AGENTS.md',
     'CHANGES.md',
     'CLAUDE.md',
     'docker-compose.local.yml',

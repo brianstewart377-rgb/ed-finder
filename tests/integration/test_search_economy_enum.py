@@ -31,9 +31,17 @@ HIGHTECH_FORMS = ['High Tech', 'high tech', 'high-tech', 'hightech', 'HighTech']
 EXTRACTION_FORMS = ['extraction', 'Extraction']
 
 
-@pytest.mark.parametrize('economy', HIGHTECH_FORMS)
-async def test_local_search_accepts_every_hightech_form(client, economy):
-    """All wire shapes of HighTech must return 200, not 503."""
+@pytest.mark.parametrize('economy', HIGHTECH_FORMS + EXTRACTION_FORMS)
+async def test_local_search_concrete_economy_returns_422_on_v3(client, v3_derived_ready, economy):
+    """V3 contract (F2c/F3 + finding #8): a concrete economy on
+    `/api/local/search` is rejected with 422, not silently ranked by overall
+    colony potential. Every wire shape (spaced/cased/aliased) must reach that
+    422 -- i.e. the economy is recognised and rejected, not 503'd.
+
+    (Before the V3 repoint this endpoint accepted an economy and filtered by
+    it; the V3 projections carry no per-economy potential column yet, so the
+    filter is rejected until one exists. The name-normalisation contract this
+    file guards still applies to `/api/search/galaxy` below.)"""
     r = await client.post('/api/local/search', json={
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 100000},
@@ -41,27 +49,10 @@ async def test_local_search_accepts_every_hightech_form(client, economy):
         'size':             3,
         'sort_by':          'development',
     })
-    assert r.status_code == 200, (
+    assert r.status_code == 422, (
         f"economy={economy!r} returned {r.status_code}: {r.text}"
     )
-    body = r.json()
-    assert body.get('source') == 'local_db'
-    # All results must actually be HighTech systems
-    for row in body['results']:
-        assert row.get('primaryEconomy') == 'HighTech', row
-
-
-@pytest.mark.parametrize('economy', EXTRACTION_FORMS)
-async def test_local_search_accepts_extraction_forms(client, economy):
-    """Extraction (the audit's §C5 economy) must work in any case."""
-    r = await client.post('/api/local/search', json={
-        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
-        'filters':          {'distance': {'min': 0, 'max': 100000},
-                             'economy':  economy},
-        'size':             3,
-        'sort_by':          'development',
-    })
-    assert r.status_code == 200, r.text
+    assert 'economy' in r.text.lower()
 
 
 async def test_galaxy_search_accepts_spaced_high_tech(client):

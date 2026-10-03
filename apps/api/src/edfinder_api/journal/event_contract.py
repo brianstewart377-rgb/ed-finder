@@ -1,8 +1,10 @@
 """V3 journal event contract: the frozen 30-event allowlist and payload strips.
 
-Mirrors the client-side allowlist in
-``frontend/src/lib/journalParsing/journalParser.ts`` (SUPPORTED_JOURNAL_EVENTS
-and EVENT_PAYLOAD_FIELDS) and ``apps/api/src/journal_import/api_models.py``.
+This server-side contract is authoritative. A matching client-side allowlist
+(SUPPORTED_JOURNAL_EVENTS and EVENT_PAYLOAD_FIELDS) historically lived in the
+retired React reference tree ``frontend/src/lib/journalParsing/journalParser.ts``
+(historical evidence only per CLAUDE.md, not the live apps/web product) and is
+also mirrored by ``apps/api/src/journal_import/api_models.py``.
 The client parser strips events before they cross the network; the server
 re-strips the same fields as defense-in-depth. ``GameVersion`` and
 ``GameBuild`` are additionally allowlisted on every event because the V3

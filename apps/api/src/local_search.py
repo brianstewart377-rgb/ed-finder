@@ -26,14 +26,23 @@ import time
 from typing import Any, Dict, Optional
 
 import asyncpg
+from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
+from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS, ranking_sha256
+from edfinder_api.ranking.ranking_sql import (
+    build_count_query,
+    build_ranked_query,
+    SORT_DISTANCE,
+    SORT_SCORE,
+)
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
     cluster_count_column,
     economy_enum_value,
     BODY_FILTER_COLS,
+    BODY_FILTER_ALIASES,
     normalise_body_filters,
     canonical_economy_key,
 )
@@ -231,9 +240,16 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
     ry = float(ref["y"]) if ref_has_coords else 0.0
     rz = float(ref["z"]) if ref_has_coords else 0.0
 
-    dist_filter = filters.get("distance", {})
-    min_dist = float(dist_filter.get("min", 0))
-    max_dist_req = float(dist_filter.get("max", 500))
+    # RangeFilter.model_dump() emits omitted bounds as an explicit ``None``
+    # (the key is present), so ``dict.get("min", 0)`` returns ``None`` for a
+    # one-sided range and ``float(None)`` used to raise TypeError -> 503 for a
+    # perfectly valid ``{"max": 500}`` / ``{"min": 10}`` request. Normalise the
+    # optional bounds explicitly instead.
+    dist_filter = filters.get("distance") or {}
+    _min_raw = dist_filter.get("min")
+    _max_raw = dist_filter.get("max")
+    min_dist = float(_min_raw) if _min_raw is not None else 0.0
+    max_dist_req = float(_max_raw) if _max_raw is not None else 500.0
     max_dist = min(max_dist_req, MAX_SEARCH_RADIUS)
     radius_capped = max_dist < max_dist_req
 
@@ -543,6 +559,406 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
               total, len(rows), ctx.from_idx, elapsed)
 
     return _build_local_search_response(rows, total, ctx, elapsed)
+
+
+# ---------------------------------------------------------------------------
+# V3 ranked search (F3 slice 1) — POST /api/local/search ONLY.
+# ---------------------------------------------------------------------------
+# `local_db_search` above stays exactly as it was and remains the sole
+# implementation backing `/api/search/galaxy` (via `local_db_galaxy_search`
+# below) and `/api/search/cluster` (via `local_db_cluster_search`), pending
+# their own F3 slice-2 repoint (see
+# docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md).
+# `local_db_search_v3` is a **forked**, independent implementation used only
+# by `routers/search.py::local_search_endpoint`. This is not a second
+# implementation of the same route (the "ONE search implementation" rule in
+# this module's header is about a single route never carrying two competing
+# read paths for itself) — do not wire this into `local_db_galaxy_search`
+# or `local_db_cluster_search` without repeating this repoint for them too.
+#
+# `star_types`, `require_bio`, and `require_geo` map onto the
+# `main_star_class_in` / `has_biologicals` / `has_geologicals`
+# `ranking.profile.HARD_FILTER_KEYS` entries (see `_v3_hard_filters` below).
+# `population`/min-population filters have no corresponding
+# `v3_app.system_search` column at all (no population projection exists in
+# the F1 relation), so `local_db_search_v3` rejects a request that asks for
+# one with HTTP 422 rather than silently ignoring it — silently dropping a
+# filter a caller explicitly asked for would return results the caller
+# would read as "no matches for that filter" when really the filter was
+# never applied.
+#
+# TODO(F3 follow-up): `min_distance` (the lower bound of the distance range
+# filter) still has no `HARD_FILTER_KEYS` entry and is silently ignored by
+# the V3 path — only the upper bound (`max_distance_ly`) is enforced today.
+# The derived products a V3 Finder ranked read depends on. Publication only
+# blocks *registered* products that aren't READY, so a generation could be
+# published with one of these never registered at all -- its `v3_app.*` view
+# would then be empty, indistinguishable from "no matching systems". Requiring
+# both to be READY lets us signal explicit unavailability instead.
+_REQUIRED_FINDER_PRODUCTS: frozenset[str] = frozenset({'system_search', 'system_archetype'})
+
+
+async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg.Record:
+    row = await connection.fetchrow('''
+        SELECT c.derived_generation_id, c.publication_sequence
+        FROM v3_meta.current_derived_generation c
+        JOIN v3_meta.derived_generation d USING(derived_generation_id)
+        WHERE d.lifecycle_state='PUBLISHED'
+    ''')
+    if row is None:
+        raise HTTPException(404, 'No published Ratings V4 generation')
+
+    # A published generation whose Finder products were never registered/built
+    # exposes EMPTY v3_app.* views. Distinguish "product unavailable" from
+    # "genuinely no matches" by requiring both products to be READY for this
+    # pinned generation; if not, fail explicitly (503) rather than serving an
+    # empty result that reads as a valid search with no hits.
+    ready = await connection.fetch(
+        '''
+        SELECT product_code
+        FROM v3_meta.derived_product
+        WHERE derived_generation_id = $1
+          AND lifecycle_state = 'READY'
+          AND product_code = ANY($2::text[])
+        ''',
+        row['derived_generation_id'],
+        list(_REQUIRED_FINDER_PRODUCTS),
+    )
+    missing = _REQUIRED_FINDER_PRODUCTS - {r['product_code'] for r in ready}
+    if missing:
+        raise HTTPException(
+            503,
+            'Finder ranking products are not available for the published '
+            f'generation (missing/not-ready: {", ".join(sorted(missing))}).',
+        )
+    return row
+
+
+async def resolve_published_generation(pool: asyncpg.Pool) -> asyncpg.Record:
+    """Resolve the current PUBLISHED derived generation (id + sequence).
+
+    Public wrapper around `_current_derived_generation` for callers (the
+    search router's cache-key builder) that need the pinned generation
+    *before* entering the ranked read — so a warm cache entry can never be
+    served while no generation is published (404), and the cache key can be
+    scoped to the exact generation the results would be computed under.
+    """
+    async with pool.acquire() as conn:
+        return await _current_derived_generation(conn)
+
+
+# Body-filter request keys that resolve to a real `v3_app.system_search`
+# column: the canonical/short names (`BODY_FILTER_COLS`) plus the camelCase
+# aliases (`BODY_FILTER_ALIASES`). A body filter outside this set has no
+# projection, so `_v3_hard_filters` rejects it (422) rather than dropping it.
+_KNOWN_BODY_FILTER_KEYS: frozenset[str] = frozenset(BODY_FILTER_COLS) | frozenset(BODY_FILTER_ALIASES)
+
+# `LocalSearchRequest.sort_by` -> ranking-builder ordering mode. The request
+# model already lowercases and maps the legacy 'rating' alias onto
+# 'development'; anything not in this map is rejected (422) by
+# `local_db_search_v3` rather than silently ignored.
+_SORT_BY_TO_MODE: dict[str, str] = {
+    'development': SORT_SCORE,
+    'distance': SORT_DISTANCE,
+}
+
+
+def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
+    """Map `LocalSearchContext` body/feature filters onto the
+    `HARD_FILTER_KEYS` convention.
+
+    Every declared body-count field resolves (via `BODY_FILTER_COLS`) to a
+    real `v3_app.system_search` column, and **both** range bounds are
+    enforced: `min` -> `<col>_min` (`s.<col> >= n`), `max` -> `<col>_max`
+    (`s.<col> <= n`). A `max` of 0 is a real constraint ("none of this body
+    type") and is emitted; a `min` of 0 (or below) is a no-op over a
+    non-negative count and is skipped.
+
+    A body-filter key that does not resolve to a projected column is rejected
+    with HTTP 422 rather than silently dropped — silently ignoring a filter
+    the caller explicitly set would return results the caller reads as "no
+    matches for that filter" when the filter was never applied.
+    """
+    raw_body_filters = ctx.body_filters or {}
+    for key in raw_body_filters:
+        if key not in _KNOWN_BODY_FILTER_KEYS:
+            raise HTTPException(
+                422,
+                f"Unsupported body filter '{key}' — no v3_app.system_search "
+                "projection exists for it.",
+            )
+
+    body_filters = normalise_body_filters(raw_body_filters)
+    hard_filters: dict[str, Any] = {}
+
+    for key, rng in body_filters.items():
+        col = BODY_FILTER_COLS.get(key)
+        if col is None:
+            # A camelCase alias whose snake_case canonical
+            # `normalise_body_filters` already added (and which carries the
+            # value); skip the alias key itself.
+            continue
+        if not isinstance(rng, dict):
+            continue
+        mn = rng.get('min')
+        mx = rng.get('max')
+        if mn is not None and int(mn) > 0:
+            hard_filters[f'{col}_min'] = int(mn)
+        if mx is not None:
+            hard_filters[f'{col}_max'] = int(mx)
+
+    # require_terra means "at least one terraformable body": a floor of 1,
+    # never weaker than an explicit terraformable_count minimum.
+    if ctx.require_terra:
+        existing_terra_min = int(hard_filters.get('terraformable_count_min', 0))
+        hard_filters['terraformable_count_min'] = max(existing_terra_min, 1)
+
+    if ctx.min_development_score and ctx.min_development_score > 0:
+        hard_filters['min_development_score'] = ctx.min_development_score
+
+    if ctx.galaxy_region_id:
+        hard_filters['galaxy_region'] = int(ctx.galaxy_region_id)
+
+    if not ctx.galaxy_wide and ctx.has_reference_coords:
+        hard_filters['max_distance_ly'] = ctx.max_dist
+        # Lower distance bound (annulus search): only meaningful with a
+        # reference point and a positive minimum. Enforced on both the page
+        # and the count via the shared builder.
+        if ctx.min_dist and ctx.min_dist > 0:
+            hard_filters['min_distance_ly'] = ctx.min_dist
+
+    if ctx.require_bio:
+        hard_filters['has_biologicals'] = True
+
+    if ctx.require_geo:
+        hard_filters['has_geologicals'] = True
+
+    if ctx.star_types:
+        hard_filters['main_star_class_in'] = list(ctx.star_types)
+
+    return hard_filters
+
+
+def _v3_tier(score: Any) -> str | None:
+    if score is None:
+        return None
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(s):
+        return None
+    if s >= TIER_THRESHOLDS['S']:
+        return 'S'
+    if s >= TIER_THRESHOLDS['A']:
+        return 'A'
+    if s >= TIER_THRESHOLDS['B']:
+        return 'B'
+    if s >= TIER_THRESHOLDS['C']:
+        return 'C'
+    return 'D'
+
+
+def _v3_distance(row: asyncpg.Record, reference_coords: tuple[float, float, float] | None) -> float | None:
+    if reference_coords is None:
+        return None
+    rx, ry, rz = reference_coords
+    dx = row['x_ly'] - rx
+    dy = row['y_ly'] - ry
+    dz = row['z_ly'] - rz
+    return round(math.sqrt(dx * dx + dy * dy + dz * dz), 2)
+
+
+def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, float, float] | None) -> dict:
+    primary_score = row.get('primary_score')
+    return {
+        'id64':              row['system_id64'],
+        'id':                str(row['system_id64']),
+        'name':              row['name'],
+        'coords':            {'x': row['x_ly'], 'y': row['y_ly'], 'z': row['z_ly']},
+        'distance':          _v3_distance(row, reference_coords),
+        'main_star':         row.get('main_star_class'),
+        'main_star_type':    row.get('main_star_class'),
+        'archetype_score':   float(primary_score) if primary_score is not None else None,
+        'archetype_tier':    _v3_tier(primary_score),
+        # The system's actual summary facts (finding #20): its strongest
+        # archetype, runner-up, overall development potential, and archetype
+        # classification confidence -- read from the joined summary rather than
+        # omitted or inferred. These map onto the DECLARED SearchResult fields
+        # (overall_development_potential / archetype_confidence) the same way
+        # the legacy builder does; emitting an undocumented key instead left
+        # both declared fields null for every V3 result.
+        'primary_archetype':   row.get('summary_primary_archetype'),
+        'secondary_archetype': row.get('summary_secondary_archetype'),
+        'overall_development_potential': (
+            float(row['summary_best_colony_potential'])
+            if row.get('summary_best_colony_potential') is not None else None
+        ),
+        'archetype_confidence': (
+            float(row['summary_archetype_confidence'])
+            if row.get('summary_archetype_confidence') is not None else None
+        ),
+        'uncertainty_factor': row.get('uncertainty_factor'),
+        'confidence':        row.get('confidence'),
+        'completeness':      row.get('completeness'),
+        'body_count':        row.get('body_count'),
+        'station_count':     row.get('station_count'),
+        'landable_count':    row.get('landable_count'),
+        'elw_count':         row.get('elw_count'),
+        'ww_count':          row.get('ww_count'),
+        'ammonia_count':     row.get('ammonia_count'),
+        'gas_giant_count':   row.get('gas_giant_count'),
+        'terraformable_count': row.get('terraformable_count'),
+        'bio_signal_total':  row.get('bio_signal_total'),
+        'geo_signal_total':  row.get('geo_signal_total'),
+        'neutron_count':     row.get('neutron_count'),
+        'black_hole_count':  row.get('black_hole_count'),
+        'white_dwarf_count': row.get('white_dwarf_count'),
+        'has_rings':         row.get('has_rings'),
+        'has_biologicals':   row.get('has_biologicals'),
+        'has_geologicals':   row.get('has_geologicals'),
+        'has_terraformable': row.get('has_terraformable'),
+        'galaxy_region_id':  row.get('galaxy_region_id'),
+        'galaxy_region':     row.get('region_name'),
+        'tags':              [],
+        'source':            'v3_app',
+    }
+
+
+async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
+    """V3-native ranked search for `POST /api/local/search`.
+
+    Generation-pinned, reads only `v3_app.system_search` +
+    `v3_app.system_archetype_summary` through
+    `ranking.ranking_sql.build_ranked_query` — no legacy V2 relation and no
+    other schema's relation is ever touched here.
+    """
+    t0 = time.time()
+    ctx = _parse_local_search_context(body)
+
+    # `v3_app.system_search` has no population column at all (see the module
+    # comment above): a caller who explicitly asked for ANY population
+    # constraint must get a clear 422, not results that were silently never
+    # filtered on population. Check the raw filter for every declared shape --
+    # the legacy `{value, comparison}` form AND the `{min, max}` range form --
+    # since only the former reaches `ctx.population_value` (a range would
+    # otherwise be dropped in silence).
+    _pop_filter = (body.get('filters') or {}).get('population') or {}
+    if isinstance(_pop_filter, dict) and any(
+        _pop_filter.get(k) is not None for k in ('value', 'min', 'max')
+    ):
+        raise HTTPException(
+            422,
+            'population filter is not supported by V3 Finder search '
+            '(v3_app.system_search has no population column).',
+        )
+
+    economy_filter = ctx.economy_filter
+    if economy_filter and economy_filter not in ('any', 'Any', 'Unknown', ''):
+        # No per-economy potential projection exists yet, so a concrete
+        # economy cannot actually be ranked by that economy's potential.
+        # Reject it rather than silently ranking by overall colony potential
+        # while advertising the requested economy (which returned results
+        # that looked economy-tuned but were not).
+        raise HTTPException(
+            422,
+            'economy-specific ranking is not yet supported by V3 Finder '
+            'search (no per-economy potential projection exists); '
+            'use economy="any".',
+        )
+    picked_economy = None
+
+    # Map the request's sort_by onto a builder ordering mode, rejecting
+    # anything unsupported rather than silently keeping score-first order for
+    # a caller who asked for something else (the UI sends 'development' or
+    # 'distance'; the model normalises 'rating' -> 'development').
+    sort_by = (ctx.sort_by or 'development').strip().lower()
+    if sort_by not in _SORT_BY_TO_MODE:
+        raise HTTPException(
+            422,
+            f"unsupported sort_by {sort_by!r}; supported: "
+            f"{', '.join(sorted(_SORT_BY_TO_MODE))}.",
+        )
+    sort_mode = _SORT_BY_TO_MODE[sort_by]
+
+    hard_filters = _v3_hard_filters(ctx)
+    reference_coords = (ctx.rx, ctx.ry, ctx.rz) if ctx.has_reference_coords else None
+
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        limit=ctx.size,
+        offset=ctx.from_idx,
+        sort=sort_mode,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=picked_economy,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        # Galaxy-wide searches carry no distance restriction, so an exact
+        # COUNT(*) would scan the whole published generation on every cache
+        # miss. Cap the count like the legacy path; a distance-bounded search
+        # keeps its precise total.
+        cap=GALAXY_WIDE_COUNT_CAP if ctx.galaxy_wide else None,
+    )
+
+    try:
+        async with pool.acquire() as conn:
+            # REPEATABLE READ so the generation pin, the page SELECT and the
+            # COUNT all read one snapshot: a governed publish between the
+            # statements can no longer hand back a G1 page with a G2 total,
+            # or a total pinned to a different generation than the results.
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
+                generation_row = await _current_derived_generation(conn)
+                rows = await conn.fetch(sql, *params)
+                total = await conn.fetchval(count_sql, *count_params)
+    except HTTPException:
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        # Record the underlying cause server-side (the outer route rethrows a
+        # generic HTTPException, which FastAPI would not log) so a missing/
+        # renamed V3 relation is diagnosable rather than an opaque 503.
+        log.error('local_db_search_v3 missing relation: %r (sqlstate=%s)',
+                  exc, getattr(exc, 'sqlstate', None))
+        raise HTTPException(503, 'Finder search is unavailable') from exc
+
+    results = [_build_v3_system_record(row, reference_coords) for row in rows]
+    elapsed = round((time.time() - t0) * 1000)
+    log.debug('local_db_search_v3: %d total, returning %d (from=%d) in %dms',
+              total, len(results), ctx.from_idx, elapsed)
+
+    resp: dict[str, Any] = {
+        'results':  results,
+        'count':    len(results),
+        'total':    int(total) if total is not None else len(results),
+        'source':   f'v3:{RANKING_VERSION}',
+        'query_ms': elapsed,
+        'display_economy': 'overall',  # only "any"/no-pick reaches here (concrete economy → 422 above)
+        'ranking': {
+            'ranking_version': RANKING_VERSION,
+            'ranking_sha256': ranking_sha256(),
+            'derived_generation_id': str(generation_row['derived_generation_id']),
+            'publication_sequence': generation_row['publication_sequence'],
+        },
+    }
+    # Galaxy-wide totals are bounded by GALAXY_WIDE_COUNT_CAP (the count SQL
+    # was capped above); advertise the truncation so clients don't treat the
+    # saturated value as an exact galaxy population. Matches the legacy
+    # contract asserted by tests/integration/test_search_query_safety.py.
+    if ctx.galaxy_wide and total is not None and int(total) >= GALAXY_WIDE_COUNT_CAP:
+        resp['total_is_capped'] = True
+    if ctx.radius_capped:
+        resp['warning'] = (
+            f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "
+            f"(requested {int(ctx.max_dist_req):,} LY)."
+        )
+    return resp
 
 
 # ---------------------------------------------------------------------------
