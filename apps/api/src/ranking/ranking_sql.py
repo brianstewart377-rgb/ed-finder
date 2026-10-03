@@ -385,6 +385,7 @@ def build_count_query(
     picked_economy: str | None,
     hard_filters: dict[str, Any],
     reference_coords: tuple[float, float, float] | None,
+    cap: int | None = None,
 ) -> tuple[str, list[Any]]:
     """Build the `COUNT(*)` companion to `build_ranked_query`'s SELECT.
 
@@ -394,6 +395,13 @@ def build_count_query(
     Carries no ORDER BY, no tie-break distance params, and no LIMIT/OFFSET —
     none of those affect a row count. Pure — never opens a database
     connection.
+
+    `cap` bounds the count: when set, the scan is wrapped in a
+    `SELECT count(*) FROM (SELECT 1 ... LIMIT :cap) t` so the total saturates
+    at `cap` instead of running an unbounded `COUNT(*)` over the whole
+    published generation. Callers (galaxy-wide search) mark `total_is_capped`
+    when the returned total reaches `cap`. Mirrors the legacy builder's
+    galaxy-wide count cap.
     """
 
     builder = _ParamBuilder()
@@ -408,11 +416,27 @@ def build_count_query(
     where_sql = f"WHERE {' AND '.join(where_clauses)}\n" if where_clauses else ""
     joins_sql = "\n".join(joins)
 
-    sql = (
-        "SELECT count(*)\n"
-        "FROM v3_app.system_search s\n"
-        f"{joins_sql}\n"
-        f"{where_sql}"
-    ).rstrip()
+    if cap is not None:
+        # Bounded count: the subquery stops scanning at `cap` rows, so a
+        # galaxy-wide search never performs a full-generation COUNT(*). The
+        # cap parameter is added last, so it is the final positional ($n)
+        # after every WHERE/join param already registered above.
+        cap_param = builder.add(int(cap))
+        sql = (
+            "SELECT count(*) FROM (\n"
+            "SELECT 1\n"
+            "FROM v3_app.system_search s\n"
+            f"{joins_sql}\n"
+            f"{where_sql}"
+            f"LIMIT {cap_param}\n"
+            ") t"
+        ).rstrip()
+    else:
+        sql = (
+            "SELECT count(*)\n"
+            "FROM v3_app.system_search s\n"
+            f"{joins_sql}\n"
+            f"{where_sql}"
+        ).rstrip()
 
     return sql, builder.params

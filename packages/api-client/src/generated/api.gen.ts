@@ -4616,6 +4616,8 @@ export interface components {
             star_types?: string[] | null;
             /** Min Development Score */
             min_development_score?: number | null;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
             /**
              * Galaxy Wide
              * @default false

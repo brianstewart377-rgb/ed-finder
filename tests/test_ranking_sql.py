@@ -529,3 +529,65 @@ def test_build_count_query_without_reference_coords_matches_ranked_where_params(
     # No reference_coords means no tie-break distance params; only the
     # trailing limit/offset params (2) differ from the shared WHERE params.
     assert len(ranked_params) == len(count_params) + 2
+
+
+def test_build_count_query_cap_wraps_in_bounded_subquery():
+    """A galaxy-wide count must be bounded so it never scans the whole
+    published generation: `cap` wraps the scan in a `LIMIT`ed subquery."""
+    sql, params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"has_rings": True},
+        reference_coords=None,
+        cap=10_000,
+    )
+    assert "count(*) from (" in sql.lower()
+    assert "limit" in sql.lower()
+    # The cap value is the last positional parameter.
+    assert params[-1] == 10_000
+    placeholder_indices = {int(m) for m in re.findall(r"\$(\d+)", sql)}
+    assert placeholder_indices == set(range(1, len(params) + 1))
+    _assert_no_legacy(sql)
+
+
+def test_build_count_query_cap_appends_after_where_params():
+    """The cap param is added last, so the shared WHERE params still line up
+    with `build_ranked_query` as a prefix even when a cap is present."""
+    hard_filters = {"min_development_score": 60, "elw_count_min": 1}
+
+    _ranked_sql, ranked_params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+        limit=24,
+        offset=0,
+    )
+    count_sql, count_params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=None,
+        cap=10_000,
+    )
+    # Drop the trailing cap param: the remainder is exactly the shared WHERE
+    # params, identical to the ranked query's leading WHERE params.
+    where_only = count_params[:-1]
+    assert where_only == ranked_params[:len(where_only)]
+    assert count_params[-1] == 10_000
+
+
+def test_build_count_query_without_cap_has_no_limit():
+    """Distance-bounded (non galaxy-wide) counts stay exact: no cap, no LIMIT."""
+    sql, params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"has_rings": True},
+        reference_coords=None,
+    )
+    assert "LIMIT" not in sql
+    assert "from (" not in sql.lower()

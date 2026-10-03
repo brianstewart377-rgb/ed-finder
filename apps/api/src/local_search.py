@@ -900,6 +900,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         picked_economy=picked_economy,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
+        # Galaxy-wide searches carry no distance restriction, so an exact
+        # COUNT(*) would scan the whole published generation on every cache
+        # miss. Cap the count like the legacy path; a distance-bounded search
+        # keeps its precise total.
+        cap=GALAXY_WIDE_COUNT_CAP if ctx.galaxy_wide else None,
     )
 
     try:
@@ -942,6 +947,12 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
             'publication_sequence': generation_row['publication_sequence'],
         },
     }
+    # Galaxy-wide totals are bounded by GALAXY_WIDE_COUNT_CAP (the count SQL
+    # was capped above); advertise the truncation so clients don't treat the
+    # saturated value as an exact galaxy population. Matches the legacy
+    # contract asserted by tests/integration/test_search_query_safety.py.
+    if ctx.galaxy_wide and total is not None and int(total) >= GALAXY_WIDE_COUNT_CAP:
+        resp['total_is_capped'] = True
     if ctx.radius_capped:
         resp['warning'] = (
             f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "

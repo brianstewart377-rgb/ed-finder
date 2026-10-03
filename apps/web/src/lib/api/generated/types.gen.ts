@@ -3480,6 +3480,10 @@ export type LocalSearchRequest = {
      */
     min_development_score?: number | null;
     /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    /**
      * Galaxy Wide
      */
     galaxy_wide?: boolean;

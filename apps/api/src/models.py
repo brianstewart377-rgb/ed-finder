@@ -547,7 +547,17 @@ class LocalSearchRequest(BaseModel):
     require_geo:      Optional[bool]           = None
     require_terra:    Optional[bool]           = None
     star_types:       Optional[list[str]]      = None
-    min_development_score: Optional[int] = None
+    # Bounded to the 0–100 development-score domain (the V3 projection's
+    # best_colony_potential is a smallint CHECK 0..100). Without the upper
+    # bound a value >32767 overflowed the smallint bind and surfaced as a
+    # misleading 503 instead of a 422.
+    min_development_score: Optional[int] = Field(default=None, ge=0, le=100)
+    # Region scoping forwarded to the V3 ranked search. Bounded to the named
+    # galactic-region domain (1..42), consistent with ClusterSearchRequest, so
+    # an out-of-range id fails validation (422) rather than overflowing the
+    # smallint bind. Without this field the value was silently dropped and the
+    # region predicate was unreachable through the public endpoint.
+    galaxy_region_id: Optional[int] = Field(default=None, ge=1, le=42)
     galaxy_wide:      bool                     = False
 
     model_config = {'populate_by_name': True}

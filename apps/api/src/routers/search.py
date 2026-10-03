@@ -199,6 +199,7 @@ async def local_search_endpoint(
         'from':           req.from_,
         'sort_by':        req.sort_by or 'development',
         'galaxy_wide':    req.galaxy_wide,
+        'galaxy_region_id': req.galaxy_region_id,
     }
 
     # Resolve the pinned PUBLISHED generation BEFORE consulting the cache.

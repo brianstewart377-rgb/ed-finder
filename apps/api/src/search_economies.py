@@ -169,9 +169,11 @@ def cluster_count_column(name: Optional[str], *, alias: str = 'cs') -> Optional[
 
 
 # ── Body filter columns ────────────────────────────────────────────────────
-# Frontend (frontend/src/features/search/useSearch.ts) sends keys via
-# BODY_BACKEND_KEY in snake_case. Older callers may still send camelCase;
-# we accept both via BODY_FILTER_ALIASES.
+# The server accepts body-filter keys in snake_case; older/legacy callers may
+# still send camelCase, which we accept via BODY_FILTER_ALIASES. (The snake_case
+# key contract was originally defined by BODY_BACKEND_KEY in the retired React
+# reference tree frontend/src/features/search/useSearch.ts — historical evidence
+# only per CLAUDE.md, NOT the live apps/web caller.)
 BODY_FILTER_COLS: Mapping[str, str] = {
     # Body-type counts
     'landable':      'landable_count',
