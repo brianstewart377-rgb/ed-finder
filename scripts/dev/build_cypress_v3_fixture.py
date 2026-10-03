@@ -141,6 +141,10 @@ def _zip_bytes(members: list[dict]) -> bytes:
     with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:
         for payload in sorted(members, key=lambda m: m['system']['id64']):
             info = ZipInfo(f"{payload['system']['id64']}.json", date_time=_ZIP_DATE)
+            # writestr() honours the ZipInfo's own compress_type, which defaults
+            # to ZIP_STORED regardless of the ZipFile default -- so set it
+            # explicitly or the committed fixture is multi-MB uncompressed JSON.
+            info.compress_type = ZIP_DEFLATED
             archive.writestr(info, _canonical_bytes(payload))
     return buffer.getvalue()
 
