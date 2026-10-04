@@ -2,11 +2,16 @@
 
 **As of 2026-10-04.** This document exists because the roadmap and delivery plan
 described the Finder production rollout as further along, and with more tooling,
-than actually exists. It is the single source of truth for what is *really* true
-in production and what is *really* left to do. Where the roadmap / delivery plan
-disagree with this file, **this file is correct** (it was written from a direct
-read-only inspection of the production database and the committed operator
-tooling). Earlier prose is evidence, not current truth.
+than actually exists. It is **verified evidence** of what is really true in
+production (from a direct read-only inspection of the production database and the
+committed operator tooling), and what is really left to do.
+
+**Authority note:** `docs/ROADMAP.md` remains the programme authority (per the
+repository authority chain); this operations file does not override it. Where
+they diverge, that is a signal to **correct the roadmap to match this verified
+evidence**, not to follow this file instead. The roadmap's stale Finder-rollout
+claims have been corrected to point here; the controlling sequence lives in the
+roadmap.
 
 ## Verified production state (read-only inspection, 2026-10-04)
 
@@ -56,12 +61,12 @@ generation) over a reduced-scope launch on `opt1`.
 |---|---|---|
 | 1 | Register `010`/`011` in the V3 manifest + authority (PR #780) | **done, PR open** |
 | 2 | Governed migration `plan` → `apply` of `010`/`011` | tooling exists (`v3-production-schema-migration.yml`) |
-| 3 | Create a fresh non-published `010`-aware derived generation (ratings pass) | tooling exists (`ratings-v4-generation.sh`) |
-| 4 | Build `system_search` **with** body-type counts on it (~198.5M, long pole) | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** — needs retargeting to the fresh generation |
+| 3 | Create a fresh non-published `010`-aware derived generation (ratings pass) | **needs new tooling/decision** — `ratings-v4-generation.sh:174-177` always derives `ratings_v4_prod_p${sequence}` and `ratings_v4_prod_p4` already exists BUILDING, so dispatching it *resumes `p4`*, it does not create a fresh key. Either adopt `p4` as the candidate or add fresh-key/retarget support |
+| 4 | Build `system_search` **with** body-type counts on it (~198.5M, long pole) | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** AND verifies only migration `006` (not `010`), while the v2 builder writes `010`'s columns — so it needs **both** a retarget to the fresh generation **and** to pin+verify exact `010`, or it passes preflight then fails on the first body-count write |
 | 5 | Build `system_archetype` on it | **NO governed action — must be built** (model on `f1`) |
 | 6 | Validate both products → READY | builder `--validate` modes exist |
 | 7 | Publish the generation (`publish_derived_generation`) | **NO governed action — must be built** (model on the pyramid publish) |
-| 8 | Governed app release + promote of `main` (ships the F3 code) | tooling exists |
+| 8 | Governed app release + promote of `main` (ships the F3 code) | tooling exists, **but the release gate must be revised first**: `v3-production-application-release.md:292-330` still requires publishing against the now-PUBLISHED/immutable `ratings_v4_prod_p4_parallel_v1`; following the fresh-generation sequence would violate that gate until it is updated + reviewed for the new generation |
 
 Steps 5 and 7 are unbuilt governed tooling. They can only be written **after**
 step 3/4 produce the fresh generation, because the governed action pattern pins
@@ -71,9 +76,16 @@ yet exist.
 
 ## Where else this pattern can bite (watch-list)
 
-- **Migrations committed but undeclared** (`013` today): a `sql/v3/migrations/*`
-  file that is not in `migration-manifest.txt` is NOT applied to prod. Treat the
-  manifest, not the migrations directory, as the source of truth for "applied".
+- **Three distinct states — don't conflate them.** (1) *Committed*: a
+  `sql/v3/migrations/*` file exists. (2) *Registered/desired*: it is listed in
+  `migration-manifest.txt` — a production-promotion gate, NOT an application
+  receipt. (3) *Applied*: it has a row in the live `v3_meta.schema_migration`
+  ledger. The **live ledger is the only source of truth for "applied"** (the
+  migration `plan` reads it and separates `applied_before` from `pending`). After
+  #780 registers `010`/`011` but before the `apply` dispatch, they are
+  committed + registered but **not applied** — reading the manifest as "applied"
+  would be exactly the drift this document corrects. (`013` today is committed
+  but not even registered.)
 - **"Product built / rebuild running" claims**: verify against
   `v3_meta.derived_product.lifecycle_state` + the actual columns/rows, not the
   roadmap. A READY product built before a later additive migration is stale.
