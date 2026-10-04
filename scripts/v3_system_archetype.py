@@ -153,11 +153,12 @@ def product_manifest(generation: Generation) -> dict:
             'primary_archetype': 'highest archetype_score, ties broken by archetype_keys order',
             'secondary_archetype': 'next highest archetype_score; null only if every other score is 0',
             'weighted_potential': (
-                'floor(best_colony_potential * (min(confidence) * '
-                'min(completeness)) + 0.5), bounded [0, 100]; the system_search '
+                'exact double product best_colony_potential * (min(confidence) '
+                '* min(completeness)), bounded [0, 100]; the system_search '
                 'confidence/completeness factor (min over the seven frozen '
-                'Ratings V4 values) applied to best_colony_potential, half-up. '
-                'The precomputed no-pick Finder ranking key.'
+                'Ratings V4 values) applied to best_colony_potential, unrounded '
+                'to preserve the advertised ordering. The precomputed no-pick '
+                'Finder ranking key.'
             ),
             'source': (
                 'pinned Ratings V4 generation: v3_derived.system_rating_vector and '
@@ -295,7 +296,8 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     summary_rows = connection.execute(
         '''SELECT s.system_id64, s.primary_archetype, s.secondary_archetype,
                   s.best_colony_potential, s.best_tier,
-                  round(s.archetype_confidence::numeric, 6), s.weighted_potential
+                  round(s.archetype_confidence::numeric, 6),
+                  round(s.weighted_potential::numeric, 6)
              FROM v3_derived.system_archetype_summary s
              JOIN v3_derived.system_rating_vector v
                ON v.derived_generation_id=s.derived_generation_id
@@ -371,7 +373,8 @@ def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
             summary_cursor.execute(
                 '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
                           s.best_colony_potential, s.best_tier,
-                          round(s.archetype_confidence::numeric, 6), s.weighted_potential
+                          round(s.archetype_confidence::numeric, 6),
+                  round(s.weighted_potential::numeric, 6)
                      FROM v3_derived.system_archetype_summary s
                      JOIN v3_derived.system_rating_vector v
                        ON v.derived_generation_id=s.derived_generation_id
@@ -696,9 +699,10 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
     (the stored value was already rounded to 6dp by model.summarise).
 
     weighted_potential is recomputed set-based from best_colony_potential and
-    the system's own rating-vector confidence/completeness arrays, in the same
-    float operation order as model.weighted_potential (factor parenthesised,
-    half-up `floor(x + 0.5)`), so a drifted/corrupted value cannot pass.'''
+    the system's own rating-vector confidence/completeness arrays as the exact
+    double product, in the same float operation order as
+    model.weighted_potential (factor parenthesised first), and compared with a
+    1e-6 tolerance, so a drifted/corrupted value cannot pass.'''
     bad = int(connection.execute(
         '''WITH ranked AS (
                SELECT system_id64, archetype_key, archetype_score, tier,
@@ -739,13 +743,13 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
                                   / GREATEST(t.s1,1)::double precision * 2,
                               1.0
                           )) > 1e-6
-                   OR s.weighted_potential <> floor(
+                   OR abs(s.weighted_potential - (
                           s.best_colony_potential::double precision
                           * (
                               ((SELECT min(c) FROM unnest(rv.confidence) AS c)::double precision / 10000)
                               * ((SELECT min(c) FROM unnest(rv.completeness) AS c)::double precision / 10000)
                             )
-                          + 0.5))''',
+                      )) > 1e-6)''',
         (list(model.ARCHETYPE_KEYS), generation_id, generation_id),
     ).fetchone()[0])
     if bad:

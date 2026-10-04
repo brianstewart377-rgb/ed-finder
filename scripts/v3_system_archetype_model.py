@@ -6,7 +6,6 @@ Economy ordinals: 1=Agriculture 2=Refinery 3=Industrial 4=HighTech
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import math
 
 # v3-archetype-2: confidence now multiplies in min(evidence_completeness)
 # over the required anchors (see _fit_anchored/_fit_flexible), which changes
@@ -167,24 +166,27 @@ def search_uncertainty_factor(v: SystemVectors) -> float:
     return min(v.confidence) * min(v.completeness)
 
 
-def weighted_potential(best_colony_potential: int, v: SystemVectors) -> int:
+def weighted_potential(best_colony_potential: int, v: SystemVectors) -> float:
     '''Precomputed no-pick ranking key stored in system_archetype_summary.
 
-    `best_colony_potential` scaled by `search_uncertainty_factor`, rounded
-    half-up into the [0, 100] score domain. Stored (not computed at query time)
-    so the default galaxy-wide Explore ORDER BY is a single indexable column
-    rather than a cross-table `best_colony_potential * confidence * completeness`
-    product that forces a full-generation sort (see
+    The EXACT `best_colony_potential * (confidence * completeness)` product, as
+    a double — NOT rounded. Stored (not computed at query time) so the default
+    galaxy-wide Explore ORDER BY is a single indexable column rather than a
+    cross-table product that forces a full-generation sort (see
     apps/api/src/ranking/ranking_sql.build_ranked_query, finding "Precompute the
     default galaxy-wide ordering").
 
-    Half-up via `floor(x + 0.5)` on IEEE-754 doubles so the SQL validation gate
-    (`_gate_summary_matches_max`) can recompute the identical value in the same
-    operation order. The factor is parenthesised first, exactly as the gate does.
+    Kept at full double precision deliberately: rounding into the [0, 100]
+    smallint score domain collapsed ~198M systems into 101 buckets, so huge ties
+    reordered by distance/system_id64 and diverged from the exact
+    `confidence * completeness` ordering that `PROFILE_SPEC`/`ranking_sha256`
+    advertises (finding "Preserve precision in the no-pick ranking key"). The
+    factor is parenthesised first so the SQL validation gate recomputes the
+    identical double in the same operation order; both inputs are bounded
+    [0, 1] and best_colony_potential is [0, 100], so the product is [0, 100].
     '''
     raw = best_colony_potential * (search_uncertainty_factor(v))
-    value = int(math.floor(raw + 0.5))
-    return 0 if value < 0 else 100 if value > 100 else value
+    return 0.0 if raw < 0.0 else 100.0 if raw > 100.0 else raw
 
 
 def summarise(fits: list[ArchetypeFit]) -> dict:

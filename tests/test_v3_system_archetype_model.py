@@ -110,19 +110,23 @@ def test_search_uncertainty_factor_uses_min_not_mean():
 
 def test_weighted_potential_scales_best_by_search_uncertainty():
     v = _vectors(completeness=(0.5,)*7, confidence=(1.0,)*7)
-    # 80 * (1.0 * 0.5) = 40
-    assert weighted_potential(80, v) == 40
+    # 80 * (1.0 * 0.5) = 40.0
+    assert weighted_potential(80, v) == 40.0
 
 
-def test_weighted_potential_rounds_half_up():
+def test_weighted_potential_is_exact_unrounded_product():
+    # NOT rounded into the [0,100] integer domain: the exact double is kept so
+    # distinct scores do not collapse into ties (precision finding).
     v = _vectors(completeness=(0.5,)*7, confidence=(1.0,)*7)
-    # 61 * 0.5 = 30.5 -> 31 (half-up, so the SQL validation gate can mirror it)
-    assert weighted_potential(61, v) == 31
+    assert weighted_potential(61, v) == 30.5
+    # two near scores stay distinct (would both round to 31 as a smallint)
+    v2 = _vectors(completeness=(0.51,)*7, confidence=(1.0,)*7)
+    assert weighted_potential(61, v) != weighted_potential(61, v2)
 
 
-def test_weighted_potential_clamps_to_score_domain():
+def test_weighted_potential_bounded_to_score_domain():
     full = _vectors(completeness=(1.0,)*7, confidence=(1.0,)*7)
-    assert weighted_potential(100, full) == 100
-    assert weighted_potential(0, full) == 0
+    assert weighted_potential(100, full) == 100.0
+    assert weighted_potential(0, full) == 0.0
     zero = _vectors(completeness=(0.0,)*7, confidence=(1.0,)*7)
-    assert weighted_potential(100, zero) == 0
+    assert weighted_potential(100, zero) == 0.0

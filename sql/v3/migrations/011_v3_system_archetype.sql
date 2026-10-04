@@ -27,13 +27,16 @@ CREATE TABLE v3_derived.system_archetype_summary (
     best_colony_potential smallint NOT NULL CHECK(best_colony_potential BETWEEN 0 AND 100),
     best_tier text NOT NULL CHECK(best_tier IN ('S','A','B','C','D')),
     archetype_confidence double precision NOT NULL CHECK(archetype_confidence BETWEEN 0 AND 1),
-    -- Precomputed no-pick ranking key: best_colony_potential scaled by the
-    -- system_search confidence*completeness factor, rounded half-up into the
-    -- score domain (scripts/v3_system_archetype_model.weighted_potential). The
-    -- Finder's default galaxy-wide ORDER BY sorts on this single column so a
-    -- cold-cache load is index-satisfiable instead of sorting the whole
-    -- generation by a cross-table product (ranking_sql.build_ranked_query).
-    weighted_potential smallint NOT NULL CHECK(weighted_potential BETWEEN 0 AND 100),
+    -- Precomputed no-pick ranking key: the EXACT (unrounded)
+    -- best_colony_potential * (confidence * completeness) product as a double
+    -- (scripts/v3_system_archetype_model.weighted_potential). The Finder's
+    -- default galaxy-wide ORDER BY sorts on this single column so a cold-cache
+    -- load is index-satisfiable instead of sorting the whole generation by a
+    -- cross-table product (ranking_sql.build_ranked_query). Kept at full double
+    -- precision, not rounded into the 0-100 smallint domain, so distinct scores
+    -- do not collapse into ties that diverge from the confidence*completeness
+    -- ordering the ranking profile advertises.
+    weighted_potential double precision NOT NULL CHECK(weighted_potential BETWEEN 0 AND 100),
     PRIMARY KEY(derived_generation_id,system_id64),
     FOREIGN KEY(derived_generation_id,system_id64)
         REFERENCES v3_derived.system_rating_vector DEFERRABLE INITIALLY DEFERRED

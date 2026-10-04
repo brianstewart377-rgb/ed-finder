@@ -173,7 +173,7 @@ def test_summary_has_weighted_potential_column(database):
               AND column_name='weighted_potential' ''',
     ).fetchone()
     assert row is not None, 'weighted_potential column missing'
-    assert row[0] == 'smallint'
+    assert row[0] == 'double precision'
     assert row[1] == 'NO'
 
 

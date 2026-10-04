@@ -272,7 +272,14 @@ def _build_common(
             f"(requested economy={picked_economy!r})."
         )
 
-    joins = ["LEFT JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
+    # INNER (not LEFT) join: a published generation has a complete summary
+    # product (both F1/F2b products reach VERIFIED over the same system set
+    # before publish), so no system_search row lacks a summary row. Keeping it
+    # non-nullable lets the no-pick ORDER BY on `sum.weighted_potential` be
+    # satisfied by that column's index instead of scanning/sorting the whole
+    # generation — a LEFT join ordered by the nullable side cannot use it
+    # (finding: "Make the default ranking index usable through the join").
+    joins = ["JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
 
     if picked_archetype:
         archetype_param = builder.add(picked_archetype)
