@@ -6,14 +6,39 @@
 #
 # The base docker-compose.review.yml is NEVER modified: the CI `Review Lab`
 # gate consumes it alone. This override only ADDS the web service, resource
-# caps, restart policy, loopback bindings, and CORS for the tunneled origin.
+# caps, restart policy, loopback bindings, CORS for the tunneled origin, and the
+# container-sandbox hardening below.
+#
+# SANDBOX (Phase 1 of the trust redesign — see
+# docs/superpowers/specs/2026-10-04-contabo-review-lab-trust-redesign.md): the
+# lab shares a host with the Codex workers, so containers that run PR-ref code
+# are hardened to limit host reach. `no-new-privileges` is on every service
+# (universally safe — gosu/su-exec use CAP_SETUID, not the setuid bit, so this
+# does not break entrypoint privilege-drop). review-api runs the PR's Python app
+# and needs no Linux capabilities, so it drops ALL. nginx/postgres/redis drop
+# ALL and add back only the minimal set their entrypoints need to drop from root
+# to their service user; the hardened smoke check in scripts/dev/lab_refresh.sh
+# fails the refresh if any container cannot start, so a wrong set surfaces loudly
+# on deploy rather than silently. Runtime-validate on the lab host.
+#
+# NOTE: the host DB port and the host-venv V3 seed are intentionally still here;
+# they move in-network in Phase 3 (the port is what exposes the DB to runner
+# jobs). Daemon-level rootless/userns-remap is a Phase 4 provisioner concern.
+x-drop-to-service-user: &drop-to-service-user
+  # Entry runs as root then su-exec/gosu drops to the service user: keep only
+  # the caps that drop needs; shed everything else (NET_RAW, SYS_ADMIN, ...).
+  cap_drop: ["ALL"]
+  cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+  security_opt: ["no-new-privileges:true"]
 services:
   review-postgres:
+    <<: *drop-to-service-user
     restart: unless-stopped
     # Loopback-only host port so the optional post-#777 V3 Finder seed can run
     # from the apps/api test venv on the host (it needs psycopg + the scripts/
     # modules the production api image does not carry). The base lab never uses
     # this; the legacy schema+seed run inside the containers.
+    # Phase 3 removes this port and runs the seed in-network.
     ports:
       - "127.0.0.1:55435:5432"
     deploy:
@@ -23,6 +48,7 @@ services:
           memory: 2g
 
   review-redis:
+    <<: *drop-to-service-user
     restart: unless-stopped
     deploy:
       resources:
@@ -31,6 +57,9 @@ services:
           memory: 512m
 
   review-api:
+    # Runs the PR ref's Python app (untrusted); needs no capabilities at all.
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     environment:
       # The web service proxies /api same-origin, so CORS is mostly moot; these
@@ -44,6 +73,8 @@ services:
           memory: 3g
 
   review-web:
+    # nginx master starts as root and drops to the nginx worker user.
+    <<: *drop-to-service-user
     build:
       context: .
       dockerfile: apps/web/Dockerfile
