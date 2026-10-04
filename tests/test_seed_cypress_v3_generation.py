@@ -20,6 +20,18 @@ ACHENAR = 10477373803000
 LOSSLESS = 9007199254740993
 
 
+def test_seed_main_refuses_non_disposable_target(monkeypatch):
+    """The CLI entry point applies migrations and publishes a generation, so it
+    must fail closed on a production-looking target before opening any
+    connection — no database required for this check."""
+    from scripts.dev.seed_cypress_v3_generation import main
+    from tests.helpers.db_isolation import DbIsolationError
+
+    monkeypatch.setenv('DATABASE_URL', 'postgresql://u:p@db.ed-finder.app:5432/edfinder')
+    with pytest.raises(DbIsolationError):
+        main()
+
+
 @pytest.mark.skipif(
     not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
     reason='isolated PostgreSQL validation URL not set',

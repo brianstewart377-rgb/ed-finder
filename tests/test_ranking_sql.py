@@ -708,6 +708,27 @@ def test_unsupported_uncertainty_factor_expr_fails_closed():
         )
 
 
+def test_unsupported_primary_score_rule_fails_closed():
+    """`primary_score_rule` is hashed into ranking_sha256; the builder must
+    consume it so changing a score expression cannot mint a new identity while
+    executing identical hard-coded SQL (#162)."""
+    import copy
+    import pytest
+
+    bad = copy.deepcopy(PROFILE_SPEC)
+    bad["primary_score_rule"]["none"] = "system_archetype_summary.archetype_confidence"
+    with pytest.raises(ValueError):
+        build_ranked_query(
+            bad,
+            picked_archetype=None,
+            picked_economy=None,
+            hard_filters={},
+            reference_coords=None,
+            limit=10,
+            offset=0,
+        )
+
+
 def test_unsupported_tie_break_fails_closed():
     import copy
     import pytest

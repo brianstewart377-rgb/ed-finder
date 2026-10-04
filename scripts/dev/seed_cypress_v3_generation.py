@@ -27,6 +27,7 @@ from scripts.ratings_v4.canonical_stream import CanonicalSnapshot  # noqa: E402
 from scripts.ratings_v4.production_generation import (  # noqa: E402
     create_generation, seal_source, validate_generation, write_chunk)
 import scripts.v3_system_archetype as archetype_builder  # noqa: E402
+from tests.helpers.db_isolation import validate_test_db_target  # noqa: E402
 from scripts.v3_system_search import (  # noqa: E402
     build_available as search_build_available,
     register_product as search_register_product,
@@ -135,8 +136,14 @@ def seed_cypress_v3_generation(connection, fixture_dir: Path = FIXTURE_DIR) -> i
 def main() -> int:
     import psycopg
 
-    dsn = os.environ['DATABASE_URL']
-    with psycopg.connect(dsn, autocommit=True) as connection:
+    # Fail closed before opening a mutating connection. This entry point applies
+    # Finder migrations and publishes a canonical/derived generation, so it must
+    # refuse any non-disposable (production-looking) target rather than trust an
+    # arbitrary DATABASE_URL. Mirrors the sibling account-browser seed's guard;
+    # CI's localhost Cypress database is allowed (CI=true), a mispointed prod
+    # DSN is rejected before any write.
+    target = validate_test_db_target(os.environ['DATABASE_URL'], source='cypress-v3-seed')
+    with psycopg.connect(target.dsn, autocommit=True) as connection:
         sequence = seed_cypress_v3_generation(connection)
     print(f'cypress v3 published generation sequence={sequence}')
     return 0

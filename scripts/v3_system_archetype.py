@@ -297,7 +297,7 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
         '''SELECT s.system_id64, s.primary_archetype, s.secondary_archetype,
                   s.best_colony_potential, s.best_tier,
                   round(s.archetype_confidence::numeric, 6),
-                  round(s.weighted_potential::numeric, 6)
+                  round(s.weighted_potential::numeric, 8)
              FROM v3_derived.system_archetype_summary s
              JOIN v3_derived.system_rating_vector v
                ON v.derived_generation_id=s.derived_generation_id
@@ -374,7 +374,7 @@ def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
                 '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
                           s.best_colony_potential, s.best_tier,
                           round(s.archetype_confidence::numeric, 6),
-                  round(s.weighted_potential::numeric, 6)
+                  round(s.weighted_potential::numeric, 8)
                      FROM v3_derived.system_archetype_summary s
                      JOIN v3_derived.system_rating_vector v
                        ON v.derived_generation_id=s.derived_generation_id
@@ -702,7 +702,8 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
     the system's own rating-vector confidence/completeness arrays as the exact
     double product, in the same float operation order as
     model.weighted_potential (factor parenthesised first), and compared with a
-    1e-6 tolerance, so a drifted/corrupted value cannot pass.'''
+    1e-9 tolerance (below the 1e-8 value quantum), so a drifted/corrupted value
+    cannot pass while bit-identical recomputation does.'''
     bad = int(connection.execute(
         '''WITH ranked AS (
                SELECT system_id64, archetype_key, archetype_score, tier,
@@ -743,13 +744,18 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
                                   / GREATEST(t.s1,1)::double precision * 2,
                               1.0
                           )) > 1e-6
+                   -- 1e-9 (not 1e-6): weighted = best * minc * mincomp / 1e8,
+                   -- so distinct values can differ by as little as 1e-8; the
+                   -- tolerance must be below that quantum to distinguish every
+                   -- value the ORDER BY uses, while still absorbing sub-ULP
+                   -- float noise between this recompute and the stored value.
                    OR abs(s.weighted_potential - (
                           s.best_colony_potential::double precision
                           * (
                               ((SELECT min(c) FROM unnest(rv.confidence) AS c)::double precision / 10000)
                               * ((SELECT min(c) FROM unnest(rv.completeness) AS c)::double precision / 10000)
                             )
-                      )) > 1e-6)''',
+                      )) > 1e-9)''',
         (list(model.ARCHETYPE_KEYS), generation_id, generation_id),
     ).fetchone()[0])
     if bad:

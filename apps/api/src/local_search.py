@@ -253,6 +253,15 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
     max_dist = min(max_dist_req, MAX_SEARCH_RADIUS)
     radius_capped = max_dist < max_dist_req
 
+    # Reject non-finite coordinates/distances up front. `float('nan')`/`inf`
+    # pass Pydantic's float coercion, then flow into the Euclidean distance and
+    # the cube bounding predicate: a galaxy-wide request with an infinite anchor
+    # returns every row with distance=inf and fails JSON serialisation, while a
+    # distance-bounded request errors inside the cube predicate and surfaces as
+    # a misleading 503. Fail closed with a 422 instead.
+    if not all(math.isfinite(v) for v in (rx, ry, rz, min_dist, max_dist_req)):
+        raise HTTPException(422, 'reference_coords and distance bounds must be finite numbers')
+
     pop_filter = filters.get("population", {})
     pop_val_raw = pop_filter.get("value")
     try:
@@ -702,10 +711,16 @@ def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
             continue
         mn = rng.get('min')
         mx = rng.get('max')
+        # Two request keys can alias the same projection column (e.g. `elw` and
+        # `elw_count`). Merge to the MOST RESTRICTIVE bound (max of mins, min of
+        # maxes) rather than letting whichever alias is visited last silently
+        # overwrite the other and return systems that violate a requested bound.
         if mn is not None and int(mn) > 0:
-            hard_filters[f'{col}_min'] = int(mn)
+            key_min = f'{col}_min'
+            hard_filters[key_min] = max(int(mn), int(hard_filters.get(key_min, int(mn))))
         if mx is not None:
-            hard_filters[f'{col}_max'] = int(mx)
+            key_max = f'{col}_max'
+            hard_filters[key_max] = min(int(mx), int(hard_filters.get(key_max, int(mx))))
 
     # require_terra means "at least one terraformable body": a floor of 1,
     # never weaker than an explicit terraformable_count minimum.

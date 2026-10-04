@@ -132,6 +132,42 @@ async def _asyncpg_pool(connection):
     )
 
 
+def test_parse_rejects_non_finite_reference_coords():
+    """Non-finite coords pass Pydantic float coercion but would flow into the
+    distance/cube SQL (inf distances, JSON-serialisation failure, or a 503
+    inside the cube predicate); the shaper must fail closed with a 422 (#769)."""
+    from fastapi import HTTPException
+
+    for bad in (float('inf'), float('nan'), float('-inf')):
+        with pytest.raises(HTTPException) as exc:
+            local_search._parse_local_search_context(
+                {'galaxy_wide': True, 'reference_coords': {'x': bad, 'y': 0.0, 'z': 0.0}},
+            )
+        assert exc.value.status_code == 422
+
+
+def test_v3_hard_filters_merges_conflicting_body_filter_aliases():
+    """Two request keys aliasing one projection column must merge to the most
+    restrictive bound, not silently last-wins (#708)."""
+    from collections import defaultdict
+
+    from edfinder_api.search_economies import BODY_FILTER_COLS
+
+    by_col = defaultdict(list)
+    for key, col in BODY_FILTER_COLS.items():
+        by_col[col].append(key)
+    aliased = next((keys for keys in by_col.values() if len(keys) >= 2), None)
+    assert aliased, 'expected at least one projection column with two request aliases'
+    k1, k2 = aliased[0], aliased[1]
+    col = BODY_FILTER_COLS[k1]
+    ctx = local_search._parse_local_search_context({
+        'galaxy_wide': True,
+        'body_filters': {k1: {'min': 2}, k2: {'min': 5}},
+    })
+    hard = local_search._v3_hard_filters(ctx)
+    assert hard[f'{col}_min'] == 5  # most restrictive (max) of the two conflicting mins
+
+
 @pytest.mark.asyncio
 async def test_local_search_v3_orders_by_weighted_potential_with_no_pick(database):
     connection, _, _, _ = database

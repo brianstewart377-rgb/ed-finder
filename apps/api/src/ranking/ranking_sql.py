@@ -152,6 +152,17 @@ class _ParamBuilder:
 # ranking identity to the executed SQL").
 _IMPLEMENTED_UNCERTAINTY_FACTOR: Final[str] = "confidence * completeness"
 _IMPLEMENTED_TIE_BREAK: Final[tuple[str, ...]] = ("distance", "system_id64")
+# The exact `primary_score_rule` this builder implements: archetype-pick orders
+# by `a.archetype_score`, no-pick by the `system_archetype_summary` potential
+# (via the precomputed `weighted_potential` key), and a concrete economy is
+# rejected (no per-economy projection exists). Hashed into `ranking_sha256`, so
+# the builder must consume it — otherwise changing a score expression would mint
+# a new identity/cache namespace while executing identical hard-coded SQL.
+_IMPLEMENTED_PRIMARY_SCORE_RULE: Final[dict[str, str]] = {
+    "archetype": "system_archetype.archetype_score",
+    "economy": "potential_score",
+    "none": "system_archetype_summary.best_colony_potential",
+}
 
 
 def _require_implemented_identity(spec: dict[str, Any]) -> None:
@@ -165,6 +176,14 @@ def _require_implemented_identity(spec: dict[str, Any]) -> None:
             f"{factor_expr!r} is not implemented by this SQL builder "
             f"(implements {_IMPLEMENTED_UNCERTAINTY_FACTOR!r}); the hashed "
             "ranking identity would not match the executed query."
+        )
+    primary_score_rule = spec.get("primary_score_rule")
+    if primary_score_rule != _IMPLEMENTED_PRIMARY_SCORE_RULE:
+        raise ValueError(
+            f"ranking spec primary_score_rule {primary_score_rule!r} is not "
+            f"implemented by this SQL builder (implements "
+            f"{_IMPLEMENTED_PRIMARY_SCORE_RULE!r}); the hashed ranking identity "
+            "would not match the executed query."
         )
 
 
