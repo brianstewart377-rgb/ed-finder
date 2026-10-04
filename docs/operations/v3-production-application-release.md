@@ -316,8 +316,19 @@ that is acceptable only for the throwaway CI database, never the governed path.)
 
 Outstanding before promotion (tracked in `docs/ROADMAP.md`): registering +
 applying 010/011 per the prerequisite above, the F1 `system_search` rebuild, and
-the F2b `system_archetype` product build against the live
-`ratings_v4_prod_p4_parallel_v1` generation. The CI gap this gate protects
+the F2b `system_archetype` product build. These products **cannot** be attached
+to the already-published `ratings_v4_prod_p4_parallel_v1` generation: both
+`scripts/v3_system_archetype.py` (`register_product`) and
+`scripts/v3_system_search.py` reject product registration unless the derived
+generation is `BUILDING`, `VALIDATING`, or `READY`, and the
+`006_v3_derived_product_lifecycle.sql` trigger independently rejects any derived
+product change once the generation is `PUBLISHED`. The build therefore targets a
+**non-published** derived generation: create or select one in
+`BUILDING`/`VALIDATING`/`READY`, attach and verify both `system_search` and
+`system_archetype` there through the genuine build→validate pipeline, then
+atomically publish that generation (a new publication sequence) so both products
+go live together — the current published generation is never mutated in place.
+The CI gap this gate protects
 against — a cutover with no published V3 generation to read — is closed for the
 browser lane by `scripts/dev/seed_cypress_v3_generation.py` (it publishes a real
 derived generation into the Cypress database through the genuine

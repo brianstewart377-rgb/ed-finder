@@ -133,24 +133,23 @@ async def _asyncpg_pool(connection):
 
 
 @pytest.mark.asyncio
-async def test_local_search_v3_orders_by_best_colony_potential_with_no_pick(database):
+async def test_local_search_v3_orders_by_weighted_potential_with_no_pick(database):
     connection, _, _, _ = database
     _build_published_generation(database)
 
+    # #335: the no-pick default ranks by the precomputed, indexable
+    # `weighted_potential` column (= round(best_colony_potential * the
+    # system_search confidence*completeness factor)), DESC then system_id64 —
+    # NOT the raw cross-table float product. Driving the expected order off the
+    # stored column proves the builder materialised it and the query sorts on it.
     summary_rows = connection.execute('''
-        SELECT system_id64, best_colony_potential
+        SELECT system_id64, weighted_potential
           FROM v3_app.system_archetype_summary
     ''').fetchall()
-    # No-pick uncertainty uses the system's general evidence confidence
-    # (s.confidence), not the summary's classification-separation confidence.
-    evidence = dict(connection.execute('''
-        SELECT system_id64, confidence * completeness AS factor
-          FROM v3_app.system_search
-    ''').fetchall())
     expected_order = [
         system_id64 for system_id64, _ in sorted(
             summary_rows,
-            key=lambda row: (-(row[1] * evidence[row[0]]), row[0]),
+            key=lambda row: (-row[1], row[0]),
         )
     ]
     assert len(expected_order) == 12  # authoritative fixture: 12 systems

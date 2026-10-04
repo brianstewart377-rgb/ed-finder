@@ -406,10 +406,11 @@ def test_sort_distance_orders_distance_first_then_score():
         sort="distance",
     )
     order_by = sql.split("ORDER BY", 1)[1]
-    # first ordering term is the distance expression (ASC), score comes after
+    # first ordering term is the distance expression (ASC), score comes after.
+    # No-pick ranks by the precomputed, indexable weighted_potential (#335).
     first_term = order_by.split(",")[0]
     assert "sqrt(" in first_term and "ASC" in first_term
-    assert order_by.index("sqrt(") < order_by.index("best_colony_potential")
+    assert order_by.index("sqrt(") < order_by.index("weighted_potential")
 
 
 def test_sort_score_is_default_and_orders_score_first():
@@ -423,7 +424,7 @@ def test_sort_score_is_default_and_orders_score_first():
         offset=0,
     )
     order_by = sql.split("ORDER BY", 1)[1]
-    assert order_by.index("best_colony_potential") < order_by.index("sqrt(")
+    assert order_by.index("weighted_potential") < order_by.index("sqrt(")
 
 
 def test_sort_distance_without_reference_falls_back_to_score_order():
@@ -439,7 +440,7 @@ def test_sort_distance_without_reference_falls_back_to_score_order():
     )
     order_by = sql.split("ORDER BY", 1)[1]
     assert "sqrt(" not in order_by  # no reference -> no distance term at all
-    assert "best_colony_potential" in order_by
+    assert "weighted_potential" in order_by
 
 
 # --- build_count_query -------------------------------------------------------
@@ -591,3 +592,150 @@ def test_build_count_query_without_cap_has_no_limit():
     )
     assert "LIMIT" not in sql
     assert "from (" not in sql.lower()
+
+
+# --- #335: default no-pick ranking uses the precomputed weighted_potential ---
+
+
+def test_no_pick_default_orders_by_indexable_weighted_potential():
+    """The default galaxy-wide, no-anchor Explore load (no reference coords)
+    must ORDER BY the precomputed, single-column `sum.weighted_potential` so a
+    cold-cache load is index-satisfiable, NOT by the cross-table
+    `best_colony_potential * (confidence * completeness)` product that forces a
+    full-generation sort (#335)."""
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=None,
+        limit=24,
+        offset=0,
+    )
+    order_by = sql.split("ORDER BY", 1)[1]
+    assert "sum.weighted_potential" in order_by
+    # The raw cross-table product must NOT be the ordering expression anymore.
+    assert "* (" not in order_by.replace("sum.weighted_potential", "")
+    # The score is still selectable for the response payload.
+    assert "weighted_potential" in sql.split("FROM", 1)[0]
+
+
+def test_picked_archetype_still_orders_by_weighted_float_product():
+    """A picked archetype has no precomputed weighted column, so it keeps the
+    exact `archetype_score * (confidence * completeness)` ordering (its filtered
+    set is bounded by the #204 archetype index, not a full-generation sort)."""
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype="mining_hub",
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=None,
+        limit=24,
+        offset=0,
+    )
+    order_by = sql.split("ORDER BY", 1)[1]
+    assert "a.archetype_score" in order_by
+    assert "completeness" in order_by
+    assert "weighted_potential" not in order_by
+
+
+# --- #265: distance radius uses an index-usable cube bounding predicate ------
+
+
+def test_max_distance_adds_indexable_cube_bound_alongside_exact_check():
+    """On a bounded-radius search the filter must include an index-usable
+    `position_ly <@ cube(...)` bounding box (served by the GiST index on
+    `v3_derived.system_search.position_ly`) in addition to the exact Euclidean
+    `sqrt(...) <= r` check, so PostgreSQL does not scan the whole generation
+    (#265)."""
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"max_distance_ly": 200.0},
+        reference_coords=(10.0, 20.0, 30.0),
+        limit=24,
+        offset=0,
+    )
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    assert "position_ly" in where and "cube(" in where
+    assert "<@" in where
+    # The exact distance check is still present (cube box is a superset).
+    assert "sqrt(" in where
+    # Every value is still a bound parameter: no bare radius/coord literals.
+    assert "200" not in sql
+    assert 200.0 in params
+
+
+def test_cube_bound_is_shared_by_count_query():
+    """The count query shares the same indexable cube predicate (via
+    `_build_common`) so page and total scan the same bounded set."""
+    hard_filters = {"max_distance_ly": 150.0}
+    ref = (1.0, 2.0, 3.0)
+    count_sql, _ = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters=hard_filters,
+        reference_coords=ref,
+    )
+    where = count_sql.split("WHERE", 1)[1]
+    assert "position_ly" in where and "cube(" in where and "<@" in where
+
+
+# --- #291: the builder consumes the hashed spec (identity can't drift) -------
+
+
+def test_unsupported_uncertainty_factor_expr_fails_closed():
+    """`ranking_sha256` hashes `uncertainty.factor_expr`; if the builder
+    silently ignored it, a spec change could leave ordering unchanged (or a
+    builder change could diverge from the hash). The builder must consume it
+    and fail closed on an expression it does not implement (#291)."""
+    import copy
+    import pytest
+
+    bad = copy.deepcopy(PROFILE_SPEC)
+    bad["uncertainty"]["factor_expr"] = "confidence"  # not the implemented curve
+    with pytest.raises(ValueError):
+        build_ranked_query(
+            bad,
+            picked_archetype=None,
+            picked_economy=None,
+            hard_filters={},
+            reference_coords=None,
+            limit=10,
+            offset=0,
+        )
+
+
+def test_unsupported_tie_break_fails_closed():
+    import copy
+    import pytest
+
+    bad = copy.deepcopy(PROFILE_SPEC)
+    bad["tie_break"] = ["system_id64", "distance"]  # reversed: not implemented
+    with pytest.raises(ValueError):
+        build_ranked_query(
+            bad,
+            picked_archetype=None,
+            picked_economy=None,
+            hard_filters={},
+            reference_coords=(0.0, 0.0, 0.0),
+            limit=10,
+            offset=0,
+        )
+
+
+def test_default_spec_builds_after_identity_binding():
+    """The live PROFILE_SPEC must still build cleanly once the builder consumes
+    the hashed identity fields (regression guard for #291's fail-closed check)."""
+    sql, _ = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={},
+        reference_coords=None,
+        limit=10,
+        offset=0,
+    )
+    assert "ORDER BY" in sql

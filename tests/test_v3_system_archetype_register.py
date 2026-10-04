@@ -67,7 +67,7 @@ def test_register_is_idempotent_and_pins_manifest(database):
     generation2, state2, manifest_sha2 = builder.register_product(connection, key)
 
     assert state1 == state2 == 'BUILDING'
-    assert builder.PRODUCT_VERSION == ARCHETYPE_VERSION == 'v3-archetype-2'
+    assert builder.PRODUCT_VERSION == ARCHETYPE_VERSION == 'v3-archetype-3'
     assert manifest_sha1 == manifest_sha2
     assert generation1.identifier == generation2.identifier == str(generation_id)
 
@@ -77,7 +77,7 @@ def test_register_is_idempotent_and_pins_manifest(database):
             WHERE derived_generation_id=%s''',
         (generation_id,),
     ).fetchone()
-    assert product_code == ('system_archetype', 'v3-archetype-2', 'BUILDING')
+    assert product_code == ('system_archetype', 'v3-archetype-3', 'BUILDING')
 
 
 def test_manifest_includes_coefficients_and_anchors(database):
@@ -88,7 +88,7 @@ def test_manifest_includes_coefficients_and_anchors(database):
     manifest = builder.product_manifest(generation)
 
     assert manifest['product_code'] == 'system_archetype'
-    assert manifest['product_version'] == 'v3-archetype-2'
+    assert manifest['product_version'] == 'v3-archetype-3'
     coefficients = manifest['coefficients']
     assert coefficients['alpha'] == 0.6
     assert coefficients['spec_floor'] == 0.85

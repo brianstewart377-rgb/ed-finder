@@ -47,12 +47,18 @@ real `v3_app.system_search` (or cross-relation) predicate:
 | `galaxy_region`              | `s.galaxy_region_id = $n`                         |
 
 `min_development_score` has no dedicated `system_search` column — V2's
-`local_search.py` filtered the same *computed* colony/development score it
-ranked by (`ctx.finder_score_expr`), not a stored column. This module mirrors
-that: the filter reuses the same `primary_score_expr` the ORDER BY uses
-(`a.archetype_score` when `picked_archetype`, else
-`sum.best_colony_potential`), so "minimum development score" always means
-"minimum on whichever score this query is actually ranking by."
+`local_search.py` filtered a *computed* colony/development score, not a stored
+column. This module mirrors that with a floor on the **raw primary score**
+(`primary_score_expr`: `a.archetype_score` when `picked_archetype`, else
+`sum.best_colony_potential`) — the underlying colony-potential quality, before
+the uncertainty modifier. That floor is deliberately on the raw primary, not on
+the uncertainty-weighted ordering key, in **both** ranking paths: a picked
+archetype orders by `archetype_score * uncertainty` yet filters on raw
+`archetype_score`; the no-pick path orders by the precomputed
+`weighted_potential` (`= round(best_colony_potential * uncertainty)`) yet
+filters on raw `best_colony_potential`. So "minimum development score" means
+"minimum underlying colony potential", independent of how uncertainty reorders
+equally-floored systems.
 
 `max_distance_ly` needs a Euclidean reference point. Without
 `reference_coords` there is nothing to measure distance from, so the filter
@@ -138,6 +144,30 @@ class _ParamBuilder:
         return f"${len(self.params)}"
 
 
+# The ranking identity (`profile.ranking_sha256`) hashes these two fields, so
+# the executed SQL MUST be a function of them — otherwise a spec change could
+# leave ordering untouched (or a builder change could diverge from the hash),
+# serving stale cache entries under a now-wrong identity. The builder consumes
+# both and fails closed on anything it does not implement (finding: "Bind
+# ranking identity to the executed SQL").
+_IMPLEMENTED_UNCERTAINTY_FACTOR: Final[str] = "confidence * completeness"
+_IMPLEMENTED_TIE_BREAK: Final[tuple[str, ...]] = ("distance", "system_id64")
+
+
+def _require_implemented_identity(spec: dict[str, Any]) -> None:
+    """Fail closed unless `spec`'s hashed ordering fields match what this
+    builder actually emits, so `ranking_sha256` and the executed SQL cannot
+    silently drift apart."""
+    factor_expr = (spec.get("uncertainty") or {}).get("factor_expr")
+    if factor_expr != _IMPLEMENTED_UNCERTAINTY_FACTOR:
+        raise ValueError(
+            "ranking spec uncertainty.factor_expr "
+            f"{factor_expr!r} is not implemented by this SQL builder "
+            f"(implements {_IMPLEMENTED_UNCERTAINTY_FACTOR!r}); the hashed "
+            "ranking identity would not match the executed query."
+        )
+
+
 def _distance_expr(builder: _ParamBuilder, reference_coords: tuple[float, float, float]) -> str:
     rx, ry, rz = reference_coords
     x_param = builder.add(float(rx))
@@ -152,9 +182,52 @@ def _distance_expr(builder: _ParamBuilder, reference_coords: tuple[float, float,
     )
 
 
+def _bounded_distance_predicates(
+    builder: _ParamBuilder,
+    reference_coords: tuple[float, float, float],
+    radius: float,
+) -> list[str]:
+    """Upper-bound (`<= radius`) distance predicates that share one set of
+    coordinate/radius params between an index-usable `position_ly <@ cube(...)`
+    bounding box and the exact Euclidean check.
+
+    `v3_derived.system_search` carries a GiST index on the `position_ly` cube
+    (`004_v3_search_spatial_clusters.sql`), so the bounding-box containment is
+    index-satisfiable and bounds the scan before the exact `sqrt(...) <= r`
+    refinement runs — the main Finder radius path stays viable at galaxy scale
+    (finding: "Add an indexable radius predicate"). The cube is a superset of
+    the true sphere, so the exact check still decides membership.
+    """
+    rx, ry, rz = reference_coords
+    cx = builder.add(float(rx))
+    cy = builder.add(float(ry))
+    cz = builder.add(float(rz))
+    r = builder.add(float(radius))
+    # Cast every placeholder to double precision: `$cx - $r` between two bare
+    # (untyped) bind params is an ambiguous operator PostgreSQL cannot resolve
+    # ("operator is not unique: unknown - unknown"). The exact `sqrt` check
+    # below infers types from the `s.x_ly` columns, but the cube array has no
+    # column operand to anchor inference, so it must say so explicitly.
+    fcx, fcy, fcz, fr = (f"{p}::double precision" for p in (cx, cy, cz, r))
+    cube_bound = (
+        "s.position_ly <@ cube("
+        f"array[{fcx} - {fr}, {fcy} - {fr}, {fcz} - {fr}], "
+        f"array[{fcx} + {fr}, {fcy} + {fr}, {fcz} + {fr}])"
+    )
+    exact = (
+        "sqrt("
+        f"(s.x_ly - {cx}) ^ 2 + "
+        f"(s.y_ly - {cy}) ^ 2 + "
+        f"(s.z_ly - {cz}) ^ 2"
+        f") <= {r}"
+    )
+    return [cube_bound, exact]
+
+
 def _build_common(
     builder: _ParamBuilder,
     *,
+    spec: dict[str, Any],
     picked_archetype: str | None,
     picked_economy: str | None,  # accepted, not yet used — see module docstring's economy-pick TODO
     hard_filters: dict[str, Any],
@@ -179,6 +252,10 @@ def _build_common(
     per-archetype judgement confidence with the general data-completeness
     fraction).
     """
+
+    # Bind the executed SQL to the hashed ranking identity (fail closed on an
+    # uncertainty curve this builder does not implement).
+    _require_implemented_identity(spec)
 
     if picked_economy:
         # No per-economy potential projection exists yet (the
@@ -260,9 +337,11 @@ def _build_common(
                 # Known key, but no reference point to measure distance
                 # from in this call: safely ignored (see module docstring).
                 continue
-            distance_expr = _distance_expr(builder, reference_coords)
-            param = builder.add(float(value))
-            where_clauses.append(f"{distance_expr} <= {param}")
+            # Index-usable cube bounding box + exact Euclidean refinement,
+            # sharing one coordinate/radius param set.
+            where_clauses.extend(
+                _bounded_distance_predicates(builder, reference_coords, float(value))
+            )
         elif key == "min_distance_ly":
             if reference_coords is None:
                 # No reference point to measure distance from: safely ignored,
@@ -323,16 +402,38 @@ def build_ranked_query(
     `build_count_query` takes no `sort`.)
     """
 
+    # Tie-break is part of the hashed ranking identity: bind it so the executed
+    # ORDER BY cannot drift from the spec that produced `ranking_sha256`.
+    tie_break = tuple(spec.get("tie_break") or ())
+    if tie_break != _IMPLEMENTED_TIE_BREAK:
+        raise ValueError(
+            f"ranking spec tie_break {list(tie_break)!r} is not implemented by "
+            f"this SQL builder (implements {list(_IMPLEMENTED_TIE_BREAK)!r}); "
+            "the hashed ranking identity would not match the executed query."
+        )
+
     builder = _ParamBuilder()
     joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr = _build_common(
         builder,
+        spec=spec,
         picked_archetype=picked_archetype,
         picked_economy=picked_economy,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
     )
 
-    score_term = f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"
+    # No-pick ranks by the precomputed, single-column `weighted_potential`
+    # (= round(best_colony_potential * confidence * completeness), built into
+    # `system_archetype_summary`), which has a supporting index so the default
+    # galaxy-wide Explore load is index-satisfiable instead of sorting the whole
+    # generation by a cross-table product (finding: "Precompute the default
+    # galaxy-wide ordering"). A picked archetype has no precomputed column, so
+    # it keeps the exact `archetype_score * uncertainty` product over its
+    # index-bounded (finding #204) filtered set.
+    if picked_archetype:
+        score_term = f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"
+    else:
+        score_term = "sum.weighted_potential DESC NULLS LAST"
     distance_term = (
         f"{_distance_expr(builder, reference_coords)} ASC"
         if reference_coords is not None
@@ -367,7 +468,11 @@ def build_ranked_query(
         "sum.primary_archetype AS summary_primary_archetype, "
         "sum.secondary_archetype AS summary_secondary_archetype, "
         "sum.best_colony_potential AS summary_best_colony_potential, "
-        "sum.archetype_confidence AS summary_archetype_confidence\n"
+        "sum.archetype_confidence AS summary_archetype_confidence, "
+        # The precomputed no-pick ranking key (the ORDER BY term for a no-pick
+        # query), surfaced so a response/debug can report the exact value the
+        # default ordering sorted by.
+        "sum.weighted_potential AS weighted_potential\n"
         "FROM v3_app.system_search s\n"
         f"{joins_sql}\n"
         f"{where_sql}"
@@ -407,6 +512,7 @@ def build_count_query(
     builder = _ParamBuilder()
     joins, where_clauses, _primary_score_expr, _confidence_expr, _uncertainty_expr = _build_common(
         builder,
+        spec=spec,
         picked_archetype=picked_archetype,
         picked_economy=picked_economy,
         hard_filters=hard_filters,
