@@ -623,12 +623,21 @@ function watchlistString(
   return value;
 }
 
+function watchlistBoolean(
+  row: Record<string, unknown>,
+  field: string,
+): boolean | null {
+  const value = row[field];
+  if (value == null) return null;
+  if (typeof value !== 'boolean')
+    throw new TypeError(`The watchlist ${field} is invalid`);
+  return value;
+}
+
 function normalizeWatchlistEntry(value: unknown): WatchlistEntry {
   const row = watchlistRecord(value);
   if (typeof row.name !== 'string' || !row.name.trim())
     throw new TypeError('The watchlist system name is invalid');
-  if (row.is_colonised != null && typeof row.is_colonised !== 'boolean')
-    throw new TypeError('The watchlist colonisation status is invalid');
   return {
     system_id64: losslessId64(row.system_id64),
     name: row.name,
@@ -636,7 +645,7 @@ function normalizeWatchlistEntry(value: unknown): WatchlistEntry {
     y: watchlistNumber(row, 'y'),
     z: watchlistNumber(row, 'z'),
     population: watchlistNumber(row, 'population'),
-    is_colonised: row.is_colonised ?? null,
+    is_colonised: watchlistBoolean(row, 'is_colonised'),
     added_at: watchlistString(row, 'added_at'),
     last_checked_at: watchlistString(row, 'last_checked_at'),
     last_status: watchlistString(row, 'last_status'),

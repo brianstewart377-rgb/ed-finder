@@ -17,6 +17,7 @@ from edfinder_api.config import limiter
 from edfinder_api.deps import get_pool
 from edfinder_api.helpers import safe_coords_from_row
 from edfinder_api.models import WatchlistAlert
+from edfinder_api.v3_schema import current_generation_schema
 
 router = APIRouter(tags=['watchlist'])
 
@@ -30,7 +31,7 @@ def _validate_sync_key(sync_key: str) -> None:
             status_code=400,
             detail='sync_key="legacy" is reserved for migration; choose a real key.',
         )
-    if not _SYNC_KEY_RE.match(sync_key):
+    if not _SYNC_KEY_RE.fullmatch(sync_key):
         raise HTTPException(
             status_code=400,
             detail='sync_key must be 16-128 chars, alphanumeric + "_" or "-" only.',
@@ -51,19 +52,17 @@ async def get_watchlist(
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT w.*,
-                   r.score,
-                   r.economy_suggestion,
+                   NULL::integer AS score,
+                   NULL::text AS economy_suggestion,
                    w.alert_min_score AS alert_min_development_score,
-                   m.primary_archetype,
-                   m.secondary_archetype,
-                   m.overall_development_potential AS archetype_score,
-                   m.buildability_score,
-                   m.purity_score
-              FROM watchlist w
-         LEFT JOIN ratings r ON r.system_id64 = w.system_id64
-         LEFT JOIN mv_archetype_rankings m ON m.id64 = w.system_id64
+                   NULL::text AS primary_archetype,
+                   NULL::text AS secondary_archetype,
+                   NULL::integer AS archetype_score,
+                   NULL::integer AS buildability_score,
+                   NULL::integer AS purity_score
+              FROM v3_private.watchlist w
              WHERE w.sync_key = $1
-          ORDER BY w.added_at DESC
+          ORDER BY w.added_at DESC, w.system_id64
         """, sync_key)
     return {'sync_key': sync_key, 'watchlist': [dict(r) for r in rows]}
 
@@ -72,25 +71,30 @@ async def get_watchlist(
 @limiter.limit('20/minute')
 async def add_watchlist(
     request: Request,
-    id64: int,
+    id64: int = Path(..., ge=1, le=9223372036854775807),
     sync_key: str = Path(..., min_length=16, max_length=128),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     _validate_sync_key(sync_key)
+    schema = await current_generation_schema(pool)
+    if schema is None:
+        raise HTTPException(503, 'No published canonical generation')
     async with pool.acquire() as conn:
+        # The shared resolver validates the schema identifier; values remain
+        # parameterised. Saving never depends on a Finder derived build.
         sys_row = await conn.fetchrow(
-            'SELECT name, x, y, z, population, is_colonised FROM systems WHERE id64 = $1',
+            f'SELECT name, x_ly AS x, y_ly AS y, z_ly AS z '
+            f'FROM {schema}.systems WHERE id64 = $1',
             id64,
         )
         if not sys_row:
             raise HTTPException(404, f'System {id64} not found')
         coords = safe_coords_from_row({'id64': id64, **dict(sys_row)})
         await conn.execute("""
-            INSERT INTO watchlist (sync_key, system_id64, name, x, y, z, population, is_colonised)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO v3_private.watchlist (sync_key, system_id64, name, x, y, z)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (sync_key, system_id64) DO NOTHING
-        """, sync_key, id64, sys_row['name'], coords['x'], coords['y'], coords['z'],
-             sys_row['population'], sys_row['is_colonised'])
+        """, sync_key, id64, sys_row['name'], coords['x'], coords['y'], coords['z'])
     return {'ok': True, 'sync_key': sync_key}
 
 
@@ -98,14 +102,14 @@ async def add_watchlist(
 @limiter.limit('20/minute')
 async def remove_watchlist(
     request: Request,
-    id64: int,
+    id64: int = Path(..., ge=1, le=9223372036854775807),
     sync_key: str = Path(..., min_length=16, max_length=128),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     _validate_sync_key(sync_key)
     async with pool.acquire() as conn:
         await conn.execute(
-            'DELETE FROM watchlist WHERE sync_key = $1 AND system_id64 = $2',
+            'DELETE FROM v3_private.watchlist WHERE sync_key = $1 AND system_id64 = $2',
             sync_key, id64,
         )
     return {'ok': True}
@@ -115,15 +119,15 @@ async def remove_watchlist(
 @limiter.limit('20/minute')
 async def update_alert(
     request: Request,
-    id64: int,
     alert: WatchlistAlert,
+    id64: int = Path(..., ge=1, le=9223372036854775807),
     sync_key: str = Path(..., min_length=16, max_length=128),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     _validate_sync_key(sync_key)
     async with pool.acquire() as conn:
         await conn.execute("""
-            UPDATE watchlist
+            UPDATE v3_private.watchlist
                SET alert_min_score = $1, alert_economy = $2
              WHERE sync_key = $3 AND system_id64 = $4
         """, alert.min_development_score, alert.economy, sync_key, id64)
@@ -141,12 +145,14 @@ async def watchlist_changes(
     _validate_sync_key(sync_key)
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT c.*
-              FROM watchlist_changelog c
-              JOIN watchlist w
+            SELECT c.id, c.system_id64, c.system_name, c.change_type,
+                   c.old_value, c.new_value, c.detected_at
+              FROM v3_private.watchlist_changelog c
+              JOIN v3_private.watchlist w
                 ON w.system_id64 = c.system_id64
+               AND w.sync_key    = c.sync_key
                AND w.sync_key    = $1
-          ORDER BY c.detected_at DESC
+          ORDER BY c.detected_at DESC, c.id DESC
              LIMIT 100
         """, sync_key)
     return {'changes': [dict(r) for r in rows]}
