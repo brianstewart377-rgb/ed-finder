@@ -28,6 +28,7 @@ from edfinder_api.models import (
     GalaxySearchRequest, ClusterSearchRequest, ClusterSearchResponse, AutocompleteResponse,
 )
 from edfinder_api.v3_schema import current_generation_schema
+from edfinder_api.ranking.profile import RANKING_VERSION, ranking_sha256
 
 # Single search implementation. If this import fails the app cannot
 # serve search at all — fail loud at startup, not at request time.
@@ -36,9 +37,29 @@ import edfinder_api.local_search as _ls
 router = APIRouter(tags=['search'])
 
 AUTOCOMPLETE_CACHE_VERSION = 'v3'
-SEARCH_CACHE_VERSION = 'v4'
+# Bumped v4 -> v5 at the F3 V3 cutover: pre-cutover `search:v4:*` entries were
+# written by the legacy code path (different semantics, no generation/ranking
+# identity) and must never be served after the repoint.
+SEARCH_CACHE_VERSION = 'v5'
 GALAXY_CACHE_VERSION = 'v4'
 CLUSTER_CACHE_VERSION = 'v4'
+
+
+def _search_cache_key(body_dict: dict, generation_row) -> str:
+    """Build the `/api/local/search` cache key.
+
+    Scoped to (a) the cutover namespace version, (b) the ranking identity
+    (`RANKING_VERSION` + `ranking_sha256()`), (c) the resolved PUBLISHED
+    generation (id + sequence), and (d) the full request body. So a warm
+    entry can never be served across a cutover, a ranking-formula change, or
+    a governed publish — each shifts the namespace and misses the old key.
+    """
+    return (
+        f"search:{SEARCH_CACHE_VERSION}:{RANKING_VERSION}:{ranking_sha256()}:"
+        f"g{generation_row['derived_generation_id']}:"
+        f"s{generation_row['publication_sequence']}:"
+        f"{json.dumps(body_dict, sort_keys=True, default=str)}"
+    )
 
 
 def _complete_coords(coords) -> dict | None:
@@ -178,25 +199,58 @@ async def local_search_endpoint(
         'from':           req.from_,
         'sort_by':        req.sort_by or 'development',
         'galaxy_wide':    req.galaxy_wide,
+        'galaxy_region_id': req.galaxy_region_id,
     }
 
-    # Cache key includes every dimension that affects the result set,
-    # otherwise the cache silently serves stale data when sliders move
-    # (this was the original bug behind the inline-fallback's existence).
-    cache_key = (
-        f"search:{SEARCH_CACHE_VERSION}:{json.dumps(body_dict, sort_keys=True, default=str)}"
-    )
+    # Resolve the pinned PUBLISHED generation BEFORE consulting the cache.
+    # This does two things a body-only key could not: (a) a request with no
+    # published generation gets a 404 even on a cache hit, instead of a warm
+    # entry masking the unavailable product; (b) the cache key is scoped to
+    # the exact generation + ranking identity, so a governed publish or a
+    # ranking-formula change can never serve a stale/legacy entry. A pinned
+    # generation lookup is a single-row indexed read on v3_meta.
+    try:
+        generation_row = await _ls.resolve_published_generation(pool)
+    except HTTPException:
+        # Deliberate 4xx (e.g. 404 no published generation, 503 products not
+        # ready) — surface it, don't mask.
+        raise
+    except Exception as exc:
+        # The pre-cache generation lookup runs before the ranked-read try block
+        # below, so without this it would bypass the route's error boundary and
+        # surface as an uncaught 500 (missing V3 schema, connection acquire
+        # failure, etc.). Classify it as search unavailability (503), the same
+        # as a failure from the ranked read itself.
+        log.error(
+            'resolve_published_generation failed: type=%s repr=%r sqlstate=%s',
+            type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            exc_info=True,
+        )
+        return _search_unavailable(
+            f'local search: {type(exc).__name__}: {exc}',
+            hint='Retry in a few seconds; if the problem persists, check /api/health.',
+        )
+
+    # Cache key includes every dimension that affects the result set — the
+    # request body, the ranking identity, AND the resolved generation —
+    # otherwise the cache silently serves stale data when sliders move, when
+    # the ranking changes, or when a new generation is published.
+    cache_key = _search_cache_key(body_dict, generation_row)
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
 
     try:
-        result = await _ls.local_db_search(body_dict, pool)
+        result = await _ls.local_db_search_v3(body_dict, pool)
+    except HTTPException:
+        # A deliberate 4xx from the V3 path (e.g. no published Ratings V4
+        # generation yet) — let FastAPI handle it, don't mask it as a 503.
+        raise
     except Exception as exc:
         # Surface — don't mask. The previous code masked here and silently
         # served different ordering than callers expected (audit §C5).
         log.error(
-            'local_db_search failed: type=%s repr=%r sqlstate=%s',
+            'local_db_search_v3 failed: type=%s repr=%r sqlstate=%s',
             type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
             exc_info=True,
         )
@@ -205,7 +259,24 @@ async def local_search_endpoint(
             hint='Reduce search radius or filter scope; if persistent, retry shortly.',
         )
 
-    await cache_set(cache_key, result, settings.ttl_search, redis)
+    # Store under the generation the result was ACTUALLY computed under, not the
+    # one resolved before the cache lookup. A governed publish landing between
+    # resolve_published_generation() above and the ranked read makes
+    # local_db_search_v3() compute against the newer generation; keying the
+    # store off the pre-resolve generation would file that newer data under the
+    # old generation's key, to be served verbatim if that generation is ever
+    # republished/rolled back. `result['ranking']` reports the exact snapshot the
+    # rows came from (derived_generation_id + publication_sequence), so the
+    # stored value always matches its key. With no race the two keys are
+    # byte-identical, so this is a no-op in the common path.
+    ranking_identity = result.get('ranking') or {}
+    store_key = (
+        _search_cache_key(body_dict, ranking_identity)
+        if ranking_identity.get('derived_generation_id') is not None
+        and ranking_identity.get('publication_sequence') is not None
+        else cache_key
+    )
+    await cache_set(store_key, result, settings.ttl_search, redis)
     background_tasks.add_task(log_slow, 'local_search', (time.time() - t0) * 1000)
     return result
 

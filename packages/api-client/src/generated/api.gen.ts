@@ -1558,7 +1558,7 @@ export interface paths {
         };
         /**
          * Ranked systems by colony archetype
-         * @description Returns systems ranked by a specific colony archetype score. Uses the mv_archetype_rankings materialized view for fast reads. Slot counts are ESTIMATED — not authoritative.
+         * @description Returns systems ranked by a specific colony archetype score, read generation-pinned from the published V3 `v3_app.system_archetype` projection via the ranking profile.
          */
         get: operations["get_archetype_rankings_api_archetypes_rankings_get"];
         put?: never;
@@ -2495,6 +2495,8 @@ export interface components {
              * @enum {string}
              */
             tier: "S" | "A" | "B" | "C" | "D";
+            /** Selected Archetype */
+            selected_archetype?: string | null;
             /** Primary Archetype */
             primary_archetype?: string | null;
             /** Secondary Archetype */
@@ -2513,6 +2515,8 @@ export interface components {
             contamination_risk?: number | null;
             /** Confidence */
             confidence?: number | null;
+            /** Completeness */
+            completeness?: number | null;
             /** Has Elw */
             has_elw?: boolean | null;
             /** Elw Count */
@@ -2548,6 +2552,7 @@ export interface components {
             source?: string | null;
             /** Query Ms */
             query_ms?: number | null;
+            ranking?: components["schemas"]["RankingIdentity"] | null;
         };
         /**
          * ArchetypeRationale
@@ -4611,6 +4616,8 @@ export interface components {
             star_types?: string[] | null;
             /** Min Development Score */
             min_development_score?: number | null;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
             /**
              * Galaxy Wide
              * @default false
@@ -5552,6 +5559,27 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * RankingIdentity
+         * @description Echoes the versioned V3 ranking profile + pinned derived generation
+         *     that produced a ranked response (F2c/F3 Task 5), so a client or an
+         *     operator can tell exactly which profile+generation combination is
+         *     behind a given result set without spelunking through logs.
+         *
+         *     `ranking_sha256` is `edfinder_api.ranking.profile.ranking_sha256()` at
+         *     response time -- it must always equal the live profile's hash, never a
+         *     value baked in ahead of time.
+         */
+        RankingIdentity: {
+            /** Ranking Version */
+            ranking_version: string;
+            /** Ranking Sha256 */
+            ranking_sha256: string;
+            /** Derived Generation Id */
+            derived_generation_id: string;
+            /** Publication Sequence */
+            publication_sequence: number;
+        };
         /** RatingExplanationResponse */
         RatingExplanationResponse: {
             /** Economy */
@@ -6180,6 +6208,7 @@ export interface components {
             total_is_capped?: boolean | null;
             /** Warning */
             warning?: string | null;
+            ranking?: components["schemas"]["RankingIdentity"] | null;
         };
         /**
          * SimulateBuildPlacement
@@ -7089,6 +7118,10 @@ export interface components {
             black_hole_count?: number | null;
             /** White Dwarf Count */
             white_dwarf_count?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Completeness */
+            completeness?: number | null;
         } & {
             [key: string]: unknown;
         };

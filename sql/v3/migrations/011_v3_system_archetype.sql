@@ -27,10 +27,33 @@ CREATE TABLE v3_derived.system_archetype_summary (
     best_colony_potential smallint NOT NULL CHECK(best_colony_potential BETWEEN 0 AND 100),
     best_tier text NOT NULL CHECK(best_tier IN ('S','A','B','C','D')),
     archetype_confidence double precision NOT NULL CHECK(archetype_confidence BETWEEN 0 AND 1),
+    -- Precomputed no-pick ranking key: the EXACT (unrounded)
+    -- best_colony_potential * (confidence * completeness) product as a double
+    -- (scripts/v3_system_archetype_model.weighted_potential). The Finder's
+    -- default galaxy-wide ORDER BY sorts on this single column so a cold-cache
+    -- load is index-satisfiable instead of sorting the whole generation by a
+    -- cross-table product (ranking_sql.build_ranked_query). Kept at full double
+    -- precision, not rounded into the 0-100 smallint domain, so distinct scores
+    -- do not collapse into ties that diverge from the confidence*completeness
+    -- ordering the ranking profile advertises.
+    weighted_potential double precision NOT NULL CHECK(weighted_potential BETWEEN 0 AND 100),
     PRIMARY KEY(derived_generation_id,system_id64),
     FOREIGN KEY(derived_generation_id,system_id64)
         REFERENCES v3_derived.system_rating_vector DEFERRABLE INITIALLY DEFERRED
 );
+
+-- Selected-archetype ranking access path: a picked-archetype Finder query
+-- joins one archetype_key per system and orders/filters by archetype_score.
+-- Without this the join scans the full 8-rows-per-system product per request
+-- (replacing the legacy per-archetype ranking indexes).
+CREATE INDEX system_archetype_key_score
+    ON v3_derived.system_archetype (derived_generation_id, archetype_key, archetype_score DESC, system_id64);
+
+-- Default galaxy-wide ordering access path: the no-pick Finder load sorts every
+-- system by weighted_potential DESC; this index satisfies that ordering (and
+-- the min_development_score bound) without a full-generation sort.
+CREATE INDEX system_archetype_summary_weighted
+    ON v3_derived.system_archetype_summary (derived_generation_id, weighted_potential DESC);
 
 CREATE TABLE v3_derived.archetype_build_chunk (
     derived_generation_id uuid NOT NULL,

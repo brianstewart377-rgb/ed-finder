@@ -254,10 +254,10 @@ def test_gate_coverage_rejects_wrong_key_set_despite_correct_row_count(database)
         cursor.executemany(
             '''INSERT INTO v3_derived.system_archetype_summary(
                    derived_generation_id,system_id64,primary_archetype,secondary_archetype,
-                   best_colony_potential,best_tier,archetype_confidence)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                   best_colony_potential,best_tier,archetype_confidence,weighted_potential)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
             [
-                (generation_id, system_id64, real_keys[0], real_keys[1], 50, 'C', 0.2)
+                (generation_id, system_id64, real_keys[0], real_keys[1], 50, 'C', 0.2, 50)
                 for system_id64 in chunk2_systems
             ],
         )
@@ -320,10 +320,10 @@ def test_validate_failed_when_coverage_complete_but_key_set_malformed(database):
         cursor.executemany(
             '''INSERT INTO v3_derived.system_archetype_summary(
                    derived_generation_id,system_id64,primary_archetype,secondary_archetype,
-                   best_colony_potential,best_tier,archetype_confidence)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                   best_colony_potential,best_tier,archetype_confidence,weighted_potential)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
             [
-                (generation_id, system_id64, real_keys[0], real_keys[1], 50, 'C', 0.2)
+                (generation_id, system_id64, real_keys[0], real_keys[1], 50, 'C', 0.2, 50)
                 for system_id64 in chunk2_systems
             ],
         )
@@ -391,9 +391,12 @@ def test_gate_summary_matches_max_checks_secondary_and_confidence(database):
         cursor.execute(
             '''INSERT INTO v3_derived.system_archetype_summary(
                    derived_generation_id,system_id64,primary_archetype,secondary_archetype,
-                   best_colony_potential,best_tier,archetype_confidence)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-            (generation_id, system_id64, real_keys[0], real_keys[-1], 90, 'A', 0.1),
+                   best_colony_potential,best_tier,archetype_confidence,weighted_potential)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            # weighted_potential value is immaterial here: the row is already
+            # malformed on secondary_archetype/archetype_confidence, so the gate
+            # rejects it regardless (the combined reason names every field).
+            (generation_id, system_id64, real_keys[0], real_keys[-1], 90, 'A', 0.1, 90),
         )
 
     ok, reasons = builder._gate_summary_matches_max(connection, generation_id)

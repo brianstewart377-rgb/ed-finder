@@ -269,7 +269,10 @@ def test_data_trust_cache_versions_are_bumped():
     systems_source = Path(ROOT, 'apps', 'api', 'src', 'routers', 'systems.py').read_text()
 
     assert "AUTOCOMPLETE_CACHE_VERSION = 'v3'" in search_source
-    assert "SEARCH_CACHE_VERSION = 'v4'" in search_source
+    # SEARCH_CACHE_VERSION was bumped v4 -> v5 at the F3 V3 cutover so that
+    # pre-cutover legacy `search:v4:*` entries (different semantics, no
+    # generation/ranking identity) can never be served after the repoint.
+    assert "SEARCH_CACHE_VERSION = 'v5'" in search_source
     assert "GALAXY_CACHE_VERSION = 'v4'" in search_source
     assert "CLUSTER_CACHE_VERSION = 'v4'" in search_source
     assert "SYSTEM_CACHE_VERSION = 'v7'" in systems_source

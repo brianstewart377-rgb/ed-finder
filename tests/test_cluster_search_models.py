@@ -1,7 +1,11 @@
 import pytest
 from pydantic import ValidationError
 
-from edfinder_api.models import ClusterSearchRequest, SlotRequirement
+from edfinder_api.models import (
+    ClusterSearchRequest,
+    LocalSearchRequest,
+    SlotRequirement,
+)
 
 
 def test_slot_requirement_resolves_archetype_economies_and_labels():
@@ -65,3 +69,24 @@ def test_cluster_search_accepts_only_named_galactic_region_ids():
                 slots=[SlotRequirement(archetype_key='refinery_industrial')],
                 galaxy_region_id=invalid_id,
             )
+
+
+def test_local_search_bounds_min_development_score_to_score_domain():
+    """min_development_score is the 0..100 development-score domain. An
+    out-of-domain value must fail validation (422) rather than reach the SQL
+    bind and overflow best_colony_potential's smallint (previously a 503)."""
+    assert LocalSearchRequest(min_development_score=0).min_development_score == 0
+    assert LocalSearchRequest(min_development_score=100).min_development_score == 100
+    for invalid in (-1, 101, 40_000):
+        with pytest.raises(ValidationError):
+            LocalSearchRequest(min_development_score=invalid)
+
+
+def test_local_search_exposes_named_galaxy_region_id():
+    """galaxy_region_id must be an accepted request field (so the router can
+    forward it to the V3 region predicate) and bounded to named regions."""
+    assert LocalSearchRequest(galaxy_region_id=31).galaxy_region_id == 31
+    assert LocalSearchRequest().galaxy_region_id is None
+    for invalid in (0, 43):
+        with pytest.raises(ValidationError):
+            LocalSearchRequest(galaxy_region_id=invalid)
