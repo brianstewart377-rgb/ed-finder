@@ -75,6 +75,14 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
+**Production rollout state (authoritative):** the actual prod state and the
+honest remaining path live in
+`docs/operations/v3-finder-production-rollout-state.md`. Note the distinction
+this status line blurs: "F1 merged with body-type counts" is the **code** state;
+production never applied migration `010`, so the only built `system_search`
+(`opt1`) is **pre-body-type** and the counts are not in prod. Read that document,
+not this status, for what is actually deployed.
+
 **Status (2026-09-26):** F1 merged (PR #734; `system_search` v2 with body-type
 counts). F2 split into F2a (schema `011`, PR #738, merged) → **F2b** (the
 `system_archetype` builder: pure fit model `v3-archetype-1` + chunked/resumable

@@ -131,8 +131,15 @@ newer dated source wins).
   derived generation** (`v3_meta.publish_derived_generation`; a product's own
   lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
   product). A read-only authorized prod-sample **coefficient-calibration probe** is
-  a pre-build follow-up. The Finder F1 `system_search` rebuild currently running in
-  production is the **serial** path; the parallel chunk-range work (#757/#766) is
+  a pre-build follow-up. **CORRECTION (2026-10-04): the Finder production rollout
+  state below drifted from reality — see the authoritative
+  `docs/operations/v3-finder-production-rollout-state.md`, which supersedes this
+  paragraph.** A direct prod read on 2026-10-04 found: migrations `010`/`011` are
+  NOT applied; the only built `system_search` is on the *superseded* `opt1`
+  generation and is READY but **pre-`010`** (no body-type counts), not "currently
+  running"; the published `parallel_v1` generation has no Finder products and
+  cannot accept them; and no operator action exists to build `system_archetype`
+  or publish a derived generation. The parallel chunk-range work (#757/#766) is
   **code-only, its rollout not yet executed** (see
   `docs/development/system-search-parallel-rebuild.md`). The published derived
   generation is **`ratings_v4_prod_p4_parallel_v1`** (`current_derived_generation`
