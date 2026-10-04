@@ -160,3 +160,50 @@ def test_archetype_rows_are_insert_only(database):
     with pytest.raises(psycopg.errors.RaiseException, match='insert-only'):
         connection.execute(
             "UPDATE v3_derived.system_archetype SET archetype_score=archetype_score")
+
+
+def test_summary_has_weighted_potential_column(database):
+    # The precomputed no-pick ranking key (#335): a NOT NULL smallint bounded
+    # to the [0, 100] score domain on system_archetype_summary.
+    connection, _, _, _ = database
+    row = connection.execute(
+        '''SELECT data_type, is_nullable
+             FROM information_schema.columns
+            WHERE table_schema='v3_derived' AND table_name='system_archetype_summary'
+              AND column_name='weighted_potential' ''',
+    ).fetchone()
+    assert row is not None, 'weighted_potential column missing'
+    assert row[0] == 'double precision'
+    assert row[1] == 'NO'
+
+
+def test_summary_weighted_potential_domain_is_enforced(database):
+    connection, _, _, _ = database
+    generation_id, system_id64 = _archetype_generation(database)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        with connection.transaction():
+            connection.execute(
+                '''INSERT INTO v3_derived.system_archetype_summary(
+                       derived_generation_id,system_id64,primary_archetype,
+                       secondary_archetype,best_colony_potential,best_tier,
+                       archetype_confidence,weighted_potential)
+                   VALUES(%s,%s,'paradise',NULL,80,'A',0.9,101)''',
+                (generation_id, system_id64),
+            )
+
+
+def test_ranking_access_path_indexes_exist(database):
+    # #204: a (generation, archetype_key, score) access path on system_archetype
+    # so selected-archetype rankings do not scan the whole 8x-per-system product.
+    # #335: a (generation, weighted_potential DESC) path on the summary so the
+    # default galaxy-wide ordering is index-satisfiable.
+    connection, _, _, _ = database
+    defs = [row[0] for row in connection.execute(
+        '''SELECT indexdef FROM pg_indexes
+            WHERE schemaname='v3_derived'
+              AND tablename IN ('system_archetype','system_archetype_summary')''',
+    ).fetchall()]
+    blob = '\n'.join(defs)
+    assert any('archetype_key' in d and 'archetype_score' in d for d in defs), \
+        'missing selected-archetype ranking index (#204)'
+    assert 'weighted_potential' in blob, 'missing weighted_potential ordering index (#335)'

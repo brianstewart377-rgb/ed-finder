@@ -261,6 +261,15 @@ class SystemRow(BaseModel):
     black_hole_count:     Optional[int] = None
     white_dwarf_count:    Optional[int] = None
 
+    # F2c/F3 confidence badge (V3 ranking path only; None on legacy rows).
+    # `confidence` is the raw per-archetype/economy confidence used by the
+    # ranking profile's uncertainty modifier; `completeness` is the
+    # `v3_app.system_search` data-completeness fraction it is multiplied
+    # against. Explicit (not left to `extra='allow'`) so clients can render
+    # a confidence badge without depending on undocumented extra keys.
+    confidence:           Optional[float] = None
+    completeness:         Optional[float] = None
+
 
 # Backwards-compatible alias — older imports used `SystemModel`.
 SystemModel = SystemRow
@@ -354,6 +363,28 @@ class SystemDetailRow(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 # Response wrappers
 # ══════════════════════════════════════════════════════════════════════
+class RankingIdentity(BaseModel):
+    """Echoes the versioned V3 ranking profile + pinned derived generation
+    that produced a ranked response (F2c/F3 Task 5), so a client or an
+    operator can tell exactly which profile+generation combination is
+    behind a given result set without spelunking through logs.
+
+    `ranking_sha256` is `edfinder_api.ranking.profile.ranking_sha256()` at
+    response time -- it must always equal the live profile's hash, never a
+    value baked in ahead of time.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    ranking_version:       str
+    ranking_sha256:        str
+    # v3_meta.current_derived_generation.derived_generation_id is a UUID (see
+    # sql/v3/migrations/006). Declaring it int made FastAPI response-model
+    # validation reject every real ranked response as a 500. Match the Ratings
+    # V4 response models: carry it as the UUID string.
+    derived_generation_id: str
+    publication_sequence:  int
+
+
 class SearchResponse(BaseModel):
     """`/api/local/search` response."""
     # Envelope-level forbid: any unrecognised top-level key is a sign
@@ -382,6 +413,9 @@ class SearchResponse(BaseModel):
     # Surfaces the radius-cap notice from `local_db_search`. UI can
     # render this as a small banner next to the results count.
     warning:          Optional[str] = None
+    # Ranking-identity block (F2c/F3 Task 5). Only set by the V3 path
+    # (`local_db_search_v3`); None on the legacy `local_db_search` response.
+    ranking:          Optional[RankingIdentity] = None
 
 
 class SystemDetailResponse(BaseModel):
@@ -503,14 +537,27 @@ class LocalSearchRequest(BaseModel):
     filters:          Optional[SearchFilters] = None
     reference_coords: Optional[CoordsModel]   = None
     sort_by:          Optional[str]            = 'development'
-    size:             int                      = Field(default=50, le=500)
-    from_:            int                      = Field(default=0, ge=0, alias='from')
+    # size: 1..500. A missing lower bound let size=-1 through Pydantic and
+    # become a negative SQL LIMIT (a DB error surfaced as a 503); from_ needs
+    # an upper bound so an oversized offset can't overflow asyncpg int encoding.
+    size:             int                      = Field(default=50, ge=1, le=500)
+    from_:            int                      = Field(default=0, ge=0, le=2_147_483_647, alias='from')
     body_filters:     Optional[BodyFilters]    = None
     require_bio:      Optional[bool]           = None
     require_geo:      Optional[bool]           = None
     require_terra:    Optional[bool]           = None
     star_types:       Optional[list[str]]      = None
-    min_development_score: Optional[int] = None
+    # Bounded to the 0–100 development-score domain (the V3 projection's
+    # best_colony_potential is a smallint CHECK 0..100). Without the upper
+    # bound a value >32767 overflowed the smallint bind and surfaced as a
+    # misleading 503 instead of a 422.
+    min_development_score: Optional[int] = Field(default=None, ge=0, le=100)
+    # Region scoping forwarded to the V3 ranked search. Bounded to the named
+    # galactic-region domain (1..42), consistent with ClusterSearchRequest, so
+    # an out-of-range id fails validation (422) rather than overflowing the
+    # smallint bind. Without this field the value was silently dropped and the
+    # region predicate was unreachable through the public endpoint.
+    galaxy_region_id: Optional[int] = Field(default=None, ge=1, le=42)
     galaxy_wide:      bool                     = False
 
     model_config = {'populate_by_name': True}
@@ -835,6 +882,10 @@ class ArchetypeRankingRow(BaseModel):
     distance_to_sol:  Optional[float]       = None
     score:            float
     tier:             TierValue
+    # The archetype the caller ranked BY (echoes the request). Distinct from
+    # `primary_archetype`, which is the system's own strongest archetype read
+    # from the summary -- the two often differ.
+    selected_archetype:   Optional[str]   = None
     primary_archetype:    Optional[str]   = None
     secondary_archetype:  Optional[str]   = None
     archetype_confidence: Optional[float] = None
@@ -844,6 +895,10 @@ class ArchetypeRankingRow(BaseModel):
     purity_score:        Optional[float]  = None
     contamination_risk:  Optional[float]  = None
     confidence:          Optional[float]  = None
+    # F2c/F3 confidence badge (Task 5): the `v3_app.system_search`
+    # data-completeness fraction the uncertainty modifier multiplies
+    # `confidence` against. Explicit, not left to `extra='allow'`.
+    completeness:        Optional[float]  = None
     has_elw:             Optional[bool]   = None
     elw_count:           Optional[int]    = None
     landable_count:      Optional[int]    = None
@@ -863,6 +918,9 @@ class ArchetypeRankingsResponse(BaseModel):
     source:          Optional[str] = None
     query_ms:        Optional[int] = None
     _cached:         Optional[bool] = None
+    # Ranking-identity block (F2c/F3 Task 5) -- always set by the V3
+    # `/rankings` path.
+    ranking:         Optional[RankingIdentity] = None
 
 
 # ── Request: POST /api/archetypes/rerank ─────────────────────────────

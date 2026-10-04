@@ -1,4 +1,4 @@
-'''Pure, DB-free V3 archetype fit model (v3-archetype-2).
+'''Pure, DB-free V3 archetype fit model (v3-archetype-3).
 
 Economy ordinals: 1=Agriculture 2=Refinery 3=Industrial 4=HighTech
 5=Military 6=Tourism 7=Extraction.
@@ -12,7 +12,12 @@ from dataclasses import dataclass, field
 # every persisted confidence value relative to v3-archetype-1. Bumped so
 # reproducibility/manifest identity reflects the formula that produced the
 # stored rows -- nothing has ever been published under v3-archetype-1.
-ARCHETYPE_VERSION = 'v3-archetype-2'
+# v3-archetype-3: system_archetype_summary gained a stored weighted_potential
+# column (the precomputed no-pick ranking key = best_colony_potential scaled by
+# the system_search confidence*completeness factor); this changes the product's
+# content shape/identity, so the version is bumped. Nothing has ever been
+# published under an earlier archetype version.
+ARCHETYPE_VERSION = 'v3-archetype-3'
 
 # key -> (required anchor ordinals, supporting ordinals)
 _ANCHORS: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {
@@ -145,6 +150,43 @@ def fit_all(v: SystemVectors) -> list[ArchetypeFit]:
         _fit_flexible(v) if key == 'flexible' else _fit_anchored(v, key)
         for key in ARCHETYPE_KEYS
     ]
+
+
+def search_uncertainty_factor(v: SystemVectors) -> float:
+    '''Reproduce v3_app.system_search's scalar uncertainty factor:
+    min(confidence) * min(completeness) over the seven frozen Ratings V4 values.
+
+    scripts/v3_system_search.py projects system_search.confidence and
+    .completeness as `min(value)/10000` over the same per-system rating-vector
+    arrays this builder loads (already divided by 10000 here), so this is
+    byte-for-byte the factor the ranking profile's no-pick uncertainty modifier
+    (ranking_sql: `s.confidence * s.completeness`) multiplies in. Both inputs
+    are bounded [0, 1], so the product is bounded [0, 1].
+    '''
+    return min(v.confidence) * min(v.completeness)
+
+
+def weighted_potential(best_colony_potential: int, v: SystemVectors) -> float:
+    '''Precomputed no-pick ranking key stored in system_archetype_summary.
+
+    The EXACT `best_colony_potential * (confidence * completeness)` product, as
+    a double — NOT rounded. Stored (not computed at query time) so the default
+    galaxy-wide Explore ORDER BY is a single indexable column rather than a
+    cross-table product that forces a full-generation sort (see
+    apps/api/src/ranking/ranking_sql.build_ranked_query, finding "Precompute the
+    default galaxy-wide ordering").
+
+    Kept at full double precision deliberately: rounding into the [0, 100]
+    smallint score domain collapsed ~198M systems into 101 buckets, so huge ties
+    reordered by distance/system_id64 and diverged from the exact
+    `confidence * completeness` ordering that `PROFILE_SPEC`/`ranking_sha256`
+    advertises (finding "Preserve precision in the no-pick ranking key"). The
+    factor is parenthesised first so the SQL validation gate recomputes the
+    identical double in the same operation order; both inputs are bounded
+    [0, 1] and best_colony_potential is [0, 100], so the product is [0, 100].
+    '''
+    raw = best_colony_potential * (search_uncertainty_factor(v))
+    return 0.0 if raw < 0.0 else 100.0 if raw > 100.0 else raw
 
 
 def summarise(fits: list[ArchetypeFit]) -> dict:

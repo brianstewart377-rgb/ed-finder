@@ -152,6 +152,14 @@ def product_manifest(generation: Generation) -> dict:
             ),
             'primary_archetype': 'highest archetype_score, ties broken by archetype_keys order',
             'secondary_archetype': 'next highest archetype_score; null only if every other score is 0',
+            'weighted_potential': (
+                'exact double product best_colony_potential * (min(confidence) '
+                '* min(completeness)), bounded [0, 100]; the system_search '
+                'confidence/completeness factor (min over the seven frozen '
+                'Ratings V4 values) applied to best_colony_potential, unrounded '
+                'to preserve the advertised ordering. The precomputed no-pick '
+                'Finder ranking key.'
+            ),
             'source': (
                 'pinned Ratings V4 generation: v3_derived.system_rating_vector and '
                 'v3_derived.economy_opportunity only; no public.* reads'
@@ -288,7 +296,8 @@ def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     summary_rows = connection.execute(
         '''SELECT s.system_id64, s.primary_archetype, s.secondary_archetype,
                   s.best_colony_potential, s.best_tier,
-                  round(s.archetype_confidence::numeric, 6)
+                  round(s.archetype_confidence::numeric, 6),
+                  round(s.weighted_potential::numeric, 8)
              FROM v3_derived.system_archetype_summary s
              JOIN v3_derived.system_rating_vector v
                ON v.derived_generation_id=s.derived_generation_id
@@ -364,7 +373,8 @@ def _chunk_content_shas(connection, generation_id: str) -> dict[int, bytes]:
             summary_cursor.execute(
                 '''SELECT v.chunk_ordinal, s.system_id64, s.primary_archetype, s.secondary_archetype,
                           s.best_colony_potential, s.best_tier,
-                          round(s.archetype_confidence::numeric, 6)
+                          round(s.archetype_confidence::numeric, 6),
+                  round(s.weighted_potential::numeric, 8)
                      FROM v3_derived.system_archetype_summary s
                      JOIN v3_derived.system_rating_vector v
                        ON v.derived_generation_id=s.derived_generation_id
@@ -497,6 +507,13 @@ def _build_chunk(
                 summary['primary_archetype'], summary['secondary_archetype'],
                 summary['best_colony_potential'], summary['best_tier'],
                 summary['archetype_confidence'],
+                # Precomputed no-pick ranking key: best_colony_potential scaled
+                # by the system_search confidence*completeness factor (the
+                # ranking profile's no-pick uncertainty modifier), stored so the
+                # default galaxy-wide ORDER BY is a single indexable column.
+                model.weighted_potential(
+                    summary['best_colony_potential'], vectors[system_id64],
+                ),
             ))
 
         # Bulk-write safety exception: only derived Archetype rows/receipts are
@@ -514,8 +531,8 @@ def _build_chunk(
             cursor.executemany(
                 '''INSERT INTO v3_derived.system_archetype_summary(
                        derived_generation_id,system_id64,primary_archetype,secondary_archetype,
-                       best_colony_potential,best_tier,archetype_confidence)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                       best_colony_potential,best_tier,archetype_confidence,weighted_potential)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
                 summary_rows,
             )
 
@@ -674,12 +691,19 @@ def _gate_score_and_tier(connection, generation_id: str) -> tuple[bool, list[str
 
 def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, list[str]]:
     '''Hard gate 3: each summary's full row -- primary_archetype,
-    secondary_archetype, best_colony_potential, best_tier and
-    archetype_confidence -- matches the system's top-2 scoring archetype rows
+    secondary_archetype, best_colony_potential, best_tier, archetype_confidence
+    and weighted_potential -- matches the system's top-2 scoring archetype rows
     (ties broken by ARCHETYPE_KEYS order, matching model.summarise). Set-based
     via a window function; the tie-break order is passed as a bound array
     parameter. archetype_confidence is compared with a small float tolerance
-    (the stored value was already rounded to 6dp by model.summarise).'''
+    (the stored value was already rounded to 6dp by model.summarise).
+
+    weighted_potential is recomputed set-based from best_colony_potential and
+    the system's own rating-vector confidence/completeness arrays as the exact
+    double product, in the same float operation order as
+    model.weighted_potential (factor parenthesised first), and compared with a
+    1e-9 tolerance (below the 1e-8 value quantum), so a drifted/corrupted value
+    cannot pass while bit-identical recomputation does.'''
     bad = int(connection.execute(
         '''WITH ranked AS (
                SELECT system_id64, archetype_key, archetype_score, tier,
@@ -705,6 +729,9 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
            SELECT count(*)
              FROM v3_derived.system_archetype_summary s
              JOIN top2 t ON t.system_id64=s.system_id64
+             JOIN v3_derived.system_rating_vector rv
+               ON rv.derived_generation_id=s.derived_generation_id
+              AND rv.system_id64=s.system_id64
             WHERE s.derived_generation_id=%s
               AND (s.primary_archetype<>t.primary_key
                    OR s.best_colony_potential<>t.s1
@@ -716,14 +743,26 @@ def _gate_summary_matches_max(connection, generation_id: str) -> tuple[bool, lis
                               (t.s1-t.s2)::double precision
                                   / GREATEST(t.s1,1)::double precision * 2,
                               1.0
-                          )) > 1e-6)''',
+                          )) > 1e-6
+                   -- 1e-9 (not 1e-6): weighted = best * minc * mincomp / 1e8,
+                   -- so distinct values can differ by as little as 1e-8; the
+                   -- tolerance must be below that quantum to distinguish every
+                   -- value the ORDER BY uses, while still absorbing sub-ULP
+                   -- float noise between this recompute and the stored value.
+                   OR abs(s.weighted_potential - (
+                          s.best_colony_potential::double precision
+                          * (
+                              ((SELECT min(c) FROM unnest(rv.confidence) AS c)::double precision / 10000)
+                              * ((SELECT min(c) FROM unnest(rv.completeness) AS c)::double precision / 10000)
+                            )
+                      )) > 1e-9)''',
         (list(model.ARCHETYPE_KEYS), generation_id, generation_id),
     ).fetchone()[0])
     if bad:
         return False, [
             f"invariants: {bad} summary row(s) do not match their system's "
             'top-2 archetype rows (primary_archetype/secondary_archetype/'
-            'best_colony_potential/best_tier/archetype_confidence)'
+            'best_colony_potential/best_tier/archetype_confidence/weighted_potential)'
         ]
     return True, []
 

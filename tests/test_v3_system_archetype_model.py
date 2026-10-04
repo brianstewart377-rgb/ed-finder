@@ -1,5 +1,6 @@
 from scripts.v3_system_archetype_model import (
     SystemVectors, fit_all, summarise, tier_of, ARCHETYPE_VERSION, ARCHETYPE_KEYS,
+    search_uncertainty_factor, weighted_potential,
 )
 
 def _vectors(**over):
@@ -14,7 +15,9 @@ def test_tier_thresholds():
     assert [tier_of(s) for s in (88, 87, 76, 60, 45, 44, 0)] == ['S','A','A','B','C','D','D']
 
 def test_version_and_key_set():
-    assert ARCHETYPE_VERSION == 'v3-archetype-2'
+    # Bumped to v3-archetype-3 when system_archetype_summary gained the stored
+    # weighted_potential column (changes the product's content shape/identity).
+    assert ARCHETYPE_VERSION == 'v3-archetype-3'
     assert set(ARCHETYPE_KEYS) == {
         'paradise','mining_hub','manufacturing_hub','megacomplex',
         'research_hub','stronghold','population_capital','flexible',
@@ -86,3 +89,44 @@ def test_flexible_confidence_folds_mean_completeness():
     f = {f.key: f for f in fit_all(v)}['flexible']
     # mean(confidence)=1.0 (default) * mean(completeness)=0.5
     assert f.confidence == 0.5
+
+
+# --- weighted_potential: the precomputed no-pick ranking key (#335) ----------
+
+
+def test_search_uncertainty_factor_is_min_conf_times_min_completeness():
+    # Mirrors v3_app.system_search's scalar: min over the seven confidence
+    # values times min over the seven completeness values.
+    v = _vectors(completeness=(0.5,)*7, confidence=(1.0,)*7)
+    assert search_uncertainty_factor(v) == 0.5
+
+
+def test_search_uncertainty_factor_uses_min_not_mean():
+    # A single low value pulls the factor down (min, matching system_search),
+    # not an average over the anchors.
+    v = _vectors(completeness=(1.0, 1.0, 0.25, 1.0, 1.0, 1.0, 1.0), confidence=(1.0,)*7)
+    assert search_uncertainty_factor(v) == 0.25
+
+
+def test_weighted_potential_scales_best_by_search_uncertainty():
+    v = _vectors(completeness=(0.5,)*7, confidence=(1.0,)*7)
+    # 80 * (1.0 * 0.5) = 40.0
+    assert weighted_potential(80, v) == 40.0
+
+
+def test_weighted_potential_is_exact_unrounded_product():
+    # NOT rounded into the [0,100] integer domain: the exact double is kept so
+    # distinct scores do not collapse into ties (precision finding).
+    v = _vectors(completeness=(0.5,)*7, confidence=(1.0,)*7)
+    assert weighted_potential(61, v) == 30.5
+    # two near scores stay distinct (would both round to 31 as a smallint)
+    v2 = _vectors(completeness=(0.51,)*7, confidence=(1.0,)*7)
+    assert weighted_potential(61, v) != weighted_potential(61, v2)
+
+
+def test_weighted_potential_bounded_to_score_domain():
+    full = _vectors(completeness=(1.0,)*7, confidence=(1.0,)*7)
+    assert weighted_potential(100, full) == 100.0
+    assert weighted_potential(0, full) == 0.0
+    zero = _vectors(completeness=(0.0,)*7, confidence=(1.0,)*7)
+    assert weighted_potential(100, zero) == 0.0
