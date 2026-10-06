@@ -144,6 +144,30 @@ async def v3_derived_ready():
         await conn.close()
 
 
+@pytest_asyncio.fixture
+async def v3_watchlist_ready():
+    """Skip a test unless the V3 private watchlist schema exists in this DB.
+
+    The watchlist router was repointed from the legacy V2 `public.watchlist`
+    table to `v3_private.watchlist` (plus the canonical-generation resolver in
+    `add_watchlist`). The protected `Backend integration (PG+Redis)` lane seeds
+    the V2 schema only, so these tests must skip there rather than fail on a
+    relation that lane never creates -- the same handling the V3 journal-flow
+    tests above use. Real coverage of the V3 watchlist runs against a fresh
+    PG18 V3 database in tests/test_v3_watchlist_postgres.py.
+    """
+    conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+    try:
+        if await conn.fetchval("SELECT to_regclass('v3_private.watchlist')") is None:
+            pytest.skip("V3 private watchlist schema absent (V2-only lane)")
+        if await conn.fetchval(
+            "SELECT to_regclass('v3_meta.current_canonical_generation')"
+        ) is None:
+            pytest.skip("V3 canonical-generation resolver absent (V2-only lane)")
+    finally:
+        await conn.close()
+
+
 @pytest.fixture(scope="session")
 def v3_fixture_db_ready():
     import asyncio
