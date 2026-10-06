@@ -419,6 +419,10 @@ async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_
     monkeypatch.setenv('ED_FINDER_REVIEW_STACK_MARKER', 'edfinder-review')
     monkeypatch.setenv('DATABASE_URL', 'postgresql://review_user:review_password@review-postgres:5432/edfinder_local_review')
     monkeypatch.setenv('REDIS_URL', 'redis://review-redis:6379/0')
+    # Settings construction at import time rejects an unset CORS policy as
+    # defence in depth, so pin the explicit review-env values first.
+    monkeypatch.setenv('CORS_ORIGINS', 'http://test')
+    monkeypatch.setenv('ADMIN_TOKEN', 'test-admin-token')
     module = importlib.import_module('apps.api.src.review_main')
     request = SimpleNamespace(method='POST', url=SimpleNamespace(path='/api/local/search'),
                               app=SimpleNamespace(state=SimpleNamespace(review_scenario=mode)))

@@ -108,7 +108,13 @@ def test_local_review_compose_remains_disposable_local_only():
     assert 'ed-finder.app' not in compose_text
     assert '127.0.0.1:8001:8000' in compose_text
 
-    assert 'ports:' not in _service_block(compose_text, 'review-postgres')
+    # review-postgres now publishes a loopback-only port so the host test venv
+    # can seed the V3 generation; the isolation guarantees (no wildcard bind, no
+    # host 5432, redis unpublished) still hold. See
+    # docs/development/review-lab-v3-redo.md.
+    assert '127.0.0.1:55433:5432' in _service_block(compose_text, 'review-postgres')
+    assert '0.0.0.0:' not in compose_text
+    assert '5432:5432' not in compose_text
     assert 'ports:' not in _service_block(compose_text, 'review-redis')
     assert _list_values(_service_block(compose_text, 'review-postgres'), 'networks') == ['review']
     assert _list_values(_service_block(compose_text, 'review-redis'), 'networks') == ['review']
