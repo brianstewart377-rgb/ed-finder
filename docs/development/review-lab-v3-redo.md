@@ -87,6 +87,17 @@ the production image has no host test/build toolchain and remains unchanged.
    READY/VERIFIED through real builders and the derived generation CAS publish
    gate. Successful re-seeding returns the existing publication sequence.
    Driver/build failures are reported without raw connection strings.
+   After derived publication, the review-only `seed_review_spatial_pyramid`
+   helper resolves the published canonical generation and builds all seven
+   density levels through `scripts/v3_spatial_pyramid.py`. The canonical source
+   is capped at 1,000 systems before aggregation. `build_receipt` reconciles
+   every registered level, `mark_pyramid_ready` records VERIFIED evidence, and
+   `publish_spatial_pyramid` CAS-publishes the candidate against the observed
+   empty spatial pointer (`None`, sequence `0`) and pinned canonical id. This
+   entire spatial step is one transaction on the autocommit connection; failure
+   rolls it back. An existing spatial publication short-circuits the helper.
+   `/api/map/heatmap` therefore uses genuine V3 density cells rather than absent
+   legacy MVs. The Cypress seed remains unchanged.
 3. **Journeys**: require every corpus system (Achenar, HD 38179, V3 Lossless
    Reach) through the normal V3 Finder route, with a V3 source marker. The
    browser wiring and saved-selection assertions use Achenar. Remove the
@@ -123,6 +134,15 @@ and ESLint, and `pnpm check` passed with no errors or warnings.
 Preflight was attempted but could not reach the Docker Desktop Linux daemon;
 no stack/image build, real PostgreSQL publication or full browser verification
 was performed. CI green remains unproven until those run.
+
+Spatial seed follow-up (2026-10-06): `py_compile` and Ruff (`--target-version
+py314`) passed on all three changed Python files. Focused Review Lab, generation
+seed and DB-isolation tests passed (88 passed; two PostgreSQL cases skipped
+without `RATINGS_V4_VALIDATION_DATABASE_URL`). Contract coverage checks the
+post-derived spatial invocation, CAS argument order, idempotency, bounded source
+and fail-closed reconciliation. The full-lineage disposable PostgreSQL case now
+also checks published canonical-keyed cells and all seven level sums. Docker
+Review Lab and real PostgreSQL verification remain pending in CI.
 
 Maintainer/CI commands from the repository root, after installing the frozen
 host test environment and `apps/web` dependencies:

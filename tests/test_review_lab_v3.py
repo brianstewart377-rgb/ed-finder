@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -243,13 +244,137 @@ def test_host_seed_checks_connected_database_and_reuses_publisher(database, fail
         calls.append('publish')
         return 1
 
+    def publish_spatial(conn):
+        assert conn is connection
+        calls.append('spatial')
+        return 1
+
     monkeypatch.setenv('DATABASE_URL', contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
     monkeypatch.setattr(psycopg, 'connect', connect)
     monkeypatch.setattr(review_seed, 'seed_cypress_v3_generation', publish)
+    monkeypatch.setattr(review_seed, 'seed_review_spatial_pyramid', publish_spatial)
     assert review_seed.main() == int(fails)
-    assert calls == ([] if fails else ['publish'])
+    assert calls == ([] if fails else ['publish', 'spatial'])
     output = capsys.readouterr()
     assert 'review_password' not in output.out + output.err
+
+
+@pytest.mark.parametrize('reconciliation_fails', [False, True])
+def test_review_spatial_seed_reconciles_before_ready_and_cas_publish(monkeypatch, reconciliation_fails):
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    builder = review_seed.spatial_builder
+    canonical_id, spatial_id = uuid4(), uuid4()
+    events = []
+
+    class Connection:
+        @contextmanager
+        def transaction(self):
+            events.append('begin')
+            try:
+                yield
+            except Exception:
+                events.append('rollback')
+                raise
+            else:
+                events.append('commit')
+
+        def execute(self, query, params=None):
+            if not isinstance(query, str):
+                assert query.as_string() == (
+                    'SELECT count(*) FROM (SELECT 1 FROM "v3_gen_review_fixture".systems '
+                    'LIMIT %s) AS bounded_systems')
+                assert params == (review_seed.MAX_REVIEW_SPATIAL_SYSTEMS + 1,)
+                row = (3,)
+            elif 'FROM v3_spatial.current_spatial_generation' in query:
+                row = None
+            elif 'FROM v3_meta.current_canonical_generation' in query:
+                row = (canonical_id, 'v3_gen_review_fixture')
+            elif query.startswith('INSERT INTO v3_spatial.spatial_generation'):
+                assert params == (canonical_id, review_seed.REVIEW_PYRAMID_VERSION, 3)
+                row = (spatial_id,)
+            else:
+                assert query == 'SELECT v3_spatial.publish_spatial_pyramid(%s,%s,%s,%s,%s,%s)'
+                assert params == (spatial_id, None, 0, canonical_id, 'review-seed',
+                                  'interim review v3 density pyramid')
+                events.append('publish')
+                row = (1,)
+            return SimpleNamespace(fetchone=lambda: row)
+
+    connection = Connection()
+    per_level = {level.level: 2 for level in builder.CELL_LEVELS}
+    receipt = {'reconciliation': 'passed', 'canonical_count': 3}
+
+    def reconciled_receipt(*_args, **_kwargs):
+        events.append('reconcile')
+        if reconciliation_fails:
+            raise builder.ReconciliationError('incomplete level')
+        return receipt
+
+    register = Mock(side_effect=lambda *_args: events.append('levels'))
+    build = Mock(side_effect=lambda *_args, **_kwargs: (events.append('build'), per_level)[1])
+    validate = Mock(side_effect=reconciled_receipt)
+    ready = Mock(side_effect=lambda *_args, **_kwargs: events.append('ready'))
+    monkeypatch.setattr(builder, 'register_cell_levels', register)
+    monkeypatch.setattr(builder, 'build_all_levels', build)
+    monkeypatch.setattr(builder, 'build_receipt', validate)
+    monkeypatch.setattr(builder, 'mark_pyramid_ready', ready)
+
+    if reconciliation_fails:
+        with pytest.raises(builder.ReconciliationError):
+            review_seed.seed_review_spatial_pyramid(connection)
+        assert events == ['begin', 'levels', 'build', 'reconcile', 'rollback']
+        ready.assert_not_called()
+    else:
+        assert review_seed.seed_review_spatial_pyramid(connection) == 1
+        assert events == ['begin', 'levels', 'build', 'reconcile', 'ready', 'publish', 'commit']
+        ready.assert_called_once_with(
+            connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION,
+            receipt=receipt)
+    register.assert_called_once_with(connection, review_seed.REVIEW_PYRAMID_VERSION)
+    build.assert_called_once_with(
+        connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION)
+    validate.assert_called_once_with(
+        connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION,
+        canonical_count=3, per_level=per_level)
+
+
+def test_review_spatial_seed_skips_an_existing_publication():
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    connection = SimpleNamespace(
+        transaction=nullcontext,
+        execute=Mock(return_value=SimpleNamespace(fetchone=lambda: (uuid4(), 7))),
+    )
+    assert review_seed.seed_review_spatial_pyramid(connection) == 7
+    connection.execute.assert_called_once_with(
+        'SELECT spatial_generation_id, publication_sequence '
+        'FROM v3_spatial.current_spatial_generation WHERE singleton')
+
+
+@pytest.mark.parametrize('canonical, count', [
+    (None, 3),
+    (('canonical-id', 'public'), 3),
+    (('canonical-id', 'v3_gen_fixture'), 0),
+    (('canonical-id', 'v3_gen_fixture'), review_seed.MAX_REVIEW_SPATIAL_SYSTEMS + 1),
+])
+def test_review_spatial_seed_rejects_invalid_or_unbounded_canonical(canonical, count, monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    connection = SimpleNamespace(
+        transaction=nullcontext,
+        execute=Mock(side_effect=[SimpleNamespace(fetchone=lambda row=row: row)
+                                 for row in (None, canonical, (count,))]),
+    )
+    register = Mock()
+    monkeypatch.setattr(review_seed.spatial_builder, 'register_cell_levels', register)
+    with pytest.raises(review_seed.ReviewSeedError):
+        review_seed.seed_review_spatial_pyramid(connection)
+    register.assert_not_called()
 
 
 def test_host_seed_failure_does_not_expose_driver_credentials(monkeypatch, capsys):
