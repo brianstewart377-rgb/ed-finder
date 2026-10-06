@@ -8,7 +8,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / ".github" / "workflows" / "codex-laptop.yml"
 DISPATCH = ROOT / ".github" / "workflows" / "codex-dispatch.yml"
-EXPECTED_CODEX_MODEL = "gpt-5.6-sol"
+EXPECTED_CODEX_MODEL = "gpt-6.1-sol"
 EXPECTED_CODEX_REASONING_EFFORT = "high"
 
 
