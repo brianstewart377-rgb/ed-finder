@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from apps.api.src.review_environment_fixtures import (
+    REQUIRED_REVIEW_SYSTEM_NAMES as REQUIRED_REVIEW_SYSTEM_NAMES,
+)
 from apps.api.src.review_runtime_guard import (
     EXPECTED_REVIEW_DATABASE_HOST as EXPECTED_REVIEW_DATABASE_HOST,
     EXPECTED_REVIEW_DATABASE_NAME as EXPECTED_REVIEW_DATABASE_NAME,
@@ -24,7 +27,12 @@ VERIFY_TMP_ROOT = Path('/tmp/edfinder-local-review')
 LATEST_REPORT_POINTER = VERIFY_TMP_ROOT / 'latest-report.json'
 PROJECT_NAME = 'edfinder-review'
 CONFIRM_FLAG = '--confirm-local-review-environment'
-EXPECTED_REVIEW_DB_NAME = 'edfinder_local_review'
+EXPECTED_REVIEW_DB_NAME = EXPECTED_REVIEW_DATABASE_NAME
+EXPECTED_REVIEW_DATABASE_BIND = '127.0.0.1:55433:5432'
+EXPECTED_REVIEW_SEED_DATABASE_URL = (
+    'postgresql://review_user:review_password@127.0.0.1:55433/'
+    + EXPECTED_REVIEW_DATABASE_NAME
+)
 EXPECTED_REVIEW_API_HOST = '127.0.0.1'
 EXPECTED_REVIEW_API_PORT = 8001
 EXPECTED_REVIEW_API_BIND = '127.0.0.1:8001:8000'
@@ -44,7 +52,6 @@ REVIEW_LAB_VIEWPORT_PROFILES: tuple[dict[str, Any], ...] = (
 )
 REVIEW_LAB_VIEWPORT_PROFILE_NAMES = tuple(profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES)
 REQUIRED_SERVICES = ('review-postgres', 'review-redis', 'review-api')
-REQUIRED_REVIEW_SYSTEM_NAMES = ('Review Alpha', 'Review Beta', 'Review Gamma', 'Review Delta')
 REQUIRED_PHASE_NAMES = (
     'static',
     'stack',
@@ -65,12 +72,6 @@ DISALLOWED_REFERENCES = (
     'ed-finder_redis_data',
     'env_file:',
 )
-REVIEW_SYSTEM_IDS = {
-    'alpha': 7200000000001,
-    'beta': 7200000000002,
-    'gamma': 7200000000003,
-    'delta': 7200000000004,
-}
 
 ReviewMode = Literal['quick', 'full']
 PhaseStatus = Literal['passed', 'failed', 'skipped']

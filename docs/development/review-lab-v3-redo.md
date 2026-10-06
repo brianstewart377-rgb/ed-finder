@@ -1,6 +1,6 @@
 # Review Lab V3 redo — audit + design
 
-**Status:** proposed (2026-10-06). Branch `chore/review-lab-v3-redo`.
+**Status:** Phase 1 implemented; runtime/CI verification pending (2026-10-06). Branch `chore/review-lab-v3-redo`.
 
 ## Problem
 
@@ -12,7 +12,7 @@ search/map → canonical `v3_gen_*.systems`, Finder → `v3_app.system_search` /
 `v3_app.system_archetype`, journal → `v3_private.*`) either 500s in Review Lab
 or needs a one-off shim. This is the root cause of the recurring false failures.
 
-## Audit — current state (facts)
+## Audit — pre-redo state (historical facts)
 
 ### Schema application
 - `scripts/dev/review_lab/lifecycle.py:296-304` (`bootstrap_schema`) applies
@@ -63,48 +63,97 @@ Make Review Lab boot the V3 schema and seed a minimal published generation by
 job (the runner already has the full checkout + the `apps/api` venv per
 `.github/workflows/review-lab.yml`).
 
-> **Isolation constraint (hard):** `review_lab/lifecycle.py:validate_compose_text`
-> forbids `review-postgres`/`review-redis` from publishing any host port
-> (lines 153-172). This is a deliberate isolation guarantee and must NOT be
-> weakened. Therefore the generation build cannot reach the DB from the host —
-> it must run **inside the review compose network**.
+**Phase 1 is an INTERIM plumbing proof**, not the final Review Lab dataset or
+product acceptance. Phase 2 will replace the Cypress source corpus with richer
+purpose-built fixtures; it is outside this change.
 
-1. **Schema** — replace the V2 `sql/*.sql` bootstrap loop (`bootstrap_schema`)
-   with psql inside `review-postgres` over an explicit **ordered list of the full
-   V3 lineage** (manifest + Finder `010/011/013`). The `./sql:/workspace/sql:ro`
-   mount is already present, so this is pure psql in the DB container — no app
-   code, no host port.
-2. **Generation** — reuse the Cypress canonical+derived build/publish machinery
-   (`seed_cypress_v3_generation`) run **inside `review-api`** via the existing
-   `docker compose run --rm review-api …` path, with the build code
-   (`scripts/`, `domain/`, `tests/`, `sql/`) added as **read-only compose mounts**
-   so the **prod `apps/api/Dockerfile` image stays untouched** (no test code shipped
-   to prod). This gives `/api/local/search` a published generation with
-   `system_search` + `system_archetype` READY, over the internal network only.
-   Open sub-task: the generation must contain the systems the review journeys
-   expect — either convert the Review fixtures into a V3 canonical source, or
-   repoint the journeys to the Cypress fixture systems.
-3. **Review-only data** — keep the review control route and any review-specific
-   fixtures; drop the obsolete V2 table seeding (`systems(x,y,z)`, V2 `ratings`,
-   `mv_archetype_rankings`, archetype V2 tables) that no longer matches the app.
-4. **Cleanup** — remove the interim `_ensure_v3_watchlist_relations` shim in
-   `review_environment_seed.py` (014 now applied by the lineage).
-5. **Isolation** — preserve full disposability: loopback-only port, review DSN
-   guard, teardown leaving no resources (`review-lab.yml` tail assertions).
+**Isolation constraint:** allow only `127.0.0.1:55433:5432` for
+`review-postgres`, while `review-redis` continues to publish no ports. Host
+5432, wildcard/off-host binds, extra ports and external resources remain
+forbidden. This supersedes the original proposal to build inside `review-api`:
+the production image has no host test/build toolchain and remains unchanged.
 
-### Open decision for the owner
-- **Migration breadth:** apply the *Finder-minimal* set `{001,003,004,006,010,011,014}`
-  (what the journeys need) vs the *full* prod-faithful set (manifest
-  `001,002,r1_v3/001,003,004,005,006,008,009,012,014` **plus** Finder `010,011,013`).
-  Minimal is faster and matches the journeys; full is the truest prod mirror and
-  future-proofs journal/identity journeys. Recommendation: **full**, since the
-  whole point is to stop testing a schema prod doesn't run.
+1. **Schema**: `bootstrap_schema` already applies the full ordered V3
+   prod+Finder lineage (`V3_LINEAGE_FILES`) through psql in `review-postgres`.
+   Keep the manifest plus Finder `010/011/013`; do not restore the V2 glob or
+   change production migration registration.
+2. **Generation**: after bootstrap and before building/starting `review-api`,
+   use the host test venv (`sys.executable`) to run
+   `scripts/dev/seed_review_v3_generation.py`. Its `DATABASE_URL` targets the
+   exact loopback port and `edfinder_local_review`. It reuses the shared review
+   database-name constant and disposable-test guard, rejects DSN overrides,
+   verifies `current_database()`, then delegates to
+   `seed_cypress_v3_generation(connection)`. Search and Archetype reach
+   READY/VERIFIED through real builders and the derived generation CAS publish
+   gate. Successful re-seeding returns the existing publication sequence.
+   Driver/build failures are reported without raw connection strings.
+3. **Journeys**: require every corpus system (Achenar, HD 38179, V3 Lossless
+   Reach) through the normal V3 Finder route, with a V3 source marker. The
+   browser wiring and saved-selection assertions use Achenar. Remove the
+   normal-mode legacy-search middleware bypass. Preserve the tagged 503,
+   contract-shaped empty response/zero-target scene, and renderer
+   fault/recovery assertions and containment policy.
+4. **Review-only data**: the scenario control is process-local. Retained
+   warehouse/provenance support payloads stay bounded in-memory synthetic
+   contracts keyed to those three fixture systems; they require no V2
+   `app_meta` writes. The unused fourth historical profile is retired.
+5. **Cleanup**: retire `review_environment_seed.py`, its compose mount, all
+   V2 upserts and the watchlist DDL shim. Migration 014 supplies watchlist
+   relations. The API image receives no test dependencies or tooling mounts.
+6. **Disposability**: preserve failure codes, bounded subprocesses, baseline
+   comparison and teardown, including the workflow's final assertion that no
+   Review Lab containers, volumes or networks remain.
+
+TODO(Phase 2): replace the shared Cypress corpus and identity assertions with a
+purpose-built Review Lab fixture, retaining the same publication and isolation
+gates and each scenario's existing proof obligations.
 
 ## Verification
 CI `Review Lab` lane: `review_environment.py preflight` then
 `verify --mode full --scenario all`. Local: same via `docker compose
 -f docker-compose.review.yml`. The lane must go green against the V3 schema with
 no weakened assertions.
+
+Phase 1 local evidence (2026-10-06): CPython 3.14.4, `py_compile` and Ruff
+(`--target-version py314`) passed on every touched Python file. The focused
+Review Lab, timeout, isolation, body-writer and generation-seed tests passed
+(85 passed; two PostgreSQL cases skipped without
+`RATINGS_V4_VALIDATION_DATABASE_URL`). The browser collector passed Prettier
+and ESLint, and `pnpm check` passed with no errors or warnings.
+Preflight was attempted but could not reach the Docker Desktop Linux daemon;
+no stack/image build, real PostgreSQL publication or full browser verification
+was performed. CI green remains unproven until those run.
+
+Maintainer/CI commands from the repository root, after installing the frozen
+host test environment and `apps/web` dependencies:
+
+```bash
+apps/api/.venv/bin/python scripts/dev/review_environment.py preflight
+apps/api/.venv/bin/python scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
+# Always run after a failed verification too:
+apps/api/.venv/bin/python scripts/dev/review_environment.py down --confirm-local-review-environment
+docker ps -a --filter label=com.docker.compose.project=edfinder-review --format '{{.Names}}'
+docker volume ls --filter label=com.docker.compose.project=edfinder-review --format '{{.Name}}'
+docker network ls --filter label=com.docker.compose.project=edfinder-review --format '{{.Name}}'
+```
+
+The last three commands must return no Review Lab resources. To run both
+publication regression cases, configure `RATINGS_V4_VALIDATION_DATABASE_URL`
+through the environment for a guarded disposable PostgreSQL 18 service whose
+role can create/drop disposable test databases, then run:
+
+```bash
+apps/api/.venv/bin/python -m pytest tests/test_seed_cypress_v3_generation.py -q
+```
+
+Expected journey outcomes: all three systems fit within the default 24-row,
+galaxy-wide Finder query, so Achenar reaches the normal result list and Babylon
+scene. API failure still comes from tagged review middleware and preserves the
+Achenar selection key. Empty mode still bypasses search with the same empty
+contract and zero-target scene. Renderer recovery still uses the normal populated
+scene and the existing context-loss/restore or remount checks. These are traced
+expectations, not a substitute for the pending browser run. The unchanged
+60-second seed budget and availability of host port 55433 also require CI proof.
 
 ## Sequencing note
 This branch builds on the V3 watchlist work in PR #782 (it removes #782's interim

@@ -29,7 +29,9 @@ type ReviewSummary = {
   fatalError: string | null;
 };
 
-const REVIEW_ALPHA = { id64: '7200000000001', name: 'Review Alpha' };
+// INTERIM plumbing proof using tests/fixtures/cypress_v3_sources.
+// TODO(Phase 2): purpose-built fixture per docs/development/review-lab-v3-redo.md.
+const REVIEW_SYSTEM = { id64: '10477373803000', name: 'Achenar' };
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const selectedStorageKey = 'ed-finder:selected-system-context';
 let currentFlow = '';
@@ -189,9 +191,9 @@ describe('isolated V3 Review Lab', () => {
       cy.intercept('POST', '/api/local/search').as('wiringSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       cy.wait('@wiringSearch').its('response.statusCode').should('eq', 200);
-      cy.get(`[data-system-result="${REVIEW_ALPHA.id64}"]`).should(
+      cy.get(`[data-system-result="${REVIEW_SYSTEM.id64}"]`).should(
         'contain.text',
-        REVIEW_ALPHA.name,
+        REVIEW_SYSTEM.name,
       );
       cy.get(readySelector, { timeout: 20_000 })
         .should('be.visible')
@@ -213,7 +215,7 @@ describe('isolated V3 Review Lab', () => {
       cy.visit('/explore', {
         onBeforeLoad(window) {
           instrumentWindow(window);
-          window.localStorage.setItem(selectedStorageKey, REVIEW_ALPHA.id64);
+          window.localStorage.setItem(selectedStorageKey, REVIEW_SYSTEM.id64);
         },
       });
       cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
@@ -223,7 +225,7 @@ describe('isolated V3 Review Lab', () => {
       cy.window()
         .its('localStorage')
         .invoke('getItem', selectedStorageKey)
-        .should('eq', REVIEW_ALPHA.id64)
+        .should('eq', REVIEW_SYSTEM.id64)
         .then(() =>
           markPassed('apiFailure', {
             failureModeActivated: true,

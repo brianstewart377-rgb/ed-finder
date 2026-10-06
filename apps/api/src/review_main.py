@@ -15,7 +15,6 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from edfinder_api.config import limiter, log, settings
-import edfinder_api.local_search as _ls
 from edfinder_api.review_provenance_cockpit import router as review_provenance_cockpit_router
 from edfinder_api.review_runtime_guard import validate_review_runtime_env
 from edfinder_api.review_support_routes import router as review_support_router
@@ -157,30 +156,8 @@ async def review_scenario_middleware(request: Request, call_next: Any) -> Respon
                     'source': 'review_lab_synthetic_empty',
                 },
             )
-        # normal mode: serve the Review Lab's search from the LEGACY builder over
-        # the seeded synthetic data -- exactly the behaviour it had before the F3
-        # V3 repoint. The Review Lab publishes no V3 generation (its isolation
-        # contract forbids exposing the DB to build one), so the real V3 path
-        # would 404 here. Real V3 search is proven end-to-end in the Cypress
-        # product-journey lane (which seeds a real published generation), not in
-        # this synthetic review env -- so no coverage is lost.
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
-        try:
-            result = await _ls.local_db_search(payload, request.app.state.pool)
-        except HTTPException as exc:
-            return JSONResponse(
-                status_code=exc.status_code,
-                media_type='application/problem+json',
-                content={
-                    'type': f'https://httpstatuses.com/{exc.status_code}',
-                    'title': exc.detail if isinstance(exc.detail, str) else 'Error',
-                    'status': exc.status_code,
-                },
-            )
-        return JSONResponse(status_code=200, content=result)
+        # Normal mode reaches the production V3 search router and its published
+        # generation/READY-product gates, using the isolated seeded database.
     return await call_next(request)
 
 
