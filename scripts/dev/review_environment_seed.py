@@ -65,6 +65,7 @@ async def ensure_review_seed(pool: asyncpg.Pool) -> dict[str, int]:
     async with pool.acquire() as conn:
         database_name = await conn.fetchval('SELECT current_database()')
         assert_review_database_name(str(database_name or ''))
+        await _ensure_v3_watchlist_relations(conn)
         await _upsert_app_meta(conn)
         await _upsert_systems(conn)
         await _upsert_bodies(conn)
@@ -100,6 +101,67 @@ async def ensure_review_seed(pool: asyncpg.Pool) -> dict[str, int]:
 
 def _review_ids() -> list[int]:
     return [int(system['id64']) for system in REVIEW_SYSTEMS]
+
+
+async def _ensure_v3_watchlist_relations(conn: asyncpg.Connection) -> None:
+    """Interim: create the empty V3 private watchlist relations.
+
+    The watchlist router now reads ``v3_private.watchlist`` (migration 014),
+    but Review Lab still boots the legacy V2 schema only (lifecycle applies
+    ``sql/*.sql``, "no V3 schema at all"). Without these relations the app's
+    page-load ``GET /api/v2/watchlist/{sync_key}`` returns 500 and the browser
+    journey fails. Create the empty tables here so the read path returns 200.
+    Mirrors ``sql/v3/migrations/014_v3_watchlist.sql``; the DDL is inlined
+    (not read from the migration file) because the review-api image does not
+    mount ``sql/``. Remove once the Review Lab lane is migrated to the V3
+    lineage.
+    """
+    await conn.execute('CREATE SCHEMA IF NOT EXISTS v3_private')
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS v3_private.watchlist (
+            sync_key text NOT NULL CHECK (sync_key ~ '^[A-Za-z0-9_-]{16,128}$'),
+            system_id64 bigint NOT NULL CHECK (system_id64 > 0),
+            id bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
+            name text NOT NULL,
+            x double precision NOT NULL,
+            y double precision NOT NULL,
+            z double precision NOT NULL,
+            population bigint CHECK (population >= 0),
+            is_colonised boolean,
+            alert_min_score smallint CHECK (alert_min_score BETWEEN 0 AND 100),
+            alert_economy text CHECK (length(alert_economy) <= 64),
+            added_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
+            last_checked_at timestamptz,
+            last_status text,
+            PRIMARY KEY (sync_key, system_id64)
+        )
+        """
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS watchlist_scope_added_idx '
+        'ON v3_private.watchlist (sync_key, added_at DESC, system_id64)'
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS v3_private.watchlist_changelog (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            sync_key text NOT NULL,
+            system_id64 bigint NOT NULL,
+            system_name text NOT NULL,
+            change_type text NOT NULL,
+            old_value text,
+            new_value text,
+            detected_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
+            FOREIGN KEY (sync_key, system_id64)
+                REFERENCES v3_private.watchlist (sync_key, system_id64) ON DELETE CASCADE
+        )
+        """
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS watchlist_changelog_scope_detected_idx '
+        'ON v3_private.watchlist_changelog (sync_key, detected_at DESC, id DESC)'
+    )
 
 
 async def _upsert_app_meta(conn: asyncpg.Connection) -> None:

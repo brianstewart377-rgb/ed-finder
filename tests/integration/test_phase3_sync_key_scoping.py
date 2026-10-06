@@ -50,12 +50,12 @@ async def test_short_sync_key_rejected(client):
     assert r.status_code == 422   # FastAPI Path validation
 
 
-async def test_legacy_keyword_rejected(client):
+async def test_legacy_keyword_rejected(v3_watchlist_ready, client):
     """The string 'legacy' has the right length but is reserved for the
     migration row tag — rejecting it prevents new clients from clobbering
     pre-migration data."""
     r = await client.get('/api/v2/watchlist/legacy0000000000000000')
-    # 21 chars 'legacy0000000000000000'  → passes regex but != 'legacy'
+    # 22 chars 'legacy0000000000000000'  → passes regex but != 'legacy'
     assert r.status_code == 200
     # Now test the actual reserved word
     r2 = await client.post(f'/api/v2/watchlist/legacy/{SOL_ID64}')
@@ -66,7 +66,7 @@ async def test_legacy_keyword_rejected(client):
 
 # --- Watchlist happy paths -------------------------------------------------
 
-async def test_watchlist_add_get_isolation(client):
+async def test_watchlist_add_get_isolation(v3_watchlist_ready, client):
     # Alice adds Achenar
     r = await client.post(f'/api/v2/watchlist/{ALICE}/{SOL_ID64}')
     assert r.status_code == 200, r.text
@@ -84,7 +84,7 @@ async def test_watchlist_add_get_isolation(client):
     assert r.json()['watchlist'] == []
 
 
-async def test_watchlist_delete_only_affects_own_key(client):
+async def test_watchlist_delete_only_affects_own_key(v3_watchlist_ready, client):
     # Both add the same system
     await client.post(f'/api/v2/watchlist/{ALICE}/{SOL_ID64}')
     await client.post(f'/api/v2/watchlist/{BOB}/{SOL_ID64}')
@@ -103,7 +103,7 @@ async def test_watchlist_delete_only_affects_own_key(client):
     assert all(w['system_id64'] != SOL_ID64 for w in r.json()['watchlist'])
 
 
-async def test_watchlist_add_unknown_system_404(client):
+async def test_watchlist_add_unknown_system_404(v3_watchlist_ready, client):
     r = await client.post(f'/api/v2/watchlist/{ALICE}/999999999999')
     assert r.status_code == 404
 

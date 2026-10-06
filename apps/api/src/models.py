@@ -504,10 +504,11 @@ class CacheStatsResponse(BaseModel):
 class WatchlistAlert(BaseModel):
     min_development_score: Optional[int] = Field(
         default=None,
+        ge=0, le=100,
         validation_alias=AliasChoices('min_development_score', 'min_score'),
         serialization_alias='min_development_score',
     )
-    economy:   Optional[str] = None
+    economy: Optional[str] = Field(default=None, max_length=64)
 
     model_config = {'populate_by_name': True}
 
