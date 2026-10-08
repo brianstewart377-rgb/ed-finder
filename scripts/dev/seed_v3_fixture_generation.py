@@ -62,25 +62,69 @@ CANONICAL_SCHEMA = re.compile(r'^v3_gen_[a-z][a-z0-9_]{0,30}$')
 
 def _published_generation(connection):
     return connection.execute(
-        'SELECT c.publication_sequence, d.generation_key, d.canonical_generation_id '
+        'SELECT c.publication_sequence, d.generation_key, d.canonical_generation_id, '
+        'd.canonical_publication_sequence '
         'FROM v3_meta.current_derived_generation c '
         'JOIN v3_meta.derived_generation d USING (derived_generation_id) '
         'WHERE c.singleton').fetchone()
 
 
-def _canonical_system_id64s(connection, canonical_generation_id) -> set[int]:
-    row = connection.execute(
-        'SELECT relation_schema FROM v3_meta.canonical_generation WHERE generation_id=%s',
-        (canonical_generation_id,),
-    ).fetchone()
-    if row is None or CANONICAL_SCHEMA.fullmatch(str(row[0])) is None:
-        raise RuntimeError('published derived generation has an unsafe canonical schema')
-    return {
-        result[0]
-        for result in connection.execute(
-            sql.SQL('SELECT id64 FROM {}').format(sql.Identifier(row[0], 'systems'))
-        ).fetchall()
-    }
+def _current_canonical_pointer(connection) -> tuple:
+    try:
+        row = connection.execute(
+            'SELECT generation_id, publication_sequence '
+            'FROM v3_meta.current_canonical_generation WHERE singleton'
+        ).fetchone()
+    except Exception:
+        raise RuntimeError('canonical pointer query mismatch') from None
+    if row is None:
+        raise RuntimeError('canonical pointer missing')
+    return tuple(row)
+
+
+def _canonical_schema(connection, canonical_generation_id) -> str:
+    try:
+        row = connection.execute(
+            'SELECT relation_schema '
+            'FROM v3_meta.canonical_generation WHERE generation_id=%s',
+            (canonical_generation_id,),
+        ).fetchone()
+    except Exception:
+        raise RuntimeError('canonical schema query mismatch') from None
+    if row is None:
+        raise RuntimeError('canonical schema metadata missing')
+    schema = str(row[0])
+    if CANONICAL_SCHEMA.fullmatch(schema) is None:
+        raise RuntimeError('canonical schema safety mismatch')
+    return schema
+
+
+def _bounded_canonical_rows(
+    connection,
+    schema: str,
+    relation: str,
+    columns: tuple[str, ...],
+    expected_count: int,
+) -> list[tuple]:
+    relation_identifier = sql.Identifier(schema, relation)
+    bounded_count = sql.SQL(
+        'SELECT count(*) FROM (SELECT 1 FROM {} LIMIT %s) AS bounded'
+    ).format(relation_identifier)
+    try:
+        row = connection.execute(bounded_count, (expected_count + 1,)).fetchone()
+    except Exception:
+        raise RuntimeError(f'canonical {relation} bounded-count query mismatch') from None
+    if row is None or row[0] != expected_count:
+        raise RuntimeError(f'canonical {relation} count mismatch')
+
+    select_columns = sql.SQL(', ').join(sql.Identifier(column) for column in columns)
+    query = sql.SQL('SELECT {} FROM {} LIMIT %s').format(
+        select_columns, relation_identifier
+    )
+    try:
+        return connection.execute(query, (expected_count + 1,)).fetchall()
+    except Exception:
+        raise RuntimeError(f'canonical {relation} content query mismatch') from None
 
 
 def _owned_published_sequence(
@@ -89,17 +133,64 @@ def _owned_published_sequence(
     fixture_dir: Path,
     generation_key_prefix: str,
 ) -> int:
-    sequence, generation_key, canonical_generation_id = published_generation
+    (sequence, generation_key, canonical_generation_id,
+     canonical_publication_sequence) = published_generation
     key_pattern = re.compile(
         re.escape(generation_key_prefix) + rf'[0-9a-f]{{{GENERATION_KEY_SUFFIX_LENGTH}}}'
     )
-    if key_pattern.fullmatch(generation_key) is None:
-        raise RuntimeError('published derived generation is not owned by the requested fixture')
+    if not isinstance(generation_key, str) or key_pattern.fullmatch(generation_key) is None:
+        raise RuntimeError('generation key ownership mismatch')
 
-    canonical, _, _ = load_source_fixture(fixture_dir)
-    fixture_system_id64s = {system['id64'] for system in canonical['systems']}
-    if _canonical_system_id64s(connection, canonical_generation_id) != fixture_system_id64s:
-        raise RuntimeError('published derived generation is not owned by the requested fixture')
+    try:
+        canonical, _, _ = load_source_fixture(fixture_dir)
+    except Exception:
+        raise RuntimeError('requested fixture validation mismatch') from None
+
+    pinned_pointer = (canonical_generation_id, canonical_publication_sequence)
+    if _current_canonical_pointer(connection) != pinned_pointer:
+        raise RuntimeError('canonical pointer mismatch')
+
+    schema = _canonical_schema(connection, canonical_generation_id)
+    system_columns = (
+        'id64', 'name', 'x_ly', 'y_ly', 'z_ly',
+        'grid_x', 'grid_y', 'grid_z', 'loaded_body_count',
+    )
+    try:
+        fixture_system_count = len(canonical['systems'])
+        fixture_systems = {
+            tuple(system[column] for column in system_columns)
+            for system in canonical['systems']
+        }
+    except Exception:
+        raise RuntimeError('requested fixture systems content mismatch') from None
+    published_systems = set(_bounded_canonical_rows(
+        connection,
+        schema,
+        'systems',
+        system_columns,
+        fixture_system_count,
+    ))
+    if published_systems != fixture_systems:
+        raise RuntimeError('canonical systems content mismatch')
+
+    body_columns = ('body_pk', 'system_id64')
+    try:
+        fixture_body_count = len(canonical['bodies'])
+        fixture_bodies = {
+            tuple(body[column] for column in body_columns)
+            for body in canonical['bodies']
+        }
+    except Exception:
+        raise RuntimeError('requested fixture bodies content mismatch') from None
+    published_bodies = set(_bounded_canonical_rows(
+        connection,
+        schema,
+        'bodies',
+        body_columns,
+        fixture_body_count,
+    ))
+    if published_bodies != fixture_bodies:
+        raise RuntimeError('canonical bodies content mismatch')
     return sequence
 
 

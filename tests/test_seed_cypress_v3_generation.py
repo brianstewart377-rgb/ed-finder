@@ -305,3 +305,187 @@ def test_seed_idempotence_requires_fixture_ownership():
                 assert_original_publication_unchanged()
         finally:
             admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+def test_bounded_system_count_mismatch_does_not_select_system_rows():
+    from scripts.dev.seed_v3_fixture_generation import _bounded_canonical_rows
+
+    class Result:
+        def fetchone(self):
+            return (4,)
+
+    class Connection:
+        def __init__(self):
+            self.queries = []
+
+        def execute(self, query, params=None):
+            rendered = query.as_string() if hasattr(query, 'as_string') else query
+            self.queries.append((rendered, params))
+            return Result()
+
+    connection = Connection()
+    with pytest.raises(RuntimeError, match='canonical systems count mismatch'):
+        _bounded_canonical_rows(
+            connection,
+            'v3_gen_fixture',
+            'systems',
+            ('id64', 'name'),
+            3,
+        )
+
+    assert connection.queries == [
+        (
+            'SELECT count(*) FROM (SELECT 1 FROM '
+            '"v3_gen_fixture"."systems" LIMIT %s) AS bounded',
+            (4,),
+        ),
+    ]
+    assert not any(
+        'SELECT "id64", "name"' in query for query, _params in connection.queries
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_idempotence_rejects_same_ids_with_different_content(tmp_path):
+    from hashlib import sha256
+    import json
+    import shutil
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    fixture = tmp_path / 'cypress_v3_sources'
+    shutil.copytree(ROOT / 'tests/fixtures/cypress_v3_sources', fixture)
+    canonical_path = fixture / 'canonical.json'
+    canonical = json.loads(canonical_path.read_bytes())
+    canonical['systems'][0]['name'] += ' changed'
+    canonical_path.write_text(
+        json.dumps(canonical, sort_keys=True, separators=(',', ':')),
+        encoding='utf-8',
+    )
+    manifest_path = fixture / 'manifest.json'
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest['files_sha256'] = {
+        name: sha256((fixture / name).read_bytes()).hexdigest()
+        for name in manifest['files_sha256']
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(',', ':')),
+        encoding='utf-8',
+    )
+
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_content_mismatch_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+
+                with pytest.raises(RuntimeError, match='canonical systems content mismatch'):
+                    seed_v3_fixture_generation(
+                        conn,
+                        fixture,
+                        generation_key_prefix='cypress_v3_',
+                        publication_actor='cypress-seed',
+                        publication_note='cypress v3 finder journey',
+                    )
+
+                assert conn.execute(
+                    'SELECT COUNT(*) FROM v3_meta.derived_generation'
+                ).fetchone() == (1,)
+                assert conn.execute(
+                    'SELECT publication_sequence '
+                    'FROM v3_meta.current_derived_generation WHERE singleton'
+                ).fetchone() == (1,)
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_idempotence_rejects_moved_canonical_pointer():
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from domain.ratings_v4_canonical import load_source_fixture
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from scripts.dev.v3_canonical_bootstrap import bootstrap_published_canonical
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    class ReusedFixtureSourceConnection:
+        """Reuse the fixtures' shared source ledger while bootstrapping generation two."""
+
+        def __init__(self, connection):
+            self.connection = connection
+
+        def transaction(self):
+            return self.connection.transaction()
+
+        def execute(self, query, params=None):
+            rendered = (
+                query.as_string(self.connection)
+                if hasattr(query, 'as_string')
+                else query
+            )
+            normalized = ' '.join(rendered.split())
+            reused_inserts = (
+                'INSERT INTO "v3_source"."source" ',
+                'INSERT INTO "v3_source"."source_artifact" ',
+                'INSERT INTO "v3_source"."source_run" ',
+                'INSERT INTO v3_source.source_rights_policy(',
+            )
+            if normalized.startswith(reused_inserts):
+                return None
+            return self.connection.execute(query, params)
+
+    review_fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    review_canonical, review_metadata, _ = load_source_fixture(review_fixture)
+    original_schema = review_canonical['canonical_schema']
+    moved_schema = 'v3_gen_review_lab_pointer_moved'
+    review_canonical['canonical_schema'] = moved_schema
+    review_canonical['extras'] = [
+        {
+            **extra,
+            'schema': moved_schema if extra['schema'] == original_schema else extra['schema'],
+        }
+        for extra in review_canonical['extras']
+        if extra['schema'] != 'v3_vocab'
+    ]
+
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_pointer_mismatch_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+                bootstrap_published_canonical(
+                    ReusedFixtureSourceConnection(conn),
+                    review_canonical,
+                    review_metadata,
+                )
+
+                with pytest.raises(RuntimeError, match='canonical pointer mismatch'):
+                    seed_cypress_v3_generation(conn)
+
+                assert conn.execute(
+                    'SELECT COUNT(*) FROM v3_meta.derived_generation'
+                ).fetchone() == (1,)
+                assert conn.execute(
+                    'SELECT publication_sequence '
+                    'FROM v3_meta.current_derived_generation WHERE singleton'
+                ).fetchone() == (1,)
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
