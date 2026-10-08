@@ -707,3 +707,164 @@ def test_product_e2e_commands_are_absent_from_review_wrapper_and_workflow():
     assert 'product-journey.cy.ts' not in combined
     assert 'test:e2e' not in combined
     assert 'cypress/e2e/review-lab.cy.ts' in combined
+
+
+def test_review_lab_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
+    import subprocess
+
+    fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    rebuilt = tmp_path / 'review_lab_v3_sources'
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / 'scripts/dev/build_review_lab_v3_fixture.py'),
+            '--out',
+            str(rebuilt),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    for name in (
+        'canonical.json',
+        'source-metadata.json',
+        'spansh-system-dumps.zip',
+        'manifest.json',
+    ):
+        assert (rebuilt / name).read_bytes() == (fixture / name).read_bytes()
+
+
+def test_review_lab_v3_fixture_loads_through_real_source_pipeline():
+    from scripts.dev.seed_cypress_v3_generation import load_source_fixture
+    from scripts.ratings_v4.canonical_stream import adapt_retained_chunk
+
+    fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    canonical, metadata, payloads = load_source_fixture(fixture)
+    facts = adapt_retained_chunk(
+        canonical,
+        metadata,
+        [payload['system'] for payload in payloads],
+    )
+    assert set(facts) == {system['id64'] for system in canonical['systems']}
+
+
+def test_review_lab_v3_fixture_has_exact_fictional_system_inventory():
+    import math
+
+    from domain.ratings_v4_canonical import load_source_fixture
+
+    fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    canonical, _metadata, payloads = load_source_fixture(fixture)
+    expected = {
+        9100000000001: ('Review Wiring', (100.0, 100.0, 100.0), 15),
+        9100000000002: ('Review Aggregate', (500.0, 100.0, 100.0), 14),
+        9100000000003: ('Review Fallback', (3000.0, 100.0, 100.0), 24),
+    }
+    assert len(canonical['systems']) == len({system['id64'] for system in canonical['systems']}) == 3
+    assert {(system['id64'], system['name']) for system in canonical['systems']} == {
+        (id64, values[0]) for id64, values in expected.items()
+    }
+    assert len(payloads) == len({payload['system']['id64'] for payload in payloads}) == 3
+
+    canonical_body_counts = {
+        id64: sum(body['system_id64'] == id64 for body in canonical['bodies'])
+        for id64 in expected
+    }
+    raw_body_counts = {
+        payload['system']['id64']: len(payload['system']['bodies'])
+        for payload in payloads
+    }
+    assert set(raw_body_counts) == set(expected)
+    for system in canonical['systems']:
+        name, coords, body_count = expected[system['id64']]
+        actual_coords = (system['x_ly'], system['y_ly'], system['z_ly'])
+        assert system['name'] == name
+        assert actual_coords == coords
+        assert all(math.isfinite(coordinate) for coordinate in actual_coords)
+        assert canonical_body_counts[system['id64']] == raw_body_counts[system['id64']] == body_count
+        assert system['loaded_body_count'] == body_count
+
+
+def test_review_lab_v3_fixture_contains_no_product_or_template_identities():
+    from zipfile import ZipFile
+
+    fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    forbidden = (
+        'Achenar',
+        'HD 38179',
+        'Wregoe ZN-X c28-28',
+        'V3 Lossless Reach',
+        '10477373803000',
+        '9007199254740993',
+        '158872029',
+        '164098653',
+        '7780836610810',
+    )
+    texts = [
+        (fixture / name).read_text(encoding='utf-8')
+        for name in ('canonical.json', 'source-metadata.json', 'manifest.json')
+    ]
+    with ZipFile(fixture / 'spansh-system-dumps.zip') as archive:
+        texts.extend(archive.namelist())
+        texts.extend(archive.read(name).decode('utf-8') for name in archive.namelist())
+    combined = '\n'.join(texts)
+    for identity in forbidden:
+        assert identity not in combined
+
+
+def test_review_lab_v3_fixture_exercises_density_aggregation_and_fine_splits():
+    from scripts.dev.build_review_lab_v3_fixture import cell_index
+    from scripts.v3_spatial_pyramid import CELL_LEVELS
+
+    coords = {
+        'Review Wiring': (100.0, 100.0, 100.0),
+        'Review Aggregate': (500.0, 100.0, 100.0),
+        'Review Fallback': (3000.0, 100.0, 100.0),
+    }
+    cells = {
+        name: {
+            level.level: cell_index(system_coords, level.cell_size_ly)
+            for level in CELL_LEVELS
+        }
+        for name, system_coords in coords.items()
+    }
+    assert cells == {
+        'Review Wiring': {
+            0: (0, 0, 0), 1: (0, 0, 0), 2: (0, 0, 0), 3: (0, 0, 0),
+            4: (0, 0, 0), 5: (1, 1, 1), 6: (2, 2, 2),
+        },
+        'Review Aggregate': {
+            0: (0, 0, 0), 1: (0, 0, 0), 2: (0, 0, 0), 3: (1, 0, 0),
+            4: (3, 0, 0), 5: (6, 1, 1), 6: (12, 2, 2),
+        },
+        'Review Fallback': {
+            0: (1, 0, 0), 1: (2, 0, 0), 2: (4, 0, 0), 3: (9, 0, 0),
+            4: (18, 0, 0), 5: (37, 1, 1), 6: (75, 2, 2),
+        },
+    }
+    shared_levels = [
+        level.level
+        for level in CELL_LEVELS
+        if cells['Review Wiring'][level.level] == cells['Review Aggregate'][level.level]
+    ]
+    assert shared_levels == [0, 1, 2]
+    for level in CELL_LEVELS:
+        if level.level >= 3:
+            assert cells['Review Wiring'][level.level] != cells['Review Aggregate'][level.level]
+        assert cells['Review Fallback'][level.level] != cells['Review Wiring'][level.level]
+        assert cells['Review Fallback'][level.level] != cells['Review Aggregate'][level.level]
+
+
+def test_review_lab_v3_fixture_manifest_matches_committed_files():
+    from hashlib import sha256
+
+    fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+    manifest = json.loads((fixture / 'manifest.json').read_bytes())
+    assert set(manifest['files_sha256']) == {
+        'canonical.json',
+        'source-metadata.json',
+        'spansh-system-dumps.zip',
+    }
+    assert manifest['files_sha256'] == {
+        name: sha256((fixture / name).read_bytes()).hexdigest()
+        for name in manifest['files_sha256']
+    }
