@@ -77,6 +77,76 @@ def test_neutral_seed_rejects_invalid_publication_metadata_before_connection_acc
         )
 
 
+def test_neutral_seed_accepts_maximum_length_prefix_before_connection_access(tmp_path):
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+
+    class ConnectionAccessed(Exception):
+        pass
+
+    class Connection:
+        def execute(self, *_args, **_kwargs):
+            raise ConnectionAccessed
+
+    prefix = 'a' * 46 + '_'
+    assert len(prefix) == 47
+    with pytest.raises(ConnectionAccessed):
+        seed_v3_fixture_generation(
+            Connection(),
+            tmp_path,
+            generation_key_prefix=prefix,
+            publication_actor='actor',
+            publication_note='note',
+        )
+
+
+def test_neutral_seed_rejects_too_long_prefix_before_connection_access(tmp_path):
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+
+    class Connection:
+        def execute(self, *_args, **_kwargs):
+            pytest.fail('connection touched before generation_key_prefix validation')
+
+    prefix = 'a' * 47 + '_'
+    assert len(prefix) == 48
+    with pytest.raises(ValueError, match='generation_key_prefix'):
+        seed_v3_fixture_generation(
+            Connection(),
+            tmp_path,
+            generation_key_prefix=prefix,
+            publication_actor='actor',
+            publication_note='note',
+        )
+
+
+@pytest.mark.parametrize(
+    ('argument', 'publication_actor', 'publication_note'),
+    [
+        ('publication_actor', ' \t\n', 'note'),
+        ('publication_note', 'actor', ' \t\n'),
+    ],
+)
+def test_neutral_seed_rejects_whitespace_publication_metadata_before_connection_access(
+    argument,
+    publication_actor,
+    publication_note,
+    tmp_path,
+):
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+
+    class Connection:
+        def execute(self, *_args, **_kwargs):
+            pytest.fail(f'connection touched before {argument} validation')
+
+    with pytest.raises(ValueError, match=argument):
+        seed_v3_fixture_generation(
+            Connection(),
+            tmp_path,
+            generation_key_prefix='fixture_',
+            publication_actor=publication_actor,
+            publication_note=publication_note,
+        )
+
+
 def test_seed_main_refuses_non_disposable_target(monkeypatch):
     """The CLI entry point applies migrations and publishes a generation, so it
     must fail closed on a production-looking target before opening any
@@ -177,5 +247,61 @@ def test_seed_publishes_and_exposes_journey_ids(full_review_lineage):
                     assert conn.execute('SELECT COUNT(*) FROM v3_spatial.spatial_publication_audit').fetchone()[0] == 1
                 # idempotent: a second call does not republish.
                 assert seed_cypress_v3_generation(conn) == 1
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_idempotence_requires_fixture_ownership():
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_ownership_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+                assert seed_cypress_v3_generation(conn) == 1
+
+                review_fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
+
+                def assert_original_publication_unchanged():
+                    assert conn.execute(
+                        'SELECT COUNT(*) FROM v3_meta.derived_generation'
+                    ).fetchone()[0] == 1
+                    assert conn.execute(
+                        'SELECT publication_sequence '
+                        'FROM v3_meta.current_derived_generation WHERE singleton'
+                    ).fetchone() == (1,)
+
+                with pytest.raises(RuntimeError):
+                    seed_v3_fixture_generation(
+                        conn,
+                        review_fixture,
+                        generation_key_prefix='review_lab_v3_',
+                        publication_actor='review-lab-seed',
+                        publication_note='review lab v3 fixture',
+                    )
+                assert_original_publication_unchanged()
+
+                with pytest.raises(RuntimeError):
+                    seed_v3_fixture_generation(
+                        conn,
+                        review_fixture,
+                        generation_key_prefix='cypress_v3_',
+                        publication_actor='review-lab-seed',
+                        publication_note='review lab v3 fixture',
+                    )
+                assert_original_publication_unchanged()
         finally:
             admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))

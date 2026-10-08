@@ -6,6 +6,8 @@ import re
 import sys
 from uuid import uuid4
 
+from psycopg import sql
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
@@ -52,13 +54,53 @@ _MIGRATION_PROBES: tuple[tuple[str, str], ...] = (
 # curated fixture is tiny (one chunk), but the loop keeps the seed correct for
 # any fixture up to MAX_CHUNK_SYSTEMS.
 CHUNK_SIZE = 4
+GENERATION_KEY_MAX_LENGTH = 63
+GENERATION_KEY_SUFFIX_LENGTH = 16
+GENERATION_KEY_PREFIX_MAX_LENGTH = GENERATION_KEY_MAX_LENGTH - GENERATION_KEY_SUFFIX_LENGTH
+CANONICAL_SCHEMA = re.compile(r'^v3_gen_[a-z][a-z0-9_]{0,30}$')
 
 
-def _published_sequence(connection) -> int | None:
+def _published_generation(connection):
+    return connection.execute(
+        'SELECT c.publication_sequence, d.generation_key, d.canonical_generation_id '
+        'FROM v3_meta.current_derived_generation c '
+        'JOIN v3_meta.derived_generation d USING (derived_generation_id) '
+        'WHERE c.singleton').fetchone()
+
+
+def _canonical_system_id64s(connection, canonical_generation_id) -> set[int]:
     row = connection.execute(
-        'SELECT publication_sequence FROM v3_meta.current_derived_generation '
-        'WHERE singleton').fetchone()
-    return row[0] if row else None
+        'SELECT relation_schema FROM v3_meta.canonical_generation WHERE generation_id=%s',
+        (canonical_generation_id,),
+    ).fetchone()
+    if row is None or CANONICAL_SCHEMA.fullmatch(str(row[0])) is None:
+        raise RuntimeError('published derived generation has an unsafe canonical schema')
+    return {
+        result[0]
+        for result in connection.execute(
+            sql.SQL('SELECT id64 FROM {}').format(sql.Identifier(row[0], 'systems'))
+        ).fetchall()
+    }
+
+
+def _owned_published_sequence(
+    connection,
+    published_generation,
+    fixture_dir: Path,
+    generation_key_prefix: str,
+) -> int:
+    sequence, generation_key, canonical_generation_id = published_generation
+    key_pattern = re.compile(
+        re.escape(generation_key_prefix) + rf'[0-9a-f]{{{GENERATION_KEY_SUFFIX_LENGTH}}}'
+    )
+    if key_pattern.fullmatch(generation_key) is None:
+        raise RuntimeError('published derived generation is not owned by the requested fixture')
+
+    canonical, _, _ = load_source_fixture(fixture_dir)
+    fixture_system_id64s = {system['id64'] for system in canonical['systems']}
+    if _canonical_system_id64s(connection, canonical_generation_id) != fixture_system_id64s:
+        raise RuntimeError('published derived generation is not owned by the requested fixture')
+    return sequence
 
 
 def _ensure_migrations(connection) -> None:
@@ -82,21 +124,27 @@ def seed_v3_fixture_generation(
         'publication_note': publication_note,
     }
     for name, value in string_arguments.items():
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str) or not value.strip():
             raise ValueError(f'{name} must be a non-empty string')
     if re.fullmatch(r'[a-z][a-z0-9_]*_', generation_key_prefix) is None:
         raise ValueError('generation_key_prefix must match ^[a-z][a-z0-9_]*_$')
+    if len(generation_key_prefix) > GENERATION_KEY_PREFIX_MAX_LENGTH:
+        raise ValueError(
+            f'generation_key_prefix must be at most {GENERATION_KEY_PREFIX_MAX_LENGTH} characters'
+        )
 
     _ensure_migrations(connection)
-    existing = _published_sequence(connection)
+    existing = _published_generation(connection)
     if existing is not None:
-        return existing
+        return _owned_published_sequence(
+            connection, existing, fixture_dir, generation_key_prefix
+        )
 
     canonical, metadata, payloads = load_source_fixture(fixture_dir)
     bootstrap_published_canonical(connection, canonical, metadata)
 
     snapshot = CanonicalSnapshot.pin(connection)
-    key = generation_key_prefix + uuid4().hex[:16]
+    key = generation_key_prefix + uuid4().hex[:GENERATION_KEY_SUFFIX_LENGTH]
     generation_id = create_generation(connection, snapshot, key)
 
     # write_chunk needs the REAL source records (id64 + bodies) so
