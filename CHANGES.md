@@ -21,21 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
-## 2026-10-06 — Codex worker model-generation bump
+## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
-### Pinned model moved to `gpt-6.1-sol`
-
-The self-hosted Linux Codex worker's single trusted model contract is bumped from
-`gpt-5.6-sol` to the current-generation `gpt-6.1-sol`, keeping the fixed
-`model_reasoning_effort="high"` effort unchanged. Both investigation and
-implementation `codex exec` invocations, both pre-execution attestations, and the
-exact governance test (`tests/test_codex_model_governance.py`) are updated together
-so the fail-closed contract still refuses any request-supplied model/effort override
-and still forbids an `astra`/`xhigh`/`max` substitution. The bridge remains a single
-pinned lane by design; this change only moves the pinned generation, it does not add
-a model-selection surface.
-
----
+The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex
+worker authenticates with a ChatGPT account, and the Codex API rejects
+`gpt-6.1-sol` for that auth mode (`400 invalid_request_error: The
+'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT
+account`). The first run after #784 (Codex Laptop run 37820866840) failed at
+`Run Codex implementation` with that error. The pin returns to `gpt-5.6-sol`,
+used by every successful run since #593; effort stays `high` and the
+single-model governance contract and test are unchanged in shape.
 
 ## 2026-09-05 — Codex worker reasoning-cost adjustment
 
