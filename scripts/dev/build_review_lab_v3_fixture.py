@@ -28,6 +28,9 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
+sys.path.insert(0, str(ROOT / 'apps/importer/src'))
+
+from v3_spansh.contracts import GRID_EDGE_LY, macro_grid_key  # noqa: E402
 
 TEMPLATE_DIR = ROOT / 'tests/fixtures/ratings_v4_sources'
 
@@ -87,10 +90,14 @@ def _rewrite_system(system: dict) -> dict:
     out = _rewrite_embedded_values(copy.deepcopy(system))
     out['id64'] = new_id
     out['name'] = new_name
-    # system_search and the density pyramid read these canonical coordinates.
-    # grid_* and macro_grid_key are retained source evidence and are not read by
-    # either product, matching the established Cypress-fixture builder pattern.
+    # Keep the map viewport's coarse-grid prefilter aligned with the exact
+    # canonical coordinates, using the same contract as the real importer.
     out['x_ly'], out['y_ly'], out['z_ly'] = x_ly, y_ly, z_ly
+    grid_x, grid_y, grid_z = (
+        floor(coordinate / GRID_EDGE_LY) for coordinate in (x_ly, y_ly, z_ly)
+    )
+    out['grid_x'], out['grid_y'], out['grid_z'] = grid_x, grid_y, grid_z
+    out['macro_grid_key'] = macro_grid_key(grid_x, grid_y, grid_z)
     return out
 
 

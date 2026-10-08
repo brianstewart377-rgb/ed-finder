@@ -11,8 +11,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEV_SCRIPTS = ROOT / 'scripts' / 'dev'
+IMPORTER_SRC = ROOT / 'apps' / 'importer' / 'src'
 if str(DEV_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(DEV_SCRIPTS))
+if str(IMPORTER_SRC) not in sys.path:
+    sys.path.insert(0, str(IMPORTER_SRC))
 
 from apps.api.src.review_environment_fixtures import (  # noqa: E402
     REVIEW_SYSTEMS, REVIEW_PROVENANCE_CONTRACTS, REVIEW_WAREHOUSE_CONTRACTS,
@@ -22,6 +25,7 @@ import review_environment as review_env  # noqa: E402
 from scripts.dev import seed_review_v3_generation as review_seed  # noqa: E402
 from scripts.dev.review_lab import api_contracts, browser_runner, contract, lifecycle, network_policy, scenarios  # noqa: E402
 from scripts.dev.review_lab.process_registry import ReviewProcessRegistry  # noqa: E402
+from v3_spansh.contracts import GRID_EDGE_LY, macro_grid_key  # noqa: E402
 
 
 def read(path: str) -> str:
@@ -782,6 +786,20 @@ def test_review_lab_v3_fixture_has_exact_fictional_system_inventory():
         assert all(math.isfinite(coordinate) for coordinate in actual_coords)
         assert canonical_body_counts[system['id64']] == raw_body_counts[system['id64']] == body_count
         assert system['loaded_body_count'] == body_count
+
+
+def test_review_lab_v3_fixture_grid_fields_match_importer_contract():
+    from math import floor
+
+    canonical = json.loads(read('tests/fixtures/review_lab_v3_sources/canonical.json'))
+    for system in canonical['systems']:
+        expected_grid = tuple(
+            floor(system[coordinate] / GRID_EDGE_LY)
+            for coordinate in ('x_ly', 'y_ly', 'z_ly')
+        )
+        actual_grid = (system['grid_x'], system['grid_y'], system['grid_z'])
+        assert actual_grid == expected_grid
+        assert system['macro_grid_key'] == macro_grid_key(*actual_grid)
 
 
 def test_review_lab_v3_fixture_contains_no_product_or_template_identities():
