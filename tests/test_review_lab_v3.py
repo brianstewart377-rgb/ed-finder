@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,11 +14,13 @@ DEV_SCRIPTS = ROOT / 'scripts' / 'dev'
 if str(DEV_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(DEV_SCRIPTS))
 
-from apps.api.src.review_environment_fixtures import REVIEW_SYSTEMS  # noqa: E402
+from apps.api.src.review_environment_fixtures import (  # noqa: E402
+    REVIEW_SYSTEMS, REVIEW_PROVENANCE_CONTRACTS, REVIEW_WAREHOUSE_CONTRACTS,
+)
 from apps.api.src.review_runtime_guard import ReviewRuntimeGuardError, validate_review_runtime_env  # noqa: E402
 import review_environment as review_env  # noqa: E402
-from scripts.dev.review_environment_seed import ReviewSeedError, assert_review_database_name  # noqa: E402
-from scripts.dev.review_lab import browser_runner, contract, lifecycle, network_policy, scenarios  # noqa: E402
+from scripts.dev import seed_review_v3_generation as review_seed  # noqa: E402
+from scripts.dev.review_lab import api_contracts, browser_runner, contract, lifecycle, network_policy, scenarios  # noqa: E402
 from scripts.dev.review_lab.process_registry import ReviewProcessRegistry  # noqa: E402
 
 
@@ -171,14 +174,219 @@ def test_external_network_origin_is_a_review_lab_containment_failure():
     assert result['failure_code'] == 'UNEXPECTED_BROWSER_NETWORK_ERROR'
 
 
-def test_review_database_guard_and_fixtures_remain_synthetic_and_eligible():
-    assert_review_database_name('edfinder_local_review')
-    with pytest.raises(ReviewSeedError, match='refused unsafe database'):
-        assert_review_database_name('edfinder')
-    assert {system['name'] for system in REVIEW_SYSTEMS} == {
-        'Review Alpha', 'Review Beta', 'Review Gamma', 'Review Delta'
-    }
-    assert all(system['body_count'] > 0 and system['bodies'] for system in REVIEW_SYSTEMS)
+def test_review_fixtures_match_the_entire_interim_v3_corpus():
+    canonical = json.loads(read('tests/fixtures/cypress_v3_sources/canonical.json'))
+    expected = {(system['id64'], system['name']) for system in canonical['systems']}
+    assert {(system['id64'], system['name']) for system in REVIEW_SYSTEMS} == expected
+    assert set(contract.REQUIRED_REVIEW_SYSTEM_NAMES) == {name for _, name in expected}
+    assert all(system['loaded_body_count'] > 0 for system in canonical['systems'])
+    assert {body['system_id64'] for body in canonical['bodies']} == {id64 for id64, _ in expected}
+    assert set(REVIEW_WAREHOUSE_CONTRACTS) == set(REVIEW_PROVENANCE_CONTRACTS) == {id64 for id64, _ in expected}
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    assert "{ id64: '10477373803000', name: 'Achenar' }" in collector
+    assert 'Review Alpha' not in collector
+
+
+@pytest.mark.parametrize('dsn', [
+    '',
+    'postgresql://u:p@127.0.0.1:55433/edfinder',
+    'postgresql://u:p@db.ed-finder.app:55433/edfinder_local_review',
+    'postgresql://u:p@review-postgres:5432/edfinder_local_review',
+    'postgresql://u:p@127.0.0.1:5432/edfinder_local_review',
+    'postgresql://u:p@127.0.0.1:55432/edfinder_local_review',
+    'postgresql://u@127.0.0.1:55433/edfinder_local_review',
+    'postgresql://u:p@127.0.0.1:55433/edfinder_local_review?hostaddr=192.0.2.1',
+    'postgresql://u:p@127.0.0.1:bad/edfinder_local_review',
+    'host=127.0.0.1 port=55433 dbname=edfinder_local_review password=p',
+])
+def test_review_seed_rejects_unsafe_targets_before_connecting(dsn, monkeypatch, capsys):
+    import psycopg
+
+    monkeypatch.setenv('DATABASE_URL', dsn)
+    monkeypatch.setenv('CI', 'true')  # CI must not relax the Review Lab pins.
+    monkeypatch.setattr(psycopg, 'connect', lambda *_args, **_kwargs: pytest.fail('unsafe connection'))
+    assert review_seed.main() == 1
+    assert capsys.readouterr().err == 'Review V3 generation seed failed (ReviewSeedError).\n'
+
+
+def test_review_seed_target_is_exact_and_uses_shared_disposable_guard():
+    target = review_seed.validate_review_seed_target(contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
+    assert (target.host, target.port, target.database) == ('127.0.0.1', '55433', 'edfinder_local_review')
+    assert target.source == 'review-v3-seed'
+
+
+@pytest.mark.parametrize('database, fails', [('edfinder_local_review', False), ('edfinder', True)])
+def test_host_seed_checks_connected_database_and_reuses_publisher(database, fails, monkeypatch, capsys):
+    import psycopg
+
+    calls = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, query):
+            assert query == 'SELECT current_database()'
+            return SimpleNamespace(fetchone=lambda: (database,))
+
+    connection = Connection()
+
+    def connect(dsn, *, autocommit):
+        assert dsn == contract.EXPECTED_REVIEW_SEED_DATABASE_URL
+        assert autocommit is True
+        return connection
+
+    def publish(conn):
+        assert conn is connection
+        calls.append('publish')
+        return 1
+
+    def publish_spatial(conn):
+        assert conn is connection
+        calls.append('spatial')
+        return 1
+
+    monkeypatch.setenv('DATABASE_URL', contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
+    monkeypatch.setattr(psycopg, 'connect', connect)
+    monkeypatch.setattr(review_seed, 'seed_cypress_v3_generation', publish)
+    monkeypatch.setattr(review_seed, 'seed_review_spatial_pyramid', publish_spatial)
+    assert review_seed.main() == int(fails)
+    assert calls == ([] if fails else ['publish', 'spatial'])
+    output = capsys.readouterr()
+    assert 'review_password' not in output.out + output.err
+
+
+@pytest.mark.parametrize('reconciliation_fails', [False, True])
+def test_review_spatial_seed_reconciles_before_ready_and_cas_publish(monkeypatch, reconciliation_fails):
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    builder = review_seed.spatial_builder
+    canonical_id, spatial_id = uuid4(), uuid4()
+    events = []
+
+    class Connection:
+        @contextmanager
+        def transaction(self):
+            events.append('begin')
+            try:
+                yield
+            except Exception:
+                events.append('rollback')
+                raise
+            else:
+                events.append('commit')
+
+        def execute(self, query, params=None):
+            if not isinstance(query, str):
+                assert query.as_string() == (
+                    'SELECT count(*) FROM (SELECT 1 FROM "v3_gen_review_fixture".systems '
+                    'LIMIT %s) AS bounded_systems')
+                assert params == (review_seed.MAX_REVIEW_SPATIAL_SYSTEMS + 1,)
+                row = (3,)
+            elif 'FROM v3_spatial.current_spatial_generation' in query:
+                row = None
+            elif 'FROM v3_meta.current_canonical_generation' in query:
+                row = (canonical_id, 'v3_gen_review_fixture')
+            elif query.startswith('INSERT INTO v3_spatial.spatial_generation'):
+                assert params == (canonical_id, review_seed.REVIEW_PYRAMID_VERSION, 3)
+                row = (spatial_id,)
+            else:
+                assert query == 'SELECT v3_spatial.publish_spatial_pyramid(%s,%s,%s,%s,%s,%s)'
+                assert params == (spatial_id, None, 0, canonical_id, 'review-seed',
+                                  'interim review v3 density pyramid')
+                events.append('publish')
+                row = (1,)
+            return SimpleNamespace(fetchone=lambda: row)
+
+    connection = Connection()
+    per_level = {level.level: 2 for level in builder.CELL_LEVELS}
+    receipt = {'reconciliation': 'passed', 'canonical_count': 3}
+
+    def reconciled_receipt(*_args, **_kwargs):
+        events.append('reconcile')
+        if reconciliation_fails:
+            raise builder.ReconciliationError('incomplete level')
+        return receipt
+
+    register = Mock(side_effect=lambda *_args: events.append('levels'))
+    build = Mock(side_effect=lambda *_args, **_kwargs: (events.append('build'), per_level)[1])
+    validate = Mock(side_effect=reconciled_receipt)
+    ready = Mock(side_effect=lambda *_args, **_kwargs: events.append('ready'))
+    monkeypatch.setattr(builder, 'register_cell_levels', register)
+    monkeypatch.setattr(builder, 'build_all_levels', build)
+    monkeypatch.setattr(builder, 'build_receipt', validate)
+    monkeypatch.setattr(builder, 'mark_pyramid_ready', ready)
+
+    if reconciliation_fails:
+        with pytest.raises(builder.ReconciliationError):
+            review_seed.seed_review_spatial_pyramid(connection)
+        assert events == ['begin', 'levels', 'build', 'reconcile', 'rollback']
+        ready.assert_not_called()
+    else:
+        assert review_seed.seed_review_spatial_pyramid(connection) == 1
+        assert events == ['begin', 'levels', 'build', 'reconcile', 'ready', 'publish', 'commit']
+        ready.assert_called_once_with(
+            connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION,
+            receipt=receipt)
+    register.assert_called_once_with(connection, review_seed.REVIEW_PYRAMID_VERSION)
+    build.assert_called_once_with(
+        connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION)
+    validate.assert_called_once_with(
+        connection, spatial_generation_id=spatial_id, version=review_seed.REVIEW_PYRAMID_VERSION,
+        canonical_count=3, per_level=per_level)
+
+
+def test_review_spatial_seed_skips_an_existing_publication():
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    connection = SimpleNamespace(
+        transaction=nullcontext,
+        execute=Mock(return_value=SimpleNamespace(fetchone=lambda: (uuid4(), 7))),
+    )
+    assert review_seed.seed_review_spatial_pyramid(connection) == 7
+    connection.execute.assert_called_once_with(
+        'SELECT spatial_generation_id, publication_sequence '
+        'FROM v3_spatial.current_spatial_generation WHERE singleton')
+
+
+@pytest.mark.parametrize('canonical, count', [
+    (None, 3),
+    (('canonical-id', 'public'), 3),
+    (('canonical-id', 'v3_gen_fixture'), 0),
+    (('canonical-id', 'v3_gen_fixture'), review_seed.MAX_REVIEW_SPATIAL_SYSTEMS + 1),
+])
+def test_review_spatial_seed_rejects_invalid_or_unbounded_canonical(canonical, count, monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    connection = SimpleNamespace(
+        transaction=nullcontext,
+        execute=Mock(side_effect=[SimpleNamespace(fetchone=lambda row=row: row)
+                                 for row in (None, canonical, (count,))]),
+    )
+    register = Mock()
+    monkeypatch.setattr(review_seed.spatial_builder, 'register_cell_levels', register)
+    with pytest.raises(review_seed.ReviewSeedError):
+        review_seed.seed_review_spatial_pyramid(connection)
+    register.assert_not_called()
+
+
+def test_host_seed_failure_does_not_expose_driver_credentials(monkeypatch, capsys):
+    import psycopg
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
+
+    monkeypatch.setenv('DATABASE_URL', contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
+    monkeypatch.setattr(psycopg, 'connect', fail)
+    assert review_seed.main() == 1
+    assert capsys.readouterr().err == 'Review V3 generation seed failed (RuntimeError).\n'
 
 
 def test_review_runtime_guard_pins_marker_database_and_redis_targets():
@@ -205,6 +413,7 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     compose = read('docker-compose.review.yml')
     lifecycle.validate_compose_text(compose)
     assert '127.0.0.1:8001:8000' in compose
+    assert '127.0.0.1:55433:5432' in compose
     assert 'external:' not in compose
     assert 'env_file:' not in compose
     with pytest.raises(contract.ReviewLabError, match='PostgreSQL 18'):
@@ -215,6 +424,161 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
         lifecycle.validate_compose_text(
             compose.replace('EDDN_SIMULATION_INGEST_ENABLED: "false"', '')
         )
+
+
+@pytest.mark.parametrize('binding', [
+    '5432:5432', '127.0.0.1:5432:5432', '0.0.0.0:55433:5432',
+    '55433:5432', '192.0.2.1:55433:5432', '[::]:55433:5432',
+    '127.0.0.1:55434:5432', '127.0.0.1:55433:5433',
+])
+def test_compose_refuses_any_postgres_binding_outside_the_host_seed_contract(binding):
+    compose = read('docker-compose.review.yml')
+    with pytest.raises(contract.ReviewLabError):
+        lifecycle.validate_compose_text(compose.replace('127.0.0.1:55433:5432', binding))
+
+
+@pytest.mark.parametrize('replacement', [
+    '',
+    '    ports: []\n',
+    '    ports:\n      - "127.0.0.1:55433:5432"\n      - "55434:5432"\n',
+    '    ports:\n      - target: 5432\n        published: 55433\n',
+])
+def test_compose_refuses_missing_or_additional_postgres_port_declarations(replacement):
+    compose = read('docker-compose.review.yml')
+    with pytest.raises(contract.ReviewLabError):
+        lifecycle.validate_compose_text(compose.replace('    ports:\n      - "127.0.0.1:55433:5432"\n', replacement))
+
+
+def test_compose_keeps_redis_unpublished():
+    compose = read('docker-compose.review.yml')
+    with pytest.raises(contract.ReviewLabError, match='review-redis must not publish host ports'):
+        lifecycle.validate_compose_text(compose.replace('  review-redis:\n', '  review-redis:\n    ports:\n      - "127.0.0.1:55434:6379"\n', 1))
+
+
+def test_bootstrap_applies_full_v3_manifest_plus_finder_in_dependency_order(monkeypatch):
+    manifest = [line.split()[2] for line in read('sql/v3/migration-manifest.txt').splitlines()
+                if line.strip() and not line.startswith('#')]
+    expected = manifest.copy()
+    spatial_index = expected.index('v3/migrations/012_v3_spatial_pyramid_decouple.sql')
+    expected[spatial_index:spatial_index] = [
+        'v3/migrations/010_v3_system_search_body_type_counts.sql',
+        'v3/migrations/011_v3_system_archetype.sql',
+    ]
+    expected.insert(expected.index('v3/migrations/014_v3_watchlist.sql'), 'v3/migrations/013_v3_system_search_parallel.sql')
+    assert lifecycle.V3_LINEAGE_FILES == tuple(expected)
+    calls = []
+    monkeypatch.setattr(lifecycle, 'run_compose', lambda *args, **kwargs: calls.append((args, kwargs)))
+    lifecycle.bootstrap_schema()
+    args, kwargs = calls[0]
+    assert args[:5] == ('exec', '-T', 'review-postgres', 'sh', '-lc')
+    shell = args[5]
+    assert shell.startswith('set -eu; ')
+    assert shell.count('ON_ERROR_STOP=1') == len(expected)
+    assert [part.split('"')[0] for part in shell.split('/workspace/sql/')[1:]] == expected
+    assert '*.sql' not in shell
+    assert kwargs['failure_code'] == 'REVIEW_STACK_START_FAILED'
+
+
+def test_generation_seed_runs_on_host_with_pinned_dsn_and_bounded_failure(monkeypatch):
+    calls = []
+    monkeypatch.setattr(lifecycle, 'run_command', lambda *args, **kwargs: calls.append((args, kwargs)))
+    lifecycle.seed_review_generation()
+    args, kwargs = calls[0]
+    assert args[0] == [sys.executable, str(ROOT / 'scripts/dev/seed_review_v3_generation.py')]
+    assert kwargs['env_overrides'] == {'DATABASE_URL': contract.EXPECTED_REVIEW_SEED_DATABASE_URL}
+    assert kwargs['failure_code'] == 'REVIEW_STACK_START_FAILED'
+    assert 0 < kwargs['timeout_seconds'] <= 120
+    assert not (ROOT / 'scripts/dev/review_environment_seed.py').exists()
+    assert 'review_environment_seed' not in read('docker-compose.review.yml')
+    assert 'review_environment_seed' not in read('scripts/dev/review_lab/lifecycle.py')
+    assert 'scripts/' not in read('apps/api/Dockerfile')
+
+
+@pytest.mark.parametrize('seed_fails', [False, True])
+def test_stack_seeds_after_schema_before_api_and_stops_on_seed_failure(monkeypatch, seed_fails):
+    calls = []
+    for name in ('validate_compose_text', 'validate_normal_api_sources', 'validate_review_entrypoint_sources',
+                 'ensure_docker_cli_available', 'assert_no_preexisting_review_resources', 'run_compose_config_check',
+                 'wait_for_postgres', 'wait_for_redis'):
+        monkeypatch.setattr(lifecycle, name, lambda *_args: None)
+    monkeypatch.setattr(lifecycle, 'run_compose', lambda *args, **_kwargs: calls.append(args))
+    monkeypatch.setattr(lifecycle, 'bootstrap_schema', lambda: calls.append('schema'))
+    monkeypatch.setattr(lifecycle, 'wait_for_api_health', lambda: calls.append('health'))
+    monkeypatch.setattr(lifecycle, 'review_service_readiness', lambda: {})
+
+    def seed():
+        calls.append('seed')
+        if seed_fails:
+            raise contract.ReviewLabError('seed failed', failure_code='REVIEW_STACK_START_FAILED')
+
+    monkeypatch.setattr(lifecycle, 'seed_review_generation', seed)
+    if seed_fails:
+        with pytest.raises(contract.ReviewLabError) as error:
+            lifecycle.up_review_stack()
+        assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
+        assert calls == [('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed']
+    else:
+        lifecycle.up_review_stack()
+        assert calls == [('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed',
+                         ('build', 'review-api'), ('up', '-d', 'review-api'), 'health']
+
+
+@pytest.mark.parametrize('source, missing, passes', [('v3:test', False, True), ('local_db', False, False), ('v3:test', True, False)])
+def test_finder_contract_requires_v3_source_and_every_fixture_system(monkeypatch, source, missing, passes):
+    systems = REVIEW_SYSTEMS[:-1] if missing else REVIEW_SYSTEMS
+    finder = {'status': 200, 'body': {'results': list(systems), 'count': len(systems), 'total': len(systems), 'source': source}}
+    monkeypatch.setattr(api_contracts, 'fetch_json', lambda _method, route, *_args: finder if route == '/api/local/search' else {'status': 200, 'body': {}})
+    if passes:
+        assert 'finder' in api_contracts.run_api_contract_phase(scenarios.resolve_scenarios('synthetic_wiring'))['safe_diagnostics']['contracts_checked']
+    else:
+        with pytest.raises(contract.ReviewLabError):
+            api_contracts.run_api_contract_phase(scenarios.resolve_scenarios('synthetic_wiring'))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['normal', 'api_failure', 'empty_results'])
+async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_modes(monkeypatch, mode):
+    import importlib
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv('ED_FINDER_REVIEW_STACK_MARKER', 'edfinder-review')
+    monkeypatch.setenv('DATABASE_URL', 'postgresql://review_user:review_password@review-postgres:5432/edfinder_local_review')
+    monkeypatch.setenv('REDIS_URL', 'redis://review-redis:6379/0')
+    # Settings construction at import time rejects an unset CORS policy as
+    # defence in depth, so pin the explicit review-env values first.
+    monkeypatch.setenv('CORS_ORIGINS', 'http://test')
+    monkeypatch.setenv('ADMIN_TOKEN', 'test-admin-token')
+    module = importlib.import_module('apps.api.src.review_main')
+    request = SimpleNamespace(method='POST', url=SimpleNamespace(path='/api/local/search'),
+                              app=SimpleNamespace(state=SimpleNamespace(review_scenario=mode)))
+    next_response = object()
+    call_next = AsyncMock(return_value=next_response)
+    result = await module.review_scenario_middleware(request, call_next)
+    if mode == 'normal':
+        assert result is next_response
+        call_next.assert_awaited_once_with(request)
+    else:
+        call_next.assert_not_awaited()
+        if mode == 'api_failure':
+            assert result.status_code == 503
+            assert result.headers['x-edfinder-review-failure'] == 'api-failure'
+        else:
+            assert result.status_code == 200
+            assert json.loads(result.body) == {'results': [], 'total': 0, 'count': 0, 'source': 'review_lab_synthetic_empty'}
+
+
+@pytest.mark.asyncio
+async def test_review_support_payloads_need_no_legacy_app_meta():
+    from apps.api.src.review_contract_store import load_review_provenance_contract, load_review_warehouse_contract
+
+    # A pool with no methods proves these bounded review-only payloads require
+    # no V2 relations or persisted control-data seed.
+    pool = object()
+    for system in REVIEW_SYSTEMS:
+        id64 = system['id64']
+        assert (await load_review_warehouse_contract(pool, id64)).system_id64 == id64
+        assert (await load_review_provenance_contract(pool, id64)).system.id64 == id64
+    assert await load_review_warehouse_contract(pool, 1) is None
 
 
 def test_review_runtime_identity_probes_the_running_server_process(monkeypatch):

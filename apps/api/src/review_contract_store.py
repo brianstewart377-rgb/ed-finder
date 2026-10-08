@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
-
 import asyncpg
 
 from edfinder_api.provenance_cockpit_models import ProvenanceCockpitResponse
 from edfinder_api.review_environment_fixtures import (
-    review_provenance_contract_key,
-    review_warehouse_contract_key,
+    REVIEW_PROVENANCE_CONTRACTS,
+    REVIEW_WAREHOUSE_CONTRACTS,
 )
 from edfinder_api.warehouse_planner_evidence_models import WarehousePlannerEvidenceContract
 
@@ -16,7 +14,8 @@ async def load_review_warehouse_contract(
     pool: asyncpg.Pool,
     id64: int,
 ) -> WarehousePlannerEvidenceContract | None:
-    payload = await _load_app_meta_json(pool, review_warehouse_contract_key(id64))
+    # Review-only control payloads need no legacy public.app_meta table or seed.
+    payload = REVIEW_WAREHOUSE_CONTRACTS.get(id64)
     if payload is None:
         return None
     return WarehousePlannerEvidenceContract.model_validate(payload)
@@ -26,16 +25,7 @@ async def load_review_provenance_contract(
     pool: asyncpg.Pool,
     id64: int,
 ) -> ProvenanceCockpitResponse | None:
-    payload = await _load_app_meta_json(pool, review_provenance_contract_key(id64))
+    payload = REVIEW_PROVENANCE_CONTRACTS.get(id64)
     if payload is None:
         return None
     return ProvenanceCockpitResponse.model_validate(payload)
-
-
-async def _load_app_meta_json(pool: asyncpg.Pool, key: str) -> dict[str, object] | None:
-    async with pool.acquire() as conn:
-        value = await conn.fetchval('SELECT value FROM app_meta WHERE key = $1', key)
-    if not isinstance(value, str) or not value.strip():
-        return None
-    loaded = json.loads(value)
-    return loaded if isinstance(loaded, dict) else None

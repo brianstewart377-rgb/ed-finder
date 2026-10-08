@@ -38,6 +38,12 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
             failure_code='UNEXPECTED_API_ERROR',
             route='/api/local/search',
         )
+        if not str(finder['body']['source']).startswith('v3:'):
+            raise ReviewLabError(
+                'Finder did not serve the published V3 generation.',
+                failure_code='UNEXPECTED_API_ERROR',
+                safe_diagnostics={'route': '/api/local/search'},
+            )
         names = {row.get('name') for row in finder['body']['results'] if isinstance(row, dict)}
         missing = sorted(set(REQUIRED_REVIEW_SYSTEM_NAMES) - names)
         if missing:

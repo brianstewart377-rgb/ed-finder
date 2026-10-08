@@ -12,6 +12,8 @@ from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import yaml
+
 from .contract import (
     API_SRC,
     COMPOSE_FILE,
@@ -21,6 +23,8 @@ from .contract import (
     EXPECTED_REVIEW_API_PORT,
     EXPECTED_REVIEW_DATABASE_HOST,
     EXPECTED_REVIEW_DATABASE_NAME,
+    EXPECTED_REVIEW_DATABASE_BIND,
+    EXPECTED_REVIEW_SEED_DATABASE_URL,
     EXPECTED_REVIEW_DB_NAME,
     EXPECTED_REVIEW_REDIS_HOST,
     EXPECTED_REVIEW_STACK_MARKER,
@@ -147,7 +151,7 @@ def validate_compose_text(compose_text: str) -> None:
     if 'external:' in compose_text:
         raise ReviewLabError('review compose must not use external networks or volumes')
     if '0.0.0.0:' in compose_text:
-        raise ReviewLabError('review compose must not bind review API to 0.0.0.0')
+        raise ReviewLabError('review compose must not bind any service to 0.0.0.0')
     if EXPECTED_REVIEW_API_BIND not in compose_text:
         raise ReviewLabError('review compose must bind only 127.0.0.1:8001:8000 for review-api')
     if '127.0.0.1:5432:' in compose_text or '"5432:5432"' in compose_text or "'5432:5432'" in compose_text:
@@ -166,8 +170,19 @@ def validate_compose_text(compose_text: str) -> None:
     api_block = extract_service_block(compose_text, 'review-api')
     if 'image: postgres:18-alpine' not in postgres_block:
         raise ReviewLabError('review-postgres must use the V3 PostgreSQL 18 test service')
-    if 'ports:' in postgres_block:
-        raise ReviewLabError('review-postgres must not publish host ports')
+    # Parse port declarations so alternate YAML spellings/long form cannot
+    # bypass the exact loopback-only host seed boundary. No ambient host DB.
+    try:
+        services = yaml.safe_load(compose_text)['services']
+        if services['review-postgres'].get('ports') != [EXPECTED_REVIEW_DATABASE_BIND]:
+            raise ReviewLabError('review-postgres must publish only 127.0.0.1:55433:5432')
+        if services['review-api'].get('ports') != [EXPECTED_REVIEW_API_BIND]:
+            raise ReviewLabError('review-api must publish only 127.0.0.1:8001:8000')
+        for name, service in services.items():
+            if name not in {'review-postgres', 'review-api'} and 'ports' in service:
+                raise ReviewLabError(f'{name} must not publish host ports')
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError) as exc:
+        raise ReviewLabError('review compose contains invalid service/port declarations') from exc
     if 'ports:' in redis_block:
         raise ReviewLabError('review-redis must not publish host ports')
     if f'{EXPECTED_REVIEW_DATABASE_HOST}:5432/{EXPECTED_REVIEW_DATABASE_NAME}' not in api_block:
@@ -293,20 +308,48 @@ def wait_for_api_health(timeout_seconds: int = TIMEOUTS.stack_readiness) -> None
     raise ReviewLabError('review-api did not become healthy on 127.0.0.1:8001 in time', failure_code='REVIEW_STACK_READINESS_TIMEOUT')
 
 
+# The V3 production lineage, in dependency order. This is the manifest set
+# (sql/v3/migration-manifest.txt) PLUS the Finder migrations 010/011/013, which
+# are deliberately absent from the manifest but ARE applied on prod and are read
+# at request time by the Finder/search surface (v3_app.system_search /
+# v3_app.system_archetype). Review Lab must mirror the schema production runs, so
+# it applies the full prod+Finder set rather than the legacy V2 sql/*.sql files.
+# Paths are relative to the sql/ mount (./sql:/workspace/sql:ro).
+V3_LINEAGE_FILES: tuple[str, ...] = (
+    'v3/migrations/001_v3_baseline.sql',
+    'v3/migrations/002_v3_accounts_identity.sql',
+    'r1_v3/001_structural_shell.sql',
+    'v3/migrations/003_ratings_v4_derived.sql',
+    'v3/migrations/004_v3_search_spatial_clusters.sql',
+    'v3/migrations/005_v3_journal_intelligence.sql',
+    'v3/migrations/006_v3_derived_product_lifecycle.sql',
+    'v3/migrations/008_v3_journal_commander_ownership.sql',
+    'v3/migrations/009_v3_journal_galaxy_contributions.sql',
+    'v3/migrations/010_v3_system_search_body_type_counts.sql',
+    'v3/migrations/011_v3_system_archetype.sql',
+    'v3/migrations/012_v3_spatial_pyramid_decouple.sql',
+    'v3/migrations/013_v3_system_search_parallel.sql',
+    'v3/migrations/014_v3_watchlist.sql',
+)
+
+
 def bootstrap_schema() -> None:
-    shell = (
-        "set -eu; "
-        "for f in $(ls -1 /workspace/sql/*.sql | sort); do "
-        "case \"$f\" in */seed_preview.sql) continue ;; esac; "
-        "psql -h 127.0.0.1 -U review_user -d edfinder_local_review -v ON_ERROR_STOP=1 -q -f \"$f\" >/dev/null; "
-        "done"
+    applies = " ".join(
+        f'psql -h 127.0.0.1 -U review_user -d edfinder_local_review -v ON_ERROR_STOP=1 '
+        f'-q -f "/workspace/sql/{path}" >/dev/null; '
+        for path in V3_LINEAGE_FILES
     )
+    shell = "set -eu; " + applies
     run_compose('exec', '-T', 'review-postgres', 'sh', '-lc', shell, timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
 
 
-def seed_review_database() -> None:
-    run_compose(
-        'run', '--rm', 'review-api', 'python', '/workspace/scripts/dev/review_environment_seed.py',
+def seed_review_generation() -> None:
+    # INTERIM plumbing proof: the host test venv owns build tooling; the prod
+    # API image stays unchanged. TODO(Phase 2): purpose-built Review Lab sources
+    # per docs/development/review-lab-v3-redo.md.
+    run_command(
+        [sys.executable, str(ROOT / 'scripts/dev/seed_review_v3_generation.py')],
+        env_overrides={'DATABASE_URL': EXPECTED_REVIEW_SEED_DATABASE_URL},
         timeout_seconds=TIMEOUTS.stack_readiness,
         failure_code='REVIEW_STACK_START_FAILED',
     )
@@ -418,8 +461,8 @@ def up_review_stack() -> dict[str, Any]:
     wait_for_postgres()
     wait_for_redis()
     bootstrap_schema()
+    seed_review_generation()
     run_compose('build', 'review-api', timeout_seconds=TIMEOUTS.image_build, failure_code='REVIEW_STACK_START_FAILED')
-    seed_review_database()
     run_compose('up', '-d', 'review-api', timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
     wait_for_api_health()
     return {
