@@ -20,6 +20,63 @@ ACHENAR = 10477373803000
 LOSSLESS = 9007199254740993
 
 
+def test_cypress_wrapper_passes_fixture_and_publication_metadata(monkeypatch, tmp_path):
+    from scripts.dev import seed_cypress_v3_generation as seed
+
+    connection = object()
+    calls = []
+
+    def publish(conn, fixture_dir, **metadata):
+        calls.append((conn, fixture_dir, metadata))
+        return 17
+
+    monkeypatch.setattr(seed, 'seed_v3_fixture_generation', publish)
+
+    assert seed.seed_cypress_v3_generation(connection, tmp_path) == 17
+    assert calls == [
+        (
+            connection,
+            tmp_path,
+            {
+                'generation_key_prefix': 'cypress_v3_',
+                'publication_actor': 'cypress-seed',
+                'publication_note': 'cypress v3 finder journey',
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ('generation_key_prefix', 'publication_actor', 'publication_note'),
+    [
+        ('', 'actor', 'note'),
+        ('Cypress-v3_', 'actor', 'note'),
+        ('fixture_', '', 'note'),
+        ('fixture_', 'actor', ''),
+    ],
+)
+def test_neutral_seed_rejects_invalid_publication_metadata_before_connection_access(
+    generation_key_prefix,
+    publication_actor,
+    publication_note,
+    tmp_path,
+):
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+
+    class Connection:
+        def execute(self, *_args, **_kwargs):
+            pytest.fail('connection touched before publication metadata validation')
+
+    with pytest.raises(ValueError):
+        seed_v3_fixture_generation(
+            Connection(),
+            tmp_path,
+            generation_key_prefix=generation_key_prefix,
+            publication_actor=publication_actor,
+            publication_note=publication_note,
+        )
+
+
 def test_seed_main_refuses_non_disposable_target(monkeypatch):
     """The CLI entry point applies migrations and publishes a generation, so it
     must fail closed on a production-looking target before opening any
