@@ -406,6 +406,27 @@ from branch protection/current workflows (`CLAUDE.md:181-200`).
   Recommended: **yes**; otherwise their continued Review Lab purpose should be
   decided before implementation.
 
+
+### Owner decisions (2026-10-08)
+
+The owner accepted every recommendation above. Three systems was re-examined and
+kept: more systems would add only product-style coverage (paging, ranking,
+variety) that Product E2E owns, while costing fixture upkeep and seed time
+against the fixed 60-second budget.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Exactly three fictional Review systems | Yes |
+| 2 | Build the fixture by deterministic subset/rewrite of `ratings_v4_sources` | Subset/rewrite |
+| 3 | One corpus-neutral publisher with thin Cypress and Review wrappers | One neutral publisher |
+| 4 | Review-only id64 above the JavaScript exact-integer limit | No |
+| 5 | `renderer_recovery` requires a positive scene-target count | Yes |
+| 6 | Exact 60-second seed-timeout assertion instead of `<= 120` | Yes |
+| 7 | Warehouse/provenance profiles mapped one-to-one to the three new systems | Yes |
+
+Implementation proceeds as the three PRs in the plan above, one at a time, each
+merged before the next is dispatched.
+
 ## Sequencing note
 This branch builds on the V3 watchlist work in PR #782 (it removes #782's interim
 shim). Base/rebase on `main` after #782 merges.
