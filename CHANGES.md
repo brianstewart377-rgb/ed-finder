@@ -28,7 +28,9 @@ their digest-pinned Python, Node and nginx base images, preserving every
 immutable digest. Compose validation and container-image parity use the Docker
 daemon's built-in BuildKit driver, avoiding the default Docker Hub BuildKit
 helper pull. The production release workflow and deploy contracts are
-unchanged.
+unchanged. The EDDN, importer, and maintenance Python base images now also come
+from `public.ecr.aws/docker/library` with unchanged tags, and the
+runtime-authority test now requires the mirror prefix.
 
 ## 2026-10-09 — CI Docker Official Images moved to ECR Public
 

@@ -91,6 +91,9 @@ def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
     dockerfiles = [
         ROOT / 'apps/api/Dockerfile',
         ROOT / 'apps/api/Dockerfile.release',
+        ROOT / 'apps/eddn/Dockerfile',
+        ROOT / 'apps/importer/Dockerfile',
+        ROOT / 'apps/maintenance/Dockerfile',
         ROOT / 'apps/web/Dockerfile',
     ]
     paths = sorted(ROOT.glob('.github/workflows/*.yml')) + [
@@ -198,7 +201,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
-    assert 'FROM python:3.14-alpine' in maintenance_dockerfile
+    assert 'FROM public.ecr.aws/docker/library/python:3.14-alpine' in maintenance_dockerfile
     assert "'psycopg[binary]==3.3.4'" in maintenance_dockerfile
     assert 'postgresql-client rclone curl' in maintenance_dockerfile
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
