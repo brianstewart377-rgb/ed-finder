@@ -4,12 +4,16 @@ carries the journey id64s, and -- crucially -- passes the stream's
 which is the hard constraint the full seed build depends on."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
+sys.path.insert(0, str(ROOT / 'apps/importer/src'))
+
+from v3_spansh.contracts import GRID_EDGE_LY, macro_grid_key  # noqa: E402
 
 FIXTURE = ROOT / 'tests/fixtures/cypress_v3_sources'
 
@@ -35,6 +39,20 @@ def test_cypress_fixture_has_journey_systems():
     # Achenar (ex-Sol) must retain a main-star body so detail/classification is real.
     assert any(b['system_id64'] == ACHENAR and b.get('is_main_star')
                for b in canonical['bodies'])
+
+
+def test_cypress_fixture_grid_fields_match_importer_contract():
+    from math import floor
+
+    canonical = json.loads((FIXTURE / 'canonical.json').read_bytes())
+    for system in canonical['systems']:
+        expected_grid = tuple(
+            floor(system[coordinate] / GRID_EDGE_LY)
+            for coordinate in ('x_ly', 'y_ly', 'z_ly')
+        )
+        actual_grid = (system['grid_x'], system['grid_y'], system['grid_z'])
+        assert actual_grid == expected_grid
+        assert system['macro_grid_key'] == macro_grid_key(*actual_grid)
 
 
 def test_cypress_fixture_passes_retained_chunk_inventory():

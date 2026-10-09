@@ -23,12 +23,16 @@ import copy
 from hashlib import sha256
 import io
 import json
+from math import floor
 from pathlib import Path
 import sys
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
+sys.path.insert(0, str(ROOT / 'apps/importer/src'))
+
+from v3_spansh.contracts import GRID_EDGE_LY, macro_grid_key  # noqa: E402
 
 TEMPLATE_DIR = ROOT / 'tests/fixtures/ratings_v4_sources'
 
@@ -63,9 +67,14 @@ def _rewrite_system(system: dict) -> dict:
         new_id, new_name, (x_ly, y_ly, z_ly) = REWRITE[out['id64']]
         out['id64'] = new_id
         out['name'] = new_name
-        # system_search is built from these canonical coords (scripts/v3_system_search
-        # selects s.x_ly/y_ly/z_ly); grid_* are not read by the search product.
+        # Keep the map viewport's coarse-grid prefilter aligned with the exact
+        # canonical coordinates, using the same contract as the real importer.
         out['x_ly'], out['y_ly'], out['z_ly'] = x_ly, y_ly, z_ly
+        grid_x, grid_y, grid_z = (
+            floor(coordinate / GRID_EDGE_LY) for coordinate in (x_ly, y_ly, z_ly)
+        )
+        out['grid_x'], out['grid_y'], out['grid_z'] = grid_x, grid_y, grid_z
+        out['macro_grid_key'] = macro_grid_key(grid_x, grid_y, grid_z)
     return out
 
 
