@@ -75,8 +75,8 @@ A useful property of this order: from F1 onward the API can return real ranked
 systems even before the UI exists, so the data can be verified against the
 accepted V2 results before any interface work begins.
 
-**Production rollout state (authoritative):** the actual prod state and the
-honest remaining path live in
+**Production rollout state (verified evidence; the sequence is controlled by
+docs/ROADMAP.md):** the actual prod state and tooling status live in
 `docs/operations/v3-finder-production-rollout-state.md`. Note the distinction
 this status line blurs: "F1 merged with body-type counts" is the **code** state;
 production never applied migration `010`, so the only built `system_search`

@@ -120,8 +120,10 @@ newer dated source wins).
   completeness, model completeness→confidence) are being **addressed on
   `fix/v3-finder-f2b-review-followups` (PR #775, in review — NOT yet merged to
   `main`)**, so `main` still carries the pre-fix builder; treat those blockers as
-  open until #775 lands. Not wired into the V3 manifest (governed op, per the
-  010/011 precedent).
+  open until #775 lands. Migrations `010` and `011` are still not wired into the
+  V3 manifest. Registered migration `014` now follows `012`, so the Finder
+  migrations `010`, `011`, and `013` must be appended after `014` by a fresh
+  governed registration.
 - **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
   divergence report), then **F3** (point the Finder search/ranking API at the V3
   projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
@@ -131,22 +133,36 @@ newer dated source wins).
   derived generation** (`v3_meta.publish_derived_generation`; a product's own
   lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
   product). A read-only authorized prod-sample **coefficient-calibration probe** is
-  a pre-build follow-up. **CORRECTION (2026-10-04): the Finder production rollout
-  state below drifted from reality — see the authoritative
-  `docs/operations/v3-finder-production-rollout-state.md`, which supersedes this
-  paragraph.** A direct prod read on 2026-10-04 found: migrations `010`/`011` are
-  NOT applied; the only built `system_search` is on the *superseded* `opt1`
-  generation and is READY but **pre-`010`** (no body-type counts), not "currently
-  running"; the published `parallel_v1` generation has no Finder products and
-  cannot accept them; and no operator action exists to build `system_archetype`
-  or publish a derived generation. The parallel chunk-range work (#757/#766) is
-  **code-only, its rollout not yet executed** (see
-  `docs/development/system-search-parallel-rebuild.md`). The published derived
-  generation is **`ratings_v4_prod_p4_parallel_v1`** (`current_derived_generation`
-  at sequence 1, per `ratings-v4-parallel-validation-design.md`); the superseded
-  `ratings_v4_prod_p4_opt1` candidate is unpublished. Outstanding within the
-  derived programme are the F1 `system_search` product rebuild and the F2b
-  `system_archetype` product build/publish.
+  a pre-build follow-up. **CORRECTION (verified 2026-10-04 and updated
+  2026-10-09):** migrations `010`/`011` are not applied; the only built
+  `system_search` is READY but pre-`010` on the superseded, unpublished `opt1`
+  generation; the published `parallel_v1` generation has no Finder products and
+  cannot accept them; and the parallel chunk-range rebuild remains code-only.
+  Migration `014` is registered after `012` but is not applied. Migration `010`
+  must be rewritten for bounded application before it is registered or applied.
+  The controlling remaining sequence is:
+
+  1. Register the rewritten `010`, then `011` and `013`, after `014` in a fresh
+     manifest and authority update.
+  2. Run the governed migration `plan`, review it, and apply the pending
+     migrations.
+  3. Create a fresh, non-published, `010`-aware derived generation.
+  4. Build `system_search` with body-type counts on that generation.
+  5. Build `system_archetype` on the same generation.
+  6. Validate both products to `READY`.
+  7. Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred
+     `system_search` checks.
+  8. Publish the owning generation with
+     `v3_meta.publish_derived_generation`.
+  9. Revise and review the application-release gate for the newly published
+     generation.
+  10. Run the governed application release and promote `main`.
+
+  Before step 4 is dispatched, the owner must decide whether to retain or purge
+  superseded generations' product rows and whether the disk-headroom budget
+  permits a second roughly 198.5-million-row `system_search` product. The
+  [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
+  supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
   several backends are genuinely live (map, journal, watchlist just shipped). But
