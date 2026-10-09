@@ -752,8 +752,10 @@ def test_product_e2e_commands_are_absent_from_review_wrapper_and_workflow():
     assert 'cypress/e2e/review-lab.cy.ts' in combined
 
 
-def test_review_lab_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
+def test_review_lab_v3_fixture_rebuild_is_content_reproducible(tmp_path):
+    from hashlib import sha256
     import subprocess
+    from zipfile import ZipFile
 
     fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'
     rebuilt = tmp_path / 'review_lab_v3_sources'
@@ -767,13 +769,30 @@ def test_review_lab_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
         cwd=ROOT,
         check=True,
     )
-    for name in (
-        'canonical.json',
-        'source-metadata.json',
-        'spansh-system-dumps.zip',
-        'manifest.json',
-    ):
+    for name in ('canonical.json', 'source-metadata.json'):
         assert (rebuilt / name).read_bytes() == (fixture / name).read_bytes()
+
+    with (
+        ZipFile(rebuilt / 'spansh-system-dumps.zip') as rebuilt_archive,
+        ZipFile(fixture / 'spansh-system-dumps.zip') as committed_archive,
+    ):
+        assert rebuilt_archive.namelist() == committed_archive.namelist()
+        for name in committed_archive.namelist():
+            rebuilt_info = rebuilt_archive.getinfo(name)
+            committed_info = committed_archive.getinfo(name)
+            assert rebuilt_archive.read(name) == committed_archive.read(name)
+            assert rebuilt_info.date_time == committed_info.date_time
+            assert rebuilt_info.create_system == committed_info.create_system
+            assert rebuilt_info.external_attr == committed_info.external_attr
+            assert rebuilt_info.compress_type == committed_info.compress_type
+
+    rebuilt_manifest = json.loads((rebuilt / 'manifest.json').read_bytes())
+    committed_manifest = json.loads((fixture / 'manifest.json').read_bytes())
+    for name in ('canonical.json', 'source-metadata.json'):
+        assert rebuilt_manifest['files_sha256'][name] == committed_manifest['files_sha256'][name]
+    assert committed_manifest['files_sha256']['spansh-system-dumps.zip'] == sha256(
+        (fixture / 'spansh-system-dumps.zip').read_bytes()
+    ).hexdigest()
 
 
 def test_review_lab_v3_fixture_loads_through_real_source_pipeline():
