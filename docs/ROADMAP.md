@@ -191,14 +191,18 @@ newer dated source wins).
   with `system_search rows and receipts are insert-only`, and no reviewed governed
   purge migration/action exists. Purge is therefore not an available branch.
   Before step 4, the owner must either accept retention after measuring the
-  complete candidate footprint on a disposable PostgreSQL 18 sample and
-  extrapolating it to full scale, and confirm disk headroom for roughly 198.5
-  million fresh `system_rating_vector` rows (step 4), roughly 198.5 million fresh
-  `system_search` rows with 18 new count columns (step 5), roughly 1.59 billion
-  fresh `system_archetype` rows plus roughly 198.5 million fresh
-  `system_archetype_summary` rows (step 7), and all associated ratings, search,
-  archetype, and summary indexes, including `system_archetype_key_score` and
-  `system_archetype_summary_weighted`; or add
+  complete candidate footprint of `system_rating_vector`, `body_mechanics`, and
+  `economy_opportunity`, including their primary-key indexes, on a disposable
+  PostgreSQL 18 sample and extrapolating those relations and indexes to full scale,
+  and confirm disk headroom for the complete fresh Ratings V4 generation: roughly
+  198.5 million `system_rating_vector` rows plus `body_mechanics` (one row per
+  physical body) and `economy_opportunity` (one row per eligible body/economy
+  pair), which can be far larger than the system-level rows, and their primary-key
+  indexes (step 4), roughly 198.5 million fresh `system_search` rows with 18 new
+  count columns (step 5), roughly 1.59 billion fresh `system_archetype` rows plus
+  roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
+  associated ratings, search, archetype, and summary indexes, including
+  `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
   **design and review a governed purge path** as a prerequisite before step 4. The
   [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
