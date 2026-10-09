@@ -344,9 +344,8 @@ def bootstrap_schema() -> None:
 
 
 def seed_review_generation() -> None:
-    # INTERIM plumbing proof: the host test venv owns build tooling; the prod
-    # API image stays unchanged. TODO(Phase 2): purpose-built Review Lab sources
-    # per docs/development/review-lab-v3-redo.md.
+    # The host test venv owns fixture build tooling; the production API image
+    # stays unchanged and the dedicated Review Lab source remains host-seeded.
     run_command(
         [sys.executable, str(ROOT / 'scripts/dev/seed_review_v3_generation.py')],
         env_overrides={'DATABASE_URL': EXPECTED_REVIEW_SEED_DATABASE_URL},

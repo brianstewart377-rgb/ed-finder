@@ -1,9 +1,8 @@
-"""INTERIM Review Lab V3 plumbing proof using the proven Cypress builder.
+"""Publish the dedicated Review Lab V3 fixture and spatial pyramid.
 
 Run host-side in the apps/api test venv, never in the production API image.
-TODO(Phase 2): replace the source fixture with purpose-built Review Lab data;
-see docs/development/review-lab-v3-redo.md. Publication is idempotent and uses
-the genuine canonical, Search, Archetype and spatial validation/CAS pipelines.
+Publication is idempotent and uses the genuine canonical, Search, Archetype
+and spatial validation/CAS pipelines.
 """
 from __future__ import annotations
 
@@ -16,12 +15,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from apps.api.src.review_runtime_guard import EXPECTED_REVIEW_DATABASE_NAME  # noqa: E402
-from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation  # noqa: E402
+from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation  # noqa: E402
 from scripts import v3_spatial_pyramid as spatial_builder  # noqa: E402
 from tests.helpers.db_isolation import DbIsolationError, DbTarget, validate_test_db_target  # noqa: E402
 
 EXPECTED_REVIEW_SEED_HOST = '127.0.0.1'
 EXPECTED_REVIEW_SEED_PORT = 55433
+REVIEW_FIXTURE_DIR = ROOT / 'tests/fixtures/review_lab_v3_sources'
 REVIEW_PYRAMID_VERSION = 'review_pyramid_v1'
 MAX_REVIEW_SPATIAL_SYSTEMS = 1_000
 
@@ -102,7 +102,7 @@ def seed_review_spatial_pyramid(connection) -> int:
         return connection.execute(
             'SELECT v3_spatial.publish_spatial_pyramid(%s,%s,%s,%s,%s,%s)',
             (spatial_id, None, 0, canonical_id, 'review-seed',
-             'interim review v3 density pyramid')).fetchone()[0]
+             'review v3 density pyramid')).fetchone()[0]
 
 
 def main() -> int:
@@ -114,14 +114,20 @@ def main() -> int:
             database = connection.execute('SELECT current_database()').fetchone()[0]
             if database != EXPECTED_REVIEW_DATABASE_NAME:
                 raise ReviewSeedError('review seed connected to an unexpected database')
-            sequence = seed_cypress_v3_generation(connection)
+            sequence = seed_v3_fixture_generation(
+                connection,
+                REVIEW_FIXTURE_DIR,
+                generation_key_prefix='review_lab_v3_',
+                publication_actor='review-lab-seed',
+                publication_note='review lab v3 fixture',
+            )
             seed_review_spatial_pyramid(connection)
     except Exception as exc:
         # Driver/build exceptions can contain connection strings. Preserve a
         # useful failure category without logging credentials or raw exceptions.
         print(f'Review V3 generation seed failed ({type(exc).__name__}).', file=sys.stderr)
         return 1
-    print(f'INTERIM Review Lab V3 published generation sequence={sequence}')
+    print(f'Review Lab V3 published generation sequence={sequence}')
     return 0
 
 

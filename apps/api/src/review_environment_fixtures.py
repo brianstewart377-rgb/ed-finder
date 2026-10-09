@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-# INTERIM fixture identities from tests/fixtures/cypress_v3_sources. These
-# support-route payloads stay synthetic and never become canonical facts.
-# TODO(Phase 2): purpose-built sources per docs/development/review-lab-v3-redo.md.
+# These support-route payloads stay synthetic and never become canonical facts.
 REVIEW_SYSTEMS: tuple[dict[str, Any], ...] = (
-    {'id64': 10477373803000, 'name': 'Achenar'},
-    {'id64': 158872029, 'name': 'HD 38179'},
-    {'id64': 9007199254740993, 'name': 'V3 Lossless Reach'},
+    {'id64': 9100000000001, 'name': 'Review Wiring'},
+    {'id64': 9100000000002, 'name': 'Review Aggregate'},
+    {'id64': 9100000000003, 'name': 'Review Fallback'},
 )
-REVIEW_FALLBACK_SYSTEM_ID64 = 9007199254740993
+REVIEW_FALLBACK_SYSTEM_ID64 = 9100000000003
 
 
 _UNKNOWN_WAREHOUSE_COVERAGE: dict[str, Any] = {
@@ -49,9 +47,9 @@ _UNKNOWN_WAREHOUSE_COVERAGE: dict[str, Any] = {
 
 
 REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
-    10477373803000: {
+    9100000000001: {
         'schema_version': 'warehouse_planner_evidence/v1',
-        'system_id64': 10477373803000,
+        'system_id64': 9100000000001,
         'generated_at': '2026-06-21T12:00:00Z',
         'freshness': {
             'status': 'fresh',
@@ -59,7 +57,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
         },
         'source_run': {
             'source_name': 'review_fixture',
-            'run_key': 'review-fixture/review-achenar-evidence',
+            'run_key': 'review-fixture/review-wiring-evidence',
         },
         'evidence_envelope': {
             'status': 'available',
@@ -82,10 +80,10 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'report_only': True,
             'bounded_staging_only': True,
             'source_name': 'review_fixture',
-            'source_batch_label': 'review-achenar-window-25',
-            'source_sha256': 'review-achenar-not-canonical',
-            'source_run_key': 'review-fixture/review-achenar-bounded-staging',
-            'bridge_key': 'source_runs:review-fixture/review-achenar-bounded-staging',
+            'source_batch_label': 'review-wiring-window-25',
+            'source_sha256': 'review-wiring-not-canonical',
+            'source_run_key': 'review-fixture/review-wiring-bounded-staging',
+            'bridge_key': 'source_runs:review-fixture/review-wiring-bounded-staging',
             'row_limit': 25,
             'available_row_limits': [25, 100],
             'matched_row_count': 3,
@@ -101,7 +99,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
                 {
                     'label': 'report_only',
                     'source': 'canonical',
-                    'summary': 'Canonical planner data is available and remains the planner truth source for Achenar.',
+                    'summary': 'Canonical planner data is available and remains the planner truth source for Review Wiring.',
                 },
                 {
                     'label': 'report_only',
@@ -116,12 +114,12 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             ],
         },
         'warnings': [
-            'Achenar evidence is synthetic review-only context and never canonical truth.',
+            'Review Wiring evidence is synthetic review-only context and never canonical truth.',
         ],
     },
-    158872029: {
+    9100000000002: {
         'schema_version': 'warehouse_planner_evidence/v1',
-        'system_id64': 158872029,
+        'system_id64': 9100000000002,
         'generated_at': '2026-06-21T12:05:00Z',
         'freshness': {
             'status': 'unknown',
@@ -129,7 +127,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
         },
         'source_run': {
             'source_name': 'review_fixture',
-            'run_key': 'review-fixture/review-hd38179-evidence',
+            'run_key': 'review-fixture/review-aggregate-evidence',
         },
         'evidence_envelope': {
             'status': 'unavailable',
@@ -140,7 +138,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'planner_truth_source_class': 'unavailable',
             'claims_canonical_truth': False,
             'claims_full_coverage': False,
-            'summary': 'Selected-system evidence is intentionally unavailable for HD 38179.',
+            'summary': 'Selected-system evidence is intentionally unavailable for Review Aggregate.',
         },
         'bounded_staging': {
             'status': 'unavailable',
@@ -155,7 +153,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'available_row_limits': [],
             'matched_row_count': None,
             'latest_source_updated_at': None,
-            'summary': 'No selected-system review evidence is linked for HD 38179.',
+            'summary': 'No selected-system review evidence is linked for Review Aggregate.',
         },
         'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
@@ -165,12 +163,12 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'items': [],
         },
         'warnings': [
-            'HD 38179 is intentionally configured with unavailable selected-system evidence.',
+            'Review Aggregate is intentionally configured with unavailable selected-system evidence.',
         ],
     },
-    9007199254740993: {
+    9100000000003: {
         'schema_version': 'warehouse_planner_evidence/v1',
-        'system_id64': 9007199254740993,
+        'system_id64': 9100000000003,
         'generated_at': '2026-06-21T12:15:00Z',
         'freshness': {
             'status': 'not_evaluated',
@@ -178,7 +176,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
         },
         'source_run': {
             'source_name': 'review_fixture',
-            'run_key': 'review-fixture/review-lossless-evidence',
+            'run_key': 'review-fixture/review-fallback-evidence',
         },
         'evidence_envelope': {
             'status': 'not_evaluated',
@@ -189,7 +187,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'planner_truth_source_class': 'canonical',
             'claims_canonical_truth': False,
             'claims_full_coverage': False,
-            'summary': 'Selected-system evidence is intentionally not evaluated for V3 Lossless Reach.',
+            'summary': 'Selected-system evidence is intentionally not evaluated for Review Fallback.',
         },
         'bounded_staging': {
             'status': 'not_evaluated',
@@ -204,7 +202,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'available_row_limits': [],
             'matched_row_count': None,
             'latest_source_updated_at': None,
-            'summary': 'Bounded staging is intentionally not evaluated for V3 Lossless Reach.',
+            'summary': 'Bounded staging is intentionally not evaluated for Review Fallback.',
         },
         'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
@@ -220,23 +218,23 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             ],
         },
         'warnings': [
-            'V3 Lossless Reach is intentionally configured with a not-evaluated evidence path.',
+            'Review Fallback is intentionally configured with a not-evaluated evidence path.',
         ],
     },
 }
 
 
 REVIEW_PROVENANCE_CONTRACTS: dict[int, dict[str, Any]] = {
-    10477373803000: {
+    9100000000001: {
         'schema_version': 'stage20a_provenance_cockpit/v1',
         'system': {
-            'id64': 10477373803000,
-            'name': 'Achenar',
+            'id64': 9100000000001,
+            'name': 'Review Wiring',
             'primary_archetype': 'hightech_refinery',
         },
         'provenance_summary': {
             'state': 'available',
-            'latest_source_run_key': 'review-fixture/review-achenar-provenance',
+            'latest_source_run_key': 'review-fixture/review-wiring-provenance',
             'warehouse_state': 'available',
             'planner_evidence_state': 'available',
         },
@@ -246,7 +244,7 @@ REVIEW_PROVENANCE_CONTRACTS: dict[int, dict[str, Any]] = {
                 'source_name': 'review_fixture',
                 'rows_read': 25,
                 'rows_staged': 25,
-                'artifact_name': 'review-achenar-provenance.json',
+                'artifact_name': 'review-wiring-provenance.json',
             },
             'warehouse': {
                 'state': 'available',
@@ -272,18 +270,18 @@ REVIEW_PROVENANCE_CONTRACTS: dict[int, dict[str, Any]] = {
             'stage19_operator_commands_authorized': False,
         },
         'warnings': [
-            'Achenar provenance is synthetic review-only context; canonical planner data remains the planner truth source.',
+            'Review Wiring provenance is synthetic review-only context; canonical planner data remains the planner truth source.',
         ],
         'ui_hints': {
             'severity': 'info',
             'empty_state_key': None,
         },
     },
-    158872029: {
+    9100000000002: {
         'schema_version': 'stage20a_provenance_cockpit/v1',
         'system': {
-            'id64': 158872029,
-            'name': 'HD 38179',
+            'id64': 9100000000002,
+            'name': 'Review Aggregate',
             'primary_archetype': 'refinery_extraction',
         },
         'provenance_summary': {
@@ -324,18 +322,18 @@ REVIEW_PROVENANCE_CONTRACTS: dict[int, dict[str, Any]] = {
             'stage19_operator_commands_authorized': False,
         },
         'warnings': [
-            'HD 38179 keeps the provenance fallback in an unknown state for review-only coverage.',
+            'Review Aggregate keeps the provenance fallback in an unknown state for review-only coverage.',
         ],
         'ui_hints': {
             'severity': 'warning',
-            'empty_state_key': 'review-hd38179-provenance-unavailable',
+            'empty_state_key': 'review-aggregate-provenance-unavailable',
         },
     },
-    9007199254740993: {
+    9100000000003: {
         'schema_version': 'stage20a_provenance_cockpit/v1',
         'system': {
-            'id64': 9007199254740993,
-            'name': 'V3 Lossless Reach',
+            'id64': 9100000000003,
+            'name': 'Review Fallback',
             'primary_archetype': 'industrial_hightech',
         },
         'provenance_summary': {
@@ -376,11 +374,11 @@ REVIEW_PROVENANCE_CONTRACTS: dict[int, dict[str, Any]] = {
             'stage19_operator_commands_authorized': False,
         },
         'warnings': [
-            'V3 Lossless Reach exercises the provenance fallback while planner evidence remains not evaluated.',
+            'Review Fallback exercises the provenance fallback while planner evidence remains not evaluated.',
         ],
         'ui_hints': {
             'severity': 'neutral',
-            'empty_state_key': 'review-lossless-provenance-fallback',
+            'empty_state_key': 'review-fallback-provenance-fallback',
         },
     },
 }

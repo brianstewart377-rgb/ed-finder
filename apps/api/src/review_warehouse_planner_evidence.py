@@ -29,11 +29,11 @@ async def warehouse_planner_evidence(
             status_code=503,
             media_type='application/problem+json',
             content={
-                'type': 'https://ed-finder.local/problem/review-lossless-dedicated-evidence-unavailable',
+                'type': 'https://ed-finder.local/problem/review-fallback-dedicated-evidence-unavailable',
                 'title': 'Dedicated warehouse evidence intentionally unavailable in review runtime',
                 'status': 503,
                 'detail': (
-                    'V3 Lossless Reach keeps the dedicated warehouse evidence route unreadable in the '
+                    'Review Fallback keeps the dedicated warehouse evidence route unreadable in the '
                     'isolated review runtime so the existing provenance fallback can be exercised.'
                 ),
                 'system_id64': id64,
