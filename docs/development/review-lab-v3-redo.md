@@ -23,7 +23,8 @@ or needs a one-off shim. This is the root cause of the recurring false failures.
   (`docker-compose.review.yml:16`). The **`review-api` image does NOT copy
   `sql/`** (`apps/api/Dockerfile` copies only `apps/api/src/` + `shared_contracts/`),
   which is why the interim watchlist shim inlines DDL instead of reading the file.
-- `review-postgres` is already `postgres:18-alpine`, so the engine matches prod;
+- `review-postgres` is already
+  `public.ecr.aws/docker/library/postgres:18-alpine`, so the engine matches prod;
   only the schema is wrong.
 
 ### What the app actually needs at request time

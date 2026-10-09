@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import textwrap
@@ -11,10 +13,68 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONTAINER_PARITY_ENV = 'EDFINDER_RUN_CONTAINER_PARITY'
+_BARE_LIBRARY_IMAGE = re.compile(
+    r'^\s*image:\s*[\'\"]?(?:postgres|redis|nginx)(?=[:@\s\'\"]|$)'
+)
+_BARE_LIBRARY_IMAGE_NAME = re.compile(
+    r'(?:postgres|redis|nginx)(?:(?::|@).+)?'
+)
+_DOCKER_RUN_FLAGS_WITHOUT_VALUES = frozenset({
+    '--detach',
+    '--disable-content-trust',
+    '--init',
+    '--interactive',
+    '--oom-kill-disable',
+    '--privileged',
+    '--publish-all',
+    '--read-only',
+    '--rm',
+    '--tty',
+    '-d',
+    '-i',
+    '-P',
+    '-t',
+})
 
 
 def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
+
+
+def _logical_shell_lines(lines: list[str]):
+    command = ''
+    start_line = 0
+    for line_number, line in enumerate(lines, 1):
+        if not command:
+            start_line = line_number
+        command = f'{command} {line.strip()}'.strip()
+        if command.endswith('\\'):
+            command = command[:-1].rstrip()
+            continue
+        yield start_line, command
+        command = ''
+    if command:
+        yield start_line, command
+
+
+def _docker_run_image(command: str) -> str | None:
+    match = re.search(r'\bdocker\s+run\b', command)
+    if match is None:
+        return None
+    tokens = shlex.split(command[match.start():])
+    index = 2
+    while index < len(tokens):
+        token = tokens[index]
+        if token == '--':
+            index += 1
+            break
+        if not token.startswith('-'):
+            break
+        if '=' in token or token in _DOCKER_RUN_FLAGS_WITHOUT_VALUES:
+            index += 1
+        else:
+            index += 2
+    return tokens[index] if index < len(tokens) else None
 
 
 def test_required_parity_check_runs_for_every_pull_request():
@@ -24,6 +84,24 @@ def test_required_parity_check_runs_for_every_pull_request():
 
     assert 'paths:' not in pull_request_block
     assert 'paths:' in push_block
+
+
+def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
+    paths = sorted(ROOT.glob('.github/workflows/*.yml')) + [
+        ROOT / 'docker-compose.review.yml'
+    ]
+    violations = []
+    for path in paths:
+        lines = path.read_text(encoding='utf-8').splitlines()
+        for line_number, line in enumerate(lines, 1):
+            if _BARE_LIBRARY_IMAGE.search(line):
+                violations.append(f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}')
+        for line_number, command in _logical_shell_lines(lines):
+            image = _docker_run_image(command)
+            if image is not None and _BARE_LIBRARY_IMAGE_NAME.fullmatch(image):
+                violations.append(f'{path.relative_to(ROOT)}:{line_number}: {command}')
+
+    assert not violations, 'bare Docker Hub library images found:\n' + '\n'.join(violations)
 
 
 def _docker_binary() -> str:
@@ -108,7 +186,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'apps/api/Dockerfile.release' in workflow
     assert 'Release API CPython 3.14 build and startup' in workflow
     assert "sys.version_info[:2] == (3, 14)" in workflow
-    assert 'postgres:18-alpine' in workflow
+    assert 'public.ecr.aws/docker/library/postgres:18-alpine' in workflow
     assert 'DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder' in workflow
     assert 'EDDN_SIMULATION_INGEST_ENABLED=false' in workflow
     assert 'http://127.0.0.1:18000/api/health' in workflow

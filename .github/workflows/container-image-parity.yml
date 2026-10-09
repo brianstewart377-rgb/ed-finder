@@ -82,7 +82,7 @@ jobs:
             --env POSTGRES_USER=edfinder \
             --env POSTGRES_PASSWORD=edfinder \
             --env POSTGRES_DB=edfinder \
-            postgres:18-alpine
+            public.ecr.aws/docker/library/postgres:18-alpine
           for attempt in $(seq 1 30); do
             if docker exec "${postgres_name}" pg_isready -U edfinder -d edfinder >/dev/null 2>&1; then
               break

@@ -461,7 +461,10 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     assert 'env_file:' not in compose
     with pytest.raises(contract.ReviewLabError, match='PostgreSQL 18'):
         lifecycle.validate_compose_text(
-            compose.replace('image: postgres:18-alpine', 'image: postgres:16-alpine')
+            compose.replace(
+                'image: public.ecr.aws/docker/library/postgres:18-alpine',
+                'image: public.ecr.aws/docker/library/postgres:16-alpine',
+            )
         )
     with pytest.raises(contract.ReviewLabError, match='disable external EDDN'):
         lifecycle.validate_compose_text(
@@ -715,7 +718,7 @@ def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     assert "sys.version_info[:2] == (3, 14)" in read('scripts/dev/review_lab/lifecycle.py')
     assert 'working-directory: apps/web' in workflow
     assert 'tests/test_review_lab_v3.py' in workflow
-    assert 'image: postgres:18-alpine' in compose
+    assert 'image: public.ecr.aws/docker/library/postgres:18-alpine' in compose
     assert 'EDDN_SIMULATION_INGEST_ENABLED: "false"' in compose
     for legacy in ('working-directory: frontend', 'resolve_project_state.py', 'git diff --check'):
         assert legacy not in workflow

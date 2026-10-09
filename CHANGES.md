@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-09 — CI Docker Official Images moved to ECR Public
+
+CI workflows and the disposable Review Lab contract now pull the same pinned
+Docker Official Image tags and digests through `public.ecr.aws/docker/library`.
+This avoids anonymous Docker Hub pull limits on shared GitHub-hosted runner IP
+addresses without changing the selected PostgreSQL, Redis, or nginx images.
+Contract validation now rejects bare Docker Hub library references in those
+surfaces while leaving legacy, local, and production Compose contracts
+unchanged.
+
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
 The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex
