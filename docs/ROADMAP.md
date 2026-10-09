@@ -117,11 +117,11 @@ newer dated source wins).
   the *product* to READY on VERIFIED (required by migration 006's publish gate;
   not publishing). Review follow-ups (P1 follow-mode completion, base-READY-before-
   promote, content-seal verification, CLI exit status, coverage/summary gate
-  completeness, model completeness→confidence) are being **addressed on
-  `fix/v3-finder-f2b-review-followups` (PR #775, in review — NOT yet merged to
-  `main`)**, so `main` still carries the pre-fix builder; treat those blockers as
-  open until #775 lands. Not wired into the V3 manifest (governed op, per the
-  010/011 precedent).
+  completeness, model completeness→confidence) **merged to `main` in PR #775 at
+  `a928930` on 2026-09-28**. Migrations `010` and `011` are still not wired into
+  the V3 manifest. Registered migration `014` now follows `012`, so the Finder
+  migrations `010`, `011`, and `013` must be appended after `014` by a fresh
+  governed registration.
 - **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
   divergence report), then **F3** (point the Finder search/ranking API at the V3
   projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
@@ -130,16 +130,82 @@ newer dated source wins).
   builds the `system_archetype` product to READY and **publishes the owning
   derived generation** (`v3_meta.publish_derived_generation`; a product's own
   lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
-  product). A read-only authorized prod-sample **coefficient-calibration probe** is
-  a pre-build follow-up. The Finder F1 `system_search` rebuild currently running in
-  production is the **serial** path; the parallel chunk-range work (#757/#766) is
-  **code-only, its rollout not yet executed** (see
-  `docs/development/system-search-parallel-rebuild.md`). The published derived
-  generation is **`ratings_v4_prod_p4_parallel_v1`** (`current_derived_generation`
-  at sequence 1, per `ratings-v4-parallel-validation-design.md`); the superseded
-  `ratings_v4_prod_p4_opt1` candidate is unpublished. Outstanding within the
-  derived programme are the F1 `system_search` product rebuild and the F2b
-  `system_archetype` product build/publish.
+  product). The authorized read-only prod-sample **coefficient-calibration probe**
+  must run and its coefficient decision must be recorded before the immutable
+  `system_archetype` build: coefficients are hashed into the product manifest at
+  registration, and a `READY` product cannot be rewritten.
+  **CORRECTION (verified 2026-10-04 and updated 2026-10-09):** migrations
+  `010`/`011` are not applied; the only built
+  `system_search` is READY but pre-`010` on the superseded, unpublished `opt1`
+  generation; the published `parallel_v1` generation has no Finder products and
+  cannot accept them; and the parallel chunk-range rebuild remains code-only.
+  Migration `014` is registered after `012` but is not applied. Migration `010`
+  must be rewritten for bounded application before it is registered or applied.
+  The controlling remaining sequence is:
+
+  0. Run a new read-only governed inspection and confirm every relevant detached
+     worker
+     (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`,
+     `edfinder-ratings-v4-prod-p4-parallel-v1`,
+     `edfinder-v3-system-search-p4-opt1`) has stopped; record
+     `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states
+     and the current canonical/derived/spatial pointers before dispatching any
+     migration apply.
+  1. Register the rewritten `010`, then `011` and `013`, after `014` in the V3
+     manifest + authority.
+  2. Run the governed migration `plan`, review it, and apply the pending
+     migrations.
+  3. Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred
+     `system_search` checks.
+  4. Create a fresh, non-published, `010`-aware derived generation.
+  5. Build `system_search` with body-type counts on that generation.
+  6. Run the authorized read-only coefficient-calibration probe and record the
+     coefficient decision.
+  7. Build `system_archetype` on the same generation.
+  8. Validate both products to `READY`.
+  9. Publish the owning generation with
+     `v3_meta.publish_derived_generation`.
+  10. Revise and review the application-release gate for the newly published
+     generation.
+  11. Run the governed application release and promote `main`.
+
+  For step 0, **NO governed action — must be built:** a read-only action that
+  reports `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle
+  states, the current canonical/derived/spatial pointers, and
+  `docker inspect State.Running` for the four named worker containers.
+  `scripts/operator/actions/v3-derived-data-status.sh` may be used only as the
+  pattern to model the new action on; it does not establish these preconditions.
+  Step 3 must run before the fresh build so its full-table scan covers about
+  198.5M retained `opt1` rows instead of about 397M rows after the second product;
+  the `NOT VALID` checks still enforce every subsequent builder insert
+  automatically. For step 6, **NO governed action — must be built**; the probe
+  can read the already-published `parallel_v1` ratings vectors and does not wait
+  for the fresh generation, so it may run earlier once step 0 reconfirms state.
+  For step 8, **NO governed action — must be built:** the step 5 and step 7 build
+  actions must expose and receipt the validation path (search: inline in `run()`;
+  archetype: `--validate`) so READY is reached through a reviewed route.
+
+  Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
+  **only executable path**: migration `006_v3_derived_product_lifecycle.sql`
+  installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
+  with `system_search rows and receipts are insert-only`, and no reviewed governed
+  purge migration/action exists. Purge is therefore not an available branch.
+  Before step 4, the owner must either accept retention after measuring the
+  complete candidate footprint of `system_rating_vector`, `body_mechanics`, and
+  `economy_opportunity`, including their primary-key indexes, on a disposable
+  PostgreSQL 18 sample and extrapolating those relations and indexes to full scale,
+  and confirm disk headroom for the complete fresh Ratings V4 generation: roughly
+  198.5 million `system_rating_vector` rows plus `body_mechanics` (one row per
+  physical body) and `economy_opportunity` (one row per eligible body/economy
+  pair), which can be far larger than the system-level rows, and their primary-key
+  indexes (step 4), roughly 198.5 million fresh `system_search` rows with 18 new
+  count columns (step 5), roughly 1.59 billion fresh `system_archetype` rows plus
+  roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
+  associated ratings, search, archetype, and summary indexes, including
+  `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
+  **design and review a governed purge path** as a prerequisite before step 4. The
+  [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
+  supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
   several backends are genuinely live (map, journal, watchlist just shipped). But
