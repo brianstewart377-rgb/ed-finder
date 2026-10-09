@@ -143,13 +143,14 @@ newer dated source wins).
   must be rewritten for bounded application before it is registered or applied.
   The controlling remaining sequence is:
 
-  0. Re-run the read-only governed inspection
-     (`scripts/operator/actions/v3-derived-data-status.sh` via the operator
-     control plane) and confirm every relevant detached worker
+  0. Run a new read-only governed inspection and confirm every relevant detached
+     worker
      (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`,
      `edfinder-ratings-v4-prod-p4-parallel-v1`,
-     `edfinder-v3-system-search-p4-opt1`) has stopped; record generation and
-     product lifecycle states before dispatching any migration apply.
+     `edfinder-v3-system-search-p4-opt1`) has stopped; record
+     `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states
+     and the current canonical/derived/spatial pointers before dispatching any
+     migration apply.
   1. Register the rewritten `010`, then `011` and `013`, after `014` in the V3
      manifest + authority.
   2. Run the governed migration `plan`, review it, and apply the pending
@@ -168,21 +169,36 @@ newer dated source wins).
      generation.
   11. Run the governed application release and promote `main`.
 
-  Step 0 tooling exists and is read-only. Step 3 must run before the fresh build
-  so its full-table scan covers about 198.5M retained `opt1` rows instead of about
-  397M rows after the second product; the `NOT VALID` checks still enforce every
-  subsequent builder insert automatically. For step 6, **NO governed action —
-  must be built**; the probe can read the already-published `parallel_v1` ratings
-  vectors and does not wait for the fresh generation, so it may run earlier once
-  step 0 reconfirms state.
+  For step 0, **NO governed action — must be built:** a read-only action that
+  reports `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle
+  states, the current canonical/derived/spatial pointers, and
+  `docker inspect State.Running` for the four named worker containers.
+  `scripts/operator/actions/v3-derived-data-status.sh` may be used only as the
+  pattern to model the new action on; it does not establish these preconditions.
+  Step 3 must run before the fresh build so its full-table scan covers about
+  198.5M retained `opt1` rows instead of about 397M rows after the second product;
+  the `NOT VALID` checks still enforce every subsequent builder insert
+  automatically. For step 6, **NO governed action — must be built**; the probe
+  can read the already-published `parallel_v1` ratings vectors and does not wait
+  for the fresh generation, so it may run earlier once step 0 reconfirms state.
+  For step 8, **NO governed action — must be built:** the step 5 and step 7 build
+  actions must expose and receipt the validation path (search: inline in `run()`;
+  archetype: `--validate`) so READY is reached through a reviewed route.
 
   Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
   **only executable path**: migration `006_v3_derived_product_lifecycle.sql`
   installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
   with `system_search rows and receipts are insert-only`, and no reviewed governed
   purge migration/action exists. Purge is therefore not an available branch.
-  Before step 4, the owner must either accept retention
-  and confirm disk headroom for a second roughly 198.5-million-row product, or add
+  Before step 4, the owner must either accept retention after measuring the
+  complete candidate footprint on a disposable PostgreSQL 18 sample and
+  extrapolating it to full scale, and confirm disk headroom for roughly 198.5
+  million fresh `system_rating_vector` rows (step 4), roughly 198.5 million fresh
+  `system_search` rows with 18 new count columns (step 5), roughly 1.59 billion
+  fresh `system_archetype` rows plus roughly 198.5 million fresh
+  `system_archetype_summary` rows (step 7), and all associated ratings, search,
+  archetype, and summary indexes, including `system_archetype_key_score` and
+  `system_archetype_summary_weighted`; or add
   **design and review a governed purge path** as a prerequisite before step 4. The
   [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.

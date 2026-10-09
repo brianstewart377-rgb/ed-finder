@@ -116,7 +116,7 @@ generation) over a reduced-scope launch on `opt1`.
 
 | # | Step | Tooling status |
 |---|---|---|
-| 0 | Re-run the read-only governed inspection (`scripts/operator/actions/v3-derived-data-status.sh` via the operator control plane) and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record generation and product lifecycle states before dispatching any migration apply. | tooling exists (read-only) |
+| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **NO governed action — must be built:** a read-only action that reports `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states, the current canonical/derived/spatial pointers, and `docker inspect State.Running` for the four named worker containers. `scripts/operator/actions/v3-derived-data-status.sh` may be used only as the pattern to model the new action on; it does not establish these preconditions |
 | 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **PENDING** — PR #780 is superseded; a fresh registration PR on top of `main` must replace it. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
 | 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`), but the `010` rewrite and fresh registration in step 1 are hard prerequisites. After registration, the expected pending set is `[014, 010, 011, 013]` |
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **NO governed action — must be built.** Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
@@ -124,7 +124,7 @@ generation) over a reduced-scope launch on `opt1`.
 | 5 | Build `system_search` with body-type counts on that generation. | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** AND verifies only migration `006` (not `010`), while the v2 builder writes `010`'s columns — so it needs **both** a retarget to the fresh generation **and** to pin+verify exact `010`, or it passes preflight then fails on the first body-count write. After step 2, `013` makes the code-only parallel chunk-range builder available |
 | 6 | Run the authorized read-only coefficient-calibration probe and record the coefficient decision. | **NO governed action — must be built.** The probe can read the already-published `parallel_v1` ratings vectors and does not wait for the fresh generation, so it may run earlier once the step 0 state is reconfirmed. The decision must precede `system_archetype` registration because coefficients are hashed into the product manifest and a `READY` product cannot be rewritten |
 | 7 | Build `system_archetype` on the same generation. | **NO governed action — must be built** (model on `f1`) |
-| 8 | Validate both products to `READY`. | builder `--validate` modes exist |
+| 8 | Validate both products to `READY`. | **NO governed action — must be built:** the step 5 and step 7 build actions must expose and receipt the validation path (search: inline in `run()`; archetype: `--validate`) so READY is reached through a reviewed route |
 | 9 | Publish the owning generation with `v3_meta.publish_derived_generation`. | **NO governed action — must be built** (model on the pyramid publish) |
 | 10 | Revise and review the application-release gate for the newly published generation. | **PENDING** — `v3-production-application-release.md:292-330` still requires publishing against the now-PUBLISHED/immutable `ratings_v4_prod_p4_parallel_v1`; following the fresh-generation sequence would violate that gate until it is updated for the new generation |
 | 11 | Run the governed application release and promote `main`. | release tooling exists, but step 10 is a hard prerequisite |
@@ -134,11 +134,18 @@ Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
 installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
 with `system_search rows and receipts are insert-only`, and no reviewed governed
 purge migration/action exists. Purge is therefore not an available branch.
-Before step 4, the owner must either accept retention
-and confirm disk headroom for a second roughly 198.5-million-row product, or add
+Before step 4, the owner must either accept retention after measuring the
+complete candidate footprint on a disposable PostgreSQL 18 sample and
+extrapolating it to full scale, and confirm disk headroom for roughly 198.5
+million fresh `system_rating_vector` rows (step 4), roughly 198.5 million fresh
+`system_search` rows with 18 new count columns (step 5), roughly 1.59 billion
+fresh `system_archetype` rows plus roughly 198.5 million fresh
+`system_archetype_summary` rows (step 7), and all associated ratings, search,
+archetype, and summary indexes, including `system_archetype_key_score` and
+`system_archetype_summary_weighted`; or add
 **design and review a governed purge path** as a prerequisite before step 4.
 
-The governed actions for steps 7 and 9 are unbuilt. They can only be finalized
+The governed actions for steps 7, 8, and 9 are unbuilt. They can only be finalized
 **after** step 4 creates the fresh generation, because the governed action
 pattern pins the exact target generation identity (canonical UUID / key /
 sequence) as a fail-closed safety property — it cannot be pinned to a generation
