@@ -212,39 +212,6 @@ def test_seed_publishes_and_exposes_journey_ids(full_review_lineage):
                 if full_review_lineage:
                     assert conn.execute("SELECT to_regclass('v3_private.watchlist') IS NOT NULL").fetchone()[0]
                     assert conn.execute("SELECT to_regclass('public.systems') IS NULL").fetchone()[0]
-                    # The review-only extension must exercise genuine canonical
-                    # density, without relying on the Cypress legacy fallback.
-                    from scripts.dev.seed_review_v3_generation import seed_review_spatial_pyramid
-                    from scripts.v3_spatial_pyramid import CELL_LEVELS
-
-                    assert conn.execute('SELECT COUNT(*) FROM v3_spatial.current_spatial_generation').fetchone()[0] == 0
-                    assert conn.execute("SELECT to_regclass('public.mv_map_heatmap_200ly') IS NULL").fetchone()[0]
-                    assert seed_review_spatial_pyramid(conn) == 1
-                    spatial = conn.execute(
-                        'SELECT sg.spatial_generation_id, sg.canonical_generation_id, '
-                        'sg.lifecycle_state, sg.expected_systems, sg.validation_receipt '
-                        'FROM v3_spatial.spatial_generation sg '
-                        'JOIN v3_spatial.current_spatial_generation c USING (spatial_generation_id)'
-                    ).fetchone()
-                    canonical_id = conn.execute(
-                        'SELECT generation_id FROM v3_meta.current_canonical_generation WHERE singleton'
-                    ).fetchone()[0]
-                    assert spatial[1:4] == (canonical_id, 'PUBLISHED', 3)
-                    assert spatial[4]['status'] == 'VERIFIED'
-                    assert spatial[4]['reconciliation'] == 'passed'
-                    sums = dict(conn.execute(
-                        'SELECT level, SUM(system_count) FROM v3_spatial.cell_summary '
-                        'WHERE spatial_generation_id=%s GROUP BY level', (spatial[0],)
-                    ).fetchall())
-                    assert sums == {level.level: 3 for level in CELL_LEVELS}
-                    representatives = {row[0] for row in conn.execute(
-                        'SELECT representative_system_id64 FROM v3_spatial.cell_summary '
-                        'WHERE spatial_generation_id=%s', (spatial[0],)
-                    ).fetchall()}
-                    assert representatives and representatives <= exposed
-                    assert seed_review_spatial_pyramid(conn) == 1
-                    assert conn.execute('SELECT COUNT(*) FROM v3_spatial.spatial_generation').fetchone()[0] == 1
-                    assert conn.execute('SELECT COUNT(*) FROM v3_spatial.spatial_publication_audit').fetchone()[0] == 1
                 # idempotent: a second call does not republish.
                 assert seed_cypress_v3_generation(conn) == 1
         finally:

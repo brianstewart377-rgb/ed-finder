@@ -178,8 +178,8 @@ def test_external_network_origin_is_a_review_lab_containment_failure():
     assert result['failure_code'] == 'UNEXPECTED_BROWSER_NETWORK_ERROR'
 
 
-def test_review_fixtures_match_the_entire_interim_v3_corpus():
-    canonical = json.loads(read('tests/fixtures/cypress_v3_sources/canonical.json'))
+def test_review_fixtures_match_the_entire_dedicated_v3_corpus():
+    canonical = json.loads(read('tests/fixtures/review_lab_v3_sources/canonical.json'))
     expected = {(system['id64'], system['name']) for system in canonical['systems']}
     assert {(system['id64'], system['name']) for system in REVIEW_SYSTEMS} == expected
     assert set(contract.REQUIRED_REVIEW_SYSTEM_NAMES) == {name for _, name in expected}
@@ -187,8 +187,36 @@ def test_review_fixtures_match_the_entire_interim_v3_corpus():
     assert {body['system_id64'] for body in canonical['bodies']} == {id64 for id64, _ in expected}
     assert set(REVIEW_WAREHOUSE_CONTRACTS) == set(REVIEW_PROVENANCE_CONTRACTS) == {id64 for id64, _ in expected}
     collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
-    assert "{ id64: '10477373803000', name: 'Achenar' }" in collector
+    assert "{ id64: '9100000000001', name: 'Review Wiring' }" in collector
     assert 'Review Alpha' not in collector
+
+
+def test_review_owned_sources_have_no_cypress_or_former_identity_coupling():
+    forbidden = (
+        'cypress_v3_sources',
+        'seed_cypress_v3_generation',
+        'Achenar',
+        'HD 38179',
+        'V3 Lossless Reach',
+        '10477373803000',
+        '9007199254740993',
+        '158872029',
+        'INTERIM',
+        'TODO(Phase 2)',
+    )
+    review_owned_paths = (
+        ROOT / 'scripts/dev/seed_review_v3_generation.py',
+        *sorted((ROOT / 'scripts/dev/review_lab').glob('*.py')),
+        *sorted((ROOT / 'apps/api/src').glob('review_*.py')),
+        ROOT / 'apps/web/cypress/e2e/review-lab.cy.ts',
+    )
+
+    violations = {
+        str(path.relative_to(ROOT)): [token for token in forbidden if token in path.read_text(encoding='utf-8')]
+        for path in review_owned_paths
+        if any(token in path.read_text(encoding='utf-8') for token in forbidden)
+    }
+    assert not violations
 
 
 @pytest.mark.parametrize('dsn', [
@@ -243,8 +271,19 @@ def test_host_seed_checks_connected_database_and_reuses_publisher(database, fail
         assert autocommit is True
         return connection
 
-    def publish(conn):
+    def publish(
+        conn,
+        fixture_dir,
+        *,
+        generation_key_prefix,
+        publication_actor,
+        publication_note,
+    ):
         assert conn is connection
+        assert fixture_dir == review_seed.REVIEW_FIXTURE_DIR
+        assert generation_key_prefix == 'review_lab_v3_'
+        assert publication_actor == 'review-lab-seed'
+        assert publication_note == 'review lab v3 fixture'
         calls.append('publish')
         return 1
 
@@ -255,7 +294,7 @@ def test_host_seed_checks_connected_database_and_reuses_publisher(database, fail
 
     monkeypatch.setenv('DATABASE_URL', contract.EXPECTED_REVIEW_SEED_DATABASE_URL)
     monkeypatch.setattr(psycopg, 'connect', connect)
-    monkeypatch.setattr(review_seed, 'seed_cypress_v3_generation', publish)
+    monkeypatch.setattr(review_seed, 'seed_v3_fixture_generation', publish)
     monkeypatch.setattr(review_seed, 'seed_review_spatial_pyramid', publish_spatial)
     assert review_seed.main() == int(fails)
     assert calls == ([] if fails else ['publish', 'spatial'])
@@ -301,7 +340,7 @@ def test_review_spatial_seed_reconciles_before_ready_and_cas_publish(monkeypatch
             else:
                 assert query == 'SELECT v3_spatial.publish_spatial_pyramid(%s,%s,%s,%s,%s,%s)'
                 assert params == (spatial_id, None, 0, canonical_id, 'review-seed',
-                                  'interim review v3 density pyramid')
+                                  'review v3 density pyramid')
                 events.append('publish')
                 row = (1,)
             return SimpleNamespace(fetchone=lambda: row)
@@ -491,7 +530,7 @@ def test_generation_seed_runs_on_host_with_pinned_dsn_and_bounded_failure(monkey
     assert args[0] == [sys.executable, str(ROOT / 'scripts/dev/seed_review_v3_generation.py')]
     assert kwargs['env_overrides'] == {'DATABASE_URL': contract.EXPECTED_REVIEW_SEED_DATABASE_URL}
     assert kwargs['failure_code'] == 'REVIEW_STACK_START_FAILED'
-    assert 0 < kwargs['timeout_seconds'] <= 120
+    assert kwargs['timeout_seconds'] == 60
     assert not (ROOT / 'scripts/dev/review_environment_seed.py').exists()
     assert 'review_environment_seed' not in read('docker-compose.review.yml')
     assert 'review_environment_seed' not in read('scripts/dev/review_lab/lifecycle.py')
@@ -738,7 +777,7 @@ def test_review_lab_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
 
 
 def test_review_lab_v3_fixture_loads_through_real_source_pipeline():
-    from scripts.dev.seed_cypress_v3_generation import load_source_fixture
+    from scripts.dev.seed_v3_fixture_generation import load_source_fixture
     from scripts.ratings_v4.canonical_stream import adapt_retained_chunk
 
     fixture = ROOT / 'tests/fixtures/review_lab_v3_sources'

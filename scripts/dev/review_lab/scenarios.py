@@ -3,15 +3,14 @@ from __future__ import annotations
 from .contract import ReviewLabError, ScenarioDefinition
 
 
-# TODO(Phase 2): purpose-built Review Lab corpus per docs/development/review-lab-v3-redo.md.
 REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
     ScenarioDefinition(
         name='synthetic_wiring',
         purpose='Prove the isolated Review Lab fixture reaches the real apps/web + Babylon runtime without re-running a normal product journey.',
-        synthetic_data_profile='INTERIM Cypress V3 corpus: Achenar / HD 38179 / V3 Lossless Reach in the disposable review database',
+        synthetic_data_profile='Review Lab V3 corpus: Review Wiring / Review Aggregate / Review Fallback in the disposable review database',
         required_review_only_routes=(),
         api_contracts=('health', 'finder'),
-        browser_journey=('Load Explore -> observe Achenar fixture -> Babylon ready',),
+        browser_journey=('Load Explore -> observe Review Wiring fixture -> Babylon ready',),
         expected_network_policy=('same-origin review API only', 'no unexpected 4xx/5xx'),
         evidence_posture='Environment wiring evidence only; not product acceptance or a visual baseline.',
         browser_flow_keys=('syntheticWiring',),
@@ -41,7 +40,7 @@ REGISTERED_SCENARIOS: tuple[ScenarioDefinition, ...] = (
     ScenarioDefinition(
         name='renderer_recovery',
         purpose='Exercise Babylon context-loss/recovery behaviour that normal Product E2E cannot deterministically force.',
-        synthetic_data_profile='INTERIM Cypress V3 systems plus browser-local WEBGL_lose_context fault injection when available',
+        synthetic_data_profile='Review Wiring / Review Aggregate / Review Fallback systems plus browser-local WEBGL_lose_context fault injection when available',
         required_review_only_routes=(),
         api_contracts=('health', 'finder'),
         browser_journey=('Load synthetic scene -> inject renderer fault -> prove recovery/remount usability',),

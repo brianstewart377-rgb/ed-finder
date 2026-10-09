@@ -29,9 +29,7 @@ type ReviewSummary = {
   fatalError: string | null;
 };
 
-// INTERIM plumbing proof using tests/fixtures/cypress_v3_sources.
-// TODO(Phase 2): purpose-built fixture per docs/development/review-lab-v3-redo.md.
-const REVIEW_SYSTEM = { id64: '10477373803000', name: 'Achenar' };
+const REVIEW_SYSTEM = { id64: '9100000000001', name: 'Review Wiring' };
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const selectedStorageKey = 'ed-finder:selected-system-context';
 let currentFlow = '';
@@ -266,7 +264,20 @@ describe('isolated V3 Review Lab', () => {
         currentFlow = 'rendererRecovery';
       });
       setReviewMode('normal');
+      cy.intercept('POST', '/api/local/search').as('rendererSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      cy.wait('@rendererSearch').its('response.statusCode').should('eq', 200);
+      cy.get(`[data-system-result="${REVIEW_SYSTEM.id64}"]`).should(
+        'contain.text',
+        REVIEW_SYSTEM.name,
+      );
+      cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
+      cy.get('.spatial-canvas').should(($scene) => {
+        expect(
+          $scene.attr('data-scene-target-count'),
+          'normal Review Wiring scene target count',
+        ).to.match(/^[1-9]\d*$/);
+      });
       cy.get(readySelector, { timeout: 20_000 })
         .should('be.visible')
         .invoke('attr', 'data-renderer-backend')

@@ -1,6 +1,6 @@
 # Review Lab V3 redo — audit + design
 
-**Status:** Phase 1 merged as #783 (fe033a2) on 2026-10-08; the required Review Lab check passed on branch head 089c1c5 before merge; Phase 2 designed below, not implemented.
+**Status:** Phase 2 steps 1-3 are implemented (#787, #789, and this PR), and Review Lab now uses `tests/fixtures/review_lab_v3_sources`.
 
 ## Problem
 
