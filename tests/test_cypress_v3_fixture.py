@@ -21,6 +21,29 @@ ACHENAR = 10477373803000
 LOSSLESS = 9007199254740993
 
 
+def test_cypress_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
+    import subprocess
+
+    rebuilt = tmp_path / 'cypress_v3_sources'
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / 'scripts/dev/build_cypress_v3_fixture.py'),
+            '--out',
+            str(rebuilt),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    for name in (
+        'canonical.json',
+        'source-metadata.json',
+        'spansh-system-dumps.zip',
+        'manifest.json',
+    ):
+        assert (rebuilt / name).read_bytes() == (FIXTURE / name).read_bytes()
+
+
 def test_cypress_fixture_has_journey_systems():
     from domain.ratings_v4_canonical import load_source_fixture
 
