@@ -489,3 +489,137 @@ def test_seed_idempotence_rejects_moved_canonical_pointer():
                 ).fetchone() == (1,)
         finally:
             admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_records_fixture_digest_in_publication_audit():
+    from hashlib import sha256
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    fixture = ROOT / 'tests/fixtures/cypress_v3_sources'
+    digest = sha256((fixture / 'manifest.json').read_bytes()).hexdigest()
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_digest_audit_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+                assert conn.execute(
+                    'SELECT actor, reason FROM v3_meta.derived_publication_audit '
+                    'WHERE publication_sequence=1'
+                ).fetchone() == (
+                    'cypress-seed',
+                    f'cypress v3 finder journey [fixture_manifest_sha256={digest}]',
+                )
+                assert seed_cypress_v3_generation(conn) == 1
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_idempotence_rejects_changed_body_fixture_digest(tmp_path):
+    from hashlib import sha256
+    import json
+    import shutil
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    fixture = tmp_path / 'cypress_v3_sources'
+    shutil.copytree(ROOT / 'tests/fixtures/cypress_v3_sources', fixture)
+    canonical_path = fixture / 'canonical.json'
+    canonical = json.loads(canonical_path.read_bytes())
+    canonical['bodies'][0]['distance_from_arrival_ls'] += 1
+    canonical_path.write_text(
+        json.dumps(canonical, sort_keys=True, separators=(',', ':')),
+        encoding='utf-8',
+    )
+    manifest_path = fixture / 'manifest.json'
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest['files_sha256'] = {
+        name: sha256((fixture / name).read_bytes()).hexdigest()
+        for name in manifest['files_sha256']
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(',', ':')),
+        encoding='utf-8',
+    )
+
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_body_digest_mismatch_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+
+                with pytest.raises(RuntimeError, match='fixture digest mismatch'):
+                    seed_v3_fixture_generation(
+                        conn,
+                        fixture,
+                        generation_key_prefix='cypress_v3_',
+                        publication_actor='cypress-seed',
+                        publication_note='cypress v3 finder journey',
+                    )
+
+                assert conn.execute(
+                    'SELECT COUNT(*) FROM v3_meta.derived_generation'
+                ).fetchone() == (1,)
+                assert conn.execute(
+                    'SELECT publication_sequence '
+                    'FROM v3_meta.current_derived_generation WHERE singleton'
+                ).fetchone() == (1,)
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+def test_seed_idempotence_rejects_different_publication_actor():
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    fixture = ROOT / 'tests/fixtures/cypress_v3_sources'
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_actor_mismatch_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+
+                with pytest.raises(RuntimeError, match='fixture digest mismatch'):
+                    seed_v3_fixture_generation(
+                        conn,
+                        fixture,
+                        generation_key_prefix='cypress_v3_',
+                        publication_actor='someone-else',
+                        publication_note='cypress v3 finder journey',
+                    )
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))

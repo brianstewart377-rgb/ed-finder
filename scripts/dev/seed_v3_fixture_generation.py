@@ -1,6 +1,7 @@
 """Publish a fixture-backed V3 derived generation."""
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 import re
 import sys
@@ -62,11 +63,15 @@ CANONICAL_SCHEMA = re.compile(r'^v3_gen_[a-z][a-z0-9_]{0,30}$')
 
 def _published_generation(connection):
     return connection.execute(
-        'SELECT c.publication_sequence, d.generation_key, d.canonical_generation_id, '
-        'd.canonical_publication_sequence '
+        'SELECT c.publication_sequence, c.derived_generation_id, d.generation_key, '
+        'd.canonical_generation_id, d.canonical_publication_sequence '
         'FROM v3_meta.current_derived_generation c '
         'JOIN v3_meta.derived_generation d USING (derived_generation_id) '
         'WHERE c.singleton').fetchone()
+
+
+def _fixture_digest(fixture_dir: Path) -> str:
+    return sha256((fixture_dir / 'manifest.json').read_bytes()).hexdigest()
 
 
 def _current_canonical_pointer(connection) -> tuple:
@@ -132,8 +137,9 @@ def _owned_published_sequence(
     published_generation,
     fixture_dir: Path,
     generation_key_prefix: str,
+    publication_actor: str,
 ) -> int:
-    (sequence, generation_key, canonical_generation_id,
+    (sequence, derived_generation_id, generation_key, canonical_generation_id,
      canonical_publication_sequence) = published_generation
     key_pattern = re.compile(
         re.escape(generation_key_prefix) + rf'[0-9a-f]{{{GENERATION_KEY_SUFFIX_LENGTH}}}'
@@ -143,6 +149,7 @@ def _owned_published_sequence(
 
     try:
         canonical, _, _ = load_source_fixture(fixture_dir)
+        fixture_digest = _fixture_digest(fixture_dir)
     except Exception:
         raise RuntimeError('requested fixture validation mismatch') from None
 
@@ -191,6 +198,24 @@ def _owned_published_sequence(
     ))
     if published_bodies != fixture_bodies:
         raise RuntimeError('canonical bodies content mismatch')
+
+    try:
+        audit_rows = connection.execute(
+            'SELECT actor, reason FROM v3_meta.derived_publication_audit '
+            'WHERE publication_sequence=%s AND to_generation_id=%s',
+            (sequence, derived_generation_id),
+        ).fetchall()
+    except Exception:
+        raise RuntimeError('publication audit query mismatch') from None
+    if not audit_rows:
+        raise RuntimeError('publication audit missing')
+    digest_suffix = f' [fixture_manifest_sha256={fixture_digest}]'
+    if len(audit_rows) != 1:
+        raise RuntimeError('fixture digest mismatch')
+    audit_actor, audit_reason = audit_rows[0]
+    if (audit_actor != publication_actor or not isinstance(audit_reason, str)
+            or not audit_reason.endswith(digest_suffix)):
+        raise RuntimeError('fixture digest mismatch')
     return sequence
 
 
@@ -228,10 +253,11 @@ def seed_v3_fixture_generation(
     existing = _published_generation(connection)
     if existing is not None:
         return _owned_published_sequence(
-            connection, existing, fixture_dir, generation_key_prefix
+            connection, existing, fixture_dir, generation_key_prefix, publication_actor
         )
 
     canonical, metadata, payloads = load_source_fixture(fixture_dir)
+    fixture_digest = _fixture_digest(fixture_dir)
     bootstrap_published_canonical(connection, canonical, metadata)
 
     snapshot = CanonicalSnapshot.pin(connection)
@@ -270,4 +296,5 @@ def seed_v3_fixture_generation(
     return connection.execute(
         'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
         (generation_id, None, 0, snapshot.generation_id, snapshot.publication_sequence,
-         publication_actor, publication_note)).fetchone()[0]
+         publication_actor,
+         f'{publication_note} [fixture_manifest_sha256={fixture_digest}]')).fetchone()[0]
