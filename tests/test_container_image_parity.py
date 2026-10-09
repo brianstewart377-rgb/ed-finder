@@ -19,6 +19,7 @@ _BARE_LIBRARY_IMAGE = re.compile(
 _BARE_LIBRARY_IMAGE_NAME = re.compile(
     r'(?:postgres|redis|nginx)(?:(?::|@).+)?'
 )
+_DOCKER_LIBRARY_MIRROR = 'public.ecr.aws/docker/library/'
 _DOCKER_RUN_FLAGS_WITHOUT_VALUES = frozenset({
     '--detach',
     '--disable-content-trust',
@@ -87,19 +88,45 @@ def test_required_parity_check_runs_for_every_pull_request():
 
 
 def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
+    dockerfiles = [
+        ROOT / 'apps/api/Dockerfile',
+        ROOT / 'apps/api/Dockerfile.release',
+        ROOT / 'apps/web/Dockerfile',
+    ]
     paths = sorted(ROOT.glob('.github/workflows/*.yml')) + [
         ROOT / 'docker-compose.review.yml'
-    ]
+    ] + dockerfiles
     violations = []
     for path in paths:
         lines = path.read_text(encoding='utf-8').splitlines()
         for line_number, line in enumerate(lines, 1):
             if _BARE_LIBRARY_IMAGE.search(line):
                 violations.append(f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}')
+            if path in dockerfiles and line.lstrip().startswith('FROM '):
+                image = line.split(maxsplit=2)[1]
+                if not image.startswith(_DOCKER_LIBRARY_MIRROR):
+                    violations.append(
+                        f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}'
+                    )
         for line_number, command in _logical_shell_lines(lines):
             image = _docker_run_image(command)
             if image is not None and _BARE_LIBRARY_IMAGE_NAME.fullmatch(image):
                 violations.append(f'{path.relative_to(ROOT)}:{line_number}: {command}')
+
+    for workflow_path in (
+        ROOT / '.github/workflows/ci.yml',
+        ROOT / '.github/workflows/container-image-parity.yml',
+    ):
+        workflow = workflow_path.read_text(encoding='utf-8')
+        setup_steps = workflow.split('uses: docker/setup-buildx-action@')[1:]
+        assert setup_steps, f'no setup-buildx-action step found in {workflow_path}'
+        for setup_step in setup_steps:
+            step_body = setup_step.split('\n      - ', 1)[0]
+            assert re.search(
+                r'^\s+with:\s*$\n^\s+driver: docker\s*$',
+                step_body,
+                flags=re.MULTILINE,
+            ), f'setup-buildx-action must declare driver: docker in {workflow_path}'
 
     assert not violations, 'bare Docker Hub library images found:\n' + '\n'.join(violations)
 
@@ -201,7 +228,10 @@ def test_local_and_release_api_images_use_the_frozen_python314_runtime():
     release = _read('apps', 'api', 'Dockerfile.release')
 
     for dockerfile in (local, release):
-        assert 'FROM python:3.14-slim@sha256:' in dockerfile
+        assert (
+            'FROM public.ecr.aws/docker/library/python:3.14-slim@sha256:'
+            in dockerfile
+        )
         assert 'uv==0.11.33' in dockerfile
         assert 'apps/api/pyproject.toml apps/api/uv.lock' in dockerfile
         assert 'uv sync --frozen --no-dev --no-group test --no-install-project' in dockerfile

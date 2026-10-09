@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — CI image builds avoid anonymous Docker Hub pulls
+
+The API and web Dockerfiles now use the public ECR Docker Library mirror for
+their digest-pinned Python, Node and nginx base images, preserving every
+immutable digest. Compose validation and container-image parity use the Docker
+daemon's built-in BuildKit driver, avoiding the default Docker Hub BuildKit
+helper pull. The production release workflow and deploy contracts are
+unchanged.
+
 ## 2026-10-09 — CI Docker Official Images moved to ECR Public
 
 CI workflows and the disposable Review Lab contract now pull the same pinned
