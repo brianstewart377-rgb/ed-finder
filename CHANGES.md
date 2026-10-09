@@ -21,6 +21,13 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — CI failure causes surfaced as GitHub annotations
+
+Failed pytest tests now emit `::error` annotations with the file, line, test ID,
+and assertion text when running under GitHub Actions. The Review Lab job summary
+now shows the failure code, failure summary, and failed phases and emits them as
+annotations; nothing about test selection, assertions, or gates changed.
+
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
 The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex
