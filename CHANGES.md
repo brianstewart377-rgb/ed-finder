@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-09 — Finder migrations 010/011/013 registered after 014; 010 rewritten for bounded application
+
+Migration `010_v3_system_search_body_type_counts.sql` now adds its 18 columns
+without inline checks and declares the checks as `NOT VALID`, avoiding a
+full-table validation scan during the bounded migration apply while continuing
+to enforce them for subsequent writes. The V3 production manifest and authority
+now register `010`, `011`, and `013` after `014`. This is registration only:
+none of those migrations was applied, and the governed plan/apply and separate
+constraint-validation operations remain outstanding.
+
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
 The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex

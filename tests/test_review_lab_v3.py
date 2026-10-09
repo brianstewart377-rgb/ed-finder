@@ -498,17 +498,10 @@ def test_compose_keeps_redis_unpublished():
         lifecycle.validate_compose_text(compose.replace('  review-redis:\n', '  review-redis:\n    ports:\n      - "127.0.0.1:55434:6379"\n', 1))
 
 
-def test_bootstrap_applies_full_v3_manifest_plus_finder_in_dependency_order(monkeypatch):
+def test_bootstrap_applies_declared_v3_manifest_in_manifest_order(monkeypatch):
     manifest = [line.split()[2] for line in read('sql/v3/migration-manifest.txt').splitlines()
                 if line.strip() and not line.startswith('#')]
-    expected = manifest.copy()
-    spatial_index = expected.index('v3/migrations/012_v3_spatial_pyramid_decouple.sql')
-    expected[spatial_index:spatial_index] = [
-        'v3/migrations/010_v3_system_search_body_type_counts.sql',
-        'v3/migrations/011_v3_system_archetype.sql',
-    ]
-    expected.insert(expected.index('v3/migrations/014_v3_watchlist.sql'), 'v3/migrations/013_v3_system_search_parallel.sql')
-    assert lifecycle.V3_LINEAGE_FILES == tuple(expected)
+    assert lifecycle.V3_LINEAGE_FILES == tuple(manifest)
     calls = []
     monkeypatch.setattr(lifecycle, 'run_compose', lambda *args, **kwargs: calls.append((args, kwargs)))
     lifecycle.bootstrap_schema()
@@ -516,8 +509,8 @@ def test_bootstrap_applies_full_v3_manifest_plus_finder_in_dependency_order(monk
     assert args[:5] == ('exec', '-T', 'review-postgres', 'sh', '-lc')
     shell = args[5]
     assert shell.startswith('set -eu; ')
-    assert shell.count('ON_ERROR_STOP=1') == len(expected)
-    assert [part.split('"')[0] for part in shell.split('/workspace/sql/')[1:]] == expected
+    assert shell.count('ON_ERROR_STOP=1') == len(manifest)
+    assert [part.split('"')[0] for part in shell.split('/workspace/sql/')[1:]] == manifest
     assert '*.sql' not in shell
     assert kwargs['failure_code'] == 'REVIEW_STACK_START_FAILED'
 

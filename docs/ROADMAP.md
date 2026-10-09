@@ -118,10 +118,10 @@ newer dated source wins).
   not publishing). Review follow-ups (P1 follow-mode completion, base-READY-before-
   promote, content-seal verification, CLI exit status, coverage/summary gate
   completeness, model completeness→confidence) **merged to `main` in PR #775 at
-  `a928930` on 2026-09-28**. Migrations `010` and `011` are still not wired into
-  the V3 manifest. Registered migration `014` now follows `012`, so the Finder
-  migrations `010`, `011`, and `013` must be appended after `014` by a fresh
-  governed registration.
+  `a928930` on 2026-09-28**. This PR rewrites `010` for bounded application and
+  registers migrations `010`, `011`, and `013` after `014` in the V3 manifest
+  and authority. Registration is not application; none of `014`, `010`, `011`,
+  or `013` has been applied to production.
 - **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
   divergence report), then **F3** (point the Finder search/ranking API at the V3
   projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
@@ -140,7 +140,8 @@ newer dated source wins).
   generation; the published `parallel_v1` generation has no Finder products and
   cannot accept them; and the parallel chunk-range rebuild remains code-only.
   Migration `014` is registered after `012` but is not applied. Migration `010`
-  must be rewritten for bounded application before it is registered or applied.
+  is now rewritten for bounded application and registered after `014`, followed
+  by `011` and `013`; none of those migrations has been applied.
   The controlling remaining sequence is:
 
   0. Run a new read-only governed inspection and confirm every relevant detached
@@ -151,8 +152,9 @@ newer dated source wins).
      `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states
      and the current canonical/derived/spatial pointers before dispatching any
      migration apply.
-  1. Register the rewritten `010`, then `011` and `013`, after `014` in the V3
-     manifest + authority.
+  1. **DONE by this PR; registration only, not application:** register the
+     rewritten `010`, then `011` and `013`, after `014` in the V3 manifest +
+     authority.
   2. Run the governed migration `plan`, review it, and apply the pending
      migrations.
   3. Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred
