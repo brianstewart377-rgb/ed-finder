@@ -1,0 +1,8 @@
+{
+  "schema_version": "ed-finder/production-promotion-hold/v1",
+  "held_live_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
+  "held_since": "2026-10-04",
+  "expires_at": "2026-11-09T00:00:00Z",
+  "reason": "F3 Finder cutover must not be promoted before the Finder products are built and published; see docs/operations/v3-production-application-release.md, section ‘F3 Finder cutover — product-publish promotion gate’, and the controlling rollout sequence in docs/ROADMAP.md.",
+  "review": "this PR"
+}

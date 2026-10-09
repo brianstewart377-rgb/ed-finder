@@ -333,3 +333,15 @@ against — a cutover with no published V3 generation to read — is closed for 
 browser lane by `scripts/dev/seed_cypress_v3_generation.py` (it publishes a real
 derived generation into the Cypress database through the genuine
 build→validate→publish pipeline); production parity is this gate, not that seed.
+
+### Promotion hold (version-drift monitor)
+
+`deploy/v3-production/promotion-hold.json` records the reviewed, dated exception
+that lets the version-drift monitor report this intentional F3 promotion hold
+without failing every scheduled run. The file pins the exact live SHA, reason,
+start date, and expiry; it is reviewed in a pull request and does not authorize a
+promotion or relax the web/API, SHA, or post-deploy expected-SHA checks.
+
+The hold expires and must then be renewed through review or removed. It must be
+removed in the same pull request that revises the application-release gate for
+the fresh generation in `docs/ROADMAP.md` rollout step 10.
