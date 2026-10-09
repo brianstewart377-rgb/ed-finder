@@ -4,9 +4,11 @@ carries the journey id64s, and -- crucially -- passes the stream's
 which is the hard constraint the full seed build depends on."""
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 from pathlib import Path
 import sys
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,7 +23,7 @@ ACHENAR = 10477373803000
 LOSSLESS = 9007199254740993
 
 
-def test_cypress_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
+def test_cypress_v3_fixture_rebuild_is_content_reproducible(tmp_path):
     import subprocess
 
     rebuilt = tmp_path / 'cypress_v3_sources'
@@ -35,13 +37,30 @@ def test_cypress_v3_fixture_rebuild_is_byte_reproducible(tmp_path):
         cwd=ROOT,
         check=True,
     )
-    for name in (
-        'canonical.json',
-        'source-metadata.json',
-        'spansh-system-dumps.zip',
-        'manifest.json',
-    ):
+    for name in ('canonical.json', 'source-metadata.json'):
         assert (rebuilt / name).read_bytes() == (FIXTURE / name).read_bytes()
+
+    with (
+        ZipFile(rebuilt / 'spansh-system-dumps.zip') as rebuilt_archive,
+        ZipFile(FIXTURE / 'spansh-system-dumps.zip') as committed_archive,
+    ):
+        assert rebuilt_archive.namelist() == committed_archive.namelist()
+        for name in committed_archive.namelist():
+            rebuilt_info = rebuilt_archive.getinfo(name)
+            committed_info = committed_archive.getinfo(name)
+            assert rebuilt_archive.read(name) == committed_archive.read(name)
+            assert rebuilt_info.date_time == committed_info.date_time
+            assert rebuilt_info.create_system == committed_info.create_system
+            assert rebuilt_info.external_attr == committed_info.external_attr
+            assert rebuilt_info.compress_type == committed_info.compress_type
+
+    rebuilt_manifest = json.loads((rebuilt / 'manifest.json').read_bytes())
+    committed_manifest = json.loads((FIXTURE / 'manifest.json').read_bytes())
+    for name in ('canonical.json', 'source-metadata.json'):
+        assert rebuilt_manifest['files_sha256'][name] == committed_manifest['files_sha256'][name]
+    assert committed_manifest['files_sha256']['spansh-system-dumps.zip'] == sha256(
+        (FIXTURE / 'spansh-system-dumps.zip').read_bytes()
+    ).hexdigest()
 
 
 def test_cypress_fixture_has_journey_systems():

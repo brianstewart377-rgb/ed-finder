@@ -51,9 +51,12 @@ REWRITE: dict[int, tuple[int, str, tuple[float, float, float]]] = {
 THIRD_SYSTEM = 158872029  # kept verbatim (distinct 3rd result)
 SELECTED = (*REWRITE, THIRD_SYSTEM)
 
-# Deterministic zip member timestamp so the committed artifact (and its
-# checksum) is byte-reproducible on re-run. Date.now() is deliberately avoided.
+# Explicit member metadata avoids platform defaults. Compressed archive bytes
+# may still vary between zlib versions, so content is the portability contract.
 _ZIP_DATE = (2026, 1, 1, 0, 0, 0)
+_ZIP_CREATE_SYSTEM = 3
+_ZIP_EXTERNAL_ATTR = 0o644 << 16
+_ZIP_COMPRESSION = ZIP_DEFLATED
 
 
 def _canonical_bytes(obj) -> bytes:
@@ -147,13 +150,15 @@ def build(template_dir: Path) -> tuple[dict, bytes, list[dict]]:
 def _zip_bytes(members: list[dict]) -> bytes:
     buffer = io.BytesIO()
     # Sort by id64 so member order (and thus the archive bytes) is deterministic.
-    with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:
+    with ZipFile(buffer, 'w', _ZIP_COMPRESSION) as archive:
         for payload in sorted(members, key=lambda m: m['system']['id64']):
             info = ZipInfo(f"{payload['system']['id64']}.json", date_time=_ZIP_DATE)
             # writestr() honours the ZipInfo's own compress_type, which defaults
             # to ZIP_STORED regardless of the ZipFile default -- so set it
             # explicitly or the committed fixture is multi-MB uncompressed JSON.
-            info.compress_type = ZIP_DEFLATED
+            info.create_system = _ZIP_CREATE_SYSTEM
+            info.external_attr = _ZIP_EXTERNAL_ATTR
+            info.compress_type = _ZIP_COMPRESSION
             archive.writestr(info, _canonical_bytes(payload))
     return buffer.getvalue()
 
