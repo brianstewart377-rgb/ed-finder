@@ -54,6 +54,7 @@ def test_production_drift_hold_and_manual_bypass_contract():
     assert set(hold) == {
         "schema_version",
         "held_live_sha",
+        "covers_main_sha",
         "held_since",
         "expires_at",
         "reason",
@@ -61,6 +62,7 @@ def test_production_drift_hold_and_manual_bypass_contract():
     }
     assert hold["schema_version"] == "ed-finder/production-promotion-hold/v1"
     assert hold["held_live_sha"] == "bed755b944eb6cb226e1726b2a51582ba9fa9bdb"
+    assert hold["covers_main_sha"] == "3b6ee91a2e4b076a97a2564cc38310411b534beb"
     assert hold["held_since"] == "2026-10-04"
     assert hold["expires_at"] == "2026-11-09T00:00:00Z"
     assert hold["review"] == "this PR"

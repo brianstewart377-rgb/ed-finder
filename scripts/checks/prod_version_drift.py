@@ -15,7 +15,8 @@ Checks, in order:
   1. Invariants (always): both SHAs reachable and 40-hex, and web == api.
      A web/api mismatch means a partial or half-rolled deploy. -> exit 3.
   2. --expected-sha (post-deploy gate): both must equal it exactly. -> exit 1.
-  3. A reviewed, unexpired hold may acknowledge drift at its exact live SHA.
+  3. A reviewed, active hold may acknowledge drift at its exact live SHA only
+     for deployable commits through the hold's reviewed covers_main_sha.
   4. Staleness (default): if the deployed SHA is behind origin/main AND at least
      one un-deployed commit touches a deployable path (apps/web, apps/api, sql)
      older than --max-lag-hours, report drift. Docs/ops-only churn and the
@@ -54,6 +55,7 @@ HOLD_SCHEMA_VERSION = "ed-finder/production-promotion-hold/v1"
 HOLD_KEYS = {
     "schema_version",
     "held_live_sha",
+    "covers_main_sha",
     "held_since",
     "expires_at",
     "reason",
@@ -71,6 +73,7 @@ class HoldFileInvalid(ValueError):
 
 class PromotionHold(NamedTuple):
     held_live_sha: str
+    covers_main_sha: str
     held_since: date
     held_since_text: str
     expires_at: datetime
@@ -123,6 +126,12 @@ def load_promotion_hold(path: Path) -> PromotionHold | None:
     if not isinstance(held_live_sha, str) or not _HOLD_SHA_RE.fullmatch(held_live_sha):
         raise HoldFileInvalid("held_live_sha must be a 40-hex commit")
 
+    covers_main_sha = raw["covers_main_sha"]
+    if not isinstance(covers_main_sha, str) or not _HOLD_SHA_RE.fullmatch(
+        covers_main_sha
+    ):
+        raise HoldFileInvalid("covers_main_sha must be a 40-hex commit")
+
     held_since_text = raw["held_since"]
     if not isinstance(held_since_text, str) or not _ISO_DATE_RE.fullmatch(
         held_since_text
@@ -170,6 +179,7 @@ def load_promotion_hold(path: Path) -> PromotionHold | None:
 
     return PromotionHold(
         held_live_sha=held_live_sha.lower(),
+        covers_main_sha=covers_main_sha.lower(),
         held_since=held_since,
         held_since_text=held_since_text,
         expires_at=expires_at,
@@ -263,6 +273,25 @@ def deployable_commits_behind(
     return commits
 
 
+def _hold_starts_in_future(hold: PromotionHold, now_epoch: int) -> bool:
+    held_since_at = datetime.combine(hold.held_since, time.min, tzinfo=UTC)
+    return held_since_at.timestamp() > now_epoch
+
+
+def _commit_lines(
+    commits: list[dict[str, object]], now_epoch: int
+) -> list[str]:
+    ordered = sorted(commits, key=lambda commit: int(commit["epoch"]))
+    lines = [
+        f"  {str(commit['sha'])[:12]}  "
+        f"{(now_epoch - int(commit['epoch'])) / 3600:.1f}h old"
+        for commit in ordered[:10]
+    ]
+    if len(ordered) > 10:
+        lines.append(f"  ... and {len(ordered) - 10} more")
+    return lines
+
+
 def decide(
     *,
     api_sha: str,
@@ -285,6 +314,12 @@ def decide(
         )
     if problems:
         return 3, ["INVARIANT VIOLATION", *problems]
+
+    if hold is not None and _hold_starts_in_future(hold, now_epoch):
+        return 3, [
+            "INVARIANT VIOLATION: promotion hold file invalid: "
+            "held_since is in the future"
+        ]
 
     live = api_sha  # equal to web_sha past the invariant gate
     if expected_sha is not None:
@@ -311,19 +346,43 @@ def decide(
                 days_left = math.ceil(
                     (hold.expires_at.timestamp() - now_epoch) / (24 * 60 * 60)
                 )
-                ordered = sorted(deployable_commits, key=lambda c: int(c["epoch"]))
+                covered = [
+                    commit
+                    for commit in deployable_commits
+                    if commit.get("covered_by_hold") is True
+                ]
+                uncovered = [
+                    commit
+                    for commit in deployable_commits
+                    if commit.get("covered_by_hold") is not True
+                ]
+                if uncovered:
+                    code, stale_lines = _decide_staleness(
+                        live=live,
+                        main_sha=main_sha,
+                        ancestor=ancestor,
+                        deployable_commits=uncovered,
+                        now_epoch=now_epoch,
+                        max_lag_seconds=max_lag_seconds,
+                        include_commit_details=False,
+                    )
+                    return code, [
+                        f"HOLD COVERS {len(covered)} commit(s) up to "
+                        f"{hold.covers_main_sha[:12]}; {len(uncovered)} "
+                        "deployable commit(s) merged AFTER the hold are NOT "
+                        "covered:",
+                        *_commit_lines(uncovered, now_epoch),
+                        *stale_lines,
+                    ]
                 lines = [
                     f"HELD: production intentionally at {live} since "
                     f"{hold.held_since_text} ({hold.reason[:120]}); hold "
                     f"expires in {days_left} days; "
-                    f"{len(deployable_commits)} deployable commit(s) waiting "
-                    "on main"
+                    f"{len(covered)} covered deployable commit(s) acknowledged "
+                    "by the hold (reviewed against "
+                    f"{hold.covers_main_sha[:12]})"
                 ]
-                lines += [
-                    f"  {str(c['sha'])[:12]}  "
-                    f"{(now_epoch - int(c['epoch'])) / 3600:.1f}h old"
-                    for c in ordered[:10]
-                ]
+                lines += _commit_lines(covered, now_epoch)
                 return 0, lines
             _, stale_lines = _decide_staleness(
                 live=live,
@@ -362,6 +421,7 @@ def _decide_staleness(
     deployable_commits: list[dict[str, object]],
     now_epoch: int,
     max_lag_seconds: int,
+    include_commit_details: bool = True,
 ) -> tuple[int, list[str]]:
 
     if live == main_sha:
@@ -390,10 +450,8 @@ def _decide_staleness(
             "(.github/workflows/v3-production-application-deploy.yml); "
             "do not use a legacy/root deploy path.",
         ]
-        lines += [
-            f"  {str(c['sha'])[:12]}  {(now_epoch - int(c['epoch'])) / 3600:.1f}h old"
-            for c in ordered[:10]
-        ]
+        if include_commit_details:
+            lines += _commit_lines(ordered, now_epoch)
         return 1, lines
     return 0, [
         f"WITHIN GRACE: prod {live} trails origin/main by "
@@ -452,14 +510,37 @@ def main(argv: list[str] | None = None) -> int:
         else "Promotion hold file: no hold file"
     )
 
-    try:
-        import time
+    import time as time_module
 
-        now_epoch = args.now_epoch if args.now_epoch is not None else int(time.time())
-        api_sha = fetch_api_sha(args.base_url, args.timeout)
-        web_sha = fetch_web_sha(args.base_url, args.timeout)
+    now_epoch = (
+        args.now_epoch if args.now_epoch is not None else int(time_module.time())
+    )
+    if hold is not None and _hold_starts_in_future(hold, now_epoch):
+        print(
+            "INVARIANT VIOLATION: promotion hold file invalid: "
+            "held_since is in the future",
+            file=sys.stderr,
+        )
+        print(hold_status, file=sys.stderr)
+        return 3
+
+    try:
         main_sha = args.main_sha or _git(["rev-parse", "origin/main"], args.repo)
         main_sha = main_sha.strip().lower()
+
+        if hold is not None and not is_ancestor(
+            hold.covers_main_sha, main_sha, args.repo
+        ):
+            print(
+                "INVARIANT VIOLATION: promotion hold covers_main_sha is not "
+                "on origin/main",
+                file=sys.stderr,
+            )
+            print(hold_status, file=sys.stderr)
+            return 3
+
+        api_sha = fetch_api_sha(args.base_url, args.timeout)
+        web_sha = fetch_web_sha(args.base_url, args.timeout)
 
         ancestor = False
         deployable: list[dict[str, object]] = []
@@ -469,6 +550,11 @@ def main(argv: list[str] | None = None) -> int:
             ancestor = is_ancestor(api_sha, main_sha, args.repo)
             if ancestor and api_sha != main_sha:
                 deployable = deployable_commits_behind(api_sha, main_sha, args.repo)
+                if hold is not None:
+                    for commit in deployable:
+                        commit["covered_by_hold"] = is_ancestor(
+                            str(commit["sha"]), hold.covers_main_sha, args.repo
+                        )
     except FetchError as exc:
         print(f"DRIFT UNKNOWN: {exc}", file=sys.stderr)
         print(

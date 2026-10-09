@@ -18,12 +18,15 @@ _spec.loader.exec_module(mod)
 A = "a" * 40
 B = "b" * 40
 C = "c" * 40
+BASE_MAIN = "3b6ee91a2e4b076a97a2564cc38310411b534beb"
 HOUR = 3600
 DAY = 24 * HOUR
 NOW = 1_000_000_000
+ACTIVE_NOW = int(datetime(2026, 10, 10, tzinfo=UTC).timestamp())
 VALID_HOLD = {
     "schema_version": "ed-finder/production-promotion-hold/v1",
     "held_live_sha": A,
+    "covers_main_sha": B,
     "held_since": "2026-10-04",
     "expires_at": "2026-11-09T00:00:00Z",
     "reason": "F3 Finder products must be published before promotion.",
@@ -50,12 +53,14 @@ def _decide(**over):
 def _hold(
     *,
     held_live_sha=A,
+    covers_main_sha=B,
     expiry_epoch=NOW + 3 * DAY,
     reason="F3 Finder products must be published before promotion.",
 ):
     expires_at = datetime.fromtimestamp(expiry_epoch, tz=UTC)
     return mod.PromotionHold(
         held_live_sha=held_live_sha,
+        covers_main_sha=covers_main_sha,
         held_since=datetime.fromtimestamp(NOW - DAY, tz=UTC).date(),
         held_since_text="2001-09-08",
         expires_at=expires_at,
@@ -94,13 +99,13 @@ def test_expected_sha_gate_fails_on_mismatch():
     assert "MISMATCH" in lines[0]
 
 
-def test_matching_hold_within_expiry_reports_waiting_commits():
+def test_matching_hold_with_only_covered_commits_reports_covered_count():
     reason = "r" * 130
     code, lines = _decide(
         main_sha=B,
         deployable_commits=[
-            {"sha": B, "epoch": NOW - 10 * HOUR},
-            {"sha": C, "epoch": NOW - 30 * HOUR},
+            {"sha": B, "epoch": NOW - 10 * HOUR, "covered_by_hold": True},
+            {"sha": C, "epoch": NOW - 30 * HOUR, "covered_by_hold": True},
         ],
         hold=_hold(expiry_epoch=NOW + 2 * DAY + 1, reason=reason),
     )
@@ -109,10 +114,76 @@ def test_matching_hold_within_expiry_reports_waiting_commits():
     assert lines[0] == (
         f"HELD: production intentionally at {A} since 2001-09-08 "
         f"({'r' * 120}); hold expires in 3 days; "
-        "2 deployable commit(s) waiting on main"
+        f"2 covered deployable commit(s) acknowledged by the hold "
+        f"(reviewed against {B[:12]})"
     )
     assert lines[1].startswith(f"  {C[:12]}")
     assert lines[2].startswith(f"  {B[:12]}")
+
+
+def test_main_classifies_uncovered_commit_and_applies_grace(
+    tmp_path, monkeypatch, capsys
+):
+    hold_path = tmp_path / "promotion-hold.json"
+    hold_path.write_text(json.dumps(VALID_HOLD), encoding="utf-8")
+    monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: A)
+    monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: A)
+    monkeypatch.setattr(
+        mod,
+        "deployable_commits_behind",
+        lambda _live, _main, _repo: [
+            {"sha": B, "epoch": ACTIVE_NOW - 30 * HOUR},
+            {"sha": C, "epoch": ACTIVE_NOW - 2 * HOUR},
+        ],
+    )
+
+    ancestry = {(B, C), (A, C), (B, B)}
+    monkeypatch.setattr(
+        mod,
+        "is_ancestor",
+        lambda candidate, descendant, _repo: (candidate, descendant) in ancestry,
+    )
+
+    code = mod.main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--hold-file",
+            hold_path.name,
+            "--main-sha",
+            C,
+            "--now-epoch",
+            str(ACTIVE_NOW),
+        ]
+    )
+
+    assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (
+        f"HOLD COVERS 1 commit(s) up to {B[:12]}; 1 deployable commit(s) "
+        "merged AFTER the hold are NOT covered:"
+    )
+    assert lines[1].startswith(f"  {C[:12]}")
+    assert lines[2].startswith("WITHIN GRACE: ")
+
+
+def test_uncovered_commit_beyond_grace_alerts_normally():
+    code, lines = _decide(
+        main_sha=C,
+        deployable_commits=[
+            {"sha": B, "epoch": NOW - 40 * HOUR, "covered_by_hold": True},
+            {"sha": C, "epoch": NOW - 30 * HOUR, "covered_by_hold": False},
+        ],
+        hold=_hold(),
+    )
+
+    assert code == 1
+    assert lines[0] == (
+        f"HOLD COVERS 1 commit(s) up to {B[:12]}; 1 deployable commit(s) "
+        "merged AFTER the hold are NOT covered:"
+    )
+    assert lines[1].startswith(f"  {C[:12]}")
+    assert lines[2].startswith("DEPLOY DRIFT: ")
 
 
 def test_fractional_second_expiry_is_not_truncated_early():
@@ -237,6 +308,16 @@ def test_meta_tag_regex_extracts_the_web_build_sha():
             "missing key(s): review",
         ),
         (
+            json.dumps(
+                {
+                    key: value
+                    for key, value in VALID_HOLD.items()
+                    if key != "covers_main_sha"
+                }
+            ),
+            "missing key(s): covers_main_sha",
+        ),
+        (
             json.dumps({**VALID_HOLD, "unexpected": True}),
             "unexpected key(s): unexpected",
         ),
@@ -247,6 +328,10 @@ def test_meta_tag_regex_extracts_the_web_build_sha():
         (
             json.dumps({**VALID_HOLD, "held_live_sha": "not-a-sha"}),
             "held_live_sha must be a 40-hex commit",
+        ),
+        (
+            json.dumps({**VALID_HOLD, "covers_main_sha": "not-a-sha"}),
+            "covers_main_sha must be a 40-hex commit",
         ),
         (
             json.dumps({**VALID_HOLD, "held_since": "2026-02-30"}),
@@ -300,6 +385,76 @@ def test_hold_longer_than_45_days_exits_three(tmp_path, capsys):
     assert "promotion hold is longer than 45 days" in capsys.readouterr().err
 
 
+def test_hold_with_future_held_since_exits_three_before_live_fetch(
+    tmp_path, monkeypatch, capsys
+):
+    hold_path = tmp_path / "promotion-hold.json"
+    hold_path.write_text(
+        json.dumps(
+            {
+                **VALID_HOLD,
+                "held_since": "2026-10-11",
+                "expires_at": "2026-11-09T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        mod,
+        "fetch_api_sha",
+        lambda _base, _timeout: pytest.fail("live fetch must not run"),
+    )
+
+    code = mod.main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--hold-file",
+            hold_path.name,
+            "--now-epoch",
+            str(ACTIVE_NOW),
+        ]
+    )
+
+    assert code == 3
+    assert (
+        "INVARIANT VIOLATION: promotion hold file invalid: held_since is in the future"
+        in capsys.readouterr().err
+    )
+
+
+def test_hold_covers_main_sha_not_on_main_exits_three_before_live_fetch(
+    tmp_path, monkeypatch, capsys
+):
+    hold_path = tmp_path / "promotion-hold.json"
+    hold_path.write_text(json.dumps(VALID_HOLD), encoding="utf-8")
+    monkeypatch.setattr(mod, "is_ancestor", lambda _candidate, _main, _repo: False)
+    monkeypatch.setattr(
+        mod,
+        "fetch_api_sha",
+        lambda _base, _timeout: pytest.fail("live fetch must not run"),
+    )
+
+    code = mod.main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--hold-file",
+            hold_path.name,
+            "--main-sha",
+            C,
+            "--now-epoch",
+            str(ACTIVE_NOW),
+        ]
+    )
+
+    assert code == 3
+    assert (
+        "INVARIANT VIOLATION: promotion hold covers_main_sha is not on origin/main"
+        in capsys.readouterr().err
+    )
+
+
 def test_missing_hold_file_means_no_hold(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: A)
     monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: A)
@@ -326,7 +481,18 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
     monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: live)
     monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: live)
 
-    code = mod.main(["--repo", str(ROOT), "--main-sha", B, "--expected-sha", live])
+    code = mod.main(
+        [
+            "--repo",
+            str(ROOT),
+            "--main-sha",
+            BASE_MAIN,
+            "--expected-sha",
+            live,
+            "--now-epoch",
+            str(ACTIVE_NOW),
+        ]
+    )
 
     assert code == 0
     assert (

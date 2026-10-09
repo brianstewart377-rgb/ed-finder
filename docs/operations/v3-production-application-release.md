@@ -339,9 +339,14 @@ build→validate→publish pipeline); production parity is this gate, not that s
 `deploy/v3-production/promotion-hold.json` records the reviewed, dated exception
 that lets the version-drift monitor report this intentional F3 promotion hold
 without failing every scheduled run. The file pins the exact live SHA, reason,
-start date, and expiry; it is reviewed in a pull request and does not authorize a
-promotion or relax the web/API, SHA, or post-deploy expected-SHA checks.
+start date, expiry, and `covers_main_sha` reviewed by that pull request. Only
+deployable commits at or before that main commit are acknowledged; later
+deployable changes remain subject to the normal drift grace period and alert.
+The hold does not authorize a promotion or relax the web/API, SHA, or
+post-deploy expected-SHA checks.
 
-The hold expires and must then be renewed through review or removed. It must be
-removed in the same pull request that revises the application-release gate for
-the fresh generation in `docs/ROADMAP.md` rollout step 10.
+Extending the hold requires a reviewed pull request that bumps
+`covers_main_sha` (and `expires_at` if needed). This is how each later deployable
+change is consciously acknowledged rather than silently covered. The hold must
+be removed in the same pull request that revises the application-release gate
+for the fresh generation in `docs/ROADMAP.md` rollout step 10.
