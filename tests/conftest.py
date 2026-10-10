@@ -30,7 +30,7 @@ def github_failure_annotation(
     message = longrepr_text or 'see job log'
     if len(message) > 1000:
         message = f'{message[:1000]} ...'
-    message = _escape_github_command(message).replace(':', '%3A')
+    message = _escape_github_command(message)
     title = _escape_github_command(f'{when}: {nodeid}', property_value=True)
 
     properties: list[str] = []
@@ -63,13 +63,39 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
                 _github_annotation_limit_warning_emitted = True
             return
 
-        longrepr_text = getattr(report, 'longreprtext', None)
-        if not longrepr_text:
-            longrepr_text = str(getattr(report, 'longrepr', ''))
+        longrepr = getattr(report, 'longrepr', None)
+        crash = getattr(longrepr, 'reprcrash', None)
+        head = (
+            str(crash.message)
+            if crash is not None and getattr(crash, 'message', None)
+            else ''
+        )
+        full = getattr(report, 'longreprtext', None) or str(longrepr or '')
+        tail = full[-700:] if len(full) > 700 else full
+        longrepr_text = head + '\n' + tail if head and head not in tail else tail or head
+
+        location = report.location
+        crash_path = getattr(crash, 'path', None)
+        crash_lineno = getattr(crash, 'lineno', None)
+        if isinstance(crash_path, str) and crash_path and isinstance(crash_lineno, int):
+            annotation_path = Path(crash_path)
+            if annotation_path.is_absolute():
+                try:
+                    annotation_path = annotation_path.resolve().relative_to(
+                        Path(__file__).resolve().parent.parent
+                    )
+                except (OSError, ValueError):
+                    annotation_path = None
+            if annotation_path is not None:
+                location = (
+                    str(annotation_path),
+                    crash_lineno - 1,
+                    report.location[2] if report.location else '',
+                )
         print(
             github_failure_annotation(
                 report.nodeid,
-                report.location,
+                location,
                 longrepr_text,
                 report.when,
             ),
