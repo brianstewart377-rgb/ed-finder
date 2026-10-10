@@ -21,6 +21,14 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — CI pulls from ECR Public are sequential with retry
+
+ECR Public's anonymous quota is one pull per second, so parallel pulls can fail
+with `toomanyrequests`. Review Lab and the image-parity jobs now pull images
+sequentially with three attempts and a three-second backoff. Review Lab bounds
+each attempt to 60 seconds, while image parity bounds each attempt to 120
+seconds; no image or digest changed.
+
 ## 2026-10-10 — CI failure causes surfaced as GitHub annotations
 
 Failed pytest tests now emit `::error` annotations with the file, line, test ID,
@@ -67,6 +75,10 @@ products remain unpublished. The hold expires on 2026-11-09 and must be renewed
 or removed through review; manual dispatch can ignore it to expose raw drift.
 Web/API agreement, SHA validity, and the expected-SHA deployment gate remain
 fail-closed.
+
+## 2026-10-10 — Finder rollout step 3: governed system_search constraint validation action
+
+The action runs all 18 deferred `system_search` check validations in a detached runner and provides a separate read-only status operation. It changes only catalog validation flags, with no row data changes and no publication. It has not been run.
 
 ## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
 

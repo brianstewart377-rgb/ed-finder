@@ -19,6 +19,8 @@ on:
           - v3-system-search-f1-status
           - v3-spatial-status
           - v3-derived-lifecycle-status
+          - v3-system-search-validate-constraints-start
+          - v3-system-search-validate-constraints-status
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -75,7 +77,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-spatial-status|v3-derived-lifecycle-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-derived-lifecycle-status) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -167,6 +169,43 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-derived-lifecycle-status.sh
+
+      - name: Launch V3 Search constraint validation
+        if: steps.request.outputs.operation == 'v3-system-search-validate-constraints-start'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s -- start' < trusted-main/scripts/operator/actions/v3-system-search-validate-constraints.sh | tee "$RECEIPT"
+
+      - name: Inspect V3 Search constraint validation status
+        if: steps.request.outputs.operation == 'v3-system-search-validate-constraints-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s -- status' < trusted-main/scripts/operator/actions/v3-system-search-validate-constraints.sh | tee "$RECEIPT"
+
+      - name: Upload V3 Search constraint validation receipt
+        if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-system-search-validate-constraints-operation
+          path: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Repair Octopus Qdrant healthcheck and boot web
         if: steps.request.outputs.operation == 'octopus-qdrant-healthcheck-repair'

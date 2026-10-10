@@ -87,6 +87,54 @@ def test_required_parity_check_runs_for_every_pull_request():
     assert 'paths:' in push_block
 
 
+def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
+    workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    release_job = workflow.split('  release-api-python314:', 1)[1].split('\n  parity:', 1)[0]
+    parity_job = workflow.split('\n  parity:', 1)[1]
+    assert 'timeout-minutes: 25' in release_job
+    assert 'timeout-minutes: 55' in parity_job
+    step_names = (
+        'Pre-pull release base images with retry',
+        'Pre-pull parity base images with retry',
+    )
+
+    for step_name in step_names:
+        marker = f'      - name: {step_name}'
+        assert marker in workflow
+        step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
+        assert 'for attempt in $(seq 1 3); do' in step
+        assert (
+            'timeout --signal=TERM --kill-after=10 120 docker pull --quiet "${image}"'
+            in step
+        )
+        assert 'sleep 3' in step
+        assert 'sleep 2' in step
+
+    assert "grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}'" in workflow
+    assert 'pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine' in workflow
+    parity_step = workflow.split(
+        '      - name: Pre-pull parity base images with retry', 1
+    )[1].split('\n      - ', 1)[0]
+    from_scan = parity_step.split("grep -h '^FROM '", 1)[1].split('| awk', 1)[0]
+    for dockerfile in (
+        'apps/api/Dockerfile',
+        'apps/eddn/Dockerfile',
+        'apps/importer/Dockerfile',
+        'apps/web/Dockerfile',
+    ):
+        assert dockerfile in from_scan
+    assert "awk '!seen[$2]++ {print $2}'" in parity_step
+
+
+def test_built_parity_smoke_serialises_compose_builds():
+    workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    marker = '      - name: Run built image parity smoke'
+    assert marker in workflow
+    step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
+
+    assert "COMPOSE_PARALLEL_LIMIT: '1'" in step
+
+
 def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
     dockerfiles = [
         ROOT / 'apps/api/Dockerfile',
