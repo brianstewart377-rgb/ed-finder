@@ -157,6 +157,46 @@ measurement and full-scale extrapolation of the post-`010` `system_search` row
 width or the `system_archetype` and `system_archetype_summary` relations and
 indexes.
 
+### Disposable-sample footprint measurement (2026-10-10, PostgreSQL 18.4)
+
+Measured by Claude on the disposable local PostgreSQL 18.4 service, not on
+production. Method: the committed Ratings V4 fixture (12 systems, 3 chunks) was
+built into a real generation with the repository's own builders
+(`scripts/v3_system_search.py` with the rewritten migration `010` from PR #792
+applied, and `scripts/v3_system_archetype.py`, archetype version
+`v3-archetype-3`); the resulting real rows were then replicated into scratch
+tables created with `LIKE … INCLUDING ALL` (same columns, constraints and
+indexes) to about 200,000 rows each, shifting `system_id64` so keys stay unique,
+then `VACUUM ANALYZE`d and sized with `pg_table_size` / `pg_indexes_size`. Bytes
+per row therefore include real page fill and index overhead. Extrapolation uses
+198.5 M systems and 8 archetype rows per system (1,588 M rows). Caveat: the
+replicated rows repeat the same 12 systems' content, so name lengths and body
+counts carry no real-world variation; the per-row widths are structural
+(fixed columns plus the `explanation` jsonb, which averages about 410 bytes per
+`system_archetype` row in the sample) and should be read as order-of-magnitude.
+
+| Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `system_rating_vector` | 199,992 | 328 | 47 | 198.5 M | 65 | 9 | **74** |
+| `system_search` | 199,992 | 273 | 152 | 198.5 M | 54 | 30 | **84** |
+| `system_archetype` | 199,968 | 422 | 194 | 1,588.0 M | 670 | 307 | **978** |
+| `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
+
+Sum of these four relations for one complete fresh generation: about
+**1,171 GB**, of which `system_archetype` alone is about
+978 GB (422 B/row table + 194 B/row for its
+primary key and `system_archetype_key_score`). `body_mechanics` (about
+104 B tuple) and `economy_opportunity` (about 89 B tuple) scale
+with bodies and eligible body/economy pairs, not systems; multiply by the
+production row counts that the step 0 receipt's `relations` section reports for
+the published generation. Retention means the superseded `opt1` `system_search`
+rows (about 198.5 M, pre-`010` width) and the `p4`/`opt1` ratings rows also stay
+on disk. Compare the total against `footprint.host_disk.avail_bytes` from the
+step 0 receipt before approving step 4. The dominant term is the per-archetype
+`explanation` jsonb; if headroom is short, the honest options are to shrink or
+externalise that column (a product/schema decision, requiring a new archetype
+version) or to design and review the governed purge path — not to proceed.
+
 The governed actions for steps 7, 8, and 9 are unbuilt. They can only be finalized
 **after** step 4 creates the fresh generation, because the governed action
 pattern pins the exact target generation identity (canonical UUID / key /
