@@ -127,7 +127,7 @@ generation) over a reduced-scope launch on `opt1`.
 
 | # | Step | Tooling status |
 |---|---|---|
-| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **NO governed action — must be built:** a read-only action that reports `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states, the current canonical/derived/spatial pointers, and `docker inspect State.Running` for the four named worker containers. `scripts/operator/actions/v3-derived-data-status.sh` may be used only as the pattern to model the new action on; it does not establish these preconditions |
+| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **Action built, not yet run:** `scripts/operator/actions/v3-derived-lifecycle-status.sh`, allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-derived-lifecycle-status` (this PR). Its receipt records the four worker states, the migration ledger, and the canonical/derived/spatial pointers; step 0 is complete only when a dated run receipt is recorded here. |
 | 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **DONE (PR #792); not applied.** PR #780 is superseded. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
 | 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`). With step 1 complete in PR #792, the production pending set is `[014, 010, 011, 013]` in that order |
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **NO governed action — must be built.** Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
@@ -159,6 +159,58 @@ roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
 associated ratings, search, archetype, and summary indexes, including
 `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
 **design and review a governed purge path** as a prerequisite before step 4.
+The step 0 action `v3-derived-lifecycle-status` now reports measured live
+relation and index sizes, the data volume's free space, and proportional
+chunk-receipt system-count attribution per generation (the
+`measured_footprint_attribution` section). These are **inputs** to the disk
+decision; they do **not** replace the required disposable PostgreSQL 18 sample
+measurement and full-scale extrapolation of the post-`010` `system_search` row
+width or the `system_archetype` and `system_archetype_summary` relations and
+indexes.
+
+### Disposable-sample footprint measurement (2026-10-10, PostgreSQL 18.4)
+
+Measured by Claude on the disposable local PostgreSQL 18.4 service, not on
+production. Method: the committed Ratings V4 fixture (12 systems, 3 chunks) was
+built into a real generation with the repository's own builders
+(`scripts/v3_system_search.py` with the rewritten migration `010` from PR #792
+applied, and `scripts/v3_system_archetype.py`, archetype version
+`v3-archetype-3`); the resulting real rows were then replicated into scratch
+tables created with `LIKE … INCLUDING ALL` (same columns, constraints and
+indexes) to about 200,000 rows each, shifting `system_id64` so keys stay unique,
+then `VACUUM ANALYZE`d and sized with `pg_table_size` / `pg_indexes_size`. Bytes
+per row therefore include real page fill and index overhead. Extrapolation uses
+198.5 M systems and 8 archetype rows per system (1,588 M rows). Caveat: the
+replicated rows repeat the same 12 systems' content, so name lengths and body
+counts carry no real-world variation; the per-row widths are structural
+(fixed columns plus the `explanation` jsonb, which averages about 410 bytes per
+`system_archetype` row in the sample) and should be read as order-of-magnitude.
+
+| Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `system_rating_vector` | 199,992 | 328 | 47 | 198.5 M | 65 | 9 | **74** |
+| `body_mechanics` | 199,800 | 109 | 69 | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) |
+| `economy_opportunity` | 199,908 | 95 | 94 | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) |
+| `system_search` | 199,992 | 273 | 164 | 198.5 M | 54 | 33 | **87** |
+| `system_archetype` | 199,968 | 422 | 194 | 1,588.0 M | 670 | 307 | **978** |
+| `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
+
+Sum of the four system-level relations for one complete fresh generation: about
+**1,174 GB**, of which `system_archetype` alone is about
+978 GB (422 B/row table + 194 B/row for its
+primary key and `system_archetype_key_score`). `body_mechanics` (178 B/row
+including its primary key) and `economy_opportunity` (188 B/row including its
+primary key) scale with bodies and eligible body/economy pairs, not systems;
+multiply 178 B/row by the published generation's `ratings_physical_bodies` and
+188 B/row by its `ratings_eligible_opportunities` from `rows_by_generation`,
+then add both results to the sum above. Retention means the superseded `opt1`
+`system_search` rows (about 198.5 M, pre-`010` width) and the `p4`/`opt1` ratings
+rows also stay on disk. Compare the total against
+`footprint.host_disk.avail_bytes` from the step 0 receipt before approving step
+4. The dominant term is the per-archetype
+`explanation` jsonb; if headroom is short, the honest options are to shrink or
+externalise that column (a product/schema decision, requiring a new archetype
+version) or to design and review the governed purge path — not to proceed.
 
 The governed actions for steps 7, 8, and 9 are unbuilt. They can only be finalized
 **after** step 4 creates the fresh generation, because the governed action
