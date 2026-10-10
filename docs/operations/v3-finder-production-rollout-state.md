@@ -296,6 +296,15 @@ The options, with numbers, effort and risk, are written up in
 (recommendation: redesign the archetype product as one wide row per system and
 attach the Finder products to the published generation; purge later).
 
+**Owner decision (2026-10-10, recorded by Claude from the owner's approval in
+chat):** A + B — rewrite `011` as the wide-row archetype product with
+explanations computed on demand (model version pinned to the product), attach
+the Finder products to the published `ratings_v4_prod_p4_parallel_v1` behind an
+explicit product-publication gate (migration `015`), defer the purge path (C),
+and accept the new ranking identity. Steps 4–9 of the controlling sequence are
+superseded by the `v3-finder-capacity-decision-2026-10-10.md` sequence; the
+ROADMAP will be amended when the design PR lands.
+
 ## Where else this pattern can bite (watch-list)
 
 - **Three distinct states — don't conflate them.** (1) *Committed*: a

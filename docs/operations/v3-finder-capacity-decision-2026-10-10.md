@@ -1,7 +1,7 @@
 # Finder rollout — capacity decision (2026-10-10)
 
-**Status:** decision document for the owner; nothing here is authorised until the
-owner records a choice in `v3-finder-production-rollout-state.md`. Numbers come
+**Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
+ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
