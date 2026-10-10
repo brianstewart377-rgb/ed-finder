@@ -11,8 +11,8 @@ archetype row per system with explanations computed on demand; attach the two
 Finder products to the already-published
 `ratings_v4_prod_p4_parallel_v1` generation behind a new explicit
 product-publication gate in migration `015`; defer purge; accept a new ranking
-identity. (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:299-306`,
-`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-capacity-decision-2026-10-10.md:122-144`)
+identity. (`docs/operations/v3-finder-production-rollout-state.md` (PR #805),
+`docs/operations/v3-finder-capacity-decision-2026-10-10.md` (PR #805))
 
 ## 1. Context and terms
 
@@ -21,13 +21,13 @@ generation occupies about 313 GB, while the current eight-rows-per-system
 archetype layout was measured at about 978 GB for 1.588 billion rows, including
 about 410 bytes of explanation JSON per row. A fresh ratings generation plus
 Search, Archetype, and the old summary would require about 1,413 GB. The current
-plan therefore cannot fit. (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:171-213,255-280`,
-`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-capacity-decision-2026-10-10.md:10-44`)
+plan therefore cannot fit. (`docs/operations/v3-finder-production-rollout-state.md` (PR #805),
+`docs/operations/v3-finder-capacity-decision-2026-10-10.md` (PR #805))
 
 Migration `011` is registered but has never been applied to production, so its
 bytes may be replaced before application, following the precedent used for
 `010`. Registration is not evidence of application. (`docs/ROADMAP.md:121-127,140-151`,
-`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:28-40,308-319`)
+`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 
 In this design:
 
@@ -67,7 +67,7 @@ six places. (`scripts/v3_system_archetype_model.py:114-131,141-145,192-205`)
 
 - Do not rebuild Ratings V4. Both products attach to
   `ratings_v4_prod_p4_parallel_v1`, whose complete validated vectors already
-  exist. (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-capacity-decision-2026-10-10.md:41-44,76-99`)
+  exist. (`docs/operations/v3-finder-capacity-decision-2026-10-10.md` (PR #805))
 - Do not change any canonical relation or scoring input. Archetypes remain a
   reproducible derived layer over `system_rating_vector` and
   `economy_opportunity`; canonical V3 remains source truth.
@@ -81,7 +81,7 @@ six places. (`scripts/v3_system_archetype_model.py:114-131,141-145,192-205`)
 - Do not add a purge path or delete retained `p4`/`opt1` data. Current Search
   rows and receipts are insert-only and no governed purge exists; the owner
   explicitly deferred purge. (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:165-206`,
-  `origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:143-161,299-304`)
+  `docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 - Do not make explanations searchable, sortable, or persisted in the
   archetype product.
 
@@ -180,7 +180,7 @@ ties. (`scripts/v3_system_archetype_model.py:155-189`,
 the wide row, so a second 198.5-million-row table would duplicate the current
 35 GB summary relation and create a consistency problem. The measured old
 summary footprint was 96 bytes of table plus 79 bytes of indexes per row.
-(`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:189-203`)
+(`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 
 Keep the stable application name as a view:
 
@@ -202,62 +202,61 @@ removing duplicated storage. The current common SQL always joins that name.
 Create these nine secondary indexes in addition to the primary key:
 
 ```text
-(derived_generation_id, paradise_score DESC, system_id64)
-(derived_generation_id, mining_hub_score DESC, system_id64)
-(derived_generation_id, manufacturing_hub_score DESC, system_id64)
-(derived_generation_id, megacomplex_score DESC, system_id64)
-(derived_generation_id, research_hub_score DESC, system_id64)
-(derived_generation_id, stronghold_score DESC, system_id64)
-(derived_generation_id, population_capital_score DESC, system_id64)
-(derived_generation_id, flexible_score DESC, system_id64)
+(derived_generation_id, paradise_score DESC)
+(derived_generation_id, mining_hub_score DESC)
+(derived_generation_id, manufacturing_hub_score DESC)
+(derived_generation_id, megacomplex_score DESC)
+(derived_generation_id, research_hub_score DESC)
+(derived_generation_id, stronghold_score DESC)
+(derived_generation_id, population_capital_score DESC)
+(derived_generation_id, flexible_score DESC)
 (derived_generation_id, weighted_potential DESC)
 ```
 
-The first eight provide generation/key-specific score access and deterministic
-`system_id64` tie-breaks. The last retains the current indexable no-pick
-ordering. Picked ranking still applies the profile's confidence/completeness
-modifier after selecting the trusted score column, while no-pick ordering uses
-the stored `weighted_potential` directly. (`apps/api/src/ranking/ranking_sql.py:451-477`,
+The first eight provide the `min_development_score` / tier-floor range path for
+a picked archetype. They deliberately do **not** carry a trailing `system_id64`:
+the picked ranking orders by the computed product
+`score × confidence × completeness`, which no score index can serve, the wide
+row is joined through its primary key (one row per system — the old
+`archetype_key` lookup no longer exists), and `ORDER BY … system_id64 ASC` is
+applied by the sort either way. Leaving `system_id64` out lets PostgreSQL's
+B-tree deduplication collapse the 101 distinct score values into posting lists:
+measured 7.5 B/row per index instead of 49.8 B/row (section 3.4). The last index
+retains the current indexable no-pick ordering. Picked ranking still applies the
+profile's confidence/completeness modifier after selecting the trusted score
+column, while no-pick ordering uses the stored `weighted_potential` directly.
+(`apps/api/src/ranking/ranking_sql.py:451-477`,
 `sql/v3/migrations/011_v3_system_archetype.sql:45-56`)
 
-### 3.4 Planning footprint
+### 3.4 Measured footprint
 
 The earlier PostgreSQL 18.4 sample used real builder rows, replicated each
 relation to about 200,000 rows with the same DDL and indexes, ran
 `VACUUM ANALYZE`, measured `pg_table_size` and `pg_indexes_size`, and
-extrapolated linearly to 198.5 million systems. Reuse exactly that method before
-production. (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:171-187`)
+extrapolated linearly to 198.5 million systems. The same method was applied on
+2026-10-10 to the wide DDL in section 3.1 (foreign keys to other relations
+omitted; 200,000 synthetic rows of realistic shape; PostgreSQL 18.4) for both
+index variants. The production gate repeats it with the final migration text.
+(`docs/operations/v3-finder-production-rollout-state.md`, section “Disposable-sample
+footprint measurement”, PR #805)
 
-The wide DDL has not yet been measured. The following is therefore
-**Unverified** planning data, not an acceptance receipt. It assumes one
-generation, 198.5 million rows, about 150 bytes per heap row including tuple
-header/alignment and short varlena values, about 30 bytes per B-tree entry after
-the earlier capacity estimate, 90% normal B-tree fill, no bloat, no TOASTed
-explanation, representative archetype-key lengths, and decimal GB. The owner
-capacity note estimated about 30 GB heap and about 6 GB per score index.
-(`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-capacity-decision-2026-10-10.md:48-61`)
+| Object (198.5 M rows) | Measured B/row | Estimated size |
+|---|---:|---:|
+| table heap (`pg_table_size`; average tuple 180 B) | 186.4 | 37.0 GB |
+| primary key `(derived_generation_id, system_id64)` | 40.7 | 8.1 GB |
+| `weighted_potential` index | 40.8 | 8.1 GB |
+| eight `(derived_generation_id, <key>_score DESC)` indexes, deduplicated | 8 × 7.5 = 60 | 11.9 GB |
+| **total, section 3.3 layout** | **328** | **≈ 65 GB** |
+| *(rejected)* the same with `system_id64` trailing in each score index | 8 × 49.8 + 81.5 = 480 index | ≈ 132 GB |
 
-| Object | Assumed bytes/row or entry | Rows/entries | Estimated size |
-|---|---:|---:|---:|
-| table heap | 150 B | 198.5 M | 29.8 GB |
-| primary key | 30 B | 198.5 M | 6.0 GB |
-| `paradise_score` index | 30 B | 198.5 M | 6.0 GB |
-| `mining_hub_score` index | 30 B | 198.5 M | 6.0 GB |
-| `manufacturing_hub_score` index | 30 B | 198.5 M | 6.0 GB |
-| `megacomplex_score` index | 30 B | 198.5 M | 6.0 GB |
-| `research_hub_score` index | 30 B | 198.5 M | 6.0 GB |
-| `stronghold_score` index | 30 B | 198.5 M | 6.0 GB |
-| `population_capital_score` index | 30 B | 198.5 M | 6.0 GB |
-| `flexible_score` index | 30 B | 198.5 M | 6.0 GB |
-| `weighted_potential` index | 30 B | 198.5 M | 6.0 GB |
-| **total** | — | — | **about 90 GB** |
-
-The explicit 90 GB budget is deliberately higher than the owner's rounded
-“about 80 GB” headline because it shows the primary key and weighted-potential
-index separately. The production gate must replace this estimate with the same
-disposable-PostgreSQL-18 measurement method above and must stop if Search plus
-Archetype, WAL, temporary files, and vacuum working room do not fit. This design
-does not claim a measured wide-row size.
+The decision text's earlier “about 80 GB” and this design's first-draft
+“about 90 GB” were unmeasured guesses: the heap is wider than assumed (186 B,
+not 150 B) and a unique-entry score index is 49.8 B/row, not 30 B. The
+measured layout is **≈ 65 GB** of persistent product data. The production gate
+must replace this sample figure with a measurement of the final `011` text and
+must stop if Search (≈ 87 GB measured) plus Archetype, WAL, temporary files and
+vacuum working room do not fit the free space reported by a fresh step 0
+receipt (292 GB on 2026-10-10).
 
 ### 3.5 Receipts and mutation guards
 
@@ -606,7 +605,7 @@ The pre-`010` READY `system_search` on `ratings_v4_prod_p4_opt1` receives a NULL
 `published_at` when `015` is applied and remains invisible because `opt1` is not
 the current PUBLISHED generation. The current PUBLISHED
 `ratings_v4_prod_p4_parallel_v1` has no Finder products before this rollout.
-(`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:23-40,248-263`)
+(`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 
 ### 7.5 Disposable PostgreSQL 18 tests
 
@@ -653,17 +652,18 @@ design authorizes no deployment or production access.
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:189-205`) |
-| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 90 GB, Unverified**, replaced by the required PG18 measurement |
+| 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
+| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 65 GB** (200k-row PG18.4 sample, section 3.4), re-measured with the final migration text before the build |
 | 7 | In one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
 | 8 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, READY+published timestamps, validation/publication audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
 | 9 | Build the immutable release, run preflight, and promote only after the revised gate passes. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
 
-Total new persistent Finder data is planned at about 177 GB (87 GB Search plus
-an Unverified 90 GB Archetype), leaving about 115 GB from the observed 292 GB
-before transient WAL/temp/vacuum use. The actual measured wide relation and all
-indexes, not this arithmetic, decide whether step 6 may start.
-(`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:255-270`)
+Total new persistent Finder data is planned at about 152 GB (87 GB Search plus
+65 GB Archetype, both from 200k-row PostgreSQL 18.4 samples), leaving about
+140 GB from the observed 292 GB before transient WAL/temp/vacuum use. The
+re-measurement of the final wide relation and all its indexes, not this
+arithmetic, decides whether step 6 may start.
+(`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 
 ## 9. Fixtures and validation lanes
 
@@ -836,10 +836,11 @@ operations. (`scripts/operator/actions/v3-system-search-f1.sh:15-24,76-113,175-1
 
 Each unresolved choice is phrased for an explicit yes/no disposition.
 
-1. **Yes/no: approve the explicit ~90 GB Archetype planning budget, subject to
-   replacement by a disposable-PG18 measurement before rollout?** The earlier
-   owner note's ~80 GB was a coarse estimate that did not itemize both the
-   primary key and weighted index. **Unverified** until measured.
+1. **Yes/no: approve the measured ≈ 65 GB Archetype layout (section 3.3: primary
+   key, weighted index, eight deduplicating `(generation, <key>_score DESC)`
+   indexes), re-measured with the final `011` text before the production
+   build?** The alternative with `system_id64` trailing in each score index
+   measures ≈ 132 GB for no query benefit.
 2. **Yes/no: approve `real` confidence storage with six-decimal semantic/API
    equality rather than bitwise equality to the former double-precision
    column?** This follows the requested schema, but the representation rule
@@ -864,7 +865,7 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
    manifest-integrity test. (`tests/test_v3_lineage_migrations.py:34-60`)
 8. **Yes/no: accept no purge before Finder promotion?** This is the recorded
    owner decision; changing it would require a separate destructive-data design
-   and authority. (`origin/docs/step0-receipt-20261010:docs/operations/v3-finder-production-rollout-state.md:299-304`)
+   and authority. (`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
 
 ## 12. Design acceptance
 
