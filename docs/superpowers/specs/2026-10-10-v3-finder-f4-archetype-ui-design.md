@@ -338,7 +338,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 raw/index-eligible rows. `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st raw-score candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies the 10,000 navigation ceiling to selected rankings and saturated unanchored Any responses. Anchored Any retains its exact total and may navigate beyond 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 raw/index-eligible rows. `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st raw-score candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The V3 product stores explanation data (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs slice 2. Do not show legacy rationale as V3 explanation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -514,34 +514,33 @@ as `total=3, is_truncated=true` is valid. Provide Previous/Next only across the
 filtered rows inside that window; never imply that they cover a broader filtered
 search outside it.
 
-Any mode has no unconditional 10,000 URL/navigation ceiling. The local-search
-count builder passes a cap only for `galaxy_wide`; an anchored search, whose
-default distance is 500 LY, receives no count cap and may return an exact `total`
-above 10,000
+**One navigation ceiling for every mode, applied from the URL alone before the
+first request.** The local-search count builder passes a cap only for
+`galaxy_wide`; an anchored search, whose default distance is 500 LY, receives no
+count cap and may return an exact `total` above 10,000
 (`apps/api/src/local_search.py:248-254`,
-`apps/api/src/local_search.py:918-923`). Normalize Any responses separately:
-`navigable_total` is the returned `total`, and the Any truncation state is the
-existing `total_is_capped === true` rather than selected mode's differently
-defined `is_truncated`. Thus an anchored exact total remains fully navigable.
-For every **unanchored** (galaxy-wide) Any request the clamp is applied
-**before dispatch and without waiting for any response**: set
+`apps/api/src/local_search.py:918-923`). F4 nevertheless does **not** let any
+mode navigate past 10,000: the anchor is not part of the URL contract (see
+section 6), so after a reload or from a copied link an anchored search is
+indistinguishable from an unanchored one, and a mode-dependent ceiling could not
+be restored honestly. Therefore, for selected mode and for Any alike: set
 `navigation_limit: 10000`, require `offset < 10000`, cap the wire page at
 `min(page_size, 10000 - offset)`, and canonicalize a URL whose offset is at or
 beyond that boundary to the last valid page **before** the first request is
-issued. A freshly loaded shared URL such as `/explore?offset=2000000000`
-therefore never reaches the API with that offset: the request model accepts
-`from` up to 2,147,483,647 and `local_db_search_v3` forwards page
-`LIMIT`/`OFFSET` to SQL independently of its capped count, so a response-driven
-clamp would let the first request scan the ranking index
+issued, without waiting for any response. A freshly loaded shared URL such as
+`/explore?offset=2000000000` therefore never reaches the API with that offset:
+the request model accepts `from` up to 2,147,483,647 and `local_db_search_v3`
+forwards page `LIMIT`/`OFFSET` to SQL independently of its capped count, so a
+response-driven clamp would let the first request scan the ranking index
 (`apps/api/src/local_search.py:902-923`,
-`apps/api/src/ranking/ranking_sql.py:479-506`). The same pre-dispatch rule
-applies to selected mode, whose navigable window is 0–10,000 by contract.
-Anchored Any is the only mode whose offset is not pre-clamped, because its
-exact total may exceed 10,000; it is clamped to the returned `total` once known.
-`total_is_capped` drives only the truncation copy, never the clamp. When
-`total_is_capped=true`, show
-**10,000+ matches; navigation is limited to the first 10,000 results.** Do not
-infer a cap from the number 10,000
+`apps/api/src/ranking/ranking_sql.py:479-506`). Normalize Any responses
+separately: `navigable_total` is `min(total, 10000)`, and the Any truncation
+state is the existing `total_is_capped === true` rather than selected mode's
+differently defined `is_truncated`. An anchored exact `total` above 10,000 is
+still **displayed** exactly (“12,345 matches; navigation is limited to the
+first 10,000 results”); only navigation is bounded. When `total_is_capped=true`,
+show **10,000+ matches; navigation is limited to the first 10,000 results.** Do
+not infer a cap from the number 10,000
 (`apps/api/src/local_search.py:965-970`, `apps/api/src/models.py:408-412`).
 
 The URL codec, facade request size, Next availability, visible range, DOM list
@@ -699,7 +698,10 @@ type RankingProvenance = Readonly<{
 
 type RankingIdentityFields = Readonly<{
   ranking_score: number | null;
-  score_kind: "overall_potential" | "selected_fit";
+  // "unknown" is the decoder's result for a pre-F4 snapshot that carries only the
+  // ambiguous generic `archetype_score`; it is never produced for a new save and
+  // is excluded from every mode-specific comparison.
+  score_kind: "overall_potential" | "selected_fit" | "unknown";
   selected_archetype: ArchetypeKey | null;
   distance_reference: DistanceReference | null;
   ranking_provenance: RankingProvenance | null;
@@ -738,10 +740,10 @@ The URL is the source of truth for shareable ranking state:
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
 | Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit`, whose current API contract is default 50 and range 1–500 (`apps/api/src/routers/archetypes.py:517-518`). F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
-| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. For a selected archetype **and for unanchored (galaxy-wide) Any — both known from the URL alone, before any request** — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata. Anchored Any (an anchor is present in the URL) is the only mode that may navigate an exact total beyond 10,000; it is clamped to the returned `total` once known. Previous/Next stop at the envelope's `navigable_total`. Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
+| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
-| Detail overlay     | existing `system=<id64>`                                 | Exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`). Closing the overlay removes only `system`; it never clears or creates `selected`. |
+| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
@@ -758,10 +760,11 @@ Native `history.replaceState` is forbidden. The facade returns
 metadata rather than a bare result array. For selected rankings,
 `is_truncated=true` means the bounded raw-score probe observed a 10,001st row;
 `total` and `navigable_total` both count only filtered survivors among the first
-10,000. For Any, `navigable_total` is the local-search `total` and
+10,000. For Any, `navigable_total` is `min(total, 10000)` and
 `total_is_capped` remains the distinct truncation flag; an anchored exact total
-above 10,000 therefore remains navigable, while a capped galaxy-wide response
-sets `navigation_limit: 10000` and clamps offset plus page size to that cap.
+above 10,000 is displayed exactly but, like every mode, navigates only within
+`navigation_limit: 10000`, with offset plus page size clamped to that cap before
+dispatch.
 Navigation, Next, count and truncation copy
 must never be computed independently of that envelope.
 
@@ -806,8 +809,14 @@ context-provided store following the central pattern
 `apps/web/src/lib/persistence/context.ts:7-20`); never access `localStorage`
 directly from the component.
 
-Comparison is mode-aware. **Best Colony Potential** remains comparable across
-modes because its overall value is persisted separately. A selected-fit row is
+Comparison is mode-aware and provenance-aware. **Best Colony Potential** is
+comparable across modes (its overall value is persisted separately) but only
+between entries whose `ranking_provenance.ranking_version` and
+`ranking_sha256` are equal; the archetype product that produces it is pinned to
+the same ranking identity, and the design already anticipates another identity
+change, so overall values from before and after a change are not ranked
+against each other — they are omitted with the same “different ranking
+versions” note. A selected-fit row is
 shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
 for the same `selected_archetype` **and** an equal `ranking_provenance`
 (`ranking_version` and `ranking_sha256` must match; the generation id and
@@ -815,7 +824,8 @@ publication sequence are shown as “ranked on generation …” but do not bloc
 the comparison, because a data refresh changes freshness, not semantics);
 otherwise it is omitted with a “different ranking modes” or “different
 ranking versions” note. A snapshot without `ranking_provenance` (saved before
-F4c) never enters a selected-fit comparison. Distance is compared only when every entry has the same
+F4a) never enters any score comparison, selected or overall; it is still
+listed with its stored values and an “older save” note. Distance is compared only when every entry has the same
 `distance_reference.kind` and id64, labelled **Distance from Sol** or
 **Distance from _name_**. Mixed-reference distances are excluded rather than
 silently compared. For referenced snapshots, every finite measured distance is
@@ -925,9 +935,10 @@ for:
   boundaries, including that Any-mode output never contains “fit”;
 - URL parse/serialize round trips, canonical ordering, defaults, duplicate and
   unknown parameters, `page_size` default 50 and inclusive 1–50 bounds, the
-  selected-only exclusive 10,000 offset ceiling and request-size clamp, anchored
-  Any offsets/exact totals above 10,000, saturated unanchored Any
-  `total_is_capped` → 10,000 offset/page-size clamp and URL correction, the raw-window
+  mode-independent exclusive 10,000 offset ceiling and request-size clamp
+  applied before dispatch (including `offset=2000000000` on a fresh load),
+  anchored Any exact totals above 10,000 displayed exactly but not navigable,
+  `total_is_capped` → truncation copy only, URL correction, the raw-window
   10,001 sentinel, post-filter within-window total and independent truncation
   rules, offset/reset rules, last-valid-page calculation, Any-mode removal of
   `min-tier`, and preservation of independent `selected`/`system` plus unrelated
@@ -968,7 +979,8 @@ Use Testing Library Svelte, which is installed in the current stack
   state, DOM and map synchronized; cover `total < 10,000` with
   `is_truncated=true`; a three-row fixture envelope at `page_size=1` has three
   real pages and two enabled Next transitions; also cover anchored Any with an
-  exact total above 10,000 and galaxy-wide Any with `total_is_capped=true`;
+  exact total above 10,000 (exact count shown, Next disabled at 10,000) and
+  galaxy-wide Any with `total_is_capped=true`;
 - a stale/shared `offset=9950` response with `total=3` calls mocked SvelteKit
   `goto` with `replaceState: true` for the last valid page at `offset=0`, refetches
   exactly once without a hydration loop, shows the page-reset notice and never
@@ -1329,17 +1341,17 @@ normalized row, so `SystemActions`/`snapshotFromExplore` need only the
 `ranking_provenance`), and ranking query key. Without this in F4a every
 selected-fit snapshot saved before F4c would have null provenance and F4c would
 exclude all of them from comparison. The facade constrains `page_size` to 1–50
-(default 50), maps it to existing endpoint `limit`, exposes the exclusive 10,000
-offset/window limit for selected rankings and clamps selected request size at
-its boundary. Anchored Any accepts exact offsets above 10,000 within the local-
-search wire bound; saturated unanchored Any applies the 10,000 offset/page-size
-clamp and SvelteKit URL correction because page `LIMIT`/`OFFSET` is otherwise
-independent of the capped count. The envelope preserves slice 1c's post-filter
+(default 50), maps it to existing endpoint `limit`, and applies one exclusive
+10,000 offset/window limit to every mode before dispatch, clamping request size
+at its boundary and correcting the URL with SvelteKit `goto` — because page
+`LIMIT`/`OFFSET` is otherwise independent of the capped count, and because the
+anchor is not URL state. The envelope preserves slice 1c's post-filter
 within-window total and
-independent API-owned `is_truncated`; for Any it exposes `navigable_total` and
-the existing `total_is_capped` state from the local-search response, so exact
-anchored totals remain fully navigable and capped galaxy-wide totals do not
-promise unreachable numbered rows. A selected fit never enters generic
+independent API-owned `is_truncated`; for Any it exposes
+`navigable_total = min(total, 10000)` alongside the exact `total` and the
+existing `total_is_capped` state from the local-search response, so an exact
+anchored total is shown truthfully while no mode promises unreachable numbered
+rows. A selected fit never enters generic
 `archetype_score`.
 The gate wraps URL hydration, request selection, URL/history effects, selected-
 point F4 behavior and rendering. Its disabled-build regression loads a hand-
@@ -1486,8 +1498,16 @@ Compare currently has its own mapping and tier thresholds
 browser tier calculation and show a tier only from the corresponding API field.
 Preserve historical unknown keys as readable fallbacks rather than pretending
 they are V3 keys.
-F4c is the final hard prerequisite before the default-off flag may be enabled in
-a governed production/release build.
+F4c is a hard prerequisite before the default-off flag may be enabled in a
+governed production/release build — but not the only one. The spatial product
+contract requires Finder score breakdowns to be accessible, and this design's
+only V3 explanation path is deferred (section 4, “Per-archetype explanation”).
+Enablement therefore also requires **an accessible explanation path**: the F2d
+design's `GET /api/archetypes/system/{id64}/explanation` (its PR3) plus a small
+F4 increment that renders the per-archetype breakdown from it in the result
+card/Inspect hand-off with the same evidence wording. Until both land, the flag
+stays `0` in every release build; enabling it with unexplained scores would
+contradict the contract.
 Required proof: focused Vitest/component tests, Svelte web checks, visual review
 of saved/compare rows, Product E2E and Review Lab.
 
@@ -1950,3 +1970,31 @@ product/implementation choices are:
    provide and assert at least 10,001 index-eligible rows for the archetype and B
    floor under test, a populated offset-9950 page, and an observed 10,001st-row
    sentinel before the receipt is accepted.
+
+#### Round 10 — 2026-10-10 (PR #801)
+
+1. **P2-A — Encode anchors before deriving the offset policy** → resolved the
+   other way: since the anchor is deliberately not URL state (section 6), an
+   anchored search cannot be told apart from an unanchored one after a reload,
+   so F4 applies **one** 10,000 navigation ceiling to every mode before dispatch
+   (`navigable_total = min(total, 10000)`); an anchored exact total above 10,000
+   is displayed exactly but is not navigable. This supersedes the anchored-Any
+   exception in Rounds 7–9 and removes the mode-dependent clamp entirely.
+2. **P2-B — Require provenance parity for overall scores** → Best Colony
+   Potential is compared only between entries with equal `ranking_version` and
+   `ranking_sha256`; otherwise omitted with the “different ranking versions”
+   note. Snapshots without provenance enter no score comparison and are listed
+   with an “older save” note.
+3. **P2-C — Gate production enablement on score explanations** → enabling the
+   flag in a release build now also requires an accessible explanation path: the
+   F2d explanation endpoint (`GET /api/archetypes/system/{id64}/explanation`)
+   plus a small F4 increment rendering the breakdown; F4c is a prerequisite, not
+   the final one.
+4. **P2-D — Preserve `system` hydration when F4 is disabled** → the `system`
+   row and the `AppShell` change apply the “never creates `selected`” rule only
+   in F4-enabled builds; the default-off build keeps copying `?system=` into
+   `selectedSystem` as today, with a disabled-build regression test.
+5. **P2-E — Represent unknown legacy score modes explicitly** → `score_kind`
+   gains an `"unknown"` variant produced only by the decoder for pre-F4 snapshots
+   that carry the ambiguous generic `archetype_score`; it is excluded from every
+   mode-specific comparison and never written by a new save.
