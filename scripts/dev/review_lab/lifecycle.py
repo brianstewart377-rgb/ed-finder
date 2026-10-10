@@ -297,28 +297,59 @@ def _review_api_base_image() -> str:
     return image
 
 
+def _compose_service_image(compose_text: str, service: str) -> str:
+    service_block = extract_service_block(compose_text, service)
+    image_line = next(
+        (line.strip() for line in service_block.splitlines() if line.strip().startswith('image:')),
+        '',
+    )
+    image = image_line.removeprefix('image:').strip()
+    if not image or any(character.isspace() for character in image):
+        raise ReviewLabError(
+            f'compose service {service!r} must declare one exact image reference',
+            failure_code='STATIC_CONTAINMENT_FAILED',
+        )
+    return image
+
+
+def _image_is_cached(image: str) -> bool:
+    result = run_subprocess(
+        ['docker', 'image', 'inspect', image],
+        allow_failure=True,
+        timeout_seconds=TIMEOUTS.static,
+    )
+    return result.returncode == 0
+
+
 def pull_review_images() -> dict[str, Any]:
     base_image = _review_api_base_image()
+    compose_text = load_compose_text()
     pulls: list[dict[str, Any]] = []
-    services = ('review-postgres', 'review-redis')
-    for index, service in enumerate(services):
-        attempts = _pull_with_retry(
-            [
+    images = (
+        ('review-postgres', _compose_service_image(compose_text, 'review-postgres')),
+        ('review-redis', _compose_service_image(compose_text, 'review-redis')),
+        ('review-api', base_image),
+    )
+    actual_pulls = 0
+    for service, image in images:
+        if _image_is_cached(image):
+            pulls.append({'service': service, 'attempts': 0, 'cached': True})
+            continue
+        if actual_pulls:
+            time.sleep(TIMEOUTS.image_pull_backoff_seconds)
+        if service == 'review-api':
+            command = ['docker', 'pull', '--quiet', image]
+        else:
+            command = [
                 'docker', 'compose', '-f', str(COMPOSE_FILE), '-p', PROJECT_NAME,
                 'pull', '--quiet', service,
-            ],
+            ]
+        attempts = _pull_with_retry(
+            command,
             service=service,
         )
         pulls.append({'service': service, 'attempts': attempts})
-        if index < len(services) - 1:
-            time.sleep(TIMEOUTS.image_pull_backoff_seconds)
-
-    time.sleep(TIMEOUTS.image_pull_backoff_seconds)
-    attempts = _pull_with_retry(
-        ['docker', 'pull', '--quiet', base_image],
-        service='review-api',
-    )
-    pulls.append({'service': 'review-api', 'attempts': attempts})
+        actual_pulls += 1
     return {'pulls': pulls}
 
 

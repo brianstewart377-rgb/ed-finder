@@ -544,6 +544,8 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
 
     def fake_run_subprocess(command, **kwargs):
         events.append(('command', command, kwargs))
+        if command[1:3] == ['image', 'inspect']:
+            return SimpleNamespace(returncode=1, stdout='', stderr='not found')
         return SimpleNamespace(returncode=0, stdout='', stderr='')
 
     monkeypatch.setattr(lifecycle, '_review_api_base_image', fake_review_api_base_image)
@@ -556,14 +558,25 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
         'docker', 'compose', '-f', str(contract.COMPOSE_FILE), '-p', contract.PROJECT_NAME,
         'pull', '--quiet',
     ]
+    postgres_image = 'public.ecr.aws/docker/library/postgres:18-alpine'
+    redis_image = 'public.ecr.aws/docker/library/redis:7-alpine'
     assert events == [
         ('validate', base_image),
+        ('command', ['docker', 'image', 'inspect', postgres_image], {
+            'allow_failure': True, 'timeout_seconds': lifecycle.TIMEOUTS.static,
+        }),
         ('command', [*expected_prefix, 'review-postgres'], {
             'allow_failure': True, 'timeout_seconds': 60,
+        }),
+        ('command', ['docker', 'image', 'inspect', redis_image], {
+            'allow_failure': True, 'timeout_seconds': lifecycle.TIMEOUTS.static,
         }),
         ('sleep', 3.0),
         ('command', [*expected_prefix, 'review-redis'], {
             'allow_failure': True, 'timeout_seconds': 60,
+        }),
+        ('command', ['docker', 'image', 'inspect', base_image], {
+            'allow_failure': True, 'timeout_seconds': lifecycle.TIMEOUTS.static,
         }),
         ('sleep', 3.0),
         ('command', ['docker', 'pull', '--quiet', base_image], {
@@ -577,11 +590,69 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
     ]}
 
 
+def test_pull_review_images_skips_all_cached_images(monkeypatch):
+    commands = []
+    sleeps = []
+
+    def fake_run_subprocess(command, **kwargs):
+        commands.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
+    monkeypatch.setattr(lifecycle.time, 'sleep', sleeps.append)
+
+    result = lifecycle.pull_review_images()
+
+    assert [command for command, _kwargs in commands] == [
+        ['docker', 'image', 'inspect', 'public.ecr.aws/docker/library/postgres:18-alpine'],
+        ['docker', 'image', 'inspect', 'public.ecr.aws/docker/library/redis:7-alpine'],
+        ['docker', 'image', 'inspect', lifecycle._review_api_base_image()],
+    ]
+    assert not any('pull' in command for command, _kwargs in commands)
+    assert sleeps == []
+    assert result == {'pulls': [
+        {'service': 'review-postgres', 'attempts': 0, 'cached': True},
+        {'service': 'review-redis', 'attempts': 0, 'cached': True},
+        {'service': 'review-api', 'attempts': 0, 'cached': True},
+    ]}
+
+
+def test_pull_review_images_pulls_only_the_missing_image(monkeypatch):
+    commands = []
+    sleeps = []
+    missing_image = 'public.ecr.aws/docker/library/redis:7-alpine'
+
+    def fake_run_subprocess(command, **kwargs):
+        commands.append((command, kwargs))
+        if command == ['docker', 'image', 'inspect', missing_image]:
+            return SimpleNamespace(returncode=1, stdout='', stderr='not found')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
+    monkeypatch.setattr(lifecycle.time, 'sleep', sleeps.append)
+
+    result = lifecycle.pull_review_images()
+
+    pull_commands = [command for command, _kwargs in commands if 'pull' in command]
+    assert pull_commands == [[
+        'docker', 'compose', '-f', str(contract.COMPOSE_FILE), '-p', contract.PROJECT_NAME,
+        'pull', '--quiet', 'review-redis',
+    ]]
+    assert sleeps == []
+    assert result == {'pulls': [
+        {'service': 'review-postgres', 'attempts': 0, 'cached': True},
+        {'service': 'review-redis', 'attempts': 1},
+        {'service': 'review-api', 'attempts': 0, 'cached': True},
+    ]}
+
+
 def test_pull_review_images_retries_a_failed_service_then_succeeds(monkeypatch):
     attempts = {'review-redis': 0}
     sleeps = []
 
     def fake_run_subprocess(command, **_kwargs):
+        if command[1:3] == ['image', 'inspect']:
+            return SimpleNamespace(returncode=1, stdout='', stderr='not found')
         if command[-1] == 'review-redis':
             attempts['review-redis'] += 1
             if attempts['review-redis'] == 1:
@@ -645,6 +716,8 @@ def test_pull_review_images_fails_closed_after_three_attempts(monkeypatch):
     calls = []
 
     def always_fails(command, **_kwargs):
+        if command[1:3] == ['image', 'inspect']:
+            return SimpleNamespace(returncode=1, stdout='', stderr='not found')
         calls.append(command)
         return SimpleNamespace(returncode=1, stdout='', stderr='detail\ntoomanyrequests: Rate exceeded')
 
