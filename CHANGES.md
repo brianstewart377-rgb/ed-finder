@@ -66,6 +66,15 @@ now register `010`, `011`, and `013` after `014`. This is registration only:
 none of those migrations was applied, and the governed plan/apply and separate
 constraint-validation operations remain outstanding.
 
+## 2026-10-09 — Reviewed production-promotion hold in version-drift monitor
+
+The production version-drift monitor now understands an explicit, reviewed,
+time-bounded hold pinned to the live `bed755b9` release while the F3 Finder
+products remain unpublished. The hold expires on 2026-11-09 and must be renewed
+or removed through review; manual dispatch can ignore it to expose raw drift.
+Web/API agreement, SHA validity, and the expected-SHA deployment gate remain
+fail-closed.
+
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
 The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex
