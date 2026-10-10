@@ -1037,6 +1037,8 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
    cheaper on the sample but cannot bound the slice 1c probe without a
    distribution-dependent tie sort; the full unique-entry variant costs ≈ 95 GB
    of indexes for rows no selected query can ask for.
+   **Owner: yes (2026-10-10, recorded as question 6 of the capacity
+   decision).**
 2. **Yes/no: approve exact integer parts-per-million confidence storage
    (`<key>_confidence_ppm integer`, 0–1,000,000) with the ranking expression
    `ppm / 1000000.0` and API serialization `ppm / 1e6`?** Same 4 bytes as
@@ -1054,6 +1056,9 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
 5. **Yes/no: approve HTTP 409 with exact detail
    `explanation unavailable for this product version` for model/product version
    mismatch?** This is a stable compatibility conflict, not “system not found.”
+   **Owner: yes (2026-10-10, recorded as question 5 of the capacity decision;
+   the exact detail string and the model-hash check are this design's
+   implementation of that rule).**
 6. **Yes/no: require production publication of both Finder products in one
    transaction?** The API fails closed unless both are published, but one
    transaction gives a cleaner audit boundary.
