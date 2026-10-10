@@ -357,26 +357,38 @@ never silently describe a different stored score.
 
 ### 4.3 Exact version rule
 
-Serve explanations only when all three values are equal:
+Serve explanations only when all three version values are equal **and** the
+deployed code is the code that built the product:
 
 ```text
 v3_meta.derived_product.product_version
     == v3_derived.system_archetype.archetype_version
     == deployed shared model ARCHETYPE_VERSION
+and
+sha256(deployed shared_contracts/v3_system_archetype_model.py)
+    == product manifest `model_file_sha256`
 ```
 
-The product must also be READY and product-published on the current PUBLISHED
-generation. On any version mismatch, return HTTP 409 with the exact FastAPI
-detail string:
+The hash comparison matters because explanations are no longer persisted: a
+change to the shared model's explanation construction without a version bump
+would leave all three version strings equal and the stored score/tier/
+confidence comparison passing, yet serve explanations produced by different
+code than the manifest records. The API computes the deployed model file's hash
+once at start-up and compares it with the manifest's recorded hash (section
+5.1 adds it to `product_manifest`). The product must also be READY and
+product-published on the current PUBLISHED generation. On any version **or
+hash** mismatch, return HTTP 409 with the exact FastAPI detail string:
 
 ```text
 explanation unavailable for this product version
 ```
 
 Perform this check before reading vector/opportunity inputs or calling
-`fit_all`. The exact contract test patches `fit_all`, supplies a READY and
-published product whose version differs from the deployed model, asserts HTTP
-409 and the exact detail string, and asserts `fit_all` was not called. Matching
+`fit_all`. The exact contract tests patch `fit_all`, supply a READY and
+published product whose version differs from the deployed model — and,
+separately, one whose versions all match but whose manifest `model_file_sha256`
+differs from the deployed file's hash — assert HTTP 409 and the exact detail
+string for both, and assert `fit_all` was not called. Matching
 versions must return all eight explanations and values identical to the stored
 wide row. The current product manifest and model version already form the
 reproducibility identity this rule extends to API delivery.
@@ -397,7 +409,7 @@ already introduced solely because the stored summary shape gained
 generation identity, source policy, and code identity. Add a canonical ordered
 `wide_columns` list, `storage_layout: "one-row-per-system-v1"`,
 `explanation_delivery: "on-demand"`, confidence storage/rounding policy, and
-the shared model file hash. Remove the persisted-explanation field policy. The
+the shared model file hash as `model_file_sha256` (the value section 4.3 compares against the deployed file). Remove the persisted-explanation field policy. The
 current manifest already hashes coefficients, anchors, key order, field policy,
 and code files; registration rejects any existing manifest mismatch.
 (`scripts/v3_system_archetype.py:64-73,104-168,181-212`)
@@ -480,6 +492,16 @@ ARCHETYPE_COLUMNS = {
 }
 ```
 
+The canonical mapping is **part of the hashed ranking identity**: it is declared
+in `profile.py`'s `PROFILE_SPEC` (as
+`archetype_columns: {key: {score, tier, confidence}}`, with the confidence
+expression written out, e.g. `paradise_confidence_ppm / 1000000.0`) and therefore
+enters `_canonical_base()` and `ranking_sha256`; `ranking_sql.py` derives
+`ARCHETYPE_COLUMNS` from that spec rather than declaring its own copy, and the
+identity test mutates one mapping entry and asserts the digest changes. Today
+`_canonical_base()` hashes only the generic score rule and the key list
+(`apps/api/src/ranking/profile.py:132-183`), which would let a swapped mapping
+change production rankings under an unchanged `ranking_sha256`.
 The router first rejects a key outside `ARCHETYPE_KEYS`; the SQL builder then
 looks up the fixed expression. No raw or transformed user string is ever
 formatted as a SQL identifier. SQL values remain parameters. The current
@@ -502,7 +524,9 @@ confidence, completeness, uncertainty, and ranking identity remain present.
 Only `ranking_version`/`ranking_sha256` change. (`apps/api/src/routers/archetypes.py:389-406,422-494`,
 `apps/api/src/local_search.py:790-839,951-964`)
 
-Tests must cover all eight key-to-column mappings, both ranked and count SQL,
+Tests must cover all eight key-to-column mappings, that the SQL map is derived
+from the hashed spec and that mutating a mapping changes `ranking_sha256`,
+both ranked and count SQL,
 unknown-key rejection, and adversarial strings that must never appear in SQL.
 Retain selected weighted ordering, no-pick indexable ordering, count/page filter
 parity, deterministic tie-breaks, and no-legacy-relation assertions.
@@ -582,6 +606,9 @@ audit row in one transaction) meets exactly the same checks:
 - a deferred constraint trigger on the same transition requires, at commit, an
   audit row with the exact generation, product, version, manifest hash and
   timestamp;
+- the product **INSERT** guard (registration) requires `published_at IS NULL`:
+  a product can never be born published, so the only way a timestamp appears is
+  the audited UPDATE branch above;
 - the audit `INSERT` guard requires, at commit (deferred), that the referenced
   product row's `published_at` equals the audit timestamp and that the
   recorded version and manifest hash match the product row — an audit row
@@ -668,6 +695,7 @@ the current PUBLISHED generation. The current PUBLISHED
 On a fresh PostgreSQL 18 database, test every rule:
 
 1. registration on BUILDING, VALIDATING, READY, and current PUBLISHED succeeds;
+   registration with a non-NULL `published_at` fails whatever the base state;
    registration on RETIRED/FAILED fails;
 2. rows and receipts insert only while the product is BUILDING; mutation and
    manifest drift still fail;
