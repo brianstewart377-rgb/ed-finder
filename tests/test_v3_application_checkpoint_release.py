@@ -333,7 +333,7 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     svelte_config = (ROOT / "apps" / "web" / "svelte.config.js").read_text()
     api_project = (ROOT / "apps" / "api" / "pyproject.toml").read_text()
 
-    assert "FROM python:3.14-slim" in backend
+    assert "FROM public.ecr.aws/docker/library/python:3.14-slim" in backend
     assert "uv==0.11.33" in backend
     assert "uv sync --frozen" in backend
     assert backend.count("platform.python_implementation() == 'CPython'") == 2
@@ -342,11 +342,11 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     assert 'requires-python = ">=3.14,<3.15"' in api_project
     assert 'required-version = "==0.11.33"' in api_project
     assert 'exclude-newer = "1 week"' in api_project
-    assert "FROM node:24-alpine" in web
+    assert "FROM public.ecr.aws/docker/library/node:24-alpine" in web
     assert "pnpm@11.25.0" in web
     assert "pnpm install --frozen-lockfile" in web
     assert "CYPRESS_INSTALL_BINARY=0" in web
-    assert "FROM nginx:1.29-alpine" in web
+    assert "FROM public.ecr.aws/docker/library/nginx:1.29-alpine" in web
     assert 'NGINX_ENVSUBST_FILTER="^EDFINDER_API_UPSTREAM$"' in web
     assert "/workspace/apps/web/build/" in web
     assert "process.env.VITE_BUILD_SHA" in svelte_config
