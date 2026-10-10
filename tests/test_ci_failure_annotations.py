@@ -111,7 +111,9 @@ def test_failure_hook_emits_annotation_in_github_actions(
 
     pytest_runtest_logreport(report)  # type: ignore[arg-type]
 
-    lines = capsys.readouterr().out.splitlines()
+    captured = capsys.readouterr().out
+    assert captured.startswith('\n')
+    lines = captured.removeprefix('\n').splitlines()
     assert len(lines) == 1
     assert lines[0].startswith('::error file=')
 
@@ -143,8 +145,11 @@ def test_failure_hook_uses_crash_location_and_traceback_tail(
 
     pytest_runtest_logreport(report)  # type: ignore[arg-type]
 
-    lines = capsys.readouterr().out.splitlines()
+    captured = capsys.readouterr().out
+    assert captured.startswith('\n')
+    lines = captured.removeprefix('\n').splitlines()
     assert len(lines) == 1
+    assert lines[0].startswith('::error file=')
     assert 'file=tests/test_x.py,line=12,' in lines[0]
     assert 'AssertionError: tail wins' in lines[0]
     assert discarded_head not in lines[0]
