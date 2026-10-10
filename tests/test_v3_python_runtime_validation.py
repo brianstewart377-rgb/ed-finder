@@ -20,7 +20,7 @@ LEGACY_DRIVER = "psycopg" + "2"
 OLD_PYTHON = re.compile(
     r"(?i)(?:(?:cpython|python)\s+3\.(?:11|12|13)\b|"
     r"python-version\s*:\s*['\"]?3\.(?:11|12|13)\b|"
-    r"FROM\s+python:3\.(?:11|12|13)\b|"
+    r"FROM\s+(?:public\.ecr\.aws/docker/library/)?python:3\.(?:11|12|13)\b|"
     r"python3\.(?:11|12|13)\b|py\s+-3\.(?:11|12|13)\b|"
     r"\b(?:py|cp)3(?:11|12|13)\b)"
 )
@@ -137,9 +137,14 @@ def test_python_project_and_container_authorities_are_exactly_314():
         ROOT / "apps" / "maintenance" / "Dockerfile",
     ):
         text = path.read_text(encoding="utf-8")
-        python_bases = re.findall(r"^FROM python:([^\s@]+)", text, flags=re.MULTILINE)
+        python_bases = re.findall(
+            r"^FROM public\.ecr\.aws/docker/library/python:([^\s@]+)",
+            text,
+            flags=re.MULTILINE,
+        )
         assert python_bases, path
         assert all(version.startswith("3.14-") for version in python_bases), path
+        assert not re.search(r"^FROM python:", text, flags=re.MULTILINE), path
         assert not OLD_PYTHON.search(text), path
 
 
