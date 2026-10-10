@@ -59,6 +59,15 @@ now register `010`, `011`, and `013` after `014`. This is registration only:
 none of those migrations was applied, and the governed plan/apply and separate
 constraint-validation operations remain outstanding.
 
+## 2026-10-09 — Reviewed production-promotion hold in version-drift monitor
+
+The production version-drift monitor now understands an explicit, reviewed,
+time-bounded hold pinned to the live `bed755b9` release while the F3 Finder
+products remain unpublished. The hold expires on 2026-11-09 and must be renewed
+or removed through review; manual dispatch can ignore it to expose raw drift.
+Web/API agreement, SHA validity, and the expected-SHA deployment gate remain
+fail-closed.
+
 ## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
 
 The action reports the four worker states, the migration ledger, and the canonical, derived, and spatial pointers and lifecycle states. Its footprint evidence reports measured live relation and index sizes, database size, host disk headroom, and a `measured_footprint_attribution` section with proportional chunk-receipt system-count attribution per generation as inputs to the disk decision. These measurements do not replace the required disposable PostgreSQL 18 sample measurement and full-scale extrapolation of the post-`010` `system_search` row width or the `system_archetype` and `system_archetype_summary` relations and indexes. It is strictly read-only, using READ ONLY transactions and reading identity names only. Running it is a governed operator operation that has not yet happened.
