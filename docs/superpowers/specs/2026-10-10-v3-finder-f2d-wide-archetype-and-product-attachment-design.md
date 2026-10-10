@@ -223,29 +223,55 @@ removing duplicated storage. The current common SQL always joins that name.
 Create these nine secondary indexes in addition to the primary key:
 
 ```text
-(derived_generation_id, paradise_score DESC)
-(derived_generation_id, mining_hub_score DESC)
-(derived_generation_id, manufacturing_hub_score DESC)
-(derived_generation_id, megacomplex_score DESC)
-(derived_generation_id, research_hub_score DESC)
-(derived_generation_id, stronghold_score DESC)
-(derived_generation_id, population_capital_score DESC)
-(derived_generation_id, flexible_score DESC)
+(derived_generation_id, paradise_score DESC, system_id64)            WHERE paradise_score >= 60
+(derived_generation_id, mining_hub_score DESC, system_id64)          WHERE mining_hub_score >= 60
+(derived_generation_id, manufacturing_hub_score DESC, system_id64)   WHERE manufacturing_hub_score >= 60
+(derived_generation_id, megacomplex_score DESC, system_id64)         WHERE megacomplex_score >= 60
+(derived_generation_id, research_hub_score DESC, system_id64)        WHERE research_hub_score >= 60
+(derived_generation_id, stronghold_score DESC, system_id64)          WHERE stronghold_score >= 60
+(derived_generation_id, population_capital_score DESC, system_id64)  WHERE population_capital_score >= 60
+(derived_generation_id, flexible_score DESC, system_id64)            WHERE flexible_score >= 60
 (derived_generation_id, weighted_potential DESC)
 ```
 
-The first eight provide the `min_development_score` / tier-floor range path for
-a picked archetype. They deliberately do **not** carry a trailing `system_id64`:
-the picked ranking orders by the computed product
-`score × confidence × completeness`, which no score index can serve, the wide
-row is joined through its primary key (one row per system — the old
-`archetype_key` lookup no longer exists), and `ORDER BY … system_id64 ASC` is
-applied by the sort either way. Leaving `system_id64` out lets PostgreSQL's
-B-tree deduplication collapse the 101 distinct score values into posting lists:
-measured 7.5 B/row per index instead of 49.8 B/row (section 3.4). The last index
-retains the current indexable no-pick ordering. Picked ranking still applies the
-profile's confidence/completeness modifier after selecting the trusted score
-column, while no-pick ordering uses the stored `weighted_potential` directly.
+The first eight are **partial, unique-entry** indexes over the tier-B-and-above
+rows (`>= 60`). They serve two things: the `min_development_score` / tier-floor
+range path for a picked archetype, and — decisively — the F4 slice 1c **bounded
+candidate probe**, which must read the first 10,001 rows of a selected key in
+exact `<key>_score DESC, system_id64 ASC` order and stop. Integer scores tie
+heavily, so an index without `system_id64` cannot deliver that order without
+sorting the boundary score group, whose size depends on the production score
+distribution. Measured on the disposable PostgreSQL 18.4 at 1,000,000 rows with
+a bell-shaped score distribution (16.9 % of rows ≥ 60), for
+`WHERE score >= 60 ORDER BY score DESC, system_id64 LIMIT 10001`:
+
+| Index form | Plan | Rows read | Warm | B/row |
+|---|---|---:|---:|---:|
+| `(gen, score DESC)` deduplicated (the earlier draft) | Index Scan → Incremental Sort → Limit | 10,109 | 8.9 ms | 7.2 |
+| `(gen, score DESC, system_id64)` | Index Only Scan → Limit | 10,001 | 2.3 ms | 49.8 |
+| **`(gen, score DESC, system_id64) WHERE score >= 60`** | Index Only Scan → Limit | 10,001 | 2.2 ms | **8.4** |
+
+(Warm median statement wall time, planning + execution; committed script
+`scripts/dev/measure_wide_archetype_probe_indexes.py`, output
+`docs/operations/evidence/2026-10-10-wide-archetype-probe-index-experiment.json`.
+The sort cost of the deduplicated form is small here only because the synthetic
+top score groups are small — 64 rows at score 100 — which the real distribution
+need not reproduce.)
+
+The partial form is bounded and deterministic like the full one at roughly the
+deduplicated form's cost, because only the rows a selected query can ever ask
+for are indexed: every floor F4 exposes (S/A/B ⇒ 88/76/60) lies inside the
+predicate, and the picked ranking's final ordering (`score × confidence ×
+completeness`) is a computed product applied to the bounded window, not an
+index order. Its size is **distribution-dependent**: 49.8 B × (fraction of
+systems with that key's score ≥ 60) per row; the synthetic sample gives
+8.4 B/row (≈ 1.7 GB per key, ≈ 13 GB for eight), the ceiling is 49.8 B/row
+(≈ 95 GB) if every system scored ≥ 60 on every key. **The calibration probe (rollout step 6) reports the per-key tier histogram on the real
+`parallel_v1` vectors; PR1's final footprint re-measurement must use those
+fractions, and the production gate stops if the result does not fit.** The
+wide row is joined through its primary key (one row per system — the old
+`archetype_key` lookup no longer exists). The last index retains the current
+indexable no-pick ordering over `weighted_potential`.
 (`apps/api/src/ranking/ranking_sql.py:451-477`,
 `sql/v3/migrations/011_v3_system_archetype.sql:45-56`)
 
@@ -266,14 +292,17 @@ footprint measurement”, PR #805)
 | table heap (`pg_table_size`; average tuple 180 B) | 186.4 | 37.0 GB |
 | primary key `(derived_generation_id, system_id64)` | 40.7 | 8.1 GB |
 | `weighted_potential` index | 40.8 | 8.1 GB |
-| eight `(derived_generation_id, <key>_score DESC)` indexes, deduplicated | 8 × 7.5 = 60 | 11.9 GB |
-| **total, section 3.3 layout** | **328** | **≈ 65 GB** |
-| *(rejected)* the same with `system_id64` trailing in each score index | 8 × 49.8 + 81.5 = 480 index | ≈ 132 GB |
+| eight partial `(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes (synthetic 16.9 % ≥ 60) | 8 × 8.4 = 67 | 13.3 GB |
+| **total, section 3.3 layout** (synthetic distribution) | **335** | **≈ 66 GB** |
+| *(ceiling)* the same if every system scored ≥ 60 on every key (= full unique-entry indexes) | 8 × 49.8 + 81.5 = 480 index | ≈ 132 GB |
+| *(earlier draft)* eight deduplicated `(derived_generation_id, <key>_score DESC)` indexes | 8 × 7.5 = 60 | 11.9 GB (≈ 65 GB total) — rejected: cannot bound the slice 1c probe without a tie sort |
 
 The decision text's earlier “about 80 GB” and this design's first-draft
 “about 90 GB” were unmeasured guesses: the heap is wider than assumed (186 B,
 not 150 B) and a unique-entry score index is 49.8 B/row, not 30 B. The
-measured layout is **≈ 65 GB** of persistent product data; re-measuring with
+measured layout is **≈ 66 GB** of persistent product data on the synthetic
+distribution (the partial score indexes scale with the real ≥ 60 fractions —
+see section 3.3); re-measuring with
 integer-ppm confidences gave the identical 186.4 B/row heap (same 4-byte width
 and alignment as `real`), while `double precision` confidences measured
 256 B/row (≈ 79 GB total) because of 8-byte alignment padding. The production gate
@@ -765,14 +794,15 @@ replace either; the rollout below is authorized only once both say so:
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
-| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 65 GB** (200k-row PG18.4 sample, section 3.4), re-measured with the final migration text before the build |
+| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 66 GB** on the synthetic distribution (section 3.4); the partial score indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 7 | In one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
 | 8 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, READY+published timestamps, validation/publication audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
 | 9 | Build the immutable release, run preflight, and promote only after the revised gate passes. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
 
-Total new persistent Finder data is planned at about 152 GB (87 GB Search plus
-65 GB Archetype, both from 200k-row PostgreSQL 18.4 samples), leaving about
-140 GB from the observed 292 GB before transient WAL/temp/vacuum use. The
+Total new persistent Finder data is planned at about 153 GB (87 GB Search plus
+66 GB Archetype, both from PostgreSQL 18.4 samples; the archetype figure rises
+with the real ≥ 60 fractions, to a 132 GB ceiling), leaving about 139 GB from
+the observed 292 GB before transient WAL/temp/vacuum use. The
 re-measurement of the final wide relation and all its indexes, not this
 arithmetic, decides whether step 6 may start.
 (`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
@@ -998,11 +1028,15 @@ operations. (`scripts/operator/actions/v3-system-search-f1.sh:15-24,76-113,175-1
 
 Each unresolved choice is phrased for an explicit yes/no disposition.
 
-1. **Yes/no: approve the measured ≈ 65 GB Archetype layout (section 3.3: primary
-   key, weighted index, eight deduplicating `(generation, <key>_score DESC)`
-   indexes), re-measured with the final `011` text before the production
-   build?** The alternative with `system_id64` trailing in each score index
-   measures ≈ 132 GB for no query benefit.
+1. **Yes/no: approve the section 3.3 layout — primary key, weighted index, and
+   eight partial unique-entry `(generation, <key>_score DESC, system_id64) WHERE
+   <key>_score >= 60` indexes (≈ 66 GB on the synthetic distribution; sized
+   from the calibration probe's real tier histogram and re-measured with the
+   final `011` text before the production build; ceiling ≈ 132 GB if every
+   system scored ≥ 60 everywhere)?** The deduplicating variant is ≈ 1 GB
+   cheaper on the sample but cannot bound the slice 1c probe without a
+   distribution-dependent tie sort; the full unique-entry variant costs ≈ 95 GB
+   of indexes for rows no selected query can ask for.
 2. **Yes/no: approve exact integer parts-per-million confidence storage
    (`<key>_confidence_ppm integer`, 0–1,000,000) with the ranking expression
    `ppm / 1000000.0` and API serialization `ppm / 1e6`?** Same 4 bytes as

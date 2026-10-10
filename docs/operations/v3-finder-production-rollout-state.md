@@ -198,8 +198,12 @@ per-key score index entry is unique when `system_id64` is a trailing column
 101 distinct score values into posting lists (7.5 B/row each). The picked
 ranking orders by the computed product `score × confidence × completeness`,
 which no score index can serve, and the wide row is joined by its primary key,
-so the trailing `system_id64` buys nothing; the deduplicating form keeps the
-`min_development_score` / tier-floor range path at about 1.5 GB per key.
+so the trailing `system_id64` buys nothing for the *final* ordering — but the F4
+slice 1c bounded probe (first 10,001 rows of a key in exact `score DESC,
+system_id64` order) does need it, and integer scores tie heavily, so the layout
+adopted after review is the **partial** unique-entry index restricted to
+`<key>_score >= 60` (the lowest floor F4 exposes): bounded and deterministic,
+sized by the real ≥ 60 fraction the step 6 calibration probe reports.
 
 | Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -211,6 +215,7 @@ so the trailing `system_id64` buys nothing; the deduplicating form keeps the
 | `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
 | wide-row `system_archetype` (F2d design, one row per system, 42 columns, no explanation; PK + 8 `(generation, <key>_score DESC, system_id64)` indexes + weighted index — the spec's first draft) | 200,000 | 186 | 480 | 198.5 M | 37 | 95 | **132** |
 | wide-row `system_archetype` (same table; PK + 8 deduplicating `(generation, <key>_score DESC)` indexes + weighted index — the recommended layout) | 200,000 | 186 | 142 | 198.5 M | 37 | 28 | **65** |
+| wide-row `system_archetype` (same table; PK + 8 **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes + weighted index — the layout adopted after review, 1M-row probe experiment with 16.9 % of rows ≥ 60) | 1,000,000 | 186 | 149 | 198.5 M | 37 | 30 | **≈ 66** (ceiling 132 if every system scored ≥ 60) |
 
 Sum of the four system-level relations for one complete fresh generation: about
 **1,174 GB**, of which `system_archetype` alone is about
