@@ -56,7 +56,7 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
         if _github_failure_annotation_count >= _GITHUB_ANNOTATION_LIMIT:
             if not _github_annotation_limit_warning_emitted:
                 print(
-                    '::warning title=pytest annotations::more than 50 failures; '
+                    '\n::warning title=pytest annotations::more than 50 failures; '
                     'see job log',
                     flush=True,
                 )
@@ -93,7 +93,8 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
                     report.location[2] if report.location else '',
                 )
         print(
-            github_failure_annotation(
+            '\n'
+            + github_failure_annotation(
                 report.nodeid,
                 location,
                 longrepr_text,
