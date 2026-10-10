@@ -185,7 +185,9 @@ newer dated source wins).
   Step 3 must run before the fresh build so its full-table scan covers about
   198.5M retained `opt1` rows instead of about 397M rows after the second product;
   the `NOT VALID` checks still enforce every subsequent builder insert
-  automatically. For step 6, **NO governed action — must be built**; the probe
+  automatically. The step 3 action `v3-system-search-validate-constraints` is
+  built (PR pending merge) and may only start once migration `010` is applied.
+  For step 6, **NO governed action — must be built**; the probe
   can read the already-published `parallel_v1` ratings vectors and does not wait
   for the fresh generation, so it may run earlier once step 0 reconfirms state.
   For step 8, **NO governed action — must be built:** the step 5 and step 7 build

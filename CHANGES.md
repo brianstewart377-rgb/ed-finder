@@ -76,6 +76,10 @@ or removed through review; manual dispatch can ignore it to expose raw drift.
 Web/API agreement, SHA validity, and the expected-SHA deployment gate remain
 fail-closed.
 
+## 2026-10-10 — Finder rollout step 3: governed system_search constraint validation action
+
+The action runs all 18 deferred `system_search` check validations in a detached runner and provides a separate read-only status operation. It changes only catalog validation flags, with no row data changes and no publication. It has not been run.
+
 ## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
 
 The action reports the four worker states, the migration ledger, and the canonical, derived, and spatial pointers and lifecycle states. Its footprint evidence reports measured live relation and index sizes, database size, host disk headroom, and a `measured_footprint_attribution` section with proportional chunk-receipt system-count attribution per generation as inputs to the disk decision. These measurements do not replace the required disposable PostgreSQL 18 sample measurement and full-scale extrapolation of the post-`010` `system_search` row width or the `system_archetype` and `system_archetype_summary` relations and indexes. It is strictly read-only, using READ ONLY transactions and reading identity names only. Running it is a governed operator operation that has not yet happened.
