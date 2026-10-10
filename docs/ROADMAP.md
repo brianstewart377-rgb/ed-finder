@@ -190,16 +190,30 @@ newer dated source wins).
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
-  The replacement for steps 4–9 is therefore:
+  The replacement for steps 4–9 is therefore — and **4′ comes before step 2**,
+  because the governed migration runner applies *every* pending entry: running
+  step 2 today would apply the current eight-row `011`, record its hash in the
+  production ledger and make the rewrite impossible without a corrective
+  migration. Step 2 (and therefore step 3, which needs `010` applied) is
+  **blocked until 4′'s amended registration has merged**:
 
-  4′. Land the F2d design and its code PRs (rewritten `011` + wide-row
+  4′. Land the F2d design (PR #806) and its code PRs (rewritten `011` + wide-row
      model/builder/validator; `015` + API publication gate; ranking SQL and
      explanation endpoint; registration amended to
      `[014, 010, 011-rewritten, 013, 015]` with recomputed identities; governed
      archetype-build and product-publish actions, and the search action
      retargeted from `opt1` to `parallel_v1`). Code only; verified on
      disposable PostgreSQL 18, including a repeat of the wide-row footprint
-     measurement with the final migration text.
+     measurement with the final migration text
+     (`scripts/dev/measure_wide_archetype_footprint.py`). Prerequisites: the
+     owner's recorded answers to questions 5 and 6 of
+     `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
+     exact-version rule for on-demand explanations; the deduplicating
+     score-index layout) — the code PRs that encode either may not merge
+     before the answer is recorded there.
+  2–3. Only then: governed migration `plan` → review → `apply` of
+     `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
+     validation.
   5′. Register, build and validate post-`010` `system_search` on
      `ratings_v4_prod_p4_parallel_v1` (≈87 GB).
   6. Unchanged: run the read-only calibration probe and record the coefficient
@@ -214,8 +228,8 @@ newer dated source wins).
      `publish_derived_generation`).
 
   Steps 10–11 keep their shape against the published generation. Until 4′ has
-  merged, no production step beyond 3 may be dispatched; 4′ is the gate, not an
-  outstanding owner decision. Step 0 itself stays open until a receipt records
+  merged, **no production step beyond step 0 may be dispatched** (not even the
+  migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
   every detached worker stopped (the paused `opt1` worker was killed by the
   owner on 2026-10-10; the confirming receipt is pending). The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);

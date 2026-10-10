@@ -3,7 +3,9 @@
 **Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
 ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added
-after review and await the owner. Numbers come
+after review and await the owner; the ROADMAP lists their recorded answers as
+a prerequisite of step 4′, so the F2d code PRs that encode them cannot merge
+first. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
@@ -78,7 +80,9 @@ explanations are unavailable until it is rebuilt — accepted instead of
 keeping a versioned replay registry (owner question 5).
 
 *Disk (measured on the disposable PostgreSQL 18.4 sample with the design's
-DDL, 200,000 rows, extrapolated to 198.5 M).* 37 GB table + 8 GB primary key +
+DDL, 200,000 rows, extrapolated to 198.5 M; script
+`scripts/dev/measure_wide_archetype_footprint.py`, output
+`evidence/2026-10-10-wide-archetype-footprint-200k.json`).* 37 GB table + 8 GB primary key +
 8 GB weighted index + 12 GB score indexes ≈ **65 GB** instead of 978 + 35 GB.
 (With the trailing `system_id64` the same table would be ≈ 132 GB; the first
 draft's 80–90 GB guess undercounted the primary key and weighted index and

@@ -1,0 +1,121 @@
+{
+  "method": "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems",
+  "postgres": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+  "rows": 200000,
+  "v1_with_system_id64": {
+    "avg_tuple_bytes": 179.81816,
+    "extrapolated_prod": {
+      "index_gb": 95.3,
+      "systems": 198500000,
+      "table_gb": 37.0,
+      "total_gb": 132.3
+    },
+    "index_bytes": 96051200,
+    "index_bytes_per_row": 480.3,
+    "indexes": {
+      "wide_archetype_v1_with_system_id64_flexible": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_manufacturing_hub": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_megacomplex": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_mining_hub": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_paradise": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      },
+      "wide_archetype_v1_with_system_id64_population_capital": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_research_hub": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_stronghold": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wide_archetype_v1_with_system_id64_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      }
+    },
+    "rows": 200000,
+    "table_bytes": 37289984,
+    "table_bytes_per_row": 186.4,
+    "total_bytes": 133341184,
+    "total_bytes_per_row": 666.7
+  },
+  "v2_score_only": {
+    "avg_tuple_bytes": 179.81816,
+    "extrapolated_prod": {
+      "index_gb": 28.1,
+      "systems": 198500000,
+      "table_gb": 37.0,
+      "total_gb": 65.2
+    },
+    "index_bytes": 28352512,
+    "index_bytes_per_row": 141.8,
+    "indexes": {
+      "wide_archetype_v2_score_only_flexible": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_manufacturing_hub": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_megacomplex": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_mining_hub": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_paradise": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      },
+      "wide_archetype_v2_score_only_population_capital": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_research_hub": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_stronghold": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wide_archetype_v2_score_only_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      }
+    },
+    "rows": 200000,
+    "table_bytes": 37289984,
+    "table_bytes_per_row": 186.4,
+    "total_bytes": 65642496,
+    "total_bytes_per_row": 328.2
+  }
+}
