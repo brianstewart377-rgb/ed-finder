@@ -5,5 +5,5 @@
   "held_since": "2026-10-04",
   "expires_at": "2026-11-09T00:00:00Z",
   "reason": "F3 Finder cutover must not be promoted before the Finder products are built and published; see docs/operations/v3-production-application-release.md, section ‘F3 Finder cutover — product-publish promotion gate’, and the controlling rollout sequence in docs/ROADMAP.md.",
-  "review": "this PR"
+  "review": "PR #793"
 }

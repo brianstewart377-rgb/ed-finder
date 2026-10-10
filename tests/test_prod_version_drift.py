@@ -480,6 +480,14 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
     live = "bed755b944eb6cb226e1726b2a51582ba9fa9bdb"
     monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: live)
     monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: live)
+    # CI checks out a shallow PR merge commit, so real git history is unavailable here.
+    monkeypatch.setattr(mod, "deployable_commits_behind", lambda *_args: [])
+    ancestry = {(BASE_MAIN, BASE_MAIN), (live, BASE_MAIN)}
+    monkeypatch.setattr(
+        mod,
+        "is_ancestor",
+        lambda candidate, descendant, _repo: (candidate, descendant) in ancestry,
+    )
 
     code = mod.main(
         [
@@ -487,17 +495,24 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
             str(ROOT),
             "--main-sha",
             BASE_MAIN,
-            "--expected-sha",
-            live,
             "--now-epoch",
             str(ACTIVE_NOW),
         ]
     )
 
     assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (
+        "HELD: production intentionally at "
+        "bed755b944eb6cb226e1726b2a51582ba9fa9bdb since 2026-10-04 "
+        "(F3 Finder cutover must not be promoted before the Finder products are "
+        "built and published; see docs/operations/v3-produc); hold expires in "
+        "30 days; 0 covered deployable commit(s) acknowledged by the hold "
+        "(reviewed against 3b6ee91a2e4b)"
+    )
     assert (
         f"Promotion hold file: {ROOT / mod.DEFAULT_HOLD_FILE}"
-        in capsys.readouterr().out
+        in lines
     )
 
 

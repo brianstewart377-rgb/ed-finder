@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,7 +66,7 @@ def test_production_drift_hold_and_manual_bypass_contract():
     assert hold["covers_main_sha"] == "3b6ee91a2e4b076a97a2564cc38310411b534beb"
     assert hold["held_since"] == "2026-10-04"
     assert hold["expires_at"] == "2026-11-09T00:00:00Z"
-    assert hold["review"] == "this PR"
+    assert re.fullmatch(r"PR #\d+", hold["review"])
     assert "ignore_hold:" in workflow
     assert "default: 'false'" in workflow
     assert '--hold-file "deploy/v3-production/promotion-hold.json"' in workflow
