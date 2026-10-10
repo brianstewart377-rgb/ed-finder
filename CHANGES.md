@@ -76,6 +76,10 @@ or removed through review; manual dispatch can ignore it to expose raw drift.
 Web/API agreement, SHA validity, and the expected-SHA deployment gate remain
 fail-closed.
 
+## 2026-10-10 — Finder rollout step 6: read-only archetype calibration probe + governed action
+
+The bounded, read-only probe samples published Ratings V4 vectors and reports per-archetype score distributions, primary and secondary counts, tier histograms, and mining/manufacturing/megacomplex separation. The governed operator action verifies the published current generation, runs the probe with fixed resource limits, and retains its JSON receipt as calibration evidence. It has not been run, and the resulting coefficient decision must be recorded before the `system_archetype` product is registered and built.
+
 ## 2026-10-10 — Finder rollout step 3: governed system_search constraint validation action
 
 The action runs all 18 deferred `system_search` check validations in a detached runner and provides a separate read-only status operation. It changes only catalog validation flags, with no row data changes and no publication. It has not been run.
