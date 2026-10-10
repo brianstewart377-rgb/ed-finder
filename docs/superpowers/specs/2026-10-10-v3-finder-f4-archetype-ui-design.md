@@ -738,7 +738,7 @@ The URL is the source of truth for shareable ranking state:
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
 | Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit`, whose current API contract is default 50 and range 1–500 (`apps/api/src/routers/archetypes.py:517-518`). F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
-| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. For a selected archetype, reject `offset >= 10,000` and send at most `min(page_size, 10,000 - offset)`. Anchored Any may navigate its exact total beyond 10,000. Once unanchored Any reports `total_is_capped=true`, apply the same `offset < 10,000` and page-size clamp and correct/refetch a URL that would cross the cap. Previous/Next stop at the envelope's `navigable_total`. Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
+| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. For a selected archetype **and for unanchored (galaxy-wide) Any — both known from the URL alone, before any request** — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata. Anchored Any (an anchor is present in the URL) is the only mode that may navigate an exact total beyond 10,000; it is clamped to the returned `total` once known. Previous/Next stop at the envelope's `navigable_total`. Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
 | Detail overlay     | existing `system=<id64>`                                 | Exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`). Closing the overlay removes only `system`; it never clears or creates `selected`. |
@@ -854,7 +854,17 @@ spatial/region, selected raw-score and summary-weighted indexes
 (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:22-54`,
 `sql/v3/migrations/010_v3_system_search_body_type_counts.sql:17-35`,
 `sql/v3/migrations/011_v3_system_archetype.sql:7-56`,
-`sql/v3/migrations/011_v3_system_archetype.sql:132-139`). Execute the actual
+`sql/v3/migrations/011_v3_system_archetype.sql:132-139`). The seed must
+**saturate the candidate window**: for the archetype and B floor under test, at
+least 10,001 index-eligible rows (assert the count), so the offset-9950 page is
+populated and the 10,001st-row sentinel is actually observed; a corpus of
+mostly ineligible rows would pass every latency budget without exercising the
+bounded path that motivated slice 1c. After loading and index creation and
+before the warm or cold runs, run `ANALYZE` on all three underlying relations,
+as the derived-data decision requires before any validation benchmark
+(`docs/development/v3-search-spatial-derived-data-decision.md:350-364`);
+freshly bulk-loaded relations otherwise plan from absent or stale statistics
+and the recorded join order would not be the production-shaped plan. Execute the actual
 page SQL and companion count SQL returned, with bound parameters, by
 `build_ranked_query` and `build_count_query`
 (`apps/api/src/ranking/ranking_sql.py:392-509`,
@@ -926,8 +936,12 @@ for:
   rankings, selected default B → score 60, and facade `page_size=1` → wire
   `limit=1`;
 - ranking-row normalization preserving `score_kind`, selected archetype,
-  overall potential, `distance_reference`, page metadata, absent `best_tier`
-  and lossless id64 handling;
+  overall potential, `distance_reference`, `ranking_provenance` copied from the
+  response envelope onto every row (both the local-search and rankings
+  shapes), page metadata, absent `best_tier` and lossless id64 handling;
+- snapshot creation (`snapshotFromExplore`) carrying `ranking_provenance` from
+  the `ExploreSystem` row into the persisted snapshot, and a legacy snapshot
+  without it normalizing to `ranking_provenance: null`;
 - persistence backward compatibility plus mode-aware scores, same-reference
   distance comparison accepting finite zero, and exclusion of legacy snapshots
   without a reference;
@@ -1083,8 +1097,10 @@ ranked empty/error UI to mocked component tests alone:
   (`x-edfinder-review-failure: rankings-api-failure`). Browser flow
   `rankingsApiFailure`: open Explore with a selected archetype in the URL,
   observe **Ranking temporarily unavailable** in the result region's
-  `role="alert"`, and prove the map/selection state survives (the selected
-  marker, if any, is not cleared by the failed rerank).
+  `role="alert"`, and prove the map/selection state survives: the flow first
+  establishes `selected=<REVIEW_SYSTEM.id64>` in the URL and its marker, and
+  asserts that exact selection and marker are still present after the failed
+  rerank.
 - `rankings_empty_results` — the same middleware answers the rankings request
   with a contract-shaped empty envelope (`results: []`, `total: 0`,
   `is_truncated: false`, the normal ranking identity fields). Browser flow
@@ -1096,8 +1112,19 @@ Both run against the F4-enabled bundle: the Review Lab browser runner builds
 (`scripts/dev/review_lab/browser_runner.py:164-172`), so F4b adds
 `VITE_FINDER_F4_ENABLED: '1'` to that override set — the Review Lab bundle is a
 disposable diagnostic build, never a release artifact, so this does not enable
-F4 anywhere else. The existing four scenarios keep their behaviour under the
-enabled flag (Any mode with no archetype in the URL is the default-off path).
+F4 anywhere else. Three of the existing four scenarios keep their behaviour
+under the enabled flag (Any mode with no archetype in the URL is the default
+path). The `apiFailure` flow does **not**: today it seeds the selected id only
+in `localStorage` and visits `/explore` without `selected=`
+(`apps/web/cypress/e2e/review-lab.cy.ts:213-226`), and under the F4 URL
+contract omission of `selected` on `/explore` clears URL-owned selection, so
+its preservation assertion would fail. F4b therefore updates that flow (and
+writes the new `rankingsApiFailure` flow the same way) to establish a
+URL-owned selection first — visit `/explore?selected=<REVIEW_SYSTEM.id64>`, wait
+for the marker/last-known point — then activate the failure mode, trigger the
+failing request, and assert that **exactly that** `selected` value and its
+marker survive. The “if any” wording above is replaced by this exact
+assertion; a vacuous check is not evidence.
 Cypress does not stub either response; the backend mode does. Do not duplicate
 picker, axe or visual assertions there. The current wiring check only requires
 Review Wiring and Babylon readiness
@@ -1293,9 +1320,15 @@ Deliver the default-off feature gate, canonical metadata,
 URL/page-size/offset codec with selected-only tier state, tier/evidence
 presentation helpers, lossless
 page-envelope normalizer,
-`ExploreSystem` confidence/completeness plus score/distance identity, persisted
-snapshot shape (`ranking_score`, `score_kind`, selected archetype and distance
-reference), and ranking query key. The facade constrains `page_size` to 1–50
+`ExploreSystem` confidence/completeness plus score/distance identity **and
+`ranking_provenance`** (the facade copies `ranking_version`, `ranking_sha256`,
+generation id and publication sequence from each response envelope onto every
+normalized row, so `SystemActions`/`snapshotFromExplore` need only the
+`ExploreSystem` they already receive), persisted snapshot shape
+(`ranking_score`, `score_kind`, selected archetype, distance reference and
+`ranking_provenance`), and ranking query key. Without this in F4a every
+selected-fit snapshot saved before F4c would have null provenance and F4c would
+exclude all of them from comparison. The facade constrains `page_size` to 1–50
 (default 50), maps it to existing endpoint `limit`, exposes the exclusive 10,000
 offset/window limit for selected rankings and clamps selected request size at
 its boundary. Anchored Any accepts exact offsets above 10,000 within the local-
@@ -1889,3 +1922,31 @@ product/implementation choices are:
    `ranking_sha256`; generation/sequence are displayed, not required. Snapshots
    without provenance never enter a selected-fit comparison. This also covers the
    ranking-identity change the F2d capacity design introduces.
+
+#### Round 9 — 2026-10-10 (PR #801)
+
+1. **P1 — Clamp unanchored Any before response metadata** → the canonical URL
+   table's offset row now matches the pre-dispatch rule: for a selected archetype
+   and for unanchored Any (both known from the URL alone) `offset >= 10,000` is
+   rejected and canonicalized before the first request, and the wire page is
+   clamped, with no dependence on `total_is_capped` or any response field; only
+   anchored Any navigates an exact total beyond 10,000.
+2. **P2-A — Carry ranking provenance through F4a snapshots** → F4a's deliverable
+   and its test list now include copying `ranking_provenance` from each response
+   envelope onto every normalized row (both response shapes) and into
+   `snapshotFromExplore`'s persisted snapshot, with legacy snapshots normalizing
+   to `null`; `SystemActions` keeps receiving only the `ExploreSystem`.
+3. **P2-B — Update Review Lab selection setup for URL ownership** → the claim
+   that all four existing scenarios are unchanged was wrong for `apiFailure`:
+   it seeds selection only in `localStorage` and visits `/explore` without
+   `selected=`, which the F4 URL contract treats as clearing selection. F4b
+   updates that flow, and writes `rankingsApiFailure` the same way, to establish
+   `selected=<id64>` and its marker first, then induce the failure and assert
+   that exact selection and marker survive; the “if any” wording is removed.
+4. **P2-C — Analyze the scale fixture before timing queries** → the slice 1c
+   recipe requires `ANALYZE` on all three relations after load/index creation
+   and before the warm and cold runs, per the derived-data decision.
+5. **P2-D — Saturate the candidate window in the scale fixture** → the seed must
+   provide and assert at least 10,001 index-eligible rows for the archetype and B
+   floor under test, a populated offset-9950 page, and an observed 10,001st-row
+   sentinel before the receipt is accepted.
