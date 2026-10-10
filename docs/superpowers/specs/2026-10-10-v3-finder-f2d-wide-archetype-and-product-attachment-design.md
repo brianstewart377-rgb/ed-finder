@@ -1,6 +1,8 @@
 # V3 Finder F2d — wide archetype product and product attachment/publication
 
-**Status:** Design only; not implemented
+**Status:** Design only; not implemented. Depends on PR #805 (step 0 receipt,
+capacity decision, ROADMAP amendment), which merges first; this document cites
+files that PR adds.
 
 **Date:** 2026-10-10
 
@@ -198,9 +200,19 @@ CREATE VIEW v3_app.system_archetype_summary AS
 SELECT derived_generation_id, system_id64,
        primary_archetype, secondary_archetype,
        best_colony_potential, best_tier,
-       archetype_confidence, weighted_potential, computed_at
+       (archetype_confidence_ppm / 1000000.0)::double precision AS archetype_confidence,
+       weighted_potential, computed_at
 FROM v3_app.system_archetype;
 ```
+
+The stored column is the exact integer `archetype_confidence_ppm`; the view
+projects the double-precision `archetype_confidence` the ranking SQL and the
+response models already read, so the no-pick path and the summary fields need
+no code change. The `v3_app.system_archetype` view exposes every wide column as
+stored (the eight `_confidence_ppm` integers included) **and** the same derived
+`<key>_confidence` doubles, so the ranking column map in section 6 may reference
+either form; the migration test creates both views against the wide table and
+selects every projected column.
 
 That preserves the join name used by both ranked and count query builders while
 removing duplicated storage. The current common SQL always joins that name.
@@ -295,7 +307,10 @@ renames no externally used guard unless needed for clarity.
 ### 4.1 Endpoint and shared model
 
 **Decision:** add
-`GET /api/archetypes/system/{id64}/explanation`; leave the existing legacy
+`GET /api/archetypes/system/{id64}/explanation` with the path parameter declared
+`Path(ge=0, le=9223372036854775807)` as the active Ratings V4 routes do, so a
+negative or over-`bigint` value is a 422 validation response rather than an
+asyncpg encoding failure (tests cover both bounds); leave the existing legacy
 `GET /api/archetypes/system/{id64}` unchanged until its topology/pair/trait
 contract has a complete V3 replacement. The existing endpoint still reads
 legacy `systems`, `system_archetype_scores`, topology, pair, trait, and body
@@ -553,9 +568,13 @@ live in the **table guards themselves**, so a caller who bypasses the function
 with paired direct DML (an `UPDATE … SET published_at` plus a hand-written
 audit row in one transaction) meets exactly the same checks:
 
-- a `BEFORE UPDATE` row trigger on `v3_meta.derived_product` rejects any change
-  to a column other than `published_at`, rejects a `published_at` change unless
-  the old value is `NULL`, itself takes the shared advisory transaction lock
+- the existing `BEFORE UPDATE` lifecycle guard on `v3_meta.derived_product`
+  keeps its current branch for BUILDING → READY/FAILED (which legitimately
+  updates `lifecycle_state`, validation/failure evidence and their timestamps)
+  and gains a **publication branch** that applies only when
+  `NEW.published_at IS DISTINCT FROM OLD.published_at`: that branch rejects any
+  other column changing in the same statement, rejects the change unless the
+  old value is `NULL`, itself takes the shared advisory transaction lock
   `764003001` (so no publication can race a generation pointer swap, whether or
   not the function was used), and then requires: the row's generation is the
   current derived pointer **and** `PUBLISHED`; the product is `READY` with a
@@ -686,6 +705,30 @@ replaced below; steps 0–3 remain prerequisites. (`docs/ROADMAP.md:154-179`)
 
 All production work remains owner-dispatched through governed actions; this
 design authorizes no deployment or production access.
+
+**Authority updates are part of the sequence, not implied by this spec.** This
+document is lower in the authority chain than `docs/ROADMAP.md` and
+`docs/development/v3-search-spatial-derived-data-decision.md`, so it cannot
+replace either; the rollout below is authorized only once both say so:
+
+- `docs/ROADMAP.md` — PR #805 (which this PR depends on and which merges first)
+  records the owner's A + B decision in the controlling sequence, marks steps
+  4–9 superseded, lists the replacement steps 4′–9′, and blocks every production
+  step beyond step 0 (including migration plan/apply) until the rewritten `011`
+  and `015` are registered. PR #805 also adds
+  `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the decision and
+  its numbers) and the step 0 receipt; the citations in this document resolve
+  when it merges.
+- `docs/development/v3-search-spatial-derived-data-decision.md` currently says
+  “Published derived generations are immutable. Recalculation creates a new
+  generation” (its section 1). **PR2 amends that sentence** with the explicit
+  exception this design introduces: the ratings relations of a published
+  generation stay immutable and are never recalculated in place; *derived
+  products* (separately registered, insert-only projections with their own
+  manifests and receipts) may be **added** to the published generation and
+  become visible only through the explicit product-publication gate of
+  migration `015`. PR2's file list and tests include that amendment, so no
+  operator is left with two contradictory procedures.
 
 | # | Governed step | Reuse/build status | Persistent product disk written |
 |---:|---|---|---:|
@@ -847,6 +890,11 @@ Files:
 - `deploy/v3-production/target-authority.json` and
   `docs/operations/v3-production-application-release.md` (identities recut for
   `[014, 010, 011-rewritten, 013, 015]`)
+- `docs/development/v3-search-spatial-derived-data-decision.md` (section 1:
+  the product-attachment exception to generation immutability, as worded in
+  section 8 above)
+- `docs/ROADMAP.md` (step 4′ progress note only; the sequence itself comes from
+  PR #805)
 - tests: `tests/test_v3_derived_product_publication.py` (new: the full
   disposable-PG18 lifecycle matrix of section 7.5, including paired direct DML),
   `tests/test_local_search_v3.py`, `tests/test_archetype_rankings_v3.py`,
