@@ -57,6 +57,28 @@ jobs:
         with:
           driver: docker
 
+      - name: Pre-pull release base images with retry
+        run: |
+          set -euo pipefail
+          pull_with_retry() {
+            local image="$1"
+            for attempt in $(seq 1 5); do
+              if docker pull --quiet "${image}"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq 5 ]; then
+                echo "::error::Failed to pull ${image} after ${attempt} attempts"
+                return 1
+              fi
+              sleep 3
+            done
+          }
+
+          release_python_base="$(grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}')"
+          pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine
+          sleep 2
+          pull_with_retry "${release_python_base}"
+
       - name: Build locked CPython 3.14 release image
         run: |
           docker build \
@@ -151,6 +173,33 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
+
+      - name: Pre-pull parity base images with retry
+        run: |
+          set -euo pipefail
+          pull_with_retry() {
+            local image="$1"
+            for attempt in $(seq 1 5); do
+              if docker pull --quiet "${image}"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq 5 ]; then
+                echo "::error::Failed to pull ${image} after ${attempt} attempts"
+                return 1
+              fi
+              sleep 3
+            done
+          }
+
+          python_base="$(grep -m1 '^FROM ' apps/api/Dockerfile | awk '{print $2}')"
+          mapfile -t web_bases < <(grep '^FROM ' apps/web/Dockerfile | awk '{print $2}')
+          images=("${python_base}" "${web_bases[@]}")
+          for image_index in "${!images[@]}"; do
+            if [ "${image_index}" -gt 0 ]; then
+              sleep 2
+            fi
+            pull_with_retry "${images[image_index]}"
+          done
 
       - name: Build deployable Svelte web image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

@@ -540,6 +540,100 @@ def test_generation_seed_runs_on_host_with_pinned_dsn_and_bounded_failure(monkey
     assert 'scripts/' not in read('apps/api/Dockerfile')
 
 
+def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch):
+    events = []
+
+    def fake_run_subprocess(command, **kwargs):
+        events.append(('command', command, kwargs))
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
+    monkeypatch.setattr(lifecycle.time, 'sleep', lambda seconds: events.append(('sleep', seconds)))
+
+    result = lifecycle.pull_review_images()
+
+    base_image = read('apps/api/Dockerfile').splitlines()[0].split()[1]
+    expected_prefix = [
+        'docker', 'compose', '-f', str(contract.COMPOSE_FILE), '-p', contract.PROJECT_NAME,
+        'pull', '--quiet',
+    ]
+    assert events == [
+        ('command', [*expected_prefix, 'review-postgres'], {
+            'allow_failure': True, 'timeout_seconds': 120,
+        }),
+        ('sleep', 3.0),
+        ('command', [*expected_prefix, 'review-redis'], {
+            'allow_failure': True, 'timeout_seconds': 120,
+        }),
+        ('command', ['docker', 'pull', '--quiet', base_image], {
+            'allow_failure': True, 'timeout_seconds': 120,
+        }),
+    ]
+    assert result == {'pulls': [
+        {'service': 'review-postgres', 'attempts': 1},
+        {'service': 'review-redis', 'attempts': 1},
+        {'service': 'review-api', 'attempts': 1},
+    ]}
+
+
+def test_pull_review_images_retries_a_failed_service_then_succeeds(monkeypatch):
+    attempts = {'review-redis': 0}
+    sleeps = []
+
+    def fake_run_subprocess(command, **_kwargs):
+        if command[-1] == 'review-redis':
+            attempts['review-redis'] += 1
+            if attempts['review-redis'] == 1:
+                return SimpleNamespace(returncode=1, stdout='', stderr='rate exceeded')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
+    monkeypatch.setattr(lifecycle.time, 'sleep', sleeps.append)
+
+    result = lifecycle.pull_review_images()
+
+    assert result['pulls'][1] == {'service': 'review-redis', 'attempts': 2}
+    assert sleeps == [3.0, 3.0]
+
+
+def test_pull_review_images_fails_closed_after_five_attempts(monkeypatch):
+    calls = []
+
+    def always_fails(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=1, stdout='', stderr='detail\ntoomanyrequests: Rate exceeded')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', always_fails)
+    monkeypatch.setattr(lifecycle.time, 'sleep', lambda _seconds: None)
+
+    with pytest.raises(contract.ReviewLabError, match='toomanyrequests: Rate exceeded') as error:
+        lifecycle.pull_review_images()
+
+    assert len(calls) == 5
+    assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
+    assert error.value.safe_diagnostics == {'service': 'review-postgres', 'attempts': 5}
+
+
+def test_pull_review_images_rejects_non_mirror_api_base_without_docker_pull(tmp_path, monkeypatch):
+    dockerfile = tmp_path / 'Dockerfile'
+    dockerfile.write_text('FROM python:3.14-slim AS runtime\n', encoding='utf-8')
+    calls = []
+
+    def fake_run_subprocess(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'API_DOCKERFILE', dockerfile)
+    monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
+    monkeypatch.setattr(lifecycle.time, 'sleep', lambda _seconds: None)
+
+    with pytest.raises(contract.ReviewLabError) as error:
+        lifecycle.pull_review_images()
+
+    assert error.value.failure_code == 'STATIC_CONTAINMENT_FAILED'
+    assert not any(command[:2] == ['docker', 'pull'] for command in calls)
+
+
 @pytest.mark.parametrize('seed_fails', [False, True])
 def test_stack_seeds_after_schema_before_api_and_stops_on_seed_failure(monkeypatch, seed_fails):
     calls = []
@@ -548,6 +642,8 @@ def test_stack_seeds_after_schema_before_api_and_stops_on_seed_failure(monkeypat
                  'wait_for_postgres', 'wait_for_redis'):
         monkeypatch.setattr(lifecycle, name, lambda *_args: None)
     monkeypatch.setattr(lifecycle, 'run_compose', lambda *args, **_kwargs: calls.append(args))
+    image_pulls = {'pulls': [{'service': 'review-postgres', 'attempts': 1}]}
+    monkeypatch.setattr(lifecycle, 'pull_review_images', lambda: calls.append('pulls') or image_pulls)
     monkeypatch.setattr(lifecycle, 'bootstrap_schema', lambda: calls.append('schema'))
     monkeypatch.setattr(lifecycle, 'wait_for_api_health', lambda: calls.append('health'))
     monkeypatch.setattr(lifecycle, 'review_service_readiness', lambda: {})
@@ -562,11 +658,12 @@ def test_stack_seeds_after_schema_before_api_and_stops_on_seed_failure(monkeypat
         with pytest.raises(contract.ReviewLabError) as error:
             lifecycle.up_review_stack()
         assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
-        assert calls == [('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed']
+        assert calls == ['pulls', ('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed']
     else:
-        lifecycle.up_review_stack()
-        assert calls == [('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed',
+        result = lifecycle.up_review_stack()
+        assert calls == ['pulls', ('up', '-d', 'review-postgres', 'review-redis'), 'schema', 'seed',
                          ('build', 'review-api'), ('up', '-d', 'review-api'), 'health']
+        assert result['image_pulls'] == image_pulls
 
 
 @pytest.mark.parametrize('source, missing, passes', [('v3:test', False, True), ('local_db', False, False), ('v3:test', True, False)])

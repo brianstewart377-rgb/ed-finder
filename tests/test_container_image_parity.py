@@ -87,6 +87,28 @@ def test_required_parity_check_runs_for_every_pull_request():
     assert 'paths:' in push_block
 
 
+def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
+    workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    step_names = (
+        'Pre-pull release base images with retry',
+        'Pre-pull parity base images with retry',
+    )
+
+    for step_name in step_names:
+        marker = f'      - name: {step_name}'
+        assert marker in workflow
+        step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
+        assert 'for attempt in $(seq 1 5); do' in step
+        assert 'docker pull --quiet "${image}"' in step
+        assert 'sleep 3' in step
+        assert 'sleep 2' in step
+
+    assert "grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}'" in workflow
+    assert 'pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine' in workflow
+    assert "grep -m1 '^FROM ' apps/api/Dockerfile | awk '{print $2}'" in workflow
+    assert "grep '^FROM ' apps/web/Dockerfile | awk '{print $2}'" in workflow
+
+
 def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
     dockerfiles = [
         ROOT / 'apps/api/Dockerfile',

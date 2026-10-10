@@ -33,6 +33,12 @@ def test_image_build_has_its_own_timeout_distinct_from_stack_readiness():
     )
 
 
+def test_image_pulls_have_bounded_retry_timeouts_and_backoff():
+    assert TIMEOUTS.image_pull == 120
+    assert TIMEOUTS.image_pull_attempts == 5
+    assert TIMEOUTS.image_pull_backoff_seconds == 3.0
+
+
 def test_docker_compose_build_uses_image_build_timeout_not_stack_readiness():
     build_line = next(
         line for line in LIFECYCLE_SOURCE.splitlines()

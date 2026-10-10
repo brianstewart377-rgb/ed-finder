@@ -21,6 +21,13 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — CI pulls from ECR Public are sequential with retry
+
+ECR Public's anonymous quota is one pull per second, so parallel pulls can fail
+with `toomanyrequests`. Review Lab and the image-parity jobs now pull images
+sequentially with five attempts and a three-second backoff; no image or digest
+changed.
+
 ## 2026-10-10 — CI failure causes surfaced as GitHub annotations
 
 Failed pytest tests now emit `::error` annotations with the file, line, test ID,

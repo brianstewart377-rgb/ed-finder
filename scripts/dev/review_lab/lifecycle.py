@@ -39,6 +39,9 @@ from .contract import (
 from .support_matrix import REVIEW_SUPPORT_ROUTE_MATRIX, validate_support_route_matrix
 from .timeouts import TIMEOUTS
 
+API_DOCKERFILE = ROOT / 'apps' / 'api' / 'Dockerfile'
+ECR_PUBLIC_LIBRARY_PREFIX = 'public.ecr.aws/docker/library/'
+
 
 def validate_review_database_name(value: str) -> str:
     name = (value or '').strip()
@@ -236,6 +239,68 @@ def run_compose(*args: str, timeout_seconds: int | None = None, failure_code: st
         timeout_seconds=timeout_seconds,
         failure_code=failure_code,
     )
+
+
+def _pull_with_retry(command: list[str], *, service: str) -> int:
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, TIMEOUTS.image_pull_attempts + 1):
+        last_result = run_subprocess(
+            command,
+            allow_failure=True,
+            timeout_seconds=TIMEOUTS.image_pull,
+        )
+        if last_result.returncode == 0:
+            return attempt
+        if attempt < TIMEOUTS.image_pull_attempts:
+            time.sleep(TIMEOUTS.image_pull_backoff_seconds)
+
+    assert last_result is not None
+    output = last_result.stderr.strip() or last_result.stdout.strip() or 'image pull failed'
+    message = output.splitlines()[-1][:240]
+    raise ReviewLabError(
+        message,
+        failure_code='REVIEW_STACK_START_FAILED',
+        safe_diagnostics={'service': service, 'attempts': TIMEOUTS.image_pull_attempts},
+    )
+
+
+def _review_api_base_image() -> str:
+    from_line = next(
+        (line for line in API_DOCKERFILE.read_text(encoding='utf-8').splitlines() if line.startswith('FROM ')),
+        '',
+    )
+    parts = from_line.split()
+    image = parts[1] if len(parts) >= 2 else ''
+    if not image.startswith(ECR_PUBLIC_LIBRARY_PREFIX):
+        raise ReviewLabError(
+            'review-api Dockerfile base image must use the ECR Public Docker Library mirror',
+            failure_code='STATIC_CONTAINMENT_FAILED',
+        )
+    return image
+
+
+def pull_review_images() -> dict[str, Any]:
+    pulls: list[dict[str, Any]] = []
+    services = ('review-postgres', 'review-redis')
+    for index, service in enumerate(services):
+        attempts = _pull_with_retry(
+            [
+                'docker', 'compose', '-f', str(COMPOSE_FILE), '-p', PROJECT_NAME,
+                'pull', '--quiet', service,
+            ],
+            service=service,
+        )
+        pulls.append({'service': service, 'attempts': attempts})
+        if index < len(services) - 1:
+            time.sleep(TIMEOUTS.image_pull_backoff_seconds)
+
+    base_image = _review_api_base_image()
+    attempts = _pull_with_retry(
+        ['docker', 'pull', '--quiet', base_image],
+        service='review-api',
+    )
+    pulls.append({'service': 'review-api', 'attempts': attempts})
+    return {'pulls': pulls}
 
 
 def review_api_origin() -> str:
@@ -456,6 +521,7 @@ def up_review_stack() -> dict[str, Any]:
     ensure_docker_cli_available()
     assert_no_preexisting_review_resources()
     run_compose_config_check()
+    image_pulls = pull_review_images()
     run_compose('up', '-d', 'review-postgres', 'review-redis', timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
     wait_for_postgres()
     wait_for_redis()
@@ -468,6 +534,7 @@ def up_review_stack() -> dict[str, Any]:
         'ok': True,
         'review_database_name': EXPECTED_REVIEW_DB_NAME,
         'review_api_health_route': '/api/health',
+        'image_pulls': image_pulls,
         'services': review_service_readiness(),
         'frontend_start_command': frontend_start_command(),
     }
