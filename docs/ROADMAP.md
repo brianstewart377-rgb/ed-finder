@@ -187,7 +187,7 @@ newer dated source wins).
   the `NOT VALID` checks still enforce every subsequent builder insert
   automatically. The step 3 action `v3-system-search-validate-constraints` is
   built (PR pending merge) and may only start once migration `010` is applied.
-  For step 6, **NO governed action — must be built**; the probe
+  For step 6, the read-only action `v3-archetype-calibration-probe` is built (PR pending merge); the probe
   can read the already-published `parallel_v1` ratings vectors and does not wait
   for the fresh generation, so it may run earlier once step 0 reconfirms state.
   For step 8, **NO governed action — must be built:** the step 5 and step 7 build
