@@ -18,7 +18,7 @@ _spec.loader.exec_module(mod)
 A = "a" * 40
 B = "b" * 40
 C = "c" * 40
-BASE_MAIN = "3b6ee91a2e4b076a97a2564cc38310411b534beb"
+BASE_MAIN = "c3da6061441cb40c96e0d43b7507bda740ad9d94"
 HOUR = 3600
 DAY = 24 * HOUR
 NOW = 1_000_000_000
@@ -538,7 +538,7 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
         "(F3 Finder cutover must not be promoted before the Finder products are "
         "built and published; see docs/operations/v3-produc); hold expires in "
         "30 days; 0 covered deployable commit(s) acknowledged by the hold "
-        "(reviewed against 3b6ee91a2e4b)"
+        "(reviewed against c3da6061441c)"
     )
     assert (
         f"Promotion hold file: {ROOT / mod.DEFAULT_HOLD_FILE}"
