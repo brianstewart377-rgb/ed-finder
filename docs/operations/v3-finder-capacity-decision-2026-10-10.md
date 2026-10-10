@@ -3,9 +3,10 @@
 **Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
 ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added
-after review and await the owner; the ROADMAP lists their recorded answers as
-a prerequisite of step 4′, so the F2d code PRs that encode them cannot merge
-first. Numbers come
+after review and **answered yes by the owner on 2026-10-10 (23:12 BST, in
+chat: “yes yes”, after the index layout had been revised to the partial
+form)** — recorded below; the ROADMAP lists these recorded answers as the
+prerequisite of step 4′, which is therefore satisfied. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
@@ -218,6 +219,7 @@ applied anywhere.
 5. Accept the exact-version rule for on-demand explanations (served only when
    the deployed model version equals the product's pinned `archetype_version`;
    HTTP 409 otherwise; no versioned replay registry)?
+   **Owner: yes (2026-10-10).**
 6. Adopt the wide-row index layout of primary key + weighted index + eight
    **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score
    >= 60` indexes (≈ 66 GB on the synthetic sample, sized for real from the
@@ -225,6 +227,7 @@ applied anywhere.
    deduplicating variant proposed earlier the same evening, which review showed
    cannot bound the F4 slice 1c probe without a distribution-dependent tie
    sort.
+   **Owner: yes (2026-10-10), given with the partial-index form in view.**
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder
 adaptation (code), the `015` migration + API gate (code), and the amended
