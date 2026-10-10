@@ -120,6 +120,18 @@ jobs:
           import json
           from pathlib import Path
 
+          def escape_command_message(value):
+              return str(value).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+
+          def escape_command_title(value):
+              return escape_command_message(value).replace(':', '%3A').replace(',', '%2C')
+
+          def emit_error(title, message):
+              print(f"::error title={escape_command_title(title)}::{escape_command_message(message)}", flush=True)
+
+          def single_line(value):
+              return str(value).replace('\r\n', '\n').replace('\r', '\n').replace('\n', ' | ')
+
           summary_path = Path('/tmp/edfinder-local-review/latest-report.json')
           lines = ['## Review Lab']
           if summary_path.is_file():
@@ -143,8 +155,32 @@ jobs:
                   f"- Docker baseline restored: {report.get('docker_baseline_restored')}",
                   f"- Review-owned resources absent: {remaining_absent}",
               ])
+              if report.get('ok') is not True:
+                  failure_code = str(report.get('failure_code') or 'none')
+                  failure_summary = str(report.get('failure_summary') or 'none')
+                  lines.extend([
+                      f"- Failure code: {failure_code}",
+                      f"- Failure summary: {single_line(failure_summary[:800])}",
+                  ])
+                  emit_error('Review Lab failure', f"{failure_code}: {failure_summary[:1000]}")
+                  for phase_name, phase in report.get('phase_results', {}).items():
+                      if phase.get('status') != 'failed':
+                          continue
+                      phase_failure_code = str(phase.get('failure_code') or 'none')
+                      phase_summary = str(phase.get('summary') or 'none')
+                      lines.append(
+                          f"- Phase {phase_name}: failed ({phase_failure_code}) {single_line(phase_summary[:400])}"
+                      )
+                      emit_error(
+                          f"Review Lab phase {phase_name}",
+                          f"{phase_failure_code}: {phase_summary[:600]}",
+                      )
           else:
               lines.append('- Review Lab full verification: no sanitised report written')
+              emit_error(
+                  'Review Lab failure',
+                  'no sanitised report was written (verify did not reach the report stage)',
+              )
           github_summary = Path(__import__('os').environ['GITHUB_STEP_SUMMARY'])
           github_summary.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
