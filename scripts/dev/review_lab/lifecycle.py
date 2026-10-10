@@ -168,7 +168,7 @@ def validate_compose_text(compose_text: str) -> None:
     postgres_block = extract_service_block(compose_text, 'review-postgres')
     redis_block = extract_service_block(compose_text, 'review-redis')
     api_block = extract_service_block(compose_text, 'review-api')
-    if 'image: postgres:18-alpine' not in postgres_block:
+    if 'image: public.ecr.aws/docker/library/postgres:18-alpine' not in postgres_block:
         raise ReviewLabError('review-postgres must use the V3 PostgreSQL 18 test service')
     # Parse port declarations so alternate YAML spellings/long form cannot
     # bypass the exact loopback-only host seed boundary. No ambient host DB.

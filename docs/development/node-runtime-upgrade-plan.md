@@ -46,7 +46,7 @@ tests and documentation.
 | `.github/workflows/review-lab.yml:41` | `node-version: "24"` | Unchanged |
 | All five `actions/setup-node` uses above | SHA `820762786026740c76f36085b0efc47a31fe5020` (`v7.0.0`) | Preserve action pins; action versions are distinct from the selected project Node version |
 | `.github/workflows/cypress-parity.yml:165` | `actions/cache` v6.1.0, documented Node 24 action runtime | Preserve SHA `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` |
-| `apps/web/Dockerfile:2` | `node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf` | Only Node base image; already correct, preserve immutable digest |
+| `apps/web/Dockerfile:2` | `public.ecr.aws/docker/library/node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf` | Only Node base image; already correct, preserve immutable digest |
 | Other `Dockerfile*`, root/`deploy/` Compose, deployment and Octopus-related files | No Node version pin | No edit; release workflow builds the web Dockerfile above |
 | `frontend/scripts/bench-journal-parse.mjs:83` | esbuild output target `node20` | Align to `node24`; this is a syntax target in retained historical tooling, not an active runtime selector |
 

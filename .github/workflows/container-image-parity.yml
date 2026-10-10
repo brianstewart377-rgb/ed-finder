@@ -54,6 +54,8 @@ jobs:
 
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
 
       - name: Build locked CPython 3.14 release image
         run: |
@@ -82,7 +84,7 @@ jobs:
             --env POSTGRES_USER=edfinder \
             --env POSTGRES_PASSWORD=edfinder \
             --env POSTGRES_DB=edfinder \
-            postgres:18-alpine
+            public.ecr.aws/docker/library/postgres:18-alpine
           for attempt in $(seq 1 30); do
             if docker exec "${postgres_name}" pg_isready -U edfinder -d edfinder >/dev/null 2>&1; then
               break
@@ -147,6 +149,8 @@ jobs:
 
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
 
       - name: Build deployable Svelte web image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

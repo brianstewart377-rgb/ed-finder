@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build
+FROM public.ecr.aws/docker/library/node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build
 
 ARG BUILD_SHA
 WORKDIR /workspace/apps/web
@@ -29,7 +29,7 @@ RUN VITE_BUILD_SHA="$BUILD_SHA" pnpm build
 # Bind the HTML itself to the image source, including the SPA fallback.
 RUN BUILD_SHA="$BUILD_SHA" node -e 'const fs=require("node:fs"); for (const file of ["build/index.html","build/200.html"]) { const html=fs.readFileSync(file,"utf8"); if (!html.includes("</head>") || html.includes("edfinder-build-sha")) process.exit(64); fs.writeFileSync(file,html.replace("</head>",`<meta name="edfinder-build-sha" content="${process.env.BUILD_SHA}"></head>`)); }'
 
-FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS runtime
+FROM public.ecr.aws/docker/library/nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS runtime
 
 ARG BUILD_SHA
 RUN case "$BUILD_SHA" in \

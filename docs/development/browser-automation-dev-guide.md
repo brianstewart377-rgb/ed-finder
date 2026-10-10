@@ -21,6 +21,12 @@ CI runs the strict suite with zero retries in both Chrome and Firefox. The
 release journey, owner/auth boundary, renderer synchronization telemetry and
 WCAG axe scan live under `frontend/cypress/e2e/`.
 
+CI and Review Lab pull Docker Official Images through
+`public.ecr.aws/docker/library` to avoid the anonymous Docker Hub pull limit on
+shared GitHub-hosted runner IP addresses. The mirror serves the same image tags
+and manifests/digests as Docker Hub, so moving the registry host does not change
+the selected image; digest pins remain unchanged.
+
 ## Screenshots and visual baselines
 
 The release-gate suite fixes its viewport and clock, disables animation and

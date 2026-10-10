@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import textwrap
@@ -11,10 +13,69 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONTAINER_PARITY_ENV = 'EDFINDER_RUN_CONTAINER_PARITY'
+_BARE_LIBRARY_IMAGE = re.compile(
+    r'^\s*image:\s*[\'\"]?(?:postgres|redis|nginx)(?=[:@\s\'\"]|$)'
+)
+_BARE_LIBRARY_IMAGE_NAME = re.compile(
+    r'(?:postgres|redis|nginx)(?:(?::|@).+)?'
+)
+_DOCKER_LIBRARY_MIRROR = 'public.ecr.aws/docker/library/'
+_DOCKER_RUN_FLAGS_WITHOUT_VALUES = frozenset({
+    '--detach',
+    '--disable-content-trust',
+    '--init',
+    '--interactive',
+    '--oom-kill-disable',
+    '--privileged',
+    '--publish-all',
+    '--read-only',
+    '--rm',
+    '--tty',
+    '-d',
+    '-i',
+    '-P',
+    '-t',
+})
 
 
 def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
+
+
+def _logical_shell_lines(lines: list[str]):
+    command = ''
+    start_line = 0
+    for line_number, line in enumerate(lines, 1):
+        if not command:
+            start_line = line_number
+        command = f'{command} {line.strip()}'.strip()
+        if command.endswith('\\'):
+            command = command[:-1].rstrip()
+            continue
+        yield start_line, command
+        command = ''
+    if command:
+        yield start_line, command
+
+
+def _docker_run_image(command: str) -> str | None:
+    match = re.search(r'\bdocker\s+run\b', command)
+    if match is None:
+        return None
+    tokens = shlex.split(command[match.start():])
+    index = 2
+    while index < len(tokens):
+        token = tokens[index]
+        if token == '--':
+            index += 1
+            break
+        if not token.startswith('-'):
+            break
+        if '=' in token or token in _DOCKER_RUN_FLAGS_WITHOUT_VALUES:
+            index += 1
+        else:
+            index += 2
+    return tokens[index] if index < len(tokens) else None
 
 
 def test_required_parity_check_runs_for_every_pull_request():
@@ -24,6 +85,53 @@ def test_required_parity_check_runs_for_every_pull_request():
 
     assert 'paths:' not in pull_request_block
     assert 'paths:' in push_block
+
+
+def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
+    dockerfiles = [
+        ROOT / 'apps/api/Dockerfile',
+        ROOT / 'apps/api/Dockerfile.release',
+        ROOT / 'apps/eddn/Dockerfile',
+        ROOT / 'apps/importer/Dockerfile',
+        ROOT / 'apps/maintenance/Dockerfile',
+        ROOT / 'apps/web/Dockerfile',
+    ]
+    paths = sorted(ROOT.glob('.github/workflows/*.yml')) + [
+        ROOT / 'docker-compose.review.yml'
+    ] + dockerfiles
+    violations = []
+    for path in paths:
+        lines = path.read_text(encoding='utf-8').splitlines()
+        for line_number, line in enumerate(lines, 1):
+            if _BARE_LIBRARY_IMAGE.search(line):
+                violations.append(f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}')
+            if path in dockerfiles and line.lstrip().startswith('FROM '):
+                image = line.split(maxsplit=2)[1]
+                if not image.startswith(_DOCKER_LIBRARY_MIRROR):
+                    violations.append(
+                        f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}'
+                    )
+        for line_number, command in _logical_shell_lines(lines):
+            image = _docker_run_image(command)
+            if image is not None and _BARE_LIBRARY_IMAGE_NAME.fullmatch(image):
+                violations.append(f'{path.relative_to(ROOT)}:{line_number}: {command}')
+
+    for workflow_path in (
+        ROOT / '.github/workflows/ci.yml',
+        ROOT / '.github/workflows/container-image-parity.yml',
+    ):
+        workflow = workflow_path.read_text(encoding='utf-8')
+        setup_steps = workflow.split('uses: docker/setup-buildx-action@')[1:]
+        assert setup_steps, f'no setup-buildx-action step found in {workflow_path}'
+        for setup_step in setup_steps:
+            step_body = setup_step.split('\n      - ', 1)[0]
+            assert re.search(
+                r'^\s+with:\s*$\n^\s+driver: docker\s*$',
+                step_body,
+                flags=re.MULTILINE,
+            ), f'setup-buildx-action must declare driver: docker in {workflow_path}'
+
+    assert not violations, 'bare Docker Hub library images found:\n' + '\n'.join(violations)
 
 
 def _docker_binary() -> str:
@@ -93,7 +201,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
-    assert 'FROM python:3.14-alpine' in maintenance_dockerfile
+    assert 'FROM public.ecr.aws/docker/library/python:3.14-alpine' in maintenance_dockerfile
     assert "'psycopg[binary]==3.3.4'" in maintenance_dockerfile
     assert 'postgresql-client rclone curl' in maintenance_dockerfile
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
@@ -108,7 +216,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'apps/api/Dockerfile.release' in workflow
     assert 'Release API CPython 3.14 build and startup' in workflow
     assert "sys.version_info[:2] == (3, 14)" in workflow
-    assert 'postgres:18-alpine' in workflow
+    assert 'public.ecr.aws/docker/library/postgres:18-alpine' in workflow
     assert 'DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder' in workflow
     assert 'EDDN_SIMULATION_INGEST_ENABLED=false' in workflow
     assert 'http://127.0.0.1:18000/api/health' in workflow
@@ -123,7 +231,10 @@ def test_local_and_release_api_images_use_the_frozen_python314_runtime():
     release = _read('apps', 'api', 'Dockerfile.release')
 
     for dockerfile in (local, release):
-        assert 'FROM python:3.14-slim@sha256:' in dockerfile
+        assert (
+            'FROM public.ecr.aws/docker/library/python:3.14-slim@sha256:'
+            in dockerfile
+        )
         assert 'uv==0.11.33' in dockerfile
         assert 'apps/api/pyproject.toml apps/api/uv.lock' in dockerfile
         assert 'uv sync --frozen --no-dev --no-group test --no-install-project' in dockerfile
