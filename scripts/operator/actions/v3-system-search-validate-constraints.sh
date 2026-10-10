@@ -152,26 +152,38 @@ active_validation() {
   db_query "BEGIN READ ONLY; SELECT pid, state, now()-query_start, left(query,120) FROM pg_stat_activity WHERE datname=current_database() AND query ILIKE '%VALIDATE CONSTRAINT%' AND query ILIKE '%system_search%' AND state <> 'idle' AND pid<>pg_backend_pid(); COMMIT;"
 }
 
-runner_pid_alive() {
-  docker exec "$POSTGRES_CONTAINER" sh -c \
+runner_pid_is_live() {
+  if docker exec "$POSTGRES_CONTAINER" sh -c \
     'pid_file=/tmp/edfinder-validate-constraints/run.pid
     test -f "$pid_file" || exit 1
     pid="$(cat "$pid_file" 2>/dev/null || true)"
     case "$pid" in
-      ""|*[!0-9]*) rm -f "$pid_file"; exit 1 ;;
+      ""|*[!0-9]*) exit 1 ;;
     esac
     if kill -0 "$pid" 2>/dev/null; then
       cmdline="$(cat "/proc/$pid/cmdline" 2>/dev/null | tr "\0" " ")"
       case "$cmdline" in
         *psql*) ;;
-        *) rm -f "$pid_file"; exit 1 ;;
+        *) exit 1 ;;
       esac
       case "$cmdline" in
         *run.sql*) exit 0 ;;
       esac
     fi
-    rm -f "$pid_file"
-    exit 1'
+    exit 1'; then
+    return 0
+  fi
+  return 1
+}
+
+runner_pid_file_exists() {
+  docker exec "$POSTGRES_CONTAINER" sh -c \
+    'test -f /tmp/edfinder-validate-constraints/run.pid'
+}
+
+remove_stale_runner_pid_file() {
+  docker exec "$POSTGRES_CONTAINER" sh -c \
+    'rm -f /tmp/edfinder-validate-constraints/run.pid'
 }
 
 parse_constraint_state() {
@@ -222,8 +234,11 @@ start_operation() {
   if ! active="$(active_validation)"; then
     stop_start validation_activity_check_failed
   fi
-  if [ -n "$active" ] || runner_pid_alive; then
+  if [ -n "$active" ] || runner_pid_is_live; then
     stop_start validation_already_running
+  fi
+  if runner_pid_file_exists; then
+    remove_stale_runner_pid_file || stop_start stale_runner_pid_cleanup_failed
   fi
 
   sql="\\set ON_ERROR_STOP on
@@ -259,7 +274,8 @@ SET statement_timeout = '45min';"
 }
 
 status_operation() {
-  local state active ledger_sha pid_alive=false log_tail runner_exit_line names failure_text
+  local state active ledger_sha pid_alive=false pid_file_stale=false
+  local log_tail runner_exit_line names failure_text
   local ledger_query_ok=true
   local -a failures=()
   require_target || {
@@ -287,8 +303,10 @@ status_operation() {
     active=""
     failures+=(active_validation_query_failed)
   fi
-  if runner_pid_alive; then
+  if runner_pid_is_live; then
     pid_alive=true
+  elif runner_pid_file_exists; then
+    pid_file_stale=true
   fi
   log_tail="$(docker exec "$POSTGRES_CONTAINER" sh -c \
     'test -f /tmp/edfinder-validate-constraints/run.log && tail -n 40 /tmp/edfinder-validate-constraints/run.log' \
@@ -303,7 +321,7 @@ status_operation() {
 import json
 import sys
 
-migration_sha, expected_sha, names_text, state_text, active_text, pid_alive, log_text, runner_exit_line, failure_text = sys.argv[1:]
+migration_sha, expected_sha, names_text, state_text, active_text, pid_alive, pid_file_stale, log_text, runner_exit_line, failure_text = sys.argv[1:]
 names = names_text.splitlines()
 failures = [failure for failure in failure_text.splitlines() if failure]
 states = {}
@@ -345,13 +363,14 @@ receipt = {
     "all_validated": all_validated,
     "active_validations": active_validations,
     "runner_pid_alive": pid_alive == "true",
+    "runner_pid_file_stale": pid_file_stale == "true",
     "runner_exit_code": runner_exit_code,
     "log_tail": log_text.splitlines(),
     "failures": sorted(set(failures)),
 }
 print(json.dumps(receipt, separators=(",", ":")))
 sys.exit(1 if failures else 0)
-' "$ledger_sha" "$MIGRATION_SHA" "$names" "$state" "$active" "$pid_alive" "$log_tail" "$runner_exit_line" "$failure_text"
+' "$ledger_sha" "$MIGRATION_SHA" "$names" "$state" "$active" "$pid_alive" "$pid_file_stale" "$log_tail" "$runner_exit_line" "$failure_text"
 }
 
 case "$ACTION" in

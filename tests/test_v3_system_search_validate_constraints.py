@@ -153,24 +153,39 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
                     )
                 raise SystemExit(0)
             if "run.pid" in joined and "-d" not in args:
-                if os.environ.get("FAKE_RUNNER_KILL_SUCCEEDS") != "1":
-                    raise SystemExit(1)
                 runner_cmdline = os.environ.get("FAKE_RUNNER_CMDLINE", "")
                 command = str(args[-1])
-                expected_checks = (
+                pid_file_exists = (
+                    os.environ.get("FAKE_RUNNER_PID_FILE_EXISTS") == "1"
+                )
+                is_liveness_check = (
                     "kill -0" in command
                     and "/proc/$pid/cmdline" in command
                     and "tr " in command
                     and "*psql*" in command
                     and "*run.sql*" in command
                 )
-                if not expected_checks:
-                    raise SystemExit(2)
-                if "psql" in runner_cmdline and "run.sql" in runner_cmdline:
+                if is_liveness_check:
+                    if "rm -f" in command:
+                        raise SystemExit(2)
+                    if not pid_file_exists:
+                        raise SystemExit(1)
+                    if os.environ.get("FAKE_RUNNER_KILL_SUCCEEDS") != "1":
+                        raise SystemExit(1)
+                    if "psql" in runner_cmdline and "run.sql" in runner_cmdline:
+                        raise SystemExit(0)
+                    raise SystemExit(1)
+                if command == (
+                    "test -f /tmp/edfinder-validate-constraints/run.pid"
+                ):
+                    raise SystemExit(0 if pid_file_exists else 1)
+                if command == (
+                    "rm -f /tmp/edfinder-validate-constraints/run.pid"
+                ):
                     raise SystemExit(0)
-                if 'rm -f "$pid_file"' not in command:
+                if 'rm -f "$pid_file"' in command:
                     raise SystemExit(2)
-                raise SystemExit(1)
+                raise SystemExit(2)
             if "run.log" in joined and "-d" not in args:
                 log_lines = os.environ.get("FAKE_LOG_LINES", "").splitlines()
                 command = str(args[-1])
@@ -209,6 +224,7 @@ def _run_action(
     unvalidated: tuple[str, ...] = (),
     active: bool = False,
     runner_kill_succeeds: bool = False,
+    runner_pid_file_exists: bool = False,
     runner_cmdline: str = "",
     log_lines: tuple[str, ...] = (),
     ledger_query_fails: bool = False,
@@ -227,6 +243,11 @@ def _run_action(
             "FAKE_ACTIVE": "1" if active else "0",
             "FAKE_RUNNER_KILL_SUCCEEDS": (
                 "1" if runner_kill_succeeds else "0"
+            ),
+            "FAKE_RUNNER_PID_FILE_EXISTS": (
+                "1"
+                if runner_pid_file_exists or runner_kill_succeeds
+                else "0"
             ),
             "FAKE_RUNNER_CMDLINE": runner_cmdline,
             "FAKE_LOG_LINES": "\n".join(log_lines),
@@ -461,18 +482,32 @@ def test_start_removes_stale_unrelated_pid_and_launches(tmp_path: Path):
     assert receipt["result"] == "launched"
     assert _was_detached(calls) is True
 
-    pid_calls = [
-        call
+    pid_commands = [
+        str(call["args"][-1])
         for call in calls
         if "run.pid" in " ".join(str(arg) for arg in call["args"])
         and "-d" not in call["args"]
     ]
-    assert len(pid_calls) == 1
-    pid_command = str(pid_calls[0]["args"][-1])
-    assert "kill -0" in pid_command
-    assert "/proc/$pid/cmdline" in pid_command
-    assert 'tr "\\0" " "' in pid_command
-    assert 'rm -f "$pid_file"' in pid_command
+    liveness_commands = [
+        command for command in pid_commands if "kill -0" in command
+    ]
+    assert len(liveness_commands) == 1
+    assert "/proc/$pid/cmdline" in liveness_commands[0]
+    assert 'tr "\\0" " "' in liveness_commands[0]
+    assert "rm -f" not in liveness_commands[0]
+    cleanup_command = "rm -f /tmp/edfinder-validate-constraints/run.pid"
+    assert pid_commands.count(cleanup_command) == 1
+
+    cleanup_index = next(
+        index
+        for index, call in enumerate(calls)
+        if "-d" not in call["args"]
+        and str(call["args"][-1]) == cleanup_command
+    )
+    launch_index = next(
+        index for index, call in enumerate(calls) if "-d" in call["args"]
+    )
+    assert cleanup_index < launch_index
 
 
 def test_start_stops_for_live_psql_run_sql_runner(tmp_path: Path):
@@ -514,10 +549,37 @@ def test_status_reports_catalog_state_and_canned_log_tail(tmp_path: Path):
     assert len(receipt["constraints"]) == 18
     assert [row["name"] for row in receipt["constraints"]] == list(CONSTRAINTS)
     assert receipt["constraints"][-1]["validated"] is False
+    assert receipt["runner_pid_alive"] is False
+    assert receipt["runner_pid_file_stale"] is False
     assert receipt["runner_exit_code"] is None
     assert receipt["log_tail"] == list(log_lines)
     assert "validation_runner_failed" not in receipt["failures"]
     assert _was_detached(calls) is False
+
+
+def test_status_reports_stale_pid_without_removing_it(tmp_path: Path):
+    result, calls = _run_action(
+        tmp_path,
+        "status",
+        runner_kill_succeeds=True,
+        runner_cmdline="sleep 600",
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = _receipt(result)
+    assert receipt["status"] == "success"
+    assert receipt["read_only"] is True
+    assert receipt["runner_pid_alive"] is False
+    assert receipt["runner_pid_file_stale"] is True
+    assert _was_detached(calls) is False
+
+    pid_commands = [
+        str(call["args"][-1])
+        for call in calls
+        if "run.pid" in " ".join(str(arg) for arg in call["args"])
+    ]
+    assert pid_commands
+    assert all("rm -f" not in command for command in pid_commands)
 
 
 def test_status_stops_when_runner_failed_with_unvalidated_constraint(
