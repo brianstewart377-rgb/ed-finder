@@ -4,16 +4,24 @@
 
 **Status: Design only; not implemented — 2026-10-10 — base `origin/main` `3b6ee91a2e4b076a97a2564cc38310411b534beb`.**
 
+F4a and F4b are code-only increments validated against disposable fixtures.
+They remain hidden behind a default-off build feature gate until the governed
+production sequence has applied the pending migrations, built and validated both
+Finder products, published their owning generation, and passed the separate
+application-release gate (`docs/ROADMAP.md:140-179`). This design does not
+authorize migration application, product build/publication, deployment or
+promotion.
+
 ## 2. Goal and non-goals
 
 ### Goal
 
-F4 gives the live Svelte application in `apps/web` a Finder archetype picker,
+F4 prepares the Svelte application in `apps/web` for a Finder archetype picker,
 S/A/B/C/D tier and confidence display, primary and secondary archetype labels on
 each result, and a **Best Colony Potential** headline. Ranking comes from the V3
-ranking API. This is behavioural parity with the accepted V2 journey—choose an
-intent, receive explained ranked results, then continue to Inspect and the
-map—not numeric parity with V2 scores
+ranking API after the governed data gate opens. This is behavioural parity with
+the accepted V2 journey—choose an intent, receive explained ranked results,
+then continue to Inspect and the map—not numeric parity with V2 scores
 (`docs/development/v3-finder-delivery-plan.md:64-76`,
 `docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:11-19`).
 
@@ -24,10 +32,11 @@ In this document:
 - A **tier** is a readable band derived from a 0–100 score: S is the strongest
   band, followed by A, B, C and D
   (`apps/api/src/ranking/profile.py:52-54`).
-- **Confidence** says how trustworthy the selected fit is; **completeness** says
-  how much of the expected evidence is present. They are not the score and must
-  not be presented as certainty
-  (`apps/api/src/models.py:264-271`).
+- **Confidence** is mode-specific: in Any mode it describes the system's general
+  evidence; in selected-archetype mode it describes that selected fit.
+  **Completeness** says how much expected system evidence is present. Neither is
+  the score or certainty (`apps/api/src/ranking/ranking_sql.py:87-103`,
+  `apps/api/src/models.py:264-271`).
 - **Slice 1** means the two V3-backed ranking endpoints already delivered;
   **slice 2** means the deferred endpoint cutovers described below
   (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:60-71`).
@@ -51,11 +60,11 @@ In this document:
   rejects it because no per-economy projection exists
   (`apps/api/src/local_search.py:871-884`).
 
-The dated roadmap correctly records that F4 follows F2c/F3, but its statement
-that no archetype-ranking API exists is now superseded by current main: the
-roadmap snapshot says the gap was gated
-(`docs/ROADMAP.md:209-219`), while the handlers below prove that F3 slice 1 has
-since landed.
+The code branch contains the slice-1 handlers described below, but that does not
+supersede the roadmap's production gate. Migrations `010`/`011` are not applied,
+the published generation has no Finder products, and the required governed
+build, validation, publication and release sequence remains outstanding
+(`docs/ROADMAP.md:121-179`).
 
 ## 3. What exists today
 
@@ -63,8 +72,8 @@ since landed.
 
 | Surface | Current implementation | Consequence for F4 |
 |---|---|---|
-| `POST /api/local/search` | The route delegates to `local_db_search_v3` (`apps/api/src/routers/search.py:157-203`, `apps/api/src/routers/search.py:243-245`). That implementation reads V3 search and archetype-summary projections through the ranking query, pins one published generation, and emits ranking identity (`apps/api/src/local_search.py:843-850`, `apps/api/src/local_search.py:925-963`). | Available now for **Any** (no selected archetype). |
-| `GET /api/archetypes/rankings` | The handler validates one of the eight V3 keys, passes it as `picked_archetype`, and reads in one repeatable-read snapshot (`apps/api/src/routers/archetypes.py:294-405`). | Available now for a selected archetype. |
+| `POST /api/local/search` | The route delegates to `local_db_search_v3` (`apps/api/src/routers/search.py:157-203`, `apps/api/src/routers/search.py:243-245`). That implementation reads V3 search and archetype-summary projections through the ranking query, pins one published generation, and emits ranking identity (`apps/api/src/local_search.py:843-850`, `apps/api/src/local_search.py:925-963`). | Available in code and disposable fixtures for **Any** (no selected archetype); not production-ready until the governed data gate opens. |
+| `GET /api/archetypes/rankings` | The handler validates one of the eight V3 keys, passes it as `picked_archetype`, and reads in one repeatable-read snapshot (`apps/api/src/routers/archetypes.py:294-405`). | Available in code and disposable fixtures for a selected archetype; production currently has no usable Finder product. |
 | `POST /api/archetypes/rerank` | The handler reads `system_archetype_scores` and other legacy relations (`apps/api/src/routers/archetypes.py:535-590`). | Not usable; wait for slice 2. |
 | `GET /api/archetypes/system/{id64}` | The current handler reads legacy systems/archetype/topology relations (`apps/api/src/routers/archetypes.py:635-719`). | No V3 per-system explanation drawer yet; wait for slice 2. |
 | `POST /api/archetypes/simulate` | The current handler reads legacy `system_archetype_scores` (`apps/api/src/routers/archetypes.py:905-929`). | Not usable; wait for slice 2. |
@@ -74,6 +83,13 @@ since landed.
 Both usable ranked paths fail explicitly when the published generation lacks
 READY `system_search` or `system_archetype` products, instead of presenting a
 false empty result (`apps/api/src/local_search.py:602-643`).
+
+That failure is the expected production state today: the published generation
+has no Finder products, so the readiness check returns HTTP 503 before a ranked
+read (`docs/ROADMAP.md:140-179`, `apps/api/src/routers/archetypes.py:365-380`).
+F4 treats this as a first-class **Ranking unavailable** state, not as zero
+matches. It preserves the current selection and map, offers Retry and Any mode,
+and never converts 503 into an empty-state message.
 
 `/api/local/search` has no archetype request field
 (`apps/api/src/models.py:537-564`) and currently calls the ranking builder with
@@ -106,6 +122,15 @@ the Explore facade expects `archetype_score` and `distance` plus catalogue facts
 (`apps/web/src/lib/api/client.ts:264-299`). The facade must normalize the
 ranking response; the component must never cast it to `ExploreSystem`.
 
+The summary relation already owns `best_tier`
+(`sql/v3/migrations/011_v3_system_archetype.sql:22-39`), but ranking SQL selects
+the summary potential without its tier, and neither response model exposes a
+`best_tier` field (`apps/api/src/ranking/ranking_sql.py:485-501`,
+`apps/api/src/models.py:216-271`, `apps/api/src/models.py:875-902`). The current
+selected-row `tier` belongs only to selected-fit `score`
+(`apps/api/src/routers/archetypes.py:462-482`). No current payload can truthfully
+put a tier beside the **Best Colony Potential** headline.
+
 ### Current `apps/web` Finder flow
 
 The client-only `/explore` route renders `ExploreWorkspace`
@@ -113,6 +138,13 @@ The client-only `/explore` route renders `ExploreWorkspace`
 `apps/web/src/routes/explore/+page.ts:1-2`). The workspace holds the query,
 anchor, selection and map state locally and has no archetype, tier or weight
 state (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:65-113`).
+
+There is no shared runtime configuration or feature-flag module in `apps/web`.
+The only analogous app switch is the build-time `VITE_REVIEW_LAB` read
+(`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:65-67`). F4a creates
+one central config module exposing fail-closed
+`VITE_FINDER_F4_ENABLED === '1'`; fixture/Product E2E builds may opt in, while
+ordinary and production builds default to hidden until the governed gate opens.
 
 Its only Finder input is an accessible known-system combobox
 (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:677-741`). With an
@@ -195,39 +227,52 @@ corpus and asserts the resulting V3 rows.
 1. No canonical eight-archetype metadata module in `apps/web`.
 2. No archetype picker, minimum-tier control, ranking headline or reserved
    weight-control slot.
-3. No facade normalizer or query key for `/api/archetypes/rankings`.
-4. `ExploreSystem` omits `confidence` and `completeness`.
-5. The two slice-1 response shapes and search scopes are not reconciled.
-6. Finder query state is not URL-backed or shareable.
+3. No facade page-envelope normalizer or query key for
+   `/api/archetypes/rankings`; its `total`/`count`/`offset` state is not exposed.
+4. `ExploreSystem` omits `confidence`, `completeness`, score kind, selected
+   archetype identity and distance reference; persisted snapshots lose the same
+   distinctions.
+5. The two slice-1 response shapes, search scopes, score meanings and distance
+   references are not reconciled, and neither exposes summary `best_tier`.
+6. Finder query and offset state is not URL-backed or shareable.
 7. Result rows omit tier, score, confidence/completeness, primary/secondary and
    Best Colony Potential.
 8. Ranking loading, empty and error messages do not name the active archetype or
    explain whether the ranking service is unavailable.
-9. No F4 state, component, Cypress or visual-regression coverage.
-10. V3 explanations, custom reranking and simulation are still blocked on slice
+9. Result freshness can steal focus, and replacing result points can drop a
+   selected marker when the selected system is absent from the new page.
+10. No default-off F4 gate, state, component, Cypress or visual-regression
+    coverage.
+11. V3 explanations, custom reranking and simulation are still blocked on slice
     2, as the handler inventory above shows.
 
 ## 4. API dependency map
 
 | UI element | Endpoint and field available today | Availability and design rule |
 |---|---|---|
-| Picker: **Any** | `POST /api/local/search`; no archetype request field (`apps/api/src/models.py:537-564`). | Slice 1 now. “Any” uses the current default ranking. |
-| Picker: one of eight archetypes | `GET /api/archetypes/rankings?archetype=…`; key validation and profile query are in `apps/api/src/routers/archetypes.py:294-364`. | Slice 1 now. Initial selected-archetype mode is explicitly galaxy/Sol-oriented, because this endpoint has no arbitrary anchor. |
-| Tier badge | Any: `results[].archetype_tier`; selected: `results[].tier` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:880-892`). | Slice 1 now. The facade normalizes both to one `tier` view field. |
-| Minimum tier | Any: `min_development_score`; selected: `min_score` (`apps/api/src/models.py:551-555`, `apps/api/src/routers/archetypes.py:508-518`). | Slice 1 now. Translate S/A/B/C/D to 88/76/60/45/0. Explicitly send `min_score=0` for D; the rankings endpoint otherwise defaults to 40 and hides part of D (`apps/api/src/routers/archetypes.py:510-518`). |
-| Confidence badge | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`). | Slice 1 now. Never synthesize a missing value. |
+| Picker: **Any** | `POST /api/local/search`; no archetype request field (`apps/api/src/models.py:537-564`). | Slice 1 code/fixtures. “Any” uses the current default ranking; the production gate still applies. |
+| Picker: one of eight archetypes | `GET /api/archetypes/rankings?archetype=…`; key validation and profile query are in `apps/api/src/routers/archetypes.py:294-364`. | Slice 1 code/fixtures. Initial selected-archetype mode is explicitly galaxy/Sol-oriented, because this endpoint has no arbitrary anchor. |
+| Selected-score tier badge | Any: `results[].archetype_tier`; selected: `results[].tier` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:880-892`). | Slice 1 code. The value is carried with `score_kind`; it is not automatically the tier for the overall headline. |
+| **Best Colony Potential** tier | `system_archetype_summary.best_tier` exists, but is omitted from ranking SQL and both payloads (`sql/v3/migrations/011_v3_system_archetype.sql:22-39`, `apps/api/src/ranking/ranking_sql.py:485-501`). | **Slice 1b API prerequisite:** expose summary `best_tier` in rankings and local-search payloads/generated types. Until then show the headline number without a tier. Never compute an API-owned tier in the browser. |
+| Minimum tier | Any: `min_development_score`; selected: `min_score` (`apps/api/src/models.py:551-555`, `apps/api/src/routers/archetypes.py:508-518`). | Default to B (`60`), a real tier boundary, rather than the API's non-tier default `40` (`apps/api/src/ranking/profile.py:52-54`). Initially offer B/A/S only. C/D require the bounded selected-ranking prerequisite below. |
+| Selected-ranking bounds | Picked mode orders by a cross-table score/confidence/completeness product and its count is uncapped (`apps/api/src/ranking/ranking_sql.py:451-462`, `apps/api/src/routers/archetypes.py:348-363`). | **API prerequisite before C/D:** server-side candidate cap, index-backed selected-fit ordering, bounded/capped count and explicit truncation metadata. The UI never sends a floor below the API default `40` before that contract. Any already orders on indexed summary `weighted_potential` and caps galaxy-wide counts (`sql/v3/migrations/011_v3_system_archetype.sql:52-56`, `apps/api/src/local_search.py:918-923`). |
+| Confidence badge | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`). | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode. |
 | Primary/secondary | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`). | Slice 1 now. Use canonical labels, not underscore replacement. |
-| **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary’s best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`). | Slice 1 now. In selected mode, distinguish the selected-fit `score` from the overall headline. |
+| **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`). | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`. |
+| Page/count state | Rankings accepts `limit`/`offset` (default 50/0) and returns `count`/`total` (`apps/api/src/routers/archetypes.py:389-397`, `apps/api/src/routers/archetypes.py:508-530`). | The facade carries results, count, total, request offset and truncation/capped-total metadata. UI shows the current page range and supports offset navigation; list, map and count advance together. |
 | Weight sliders | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`). | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code. |
 | Per-archetype explanation | The V3 product stores explanation data (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`). | Needs slice 2. Do not show legacy rationale as V3 explanation. |
 | Rerank action | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`). | Needs slice 2. |
 | Simulation | Intended endpoint is `POST /api/archetypes/simulate`; its current handler reads legacy data (`apps/api/src/routers/archetypes.py:905-929`). | Needs slice 2 and is not required for the first Finder UI. |
 
-Therefore the UI increment buildable **now** against main is: Any plus the eight
-archetype choices; a minimum-tier filter; normalized ranked cards; selected and
-overall scores; tier, confidence/completeness and primary/secondary labels; URL
-state; and unchanged selection, Inspect and map hand-offs. Wired weights,
-per-archetype explanations, V3 reranking and simulation are later increments.
+Therefore the code-only UI increment buildable against fixtures is: Any plus the
+eight archetype choices; a B/A/S minimum-tier filter; normalized ranked cards;
+selected and overall scores; mode-correct confidence/completeness and
+primary/secondary labels; pagination/URL state; and preserved selection,
+Inspect and map hand-offs. It stays hidden by default pending the governed
+production sequence. Slice 1b adds the overall tier; C/D wait for the bounded
+selected-ranking contract. Wired weights, per-archetype explanations, V3
+reranking and simulation are later increments.
 
 ## 5. UX design
 
@@ -257,9 +302,13 @@ derived from the model’s economy ordinals and `_ANCHORS`
 | `flexible` | Flexible Multi-Role Colony | Several viable economies rather than one narrow specialism. |
 
 The minimum-tier control is a native `<select>` labelled **Minimum tier**, with
-options “Any tier (D or better)”, C, B, A and S. “Minimum” is explicit so the
-control does not imply a non-contiguous multi-select that neither slice-1
-endpoint supports.
+initial options B, A and S and B selected by default. B maps to `min_score=60`,
+uses a real tier threshold, and bounds candidates more tightly than the API's
+raw default 40 (`apps/api/src/ranking/profile.py:52-54`,
+`apps/api/src/routers/archetypes.py:508-518`). C and D are not offered until the
+API has a server-side candidate cap, index-backed selected-fit ordering and a
+bounded/capped count contract. “Minimum” remains explicit so the control does
+not imply a non-contiguous multi-select.
 
 When the user chooses an archetype while a known-star anchor is active, F4b must
 not pretend the archetype results are centred on that star. The initial design
@@ -276,8 +325,9 @@ Inspect link and actions. Inside the selection button, render items 1–5 in thi
 order; keep item 6 after the button as it is today:
 
 1. System name and id64.
-2. **Best Colony Potential: _N_ · _tier_ tier**. This is the headline overall
-   value, not a locally calculated score.
+2. **Best Colony Potential: _N_**. Append **· _tier_ tier** only when the API
+   supplies summary `best_tier` (slice 1b). This is the headline overall value;
+   never reuse the selected-fit tier or calculate an API-owned tier locally.
 3. In selected mode only: **[Selected archetype] fit: _N_ · _tier_ tier** so a
    user can see when the chosen fit differs from the system’s overall best.
 4. **Primary:** label; **Secondary:** label or “No clear secondary fit”.
@@ -315,19 +365,23 @@ decision, not a domain contract.
 
 ### Honest uncertainty
 
-Display one evidence badge derived only from the API’s selected-fit `confidence`
-and `completeness` fields:
+Display one badge derived only from the API's mode-specific `confidence` and
+general `completeness` fields:
 
-| Condition | Wording |
-|---|---|
-| either value missing | **Evidence unknown** |
-| either value below 0.50 | **Limited evidence** |
-| both values at least 0.80 | **Strong evidence** |
-| otherwise | **Moderate evidence** |
+| Condition | Any wording | Selected-archetype wording |
+|---|---|---|
+| either value missing | **Evidence confidence unknown** | **Fit confidence unknown** |
+| either value below 0.50 | **Evidence confidence: limited** | **Fit confidence: limited** |
+| both values at least 0.80 | **Evidence confidence: strong** | **Fit confidence: strong** |
+| otherwise | **Evidence confidence: moderate** | **Fit confidence: moderate** |
 
-Its accessible description gives both raw percentages: “Fit confidence 82%;
-evidence 64% complete.” The thresholds above are a presentation decision and
-must be unit tested; they do not alter ranking. `archetype_confidence` has a
+The accessible description gives both raw percentages. Any says “Evidence
+confidence 82%; evidence 64% complete”; selected mode says “Fit confidence 82%;
+evidence 64% complete.” The word **fit** is forbidden in Any-mode visible and
+accessible text because no archetype was picked
+(`apps/api/src/ranking/ranking_sql.py:87-103`). The thresholds above are a
+presentation decision and must be unit tested; they do not alter ranking.
+`archetype_confidence` has a
 different meaning—the separation between the primary and secondary
 classification—and may be shown separately as **Clear primary fit** or **Close
 alternative**, but must not be folded into the evidence badge
@@ -335,14 +389,26 @@ alternative**, but must not be folded into the evidence badge
 
 ### Loading, empty and error states
 
+Above the list, show **Showing _COUNT_ of _TOTAL_ (results _START_–_END_)** from
+the same response page. Provide Previous/Next offset navigation whenever more
+rows exist; never imply that the default 50-row page is the complete ranking.
+The normalized envelope carries `count`, `total`, request `offset`, and capped
+or truncated state. A page change updates the DOM list, Finder contribution and
+count status together, as required by the spatial product contract
+(`docs/colonisation-redesign/spatial-platform-product-contract.md:102-110`).
+
 - Loading: retain `aria-busy` on the result region and a `role="status"` message,
   naming the active mode: “Ranking systems for Manufacturing Hub…” Existing
   result loading already uses those semantics
   (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:743-763`).
 - Empty: “No systems meet minimum tier B for Manufacturing Hub.” Include
-  **Show all tiers** and **Choose Any** actions. Empty is not an error.
-- Error: `role="alert"`, “Archetype rankings are unavailable,” a Retry button,
-  and the current selection/map retained. Existing error state already has an
+  **Reset to tier B** (when the active floor is A/S) and **Choose Any** actions.
+  Empty is not an error; do not offer gated C/D as an escape hatch.
+- Error: HTTP 503 is a first-class **Ranking unavailable** state with
+  `role="alert"`: “Archetype rankings are unavailable until Finder ranking data
+  is published,” plus Retry and Choose Any actions. Retain the current
+  selection/map and do not call this “no matches.” Other errors use the same
+  retained-state retry pattern. Existing error state already has an
   alert and retry pattern
   (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:764-780`).
 - Stale transition: keep previous rows visibly marked “Updating…” while the new
@@ -354,9 +420,11 @@ The native radio group supports Tab into the group and arrow-key choice; the
 native select supports ordinary platform keyboard behaviour. On a committed
 choice, keep focus on the changed control and announce the loading/result count
 through a polite `role="status"` live region. Do not move focus to the first row
-for a picker-only rerank; the existing automatic first-result focus is limited to
-completion of a newly chosen anchor
-(`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:389-399`).
+for a picker-only rerank or page change. F4b replaces the current
+`${anchor.id64}:${results.dataUpdatedAt}` freshness key
+(`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:389-399`) with a
+dedicated anchor-selection revision. Autofocus runs only after an explicit new
+anchor is chosen in Any mode; result freshness never steals focus.
 
 Keep the result `<ul>/<li>` structure, the selection button’s `aria-pressed`, and
 Enter/Space behaviour
@@ -377,6 +445,16 @@ the constant and information changes around it
 existing synchronized result/map hand-off
 (`docs/colonisation-redesign/spatial-platform-product-contract.md:102-110`).
 
+A rerank or page change may omit the selected system. Before replacing the
+result contribution, F4b retains its last known point in a separate deduplicated
+Finder-selection contribution until selection changes or clears. The DOM list
+still shows only the current page. This guarantees the selected/highlighted
+target required by the product contract: the scene may name a selected id that
+is absent from new result points today, and Babylon otherwise drops its marker
+(`apps/web/src/lib/spatial/explore-scene.ts:92-115`,
+`apps/web/src/lib/spatial/babylon/adapter.ts:1432-1438`,
+`apps/web/src/lib/spatial/babylon/adapter.ts:2032-2040`).
+
 Reserve an end-aligned `ranking-tools` slot beside the picker in the responsive
 layout, but render no dead slider controls in the first increment. This preserves
 the F2 design's F4 pop-out-slider slot without depending on an endpoint that has
@@ -396,10 +474,44 @@ Create a pure, immutable `FinderRankingState` owned by the Explore feature:
 ```ts
 type FinderRankingState = Readonly<{
   archetype: 'any' | ArchetypeKey;
-  minimumTier: 'S' | 'A' | 'B' | 'C' | 'D';
+  minimumTier: 'S' | 'A' | 'B'; // C/D wait for the bounded API contract
+  offset: number;
   weights: Readonly<Record<string, number>>; // empty until slice 2
 }>;
 ```
+
+Normalization also preserves semantic identity instead of flattening unlike
+facts:
+
+```ts
+type DistanceReference = Readonly<{
+  kind: 'anchor' | 'sol';
+  id64: Id64;
+  name: string;
+}>;
+
+type RankingIdentityFields = Readonly<{
+  ranking_score: number | null;
+  score_kind: 'overall_potential' | 'selected_fit';
+  selected_archetype: ArchetypeKey | null;
+  distance_reference: DistanceReference | null;
+}>;
+```
+
+Selected rankings carry their `score` as `ranking_score` with
+`score_kind: 'selected_fit'`, their exact selected archetype, and Sol
+(`id64=10477373803`) as distance reference
+(`apps/api/src/helpers.py:16`); anchored Any rows
+carry their overall score as `ranking_score` with
+`score_kind: 'overall_potential'` and the chosen star reference. A
+galaxy-wide Any row with no measured distance has a null reference. These fields,
+plus `overall_development_potential`, are retained in pin/compare snapshots.
+Never store a selected fit in generic `archetype_score`. Current code otherwise
+collapses `archetype_score ?? overall_development_potential` into that generic
+field and labels it “Development score,” which would make a normalized selected
+fit equally ambiguous
+(`apps/web/src/lib/features/explore/shortlist.ts:14-20`,
+`apps/web/src/lib/features/explore/compare-metrics.ts:134-170`).
 
 The URL is the source of truth for shareable ranking state:
 
@@ -407,14 +519,17 @@ The URL is the source of truth for shareable ranking state:
 |---|---|---|
 | Any archetype | omit `archetype` | Default. `archetype=any` canonicalizes to omission. |
 | Selected archetype | `archetype=manufacturing_hub` | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status. |
-| Minimum tier | `min-tier=B` | Omit D, the default. Map S/A/B/C/D to 88/76/60/45/0. Reject repeated or unknown values rather than guessing. |
+| Minimum tier | `min-tier=A` | Omit B, the default. Map S/A/B to 88/76/60. Treat C/D as unsupported until the bounded API prerequisite lands; do not accept or emit either value, and never send a floor below the API default 40. |
+| Page offset | `offset=50` | Omit zero. Accept one integer from 0 through 10,000 (matching the existing galaxy-wide count cap at `apps/api/src/local_search.py:59`); reject duplicates, fractions, negatives and larger values. Reset to zero when archetype, minimum tier or anchor changes. Map it to rankings `offset` and local-search `from`. |
 | Future weights | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers. |
 | Selected system | existing `system=<id64>` | Preserve current overlay/selection meaning (`apps/web/src/lib/components/AppShell.svelte:19-43`). It is not a ranking input. |
 
-Serialize keys in the table’s order and weights lexicographically so copying the
+Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
-history entry; Reset creates one history entry; future slider edits remain local
-draft state until Apply. Preserve unrelated query parameters.
+history entry; offset navigation creates one entry; Reset creates one history
+entry; future slider edits remain local draft state until Apply. Preserve
+unrelated query parameters. The facade returns page `count`, `total`, request
+`offset`, and truncation/cap metadata rather than returning a bare result array.
 
 The initial archetype mode is intentionally galaxy-wide. The current anchor is
 not added to this new contract because its exact shared reconstruction and its
@@ -432,6 +547,15 @@ context-provided store following the central pattern
 `apps/web/src/lib/persistence/context.ts:7-20`); never access `localStorage`
 directly from the component.
 
+Comparison is mode-aware. **Best Colony Potential** remains comparable across
+modes because its overall value is persisted separately. A selected-fit row is
+shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
+for the same `selected_archetype`; otherwise it is omitted with a “different
+ranking modes” note. Distance is compared only when every entry has the same
+`distance_reference.kind` and id64, labelled **Distance from Sol** or
+**Distance from _name_**. Mixed-reference distances are excluded rather than
+silently compared.
+
 ## 7. Validation plan
 
 ### Unit tests (Vitest)
@@ -440,14 +564,20 @@ Vitest is the app’s unit runner (`apps/web/package.json:18-20`). Add pure test
 for:
 
 - the exact eight-key metadata inventory and label lookup;
-- tier-to-minimum-score mapping at 88/76/60/45, while displayed result tiers
-  remain the API's value;
-- confidence/completeness wording at missing, 0.50 and 0.80 boundaries;
+- tier-to-minimum-score mapping at 88/76/60, B as the default, and fail-closed
+  C/D parsing while displayed result tiers remain the API's value;
+- mode-specific confidence/completeness wording at missing, 0.50 and 0.80
+  boundaries, including that Any-mode output never contains “fit”;
 - URL parse/serialize round trips, canonical ordering, defaults, duplicate and
-  unknown parameters, and preservation of unrelated parameters;
-- request selection: Any → local search, key → rankings, D → explicit score 0;
-- ranking-row normalization (`score` → selected score,
-  `distance_to_sol` → distance) and lossless id64 handling;
+  unknown parameters, offset/reset rules, and preservation of unrelated
+  parameters;
+- request selection: Any → local search, key → rankings, default B → score 60;
+- ranking-row normalization preserving `score_kind`, selected archetype,
+  overall potential, `distance_reference`, page metadata, absent `best_tier`
+  and lossless id64 handling;
+- persistence backward compatibility plus mode-aware scores and same-reference
+  distance comparison;
+- default-off feature config and explicit fixture opt-in;
 - future weight basis-point parsing behind a disabled feature flag, activated
   only with the slice-2 contract.
 
@@ -461,9 +591,14 @@ Use Testing Library Svelte, which is installed in the current stack
 - minimum-tier label and request update;
 - result headline, selected fit, tier, primary/secondary and all four evidence
   wordings;
-- loading `status`, empty actions, error `alert` and Retry;
-- focus remains on the picker during rerank;
+- headline tier omitted without API `best_tier` and rendered only when supplied;
+- page count/range and offset navigation keep DOM/map/truncation synchronized;
+- loading `status`, empty actions, first-class 503 ranking-unavailable `alert`
+  and Retry;
+- focus remains on the picker during rerank/page changes, while choosing a new
+  Any-mode anchor focuses the first completed result once;
 - selected row and Inspect href remain unchanged;
+- rerank omission retains the selected system point and Babylon marker;
 - the Any/anchor versus selected-archetype limitation message.
 
 ### Product Cypress E2E and fixture contract
@@ -481,11 +616,12 @@ Add a Product E2E journey that:
 1. starts on Any and proves the existing `/api/local/search` journey;
 2. chooses Manufacturing Hub with the keyboard;
 3. proves the URL contains `archetype=manufacturing_hub` and the real
-   `/api/archetypes/rankings` request uses `min_score=0`;
+   `/api/archetypes/rankings` request uses default `min_score=60`;
 4. asserts ordered results show selected score/tier, Best Colony Potential,
    evidence wording and primary/secondary text;
-5. selects a row, verifies the same map target and Inspect URL, runs axe, reloads
-   the share URL, and repeats the state assertion;
+5. pages with offset navigation, selects a row, reranks so the new page omits
+   it, and verifies its map marker plus Inspect URL remain; then runs axe,
+   reloads the share URL, and repeats the state assertion;
 6. captures approved 1280×800 and 390×844 screenshots with animation disabled.
 
 Fixture identities are Achenar, V3 Lossless Reach and HD 38179 in Product E2E,
@@ -534,7 +670,23 @@ Every PR must satisfy acceptance against its exact latest head and disposition
 all substantive reviewer findings; green CI alone is insufficient
 (`docs/development/pull-request-acceptance-policy.md:1-45`).
 
-### PR F4a — typed ranking foundation (buildable against main today)
+These PRs are code-only and fixture-validated. None authorizes production
+promotion. Two API dependencies remain explicit:
+
+- **Slice 1b — summary best tier:** project `sum.best_tier`, add `best_tier` to
+  both rankings and local-search response models/builders, regenerate clients,
+  and test that it is summary-owned. F4a may land first and represents the
+  headline as a number without a tier; the browser never derives it.
+- **Bounded selected ranking:** before the picker offers C or D, add a
+  server-side candidate cap, index-backed selected-fit ordering, bounded/capped
+  count, and explicit truncation metadata. Validate its plan at representative
+  scale. The present raw-score index does not cover the cross-table ordering and
+  the endpoint calls an uncapped `COUNT(*)`
+  (`sql/v3/migrations/011_v3_system_archetype.sql:45-50`,
+  `apps/api/src/ranking/ranking_sql.py:451-462`,
+  `apps/api/src/routers/archetypes.py:348-363`).
+
+### PR F4a — typed ranking foundation (code-only, fixture-validated)
 
 Exact files:
 
@@ -542,16 +694,26 @@ Exact files:
 - create `apps/web/src/lib/features/explore/archetypes.test.ts`
 - create `apps/web/src/lib/features/explore/ranking-state.ts`
 - create `apps/web/src/lib/features/explore/ranking-state.test.ts`
+- create `apps/web/src/lib/config.ts`
+- create `apps/web/src/lib/config.test.ts`
 - modify `apps/web/src/lib/api/client.ts`
 - modify `apps/web/src/lib/api/client.test.ts`
 - modify `apps/web/src/lib/api/query.ts`
 - modify `apps/web/src/lib/api/query.test.ts`
+- modify `apps/web/src/lib/persistence/storage.ts`
+- modify `apps/web/src/lib/persistence/storage.test.ts`
+- modify `apps/web/src/lib/features/explore/shortlist.ts`
+- modify `apps/web/src/lib/features/explore/shortlist.test.ts`
 - modify `tests/test_seed_cypress_v3_generation.py`
 
-Deliver the canonical metadata, URL codec, tier/evidence presentation helpers,
-lossless rankings facade normalizer, `ExploreSystem` confidence/completeness and
-the ranking query key. Extend the isolated-PostgreSQL seed test to pin all three
-Product systems' ranking fields before Cypress relies on exact values. Do not
+Deliver the default-off feature gate, canonical metadata, URL/offset codec,
+tier/evidence presentation helpers, lossless page-envelope normalizer,
+`ExploreSystem` confidence/completeness plus score/distance identity, persisted
+snapshot shape (`ranking_score`, `score_kind`, selected archetype and distance
+reference), and ranking query key. A selected fit never enters generic
+`archetype_score`. F4a may land without slice 1b and must
+then omit the headline tier. Extend the isolated-PostgreSQL seed test to pin all
+three Product systems' ranking fields before Cypress relies on exact values. Do not
 edit generated files because the schema already contains the operation and
 fields. Required proof: focused Vitest and the seed integration test; Svelte web
 check/lint/format/test/build (the protected job runs these at
@@ -569,30 +731,50 @@ Exact files:
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.svelte`
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.test.ts`
 - modify `apps/web/src/lib/features/explore/ExploreWorkspaceTestHost.svelte`
+- modify `apps/web/src/lib/spatial/explore-scene.ts`
+- modify `apps/web/src/lib/spatial/explore-scene.test.ts`
+- modify `apps/web/src/lib/spatial/babylon/adapter.test.ts`
+- modify `apps/web/Dockerfile`
 - modify `apps/web/src/app.css`
 - modify `apps/web/cypress/e2e/product-journey.cy.ts`
 
-Add URL-synchronized picker/minimum tier, branch Any to local search and a key to
-rankings, render the normalized card, reserve the weight-tools layout slot, and
-leave the map/Inspect plumbing unchanged. Required proof: focused component
-tests; full Svelte web checks; OpenAPI drift; **Svelte Web E2E** in Chrome and
+Add URL-synchronized picker/minimum tier/offset navigation, branch Any to local
+search and a key to rankings, render normalized cards and page/count state,
+reserve the weight-tools layout slot, and keep all new UI behind the default-off
+build flag (including a validated Docker build argument). Change autofocus to
+the explicit Any-anchor revision and retain a separate deduplicated selected
+point before replacing result points so reranking cannot drop its marker.
+Required proof: focused component tests; full Svelte web checks; OpenAPI drift;
+**Svelte Web E2E** in Chrome and
 Firefox (the protected matrix is at `.github/workflows/cypress-parity.yml:21-30`);
 axe; approved desktop/mobile screenshots; and unchanged Review Lab.
 
-### PR F4c — consistent archetype labels in saved surfaces
+### PR F4c — mode- and reference-safe saved surfaces
 
 Exact files:
 
 - modify `apps/web/src/lib/features/explore/compare-metrics.ts`
 - modify `apps/web/src/lib/features/explore/compare-metrics.test.ts`
+- modify `apps/web/src/lib/persistence/storage.ts`
+- modify `apps/web/src/lib/persistence/storage.test.ts`
+- modify `apps/web/src/lib/features/explore/shortlist.ts`
+- modify `apps/web/src/lib/features/explore/shortlist.test.ts`
+- modify `apps/web/src/lib/features/explore/ComparePanel.svelte`
+- modify `apps/web/src/lib/features/explore/ComparePanel.test.ts`
 - modify `apps/web/src/lib/features/explore/WatchlistPanel.svelte`
 - modify `apps/web/src/lib/features/explore/WatchlistPanel.test.ts`
 
 Replace duplicated/underscore-derived labels with the canonical F4 metadata.
+Persist overall potential alongside selected-fit identity; compare overall
+potential across modes, selected fits only for the same archetype, and distances
+only for one exact reference with a reference-specific label. Preserve legacy
+snapshots as unknown-mode/reference rather than guessing.
 Compare currently has its own mapping and tier thresholds
 (`apps/web/src/lib/features/explore/compare-metrics.ts:17-28`,
-`apps/web/src/lib/features/explore/compare-metrics.ts:50-63`); preserve historical
-unknown keys as readable fallbacks rather than pretending they are V3 keys.
+`apps/web/src/lib/features/explore/compare-metrics.ts:50-63`); remove that
+browser tier calculation and show a tier only from the corresponding API field.
+Preserve historical unknown keys as readable fallbacks rather than pretending
+they are V3 keys.
 Required proof: focused Vitest/component tests, Svelte web checks, visual review
 of saved/compare rows, Product E2E and Review Lab.
 
@@ -626,14 +808,30 @@ baselines, and unchanged Review Lab.
 
 - **Scope mismatch:** switching endpoints changes available catalogue facts and
   distance semantics. Mitigation: facade normalization, explicit galaxy-wide
-  selected mode, and no claim of arbitrary-anchor ranking.
+  selected mode, persisted `distance_reference`, reference-aware comparison and
+  no claim of arbitrary-anchor ranking.
 - **Misleading scores:** selected-archetype score and Best Colony Potential can
-  differ. Mitigation: label both and never use one value under both headings.
+  differ. Mitigation: carry `score_kind`/selected archetype, persist the overall
+  value separately, compare like with like and never use one value under both
+  headings.
 - **False certainty:** a high score can have thin evidence. Mitigation: always
   show confidence/completeness wording and keep classification confidence
   separate.
-- **Incomplete D results:** the rankings endpoint’s default floor is 40.
-  Mitigation: explicitly request zero for minimum tier D.
+- **Unbounded selected query:** low floors can make the picked path sort and
+  count a large portion of roughly 198.5 million systems without a precomputed
+  cross-table ordering key (`docs/ROADMAP.md:197-214`). Mitigation: default B/60,
+  offer only B/A/S, and gate C/D on the bounded API prerequisite. Any uses its
+  indexed `weighted_potential` path.
+- **Premature production exposure:** repository handlers exist before production
+  has the required Finder products. Mitigation: default-off build gate, fixture
+  validation, first-class 503 state, and enablement only in the governed release
+  after publication receipts; this design authorizes no promotion.
+- **Pagination drift:** a page may be mistaken for the full result set or diverge
+  from the map. Mitigation: preserve total/count/offset/truncation and update the
+  list, count status and Finder contribution from one page envelope.
+- **Interaction regressions:** refetch may steal picker focus or omit the selected
+  marker. Mitigation: anchor-selection-only autofocus and a retained selected
+  point contribution, each covered by component/spatial regression tests.
 - **Fixture drift:** current fixture archetype outputs are generated but not
   pinned. Mitigation: add the database fixture-output contract before exact E2E
   assertions.
@@ -644,23 +842,53 @@ baselines, and unchanged Review Lab.
 
 ### Owner questions
 
-Answer each with **yes/no** or one listed choice:
+The review resolves the production gate, headline-tier ownership, default B
+floor, C/D prerequisite, mode/reference normalization, pagination, focus and
+selected-marker behaviour. The remaining product choices are:
 
-1. **Choose one:** ship F4a/F4b now on slice 1 with selected archetypes explicitly
-   galaxy-wide; or wait until `/api/local/search` accepts an archetype plus an
-   arbitrary reference point?
-2. **Yes/no:** should the UI always show a tier when evidence is limited, provided
-   it also shows **Limited evidence** and never hides confidence/completeness?
-3. **Choose one:** should the archetype picker sit beside the existing known-star
+1. **Choose one:** should the archetype picker sit beside the existing known-star
    anchor (recommended by this design), or replace the anchor while an archetype
    is active?
-4. **Choose one:** use a single **Minimum tier** control supported by slice 1, or
-   defer tier filtering until the API supports arbitrary tier sets?
-5. **Yes/no:** should exact Cypress archetype outputs become a committed
+2. **Yes/no:** should exact Cypress archetype outputs become a committed
    fixture-contract gate before F4b merges?
-6. **Choose one:** land F3 slice 2 after the first visible UI PR (this design), or
-   require it before any F4 UI work?
-7. **Yes/no:** should primary/secondary classification confidence get a separate
+3. **Yes/no:** should primary/secondary classification confidence get a separate
    “clear/close fit” label in F4b, in addition to the evidence badge?
-8. **Choose one:** keep future custom weights URL-only, or also remember them as a
+4. **Choose one:** keep future custom weights URL-only, or also remember them as a
    validated local preference after slice 2?
+5. **Choose one:** what reviewed server cap and saturated-total wording should
+   the bounded selected-ranking API expose before C/D are enabled?
+6. **Who owns the governed enablement decision:** which publication and release
+   receipts authorize changing `VITE_FINDER_F4_ENABLED` from its default `0` to
+   `1` in a later immutable web build?
+
+### Review dispositions (2026-10-10)
+
+1. **Expose the overall tier before requiring it** → the headline tier is now
+   conditional on API `best_tier`; slice 1b exposes the summary field, while F4a
+   may land with a number-only headline and no browser tier calculation.
+2. **Label no-pick confidence as general evidence** → Any uses **Evidence
+   confidence**, selected mode uses **Fit confidence**, and “fit” is forbidden in
+   Any visible/accessibility copy.
+3. **Bound the all-system selected-archetype query** → B/60 is the default,
+   initial choices are B/A/S, and C/D wait for candidate, ordering and count
+   bounds; the indexed Any path is called out separately.
+4. **Keep F4 behind the governed production sequence** → F4a/F4b are code-only,
+   fixture-validated and default-off; 503 is first-class, the outstanding
+   migration/product/publication sequence remains controlling, and no promotion
+   is authorized.
+5. **Preserve the distance reference during normalization** →
+   `distance_reference` now crosses normalized and persisted shapes; comparison
+   is limited to one exact, visibly named reference.
+6. **Preserve archetype identity when normalizing scores** → `ranking_score`,
+   `score_kind` and `selected_archetype` are retained, selected fits never enter
+   generic `archetype_score`, overall potential stays separate, and selected
+   fits compare only for one archetype.
+7. **Expose truncation for selected rankings** → the facade carries page
+   metadata, the UI shows count/total/range with offset navigation, URL state
+   includes offset, and list/map/truncation update together.
+8. **Gate result autofocus on a new anchor** → F4b uses an explicit Any-mode
+   anchor-selection revision instead of result freshness and adds regression
+   tests.
+9. **Retain the selected system when replacing result points** → F4b preserves a
+   deduplicated selected-system contribution across reranks/pages and tests the
+   Babylon marker remains when the new result page omits it.
