@@ -49,6 +49,16 @@ Contract validation now rejects bare Docker Hub library references in those
 surfaces while leaving legacy, local, and production Compose contracts
 unchanged.
 
+## 2026-10-09 — Finder migrations 010/011/013 registered after 014; 010 rewritten for bounded application
+
+Migration `010_v3_system_search_body_type_counts.sql` now adds its 18 columns
+without inline checks and declares the checks as `NOT VALID`, avoiding a
+full-table validation scan during the bounded migration apply while continuing
+to enforce them for subsequent writes. The V3 production manifest and authority
+now register `010`, `011`, and `013` after `014`. This is registration only:
+none of those migrations was applied, and the governed plan/apply and separate
+constraint-validation operations remain outstanding.
+
 ## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
 
 The action reports the four worker states, the migration ledger, and the canonical, derived, and spatial pointers and lifecycle states. Its footprint evidence reports measured live relation and index sizes, database size, host disk headroom, and a `measured_footprint_attribution` section with proportional chunk-receipt system-count attribution per generation as inputs to the disk decision. These measurements do not replace the required disposable PostgreSQL 18 sample measurement and full-scale extrapolation of the post-`010` `system_search` row width or the `system_archetype` and `system_archetype_summary` relations and indexes. It is strictly read-only, using READ ONLY transactions and reading identity names only. Running it is a governed operator operation that has not yet happened.

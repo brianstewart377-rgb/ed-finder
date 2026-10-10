@@ -12,12 +12,13 @@ they diverge, that is a signal to **correct the roadmap to match this verified
 evidence**, not to follow this file instead. The controlling sequence lives in
 the roadmap.
 
-**Update 2026-10-09:** the additions dated 2026-10-09 below are
-repository/workflow facts, not a new production inspection.
+**Updates after 2026-10-04:** the additions below, including the PR #792
+registration facts, are repository/workflow facts, not a new production
+inspection.
 
-## Verified production state (read-only inspection, 2026-10-04)
+## Verified production state (read-only inspection, 2026-10-04) and current repository status
 
-Derived generations and the newly registered migration:
+Derived generations and the registered migrations:
 
 | Item | Lifecycle / repository status | Published / applied? | Finder products / effect |
 |---|---|---|---|
@@ -25,11 +26,18 @@ Derived generations and the newly registered migration:
 | `ratings_v4_prod_p4_opt1` | VALIDATING | no (superseded) | `system_search: READY` (**pre-010**) |
 | `ratings_v4_prod_p4` | BUILDING | no | none |
 | `014_v3_watchlist.sql` | registered 2026-10-06 | **not applied** | none; it now follows `012` in the desired lineage |
+| `010_v3_system_search_body_type_counts.sql` | rewritten with `NOT VALID` checks and registered by PR #792 | **not applied** | none; it follows `014` in the desired lineage |
+| `011_v3_system_archetype.sql` | registered by PR #792 | **not applied** | none; it follows `010` in the desired lineage |
+| `013_v3_system_search_parallel.sql` | registered by PR #792 | **not applied** | none; it follows `011` in the desired lineage |
 
-Migrations: **`010_v3_system_search_body_type_counts.sql` and
-`011_v3_system_archetype.sql` are NOT applied to production** (verified: the
-`system_search` body-type columns and the `system_archetype` relations do not
-exist). `013_v3_system_search_parallel.sql` is also unapplied and unregistered.
+At the 2026-10-04 inspection,
+**`010_v3_system_search_body_type_counts.sql` and
+`011_v3_system_archetype.sql` were NOT applied to production** (verified: the
+`system_search` body-type columns and the `system_archetype` relations did not
+exist), and `013_v3_system_search_parallel.sql` was also unapplied and
+unregistered at that time. PR #792 has since registered the rewritten `010`,
+then `011` and `013`, after `014`; none of `014`, `010`, `011`, or `013` has
+been applied.
 
 No **governed** production workflow has run since 2026-09-25:
 `v3-production-schema-migration.yml` last ran on 2026-09-23,
@@ -41,41 +49,44 @@ have continued committing chunks and changing generation or product lifecycle
 state after that workflow finished. The 2026-10-04 inspection is therefore the
 last **verified** production state, not a guarantee of the current state.
 Migration `014` is registered but has not been applied by a governed workflow;
-as of 2026-10-09, the pending set for production is `[014]`.
+after PR #792, the production pending set is `[014, 010, 011, 013]` in that
+order.
 
 PR #782 (`abaf3f5`) registered `014_v3_watchlist.sql` after `012` on 2026-10-06.
-The resulting lineage is `through-012-014`, with migration-set identity
+The resulting intermediate lineage was `through-012-014`, with migration-set identity
 `sha256:7511a66d438a6413153be3d5515622e007c58ee722c2c5ae39d6ed2adc3e6684`.
 It transitions from the installed `through-012` identity
 `sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe`.
 The V3 lineage is an exact-prefix, append-only ledger, enforced by
-`scripts/operator/v3_production_migrate.py::plan_migrations`. Therefore `010`
-and `011` must now be appended after `014`. PR #780 was based on `main` at
-`5fbb978`; its manifest, authority JSON, and lineage tests are stale and the PR
-is superseded. A fresh registration PR on top of `main` will replace it and will
-also register `013` after `011`. Registering `013` makes the code-only parallel
-chunk-range rebuild available; it does not authorize or execute that rollout.
+`scripts/operator/v3_production_migrate.py::plan_migrations`. PR #792 appends
+the rewritten `010`, then `011` and `013`, after `014`. The current lineage is
+`through-012-014-010-011-013`, with migration-set identity
+`sha256:1c390ac27a34261ca0aad0e411cf260fe99a30896a45926381a87e5516ae32d9`.
+PR #780 was based on `main` at `5fbb978`; its manifest, authority JSON, and
+lineage tests are stale and the PR is superseded by PR #792. Registering `013`
+makes the code-only parallel chunk-range rebuild available; it does not
+authorize or execute that rollout.
 
-## Migration 010 must be rewritten before application
+## Migration 010 has been rewritten in PR #792 before application
 
-Migration `010` as committed **cannot be applied by the bounded runner**.
+Migration `010` in its prior form **could not be applied by the bounded runner**.
 `scripts/operator/v3_production_deploy.py` sets `COMMAND_TIMEOUT = 120`, which
-kills the `psql` apply after 120 seconds. Migration `010` currently adds 18
-`CHECK` constraints inline; PostgreSQL validates the new checks with a
+kills the `psql` apply after 120 seconds. That prior form added 18 `CHECK`
+constraints inline; PostgreSQL validates the new checks with a
 whole-table scan while holding `ACCESS EXCLUSIVE`.
 
 On PostgreSQL 18.4, a measured 10,000,000-row, 1.35 GB cached table took 1.46
 seconds to add two inline checks and scan the table. Adding the same columns
 without checks took 1.2 ms; adding the checks as `NOT VALID` took 0.4 ms.
 Production `v3_derived.system_search` contains the superseded `opt1` product,
-about 198.5 million wide rows on VPS disk. Applying the committed migration
+about 198.5 million wide rows on VPS disk. Applying that prior form
 would scan for minutes under a lock that blocks every Finder search, then the
 runner would kill it at 120 seconds and the transaction would roll back.
 
-Rewrite `010` before step 2 below: add the 18 columns as `NOT NULL DEFAULT 0`
-(metadata-only on PostgreSQL 18), then add the 18 checks as `NOT VALID` with the
-same names PostgreSQL would have generated,
-`system_search_<column>_check`. Keep the view recreation and use `014`'s
+PR #792 rewrites `010` before step 2 below: it adds the 18 columns as `NOT NULL
+DEFAULT 0` (metadata-only on PostgreSQL 18), then adds the 18 checks as `NOT
+VALID` with the same names PostgreSQL would have generated,
+`system_search_<column>_check`. It keeps the view recreation and uses `014`'s
 `SET LOCAL lock_timeout = '5s';` /
 `SET LOCAL statement_timeout = '30s';` pattern.
 `NOT VALID` checks are enforced for every subsequent `INSERT` and `UPDATE`.
@@ -117,8 +128,8 @@ generation) over a reduced-scope launch on `opt1`.
 | # | Step | Tooling status |
 |---|---|---|
 | 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **Action built, not yet run:** `scripts/operator/actions/v3-derived-lifecycle-status.sh`, allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-derived-lifecycle-status` (this PR). Its receipt records the four worker states, the migration ledger, and the canonical/derived/spatial pointers; step 0 is complete only when a dated run receipt is recorded here. |
-| 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **PENDING** — PR #780 is superseded; a fresh registration PR on top of `main` must replace it. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
-| 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`), but the `010` rewrite and fresh registration in step 1 are hard prerequisites. After registration, the expected pending set is `[014, 010, 011, 013]` |
+| 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **DONE (PR #792); not applied.** PR #780 is superseded. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
+| 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`). With step 1 complete in PR #792, the production pending set is `[014, 010, 011, 013]` in that order |
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **NO governed action — must be built.** Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
 | 4 | Create a fresh, non-published, `010`-aware derived generation. | **needs new tooling/decision** — `ratings-v4-generation.sh:174-177` always derives `ratings_v4_prod_p${sequence}` and `ratings_v4_prod_p4` already exists BUILDING, so dispatching it *resumes `p4`*, it does not create a fresh key. Either adopt `p4` as the candidate or add fresh-key/retarget support |
 | 5 | Build `system_search` with body-type counts on that generation. | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** AND verifies only migration `006` (not `010`), while the v2 builder writes `010`'s columns — so it needs **both** a retarget to the fresh generation **and** to pin+verify exact `010`, or it passes preflight then fails on the first body-count write. After step 2, `013` makes the code-only parallel chunk-range builder available |
@@ -215,10 +226,10 @@ depend on the fresh generation, and may run earlier once step 0 reconfirms state
   receipt. (3) *Applied*: it has a row in the live `v3_meta.schema_migration`
   ledger. The **live ledger is the only source of truth for "applied"** (the
   migration `plan` reads it and separates `applied_before` from `pending`). After
-  a fresh PR registers `010`/`011`/`013` after `014` but before the `apply`
-  dispatch, they will be committed + registered but **not applied** — reading
-  the manifest as "applied" would be exactly the drift this document corrects.
-  (`013` today is committed but not registered.)
+  PR #792, `010`/`011`/`013` are registered after `014` but the `apply` has not
+  been dispatched, so they are committed + registered but **not applied** —
+  reading the manifest as "applied" would be exactly the drift this document
+  corrects. (`013` is registered after `011` by PR #792.)
 - **"Product built / rebuild running" claims**: verify against
   `v3_meta.derived_product.lifecycle_state` + the actual columns/rows, not the
   roadmap. A READY product built before a later additive migration is stale.
