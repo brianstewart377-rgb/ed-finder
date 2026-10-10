@@ -178,12 +178,10 @@ newer dated source wins).
      generation.
   11. Run the governed application release and promote `main`.
 
-  For step 0, **NO governed action — must be built:** a read-only action that
-  reports `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle
-  states, the current canonical/derived/spatial pointers, and
-  `docker inspect State.Running` for the four named worker containers.
-  `scripts/operator/actions/v3-derived-data-status.sh` may be used only as the
-  pattern to model the new action on; it does not establish these preconditions.
+  For step 0, the read-only action `v3-derived-lifecycle-status` is built (PR
+  pending merge) and must be run and its receipt recorded before step 1 is
+  dispatched; `scripts/operator/actions/v3-derived-data-status.sh` remains the
+  legacy-relation pattern it was modelled on.
   Step 3 must run before the fresh build so its full-table scan covers about
   198.5M retained `opt1` rows instead of about 397M rows after the second product;
   the `NOT VALID` checks still enforce every subsequent builder insert
