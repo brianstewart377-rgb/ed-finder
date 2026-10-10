@@ -87,7 +87,7 @@ def test_search_operator_only_verifies_its_required_schema_before_worker_launch(
     assert 'dst=/work,readonly' in source
 
 
-def test_target_authority_reviews_transition_from_009_to_012_lineage():
+def test_target_authority_reviews_transition_from_through_012_to_finder_lineage():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -95,9 +95,8 @@ def test_target_authority_reviews_transition_from_009_to_012_lineage():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     document = module.build(ROOT)
-    # The reviewed transition appends only watchlist migration 014 to the
-    # applied through-012 lineage. Reproduce that prefix independently and
-    # assert both endpoints of the through-012 -> through-012-014 transition.
+    # Reproduce the installed prefix independently and assert both endpoints of
+    # the through-012 -> through-012-014-010-011-013 transition.
     desired_document = dict(document)
     entries = document['migration_set_entries']
     stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '012_v3_spatial_pyramid_decouple.sql') + 1
@@ -113,11 +112,17 @@ def test_target_authority_reviews_transition_from_009_to_012_lineage():
     assert transition["from_migration_set_identity"] == document["migration_set_identity"]
     assert transition["from_migration_set_identity"] == "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
     assert document["migration_set_entries"][-1]["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql"
-    assert [row['ledger_name'] for row in entries[stop:]] == ['014_v3_watchlist.sql']
+    assert [row['ledger_name'] for row in entries[stop:]] == [
+        '014_v3_watchlist.sql',
+        '010_v3_system_search_body_type_counts.sql',
+        '011_v3_system_archetype.sql',
+        '013_v3_system_search_parallel.sql',
+    ]
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
-    assert transition["to_migration_set_identity"] == "sha256:7511a66d438a6413153be3d5515622e007c58ee722c2c5ae39d6ed2adc3e6684"
+    assert transition["to_migration_set_identity"] == "sha256:1c390ac27a34261ca0aad0e411cf260fe99a30896a45926381a87e5516ae32d9"
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
+    assert authority["external_authority"]["schema_identity_sha256"] == "a1f0f2b68ed0eb4a5a4bb886c5042d09f496eade32d1a3b31fb698d7c4871734"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
     assert transition['from_migration_set_identity'] in compatible
     assert transition['to_migration_set_identity'] in compatible
