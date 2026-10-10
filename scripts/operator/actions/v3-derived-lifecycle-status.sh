@@ -464,6 +464,7 @@ try:
         ]
     else:
         receipt["derived_products"] = None
+        failures.append("derived_product_table_missing")
 
     spatial_present_rows = psql(
         "SELECT to_regclass('v3_spatial.current_spatial_generation')::text",
@@ -623,7 +624,10 @@ try:
     ratings_attribution_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
-        "sum(c.systems)::bigint::text AS systems FROM v3_derived.build_chunk c "
+        "sum(c.systems)::bigint::text AS systems, "
+        "sum(c.physical_bodies)::bigint::text AS physical_bodies, "
+        "sum(c.eligible_opportunities)::bigint::text AS eligible_opportunities "
+        "FROM v3_derived.build_chunk c "
         "JOIN v3_meta.derived_generation g "
         "ON g.derived_generation_id=c.derived_generation_id "
         "GROUP BY g.generation_key ORDER BY g.generation_key) q",
@@ -682,6 +686,7 @@ try:
         "archetype": archetype_attribution_rows,
     }
     attribution: dict[str, dict[str, tuple[int, int]]] = {}
+    ratings_body_counts: dict[str, tuple[int, int]] = {}
     generation_keys: set[str] = set()
     for product, rows in attribution_rows.items():
         if rows is None:
@@ -695,6 +700,16 @@ try:
                 required_int(row.get("chunks"), "chunk_receipt_output_invalid"),
                 required_int(row.get("systems"), "chunk_receipt_output_invalid"),
             )
+            if product == "ratings":
+                ratings_body_counts[generation_key] = (
+                    required_int(
+                        row.get("physical_bodies"), "chunk_receipt_output_invalid"
+                    ),
+                    required_int(
+                        row.get("eligible_opportunities"),
+                        "chunk_receipt_output_invalid",
+                    ),
+                )
             generation_keys.add(generation_key)
         attribution[product] = product_rows
     rows_by_generation: dict[str, dict[str, int | None]] = {}
@@ -709,6 +724,13 @@ try:
             generation_attribution[f"{product}_systems"] = (
                 None if rows is None else values[1] if values is not None else 0
             )
+        ratings_counts = ratings_body_counts.get(generation_key)
+        generation_attribution["ratings_physical_bodies"] = (
+            ratings_counts[0] if ratings_counts is not None else 0
+        )
+        generation_attribution["ratings_eligible_opportunities"] = (
+            ratings_counts[1] if ratings_counts is not None else 0
+        )
         rows_by_generation[generation_key] = generation_attribution
     footprint["rows_by_generation"] = rows_by_generation
 
@@ -734,6 +756,7 @@ try:
     postgres_mount = postgres_mount or fallback_mount
     if postgres_mount is None:
         footprint["host_disk"] = {"mount_found": False}
+        failures.append("postgres_data_mount_unresolved")
     else:
         source, destination = postgres_mount
         host_disk = df_values(

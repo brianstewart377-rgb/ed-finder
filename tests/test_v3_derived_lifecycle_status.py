@@ -112,8 +112,10 @@ def _run_status_action(
     *,
     worker_inspect_failure: str = "missing",
     empty_derived_pointer: bool = False,
+    derived_product_absent: bool = False,
     spatial_relation_absent: bool = False,
     database_size_query_failure: bool = False,
+    unrelated_postgres_mount: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -158,7 +160,11 @@ def _run_status_action(
               fi
               case "$format" in
                 *'.Mounts'*)
-                  printf '/srv/postgres-data\\t/var/lib/postgresql/data\\n'
+                  if [ "$UNRELATED_POSTGRES_MOUNT" = '1' ]; then
+                    printf '/srv/unrelated-data\\t/var/lib/unrelated/data\\n'
+                  else
+                    printf '/srv/postgres-data\\t/var/lib/postgresql/data\\n'
+                  fi
                   exit 0 ;;
               esac
               if [ "$name" = 'edfinder-v3-system-search-p4-opt1' ]; then
@@ -207,7 +213,9 @@ def _run_status_action(
                   printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","canonical_generation_id":"canonical-id","canonical_publication_sequence":4,"mechanics_version":"ratings-v4","scorer_version":"scorer-v4","adapter_version":"adapter-v1","lifecycle_state":"PUBLISHED","expected_systems":100,"expected_bodies":500,"created_at":"2026-08-02 00:00:00+00","validated_at":"2026-08-30 00:00:00+00","published_at":"2026-09-02 00:00:00+00","failed_at":null,"failure":null}'
                   printf '%s\\n' '{"derived_generation_id":"derived-partial-id","generation_key":"ratings_v4_partial","canonical_generation_id":"canonical-id","canonical_publication_sequence":4,"mechanics_version":"ratings-v4","scorer_version":"scorer-v4","adapter_version":"adapter-v1","lifecycle_state":"FAILED","expected_systems":100,"expected_bodies":500,"created_at":"2026-08-03 00:00:00+00","validated_at":null,"published_at":null,"failed_at":"2026-08-04 00:00:00+00","failure":"phase one\\nretry\\tpending"}' ;;
                 *"to_regclass('v3_meta.derived_product')"*)
-                  printf 'v3_meta.derived_product\\n' ;;
+                  if [ "$DERIVED_PRODUCT_ABSENT" != '1' ]; then
+                    printf 'v3_meta.derived_product\\n'
+                  fi ;;
                 *'FROM v3_meta.derived_product p'*)
                   printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
                 *"to_regclass('v3_spatial.current_spatial_generation')"*)
@@ -241,8 +249,8 @@ def _run_status_action(
                   printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"64","systems":"100"}'
                   printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"32","systems":"50"}' ;;
                 *'FROM v3_derived.build_chunk'*)
-                  printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"16","systems":"100"}'
-                  printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"8","systems":"50"}' ;;
+                  printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"16","systems":"100","physical_bodies":"500","eligible_opportunities":"250"}'
+                  printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"8","systems":"50","physical_bodies":"275","eligible_opportunities":"125"}' ;;
                 *)
                   printf '%s\\n' "unexpected query: $sql" >&2
                   exit 2 ;;
@@ -278,10 +286,12 @@ def _run_status_action(
     env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
     env["WORKER_INSPECT_FAILURE"] = worker_inspect_failure
     env["EMPTY_DERIVED_POINTER"] = "1" if empty_derived_pointer else "0"
+    env["DERIVED_PRODUCT_ABSENT"] = "1" if derived_product_absent else "0"
     env["SPATIAL_RELATION_ABSENT"] = "1" if spatial_relation_absent else "0"
     env["DATABASE_SIZE_QUERY_FAILURE"] = (
         "1" if database_size_query_failure else "0"
     )
+    env["UNRELATED_POSTGRES_MOUNT"] = "1" if unrelated_postgres_mount else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -320,10 +330,22 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
     assert receipt["footprint"]["rows_by_generation"]["ratings_v4_canned"] == {
         "ratings_chunks": 16,
         "ratings_systems": 100,
+        "ratings_physical_bodies": 500,
+        "ratings_eligible_opportunities": 250,
         "search_chunks": 8,
         "search_systems": 100,
         "archetype_chunks": 64,
         "archetype_systems": 100,
+    }
+    assert receipt["footprint"]["rows_by_generation"]["ratings_v4_partial"] == {
+        "ratings_chunks": 8,
+        "ratings_systems": 50,
+        "ratings_physical_bodies": 275,
+        "ratings_eligible_opportunities": 125,
+        "search_chunks": 4,
+        "search_systems": 50,
+        "archetype_chunks": 32,
+        "archetype_systems": 50,
     }
     assert receipt["footprint"]["host_disk"]["avail_bytes"] == 75000000000
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is True
@@ -384,6 +406,19 @@ def test_v3_derived_lifecycle_status_requires_derived_current_pointer(tmp_path):
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
 
 
+def test_v3_derived_lifecycle_status_requires_derived_product_table(tmp_path):
+    result = _run_status_action(tmp_path, derived_product_absent=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["derived_product_table_present"] is False
+    assert receipt["derived_products"] is None
+    assert receipt["status"] == "stopped"
+    assert "derived_product_table_missing" in receipt["failures"]
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
 def test_v3_derived_lifecycle_status_requires_spatial_current_pointer(tmp_path):
     result = _run_status_action(tmp_path, spatial_relation_absent=True)
 
@@ -404,6 +439,18 @@ def test_v3_derived_lifecycle_status_stops_on_footprint_query_failure(tmp_path):
     assert receipt["status"] == "stopped"
     assert "read_only_query_failed" in receipt["failures"]
     assert receipt["migration_apply_preconditions"]["current_pointers_recorded"] is True
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
+def test_v3_derived_lifecycle_status_requires_postgres_data_mount(tmp_path):
+    result = _run_status_action(tmp_path, unrelated_postgres_mount=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["footprint"]["host_disk"] == {"mount_found": False}
+    assert receipt["status"] == "stopped"
+    assert "postgres_data_mount_unresolved" in receipt["failures"]
     assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
 

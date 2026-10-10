@@ -201,12 +201,13 @@ Sum of the four system-level relations for one complete fresh generation: about
 primary key and `system_archetype_key_score`). `body_mechanics` (178 B/row
 including its primary key) and `economy_opportunity` (188 B/row including its
 primary key) scale with bodies and eligible body/economy pairs, not systems;
-multiply those totals by the production row counts the step 0 receipt reports
-(`footprint.relations`, `n_live_tup`) for the published generation and add the
-result to the sum above. Retention means the superseded `opt1` `system_search`
-rows (about 198.5 M, pre-`010` width) and the `p4`/`opt1` ratings rows also stay
-on disk. Compare the total against `footprint.host_disk.avail_bytes` from the
-step 0 receipt before approving step 4. The dominant term is the per-archetype
+multiply 178 B/row by the published generation's `ratings_physical_bodies` and
+188 B/row by its `ratings_eligible_opportunities` from `rows_by_generation`,
+then add both results to the sum above. Retention means the superseded `opt1`
+`system_search` rows (about 198.5 M, pre-`010` width) and the `p4`/`opt1` ratings
+rows also stay on disk. Compare the total against
+`footprint.host_disk.avail_bytes` from the step 0 receipt before approving step
+4. The dominant term is the per-archetype
 `explanation` jsonb; if headroom is short, the honest options are to shrink or
 externalise that column (a product/schema decision, requiring a new archetype
 version) or to design and review the governed purge path — not to proceed.
