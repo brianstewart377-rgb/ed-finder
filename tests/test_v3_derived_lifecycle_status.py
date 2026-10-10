@@ -107,7 +107,12 @@ def test_v3_derived_lifecycle_status_shell_syntax_is_valid():
     assert result.returncode == 0, result.stderr
 
 
-def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
+def _run_status_action(
+    tmp_path: Path,
+    *,
+    worker_inspect_failure: str = "missing",
+    empty_derived_pointer: bool = False,
+) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
         "\nPY\n", 1
@@ -155,7 +160,14 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
                   exit 0 ;;
               esac
               if [ "$name" = 'edfinder-v3-system-search-p4-opt1' ]; then
-                exit 1
+                case "$WORKER_INSPECT_FAILURE" in
+                  missing)
+                    printf 'Error: No such object: %s\\n' "$name" >&2
+                    exit 1 ;;
+                  daemon)
+                    printf '%s\\n' 'Cannot connect to the Docker daemon' >&2
+                    exit 1 ;;
+                esac
               fi
               printf 'exited\\tfalse\\t0\\t2026-10-01T00:00:00Z\\n'
               exit 0
@@ -178,45 +190,51 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
                 *"current_setting('server_version')"*)
                   printf 'edfinder_v3\\tedfinder_v3_db\\t18.4\\t180004\\n' ;;
                 *'FROM v3_meta.schema_migration'*)
-                  printf '011_v3_system_archetype.sql\\taa11\\t2026-09-01 00:00:00+00\\n'
-                  printf '013_v3_system_search_parallel.sql\\taa13\\t2026-09-02 00:00:00+00\\n'
-                  printf '014_v3_watchlist.sql\\taa14\\t2026-09-03 00:00:00+00\\n' ;;
+                  printf '%s\\n' '{"migration_name":"011_v3_system_archetype.sql","migration_sha256_hex":"aa11","applied_at":"2026-09-01 00:00:00+00"}'
+                  printf '%s\\n' '{"migration_name":"013_v3_system_search_parallel.sql","migration_sha256_hex":"aa13","applied_at":"2026-09-02 00:00:00+00"}'
+                  printf '%s\\n' '{"migration_name":"014_v3_watchlist.sql","migration_sha256_hex":"aa14","applied_at":"2026-09-03 00:00:00+00"}' ;;
                 *'FROM v3_meta.current_canonical_generation'*)
-                  printf 'canonical-id\\tcanonical_live\\tv3_gen_canonical_live\\tPUBLISHED\\t4\\t2026-09-01 00:00:00+00\\n' ;;
+                  printf '%s\\n' '{"generation_id":"canonical-id","generation_key":"canonical_live","relation_schema":"v3_gen_canonical_live","lifecycle_state":"PUBLISHED","publication_sequence":"4","published_at":"2026-09-01 00:00:00+00"}' ;;
                 *'FROM v3_meta.canonical_generation ORDER BY created_at'*)
-                  printf '%s\\n' 'canonical-id\tcanonical_live\tPUBLISHED\t2026-08-01 00:00:00+00\t2026-09-01 00:00:00+00\t\\N\t\\N\t\\N' ;;
+                  printf '%s\\n' '{"generation_id":"canonical-id","generation_key":"canonical_live","lifecycle_state":"PUBLISHED","created_at":"2026-08-01 00:00:00+00","published_at":"2026-09-01 00:00:00+00","retired_at":null,"failed_at":null,"failure_reason":null}' ;;
                 *'FROM v3_meta.current_derived_generation'*)
-                  printf 'derived-id\\tratings_v4_canned\\tPUBLISHED\\tcanonical-id\\t1\\t2026-09-02 00:00:00+00\\n' ;;
+                  if [ "$EMPTY_DERIVED_POINTER" != '1' ]; then
+                    printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","lifecycle_state":"PUBLISHED","canonical_generation_id":"canonical-id","publication_sequence":"1","published_at":"2026-09-02 00:00:00+00"}'
+                  fi ;;
                 *'FROM v3_meta.derived_generation ORDER BY created_at'*)
-                  printf '%s\\n' 'derived-id\tratings_v4_canned\tcanonical-id\t4\tratings-v4\tscorer-v4\tadapter-v1\tPUBLISHED\t198528286\t500000000\t2026-08-02 00:00:00+00\t2026-08-30 00:00:00+00\t2026-09-02 00:00:00+00\t\\N\t\\N' ;;
+                  printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","canonical_generation_id":"canonical-id","canonical_publication_sequence":4,"mechanics_version":"ratings-v4","scorer_version":"scorer-v4","adapter_version":"adapter-v1","lifecycle_state":"PUBLISHED","expected_systems":100,"expected_bodies":500,"created_at":"2026-08-02 00:00:00+00","validated_at":"2026-08-30 00:00:00+00","published_at":"2026-09-02 00:00:00+00","failed_at":null,"failure":null}'
+                  printf '%s\\n' '{"derived_generation_id":"derived-partial-id","generation_key":"ratings_v4_partial","canonical_generation_id":"canonical-id","canonical_publication_sequence":4,"mechanics_version":"ratings-v4","scorer_version":"scorer-v4","adapter_version":"adapter-v1","lifecycle_state":"FAILED","expected_systems":100,"expected_bodies":500,"created_at":"2026-08-03 00:00:00+00","validated_at":null,"published_at":null,"failed_at":"2026-08-04 00:00:00+00","failure":"phase one\\nretry\\tpending"}' ;;
                 *"to_regclass('v3_meta.derived_product')"*)
                   printf 'v3_meta.derived_product\\n' ;;
                 *'FROM v3_meta.derived_product p'*)
-                  printf '%s\\n' 'derived-id\tratings_v4_canned\tsystem_search\tsearch-v2\tREADY\t198528286\t2026-08-03 00:00:00+00\t2026-08-31 00:00:00+00\t\\N\t\\N\tbeef' ;;
+                  printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
                 *"to_regclass('v3_spatial.current_spatial_generation')"*)
                   printf 'v3_spatial.current_spatial_generation\\n' ;;
                 *'FROM v3_spatial.current_spatial_generation'*)
-                  printf 'spatial-id\\tcanonical-id\\tdensity-v1\\tPUBLISHED\\t1\\t2026-09-03 00:00:00+00\\n' ;;
+                  printf '%s\\n' '{"spatial_generation_id":"spatial-id","canonical_generation_id":"canonical-id","pyramid_version":"density-v1","lifecycle_state":"PUBLISHED","publication_sequence":"1","published_at":"2026-09-03 00:00:00+00"}' ;;
                 *'FROM v3_spatial.spatial_generation ORDER BY created_at'*)
-                  printf '%s\\n' 'spatial-id\tcanonical-id\tdensity-v1\tPUBLISHED\t198528286\t2026-08-04 00:00:00+00\t2026-09-01 00:00:00+00\t2026-09-03 00:00:00+00\t\\N\t\\N' ;;
+                  printf '%s\\n' '{"spatial_generation_id":"spatial-id","canonical_generation_id":"canonical-id","pyramid_version":"density-v1","lifecycle_state":"PUBLISHED","expected_systems":100,"created_at":"2026-08-04 00:00:00+00","validated_at":"2026-09-01 00:00:00+00","published_at":"2026-09-03 00:00:00+00","failed_at":null,"failure":null}' ;;
                 *'pg_database_size'*)
                   printf '987654321\\n' ;;
                 *'pg_total_relation_size'*)
-                  printf 'v3_derived\\tsystem_search\\t198528286\\t198500000\\t6000000000\\t2000000000\\t8000000000\\n'
-                  printf 'v3_derived\\tsystem_archetype\\t1590000000\\t1589000000\\t30000000000\\t9000000000\\t39000000000\\n' ;;
+                  printf '%s\\n' '{"schema":"v3_derived","name":"system_search","estimated_rows":150,"n_live_tup":150,"table_bytes":6000,"index_bytes":3000,"total_bytes":9000}'
+                  printf '%s\\n' '{"schema":"v3_derived","name":"system_archetype","estimated_rows":150,"n_live_tup":150,"table_bytes":10000,"index_bytes":5000,"total_bytes":15000}' ;;
                 *'pg_indexes_size'*|*'FROM pg_index'*)
-                  printf 'v3_derived\\tsystem_search\\tsystem_search_pkey\\t2000000000\\n'
-                  printf 'v3_derived\\tsystem_archetype\\tsystem_archetype_key_score\\t3000000000\\n' ;;
+                  printf '%s\\n' '{"schema":"v3_derived","name":"system_search","index_name":"system_search_pkey","index_bytes":3000}'
+                  printf '%s\\n' '{"schema":"v3_derived","name":"system_archetype","index_name":"system_archetype_key_score","index_bytes":5000}' ;;
                 *"to_regclass('v3_derived.search_build_chunk')"*)
                   printf 'v3_derived.search_build_chunk\\tv3_derived.archetype_build_chunk\\n' ;;
                 *"to_regclass('v3_derived.archetype_build_chunk')"*)
                   printf 'v3_derived.archetype_build_chunk\\n' ;;
                 *'FROM v3_derived.search_build_chunk'*)
-                  printf 'ratings_v4_canned\\t8\\t198528286\\n' ;;
+                  printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"8","systems":"100"}'
+                  printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"4","systems":"50"}' ;;
                 *'FROM v3_derived.archetype_build_chunk'*)
-                  printf 'ratings_v4_canned\\t64\\t198528286\\n' ;;
+                  printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"64","systems":"100"}'
+                  printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"32","systems":"50"}' ;;
                 *'FROM v3_derived.build_chunk'*)
-                  printf 'ratings_v4_canned\\t16\\t198528286\\n' ;;
+                  printf '%s\\n' '{"generation_key":"ratings_v4_canned","chunks":"16","systems":"100"}'
+                  printf '%s\\n' '{"generation_key":"ratings_v4_partial","chunks":"8","systems":"50"}' ;;
                 *)
                   printf '%s\\n' "unexpected query: $sql" >&2
                   exit 2 ;;
@@ -250,13 +268,19 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
-    result = subprocess.run(
+    env["WORKER_INSPECT_FAILURE"] = worker_inspect_failure
+    env["EMPTY_DERIVED_POINTER"] = "1" if empty_derived_pointer else "0"
+    return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
         text=True,
         env=env,
         timeout=10,
     )
+
+
+def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
+    result = _run_status_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
     assert len(result.stdout.splitlines()) == 1
     receipt = json.loads(result.stdout)
@@ -278,18 +302,108 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
     assert receipt["spatial"]["current"]["spatial_generation_id"] == "spatial-id"
     assert receipt["footprint"]["database_size_bytes"] == 987654321
     assert any(
-        relation["name"] == "system_search" and relation["total_bytes"] == 8000000000
+        relation["name"] == "system_search" and relation["total_bytes"] == 9000
         for relation in receipt["footprint"]["relations"]
     )
     assert receipt["footprint"]["rows_by_generation"]["ratings_v4_canned"] == {
         "ratings_chunks": 16,
-        "ratings_systems": 198528286,
+        "ratings_systems": 100,
         "search_chunks": 8,
-        "search_systems": 198528286,
+        "search_systems": 100,
         "archetype_chunks": 64,
-        "archetype_systems": 198528286,
+        "archetype_systems": 100,
     }
     assert receipt["footprint"]["host_disk"]["avail_bytes"] == 75000000000
-    assert receipt["footprint"]["fresh_generation_estimate"]["method"]
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is True
     assert receipt["direct_db_access_performed"] is True
+
+
+def test_v3_derived_lifecycle_status_preserves_json_safe_failure_text(tmp_path):
+    result = _run_status_action(tmp_path)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    partial = next(
+        generation
+        for generation in receipt["derived_generations"]
+        if generation["generation_key"] == "ratings_v4_partial"
+    )
+    assert partial["failure"] == "phase one\nretry\tpending"
+
+
+def test_v3_derived_lifecycle_status_treats_no_such_object_as_absent(tmp_path):
+    result = _run_status_action(tmp_path, worker_inspect_failure="missing")
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    worker = receipt["workers"][3]
+    assert worker["exists"] is False
+    assert worker["running"] is False
+    assert "inspect_error" not in worker
+    assert receipt["all_named_workers_stopped"] is True
+
+
+def test_v3_derived_lifecycle_status_fails_closed_on_unknown_worker(tmp_path):
+    result = _run_status_action(tmp_path, worker_inspect_failure="daemon")
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    worker = receipt["workers"][3]
+    assert worker["exists"] is None
+    assert worker["running"] is None
+    assert worker["status"] is None
+    assert worker["inspect_error"] == "Cannot connect to the Docker daemon"
+    assert receipt["all_named_workers_stopped"] is False
+    assert receipt["status"] == "stopped"
+    assert "worker_state_unknown" in receipt["failures"]
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
+def test_v3_derived_lifecycle_status_requires_derived_current_pointer(tmp_path):
+    result = _run_status_action(tmp_path, empty_derived_pointer=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["derived"] is None
+    assert receipt["status"] == "stopped"
+    assert "current_pointer_missing" in receipt["failures"]
+    assert receipt["migration_apply_preconditions"]["current_pointers_recorded"] is False
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
+def test_v3_derived_lifecycle_status_attributes_footprint_proportionally(tmp_path):
+    result = _run_status_action(tmp_path)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    footprint = json.loads(result.stdout)["footprint"]
+    attribution = footprint["measured_footprint_attribution"]
+    assert attribution["note"] == (
+        "proportional attribution by chunk-receipt system counts; partial "
+        "generations are flagged"
+    )
+    search = attribution["system_search"]
+    assert search["table_total_bytes"] == 9000
+    assert search["receipt_product"] == "search"
+    assert search["generations"] == {
+        "ratings_v4_canned": {
+            "attributed_bytes": 6000,
+            "share": pytest.approx(2 / 3),
+            "generation_complete": True,
+        },
+        "ratings_v4_partial": {
+            "attributed_bytes": 3000,
+            "share": pytest.approx(1 / 3),
+            "generation_complete": False,
+        },
+    }
+    assert "fresh_generation_estimate" not in footprint
+    assert "bytes_per_generation_if_evenly_split" not in result.stdout
+    assert footprint["planned_relations_not_measurable_here"] == [
+        "v3_derived.system_search (post-010 row width)",
+        "v3_derived.system_archetype",
+        "v3_derived.system_archetype_summary",
+    ]
+    assert footprint["planned_relations_not_measurable_here_note"] == (
+        "size these on a disposable PostgreSQL 18 sample and extrapolate; see "
+        "docs/operations/v3-finder-production-rollout-state.md"
+    )

@@ -148,10 +148,14 @@ roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
 associated ratings, search, archetype, and summary indexes, including
 `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
 **design and review a governed purge path** as a prerequisite before step 4.
-The step 0 action `v3-derived-lifecycle-status` now reports the live relation and
-index sizes, chunk-receipt row attribution per generation, and the data volume's
-free space (`footprint` section), so the measurement comes from production
-catalog sizes rather than a disposable-sample extrapolation.
+The step 0 action `v3-derived-lifecycle-status` now reports measured live
+relation and index sizes, the data volume's free space, and proportional
+chunk-receipt system-count attribution per generation (the
+`measured_footprint_attribution` section). These are **inputs** to the disk
+decision; they do **not** replace the required disposable PostgreSQL 18 sample
+measurement and full-scale extrapolation of the post-`010` `system_search` row
+width or the `system_archetype` and `system_archetype_summary` relations and
+indexes.
 
 The governed actions for steps 7, 8, and 9 are unbuilt. They can only be finalized
 **after** step 4 creates the fresh generation, because the governed action

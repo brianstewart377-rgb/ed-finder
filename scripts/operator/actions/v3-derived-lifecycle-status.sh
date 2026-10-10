@@ -136,6 +136,28 @@ def psql(
     return rows
 
 
+def psql_json(
+    sql: str,
+    db_user: str,
+    db_name: str,
+    *,
+    timeout: int = PROCESS_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    rows = psql(sql, db_user, db_name, timeout=timeout)
+    parsed: list[dict[str, Any]] = []
+    for row in rows:
+        if len(row) != 1:
+            raise RuntimeError("json_query_output_invalid")
+        try:
+            value = json.loads(row[0])
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("json_query_output_invalid") from exc
+        if not isinstance(value, dict):
+            raise RuntimeError("json_query_output_invalid")
+        parsed.append(value)
+    return parsed
+
+
 def as_int(value: str | None) -> int | None:
     if value in (None, "", "\\N"):
         return None
@@ -180,6 +202,19 @@ def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
 def inspect_worker(name: str) -> dict[str, Any]:
     result = run(["docker", "inspect", "-f", WORKER_INSPECT_FORMAT, name])
     if result.returncode != 0:
+        stderr = result.stderr or ""
+        if "No such object" not in stderr and "No such container" not in stderr:
+            detail = stderr.strip().splitlines()
+            inspect_error = detail[-1][:240] if detail else f"exit_{result.returncode}"
+            return {
+                "name": name,
+                "exists": None,
+                "running": None,
+                "status": None,
+                "exit_code": None,
+                "finished_at": None,
+                "inspect_error": inspect_error,
+            }
         return {
             "name": name,
             "exists": False,
@@ -256,7 +291,12 @@ if container.returncode != 0 or container.stdout.strip() != "true":
     sys.exit(1)
 
 workers = [inspect_worker(name) for name in WORKER_CONTAINERS]
-all_named_workers_stopped = not any(worker["running"] is True for worker in workers)
+unknown_worker_state = any(worker["running"] is None for worker in workers)
+all_named_workers_stopped = all(
+    worker["exists"] is False or worker["running"] is False for worker in workers
+)
+if unknown_worker_state:
+    failures.append("worker_state_unknown")
 receipt["workers"] = workers
 receipt["all_named_workers_stopped"] = all_named_workers_stopped
 
@@ -294,117 +334,100 @@ try:
             }
         )
 
-    migration_rows = psql(
-        "SELECT migration_name, encode(migration_sha256,'hex'), applied_at::text "
-        "FROM v3_meta.schema_migration ORDER BY applied_at, migration_name",
+    migration_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT migration_name, encode(migration_sha256,'hex') AS migration_sha256_hex, "
+        "applied_at::text AS applied_at FROM v3_meta.schema_migration "
+        "ORDER BY applied_at, migration_name) q",
         db_user,
         db_name,
     )
-    receipt["schema_migrations"] = [
-        {
-            "migration_name": row[0],
-            "migration_sha256_hex": row[1],
-            "applied_at": row[2],
-        }
-        for row in migration_rows
-    ]
-    applied_migrations = {row[0] for row in migration_rows}
+    receipt["schema_migrations"] = migration_rows
+    applied_migrations = {row["migration_name"] for row in migration_rows}
     receipt["finder_migrations_applied"] = {
         name: name in applied_migrations for name in FINDER_MIGRATIONS
     }
 
-    canonical_pointer_rows = psql(
-        "SELECT g.generation_id::text, g.generation_key, g.relation_schema, "
-        "g.lifecycle_state, p.publication_sequence::text, p.published_at::text "
+    canonical_pointer_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT g.generation_id::text AS generation_id, g.generation_key, "
+        "g.relation_schema, g.lifecycle_state, "
+        "p.publication_sequence::text AS publication_sequence, "
+        "p.published_at::text AS published_at "
         "FROM v3_meta.current_canonical_generation p "
         "JOIN v3_meta.canonical_generation g ON g.generation_id=p.generation_id "
-        "WHERE p.singleton",
+        "WHERE p.singleton) q",
         db_user,
         db_name,
     )
     receipt["canonical"] = (
         {
-            "generation_id": canonical_pointer_rows[0][0],
-            "generation_key": canonical_pointer_rows[0][1],
-            "relation_schema": canonical_pointer_rows[0][2],
-            "lifecycle_state": canonical_pointer_rows[0][3],
-            "publication_sequence": as_int(canonical_pointer_rows[0][4]),
-            "published_at": canonical_pointer_rows[0][5],
+            **canonical_pointer_rows[0],
+            "publication_sequence": as_int(
+                canonical_pointer_rows[0]["publication_sequence"]
+            ),
         }
         if canonical_pointer_rows
         else None
     )
 
-    canonical_rows = psql(
-        "SELECT generation_id::text, generation_key, lifecycle_state, created_at::text, "
-        "published_at::text, retired_at::text, failed_at::text, "
-        "LEFT(failure_reason,240) FROM v3_meta.canonical_generation ORDER BY created_at",
+    canonical_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT generation_id::text AS generation_id, generation_key, lifecycle_state, "
+        "created_at::text AS created_at, published_at::text AS published_at, "
+        "retired_at::text AS retired_at, failed_at::text AS failed_at, "
+        "LEFT(failure_reason,240) AS failure_reason "
+        "FROM v3_meta.canonical_generation ORDER BY created_at) q",
         db_user,
         db_name,
     )
-    receipt["canonical_generations"] = [
-        {
-            "generation_id": row[0],
-            "generation_key": row[1],
-            "lifecycle_state": row[2],
-            "created_at": row[3],
-            "published_at": as_optional(row[4]),
-            "retired_at": as_optional(row[5]),
-            "failed_at": as_optional(row[6]),
-            "failure_reason": as_optional(row[7]),
-        }
-        for row in canonical_rows
-    ]
+    receipt["canonical_generations"] = canonical_rows
 
-    derived_pointer_rows = psql(
-        "SELECT g.derived_generation_id::text, g.generation_key, g.lifecycle_state, "
-        "g.canonical_generation_id::text, p.publication_sequence::text, "
-        "p.published_at::text FROM v3_meta.current_derived_generation p "
+    derived_pointer_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT g.derived_generation_id::text AS derived_generation_id, "
+        "g.generation_key, g.lifecycle_state, "
+        "g.canonical_generation_id::text AS canonical_generation_id, "
+        "p.publication_sequence::text AS publication_sequence, "
+        "p.published_at::text AS published_at FROM v3_meta.current_derived_generation p "
         "JOIN v3_meta.derived_generation g "
-        "ON g.derived_generation_id=p.derived_generation_id WHERE p.singleton",
+        "ON g.derived_generation_id=p.derived_generation_id WHERE p.singleton) q",
         db_user,
         db_name,
     )
     receipt["derived"] = (
         {
-            "derived_generation_id": derived_pointer_rows[0][0],
-            "generation_key": derived_pointer_rows[0][1],
-            "lifecycle_state": derived_pointer_rows[0][2],
-            "canonical_generation_id": derived_pointer_rows[0][3],
-            "publication_sequence": as_int(derived_pointer_rows[0][4]),
-            "published_at": derived_pointer_rows[0][5],
+            **derived_pointer_rows[0],
+            "publication_sequence": as_int(
+                derived_pointer_rows[0]["publication_sequence"]
+            ),
         }
         if derived_pointer_rows
         else None
     )
 
-    derived_rows = psql(
-        "SELECT derived_generation_id::text, generation_key, "
-        "canonical_generation_id::text, canonical_publication_sequence::text, "
+    derived_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT derived_generation_id::text AS derived_generation_id, generation_key, "
+        "canonical_generation_id::text AS canonical_generation_id, "
+        "canonical_publication_sequence::text AS canonical_publication_sequence, "
         "mechanics_version, scorer_version, adapter_version, lifecycle_state, "
-        "expected_systems::text, expected_bodies::text, created_at::text, "
-        "validated_at::text, published_at::text, failed_at::text, LEFT(failure,240) "
-        "FROM v3_meta.derived_generation ORDER BY created_at",
+        "expected_systems::text AS expected_systems, "
+        "expected_bodies::text AS expected_bodies, created_at::text AS created_at, "
+        "validated_at::text AS validated_at, published_at::text AS published_at, "
+        "failed_at::text AS failed_at, LEFT(failure,240) AS failure "
+        "FROM v3_meta.derived_generation ORDER BY created_at) q",
         db_user,
         db_name,
     )
     receipt["derived_generations"] = [
         {
-            "derived_generation_id": row[0],
-            "generation_key": row[1],
-            "canonical_generation_id": row[2],
-            "canonical_publication_sequence": as_int(row[3]),
-            "mechanics_version": row[4],
-            "scorer_version": row[5],
-            "adapter_version": row[6],
-            "lifecycle_state": row[7],
-            "expected_systems": as_int(row[8]),
-            "expected_bodies": as_int(row[9]),
-            "created_at": row[10],
-            "validated_at": as_optional(row[11]),
-            "published_at": as_optional(row[12]),
-            "failed_at": as_optional(row[13]),
-            "failure": as_optional(row[14]),
+            **row,
+            "canonical_publication_sequence": as_int(
+                row["canonical_publication_sequence"]
+            ),
+            "expected_systems": as_int(row["expected_systems"]),
+            "expected_bodies": as_int(row["expected_bodies"]),
         }
         for row in derived_rows
     ]
@@ -417,32 +440,25 @@ try:
     product_table_present = bool(product_present_rows and product_present_rows[0][0])
     receipt["derived_product_table_present"] = product_table_present
     if product_table_present:
-        product_rows = psql(
-            "SELECT p.derived_generation_id::text, g.generation_key, p.product_code, "
+        product_rows = psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT p.derived_generation_id::text AS derived_generation_id, "
+            "g.generation_key, p.product_code, "
             "p.product_version, p.lifecycle_state, p.expected_rows::text, "
-            "p.created_at::text, p.validated_at::text, p.failed_at::text, "
-            "LEFT(p.failure,240), "
+            "p.created_at::text AS created_at, p.validated_at::text AS validated_at, "
+            "p.failed_at::text AS failed_at, LEFT(p.failure,240) AS failure, "
             "CASE WHEN p.validation_sha256 IS NULL THEN NULL "
-            "ELSE encode(p.validation_sha256,'hex') END "
+            "ELSE encode(p.validation_sha256,'hex') END AS validation_sha256_hex "
             "FROM v3_meta.derived_product p JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=p.derived_generation_id "
-            "ORDER BY g.created_at, p.product_code",
+            "ORDER BY g.created_at, p.product_code) q",
             db_user,
             db_name,
         )
         receipt["derived_products"] = [
             {
-                "derived_generation_id": row[0],
-                "generation_key": row[1],
-                "product_code": row[2],
-                "product_version": row[3],
-                "lifecycle_state": row[4],
-                "expected_rows": as_int(row[5]),
-                "created_at": row[6],
-                "validated_at": as_optional(row[7]),
-                "failed_at": as_optional(row[8]),
-                "failure": as_optional(row[9]),
-                "validation_sha256_hex": as_optional(row[10]),
+                **row,
+                "expected_rows": as_int(row["expected_rows"]),
             }
             for row in product_rows
         ]
@@ -458,32 +474,37 @@ try:
     if not spatial_present:
         receipt["spatial"] = {"present": False}
     else:
-        spatial_pointer_rows = psql(
-            "SELECT g.spatial_generation_id::text, g.canonical_generation_id::text, "
-            "g.pyramid_version, g.lifecycle_state, p.publication_sequence::text, "
-            "p.published_at::text FROM v3_spatial.current_spatial_generation p "
+        spatial_pointer_rows = psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT g.spatial_generation_id::text AS spatial_generation_id, "
+            "g.canonical_generation_id::text AS canonical_generation_id, "
+            "g.pyramid_version, g.lifecycle_state, "
+            "p.publication_sequence::text AS publication_sequence, "
+            "p.published_at::text AS published_at "
+            "FROM v3_spatial.current_spatial_generation p "
             "JOIN v3_spatial.spatial_generation g "
-            "ON g.spatial_generation_id=p.spatial_generation_id WHERE p.singleton",
+            "ON g.spatial_generation_id=p.spatial_generation_id WHERE p.singleton) q",
             db_user,
             db_name,
         )
         spatial_pointer = (
             {
-                "spatial_generation_id": spatial_pointer_rows[0][0],
-                "canonical_generation_id": spatial_pointer_rows[0][1],
-                "pyramid_version": spatial_pointer_rows[0][2],
-                "lifecycle_state": spatial_pointer_rows[0][3],
-                "publication_sequence": as_int(spatial_pointer_rows[0][4]),
-                "published_at": spatial_pointer_rows[0][5],
+                **spatial_pointer_rows[0],
+                "publication_sequence": as_int(
+                    spatial_pointer_rows[0]["publication_sequence"]
+                ),
             }
             if spatial_pointer_rows
             else None
         )
-        spatial_rows = psql(
-            "SELECT spatial_generation_id::text, canonical_generation_id::text, "
+        spatial_rows = psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT spatial_generation_id::text AS spatial_generation_id, "
+            "canonical_generation_id::text AS canonical_generation_id, "
             "pyramid_version, lifecycle_state, expected_systems::text, created_at::text, "
-            "validated_at::text, published_at::text, failed_at::text, LEFT(failure,240) "
-            "FROM v3_spatial.spatial_generation ORDER BY created_at",
+            "validated_at::text AS validated_at, published_at::text AS published_at, "
+            "failed_at::text AS failed_at, LEFT(failure,240) AS failure "
+            "FROM v3_spatial.spatial_generation ORDER BY created_at) q",
             db_user,
             db_name,
         )
@@ -492,22 +513,20 @@ try:
             "current": spatial_pointer,
             "spatial_generations": [
                 {
-                    "spatial_generation_id": row[0],
-                    "canonical_generation_id": row[1],
-                    "pyramid_version": row[2],
-                    "lifecycle_state": row[3],
-                    "expected_systems": as_int(row[4]),
-                    "created_at": row[5],
-                    "validated_at": as_optional(row[6]),
-                    "published_at": as_optional(row[7]),
-                    "failed_at": as_optional(row[8]),
-                    "failure": as_optional(row[9]),
+                    **row,
+                    "expected_systems": as_int(row["expected_systems"]),
                 }
                 for row in spatial_rows
             ],
         }
 
-    current_pointers_recorded = True
+    current_pointers_recorded = (
+        receipt["canonical"] is not None
+        and receipt["derived"] is not None
+        and (not spatial_present or receipt["spatial"]["current"] is not None)
+    )
+    if not current_pointers_recorded:
+        failures.append("current_pointer_missing")
     finder_products = {"system_search": None, "system_archetype": None}
     if receipt["derived"] is not None and receipt["derived_products"] is not None:
         current_id = receipt["derived"]["derived_generation_id"]
@@ -530,70 +549,83 @@ try:
         )
     }
 
-    relation_rows = psql(
-        "SELECT n.nspname, c.relname, GREATEST(c.reltuples,0)::bigint::text, "
-        "s.n_live_tup::text, pg_table_size(c.oid)::text, "
-        "pg_indexes_size(c.oid)::text, pg_total_relation_size(c.oid)::text "
+    relation_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT n.nspname AS schema, c.relname AS name, "
+        "GREATEST(c.reltuples,0)::bigint::text AS estimated_rows, "
+        "s.n_live_tup::text AS n_live_tup, "
+        "pg_table_size(c.oid)::text AS table_bytes, "
+        "pg_indexes_size(c.oid)::text AS index_bytes, "
+        "pg_total_relation_size(c.oid)::text AS total_bytes "
         "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
         "LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid "
         "WHERE c.relkind IN ('r','p') AND "
         "(n.nspname IN ('v3_derived','v3_spatial','v3_meta') "
         "OR left(n.nspname,7)='v3_gen_') "
-        "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname",
+        "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname) q",
         db_user,
         db_name,
     )
     relations: list[dict[str, Any]] = []
     relation_totals: dict[tuple[str, str], int] = {}
     for row in relation_rows:
-        if len(row) != 7:
-            raise RuntimeError("relation_size_output_invalid")
         relation = {
-            "schema": row[0],
-            "name": row[1],
-            "estimated_rows": required_int(row[2], "relation_size_output_invalid"),
-            "n_live_tup": as_int(row[3]),
-            "table_bytes": required_int(row[4], "relation_size_output_invalid"),
-            "index_bytes": required_int(row[5], "relation_size_output_invalid"),
-            "total_bytes": required_int(row[6], "relation_size_output_invalid"),
+            **row,
+            "estimated_rows": required_int(
+                row.get("estimated_rows"), "relation_size_output_invalid"
+            ),
+            "n_live_tup": as_int(row.get("n_live_tup")),
+            "table_bytes": required_int(
+                row.get("table_bytes"), "relation_size_output_invalid"
+            ),
+            "index_bytes": required_int(
+                row.get("index_bytes"), "relation_size_output_invalid"
+            ),
+            "total_bytes": required_int(
+                row.get("total_bytes"), "relation_size_output_invalid"
+            ),
         }
+        if not relation.get("schema") or not relation.get("name"):
+            raise RuntimeError("relation_size_output_invalid")
         relations.append(relation)
-        relation_totals[(row[0], row[1])] = relation["total_bytes"]
+        relation_totals[(relation["schema"], relation["name"])] = relation[
+            "total_bytes"
+        ]
     footprint["relations"] = relations
 
-    index_rows = psql(
-        "SELECT tn.nspname, t.relname, i.relname, "
-        "pg_relation_size(i.oid)::text FROM pg_index x "
+    index_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT tn.nspname AS schema, t.relname AS name, i.relname AS index_name, "
+        "pg_relation_size(i.oid)::text AS index_bytes FROM pg_index x "
         "JOIN pg_class t ON t.oid=x.indrelid "
         "JOIN pg_namespace tn ON tn.oid=t.relnamespace "
         "JOIN pg_class i ON i.oid=x.indexrelid "
         "WHERE tn.nspname='v3_derived' AND t.relname IN "
         "('system_search','system_archetype','system_archetype_summary',"
         "'system_rating_vector','body_mechanics','economy_opportunity') "
-        "ORDER BY t.relname, i.relname",
+        "ORDER BY t.relname, i.relname) q",
         db_user,
         db_name,
     )
     indexes_of_interest: list[dict[str, Any]] = []
     for row in index_rows:
-        if len(row) != 4:
-            raise RuntimeError("index_size_output_invalid")
         indexes_of_interest.append(
             {
-                "schema": row[0],
-                "name": row[1],
-                "index_name": row[2],
-                "index_bytes": required_int(row[3], "index_size_output_invalid"),
+                **row,
+                "index_bytes": required_int(
+                    row.get("index_bytes"), "index_size_output_invalid"
+                ),
             }
         )
     footprint["indexes_of_interest"] = indexes_of_interest
 
-    ratings_attribution_rows = psql(
-        "SELECT g.generation_key, count(*)::bigint::text, "
-        "sum(c.systems)::bigint::text FROM v3_derived.build_chunk c "
+    ratings_attribution_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+        "sum(c.systems)::bigint::text AS systems FROM v3_derived.build_chunk c "
         "JOIN v3_meta.derived_generation g "
         "ON g.derived_generation_id=c.derived_generation_id "
-        "GROUP BY g.generation_key ORDER BY g.generation_key",
+        "GROUP BY g.generation_key ORDER BY g.generation_key) q",
         db_user,
         db_name,
     )
@@ -614,12 +646,14 @@ try:
         search_receipts_present = as_optional(receipt_table_rows[0][0]) is not None
         archetype_receipts_present = as_optional(receipt_table_rows[0][1]) is not None
     search_attribution_rows = (
-        psql(
-            "SELECT g.generation_key, count(*)::bigint::text, "
-            "sum(c.systems)::bigint::text FROM v3_derived.search_build_chunk c "
+        psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+            "sum(c.systems)::bigint::text AS systems "
+            "FROM v3_derived.search_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key",
+            "GROUP BY g.generation_key ORDER BY g.generation_key) q",
             db_user,
             db_name,
         )
@@ -627,12 +661,14 @@ try:
         else None
     )
     archetype_attribution_rows = (
-        psql(
-            "SELECT g.generation_key, count(*)::bigint::text, "
-            "sum(c.systems)::bigint::text FROM v3_derived.archetype_build_chunk c "
+        psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+            "sum(c.systems)::bigint::text AS systems "
+            "FROM v3_derived.archetype_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key",
+            "GROUP BY g.generation_key ORDER BY g.generation_key) q",
             db_user,
             db_name,
         )
@@ -651,13 +687,14 @@ try:
             continue
         product_rows: dict[str, tuple[int, int]] = {}
         for row in rows:
-            if len(row) != 3 or not row[0]:
+            generation_key = row.get("generation_key")
+            if not isinstance(generation_key, str) or not generation_key:
                 raise RuntimeError("chunk_receipt_output_invalid")
-            product_rows[row[0]] = (
-                required_int(row[1], "chunk_receipt_output_invalid"),
-                required_int(row[2], "chunk_receipt_output_invalid"),
+            product_rows[generation_key] = (
+                required_int(row.get("chunks"), "chunk_receipt_output_invalid"),
+                required_int(row.get("systems"), "chunk_receipt_output_invalid"),
             )
-            generation_keys.add(row[0])
+            generation_keys.add(generation_key)
         attribution[product] = product_rows
     rows_by_generation: dict[str, dict[str, int | None]] = {}
     for generation_key in sorted(generation_keys):
@@ -726,10 +763,6 @@ try:
         ("size_bytes", "used_bytes", "avail_bytes"),
     )
 
-    generations_present = {
-        product: None if rows is None else len(rows)
-        for product, rows in attribution_rows.items()
-    }
     product_for_relation = {
         "system_rating_vector": "ratings",
         "body_mechanics": "ratings",
@@ -738,28 +771,50 @@ try:
         "system_archetype": "archetype",
         "system_archetype_summary": "archetype",
     }
-    fresh_generation_estimate: dict[str, Any] = {
-        "method": (
-            "Each table's total relation bytes are divided evenly by the number "
-            "of distinct generation keys in that product's chunk receipts; catalog "
-            "sizes cannot attribute bytes to an individual generation."
+    expected_systems_by_generation = {
+        generation["generation_key"]: generation["expected_systems"]
+        for generation in receipt["derived_generations"]
+    }
+    measured_footprint_attribution: dict[str, Any] = {
+        "note": (
+            "proportional attribution by chunk-receipt system counts; "
+            "partial generations are flagged"
         )
     }
     for relation_name in FOOTPRINT_RELATIONS:
         total_bytes = relation_totals.get(("v3_derived", relation_name))
-        generation_count = generations_present[product_for_relation[relation_name]]
-        fresh_generation_estimate[relation_name] = {
+        product = product_for_relation[relation_name]
+        product_attribution = attribution.get(product, {})
+        total_systems = sum(systems for _, systems in product_attribution.values())
+        generation_attribution: dict[str, dict[str, Any]] = {}
+        for generation_key, (_, systems) in sorted(product_attribution.items()):
+            expected_systems = expected_systems_by_generation.get(generation_key)
+            generation_attribution[generation_key] = {
+                "attributed_bytes": (
+                    (total_bytes * systems + total_systems // 2) // total_systems
+                    if total_bytes is not None and total_systems > 0
+                    else None
+                ),
+                "share": systems / total_systems if total_systems > 0 else None,
+                "generation_complete": (
+                    expected_systems is not None and systems == expected_systems
+                ),
+            }
+        measured_footprint_attribution[relation_name] = {
             "table_total_bytes": total_bytes,
-            "generations_present": generation_count,
-            "bytes_per_generation_if_evenly_split": (
-                total_bytes // generation_count
-                if total_bytes is not None
-                and generation_count is not None
-                and generation_count > 0
-                else None
-            ),
+            "receipt_product": product,
+            "generations": generation_attribution,
         }
-    footprint["fresh_generation_estimate"] = fresh_generation_estimate
+    footprint["measured_footprint_attribution"] = measured_footprint_attribution
+    footprint["planned_relations_not_measurable_here"] = [
+        "v3_derived.system_search (post-010 row width)",
+        "v3_derived.system_archetype",
+        "v3_derived.system_archetype_summary",
+    ]
+    footprint["planned_relations_not_measurable_here_note"] = (
+        "size these on a disposable PostgreSQL 18 sample and extrapolate; see "
+        "docs/operations/v3-finder-production-rollout-state.md"
+    )
     receipt["footprint"] = footprint
 except RuntimeError as exc:
     failures.append("read_only_query_failed")
