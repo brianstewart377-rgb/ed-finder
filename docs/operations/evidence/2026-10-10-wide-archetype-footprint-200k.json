@@ -2,6 +2,7 @@
   "method": "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems",
   "postgres": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
   "rows": 200000,
+  "server_version_num": 180004,
   "v1_with_system_id64": {
     "avg_tuple_bytes": 179.81816,
     "extrapolated_prod": {

@@ -21,9 +21,13 @@ Both layouts share the primary key and the ``weighted_potential`` index.
 Safety: the DSN comes only from ``EDFINDER_DISPOSABLE_DSN``; it must be a plain
 ``postgresql://`` URI with no query string or fragment (so no ``hostaddr``,
 ``service`` or other libpq overrides can redirect it), its effective libpq ``host``
-must be a loopback address and ``hostaddr`` may not be set; the connection is
-opened from the validated keyword dictionary, not the raw string. It writes only
-to the ``scratch`` schema of that database and never reads production.
+must be a loopback address and ``hostaddr`` may not be set; ambient libpq routing
+variables (``PGHOST``, ``PGHOSTADDR``, ``PGPORT``, ``PGSERVICE``, ``PGSERVICEFILE``,
+``PGDATABASE``) must be unset; the connection is opened from the validated
+keyword dictionary with ``hostaddr`` pinned to the loopback address, and after
+connecting the script verifies ``inet_server_addr()`` is loopback and the server
+is PostgreSQL 18 before creating anything. It writes only to the ``scratch``
+schema of that database and never reads production.
 
 Usage::
 
@@ -53,6 +57,10 @@ ARCHETYPE_KEYS = (
     "flexible",
 )
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+LOOPBACK_ADDRESSES = {"127.0.0.1": "127.0.0.1", "localhost": "127.0.0.1", "::1": "::1"}
+# libpq fills omitted parameters from these; any of them could re-route the connection.
+AMBIENT_ROUTING_VARS = ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGDATABASE")
+REQUIRED_SERVER_MAJOR = 18
 GENERATION_ID = "a7076522-0000-4000-8000-000000000001"
 
 
@@ -175,7 +183,27 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
         raise ValueError(f"refusing non-loopback host {host!r}: this script runs only against a disposable local database")
     if not keywords.get("dbname"):
         raise ValueError("EDFINDER_DISPOSABLE_DSN must name a database")
+    ambient = [name for name in AMBIENT_ROUTING_VARS if os.environ.get(name)]
+    if ambient:
+        raise ValueError(f"refusing to run with ambient libpq routing variables set: {', '.join(ambient)}")
+    # Pin the address explicitly so neither PGHOSTADDR nor name resolution can redirect it.
+    keywords["hostaddr"] = LOOPBACK_ADDRESSES[host]
     return keywords
+
+
+def assert_disposable_server(conn: psycopg.Connection) -> int:
+    """Fail closed unless the connected server is loopback-addressed PostgreSQL 18."""
+    server_addr, version_num = conn.execute(
+        "SELECT host(inet_server_addr()), current_setting('server_version_num')::int"
+    ).fetchone()
+    if server_addr not in {"127.0.0.1", "::1"}:
+        raise ValueError(f"connected server address {server_addr!r} is not loopback; refusing to write")
+    if version_num // 10000 != REQUIRED_SERVER_MAJOR:
+        raise ValueError(
+            f"connected server is PostgreSQL {version_num // 10000}, not {REQUIRED_SERVER_MAJOR}; "
+            "the capacity measurement is only valid on the production major"
+        )
+    return version_num
 
 
 def _disposable_conninfo_from_env() -> dict[str, str]:
@@ -199,6 +227,10 @@ def main() -> None:
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"
     )}
     with psycopg.connect(**_disposable_conninfo_from_env(), autocommit=True) as conn:
+        try:
+            out["server_version_num"] = assert_disposable_server(conn)
+        except ValueError as exc:
+            sys.exit(str(exc))
         out["postgres"] = conn.execute("SELECT version()").fetchone()[0]
         conn.execute("CREATE SCHEMA IF NOT EXISTS scratch")
         for layout, trailing in (("v1_with_system_id64", ", system_id64"), ("v2_score_only", "")):
