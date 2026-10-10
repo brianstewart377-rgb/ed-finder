@@ -23,7 +23,7 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
 
-The action reports the four worker states, the migration ledger, and the canonical, derived, and spatial pointers and lifecycle states. It is strictly read-only, using READ ONLY transactions and reading identity names only. Running it is a governed operator operation that has not yet happened.
+The action reports the four worker states, the migration ledger, and the canonical, derived, and spatial pointers and lifecycle states. Its `footprint` section reports live relation and index sizes, chunk-receipt row attribution per generation, database size and host disk headroom, and a transparent evenly split per-generation estimate. It is strictly read-only, using READ ONLY transactions and reading identity names only. Running it is a governed operator operation that has not yet happened.
 
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 

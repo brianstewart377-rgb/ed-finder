@@ -148,6 +148,10 @@ roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
 associated ratings, search, archetype, and summary indexes, including
 `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
 **design and review a governed purge path** as a prerequisite before step 4.
+The step 0 action `v3-derived-lifecycle-status` now reports the live relation and
+index sizes, chunk-receipt row attribution per generation, and the data volume's
+free space (`footprint` section), so the measurement comes from production
+catalog sizes rather than a disposable-sample extrapolation.
 
 The governed actions for steps 7, 8, and 9 are unbuilt. They can only be finalized
 **after** step 4 creates the fresh generation, because the governed action

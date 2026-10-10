@@ -58,6 +58,19 @@ def test_v3_derived_lifecycle_status_has_fixed_read_only_runtime_targets():
     assert "ON_ERROR_STOP=1" in source
 
 
+def test_v3_derived_lifecycle_status_does_not_count_derived_data_tables():
+    source = _read(ACTION)
+
+    for table in (
+        "system_search",
+        "system_archetype",
+        "system_rating_vector",
+        "body_mechanics",
+        "economy_opportunity",
+    ):
+        assert f"count(*) FROM v3_derived.{table}" not in source
+
+
 def test_v3_derived_lifecycle_status_excludes_forbidden_operations_and_secrets():
     source = _read(ACTION)
 
@@ -136,6 +149,11 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
                 printf '%s\\n' 'true'
                 exit 0
               fi
+              case "$format" in
+                *'.Mounts'*)
+                  printf '/srv/postgres-data\\t/var/lib/postgresql/data\\n'
+                  exit 0 ;;
+              esac
               if [ "$name" = 'edfinder-v3-system-search-p4-opt1' ]; then
                 exit 1
               fi
@@ -181,6 +199,24 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
                   printf 'spatial-id\\tcanonical-id\\tdensity-v1\\tPUBLISHED\\t1\\t2026-09-03 00:00:00+00\\n' ;;
                 *'FROM v3_spatial.spatial_generation ORDER BY created_at'*)
                   printf '%s\\n' 'spatial-id\tcanonical-id\tdensity-v1\tPUBLISHED\t198528286\t2026-08-04 00:00:00+00\t2026-09-01 00:00:00+00\t2026-09-03 00:00:00+00\t\\N\t\\N' ;;
+                *'pg_database_size'*)
+                  printf '987654321\\n' ;;
+                *'pg_total_relation_size'*)
+                  printf 'v3_derived\\tsystem_search\\t198528286\\t198500000\\t6000000000\\t2000000000\\t8000000000\\n'
+                  printf 'v3_derived\\tsystem_archetype\\t1590000000\\t1589000000\\t30000000000\\t9000000000\\t39000000000\\n' ;;
+                *'pg_indexes_size'*|*'FROM pg_index'*)
+                  printf 'v3_derived\\tsystem_search\\tsystem_search_pkey\\t2000000000\\n'
+                  printf 'v3_derived\\tsystem_archetype\\tsystem_archetype_key_score\\t3000000000\\n' ;;
+                *"to_regclass('v3_derived.search_build_chunk')"*)
+                  printf 'v3_derived.search_build_chunk\\tv3_derived.archetype_build_chunk\\n' ;;
+                *"to_regclass('v3_derived.archetype_build_chunk')"*)
+                  printf 'v3_derived.archetype_build_chunk\\n' ;;
+                *'FROM v3_derived.search_build_chunk'*)
+                  printf 'ratings_v4_canned\\t8\\t198528286\\n' ;;
+                *'FROM v3_derived.archetype_build_chunk'*)
+                  printf 'ratings_v4_canned\\t64\\t198528286\\n' ;;
+                *'FROM v3_derived.build_chunk'*)
+                  printf 'ratings_v4_canned\\t16\\t198528286\\n' ;;
                 *)
                   printf '%s\\n' "unexpected query: $sql" >&2
                   exit 2 ;;
@@ -192,7 +228,24 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
         ),
         encoding="utf-8",
     )
-    for executable in (hostname, pwd, docker):
+    df = fake_bin / "df"
+    df.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            case "$*" in
+              *'--output=source,fstype,size,used,avail'*)
+                printf 'Filesystem Type 1B-blocks Used Available\\n'
+                printf '/dev/vdb1 ext4 200000000000 125000000000 75000000000\\n' ;;
+              *)
+                printf '1B-blocks Used Available\\n'
+                printf '300000000000 150000000000 150000000000\\n' ;;
+            esac
+            """
+        ),
+        encoding="utf-8",
+    )
+    for executable in (hostname, pwd, docker, df):
         executable.chmod(0o755)
 
     env = os.environ.copy()
@@ -223,5 +276,20 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
     assert receipt["derived_products"][0]["lifecycle_state"] == "READY"
     assert receipt["spatial"]["present"] is True
     assert receipt["spatial"]["current"]["spatial_generation_id"] == "spatial-id"
+    assert receipt["footprint"]["database_size_bytes"] == 987654321
+    assert any(
+        relation["name"] == "system_search" and relation["total_bytes"] == 8000000000
+        for relation in receipt["footprint"]["relations"]
+    )
+    assert receipt["footprint"]["rows_by_generation"]["ratings_v4_canned"] == {
+        "ratings_chunks": 16,
+        "ratings_systems": 198528286,
+        "search_chunks": 8,
+        "search_systems": 198528286,
+        "archetype_chunks": 64,
+        "archetype_systems": 198528286,
+    }
+    assert receipt["footprint"]["host_disk"]["avail_bytes"] == 75000000000
+    assert receipt["footprint"]["fresh_generation_estimate"]["method"]
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is True
     assert receipt["direct_db_access_performed"] is True

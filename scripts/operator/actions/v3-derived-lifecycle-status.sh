@@ -45,6 +45,17 @@ FINDER_MIGRATIONS = (
 WORKER_INSPECT_FORMAT = (
     "{{.State.Status}}\t{{.State.Running}}\t{{.State.ExitCode}}\t{{.State.FinishedAt}}"
 )
+MOUNT_INSPECT_FORMAT = (
+    "{{range .Mounts}}{{.Source}}\t{{.Destination}}\n{{end}}"
+)
+FOOTPRINT_RELATIONS = (
+    "system_rating_vector",
+    "body_mechanics",
+    "economy_opportunity",
+    "system_search",
+    "system_archetype",
+    "system_archetype_summary",
+)
 
 
 def run(
@@ -138,6 +149,32 @@ def as_optional(value: str | None) -> str | None:
     if value in (None, "", "\\N"):
         return None
     return value
+
+
+def required_int(value: str | None, error: str) -> int:
+    number = as_int(value)
+    if number is None:
+        raise RuntimeError(error)
+    return number
+
+
+def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
+    result = run(argv)
+    if result.returncode != 0:
+        raise RuntimeError("disk_usage_command_failed")
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        raise RuntimeError("disk_usage_output_missing")
+    values = lines[-1].split()
+    if len(values) != len(columns):
+        raise RuntimeError("disk_usage_output_invalid")
+    parsed: dict[str, Any] = {}
+    for column, value in zip(columns, values, strict=True):
+        if column.endswith("_bytes"):
+            parsed[column] = required_int(value, "disk_usage_output_invalid")
+        else:
+            parsed[column] = value
+    return parsed
 
 
 def inspect_worker(name: str) -> dict[str, Any]:
@@ -479,6 +516,251 @@ try:
             if product["derived_generation_id"] == current_id and code in finder_products:
                 finder_products[code] = product["lifecycle_state"]
     receipt["finder_products_on_published_generation"] = finder_products
+
+    database_size_rows = psql(
+        "SELECT pg_database_size(current_database())::text",
+        db_user,
+        db_name,
+    )
+    if len(database_size_rows) != 1 or len(database_size_rows[0]) != 1:
+        raise RuntimeError("database_size_output_invalid")
+    footprint: dict[str, Any] = {
+        "database_size_bytes": required_int(
+            database_size_rows[0][0], "database_size_output_invalid"
+        )
+    }
+
+    relation_rows = psql(
+        "SELECT n.nspname, c.relname, GREATEST(c.reltuples,0)::bigint::text, "
+        "s.n_live_tup::text, pg_table_size(c.oid)::text, "
+        "pg_indexes_size(c.oid)::text, pg_total_relation_size(c.oid)::text "
+        "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid "
+        "WHERE c.relkind IN ('r','p') AND "
+        "(n.nspname IN ('v3_derived','v3_spatial','v3_meta') "
+        "OR left(n.nspname,7)='v3_gen_') "
+        "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname",
+        db_user,
+        db_name,
+    )
+    relations: list[dict[str, Any]] = []
+    relation_totals: dict[tuple[str, str], int] = {}
+    for row in relation_rows:
+        if len(row) != 7:
+            raise RuntimeError("relation_size_output_invalid")
+        relation = {
+            "schema": row[0],
+            "name": row[1],
+            "estimated_rows": required_int(row[2], "relation_size_output_invalid"),
+            "n_live_tup": as_int(row[3]),
+            "table_bytes": required_int(row[4], "relation_size_output_invalid"),
+            "index_bytes": required_int(row[5], "relation_size_output_invalid"),
+            "total_bytes": required_int(row[6], "relation_size_output_invalid"),
+        }
+        relations.append(relation)
+        relation_totals[(row[0], row[1])] = relation["total_bytes"]
+    footprint["relations"] = relations
+
+    index_rows = psql(
+        "SELECT tn.nspname, t.relname, i.relname, "
+        "pg_relation_size(i.oid)::text FROM pg_index x "
+        "JOIN pg_class t ON t.oid=x.indrelid "
+        "JOIN pg_namespace tn ON tn.oid=t.relnamespace "
+        "JOIN pg_class i ON i.oid=x.indexrelid "
+        "WHERE tn.nspname='v3_derived' AND t.relname IN "
+        "('system_search','system_archetype','system_archetype_summary',"
+        "'system_rating_vector','body_mechanics','economy_opportunity') "
+        "ORDER BY t.relname, i.relname",
+        db_user,
+        db_name,
+    )
+    indexes_of_interest: list[dict[str, Any]] = []
+    for row in index_rows:
+        if len(row) != 4:
+            raise RuntimeError("index_size_output_invalid")
+        indexes_of_interest.append(
+            {
+                "schema": row[0],
+                "name": row[1],
+                "index_name": row[2],
+                "index_bytes": required_int(row[3], "index_size_output_invalid"),
+            }
+        )
+    footprint["indexes_of_interest"] = indexes_of_interest
+
+    ratings_attribution_rows = psql(
+        "SELECT g.generation_key, count(*)::bigint::text, "
+        "sum(c.systems)::bigint::text FROM v3_derived.build_chunk c "
+        "JOIN v3_meta.derived_generation g "
+        "ON g.derived_generation_id=c.derived_generation_id "
+        "GROUP BY g.generation_key ORDER BY g.generation_key",
+        db_user,
+        db_name,
+    )
+    receipt_table_rows = psql(
+        "SELECT to_regclass('v3_derived.search_build_chunk')::text, "
+        "to_regclass('v3_derived.archetype_build_chunk')::text",
+        db_user,
+        db_name,
+    )
+    if not receipt_table_rows:
+        # psql renders two NULLs as a tab-only row, which psql() intentionally
+        # drops along with other empty output.
+        search_receipts_present = False
+        archetype_receipts_present = False
+    elif len(receipt_table_rows) != 1 or len(receipt_table_rows[0]) != 2:
+        raise RuntimeError("chunk_receipt_presence_output_invalid")
+    else:
+        search_receipts_present = as_optional(receipt_table_rows[0][0]) is not None
+        archetype_receipts_present = as_optional(receipt_table_rows[0][1]) is not None
+    search_attribution_rows = (
+        psql(
+            "SELECT g.generation_key, count(*)::bigint::text, "
+            "sum(c.systems)::bigint::text FROM v3_derived.search_build_chunk c "
+            "JOIN v3_meta.derived_generation g "
+            "ON g.derived_generation_id=c.derived_generation_id "
+            "GROUP BY g.generation_key ORDER BY g.generation_key",
+            db_user,
+            db_name,
+        )
+        if search_receipts_present
+        else None
+    )
+    archetype_attribution_rows = (
+        psql(
+            "SELECT g.generation_key, count(*)::bigint::text, "
+            "sum(c.systems)::bigint::text FROM v3_derived.archetype_build_chunk c "
+            "JOIN v3_meta.derived_generation g "
+            "ON g.derived_generation_id=c.derived_generation_id "
+            "GROUP BY g.generation_key ORDER BY g.generation_key",
+            db_user,
+            db_name,
+        )
+        if archetype_receipts_present
+        else None
+    )
+    attribution_rows = {
+        "ratings": ratings_attribution_rows,
+        "search": search_attribution_rows,
+        "archetype": archetype_attribution_rows,
+    }
+    attribution: dict[str, dict[str, tuple[int, int]]] = {}
+    generation_keys: set[str] = set()
+    for product, rows in attribution_rows.items():
+        if rows is None:
+            continue
+        product_rows: dict[str, tuple[int, int]] = {}
+        for row in rows:
+            if len(row) != 3 or not row[0]:
+                raise RuntimeError("chunk_receipt_output_invalid")
+            product_rows[row[0]] = (
+                required_int(row[1], "chunk_receipt_output_invalid"),
+                required_int(row[2], "chunk_receipt_output_invalid"),
+            )
+            generation_keys.add(row[0])
+        attribution[product] = product_rows
+    rows_by_generation: dict[str, dict[str, int | None]] = {}
+    for generation_key in sorted(generation_keys):
+        generation_attribution: dict[str, int | None] = {}
+        for product in ("ratings", "search", "archetype"):
+            rows = attribution_rows[product]
+            values = attribution.get(product, {}).get(generation_key)
+            generation_attribution[f"{product}_chunks"] = (
+                None if rows is None else values[0] if values is not None else 0
+            )
+            generation_attribution[f"{product}_systems"] = (
+                None if rows is None else values[1] if values is not None else 0
+            )
+        rows_by_generation[generation_key] = generation_attribution
+    footprint["rows_by_generation"] = rows_by_generation
+
+    mount_result = run(
+        ["docker", "inspect", "-f", MOUNT_INSPECT_FORMAT, POSTGRES_CONTAINER]
+    )
+    if mount_result.returncode != 0:
+        raise RuntimeError("postgres_mount_inspection_failed")
+    postgres_mount: tuple[str, str] | None = None
+    fallback_mount: tuple[str, str] | None = None
+    for line in mount_result.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise RuntimeError("postgres_mount_output_invalid")
+        source, destination = parts
+        if destination == "/var/lib/postgresql/data":
+            postgres_mount = (source, destination)
+            break
+        if destination.startswith("/var/lib/postgresql") and fallback_mount is None:
+            fallback_mount = (source, destination)
+    postgres_mount = postgres_mount or fallback_mount
+    if postgres_mount is None:
+        footprint["host_disk"] = {"mount_found": False}
+    else:
+        source, destination = postgres_mount
+        host_disk = df_values(
+            [
+                "df",
+                "-B1",
+                "--output=source,fstype,size,used,avail",
+                source,
+            ],
+            (
+                "filesystem",
+                "filesystem_type",
+                "size_bytes",
+                "used_bytes",
+                "avail_bytes",
+            ),
+        )
+        footprint["host_disk"] = {
+            "mount_source": source,
+            "mount_destination": destination,
+            "filesystem": host_disk["filesystem"],
+            "size_bytes": host_disk["size_bytes"],
+            "used_bytes": host_disk["used_bytes"],
+            "avail_bytes": host_disk["avail_bytes"],
+        }
+    footprint["root_filesystem"] = df_values(
+        ["df", "-B1", "--output=size,used,avail", "/"],
+        ("size_bytes", "used_bytes", "avail_bytes"),
+    )
+
+    generations_present = {
+        product: None if rows is None else len(rows)
+        for product, rows in attribution_rows.items()
+    }
+    product_for_relation = {
+        "system_rating_vector": "ratings",
+        "body_mechanics": "ratings",
+        "economy_opportunity": "ratings",
+        "system_search": "search",
+        "system_archetype": "archetype",
+        "system_archetype_summary": "archetype",
+    }
+    fresh_generation_estimate: dict[str, Any] = {
+        "method": (
+            "Each table's total relation bytes are divided evenly by the number "
+            "of distinct generation keys in that product's chunk receipts; catalog "
+            "sizes cannot attribute bytes to an individual generation."
+        )
+    }
+    for relation_name in FOOTPRINT_RELATIONS:
+        total_bytes = relation_totals.get(("v3_derived", relation_name))
+        generation_count = generations_present[product_for_relation[relation_name]]
+        fresh_generation_estimate[relation_name] = {
+            "table_total_bytes": total_bytes,
+            "generations_present": generation_count,
+            "bytes_per_generation_if_evenly_split": (
+                total_bytes // generation_count
+                if total_bytes is not None
+                and generation_count is not None
+                and generation_count > 0
+                else None
+            ),
+        }
+    footprint["fresh_generation_estimate"] = fresh_generation_estimate
+    receipt["footprint"] = footprint
 except RuntimeError as exc:
     failures.append("read_only_query_failed")
     receipt["query_error"] = str(exc)[:240]
