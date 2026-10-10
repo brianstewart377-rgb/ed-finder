@@ -1285,14 +1285,16 @@ inside the disposable PostgreSQL 18 fixture, using the **final F2d DDL and
 indexes** (not a flattened or keyed stand-in).
 
 Because the partial index holds only rows scoring ≥ 60, the **API boundary
-changes with it**: `/api/archetypes/rankings` makes `min_score` default to 60
-and rejects values below 60 with 422 (today it defaults to 40 and accepts 0–100,
-`apps/api/src/routers/archetypes.py:508-518`); a request below the floor would
-not be bounded by the index and could force a scan/sort of the wide relation.
-The tier floors S/A/B ⇒ 88/76/60 remain inside the contract, C/D were already
-excluded from the initial product, and the floor rule is part of the hashed
-ranking identity. The OpenAPI parameter constraint changes, so slice 1c
-regenerates the typed clients.
+changes with it** — and that change lands in **F2d PR1, together with the
+index** (F2d design section 6): `/api/archetypes/rankings` makes `min_score`
+default to 60 and rejects values below 60 with 422 (today it defaults to 40 and
+accepts 0–100, `apps/api/src/routers/archetypes.py:508-518`), because a request
+below the floor would not be bounded by the index and could force a scan/sort
+of the wide relation. The tier floors S/A/B ⇒ 88/76/60 remain inside the
+contract, C/D were already excluded from the initial product, and the floor
+rule is part of the hashed ranking identity; F2d PR1 regenerates the typed
+clients for the changed parameter constraint. Slice 1c inherits that contract
+and adds no further parameter change.
 
 For one pinned generation and selected archetype, the API first reads through
 that key's partial index in `<key>_score DESC, system_id64 ASC` order. Apart
@@ -2129,10 +2131,11 @@ product/implementation choices are:
    branch only with numeric coordinates, so an id-only payload would have queried
    galaxy-wide under a restored anchor. Non-finite restored coordinates mean no
    anchor. The A → B → Back test asserts the request carries A's coordinates.
-2. **P1 — Reject sub-B scores before relying on the partial index** → slice 1c
-   changes the API boundary with the index: `min_score` defaults to 60 and
-   values below 60 are 422; the floor rule is part of the hashed identity and the
-   typed clients are regenerated.
+2. **P1 — Reject sub-B scores before relying on the partial index** → the API
+   boundary changes with the index, in F2d PR1 (per the F2d design's review):
+   `min_score` defaults to 60 and values below 60 are 422; the floor rule is
+   part of the hashed identity and the typed clients are regenerated there.
+   Slice 1c inherits the contract.
 3. **P1 — Wait for the owner-approved score-index layout** → the owner answered
    yes to the partial layout on 2026-10-10; the F2d design PR (#806) records it
    in the capacity decision as the ROADMAP requires, and slice 1c may start only
