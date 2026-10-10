@@ -154,7 +154,24 @@ active_validation() {
 
 runner_pid_alive() {
   docker exec "$POSTGRES_CONTAINER" sh -c \
-    'test -f /tmp/edfinder-validate-constraints/run.pid && kill -0 $(cat /tmp/edfinder-validate-constraints/run.pid) 2>/dev/null'
+    'pid_file=/tmp/edfinder-validate-constraints/run.pid
+    test -f "$pid_file" || exit 1
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    case "$pid" in
+      ""|*[!0-9]*) rm -f "$pid_file"; exit 1 ;;
+    esac
+    if kill -0 "$pid" 2>/dev/null; then
+      cmdline="$(cat "/proc/$pid/cmdline" 2>/dev/null | tr "\0" " ")"
+      case "$cmdline" in
+        *psql*) ;;
+        *) rm -f "$pid_file"; exit 1 ;;
+      esac
+      case "$cmdline" in
+        *run.sql*) exit 0 ;;
+      esac
+    fi
+    rm -f "$pid_file"
+    exit 1'
 }
 
 parse_constraint_state() {
@@ -224,7 +241,7 @@ SET statement_timeout = '45min';"
     || stop_start validation_sql_write_failed
 
   docker exec -d "$POSTGRES_CONTAINER" sh -c \
-    'cd /tmp/edfinder-validate-constraints && { (psql -X --no-psqlrc --no-password --username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5 -f /tmp/edfinder-validate-constraints/run.sql > /tmp/edfinder-validate-constraints/run.log 2>&1; echo "exit=$?" >> /tmp/edfinder-validate-constraints/run.log) & echo $! > /tmp/edfinder-validate-constraints/run.pid; }' \
+    'cd /tmp/edfinder-validate-constraints && { (psql -X --no-psqlrc --no-password --username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5 -f /tmp/edfinder-validate-constraints/run.sql > /tmp/edfinder-validate-constraints/run.log 2>&1; echo "exit=$?" >> /tmp/edfinder-validate-constraints/run.log; rm -f /tmp/edfinder-validate-constraints/run.pid) & echo $! > /tmp/edfinder-validate-constraints/run.pid; }' \
     >/dev/null || stop_start validation_runner_launch_failed
   CATALOG_VALIDATION_LAUNCHED=true
 

@@ -153,6 +153,23 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
                     )
                 raise SystemExit(0)
             if "run.pid" in joined and "-d" not in args:
+                if os.environ.get("FAKE_RUNNER_KILL_SUCCEEDS") != "1":
+                    raise SystemExit(1)
+                runner_cmdline = os.environ.get("FAKE_RUNNER_CMDLINE", "")
+                command = str(args[-1])
+                expected_checks = (
+                    "kill -0" in command
+                    and "/proc/$pid/cmdline" in command
+                    and "tr " in command
+                    and "*psql*" in command
+                    and "*run.sql*" in command
+                )
+                if not expected_checks:
+                    raise SystemExit(2)
+                if "psql" in runner_cmdline and "run.sql" in runner_cmdline:
+                    raise SystemExit(0)
+                if 'rm -f "$pid_file"' not in command:
+                    raise SystemExit(2)
                 raise SystemExit(1)
             if "run.log" in joined and "-d" not in args:
                 if os.environ.get("FAKE_LOG_LINES"):
@@ -181,6 +198,8 @@ def _run_action(
     ledger_sha: str = MIGRATION_SHA,
     unvalidated: tuple[str, ...] = (),
     active: bool = False,
+    runner_kill_succeeds: bool = False,
+    runner_cmdline: str = "",
     log_lines: tuple[str, ...] = (),
     ledger_query_fails: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[dict[str, object]]]:
@@ -196,6 +215,10 @@ def _run_action(
             "FAKE_LEDGER_QUERY_FAIL": "1" if ledger_query_fails else "0",
             "FAKE_UNVALIDATED": ",".join(unvalidated),
             "FAKE_ACTIVE": "1" if active else "0",
+            "FAKE_RUNNER_KILL_SUCCEEDS": (
+                "1" if runner_kill_succeeds else "0"
+            ),
+            "FAKE_RUNNER_CMDLINE": runner_cmdline,
             "FAKE_LOG_LINES": "\n".join(log_lines),
         }
     )
@@ -355,6 +378,12 @@ def test_start_launches_only_the_two_unvalidated_constraints(tmp_path: Path):
     )
     assert "-f /tmp/edfinder-validate-constraints/run.sql" in launch_command
     assert "> /tmp/edfinder-validate-constraints/run.log 2>&1" in launch_command
+    exit_line = (
+        'echo "exit=$?" >> /tmp/edfinder-validate-constraints/run.log'
+    )
+    remove_pid = "rm -f /tmp/edfinder-validate-constraints/run.pid"
+    assert remove_pid in launch_command
+    assert launch_command.index(exit_line) < launch_command.index(remove_pid)
 
     python_calls = (tmp_path / "python-calls.log").read_text(encoding="utf-8")
     assert "platform.python_implementation" in python_calls
@@ -398,6 +427,54 @@ def test_start_stops_when_catalog_reports_an_active_validation(tmp_path: Path):
         "start",
         unvalidated=(CONSTRAINTS[-1],),
         active=True,
+    )
+
+    assert result.returncode != 0
+    receipt = _receipt(result)
+    assert receipt["status"] == "stopped"
+    assert "validation_already_running" in receipt["failures"]
+    assert _was_detached(calls) is False
+
+
+def test_start_removes_stale_unrelated_pid_and_launches(tmp_path: Path):
+    result, calls = _run_action(
+        tmp_path,
+        "start",
+        unvalidated=(CONSTRAINTS[-1],),
+        runner_kill_succeeds=True,
+        runner_cmdline="sleep 600",
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = _receipt(result)
+    assert receipt["status"] == "success"
+    assert receipt["result"] == "launched"
+    assert _was_detached(calls) is True
+
+    pid_calls = [
+        call
+        for call in calls
+        if "run.pid" in " ".join(str(arg) for arg in call["args"])
+        and "-d" not in call["args"]
+    ]
+    assert len(pid_calls) == 1
+    pid_command = str(pid_calls[0]["args"][-1])
+    assert "kill -0" in pid_command
+    assert "/proc/$pid/cmdline" in pid_command
+    assert 'tr "\\0" " "' in pid_command
+    assert 'rm -f "$pid_file"' in pid_command
+
+
+def test_start_stops_for_live_psql_run_sql_runner(tmp_path: Path):
+    result, calls = _run_action(
+        tmp_path,
+        "start",
+        unvalidated=(CONSTRAINTS[-1],),
+        runner_kill_succeeds=True,
+        runner_cmdline=(
+            "psql -X --no-psqlrc -f "
+            "/tmp/edfinder-validate-constraints/run.sql"
+        ),
     )
 
     assert result.returncode != 0
