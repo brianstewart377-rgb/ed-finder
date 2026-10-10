@@ -636,8 +636,16 @@ canonicalized accordingly. Hydration reads `page.state.anchor` before falling
 back to “no anchor”, and Back/Forward therefore restore offset, selection
 **and** the anchor that produced the page together. A fresh load or copied
 link carries no state and hydrates as unanchored, which is exactly what its URL
-says. A test drives anchor A → anchor B → Back and asserts the 500-LY request
-for A's coordinates
+says. **Every** navigation on `/explore` in an F4-enabled build is part of this
+contract, including the overlay close path: today `SystemOverlay.svelte:37-44`
+runs `goto(..., { replaceState: true })` without carrying `page.state`, which
+would replace the entry without the anchor payload and make hydration fall back
+to a galaxy-wide request — so closing detail would remove more than `system`.
+F4b therefore routes that close through the same anchor-state-preserving helper
+(`SystemOverlay.svelte` joins the F4b file list), and a test opens and closes the
+overlay on an anchored search and asserts the anchor, its coordinates and the
+500-LY request survive. A test drives anchor A → anchor B → Back and asserts the
+500-LY request for A's coordinates
 is re-issued for anchor A with its offset and selection. It does not open detail. The
 existing `system=<id64>` remains exclusively the explicit Explore
 `SystemOverlay`/Inspect trigger: the parameters may coexist, closing the overlay
@@ -1483,6 +1491,10 @@ Exact files:
   scenario entries
 - modify `apps/web/src/lib/components/AppShell.svelte` (reactive selection
   hydration, including independent `selected`/`system` semantics)
+- modify `apps/web/src/lib/components/SystemOverlay.svelte` (close path carries
+  `page.state` — anchor payload — through the shared navigation helper)
+- modify `apps/web/src/lib/components/SystemOverlay.test.ts` (anchored
+  open/close keeps anchor, coordinates and the 500-LY request)
 - create `apps/web/src/lib/components/AppShell.test.ts`
 - create `apps/web/src/lib/components/AppShellTestHost.svelte`
 - modify `apps/web/src/lib/spatial/explore-scene.ts`
@@ -1582,8 +1594,8 @@ governed production/release build — but not the only one. The spatial product
 contract requires Finder score breakdowns to be accessible, and this design's
 only V3 explanation path is deferred (section 4, “Per-archetype explanation”).
 Enablement therefore also requires **an accessible explanation path**: the F2d
-design's `GET /api/archetypes/system/{id64}/explanation` (its PR3) plus a small
-F4 increment that renders the per-archetype breakdown from it in the result
+design's `GET /api/archetypes/system/{id64}/explanation` (its PR3) plus **PR F4e**
+below, which renders the per-archetype breakdown from it in the result
 card/Inspect hand-off with the same evidence wording. Until both land, the flag
 stays `0` in every release build; enabling it with unexplained scores would
 contradict the contract.
@@ -1608,11 +1620,57 @@ first:
 - modify `apps/web/cypress/e2e/product-journey.cy.ts`
 
 Wire the already-designed pop-out, only to a V3-backed `/rerank`, and add URL
-weights after its allowed dimensions are contractual. Per-archetype explanation
-may be a separate PR using V3 `/system/{id64}`; simulation remains separate.
-Required proof: regenerated-client drift check from the upstream API PR, focused
-unit/component tests, full Svelte checks, Product E2E Chrome/Firefox, new visual
-baselines, and unchanged Review Lab.
+weights after its allowed dimensions are contractual. Simulation remains
+separate. Per-archetype explanations are **not** part of this PR and do not use
+the legacy `/system/{id64}` route; they are PR F4e below. Required proof:
+regenerated-client drift check from the upstream API PR, focused unit/component
+tests, full Svelte checks, Product E2E Chrome/Firefox, new visual baselines, and
+unchanged Review Lab.
+
+### PR F4e — per-archetype explanations from the F2d endpoint (pre-enablement)
+
+This increment is the explanation prerequisite the production gate names
+(section 8 opening, PR F4c, owner question 3): without it every other F4 slice
+can be complete while the flag must stay `0`. It depends on the F2d design's
+PR3 having landed `GET /api/archetypes/system/{id64}/explanation` (version- and
+hash-gated, HTTP 409 on mismatch; F2d design section 4), and it must not wire
+the legacy `/api/archetypes/system/{id64}` route, whose topology/pair/trait
+fields are V2-backed.
+
+Exact files:
+
+- regenerate `apps/web/src/lib/api/generated/types.gen.ts`,
+  `apps/web/src/lib/api/generated/sdk.gen.ts` and
+  `packages/api-client/src/generated/api.gen.ts` (from the F2d PR3 OpenAPI)
+- modify `apps/web/src/lib/api/client.ts`, `client.test.ts` (facade
+  `getArchetypeExplanation(id64)`: 200 → eight explanations with their
+  score/tier/confidence, 409 → a typed `explanation_unavailable` result, 404/503
+  → the existing bounded error states; never throws into the UI)
+- modify `apps/web/src/lib/api/query.ts`, `query.test.ts` (query key includes
+  the generation id and `archetype_version` from the ranking envelope so a
+  product republish invalidates cached explanations)
+- create `apps/web/src/lib/features/explore/ArchetypeExplanation.svelte`,
+  `ArchetypeExplanation.test.ts` (a disclosure region under the result card's
+  tier/confidence row and in the Inspect hand-off: per-archetype contribution
+  list in plain words, the same evidence/confidence wording as the card, a
+  `role="region"` labelled by the card heading, keyboard-reachable, no colour-only
+  meaning; the 409 state reads “Explanation unavailable for this ranking
+  version” and keeps the scores visible)
+- modify `apps/web/src/lib/features/explore/FinderResultRanking.svelte`,
+  `FinderResultRanking.test.ts` (mount point and lazy fetch on expand only)
+- modify `apps/web/cypress/e2e/product-journey.cy.ts` (the Flexible B journey
+  expands one explanation from the real endpoint against the fixture generation
+  and asserts the eight keys and the stored score/tier match the card)
+- modify `scripts/dev/seed_cypress_v3_generation.py` tests only if the fixture
+  needs an additional assertion that the explanation endpoint answers 200 for
+  the three fixture systems
+
+Required proof: regenerated-client drift check, focused unit/component tests
+(including the 409 and 503 states and that the legacy route is never called),
+axe on the expanded region, full Svelte checks, Product E2E Chrome/Firefox with
+new visual baselines for the expanded card, and unchanged Review Lab. Only when
+F4c **and** F4e have merged may owner question 3 be answered and the flag
+considered for a governed release build.
 
 ## 9. Risks and open questions for the owner
 
@@ -2148,3 +2206,17 @@ product/implementation choices are:
    from the identity F2d lands (planned `v3-colony-potential-2`) and goes to the
    next (`-3`), never reusing F2d's; digest and response assertions follow the
    version actually on `main`.
+
+#### Round 14 — 2026-10-10 (PR #801)
+
+1. **P2-A — Preserve anchor state when closing the overlay** → the overlay close
+   path (`SystemOverlay.svelte:37-44`, `goto` with `replaceState` and no
+   `page.state`) joins the anchor-state-preserving navigation contract and the
+   F4b file list, with an anchored open/close test asserting anchor, coordinates
+   and the 500-LY request survive.
+2. **P2-B — Add the required explanation increment to the PR plan** → new PR
+   F4e defines the pre-enablement explanation increment against the F2d
+   explanation endpoint (facade, query key, disclosure component, result-card
+   mount, Product E2E, accessibility proof) and forbids wiring the legacy
+   `/system/{id64}` route; F4d no longer defers explanations, and owner
+   question 3 may be answered only after F4c and F4e have merged.
