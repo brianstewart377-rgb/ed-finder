@@ -604,7 +604,15 @@ presentation only
 Selection continues to update the current persisted selected-system id and the
 renderer-neutral scene, and every committed result or system-map pick also
 serializes the lossless id as `selected=<id64>` in the shared Explore URL while
-preserving ranking and unrelated parameters. It does not open detail. The
+preserving ranking and unrelated parameters. **Choosing a known-star anchor is
+a selection commit too:** the live `chooseSuggestion` handler sets the anchor as
+`selectedSystem` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:401-411`),
+and because an anchor change resets the offset through SvelteKit navigation,
+that same navigation must carry `selected=<anchor id64>` — otherwise the
+hydration rule (absent `selected` clears URL-owned selection) would discard the
+anchor the user just chose and break the existing Product E2E assertion that
+the anchor is pressed and present in the selected-system context. One `goto`
+writes the offset reset and the selection together. It does not open detail. The
 existing `system=<id64>` remains exclusively the explicit Explore
 `SystemOverlay`/Inspect trigger: the parameters may coexist, closing the overlay
 removes only `system`, and clearing selection removes only `selected`. The current
@@ -1567,7 +1575,9 @@ baselines, and unchanged Review Lab.
 - **Premature production exposure:** repository handlers exist before production
   has the required Finder products. Mitigation: default-off build gate, fixture
   validation, generic temporary-unavailability copy for 503, and enablement only
-  in the governed release after publication receipts and F4c; only after slice 1c
+  in the governed release after publication receipts, F4c **and the accessible
+  explanation path** (the F2d explanation endpoint plus the F4 increment that
+  renders the breakdown — see PR F4c); only after slice 1c
   and its scale proof land does the protected Product E2E build opt in at its
   bundle step, with distance comparison suppressed until F4c, while
   production/release builds retain default `0`. This design authorizes no
@@ -1578,8 +1588,9 @@ baselines, and unchanged Review Lab.
   from the map, or be empty only because a shared offset outlived its result set.
   Mitigation: expose the selected mode's exact filtered-within-window total
   separately from raw-window `is_truncated`; derive Any `navigable_total`/cap
-  state from local search; clamp saturated unanchored Any offset plus page size
-  to 10,000 while preserving anchored exact navigation; and update `page_size`,
+  state from local search; clamp offset plus page size to the uniform 10,000
+  ceiling in every mode before dispatch (anchored exact totals are displayed,
+  not navigated past 10,000); and update `page_size`,
   Next, count/truncation status, list and Finder contribution from one envelope.
   Correct positive out-of-range URLs with SvelteKit replacement navigation and
   reserve the no-match state for `total === 0`.
@@ -1622,9 +1633,11 @@ product/implementation choices are:
 2. **Choose one:** keep future custom weights URL-only, or also remember them as a
    validated local preference after slice 2?
 3. **Who owns the governed enablement decision:** after F4c has landed and made
-   comparison reference-safe, which publication and release receipts authorize
-   changing `VITE_FINDER_F4_ENABLED` from its default `0` to `1` in a later
-   immutable production/release web build?
+   comparison reference-safe **and** the accessible explanation path (F2d
+   explanation endpoint + breakdown rendering increment) has shipped, which
+   publication and release receipts authorize changing `VITE_FINDER_F4_ENABLED`
+   from its default `0` to `1` in a later immutable production/release web
+   build? Neither prerequisite may be waived by this answer.
 4. **Before Any gets a tier control, choose slice 1d's bounded semantics:** an
    index/access path compatible with `best_colony_potential`, a fixed
    weighted-order candidate window, or an explicit candidate/count-work cap with
@@ -1998,3 +2011,17 @@ product/implementation choices are:
    gains an `"unknown"` variant produced only by the decoder for pre-F4 snapshots
    that carry the ambiguous generic `archetype_score`; it is excluded from every
    mode-specific comparison and never written by a new save.
+
+#### Round 11 — 2026-10-10 (PR #801)
+
+1. **P2-A — Apply the navigation ceiling to anchored searches in the risk
+   mitigation** → the stale “preserving anchored exact navigation” phrase in the
+   pagination-drift risk is replaced by the uniform pre-dispatch 10,000 ceiling.
+2. **P2-B — Include score explanations in the production gate** → the
+   premature-exposure mitigation and owner question 3 now name the accessible
+   explanation path (F2d endpoint + breakdown rendering) as a prerequisite that
+   the enablement answer cannot waive.
+3. **P2-C — Serialize anchor selection before resetting the URL** → choosing a
+   known-star anchor is a selection commit: the offset-reset navigation carries
+   `selected=<anchor id64>` in the same `goto`, so hydration cannot discard the
+   anchor the user just chose.
