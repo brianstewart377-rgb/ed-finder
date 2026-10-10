@@ -57,11 +57,20 @@ values deterministically and defines the eight-key tie-break order.
 (`scripts/v3_system_archetype_model.py:23-42,85-205`)
 
 “Identical confidence” means the same value produced by the model rounded to
-six decimal places. Migration `011` will use the required PostgreSQL `real`
-columns; builders, validators, and API serialization must compare or emit the
-six-decimal model value so float32 representation does not become a visible
-behavior change. The current model already rounds fit and summary confidence to
-six places. (`scripts/v3_system_archetype_model.py:114-131,141-145,192-205`)
+six decimal places. Migration `011` stores every confidence as an **exact
+integer in parts per million** (`<key>_confidence_ppm integer CHECK (BETWEEN 0
+AND 1000000)`, likewise `archetype_confidence_ppm`): the builder writes
+`round(confidence * 1_000_000)`, the validator compares integers with no
+tolerance, the ranking SQL uses `(a.<key>_confidence_ppm / 1000000.0)` (a
+`double precision` expression that yields the nearest double to the six-decimal
+value — the same value Python's `round(x, 6)` produces), and the API serializes
+`ppm / 1e6`. A `real` column was rejected after review because the ranking
+expression would multiply a float32 approximation (a few 1e-8 off the
+six-decimal value) and could reorder near-ties; `double precision` was measured
+at +14 GB for the same information. Integer ppm costs the same 4 bytes as
+`real` (measured: identical 186 B/row heap) and is exact. The current model
+already rounds fit and summary confidence to six places.
+(`scripts/v3_system_archetype_model.py:114-131,141-145,192-205`)
 
 ### Non-goals
 
@@ -105,43 +114,43 @@ CREATE TABLE v3_derived.system_archetype (
 
     paradise_score smallint NOT NULL CHECK (paradise_score BETWEEN 0 AND 100),
     paradise_tier char(1) NOT NULL CHECK (paradise_tier IN ('S','A','B','C','D')),
-    paradise_confidence real NOT NULL CHECK (paradise_confidence BETWEEN 0 AND 1),
+    paradise_confidence_ppm integer NOT NULL CHECK (paradise_confidence_ppm BETWEEN 0 AND 1000000),
 
     mining_hub_score smallint NOT NULL CHECK (mining_hub_score BETWEEN 0 AND 100),
     mining_hub_tier char(1) NOT NULL CHECK (mining_hub_tier IN ('S','A','B','C','D')),
-    mining_hub_confidence real NOT NULL CHECK (mining_hub_confidence BETWEEN 0 AND 1),
+    mining_hub_confidence_ppm integer NOT NULL CHECK (mining_hub_confidence_ppm BETWEEN 0 AND 1000000),
 
     manufacturing_hub_score smallint NOT NULL CHECK (manufacturing_hub_score BETWEEN 0 AND 100),
     manufacturing_hub_tier char(1) NOT NULL CHECK (manufacturing_hub_tier IN ('S','A','B','C','D')),
-    manufacturing_hub_confidence real NOT NULL CHECK (manufacturing_hub_confidence BETWEEN 0 AND 1),
+    manufacturing_hub_confidence_ppm integer NOT NULL CHECK (manufacturing_hub_confidence_ppm BETWEEN 0 AND 1000000),
 
     megacomplex_score smallint NOT NULL CHECK (megacomplex_score BETWEEN 0 AND 100),
     megacomplex_tier char(1) NOT NULL CHECK (megacomplex_tier IN ('S','A','B','C','D')),
-    megacomplex_confidence real NOT NULL CHECK (megacomplex_confidence BETWEEN 0 AND 1),
+    megacomplex_confidence_ppm integer NOT NULL CHECK (megacomplex_confidence_ppm BETWEEN 0 AND 1000000),
 
     research_hub_score smallint NOT NULL CHECK (research_hub_score BETWEEN 0 AND 100),
     research_hub_tier char(1) NOT NULL CHECK (research_hub_tier IN ('S','A','B','C','D')),
-    research_hub_confidence real NOT NULL CHECK (research_hub_confidence BETWEEN 0 AND 1),
+    research_hub_confidence_ppm integer NOT NULL CHECK (research_hub_confidence_ppm BETWEEN 0 AND 1000000),
 
     stronghold_score smallint NOT NULL CHECK (stronghold_score BETWEEN 0 AND 100),
     stronghold_tier char(1) NOT NULL CHECK (stronghold_tier IN ('S','A','B','C','D')),
-    stronghold_confidence real NOT NULL CHECK (stronghold_confidence BETWEEN 0 AND 1),
+    stronghold_confidence_ppm integer NOT NULL CHECK (stronghold_confidence_ppm BETWEEN 0 AND 1000000),
 
     population_capital_score smallint NOT NULL CHECK (population_capital_score BETWEEN 0 AND 100),
     population_capital_tier char(1) NOT NULL CHECK (population_capital_tier IN ('S','A','B','C','D')),
-    population_capital_confidence real NOT NULL CHECK (population_capital_confidence BETWEEN 0 AND 1),
+    population_capital_confidence_ppm integer NOT NULL CHECK (population_capital_confidence_ppm BETWEEN 0 AND 1000000),
 
     flexible_score smallint NOT NULL CHECK (flexible_score BETWEEN 0 AND 100),
     flexible_tier char(1) NOT NULL CHECK (flexible_tier IN ('S','A','B','C','D')),
-    flexible_confidence real NOT NULL CHECK (flexible_confidence BETWEEN 0 AND 1),
+    flexible_confidence_ppm integer NOT NULL CHECK (flexible_confidence_ppm BETWEEN 0 AND 1000000),
 
     primary_archetype text NOT NULL,
     secondary_archetype text,
     best_colony_potential smallint NOT NULL
         CHECK (best_colony_potential BETWEEN 0 AND 100),
     best_tier char(1) NOT NULL CHECK (best_tier IN ('S','A','B','C','D')),
-    archetype_confidence real NOT NULL
-        CHECK (archetype_confidence BETWEEN 0 AND 1),
+    archetype_confidence_ppm integer NOT NULL
+        CHECK (archetype_confidence_ppm BETWEEN 0 AND 1000000),
     weighted_potential double precision NOT NULL
         CHECK (weighted_potential BETWEEN 0 AND 100),
     computed_at timestamptz NOT NULL DEFAULT now(),
@@ -252,7 +261,10 @@ footprint measurement”, PR #805)
 The decision text's earlier “about 80 GB” and this design's first-draft
 “about 90 GB” were unmeasured guesses: the heap is wider than assumed (186 B,
 not 150 B) and a unique-entry score index is 49.8 B/row, not 30 B. The
-measured layout is **≈ 65 GB** of persistent product data. The production gate
+measured layout is **≈ 65 GB** of persistent product data; re-measuring with
+integer-ppm confidences gave the identical 186.4 B/row heap (same 4-byte width
+and alignment as `real`), while `double precision` confidences measured
+256 B/row (≈ 79 GB total) because of 8-byte alignment padding. The production gate
 must replace this sample figure with a measurement of the final `011` text and
 must stop if Search (≈ 87 GB measured) plus Archetype, WAL, temporary files and
 vacuum working room do not fit the free space reported by a fresh step 0
@@ -324,7 +336,7 @@ fit functions already construct the explanation objects.
 
 The response contains generation identity, `archetype_version`, and the eight
 unchanged key/score/tier/confidence values plus each computed explanation. It
-must compare recomputed score/tier/six-decimal confidence and summary values to
+must compare recomputed score/tier/confidence-ppm and summary values to
 the stored wide row and fail closed on a mismatch; explanation delivery must
 never silently describe a different stored score.
 
@@ -414,8 +426,8 @@ the new shape makes the complete stored row the seal boundary.
   exactly one `v3-archetype-4` row;
 - every one of the eight score columns is 0–100;
 - every tier equals `tier_of(its score)`;
-- each stored float32 confidence rounds to the model's six-decimal value and is
-  within the float32 tolerance selected by the tests;
+- each stored `_confidence_ppm` integer equals `round(model confidence × 10⁶)`
+  exactly (no tolerance);
 - primary, secondary, best potential, best tier, archetype confidence, and
   full-precision weighted potential equal a fresh model recomputation;
 - source and complete-wide-row content seals match; and
@@ -448,7 +460,7 @@ trusted wide-column expressions, for example:
 
 ```python
 ARCHETYPE_COLUMNS = {
-    "paradise": ("a.paradise_score", "a.paradise_tier", "a.paradise_confidence"),
+    "paradise": ("a.paradise_score", "a.paradise_tier", "(a.paradise_confidence_ppm / 1000000.0)"),
     # ...seven more fixed entries...
 }
 ```
@@ -536,12 +548,35 @@ CREATE TABLE v3_meta.derived_product_publication_audit (
 );
 ```
 
-Reject UPDATE, DELETE, and TRUNCATE on the audit. Add a deferred constraint
-trigger on a `derived_product.published_at` transition that requires an audit
-row with the exact generation, product, version, manifest hash, and timestamp;
-add an audit INSERT guard that requires the matching READY product and exact
-timestamp. This prevents an unaudited timestamp update at commit while keeping
-the publication function atomic.
+Reject UPDATE, DELETE, and TRUNCATE on the audit. The publication invariants
+live in the **table guards themselves**, so a caller who bypasses the function
+with paired direct DML (an `UPDATE … SET published_at` plus a hand-written
+audit row in one transaction) meets exactly the same checks:
+
+- a `BEFORE UPDATE` row trigger on `v3_meta.derived_product` rejects any change
+  to a column other than `published_at`, rejects a `published_at` change unless
+  the old value is `NULL`, itself takes the shared advisory transaction lock
+  `764003001` (so no publication can race a generation pointer swap, whether or
+  not the function was used), and then requires: the row's generation is the
+  current derived pointer **and** `PUBLISHED`; the product is `READY` with a
+  `VERIFIED` validation receipt; the new value equals `transaction_timestamp()`;
+- a deferred constraint trigger on the same transition requires, at commit, an
+  audit row with the exact generation, product, version, manifest hash and
+  timestamp;
+- the audit `INSERT` guard requires, at commit (deferred), that the referenced
+  product row's `published_at` equals the audit timestamp and that the
+  recorded version and manifest hash match the product row — an audit row
+  without the matching publication, or with a different timestamp, fails the
+  transaction.
+
+`publish_derived_product` therefore adds nothing the guards do not already
+enforce; it is the audited, actor-recording convenience path. A disposable-PG18
+test performs the paired direct-DML publication on (a) a non-current
+generation, (b) a non-PUBLISHED generation, (c) a product without a VERIFIED
+receipt, (d) an already-published product, and (e) a mismatched audit timestamp,
+and asserts each fails at the statement or at commit; and that the valid paired
+DML on the current PUBLISHED generation holds advisory lock `764003001` while
+it runs (observed from a second session with `pg_try_advisory_xact_lock`).
 
 Add:
 
@@ -565,9 +600,11 @@ The function must:
 
 It fails if the product is missing, BUILDING, FAILED, already published, belongs
 to a non-current/non-PUBLISHED generation, lacks VERIFIED evidence, or changes
-while waiting for the lock. The current guard and generation publisher already
-share this advisory lock, preventing registration/finalization from racing a
-generation pointer swap. (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:38-40,69-92,220-267`)
+while waiting for the lock — and every one of those conditions is also enforced
+by the row guards above, so the function is not the only line of defence. The
+current guard and generation publisher already share this advisory lock,
+preventing registration/finalization from racing a generation pointer swap.
+(`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:38-40,69-92,220-267`)
 
 ### 7.3 Application visibility
 
@@ -623,7 +660,11 @@ On a fresh PostgreSQL 18 database, test every rule:
    missing receipt, and repeat publication;
 6. successful publication sets the exact timestamp and exact audit row under
    the shared advisory lock; direct timestamp mutation without audit fails at
-   commit;
+   commit; **paired direct DML** (timestamp update plus hand-written audit row)
+   fails for a non-current generation, a non-PUBLISHED generation, a product
+   without VERIFIED evidence, an already-published product and a mismatched
+   timestamp, and when it is valid it demonstrably holds advisory lock
+   `764003001`;
 7. publishing both products in one transaction makes views and API reads
    available;
 8. `publish_derived_generation` succeeds when every registered product is READY
@@ -648,7 +689,7 @@ design authorizes no deployment or production access.
 
 | # | Governed step | Reuse/build status | Persistent product disk written |
 |---:|---|---|---:|
-| 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`, recompute every migration-set/transition identity, and re-attest reachable prefixes. | Reuse the V3 manifest/schema-identity mechanism; PR4 must update its authority and hard-coded lineage tests. Current registered tail is `[014,010,011,013]`. (`sql/v3/migration-manifest.txt:52-55`, `docs/ROADMAP.md:121-127`) | negligible catalog/empty-DDL space |
+| 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`, recompute every migration-set/transition identity, and re-attest reachable prefixes. | Reuse the V3 manifest/schema-identity mechanism; PR1 (rewritten `011`) and PR2 (`015`) each recut the authority and the hard-coded lineage tests, so this step is complete when PR2 merges. Current registered tail is `[014,010,011,013]`. (`sql/v3/migration-manifest.txt:52-55`, `docs/ROADMAP.md:121-127`) | negligible catalog/empty-DDL space |
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
@@ -676,8 +717,12 @@ and assertions to require READY **and** product-published.
 `scripts/dev/seed_cypress_v3_generation.py:1-11,32-43`)
 
 Review Lab reads `sql/v3/migration-manifest.txt` from current main and applies
-every declared V3 migration in order; it therefore receives rewritten `011`
-and new `015` only after PR4 registration. Its dedicated seed delegates to the
+every declared V3 migration in order, and nothing else — a seed may not apply a
+migration the manifest does not declare. The rewritten `011` therefore has to be
+registered (manifest hash **and** the production authority recut) in the same PR
+that rewrites it (PR1), and `015` in the same PR that adds it and makes the seed
+publish products (PR2); otherwise those PRs' Review Lab runs fail at their own
+heads. Its dedicated seed delegates to the
 same shared fixture builder. (`scripts/dev/review_lab/lifecycle.py:426-443`,
 `tests/test_review_lab_v3.py:505-518`,
 `scripts/dev/seed_review_v3_generation.py:1-19`)
@@ -708,126 +753,167 @@ the repository requires at least backend, integration, migration/script,
 canonical-safety, Svelte, Cypress, image-parity, Review Lab, and security gates.
 (`docs/development/pull-request-acceptance-policy.md:3-45`, `CLAUDE.md:190-200`)
 
-### PR1 — rewrite `011`; model, builder, validator, and wide fixtures
+### Sequencing rule: every PR green at its own head
+
+Three facts force the PR boundaries (review finding, round 1):
+
+1. CI checks every manifest hash against the migration file bytes, and the
+   production-operator, watchlist and application-deployment tests recompute the
+   migration-set/schema identities and compare them with
+   `deploy/v3-production/target-authority.json`. Changing a registered
+   migration's bytes therefore requires the manifest hash **and the full authority
+   recut and its tests** in the same PR — there is no "mechanical hash refresh"
+   that leaves the authority for later.
+   (`sql/v3/migration-manifest.txt:52-55`, `tests/test_v3_lineage_migrations.py:34-60`,
+   `tests/test_v3_watchlist_postgres.py`, `tests/test_v3_production_application_deployment.py`)
+2. Review Lab and the PostgreSQL rankings integration tests apply the fixture
+   migrations and then execute the live ranking SQL. The current SQL joins
+   `a.archetype_key` and reads `a.archetype_score`/`a.confidence`, columns the
+   wide rewrite removes, so the ranking SQL and router adaptation must land with
+   the schema change, not after it. (`apps/api/src/ranking/ranking_sql.py:303-329`)
+3. Review Lab applies only manifest-declared migrations, so the fixture seed can
+   publish products only once `015` is registered in the same PR.
+
+Four PRs follow; the earlier five-PR split (schema first, ranking SQL third,
+registration fourth) could not have been green at any intermediate head.
+
+### PR1 — wide `011` + model + builder/validator + ranking SQL + registration
 
 Files:
 
-- `sql/v3/migrations/011_v3_system_archetype.sql`
+- `sql/v3/migrations/011_v3_system_archetype.sql` (rewritten)
 - `shared_contracts/v3_system_archetype_model.py` (new canonical model)
 - `scripts/v3_system_archetype_model.py` (compatibility re-export)
 - `scripts/v3_system_archetype.py`
 - `scripts/v3_archetype_calibration_probe.py` (shared-model import only)
-- `scripts/dev/seed_v3_fixture_generation.py`
-- `scripts/dev/seed_cypress_v3_generation.py`
-- `tests/test_v3_system_archetype_migration.py`
-- `tests/test_v3_system_archetype_model.py`
-- `tests/test_v3_system_archetype_register.py`
-- `tests/test_v3_system_archetype_build.py`
-- `tests/test_v3_system_archetype_validate.py`
-- `tests/test_v3_system_archetype_cli.py`
-- `tests/test_v3_archetype_calibration_probe.py`
-- `tests/test_seed_cypress_v3_generation.py`
-- `tests/test_seed_review_v3_generation.py`
+- `apps/api/src/ranking/profile.py` (`RANKING_VERSION = 'v3-colony-potential-2'`,
+  new pinned `ranking_sha256`)
+- `apps/api/src/ranking/ranking_sql.py` (fixed key → wide-column map; no-pick
+  path unchanged through the `v3_app.system_archetype_summary` view)
+- `apps/api/src/routers/archetypes.py` (only if the row-form resolution leaks
+  into the router; response fields unchanged)
+- `scripts/dev/seed_v3_fixture_generation.py`,
+  `scripts/dev/seed_cypress_v3_generation.py` (wide rows; generation publication
+  as today — product publication waits for PR2)
+- `sql/v3/migration-manifest.txt` (rewritten `011` hash)
+- `deploy/v3-production/target-authority.json` and
+  `docs/operations/v3-production-application-release.md` (recomputed
+  migration-set/schema identities for the ordered set
+  `[014, 010, 011-rewritten, 013]`)
+- `scripts/operator/actions/v3-derived-lifecycle-status.sh` (pending-set
+  contract, if it pins hashes)
+- tests: `tests/test_v3_system_archetype_migration.py`,
+  `tests/test_v3_system_archetype_model.py`,
+  `tests/test_v3_system_archetype_register.py`,
+  `tests/test_v3_system_archetype_build.py`,
+  `tests/test_v3_system_archetype_validate.py`,
+  `tests/test_v3_system_archetype_cli.py`,
+  `tests/test_v3_archetype_calibration_probe.py`,
+  `tests/test_ranking_profile_identity.py`, `tests/test_ranking_sql.py`,
+  `tests/test_archetype_rankings_v3.py`,
+  `tests/test_ranking_identity_and_no_legacy.py`,
+  `tests/test_seed_cypress_v3_generation.py`,
+  `tests/test_seed_review_v3_generation.py`,
+  `tests/test_v3_lineage_migrations.py`,
+  `tests/test_v3_production_migration_operation.py`,
+  `tests/test_v3_system_search_production_operator.py`,
+  `tests/test_v3_watchlist_postgres.py`,
+  `tests/test_v3_production_application_deployment.py`
 
-Focused checks: Ruff for changed Python; all `test_v3_system_archetype_*` and
-calibration tests; disposable-PG18 migration/build/validate tests; both seed
-test modules; a new ~200k-row PG18 footprint receipt using
-`pg_table_size`/`pg_indexes_size`; migration/script, PostgreSQL integration,
-canonical-safety, Cypress, and Review Lab CI.
+Focused checks: Ruff for changed Python; all `test_v3_system_archetype_*`,
+calibration, ranking profile/SQL/identity and no-legacy tests; disposable-PG18
+migration/build/validate and rankings integration tests; both seed test modules;
+exact `011` file hash, ordered migration-set identity and schema-identity
+reproduction, plan exact-prefix and every reachable accepted-release prefix; a
+new ~200k-row PG18 footprint receipt from
+`scripts/dev/measure_wide_archetype_footprint.py` run against the final `011`
+text; migration/script, PostgreSQL integration, canonical-safety,
+application-deployment, Cypress, Review Lab and security CI. The rankings
+response shape does not change, so no OpenAPI regeneration is expected; the
+drift check proves it.
 
-### PR2 — migration `015` and API publication gate
+### PR2 — migration `015`, builders on PUBLISHED, API publication gate, registration
 
 Files:
 
 - `sql/v3/migrations/015_v3_derived_product_publication.sql` (new)
-- `scripts/v3_system_search.py`
-- `scripts/v3_system_archetype.py`
-- `apps/api/src/local_search.py`
-- `scripts/dev/seed_v3_fixture_generation.py`
-- `tests/test_v3_derived_product_publication.py` (new)
-- `tests/test_local_search_v3.py`
-- `tests/test_archetype_rankings_v3.py`
-- `tests/integration/conftest.py`
-- `tests/test_seed_cypress_v3_generation.py`
-- `tests/test_seed_review_v3_generation.py`
+- `scripts/v3_system_search.py`, `scripts/v3_system_archetype.py` (accept the
+  current PUBLISHED base generation)
+- `apps/api/src/local_search.py` (`_current_derived_generation` requires READY
+  **and** `published_at`)
+- `scripts/dev/seed_v3_fixture_generation.py` (publish both products in one
+  transaction after generation publication)
+- `sql/v3/migration-manifest.txt` (`015` appended)
+- `deploy/v3-production/target-authority.json` and
+  `docs/operations/v3-production-application-release.md` (identities recut for
+  `[014, 010, 011-rewritten, 013, 015]`)
+- tests: `tests/test_v3_derived_product_publication.py` (new: the full
+  disposable-PG18 lifecycle matrix of section 7.5, including paired direct DML),
+  `tests/test_local_search_v3.py`, `tests/test_archetype_rankings_v3.py`,
+  `tests/integration/conftest.py`, `tests/test_seed_cypress_v3_generation.py`,
+  `tests/test_seed_review_v3_generation.py`, `tests/test_v3_lineage_migrations.py`,
+  `tests/test_v3_production_migration_operation.py`,
+  `tests/test_v3_system_search_production_operator.py`,
+  `tests/test_v3_watchlist_postgres.py`,
+  `tests/test_v3_production_application_deployment.py`
 
-Focused checks: Ruff; the new disposable-PG18 lifecycle matrix; Search and
-Archetype builder tests on PUBLISHED; local Search and rankings READY-but-
-unpublished/fully-published cases; fixture seed tests; backend unit,
-PostgreSQL-integration, migration/script, canonical-safety, Cypress, and Review
-Lab CI.
+Focused checks: Ruff; the new lifecycle matrix; Search and Archetype builder
+tests on PUBLISHED; local Search and rankings READY-but-unpublished (503) and
+fully-published cases; fixture seed tests; exact `015` hash and recut
+identities; backend unit, PostgreSQL-integration, migration/script,
+canonical-safety, application-deployment, Cypress, Review Lab and security CI.
 
-### PR3 — ranking SQL and on-demand explanation endpoint
-
-Files:
-
-- `apps/api/src/ranking/profile.py`
-- `apps/api/src/ranking/ranking_sql.py`
-- `apps/api/src/routers/archetypes.py`
-- `apps/api/src/models.py`
-- `apps/web/src/lib/api/generated/types.gen.ts`
-- `apps/web/src/lib/api/generated/sdk.gen.ts`
-- `tests/test_ranking_profile_identity.py`
-- `tests/test_ranking_sql.py`
-- `tests/test_archetype_rankings_v3.py`
-- `tests/test_archetype_system_v3.py` (new)
-- `tests/test_ranking_identity_and_no_legacy.py`
-
-Focused checks: Ruff; profile hash/drift guard; all eight trusted-column and
-injection cases; ranked/count query tests; disposable-PG18 rankings and
-explanation endpoint tests including the exact mismatch rule; no-legacy tests;
-OpenAPI generation/drift; `pnpm check`, `pnpm test`, and `pnpm build`; backend,
-integration, Svelte, Cypress, Review Lab, and image-parity CI.
-
-### PR4 — registration and production authority amendment
+### PR3 — on-demand explanation endpoint and generated clients
 
 Files:
 
-- `sql/v3/migration-manifest.txt`
-- `deploy/v3-production/target-authority.json`
-- `docs/operations/v3-production-application-release.md`
-- `scripts/operator/actions/v3-derived-lifecycle-status.sh`
-- `tests/test_v3_lineage_migrations.py`
-- `tests/test_v3_production_migration_operation.py`
-- `tests/test_v3_system_search_production_operator.py`
-- `tests/test_v3_watchlist_postgres.py`
-- `tests/test_v3_production_application_deployment.py`
+- `apps/api/src/routers/archetypes.py` (new
+  `GET /api/archetypes/system/{id64}/explanation`; legacy route untouched)
+- `apps/api/src/models.py` (response model)
+- `apps/web/src/lib/api/generated/types.gen.ts`,
+  `apps/web/src/lib/api/generated/sdk.gen.ts` **and**
+  `packages/api-client/src/generated/api.gen.ts` — all three are regenerated by
+  `pnpm generate:api` and the OpenAPI drift check fails on any of them
+  (`apps/web/package.json:28`, `.github/workflows/ci.yml:524`)
+- tests: `tests/test_archetype_system_v3.py` (new: exact-version rule, 409
+  detail string, `fit_all` not called on mismatch, values identical to the
+  stored wide row on match), `tests/test_ranking_identity_and_no_legacy.py`
 
-Focused checks: recompute exact `011`/`015` file hashes and ordered migration-set
-identity; schema-identity reproduction; plan exact-prefix and every reachable
-accepted-release prefix; target-authority schema; lifecycle-status pending-set
-contract; migration/script, canonical-safety, application-deployment, and
-security CI.
+Focused checks: Ruff; disposable-PG18 explanation endpoint tests; OpenAPI
+generation/drift; `pnpm check`, `pnpm test`, `pnpm build`; backend,
+integration, Svelte, Cypress, Review Lab and image-parity CI.
 
-There is a sequencing conflict to resolve before implementation: current main
-already registers the old `011` hash, and CI checks every manifest hash against
-file bytes. PR1 cannot rewrite `011` and remain independently green while PR4
-defers the hash amendment. (`sql/v3/migration-manifest.txt:52-55`,
-`tests/test_v3_lineage_migrations.py:34-60`) The recommendation is to move the
-mechanical `011` manifest hash refresh into PR1, while PR4 adds `015` and recuts
-the full production authority; the owner yes/no decision is recorded below.
-
-### PR5 — governed operator actions and revised release gate
+### PR4 — governed operator actions and revised release gate
 
 Files:
 
-- `scripts/operator/actions/v3-system-search-f1.sh`
-- `scripts/operator/actions/v3-system-archetype.sh` (new)
-- `scripts/operator/actions/v3-publish-derived-products.sh` (new)
-- `.github/workflows/chatgpt-ed-new-ops.yml`
-- `docs/operations/v3-finder-production-rollout-state.md`
-- `docs/operations/v3-production-application-release.md`
-- `deploy/v3-production/target-authority.json`
-- `tests/test_v3_system_search_production_operator.py`
-- `tests/test_v3_system_archetype_production_operator.py` (new)
-- `tests/test_v3_product_publication_operator.py` (new)
-- `tests/test_v3_production_application_deployment.py`
+- `scripts/operator/actions/v3-system-search-f1.sh` (retarget from `opt1` to the
+  exact current PUBLISHED `ratings_v4_prod_p4_parallel_v1`; pin `010` and `015`
+  ledger hashes)
+- `scripts/operator/actions/v3-system-archetype.sh` (new start/status: build
+  then `--validate`, pin rewritten `011` and `015`, receipt READY/VERIFIED plus
+  row/chunk counts)
+- `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
+  in one transaction via `publish_derived_product`; receipts timestamps, audits
+  and view counts)
+- `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
+- `docs/operations/v3-finder-production-rollout-state.md`,
+  `docs/operations/v3-production-application-release.md` (revised F3 release
+  gate: exact generation key/UUID/sequence, both product versions/manifests,
+  READY + `published_at`, validation/publication audits, row counts, new ranking
+  version/SHA)
+- `deploy/v3-production/target-authority.json` (release-gate fields only; the
+  migration identities were recut in PR1/PR2)
+- tests: `tests/test_v3_system_search_production_operator.py`,
+  `tests/test_v3_system_archetype_production_operator.py` (new),
+  `tests/test_v3_product_publication_operator.py` (new),
+  `tests/test_v3_production_application_deployment.py`
 
 Focused checks: shell/action contract tests; exact generation UUID/key/sequence,
-current-pointer, migration-hash, worker-name, resource-bound, receipt, and
+current-pointer, migration-hash, worker-name, resource-bound, receipt and
 start/status tests; repeat/concurrent publication failures; allowlist/workflow
 schema; revised release-preflight tests; operator, canonical-safety, migration,
-application-deployment, and security CI. The existing action is demonstrably
+application-deployment and security CI. The existing action is demonstrably
 pinned to `opt1`, while the current workflow lacks Archetype and product-publish
 operations. (`scripts/operator/actions/v3-system-search-f1.sh:15-24,76-113,175-176`,
 `.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`)
@@ -841,10 +927,12 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
    indexes), re-measured with the final `011` text before the production
    build?** The alternative with `system_id64` trailing in each score index
    measures ≈ 132 GB for no query benefit.
-2. **Yes/no: approve `real` confidence storage with six-decimal semantic/API
-   equality rather than bitwise equality to the former double-precision
-   column?** This follows the requested schema, but the representation rule
-   must be explicit.
+2. **Yes/no: approve exact integer parts-per-million confidence storage
+   (`<key>_confidence_ppm integer`, 0–1,000,000) with the ranking expression
+   `ppm / 1000000.0` and API serialization `ppm / 1e6`?** Same 4 bytes as
+   `real`, exact six-decimal semantics everywhere, no tolerance in validation;
+   `real` would let float32 error reorder near-ties and `double precision`
+   measured +14 GB.
 3. **Yes/no: approve moving the canonical pure fit model into
    `shared_contracts/` with a temporary `scripts/` re-export?** Without this,
    the release API image cannot call the same `fit_all` implementation because
@@ -859,10 +947,11 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
 6. **Yes/no: require production publication of both Finder products in one
    transaction?** The API fails closed unless both are published, but one
    transaction gives a cleaner audit boundary.
-7. **Yes/no: move the rewritten `011` manifest-hash refresh into PR1 so every PR
-   can satisfy exact-head CI, leaving PR4 to register `015` and recut the full
-   authority?** Keeping all registration work in PR4 makes PR1 fail the current
-   manifest-integrity test. (`tests/test_v3_lineage_migrations.py:34-60`)
+7. **Yes/no: accept the four-PR sequencing in section 10, where PR1 (wide
+   `011` + ranking SQL + full registration/authority recut) and PR2 (`015` +
+   publication gate + recut) each carry their own registration so every head is
+   green?** The alternative — a separate registration PR — cannot pass the
+   manifest-integrity and authority-identity tests at intermediate heads.
 8. **Yes/no: accept no purge before Finder promotion?** This is the recorded
    owner decision; changing it would require a separate destructive-data design
    and authority. (`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
@@ -872,7 +961,7 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
 Implementation is acceptable only when:
 
 - every system produces one wide row whose model outputs match the pre-rewrite
-  outputs under the six-decimal confidence rule;
+  outputs under the exact integer-ppm confidence rule;
 - the measured PG18 heap and every index fit the approved disk/WAL/temp/vacuum
   envelope;
 - READY is not visible until explicit product publication;
