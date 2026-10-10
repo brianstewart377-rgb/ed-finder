@@ -1,0 +1,918 @@
+{
+  "all_named_workers_stopped": false,
+  "canonical": {
+    "generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+    "generation_key": "phase4c_full_20260827_r5",
+    "lifecycle_state": "PUBLISHED",
+    "publication_sequence": 4,
+    "published_at": "2026-08-28 19:05:49.619748+00",
+    "relation_schema": "v3_gen_phase4c_full_20260827_r5"
+  },
+  "canonical_generations": [
+    {
+      "created_at": "2026-08-27 12:05:58.845851+00",
+      "failed_at": null,
+      "failure_reason": null,
+      "generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+      "generation_key": "phase4c_full_20260827_r5",
+      "lifecycle_state": "PUBLISHED",
+      "published_at": "2026-08-28 19:03:17.764407+00",
+      "retired_at": null
+    },
+    {
+      "created_at": "2026-08-28 19:00:10.189729+00",
+      "failed_at": null,
+      "failure_reason": null,
+      "generation_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "generation_key": "phase4b_a",
+      "lifecycle_state": "RETIRED",
+      "published_at": "2026-08-28 19:00:10.239969+00",
+      "retired_at": "2026-08-28 19:05:49.619748+00"
+    }
+  ],
+  "database_identity_source": "running_container_role_and_database_names_only",
+  "db_writes_performed": false,
+  "derived": {
+    "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+    "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+    "generation_key": "ratings_v4_prod_p4_parallel_v1",
+    "lifecycle_state": "PUBLISHED",
+    "publication_sequence": 1,
+    "published_at": "2026-09-16 08:38:23.453057+00"
+  },
+  "derived_generations": [
+    {
+      "adapter_version": "v4-canonical-stream-1",
+      "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+      "canonical_publication_sequence": 4,
+      "created_at": "2026-09-12 09:59:11.236762+00",
+      "derived_generation_id": "49a0c00d-e722-4209-afd8-9d62b877e30a",
+      "expected_bodies": 598724752,
+      "expected_systems": 198528286,
+      "failed_at": null,
+      "failure": null,
+      "generation_key": "ratings_v4_prod_p4",
+      "lifecycle_state": "BUILDING",
+      "mechanics_version": "v4-mechanics-2026-09",
+      "published_at": null,
+      "scorer_version": "4.0.0",
+      "validated_at": null
+    },
+    {
+      "adapter_version": "v4-canonical-stream-1",
+      "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+      "canonical_publication_sequence": 4,
+      "created_at": "2026-09-12 13:09:09.164152+00",
+      "derived_generation_id": "403b2d43-820c-414a-ad57-0d4de0ca3e82",
+      "expected_bodies": 598724752,
+      "expected_systems": 198528286,
+      "failed_at": null,
+      "failure": null,
+      "generation_key": "ratings_v4_prod_p4_opt1",
+      "lifecycle_state": "VALIDATING",
+      "mechanics_version": "v4-mechanics-2026-09",
+      "published_at": null,
+      "scorer_version": "4.0.0",
+      "validated_at": null
+    },
+    {
+      "adapter_version": "v4-canonical-stream-1",
+      "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+      "canonical_publication_sequence": 4,
+      "created_at": "2026-09-14 23:37:49.860238+00",
+      "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+      "expected_bodies": 598724752,
+      "expected_systems": 198528286,
+      "failed_at": null,
+      "failure": null,
+      "generation_key": "ratings_v4_prod_p4_parallel_v1",
+      "lifecycle_state": "PUBLISHED",
+      "mechanics_version": "v4-mechanics-2026-09",
+      "published_at": "2026-09-16 08:38:23.453057+00",
+      "scorer_version": "4.0.0",
+      "validated_at": "2026-09-16 05:47:03.155609+00"
+    }
+  ],
+  "derived_product_table_present": true,
+  "derived_products": [
+    {
+      "created_at": "2026-09-12 14:12:11.574844+00",
+      "derived_generation_id": "403b2d43-820c-414a-ad57-0d4de0ca3e82",
+      "expected_rows": 198528286,
+      "failed_at": null,
+      "failure": null,
+      "generation_key": "ratings_v4_prod_p4_opt1",
+      "lifecycle_state": "READY",
+      "product_code": "system_search",
+      "product_version": "v3-system-search-1",
+      "validated_at": "2026-09-21 20:21:29.833031+00",
+      "validation_sha256_hex": "4580b723646fc2d53d0345de8d12a9efb1a94e328db3320960a26fe5597b5db1"
+    }
+  ],
+  "direct_db_access_performed": true,
+  "env_files_read": false,
+  "failures": [],
+  "filesystem_writes_performed": false,
+  "finder_migrations_applied": {
+    "010_v3_system_search_body_type_counts.sql": false,
+    "011_v3_system_archetype.sql": false,
+    "013_v3_system_search_parallel.sql": false,
+    "014_v3_watchlist.sql": false
+  },
+  "finder_products_on_published_generation": {
+    "system_archetype": null,
+    "system_search": null
+  },
+  "footprint": {
+    "database_size_bytes": 1345287616191,
+    "host_disk": {
+      "avail_bytes": 292296142848,
+      "filesystem": "/dev/md1",
+      "mount_destination": "/var/lib/postgresql",
+      "mount_source": "/var/lib/docker/volumes/edfinder-v3-phase4c-full-20260827_r5-pgdata/_data",
+      "size_bytes": 1948389990400,
+      "used_bytes": 1557045571584
+    },
+    "indexes_of_interest": [
+      {
+        "index_bytes": 81771962368,
+        "index_name": "body_mechanics_pkey",
+        "name": "body_mechanics",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 123710283776,
+        "index_name": "economy_opportunity_pkey",
+        "name": "economy_opportunity",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 3318194176,
+        "index_name": "system_rating_chunk_idx",
+        "name": "system_rating_vector",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 22782574592,
+        "index_name": "system_rating_vector_pkey",
+        "name": "system_rating_vector",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 15531458560,
+        "index_name": "system_search_name_lower",
+        "name": "system_search",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 8062271488,
+        "index_name": "system_search_pkey",
+        "name": "system_search",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 17596661760,
+        "index_name": "system_search_position_gist",
+        "name": "system_search",
+        "schema": "v3_derived"
+      },
+      {
+        "index_bytes": 1295613952,
+        "index_name": "system_search_region",
+        "name": "system_search",
+        "schema": "v3_derived"
+      }
+    ],
+    "measured_footprint_attribution": {
+      "body_mechanics": {
+        "generations": {
+          "ratings_v4_prod_p4": {
+            "attributed_bytes": 2582400478,
+            "generation_complete": false,
+            "share": 0.01228374795070616
+          },
+          "ratings_v4_prod_p4_opt1": {
+            "attributed_bytes": 103823317265,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          },
+          "ratings_v4_prod_p4_parallel_v1": {
+            "attributed_bytes": 103823317265,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          }
+        },
+        "receipt_product": "ratings",
+        "table_total_bytes": 210229035008
+      },
+      "economy_opportunity": {
+        "generations": {
+          "ratings_v4_prod_p4": {
+            "attributed_bytes": 3260324472,
+            "generation_complete": false,
+            "share": 0.01228374795070616
+          },
+          "ratings_v4_prod_p4_opt1": {
+            "attributed_bytes": 131078701764,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          },
+          "ratings_v4_prod_p4_parallel_v1": {
+            "attributed_bytes": 131078701764,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          }
+        },
+        "receipt_product": "ratings",
+        "table_total_bytes": 265417728000
+      },
+      "note": "proportional attribution by chunk-receipt system counts; partial generations are flagged",
+      "system_archetype": {
+        "generations": {},
+        "receipt_product": "archetype",
+        "table_total_bytes": null
+      },
+      "system_archetype_summary": {
+        "generations": {},
+        "receipt_product": "archetype",
+        "table_total_bytes": null
+      },
+      "system_rating_vector": {
+        "generations": {
+          "ratings_v4_prod_p4": {
+            "attributed_bytes": 1939146813,
+            "generation_complete": false,
+            "share": 0.01228374795070616
+          },
+          "ratings_v4_prod_p4_opt1": {
+            "attributed_bytes": 77961825250,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          },
+          "ratings_v4_prod_p4_parallel_v1": {
+            "attributed_bytes": 77961825250,
+            "generation_complete": true,
+            "share": 0.4938581260246469
+          }
+        },
+        "receipt_product": "ratings",
+        "table_total_bytes": 157862797312
+      },
+      "system_search": {
+        "generations": {
+          "ratings_v4_prod_p4_opt1": {
+            "attributed_bytes": 80522969088,
+            "generation_complete": true,
+            "share": 1.0
+          }
+        },
+        "receipt_product": "search",
+        "table_total_bytes": 80522969088
+      }
+    },
+    "planned_relations_not_measurable_here": [
+      "v3_derived.system_search (post-010 row width)",
+      "v3_derived.system_archetype",
+      "v3_derived.system_archetype_summary"
+    ],
+    "planned_relations_not_measurable_here_note": "size these on a disposable PostgreSQL 18 sample and extrapolate; see docs/operations/v3-finder-production-rollout-state.md",
+    "relations": [
+      {
+        "estimated_rows": 598734272,
+        "index_bytes": 90498605056,
+        "n_live_tup": 598734244,
+        "name": "bodies",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 175162621952,
+        "total_bytes": 265661227008
+      },
+      {
+        "estimated_rows": 1505098624,
+        "index_bytes": 123710283776,
+        "n_live_tup": 1510433710,
+        "name": "economy_opportunity",
+        "schema": "v3_derived",
+        "table_bytes": 141707444224,
+        "total_bytes": 265417728000
+      },
+      {
+        "estimated_rows": 1179396480,
+        "index_bytes": 81771962368,
+        "n_live_tup": 1179727247,
+        "name": "body_mechanics",
+        "schema": "v3_derived",
+        "table_bytes": 128457072640,
+        "total_bytes": 210229035008
+      },
+      {
+        "estimated_rows": 400333280,
+        "index_bytes": 26100768768,
+        "n_live_tup": 401636566,
+        "name": "system_rating_vector",
+        "schema": "v3_derived",
+        "table_bytes": 131762028544,
+        "total_bytes": 157862797312
+      },
+      {
+        "estimated_rows": 443847744,
+        "index_bytes": 9969565696,
+        "n_live_tup": 0,
+        "name": "body_composition",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 125787144192,
+        "total_bytes": 135756709888
+      },
+      {
+        "estimated_rows": 538741312,
+        "index_bytes": 26680532992,
+        "n_live_tup": 0,
+        "name": "body_parent_evidence",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 97767964672,
+        "total_bytes": 124448497664
+      },
+      {
+        "estimated_rows": 198421952,
+        "index_bytes": 42486005760,
+        "n_live_tup": 198537238,
+        "name": "system_search",
+        "schema": "v3_derived",
+        "table_bytes": 38036963328,
+        "total_bytes": 80522969088
+      },
+      {
+        "estimated_rows": 198523840,
+        "index_bytes": 18767265792,
+        "n_live_tup": 198523848,
+        "name": "systems",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 38076506112,
+        "total_bytes": 56843771904
+      },
+      {
+        "estimated_rows": 93642928,
+        "index_bytes": 8902197248,
+        "n_live_tup": 0,
+        "name": "rings",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 18779586560,
+        "total_bytes": 27681783808
+      },
+      {
+        "estimated_rows": 70206480,
+        "index_bytes": 5003214848,
+        "n_live_tup": 70206479,
+        "name": "cell_summary",
+        "schema": "v3_spatial",
+        "table_bytes": 9778774016,
+        "total_bytes": 14781988864
+      },
+      {
+        "estimated_rows": 25020000,
+        "index_bytes": 788127744,
+        "n_live_tup": 25020000,
+        "name": "body_signal_current",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 1708531712,
+        "total_bytes": 2496659456
+      },
+      {
+        "estimated_rows": 12516059,
+        "index_bytes": 394780672,
+        "n_live_tup": 0,
+        "name": "station_service_current",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 854704128,
+        "total_bytes": 1249484800
+      },
+      {
+        "estimated_rows": 7181400,
+        "index_bytes": 226410496,
+        "n_live_tup": 0,
+        "name": "body_genus_current",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 490405888,
+        "total_bytes": 716816384
+      },
+      {
+        "estimated_rows": 3295614,
+        "index_bytes": 103923712,
+        "n_live_tup": 0,
+        "name": "ring_signal_current",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 225067008,
+        "total_bytes": 328990720
+      },
+      {
+        "estimated_rows": 830740,
+        "index_bytes": 39460864,
+        "n_live_tup": 0,
+        "name": "station_placement",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 253968384,
+        "total_bytes": 293429248
+      },
+      {
+        "estimated_rows": 830740,
+        "index_bytes": 89784320,
+        "n_live_tup": 0,
+        "name": "stations",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 139051008,
+        "total_bytes": 228835328
+      },
+      {
+        "estimated_rows": 1241257,
+        "index_bytes": 39141376,
+        "n_live_tup": 0,
+        "name": "station_economy_current",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 84787200,
+        "total_bytes": 123928576
+      },
+      {
+        "estimated_rows": 371811,
+        "index_bytes": 22970368,
+        "n_live_tup": 406936,
+        "name": "build_chunk",
+        "schema": "v3_derived",
+        "table_bytes": 74137600,
+        "total_bytes": 97107968
+      },
+      {
+        "estimated_rows": 196900,
+        "index_bytes": 8077312,
+        "n_live_tup": 198529,
+        "name": "search_build_chunk",
+        "schema": "v3_derived",
+        "table_bytes": 33234944,
+        "total_bytes": 41312256
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 3,
+        "name": "derived_generation",
+        "schema": "v3_meta",
+        "table_bytes": 65536,
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 49152,
+        "n_live_tup": 0,
+        "name": "canonical_generation",
+        "schema": "v3_meta",
+        "table_bytes": 32768,
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 65536,
+        "n_live_tup": 0,
+        "name": "canonical_generation_input",
+        "schema": "v3_meta",
+        "table_bytes": 16384,
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 49152,
+        "n_live_tup": 0,
+        "name": "bodies",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": 1,
+        "index_bytes": 32768,
+        "n_live_tup": 0,
+        "name": "systems",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 16384,
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 1,
+        "name": "derived_product",
+        "schema": "v3_meta",
+        "table_bytes": 32768,
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 1,
+        "name": "spatial_generation",
+        "schema": "v3_spatial",
+        "table_bytes": 16384,
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 0,
+        "name": "rings",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 0,
+        "name": "stations",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 0,
+        "name": "current_canonical_generation",
+        "schema": "v3_meta",
+        "table_bytes": 8192,
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 32768,
+        "n_live_tup": 1,
+        "name": "current_derived_generation",
+        "schema": "v3_meta",
+        "table_bytes": 8192,
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "canonical_publication_audit",
+        "schema": "v3_meta",
+        "table_bytes": 16384,
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 1,
+        "name": "derived_publication_audit",
+        "schema": "v3_meta",
+        "table_bytes": 16384,
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 8,
+        "name": "schema_migration",
+        "schema": "v3_meta",
+        "table_bytes": 16384,
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 7,
+        "name": "cell_level",
+        "schema": "v3_spatial",
+        "table_bytes": 16384,
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 1,
+        "name": "spatial_publication_audit",
+        "schema": "v3_spatial",
+        "table_bytes": 16384,
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "body_alias",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "station_alias",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "station_placement",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "body_alias",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "station_alias",
+        "schema": "v3_gen_phase4c_full_20260827_r5",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 0,
+        "name": "cluster_member",
+        "schema": "v3_spatial",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 16384,
+        "n_live_tup": 1,
+        "name": "current_spatial_generation",
+        "schema": "v3_spatial",
+        "table_bytes": 8192,
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "body_composition",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "body_parent_evidence",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 8192,
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "cluster",
+        "schema": "v3_spatial",
+        "table_bytes": 8192,
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "cluster_run",
+        "schema": "v3_spatial",
+        "table_bytes": 8192,
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "body_genus_current",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 0,
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "body_signal_current",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 0,
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "ring_signal_current",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 0,
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "station_economy_current",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 0,
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": 0,
+        "index_bytes": 8192,
+        "n_live_tup": 0,
+        "name": "station_service_current",
+        "schema": "v3_gen_phase4b_a",
+        "table_bytes": 0,
+        "total_bytes": 8192
+      }
+    ],
+    "root_filesystem": {
+      "avail_bytes": 292296142848,
+      "size_bytes": 1948389990400,
+      "used_bytes": 1557045571584
+    },
+    "rows_by_generation": {
+      "ratings_v4_prod_p4": {
+        "archetype_chunks": null,
+        "archetype_systems": null,
+        "ratings_chunks": 9876,
+        "ratings_eligible_opportunities": 30897534,
+        "ratings_physical_bodies": 24558586,
+        "ratings_systems": 4938000,
+        "search_chunks": 0,
+        "search_systems": 0
+      },
+      "ratings_v4_prod_p4_opt1": {
+        "archetype_chunks": null,
+        "archetype_systems": null,
+        "ratings_chunks": 198529,
+        "ratings_eligible_opportunities": 740001532,
+        "ratings_physical_bodies": 577709320,
+        "ratings_systems": 198528286,
+        "search_chunks": 198529,
+        "search_systems": 198528286
+      },
+      "ratings_v4_prod_p4_parallel_v1": {
+        "archetype_chunks": null,
+        "archetype_systems": null,
+        "ratings_chunks": 198529,
+        "ratings_eligible_opportunities": 740001532,
+        "ratings_physical_bodies": 577709320,
+        "ratings_systems": 198528286,
+        "search_chunks": 0,
+        "search_systems": 0
+      }
+    }
+  },
+  "host": {
+    "fqdn": "nb79a3d.mevnode.com",
+    "short": "ed-finder-prod"
+  },
+  "migration_apply_preconditions": {
+    "all_named_workers_stopped": false,
+    "current_pointers_recorded": true,
+    "inspection_complete": true,
+    "ready_for_governed_plan": false
+  },
+  "operation": "v3-derived-lifecycle-status",
+  "postgres": {
+    "container": "edfinder-v3-phase4c-full-20260827_r5-postgres",
+    "database_name": "edfinder_v3_phase4c_full_20260827_r5",
+    "database_user": "edfinder_v3",
+    "reported_database": "edfinder_v3_phase4c_full_20260827_r5",
+    "reported_user": "edfinder_v3",
+    "server_version": "18.6 (Debian 18.6-1.pgdg12+2)",
+    "server_version_num": 180006
+  },
+  "private_keys_read": false,
+  "query_policy": {
+    "statement_timeout_ms": 20000,
+    "transaction": "READ ONLY"
+  },
+  "read_only": true,
+  "schema_migrations": [
+    {
+      "applied_at": "2026-08-27 12:05:58.151874+00",
+      "migration_name": "001_v3_baseline.sql",
+      "migration_sha256_hex": "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e"
+    },
+    {
+      "applied_at": "2026-08-27 12:05:58.208478+00",
+      "migration_name": "002_v3_accounts_identity.sql",
+      "migration_sha256_hex": "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"
+    },
+    {
+      "applied_at": "2026-08-31 16:22:56.202949+00",
+      "migration_name": "r1_v3/001_structural_shell.sql",
+      "migration_sha256_hex": "1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40"
+    },
+    {
+      "applied_at": "2026-09-11 23:42:28.183356+00",
+      "migration_name": "003_ratings_v4_derived.sql",
+      "migration_sha256_hex": "c7818f98ad00b4b99b7ce0f7c3fa12ece555e59e761b7b1ca15d437a39c499cb"
+    },
+    {
+      "applied_at": "2026-09-11 23:42:28.30374+00",
+      "migration_name": "004_v3_search_spatial_clusters.sql",
+      "migration_sha256_hex": "e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2"
+    },
+    {
+      "applied_at": "2026-09-11 23:42:28.414884+00",
+      "migration_name": "005_v3_journal_intelligence.sql",
+      "migration_sha256_hex": "e5c853bcc35da054aff67356a95cbe3d668f6bf2dd1d97b497b9ba7d8cae02ac"
+    },
+    {
+      "applied_at": "2026-09-12 14:04:00.466935+00",
+      "migration_name": "006_v3_derived_product_lifecycle.sql",
+      "migration_sha256_hex": "85f38fe5f0251bf3d5f81485a8a5b7de439750b4cc12ef9449755454898767f4"
+    },
+    {
+      "applied_at": "2026-09-14 18:03:56.960409+00",
+      "migration_name": "008_v3_journal_commander_ownership.sql",
+      "migration_sha256_hex": "bfb2456cc89cdd389ea5edca55c211e849664f2303b9805cfc5dfa23df3f6d7c"
+    },
+    {
+      "applied_at": "2026-09-14 18:03:57.03402+00",
+      "migration_name": "009_v3_journal_galaxy_contributions.sql",
+      "migration_sha256_hex": "d7fa24abff95a91ee81a11493681f6df60b20bbb3840314c3fabb04b59532861"
+    },
+    {
+      "applied_at": "2026-09-23 06:13:10.684677+00",
+      "migration_name": "012_v3_spatial_pyramid_decouple.sql",
+      "migration_sha256_hex": "5ca6a12e969392fe9562e7b2217d77988f4f2b27258ffa84845cb2c5314680ee"
+    }
+  ],
+  "schema_version": "ed-finder/operator-operation-result/v1",
+  "service_changes_performed": false,
+  "spatial": {
+    "current": {
+      "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+      "lifecycle_state": "PUBLISHED",
+      "publication_sequence": 1,
+      "published_at": "2026-09-23 09:25:42.846019+00",
+      "pyramid_version": "pyramid_v1",
+      "spatial_generation_id": "9a32bdca-aaa4-4cfc-ac04-cdd990ff17d5"
+    },
+    "present": true,
+    "spatial_generations": [
+      {
+        "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+        "created_at": "2026-09-23 06:15:31.930804+00",
+        "expected_systems": 198528286,
+        "failed_at": null,
+        "failure": null,
+        "lifecycle_state": "PUBLISHED",
+        "published_at": "2026-09-23 09:25:42.846019+00",
+        "pyramid_version": "pyramid_v1",
+        "spatial_generation_id": "9a32bdca-aaa4-4cfc-ac04-cdd990ff17d5",
+        "validated_at": "2026-09-23 06:15:33.438769+00"
+      }
+    ]
+  },
+  "status": "success",
+  "workers": [
+    {
+      "exists": true,
+      "exit_code": 137,
+      "finished_at": "2026-09-13T15:01:03.886308023Z",
+      "name": "edfinder-ratings-v4-prod-p4",
+      "running": false,
+      "status": "exited"
+    },
+    {
+      "exists": true,
+      "exit_code": 0,
+      "finished_at": "0001-01-01T00:00:00Z",
+      "name": "edfinder-ratings-v4-prod-p4-opt1",
+      "running": true,
+      "status": "paused"
+    },
+    {
+      "exists": true,
+      "exit_code": 0,
+      "finished_at": "2026-09-16T05:47:03.254860995Z",
+      "name": "edfinder-ratings-v4-prod-p4-parallel-v1",
+      "running": false,
+      "status": "exited"
+    },
+    {
+      "exists": true,
+      "exit_code": 0,
+      "finished_at": "2026-09-21T20:21:29.902703719Z",
+      "name": "edfinder-v3-system-search-p4-opt1",
+      "running": false,
+      "status": "exited"
+    }
+  ]
+}

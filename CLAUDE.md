@@ -35,12 +35,16 @@ watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIV
 identity/journal shipped; Finder F1 `system_search` rebuild in progress and Finder
 **F2b `system_archetype` builder merged (#771)** — next is **F2c** (ranking
 profile) then **F3** (point the Finder API at the V3 projections; `archetypes.py`
-still queries legacy relations), then the governed run that builds the product to
-READY and **publishes the owning generation**; the published derived generation is
-`ratings_v4_prod_p4_parallel_v1` (seq 1) — outstanding are the F1 `system_search`
-rebuild + F2b `system_archetype` product build; the Finder archetype UI (F4) is
-gated on F2c/F3, not UI-only yet) is in `docs/ROADMAP.md` "Programme status —
-2026-09-26"; the live promotion boundary is
+still queries legacy relations). **Capacity decision 2026-10-10 (owner, A + B):**
+the fresh-generation route is superseded — the unapplied migration `011` is being
+rewritten as one wide archetype row per system (F2d design, PR #806), both Finder
+products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
+(seq 1) behind an explicit **product**-publication gate (migration `015`), and
+the generation pointer does not move; no production migration apply may run
+until the rewritten `011` and `015` are registered, because the runner applies
+every pending entry. The Finder archetype UI (F4) is gated on F2c/F3, not
+UI-only yet) is in `docs/ROADMAP.md` "Programme status —
+2026-09-26" and its "Capacity decision" paragraph; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
