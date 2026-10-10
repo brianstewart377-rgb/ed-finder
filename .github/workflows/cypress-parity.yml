@@ -29,7 +29,7 @@ jobs:
         browser: [chrome, firefox]
     services:
       postgres:
-        image: postgres:18-alpine
+        image: public.ecr.aws/docker/library/postgres:18-alpine
         env:
           POSTGRES_USER: edfinder
           POSTGRES_PASSWORD: edfinder
@@ -39,7 +39,7 @@ jobs:
           --health-cmd "pg_isready -U edfinder -d edfinder"
           --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: public.ecr.aws/docker/library/redis:7-alpine
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5

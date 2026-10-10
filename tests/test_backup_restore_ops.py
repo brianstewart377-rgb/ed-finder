@@ -312,7 +312,7 @@ def test_backup_helpers_remain_in_legacy_maintenance_compose_without_v2_storageb
     assert '/usr/local/bin/run_backup.sh nightly' in crontab
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--production-safe --allow-stale-colonisation-status' in crontab
-    assert 'FROM python:3.14-alpine' in dockerfile
+    assert 'FROM public.ecr.aws/docker/library/python:3.14-alpine' in dockerfile
     assert 'apk add --no-cache dcron tini bash postgresql-client rclone curl' in dockerfile
     assert "'psycopg[binary]==3.3.4'" in dockerfile
     assert "sys.version_info[:2] == (3, 14)" in dockerfile

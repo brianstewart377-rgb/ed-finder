@@ -136,8 +136,8 @@ def test_ci_integration_jobs_are_pg18_and_preserve_migration_and_importer_rehear
     integration = workflow[workflow.index('  integration:'):workflow.index('  canonical-safety:')]
     importer = workflow[workflow.index('  importer-tooling:'):workflow.index('  integration:')]
 
-    assert 'image: postgres:18-alpine' in integration
-    assert 'image: postgres:16-alpine' not in integration
+    assert 'image: public.ecr.aws/docker/library/postgres:18-alpine' in integration
+    assert 'image: public.ecr.aws/docker/library/postgres:16-alpine' not in integration
     assert 'bash scripts/seed_check.sh' in integration
     assert 'Run data invariants against seeded integration DB' in integration
     assert 'Run integration test suite' in integration
@@ -145,6 +145,6 @@ def test_ci_integration_jobs_are_pg18_and_preserve_migration_and_importer_rehear
     assert 'tests/test_migration_applier_runtime.py' in integration
     assert 'tests/test_migration_ledger_baseline_runtime.py' in integration
     assert 'tests/test_data_trust_runtime.py' not in integration
-    assert 'image: postgres:18-alpine' in importer
+    assert 'image: public.ecr.aws/docker/library/postgres:18-alpine' in importer
     assert 'tests/synchronous_tooling_test_paths.txt' in importer
     assert "grep -E '^tests/integration/|^tests/test_data_trust_runtime.py$'" in importer
