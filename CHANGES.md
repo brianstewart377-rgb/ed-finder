@@ -21,14 +21,17 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
-## 2026-10-10 — Finder rollout step 0 run; capacity decision required
+## 2026-10-10 — Finder rollout step 0 run; capacity decision A + B recorded
 
 The read-only `v3-derived-lifecycle-status` inspection ran against production
 (run 38079894267). Its receipt is recorded under `docs/operations/evidence/`.
-The `opt1` ratings worker is paused and must be killed before any migration
-apply, and the data volume has about 292 GB free against roughly 1.4 TB for the
-fresh Finder generation as designed, so rollout steps 4–9 are blocked until the
-owner records a capacity decision in the rollout-state document.
+The data volume has about 292 GB free against roughly 1.4 TB for the fresh
+Finder generation as designed. The owner chose to rewrite the unapplied
+migration `011` as one wide archetype row per system (measured ≈65 GB) and to
+attach both Finder products to the already-published generation behind an
+explicit product-publication gate (`015`), deferring any purge; the ROADMAP's
+steps 4–9 are replaced accordingly. The paused `opt1` ratings worker was killed
+by the owner; step 0 closes when the confirming receipt is recorded.
 
 ## 2026-10-10 — CI pulls from ECR Public are sequential with retry
 

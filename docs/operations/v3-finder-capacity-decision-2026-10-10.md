@@ -1,7 +1,9 @@
 # Finder rollout — capacity decision (2026-10-10)
 
 **Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
-ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`. Numbers come
+ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
+Questions 5–6 (explanation version rule, wide-row index layout) were added
+after review and await the owner. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
@@ -21,6 +23,8 @@ disposable-sample measurement in
 | `system_search` after migration `010` (198.5 M rows) | 273 B table + 164 B index | **≈ 87 GB** |
 | `system_archetype` as migration `011` defines it (8 rows per system = 1,588 M rows; ≈ 410 B of each row is the `explanation` JSON) | 422 B table + 194 B index | **≈ 978 GB** |
 | `system_archetype_summary` (198.5 M rows) | 96 B + 79 B | **≈ 35 GB** |
+| wide-row `system_archetype` (F2d design: one row per system, no stored explanation; PK + weighted index + 8 deduplicating `(generation, <key>_score DESC)` indexes) | 186 B table + 142 B index | **≈ 65 GB** |
+| the same wide row with `system_id64` trailing in each score index (the design's first draft — rejected, see A) | 186 B table + 480 B index | ≈ 132 GB |
 
 ## 2. Why the plan as written cannot run
 
@@ -48,17 +52,37 @@ validated ratings relations that the Finder products only need to read.
 ### A. Redesign the archetype product for scale (rewrite `011` before applying it)
 
 *What changes.* One row per system instead of eight: the eight scores (`smallint`),
-tiers and confidences live in one row (≈ 150 B incl. header), with one B-tree
-index per archetype score for the picked-archetype ordering (8 × ≈ 6 GB) and the
-summary columns (`primary_archetype`, `secondary_archetype`,
-`best_colony_potential`, `best_tier`, `archetype_confidence`,
-`weighted_potential`) folded into the same row. The per-archetype `explanation`
-is **not stored**: the fit model (`scripts/v3_system_archetype_model.py`) is pure
-and deterministic, so the API recomputes one system's explanations on demand
-from its rating vector and economy opportunities (microseconds; the data is
-already read for the Inspect panel).
+tiers and confidences live in one row (measured 186 B incl. header and
+alignment), with the summary columns (`primary_archetype`,
+`secondary_archetype`, `best_colony_potential`, `best_tier`,
+`archetype_confidence`, `weighted_potential`) folded into the same row and the
+summary table replaced by a view. Indexes: the primary key
+`(generation, system_id64)` (the picked-archetype join now uses it — one row per
+system, no key lookup), the `weighted_potential` index for the default no-pick
+ordering, and one small `(generation, <key>_score DESC)` index per archetype for
+the `min_development_score` / tier-floor range path. The picked ordering is the
+computed product `score × confidence × completeness`, which no score index can
+serve, so the score indexes must **not** carry a trailing `system_id64`: with it
+every entry is unique (49.8 B/row each, 8 × 9.9 GB); without it B-tree
+deduplication collapses the 101 distinct score values (7.5 B/row, 8 × 1.5 GB).
+The per-archetype `explanation` is **not stored**: the fit model
+(`scripts/v3_system_archetype_model.py`) is pure and deterministic, so the API
+recomputes one system's explanations on demand from its rating vector and
+economy opportunities (one indexed read; the data is already read for the
+Inspect panel). Because that model is a single implementation whose version
+has been advanced in place before, explanations are served only when the
+deployed model version equals the product's pinned `archetype_version`;
+otherwise the API fails closed (HTTP 409) rather than describing an old
+product with new logic. After a later model change the old product's
+explanations are unavailable until it is rebuilt — accepted instead of
+keeping a versioned replay registry (owner question 5).
 
-*Disk.* ≈ 30 GB table + ≈ 50 GB indexes ≈ **80 GB** instead of 978 + 35 GB.
+*Disk (measured on the disposable PostgreSQL 18.4 sample with the design's
+DDL, 200,000 rows, extrapolated to 198.5 M).* 37 GB table + 8 GB primary key +
+8 GB weighted index + 12 GB score indexes ≈ **65 GB** instead of 978 + 35 GB.
+(With the trailing `system_id64` the same table would be ≈ 132 GB; the first
+draft's 80–90 GB guess undercounted the primary key and weighted index and
+overcounted nothing — the measurement replaces it.)
 
 *Effort.* A new `011` (migration text), the F2b model/builder/validator and their
 tests adapted to the wide row, the F2c/F3 ranking SQL re-pointed at the new
@@ -70,7 +94,7 @@ The Review Lab and Cypress fixtures apply `011` too and follow the rewrite.
 changes shape, so it is a new ranking identity. Behaviour is preserved (same
 scores, same tiers).
 
-*Alone it still does not fit:* a fresh generation would be 313 + 87 + 80 = **480 GB**
+*Alone it still does not fit:* a fresh generation would be 313 + 87 + 65 = **465 GB**
 against 292 GB free — so A needs B or C as well.
 
 ### B. Attach the Finder products to the already-published generation (no ratings rebuild)
@@ -80,7 +104,15 @@ while the base generation is BUILDING, VALIDATING or READY
 (`006_v3_derived_product_lifecycle.sql:53`); PUBLISHED is excluded. A reviewed
 migration (`015`) would permit products to be **added** to a PUBLISHED generation
 while keeping every other guard (insert-only rows, READY requires a validation
-receipt, manifests immutable). Publication of a *product* then needs an explicit
+receipt, manifests immutable). The same base-state rule is enforced in four
+places, and all four must change together or registration succeeds and the
+first chunk insert fails: `v3_meta.guard_derived_product` (registration and
+state transitions), `v3_derived.guard_system_search_insert` (search rows and
+receipts), the `011` archetype insert guard (archetype rows and receipts), and
+the base-state checks in both Python builders (`scripts/v3_system_search.py`
+and `scripts/v3_system_archetype.py` reject PUBLISHED in code today). The
+product-state rule (writes only while the product is BUILDING) and the
+insert-only triggers stay exactly as they are. Publication of a *product* then needs an explicit
 gate: today the API serves the Finder as soon as both products are READY on the
 published generation (`local_search.py:620-640`), so `015` should also add a
 `product_published_at` column that the `v3_app.*` views and the API check, with a
@@ -88,7 +120,7 @@ small governed "publish product" action — the moment Finder goes live stays a
 reviewed decision, not a side effect of validation.
 
 *Disk.* Removes the 313 GB ratings rebuild entirely. New data = search 87 GB +
-archetype (978 GB as-is, or ≈ 80 GB with A).
+archetype (978 GB as-is, or ≈ 65 GB with A).
 
 *Effort.* One migration, API/view changes with tests, a publish action, and the
 steps 4/5/7/8/9 tooling becomes simpler (no new generation key — everything
@@ -106,13 +138,22 @@ generations in a terminal, non-published state (`FAILED`/`RETIRED` after an
 explicit retirement step), deletes their rows in bounded batches and records a
 receipt; plus an operator action to drive it.
 
-*Disk.* ≈ **400 GB** back — but deleting 1.5 billion rows from 200–265 GB tables
-takes hours, leaves bloat until `VACUUM` reclaims it, and must not run while
-anything else is building.
+*Disk.* Up to ≈ **400 GB** — but not from `DELETE` + ordinary `VACUUM`: on these
+unpartitioned relations a plain `VACUUM` only marks the freed pages reusable
+*inside* the same table, so the space would be available to future rows of
+`body_mechanics`/`economy_opportunity`/`system_rating_vector`, **not** to the
+new archetype or search tables and not to the filesystem. Returning it to
+`/dev/md1` needs a table rewrite (`VACUUM FULL`, `CLUSTER` or `pg_repack`),
+which holds a full copy of the table in temporary space — impossible for a
+265 GB table with 292 GB free — or a partition-per-generation redesign so a
+generation can be dropped as a whole relation. Deleting 1.5 billion rows also
+takes hours and must not run while anything else is building.
 
-*Effort/risk.* Moderate effort, the highest operational risk of the three (it is
-the only option that destroys data), and on its own it still does not make the
-fresh-generation plan fit. Worth doing later for hygiene.
+*Effort/risk.* Moderate-to-high effort (a reclamation mechanism, not just a
+delete), the highest operational risk of the three (it is the only option that
+destroys data), and on its own it does not make the fresh-generation plan fit
+or free filesystem space for the Finder relations. Worth designing later for
+hygiene, most plausibly as per-generation partitioning for future generations.
 
 ### D. Buy disk
 
@@ -128,12 +169,17 @@ then register and apply `[014, 010, 011', 013, 015]`, build `system_search`
 the products, revise the release gate, promote.
 
 ```text
-new data written:  search 87 GB + archetype ≈ 80 GB  ≈ 170 GB
-free today:        292 GB   →  ≈ 120 GB headroom for WAL/temp/vacuum
+new data written:  search 87 GB + archetype ≈ 65 GB (measured)  ≈ 152 GB
+free today:        292 GB   →  ≈ 140 GB headroom for WAL/temp/vacuum
 ```
 
-Schedule **C** afterwards as hygiene (it also removes the 80 GB pre-`010`
-`opt1` search product that the retention paragraph currently keeps).
+The production gate before the archetype build repeats the measurement with
+the final migration text and stops if search + archetype + working room do not
+fit the free space reported by the step 0 receipt at that time.
+
+Design **C** afterwards as hygiene, knowing that it reclaims filesystem space
+only through a table rewrite or partition drop (see C); a plain delete would
+not make room for anything but future ratings rows.
 
 What this changes in the controlling sequence: steps 4 ("fresh generation") and
 the "retention" branch are replaced by "attach to published generation";
@@ -152,6 +198,13 @@ applied anywhere.
 3. Defer **C** (purge) until after the Finder ships?
 4. Accept that the ranking identity (`ranking_version`) changes with A, so the
    Finder F2c/F3 contract and the F4 design cite the new identity?
+5. Accept the exact-version rule for on-demand explanations (served only when
+   the deployed model version equals the product's pinned `archetype_version`;
+   HTTP 409 otherwise; no versioned replay registry)?
+6. Adopt the measured index layout for the wide row (primary key + weighted
+   index + eight deduplicating `(generation, <key>_score DESC)` indexes,
+   ≈ 65 GB) rather than the first draft's trailing-`system_id64` indexes
+   (≈ 132 GB)?
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder
 adaptation (code), the `015` migration + API gate (code), and the amended
