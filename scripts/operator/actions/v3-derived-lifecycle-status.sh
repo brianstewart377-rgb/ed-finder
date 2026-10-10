@@ -523,7 +523,8 @@ try:
     current_pointers_recorded = (
         receipt["canonical"] is not None
         and receipt["derived"] is not None
-        and (not spatial_present or receipt["spatial"]["current"] is not None)
+        and spatial_present
+        and receipt["spatial"]["current"] is not None
     )
     if not current_pointers_recorded:
         failures.append("current_pointer_missing")
@@ -820,13 +821,16 @@ except RuntimeError as exc:
     failures.append("read_only_query_failed")
     receipt["query_error"] = str(exc)[:240]
 
+receipt["failures"] = sorted(set(failures))
+receipt["status"] = "success" if not failures else "stopped"
 receipt["migration_apply_preconditions"] = {
     "all_named_workers_stopped": all_named_workers_stopped,
     "current_pointers_recorded": current_pointers_recorded,
-    "ready_for_governed_plan": all_named_workers_stopped and current_pointers_recorded,
+    "inspection_complete": not failures,
+    "ready_for_governed_plan": (
+        all_named_workers_stopped and current_pointers_recorded and not failures
+    ),
 }
-receipt["failures"] = sorted(set(failures))
-receipt["status"] = "success" if not failures else "stopped"
 print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
 sys.exit(0 if not failures else 1)
 PY

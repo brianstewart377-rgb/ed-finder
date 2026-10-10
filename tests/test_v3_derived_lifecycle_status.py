@@ -112,6 +112,8 @@ def _run_status_action(
     *,
     worker_inspect_failure: str = "missing",
     empty_derived_pointer: bool = False,
+    spatial_relation_absent: bool = False,
+    database_size_query_failure: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -209,12 +211,18 @@ def _run_status_action(
                 *'FROM v3_meta.derived_product p'*)
                   printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
                 *"to_regclass('v3_spatial.current_spatial_generation')"*)
-                  printf 'v3_spatial.current_spatial_generation\\n' ;;
+                  if [ "$SPATIAL_RELATION_ABSENT" != '1' ]; then
+                    printf 'v3_spatial.current_spatial_generation\\n'
+                  fi ;;
                 *'FROM v3_spatial.current_spatial_generation'*)
                   printf '%s\\n' '{"spatial_generation_id":"spatial-id","canonical_generation_id":"canonical-id","pyramid_version":"density-v1","lifecycle_state":"PUBLISHED","publication_sequence":"1","published_at":"2026-09-03 00:00:00+00"}' ;;
                 *'FROM v3_spatial.spatial_generation ORDER BY created_at'*)
                   printf '%s\\n' '{"spatial_generation_id":"spatial-id","canonical_generation_id":"canonical-id","pyramid_version":"density-v1","lifecycle_state":"PUBLISHED","expected_systems":100,"created_at":"2026-08-04 00:00:00+00","validated_at":"2026-09-01 00:00:00+00","published_at":"2026-09-03 00:00:00+00","failed_at":null,"failure":null}' ;;
                 *'pg_database_size'*)
+                  if [ "$DATABASE_SIZE_QUERY_FAILURE" = '1' ]; then
+                    printf '%s\\n' 'database size query failed' >&2
+                    exit 1
+                  fi
                   printf '987654321\\n' ;;
                 *'pg_total_relation_size'*)
                   printf '%s\\n' '{"schema":"v3_derived","name":"system_search","estimated_rows":150,"n_live_tup":150,"table_bytes":6000,"index_bytes":3000,"total_bytes":9000}'
@@ -270,6 +278,10 @@ def _run_status_action(
     env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
     env["WORKER_INSPECT_FAILURE"] = worker_inspect_failure
     env["EMPTY_DERIVED_POINTER"] = "1" if empty_derived_pointer else "0"
+    env["SPATIAL_RELATION_ABSENT"] = "1" if spatial_relation_absent else "0"
+    env["DATABASE_SIZE_QUERY_FAILURE"] = (
+        "1" if database_size_query_failure else "0"
+    )
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -315,6 +327,7 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
     }
     assert receipt["footprint"]["host_disk"]["avail_bytes"] == 75000000000
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is True
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is True
     assert receipt["direct_db_access_performed"] is True
 
 
@@ -368,6 +381,30 @@ def test_v3_derived_lifecycle_status_requires_derived_current_pointer(tmp_path):
     assert receipt["status"] == "stopped"
     assert "current_pointer_missing" in receipt["failures"]
     assert receipt["migration_apply_preconditions"]["current_pointers_recorded"] is False
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
+def test_v3_derived_lifecycle_status_requires_spatial_current_pointer(tmp_path):
+    result = _run_status_action(tmp_path, spatial_relation_absent=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["spatial"] == {"present": False}
+    assert receipt["status"] == "stopped"
+    assert "current_pointer_missing" in receipt["failures"]
+    assert receipt["migration_apply_preconditions"]["current_pointers_recorded"] is False
+    assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
+
+
+def test_v3_derived_lifecycle_status_stops_on_footprint_query_failure(tmp_path):
+    result = _run_status_action(tmp_path, database_size_query_failure=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    assert "read_only_query_failed" in receipt["failures"]
+    assert receipt["migration_apply_preconditions"]["current_pointers_recorded"] is True
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
     assert receipt["migration_apply_preconditions"]["ready_for_governed_plan"] is False
 
 

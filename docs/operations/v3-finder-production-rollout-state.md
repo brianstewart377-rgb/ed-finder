@@ -189,18 +189,21 @@ counts carry no real-world variation; the per-row widths are structural
 | Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `system_rating_vector` | 199,992 | 328 | 47 | 198.5 M | 65 | 9 | **74** |
-| `system_search` | 199,992 | 273 | 152 | 198.5 M | 54 | 30 | **84** |
+| `body_mechanics` | 199,800 | 109 | 69 | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) |
+| `economy_opportunity` | 199,908 | 95 | 94 | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) | n/a (scales with bodies / eligible body-economy pairs) |
+| `system_search` | 199,992 | 273 | 164 | 198.5 M | 54 | 33 | **87** |
 | `system_archetype` | 199,968 | 422 | 194 | 1,588.0 M | 670 | 307 | **978** |
 | `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
 
-Sum of these four relations for one complete fresh generation: about
-**1,171 GB**, of which `system_archetype` alone is about
+Sum of the four system-level relations for one complete fresh generation: about
+**1,174 GB**, of which `system_archetype` alone is about
 978 GB (422 B/row table + 194 B/row for its
-primary key and `system_archetype_key_score`). `body_mechanics` (about
-104 B tuple) and `economy_opportunity` (about 89 B tuple) scale
-with bodies and eligible body/economy pairs, not systems; multiply by the
-production row counts that the step 0 receipt's `relations` section reports for
-the published generation. Retention means the superseded `opt1` `system_search`
+primary key and `system_archetype_key_score`). `body_mechanics` (178 B/row
+including its primary key) and `economy_opportunity` (188 B/row including its
+primary key) scale with bodies and eligible body/economy pairs, not systems;
+multiply those totals by the production row counts the step 0 receipt reports
+(`footprint.relations`, `n_live_tup`) for the published generation and add the
+result to the sum above. Retention means the superseded `opt1` `system_search`
 rows (about 198.5 M, pre-`010` width) and the `p4`/`opt1` ratings rows also stay
 on disk. Compare the total against `footprint.host_disk.avail_bytes` from the
 step 0 receipt before approving step 4. The dominant term is the per-archetype
