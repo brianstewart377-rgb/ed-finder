@@ -291,6 +291,11 @@ validation) remain allowed but **steps 4–9 are blocked by capacity**, and
 applying `011` as written would commit production to the 1.59-billion-row
 layout.
 
+The options, with numbers, effort and risk, are written up in
+[`v3-finder-capacity-decision-2026-10-10.md`](v3-finder-capacity-decision-2026-10-10.md)
+(recommendation: redesign the archetype product as one wide row per system and
+attach the Finder products to the published generation; purge later).
+
 ## Where else this pattern can bite (watch-list)
 
 - **Three distinct states — don't conflate them.** (1) *Committed*: a
