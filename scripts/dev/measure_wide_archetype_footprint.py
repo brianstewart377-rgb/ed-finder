@@ -20,7 +20,11 @@ Both layouts share the primary key and the ``weighted_potential`` index.
 
 Safety: the DSN comes only from ``EDFINDER_DISPOSABLE_DSN``; it must be a plain
 ``postgresql://`` URI with no query string or fragment (so no ``hostaddr``,
-``service`` or other libpq overrides can redirect it), its effective libpq ``host``
+``service`` or other libpq overrides can redirect it), it must name the
+disposable ``ratings_v4_validation`` database (the same allowlist the repository's
+PostgreSQL test fixture enforces; a production database reached through a loopback
+tunnel is refused by name and re-checked with ``current_database()`` after
+connecting), its effective libpq ``host``
 must be a loopback address and ``hostaddr`` may not be set; ambient libpq routing
 variables (``PGHOST``, ``PGHOSTADDR``, ``PGPORT``, ``PGSERVICE``, ``PGSERVICEFILE``,
 ``PGDATABASE``) must be unset; the connection is opened from the validated
@@ -61,6 +65,9 @@ LOOPBACK_ADDRESSES = {"127.0.0.1": "127.0.0.1", "localhost": "127.0.0.1", "::1":
 # libpq fills omitted parameters from these; any of them could re-route the connection.
 AMBIENT_ROUTING_VARS = ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGDATABASE")
 REQUIRED_SERVER_MAJOR = 18
+# The only database this script may write to: the repository's disposable local
+# validation service (the same name tests/ratings_v4_pg_fixture.py insists on).
+ALLOWED_DBNAMES = frozenset({"ratings_v4_validation"})
 GENERATION_ID = "a7076522-0000-4000-8000-000000000001"
 
 
@@ -181,8 +188,11 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
     host = keywords.get("host", "")
     if host not in LOOPBACK_HOSTS:
         raise ValueError(f"refusing non-loopback host {host!r}: this script runs only against a disposable local database")
-    if not keywords.get("dbname"):
-        raise ValueError("EDFINDER_DISPOSABLE_DSN must name a database")
+    if keywords.get("dbname") not in ALLOWED_DBNAMES:
+        raise ValueError(
+            f"refusing database {keywords.get('dbname')!r}: only the disposable "
+            f"{sorted(ALLOWED_DBNAMES)} service may be measured"
+        )
     ambient = [name for name in AMBIENT_ROUTING_VARS if os.environ.get(name)]
     if ambient:
         raise ValueError(f"refusing to run with ambient libpq routing variables set: {', '.join(ambient)}")
@@ -192,12 +202,14 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
 
 
 def assert_disposable_server(conn: psycopg.Connection) -> int:
-    """Fail closed unless the connected server is loopback-addressed PostgreSQL 18."""
-    server_addr, version_num = conn.execute(
-        "SELECT host(inet_server_addr()), current_setting('server_version_num')::int"
+    """Fail closed unless connected to the loopback-addressed, allowlisted disposable database on PostgreSQL 18."""
+    server_addr, version_num, dbname = conn.execute(
+        "SELECT host(inet_server_addr()), current_setting('server_version_num')::int, current_database()"
     ).fetchone()
     if server_addr not in {"127.0.0.1", "::1"}:
         raise ValueError(f"connected server address {server_addr!r} is not loopback; refusing to write")
+    if dbname not in ALLOWED_DBNAMES:
+        raise ValueError(f"connected database {dbname!r} is not the disposable validation service; refusing to write")
     if version_num // 10000 != REQUIRED_SERVER_MAJOR:
         raise ValueError(
             f"connected server is PostgreSQL {version_num // 10000}, not {REQUIRED_SERVER_MAJOR}; "

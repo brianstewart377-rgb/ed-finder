@@ -37,8 +37,8 @@ def test_loopback_uri_is_accepted_and_connection_uses_validated_keywords():
 
 def test_localhost_pins_loopback_hostaddr():
     module = _load()
-    assert module.disposable_conninfo("postgresql://u:p@localhost/db")["hostaddr"] == "127.0.0.1"
-    assert module.disposable_conninfo("postgresql://u:p@[::1]/db")["hostaddr"] == "::1"
+    assert module.disposable_conninfo("postgresql://u:p@localhost/ratings_v4_validation")["hostaddr"] == "127.0.0.1"
+    assert module.disposable_conninfo("postgresql://u:p@[::1]/ratings_v4_validation")["hostaddr"] == "::1"
 
 
 @pytest.mark.parametrize("name", ["PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGDATABASE"])
@@ -46,7 +46,7 @@ def test_ambient_libpq_routing_variables_are_refused(monkeypatch, name):
     module = _load()
     monkeypatch.setenv(name, "203.0.113.9")
     with pytest.raises(ValueError, match="ambient libpq routing"):
-        module.disposable_conninfo("postgresql://u:p@127.0.0.1/db")
+        module.disposable_conninfo("postgresql://u:p@127.0.0.1/ratings_v4_validation")
 
 
 class _FakeConn:
@@ -63,15 +63,18 @@ class _FakeConn:
         return _Cur()
 
 
-def test_server_check_requires_loopback_address_and_postgresql_18():
+def test_server_check_requires_loopback_address_allowlisted_database_and_postgresql_18():
     module = _load()
-    assert module.assert_disposable_server(_FakeConn(("127.0.0.1", 180004))) == 180004
+    ok = ("127.0.0.1", 180004, "ratings_v4_validation")
+    assert module.assert_disposable_server(_FakeConn(ok)) == 180004
     with pytest.raises(ValueError, match="not loopback"):
-        module.assert_disposable_server(_FakeConn(("203.0.113.9", 180004)))
+        module.assert_disposable_server(_FakeConn(("203.0.113.9", 180004, "ratings_v4_validation")))
+    with pytest.raises(ValueError, match="not the disposable validation service"):
+        module.assert_disposable_server(_FakeConn(("127.0.0.1", 180004, "edfinder_v3_phase4c_full_20260827_r5")))
     with pytest.raises(ValueError, match="PostgreSQL 17, not 18"):
-        module.assert_disposable_server(_FakeConn(("127.0.0.1", 170006)))
+        module.assert_disposable_server(_FakeConn(("127.0.0.1", 170006, "ratings_v4_validation")))
     with pytest.raises(ValueError, match="PostgreSQL 19, not 18"):
-        module.assert_disposable_server(_FakeConn(("::1", 190000)))
+        module.assert_disposable_server(_FakeConn(("::1", 190000, "ratings_v4_validation")))
 
 
 def test_server_check_runs_before_any_ddl():
@@ -88,6 +91,8 @@ def test_server_check_runs_before_any_ddl():
         "postgresql://u:p@db.example.com/db",
         "postgresql://u:p@/db",  # no host -> would fall back to PGHOST/socket
         "postgresql://u:p@localhost",  # no database
+        "postgresql://u:p@127.0.0.1/edfinder_v3_phase4c_full_20260827_r5",  # a production-shaped name via a loopback tunnel
+        "postgresql://u:p@127.0.0.1/postgres",
         "mysql://u:p@localhost/db",
     ],
 )
