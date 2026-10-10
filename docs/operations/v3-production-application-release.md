@@ -298,25 +298,27 @@ production Finder returns `404` (no published generation) or `503` (products not
 ready), not results. Promoting the application image ahead of the product
 publish would therefore take the production Finder down.
 
-**Schema prerequisite — register and apply migrations 010 and 011 first.** The
-governed production schema identity is derived from `sql/v3/migration-manifest.txt`
-(`scripts/operator/v3_schema_identity.py`), which currently stops at 006/008/009/012
-and does **not** include `010_v3_system_search_body_type_counts.sql` or
-`011_v3_system_archetype.sql`. Those migrations create the body-count columns and
-`system_archetype*` relations the F3 queries and the Finder product builders
-require. On the live lineage the builders and endpoints would otherwise hit
-missing schema, and applying the files outside the manifest would make the
-application's exact-ledger preflight reject production (the live
-`v3_meta.schema_migration` ledger must match the derived identity). Therefore,
-before the product build and this cutover: add 010 and 011 to the governed V3
-migration manifest and compatibility authority, and apply them through the
-reviewed V3 migration operation. (The disposable Cypress seed sidesteps this by
-executing both files directly via `scripts/dev/seed_cypress_v3_generation.py`;
-that is acceptable only for the throwaway CI database, never the governed path.)
+**Schema prerequisite — application and validation remain outstanding.** This
+PR registers `010_v3_system_search_body_type_counts.sql`,
+`011_v3_system_archetype.sql`, and `013_v3_system_search_parallel.sql` after
+`014_v3_watchlist.sql` in the governed V3 manifest and authority. Migration
+`010` is rewritten to add its columns without inline checks and add its 18
+constraints as `NOT VALID` for bounded application. Registration is not
+application: rollout step 2 must still run the governed migration `plan`, review
+it, and apply the pending `[014, 010, 011, 013]` set; rollout step 3 must then run
+the separate governed constraint validation. The body-count columns and
+`system_archetype*` relations created by `010` and `011` are required by the F3
+queries and Finder product builders. The live `v3_meta.schema_migration` ledger
+must match the identity derived by `scripts/operator/v3_schema_identity.py`
+before the product build and cutover. (The disposable Cypress seed sidesteps
+this by executing both files directly via
+`scripts/dev/seed_cypress_v3_generation.py`; that is acceptable only for the
+throwaway CI database, never the governed path.)
 
-Outstanding before promotion (tracked in `docs/ROADMAP.md`): registering +
-applying 010/011 per the prerequisite above, the F1 `system_search` rebuild, and
-the F2b `system_archetype` product build. These products **cannot** be attached
+Outstanding before promotion (tracked in `docs/ROADMAP.md`): the governed
+plan/apply and separate constraint-validation steps above, the F1
+`system_search` rebuild, and the F2b `system_archetype` product build. These
+products **cannot** be attached
 to the already-published `ratings_v4_prod_p4_parallel_v1` generation: both
 `scripts/v3_system_archetype.py` (`register_product`) and
 `scripts/v3_system_search.py` reject product registration unless the derived
