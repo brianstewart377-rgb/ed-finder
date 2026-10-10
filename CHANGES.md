@@ -21,6 +21,10 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — Finder rollout step 0: read-only derived lifecycle status action
+
+The new `v3-derived-lifecycle-status` operator action reports the four named worker states, the migration ledger, the canonical/derived/spatial pointers, lifecycle generations and products, Finder product readiness, and migration-plan preconditions. It is strictly read-only: every database statement runs in a `READ ONLY` transaction, and it reads only database identity names from the PostgreSQL container. Running it is a governed operator operation that has not yet happened.
+
 ## 2026-10-08 — Codex worker model pin reverted to `gpt-5.6-sol`
 
 The 2026-10-06 bump to `gpt-6.1-sol` (#784) is reverted. The Contabo Codex
