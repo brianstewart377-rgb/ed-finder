@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-10 — Finder rollout step 0 run; capacity decision required
+
+The read-only `v3-derived-lifecycle-status` inspection ran against production
+(run 38079894267). Its receipt is recorded under `docs/operations/evidence/`.
+The `opt1` ratings worker is paused and must be killed before any migration
+apply, and the data volume has about 292 GB free against roughly 1.4 TB for the
+fresh Finder generation as designed, so rollout steps 4–9 are blocked until the
+owner records a capacity decision in the rollout-state document.
+
 ## 2026-10-10 — CI pulls from ECR Public are sequential with retry
 
 ECR Public's anonymous quota is one pull per second, so parallel pulls can fail

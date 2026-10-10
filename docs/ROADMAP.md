@@ -178,9 +178,14 @@ newer dated source wins).
      generation.
   11. Run the governed application release and promote `main`.
 
-  For step 0, the read-only action `v3-derived-lifecycle-status` is built (PR
-  pending merge) and must be run and its receipt recorded before step 1 is
-  dispatched; `scripts/operator/actions/v3-derived-data-status.sh` remains the
+  Step 0 was run on 2026-10-10 (receipt in
+  `docs/operations/v3-finder-production-rollout-state.md`): the `opt1` ratings
+  worker is paused and must be killed before step 1, and the data volume has
+  about 292 GB free against roughly 1.4 TB for a complete fresh generation, so
+  **steps 4–9 are blocked until the owner records a capacity decision** (archetype
+  product redesign, attaching products to the published generation, and/or a
+  governed purge path). For step 0, the read-only action
+  `v3-derived-lifecycle-status` is built and merged (#798); `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.
   Step 3 must run before the fresh build so its full-table scan covers about
   198.5M retained `opt1` rows instead of about 397M rows after the second product;

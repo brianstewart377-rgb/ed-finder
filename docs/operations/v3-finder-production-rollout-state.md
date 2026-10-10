@@ -127,7 +127,7 @@ generation) over a reduced-scope launch on `opt1`.
 
 | # | Step | Tooling status |
 |---|---|---|
-| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **Action built, not yet run:** `scripts/operator/actions/v3-derived-lifecycle-status.sh`, allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-derived-lifecycle-status` (this PR). Its receipt records the four worker states, the migration ledger, and the canonical/derived/spatial pointers; step 0 is complete only when a dated run receipt is recorded here. |
+| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **DONE 2026-10-10** — receipt recorded below (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`). Result: pointers recorded, ledger unchanged, but `edfinder-ratings-v4-prod-p4-opt1` is **paused** (`ready_for_governed_plan: false` until it is killed) and the data volume has only ≈292 GB free — see 'Disk decision (2026-10-10)' |
 | 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **DONE (PR #792); not applied.** PR #780 is superseded. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
 | 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`). With step 1 complete in PR #792, the production pending set is `[014, 010, 011, 013]` in that order |
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **Action built, not yet run:** `scripts/operator/actions/v3-system-search-validate-constraints.sh` (`start`/`status`), allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-system-search-validate-constraints-start` / `-status` (this PR). It runs only after migration `010` is in the live ledger with hash `a042ccd1…`, validates each check in its own transaction under a detached runner, and `status` reports `pg_constraint.convalidated` for all 18 — the catalog is the receipt. Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
@@ -222,6 +222,74 @@ runner and does not depend on a generation pin. The step 6 calibration action is
 now built but not yet run; it reads the published `parallel_v1` ratings vectors,
 does not depend on the fresh generation, and may run earlier once step 0
 reconfirms state.
+
+## Step 0 receipt (read-only governed inspection, 2026-10-10)
+
+Run: `chatgpt-ed-new-ops.yml` run 38079894267, operation `v3-derived-lifecycle-status`
+(request `20261010-v3-derived-lifecycle-status-step0-run2.json`), exit 0, `status: success`,
+`failures: []`. Full receipt:
+[`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json)
+(GitHub masked the two-character SSH port and the SSH user name wherever they
+occurred in the log; the file restores them from context — the canonical id is
+`a7076522-…` and the key is `root_filesystem`.)
+
+What it established:
+
+- **Workers:** `edfinder-ratings-v4-prod-p4` exited (137, 2026-09-13),
+  `edfinder-ratings-v4-prod-p4-parallel-v1` exited (0, 2026-09-16),
+  `edfinder-v3-system-search-p4-opt1` exited (0, 2026-09-21), but
+  **`edfinder-ratings-v4-prod-p4-opt1` is `paused`** (Docker `State.Running`
+  true). `all_named_workers_stopped` is therefore **false** and
+  `ready_for_governed_plan` is **false**. The paused container must be killed
+  (not unpaused — unpausing would resume its writes) before any migration apply.
+  No allowlisted operation does this yet; it is an owner action on the host.
+- **Ledger:** 001, 002, r1_v3/001, 003, 004, 005, 006, 008, 009, 012 applied;
+  **014, 010, 011, 013 not applied** (pending set unchanged).
+- **Pointers:** canonical `phase4c_full_20260827_r5` PUBLISHED (seq 4); derived
+  `ratings_v4_prod_p4_parallel_v1` PUBLISHED (seq 1); spatial `pyramid_v1`
+  PUBLISHED (seq 1, 2026-09-23). Current pointers recorded.
+- **Generations/products:** `ratings_v4_prod_p4` BUILDING (4.94 M of 198.5 M
+  systems), `ratings_v4_prod_p4_opt1` VALIDATING with `system_search`
+  `v3-system-search-1` READY (pre-`010`), `ratings_v4_prod_p4_parallel_v1`
+  PUBLISHED with **no Finder products**.
+- **Disk (the decisive number):** the PostgreSQL data volume `/dev/md1` is
+  1,948 GB with **292 GB available** (1,557 GB used); the database is
+  1,345 GB. Live derived relations: `system_rating_vector` 158 GB,
+  `body_mechanics` 210 GB, `economy_opportunity` 265 GB,
+  `system_search` 81 GB. Attributed to the one complete published
+  generation (`parallel_v1`): rating vectors 78 GB + body mechanics 104 GB +
+  economy opportunities 131 GB = **313 GB of ratings relations per
+  generation**. The superseded `opt1` holds about 313 GB of ratings relations
+  plus its 81 GB `system_search`; partial `p4` about 8 GB.
+
+### Disk decision (2026-10-10): the fresh-generation plan does not fit
+
+A complete fresh generation as the controlling sequence describes it needs the
+ratings relations (313 GB measured live) plus post-`010` `system_search`
+(≈87 GB), `system_archetype` (≈978 GB) and `system_archetype_summary` (≈35 GB)
+from the disposable-sample measurement above: **≈1,413 GB against 292 GB
+available.** Even after a governed purge of `p4` and `opt1` (≈401 GB
+recoverable), only ≈693 GB would be free. Step 4 therefore **cannot be
+dispatched as designed**. Before any further Finder production step the owner
+must choose a path that fits; the realistic candidates are:
+
+1. **Redesign the archetype product for scale before applying `011`** (it is
+   not applied anywhere in production, so it can still change without
+   migration debt): one wide row per system (eight scores/tiers/confidences,
+   explanation not stored or stored compactly) is ≈198.5 M rows instead of
+   1.59 B and removes the ≈978 GB term. This needs a new F2 schema/plan review.
+2. **Attach Finder products to the published `parallel_v1` generation instead
+   of rebuilding ratings** — removes the 313 GB ratings rebuild — but
+   requires a reviewed change to migration `006`'s guard (products may only be
+   inserted while the base generation is BUILDING/VALIDATING) and a product-level
+   publication step; a design decision, not a tooling one.
+3. **A governed purge path** for `p4`/`opt1` (insert-only triggers reject
+   DELETE/TRUNCATE today), worth ≈401 GB, as a complement to 1 and 2.
+
+Until that decision is recorded here, steps 1–3 (migration apply, constraint
+validation) remain allowed but **steps 4–9 are blocked by capacity**, and
+applying `011` as written would commit production to the 1.59-billion-row
+layout.
 
 ## Where else this pattern can bite (watch-list)
 
