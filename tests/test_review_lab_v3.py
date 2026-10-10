@@ -553,15 +553,15 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
     ]
     assert events == [
         ('command', [*expected_prefix, 'review-postgres'], {
-            'allow_failure': True, 'timeout_seconds': 120,
+            'allow_failure': True, 'timeout_seconds': 60,
         }),
         ('sleep', 3.0),
         ('command', [*expected_prefix, 'review-redis'], {
-            'allow_failure': True, 'timeout_seconds': 120,
+            'allow_failure': True, 'timeout_seconds': 60,
         }),
         ('sleep', 3.0),
         ('command', ['docker', 'pull', '--quiet', base_image], {
-            'allow_failure': True, 'timeout_seconds': 120,
+            'allow_failure': True, 'timeout_seconds': 60,
         }),
     ]
     assert result == {'pulls': [
@@ -630,12 +630,12 @@ def test_pull_with_retry_classifies_final_timeout(monkeypatch):
     assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
     assert error.value.safe_diagnostics == {
         'service': 'review-api',
-        'attempts': 5,
+        'attempts': 3,
         'last_error': 'timeout',
     }
 
 
-def test_pull_review_images_fails_closed_after_five_attempts(monkeypatch):
+def test_pull_review_images_fails_closed_after_three_attempts(monkeypatch):
     calls = []
 
     def always_fails(command, **_kwargs):
@@ -648,9 +648,9 @@ def test_pull_review_images_fails_closed_after_five_attempts(monkeypatch):
     with pytest.raises(contract.ReviewLabError, match='toomanyrequests: Rate exceeded') as error:
         lifecycle.pull_review_images()
 
-    assert len(calls) == 5
+    assert len(calls) == 3
     assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
-    assert error.value.safe_diagnostics == {'service': 'review-postgres', 'attempts': 5}
+    assert error.value.safe_diagnostics == {'service': 'review-postgres', 'attempts': 3}
 
 
 def test_pull_review_images_rejects_non_mirror_api_base_without_docker_pull(tmp_path, monkeypatch):
@@ -849,6 +849,7 @@ def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     assert 'python-version: "3.14"' in workflow
     assert 'uv==0.11.33' in workflow
     assert 'uv sync --project apps/api --frozen --group test --no-install-project' in workflow
+    assert 'timeout-minutes: 20' in workflow
     assert 'Review backend runtime:' in workflow
     assert "'review-api', '/proc/1/exe'" in read('scripts/dev/review_lab/lifecycle.py')
     assert "sys.version_info[:2] == (3, 14)" in read('scripts/dev/review_lab/lifecycle.py')

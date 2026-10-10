@@ -43,7 +43,8 @@ jobs:
   release-api-python314:
     name: Release API CPython 3.14 build and startup
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Pull budget: 2 images x 3 attempts x 120 s, plus build/startup.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -62,11 +63,11 @@ jobs:
           set -euo pipefail
           pull_with_retry() {
             local image="$1"
-            for attempt in $(seq 1 5); do
-              if timeout --signal=TERM 300 docker pull --quiet "${image}"; then
+            for attempt in $(seq 1 3); do
+              if timeout --signal=TERM 120 docker pull --quiet "${image}"; then
                 return 0
               fi
-              if [ "${attempt}" -eq 5 ]; then
+              if [ "${attempt}" -eq 3 ]; then
                 echo "::error::Failed to pull ${image} after ${attempt} attempts"
                 return 1
               fi
@@ -153,7 +154,8 @@ jobs:
   parity:
     name: Built image parity
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Pull budget: 4 images x 3 attempts x 120 s, plus build/startup.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -179,11 +181,11 @@ jobs:
           set -euo pipefail
           pull_with_retry() {
             local image="$1"
-            for attempt in $(seq 1 5); do
-              if timeout --signal=TERM 300 docker pull --quiet "${image}"; then
+            for attempt in $(seq 1 3); do
+              if timeout --signal=TERM 120 docker pull --quiet "${image}"; then
                 return 0
               fi
-              if [ "${attempt}" -eq 5 ]; then
+              if [ "${attempt}" -eq 3 ]; then
                 echo "::error::Failed to pull ${image} after ${attempt} attempts"
                 return 1
               fi

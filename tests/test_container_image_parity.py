@@ -89,6 +89,10 @@ def test_required_parity_check_runs_for_every_pull_request():
 
 def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
     workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    release_job = workflow.split('  release-api-python314:', 1)[1].split('\n  parity:', 1)[0]
+    parity_job = workflow.split('\n  parity:', 1)[1]
+    assert 'timeout-minutes: 25' in release_job
+    assert 'timeout-minutes: 40' in parity_job
     step_names = (
         'Pre-pull release base images with retry',
         'Pre-pull parity base images with retry',
@@ -98,8 +102,8 @@ def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
         marker = f'      - name: {step_name}'
         assert marker in workflow
         step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
-        assert 'for attempt in $(seq 1 5); do' in step
-        assert 'timeout --signal=TERM 300 docker pull --quiet "${image}"' in step
+        assert 'for attempt in $(seq 1 3); do' in step
+        assert 'timeout --signal=TERM 120 docker pull --quiet "${image}"' in step
         assert 'sleep 3' in step
         assert 'sleep 2' in step
 
