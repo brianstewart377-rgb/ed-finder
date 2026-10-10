@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -558,6 +559,7 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
         ('command', [*expected_prefix, 'review-redis'], {
             'allow_failure': True, 'timeout_seconds': 120,
         }),
+        ('sleep', 3.0),
         ('command', ['docker', 'pull', '--quiet', base_image], {
             'allow_failure': True, 'timeout_seconds': 120,
         }),
@@ -586,7 +588,51 @@ def test_pull_review_images_retries_a_failed_service_then_succeeds(monkeypatch):
     result = lifecycle.pull_review_images()
 
     assert result['pulls'][1] == {'service': 'review-redis', 'attempts': 2}
+    assert sleeps == [3.0, 3.0, 3.0]
+
+
+def test_pull_with_retry_retries_timeout_errors_then_succeeds(monkeypatch):
+    calls = []
+    sleeps = []
+
+    def times_out_twice(command, **_kwargs):
+        calls.append(command)
+        if len(calls) <= 2:
+            try:
+                raise subprocess.TimeoutExpired(command, lifecycle.TIMEOUTS.image_pull)
+            except subprocess.TimeoutExpired as exc:
+                raise contract.ReviewLabError('Command timed out: docker') from exc
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', times_out_twice)
+    monkeypatch.setattr(lifecycle.time, 'sleep', sleeps.append)
+
+    attempts = lifecycle._pull_with_retry(['docker', 'pull', '--quiet', 'example'], service='review-api')
+
+    assert attempts == 3
+    assert len(calls) == 3
     assert sleeps == [3.0, 3.0]
+
+
+def test_pull_with_retry_classifies_final_timeout(monkeypatch):
+    def always_times_out(command, **_kwargs):
+        try:
+            raise subprocess.TimeoutExpired(command, lifecycle.TIMEOUTS.image_pull)
+        except subprocess.TimeoutExpired as exc:
+            raise contract.ReviewLabError('Command timed out: docker') from exc
+
+    monkeypatch.setattr(lifecycle, 'run_subprocess', always_times_out)
+    monkeypatch.setattr(lifecycle.time, 'sleep', lambda _seconds: None)
+
+    with pytest.raises(contract.ReviewLabError, match='timeout') as error:
+        lifecycle._pull_with_retry(['docker', 'pull', '--quiet', 'example'], service='review-api')
+
+    assert error.value.failure_code == 'REVIEW_STACK_START_FAILED'
+    assert error.value.safe_diagnostics == {
+        'service': 'review-api',
+        'attempts': 5,
+        'last_error': 'timeout',
+    }
 
 
 def test_pull_review_images_fails_closed_after_five_attempts(monkeypatch):

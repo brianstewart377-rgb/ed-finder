@@ -242,25 +242,43 @@ def run_compose(*args: str, timeout_seconds: int | None = None, failure_code: st
 
 
 def _pull_with_retry(command: list[str], *, service: str) -> int:
-    last_result: subprocess.CompletedProcess[str] | None = None
+    last_error: str | None = None
+    last_attempt_timed_out = False
     for attempt in range(1, TIMEOUTS.image_pull_attempts + 1):
-        last_result = run_subprocess(
-            command,
-            allow_failure=True,
-            timeout_seconds=TIMEOUTS.image_pull,
-        )
-        if last_result.returncode == 0:
-            return attempt
+        try:
+            result = run_subprocess(
+                command,
+                allow_failure=True,
+                timeout_seconds=TIMEOUTS.image_pull,
+            )
+        except ReviewLabError as exc:
+            if not (
+                isinstance(exc.__cause__, subprocess.TimeoutExpired)
+                or str(exc).startswith('Command timed out')
+            ):
+                raise
+            last_error = 'timeout'
+            last_attempt_timed_out = True
+        else:
+            if result.returncode == 0:
+                return attempt
+            output = result.stderr.strip() or result.stdout.strip() or 'image pull failed'
+            last_error = output.splitlines()[-1][:240]
+            last_attempt_timed_out = False
         if attempt < TIMEOUTS.image_pull_attempts:
             time.sleep(TIMEOUTS.image_pull_backoff_seconds)
 
-    assert last_result is not None
-    output = last_result.stderr.strip() or last_result.stdout.strip() or 'image pull failed'
-    message = output.splitlines()[-1][:240]
+    assert last_error is not None
+    safe_diagnostics: dict[str, Any] = {
+        'service': service,
+        'attempts': TIMEOUTS.image_pull_attempts,
+    }
+    if last_attempt_timed_out:
+        safe_diagnostics['last_error'] = last_error
     raise ReviewLabError(
-        message,
+        last_error,
         failure_code='REVIEW_STACK_START_FAILED',
-        safe_diagnostics={'service': service, 'attempts': TIMEOUTS.image_pull_attempts},
+        safe_diagnostics=safe_diagnostics,
     )
 
 
@@ -295,6 +313,7 @@ def pull_review_images() -> dict[str, Any]:
             time.sleep(TIMEOUTS.image_pull_backoff_seconds)
 
     base_image = _review_api_base_image()
+    time.sleep(TIMEOUTS.image_pull_backoff_seconds)
     attempts = _pull_with_retry(
         ['docker', 'pull', '--quiet', base_image],
         service='review-api',

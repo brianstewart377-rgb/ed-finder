@@ -63,7 +63,7 @@ jobs:
           pull_with_retry() {
             local image="$1"
             for attempt in $(seq 1 5); do
-              if docker pull --quiet "${image}"; then
+              if timeout --signal=TERM 300 docker pull --quiet "${image}"; then
                 return 0
               fi
               if [ "${attempt}" -eq 5 ]; then
@@ -180,7 +180,7 @@ jobs:
           pull_with_retry() {
             local image="$1"
             for attempt in $(seq 1 5); do
-              if docker pull --quiet "${image}"; then
+              if timeout --signal=TERM 300 docker pull --quiet "${image}"; then
                 return 0
               fi
               if [ "${attempt}" -eq 5 ]; then
@@ -191,9 +191,14 @@ jobs:
             done
           }
 
-          python_base="$(grep -m1 '^FROM ' apps/api/Dockerfile | awk '{print $2}')"
-          mapfile -t web_bases < <(grep '^FROM ' apps/web/Dockerfile | awk '{print $2}')
-          images=("${python_base}" "${web_bases[@]}")
+          mapfile -t images < <(
+            grep -h '^FROM ' \
+              apps/api/Dockerfile \
+              apps/eddn/Dockerfile \
+              apps/importer/Dockerfile \
+              apps/web/Dockerfile \
+              | awk '!seen[$2]++ {print $2}'
+          )
           for image_index in "${!images[@]}"; do
             if [ "${image_index}" -gt 0 ]; then
               sleep 2
@@ -236,6 +241,8 @@ jobs:
       - name: Run built image parity smoke
         env:
           EDFINDER_RUN_CONTAINER_PARITY: 'yes'
+          # Serialise Compose builds so base pulls are never concurrent.
+          COMPOSE_PARALLEL_LIMIT: '1'
         run: |
           python -m pytest tests/test_container_image_parity.py \
             -k built_api_eddn_and_importer_images_pass_runtime_import_parity \

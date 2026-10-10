@@ -99,14 +99,33 @@ def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
         assert marker in workflow
         step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
         assert 'for attempt in $(seq 1 5); do' in step
-        assert 'docker pull --quiet "${image}"' in step
+        assert 'timeout --signal=TERM 300 docker pull --quiet "${image}"' in step
         assert 'sleep 3' in step
         assert 'sleep 2' in step
 
     assert "grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}'" in workflow
     assert 'pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine' in workflow
-    assert "grep -m1 '^FROM ' apps/api/Dockerfile | awk '{print $2}'" in workflow
-    assert "grep '^FROM ' apps/web/Dockerfile | awk '{print $2}'" in workflow
+    parity_step = workflow.split(
+        '      - name: Pre-pull parity base images with retry', 1
+    )[1].split('\n      - ', 1)[0]
+    from_scan = parity_step.split("grep -h '^FROM '", 1)[1].split('| awk', 1)[0]
+    for dockerfile in (
+        'apps/api/Dockerfile',
+        'apps/eddn/Dockerfile',
+        'apps/importer/Dockerfile',
+        'apps/web/Dockerfile',
+    ):
+        assert dockerfile in from_scan
+    assert "awk '!seen[$2]++ {print $2}'" in parity_step
+
+
+def test_built_parity_smoke_serialises_compose_builds():
+    workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    marker = '      - name: Run built image parity smoke'
+    assert marker in workflow
+    step = workflow.split(marker, 1)[1].split('\n      - ', 1)[0]
+
+    assert "COMPOSE_PARALLEL_LIMIT: '1'" in step
 
 
 def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
