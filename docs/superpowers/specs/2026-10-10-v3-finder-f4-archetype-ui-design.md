@@ -6,9 +6,14 @@
 
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
-production sequence has applied the pending migrations, built and validated both
-Finder products, published their owning generation, and passed the separate
-application-release gate (`docs/ROADMAP.md:140-179`). In addition, F4b must not
+production sequence has applied the pending migrations (rewritten `011` and
+`015` included), built and validated both Finder products on the already
+published `ratings_v4_prod_p4_parallel_v1`, **published both products** with
+`v3_meta.publish_derived_product` (two product-publication receipts; the
+generation pointer does not move — the owner's 2026-10-10 capacity decision
+replaced the fresh-generation route, `docs/ROADMAP.md` “Capacity decision”
+paragraph and steps 4′–9′), and passed the separate application-release gate.
+In addition, F4b must not
 be enabled anywhere—not even behind that gate in Product E2E—until slice 1c has
 landed with its representative-scale timing proof. F4b suppresses distance from
 Compare until F4c makes it reference-safe, and F4c is a hard prerequisite before
@@ -612,7 +617,16 @@ that same navigation must carry `selected=<anchor id64>` — otherwise the
 hydration rule (absent `selected` clears URL-owned selection) would discard the
 anchor the user just chose and break the existing Product E2E assertion that
 the anchor is pressed and present in the selected-system context. One `goto`
-writes the offset reset and the selection together. It does not open detail. The
+writes the offset reset and the selection together. Because the anchor itself
+is not URL state (section 6), **no history entry may exist whose query cannot
+be restored**: every navigation that depends on the committed anchor stores
+`{ anchor: { id64, name } | null }` in SvelteKit history state
+(`goto(url, { state })`), hydration reads `page.state.anchor` before falling
+back to “no anchor”, and Back/Forward therefore restore offset, selection
+**and** the anchor that produced the page together. A fresh load or copied
+link carries no state and hydrates as unanchored, which is exactly what its URL
+says. A test drives anchor A → anchor B → Back and asserts the 500-LY request
+is re-issued for anchor A with its offset and selection. It does not open detail. The
 existing `system=<id64>` remains exclusively the explicit Explore
 `SystemOverlay`/Inspect trigger: the parameters may coexist, closing the overlay
 removes only `system`, and clearing selection removes only `selected`. The current
@@ -866,9 +880,10 @@ pinned to `postgres:18` (`docker-compose.localtest.yml:11-20`), and
 `canonical_database` creates and force-drops a random database while refusing a
 non-local validation target (`tests/ratings_v4_pg_fixture.py:10-44`).
 Seed at least 1,000,000 systems into production-shaped scratch relations for
-`system_search`, `system_archetype` and `system_archetype_summary`, expose them
-through the generation-pinned `v3_app` views, and retain the real primary,
-spatial/region, selected raw-score and summary-weighted indexes
+`system_search` and the **wide-row** `system_archetype` (F2d; the summary is a
+view over it), expose them through the generation-pinned `v3_app` views, and
+retain the real primary, spatial/region, per-key partial raw-score and
+weighted-potential indexes exactly as the final `011` text defines them
 (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:22-54`,
 `sql/v3/migrations/010_v3_system_search_body_type_counts.sql:17-35`,
 `sql/v3/migrations/011_v3_system_archetype.sql:7-56`,
@@ -912,8 +927,12 @@ and the Cypress/integration test that reads it):
 | post-filter within-window count | ≤ 600 ms | ≤ 2,500 ms |
 | the same three with a selective region/distance/body-count filter | same budgets | same budgets |
 
-Each timing is the server-side statement time from `EXPLAIN (ANALYZE, BUFFERS)`
-(execution time, not browser round trip). Exceeding any budget blocks the
+Each timing is the server-side **statement wall time — planning plus
+execution — as reported by `EXPLAIN (ANALYZE, BUFFERS)`** (the two figures are
+recorded separately for diagnosis but the budget applies to their sum; the
+builder-produced view/join SQL can spend real time in planning on a cold
+connection, and users pay that latency on uncached statements). Not browser
+round trip. Exceeding any budget blocks the
 receipt and therefore F4b; the budgets may only be raised by an owner decision
 recorded in this document, never by the implementing PR.
 
@@ -1224,23 +1243,42 @@ Exact files:
 - regenerate `apps/web/src/lib/api/generated/types.gen.ts`
 - regenerate `packages/api-client/src/generated/api.gen.ts`
 
-No migration is required: slice 1c deliberately reuses the existing
-`system_archetype_key_score` index. Its scale proof seeds and tears down
-production-shaped relations/views only inside the disposable PostgreSQL 18
-fixture.
+**Slice 1c is built on the F2d wide-row schema, not on the current keyed
+`011`.** The owner's 2026-10-10 capacity decision rewrites migration `011` from
+eight keyed rows per system to one wide row with per-archetype score columns
+(`docs/ROADMAP.md` step 4′; design PR #806), so the generic
+`system_archetype_key_score (generation, archetype_key, archetype_score,
+system_id64)` access path this slice was first written against will not exist.
+Slice 1c therefore lands **after** F2d PR1 and reads, for the selected key, the
+per-archetype **partial** index
+`(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60`
+that F2d defines (section 3.3 there). That index keeps the deterministic
+`score DESC, system_id64 ASC` order the bounded probe needs without a tie sort:
+the capacity decision's first deduplicating `(generation, <key>_score DESC)`
+variant would have forced an incremental sort of the boundary score group,
+whose size depends on the production score distribution (integer scores tie
+heavily). Measured on the disposable PG18 at 1M rows with a bell-shaped
+distribution: unique-entry index — index-only scan, 10,001 rows read, 2.4 ms
+warm; partial `>= 60` variant — same plan, 3.5 ms warm, 8.4 B/row;
+deduplicated variant — incremental sort, 10,184 rows read, 13 ms warm but
+distribution-dependent. Every selected floor F4 exposes (S/A/B ⇒ `>= 88/76/60`)
+is inside the partial index's predicate, so the probe is always index-only.
+The scale proof seeds and tears down production-shaped relations/views only
+inside the disposable PostgreSQL 18 fixture, using the **final F2d DDL and
+indexes** (not a flattened or keyed stand-in).
 
 For one pinned generation and selected archetype, the API first reads through
-`system_archetype_key_score` in `archetype_score DESC, system_id64 ASC` order.
-Apart from generation and archetype key, only `min_score` may constrain this
-index scan because it is a range on the indexed `archetype_score`; no joined
-`system_search` predicate participates in selecting the window. Probe at most
+that key's partial index in `<key>_score DESC, system_id64 ASC` order. Apart
+from generation, only `min_score` (≥ 60) may constrain this index scan because
+it is a range on the indexed score column; no joined `system_search` predicate
+participates in selecting the window. Probe at most
 10,001 raw/index-eligible rows: the first 10,000 form the immutable candidate
 window and the sentinel sets `is_truncated`.
 
 Only inside those first 10,000 does the query join and apply region, distance,
 ELW/body counts and every other supported non-indexed filter. It then orders
-survivors by `archetype_score × confidence × completeness DESC`, distance
-from Sol and system id. A row outside the raw-score window cannot outrank or
+survivors by `<key>_score × (<key>_confidence_ppm / 1000000.0) × completeness
+DESC`, distance from Sol and system id. A row outside the raw-score window cannot outrank or
 re-enter it, even if its non-indexed facts or confidence/completeness modifier
 would otherwise change its global position. This order of operations guarantees
 a bounded scan for every selected request regardless of filter selectivity: the
@@ -1750,7 +1788,7 @@ product/implementation choices are:
     (`apps/api/src/ranking/ranking_sql.py:331-378`,
     `apps/api/src/ranking/ranking_sql.py:479-506`), so a selective request can
     inspect far beyond 10,000 rows. Slice 1c instead probes
-    `system_archetype_key_score` first in generation, archetype key, raw score
+    the selected key's partial score index first in generation, raw score
     descending and system-id ascending order; only indexed `min_score` may also
     constrain that scan. The first 10,000 rows are fixed before every
     non-indexed predicate, modifier and within-window count, and a 10,001st raw
@@ -2025,3 +2063,29 @@ product/implementation choices are:
    known-star anchor is a selection commit: the offset-reset navigation carries
    `selected=<anchor id64>` in the same `goto`, so hydration cannot discard the
    anchor the user just chose.
+
+#### Round 12 — 2026-10-10 (PR #801)
+
+1. **P2-A — Gate on product publication instead** → the opening gate now
+   requires both product-publication receipts (`publish_derived_product` for
+   `system_search` and `system_archetype` on the already published
+   `ratings_v4_prod_p4_parallel_v1`) and names the 2026-10-10 capacity decision
+   that replaced the fresh-generation route; the generation pointer does not
+   move.
+2. **P1 — Rebase the scale gate on the wide-row schema** → slice 1c is rebuilt
+   on the F2d wide row and lands after F2d PR1: the bounded probe reads the
+   selected key's partial index `(generation, <key>_score DESC, system_id64)
+   WHERE <key>_score >= 60`, which keeps the deterministic order without a tie
+   sort (measured at 1M rows: index-only, 3.5 ms warm; the deduplicating variant
+   needs a distribution-dependent incremental sort). The scale fixture uses the
+   final F2d DDL and indexes. The F2d design (PR #806) adopts the same partial
+   index, replacing its deduplicating variant.
+3. **P2-B — Include planning time in the latency gate** → budgets apply to
+   statement wall time (planning + execution) with both figures recorded for
+   diagnosis.
+4. **P2-C — Restore the committed anchor during history navigation** → every
+   anchor-dependent navigation stores the committed anchor in SvelteKit history
+   state; hydration reads `page.state.anchor` before falling back to unanchored,
+   so Back/Forward restore offset, selection and anchor together, and no history
+   entry exists whose query cannot be restored. A fresh load is unanchored, as
+   its URL says.
