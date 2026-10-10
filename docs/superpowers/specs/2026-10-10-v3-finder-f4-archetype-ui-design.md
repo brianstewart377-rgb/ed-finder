@@ -566,10 +566,16 @@ change updates them together, as required by the spatial product contract
   available results.** This keeps `page.url` hydration and Back/Forward aligned
   (`apps/web/src/lib/components/AppShell.svelte:2-3`,
   `apps/web/src/lib/components/AppShell.svelte:54-58`).
-- Empty: only `total === 0` is a genuine no-match state. Say “No systems meet
-  minimum tier B for Manufacturing Hub.” Include **Reset to tier B** (when the
-  active floor is A/S) and **Choose Any** actions. Empty is not an error; do not
-  offer gated C/D as an escape hatch.
+- Empty: `total === 0` is a no-match state, but its copy depends on
+  `is_truncated`. With `is_truncated=false` it is a genuine no-match: “No systems
+  meet minimum tier B for Manufacturing Hub.” With `is_truncated=true` the
+  bounded window had candidates and every one was removed by a non-indexed
+  filter, while lower-scoring systems outside the window might match, so the
+  copy is window-qualified: “None of the top 10,000 systems by Manufacturing Hub
+  score match these filters.” — never “no systems meet the criteria”. Both
+  include **Reset to tier B** (when the active floor is A/S) and **Choose Any**
+  actions; the truncated form also offers **Clear filters**. Empty is not an
+  error; do not offer gated C/D as an escape hatch.
 - Error: HTTP 503 is a first-class **Ranking temporarily unavailable** state with
   `role="alert"`: “Archetype rankings are temporarily unavailable. Try again
   shortly.” If an optional additive slice-1 API reason such as
@@ -620,12 +626,18 @@ the anchor is pressed and present in the selected-system context. One `goto`
 writes the offset reset and the selection together. Because the anchor itself
 is not URL state (section 6), **no history entry may exist whose query cannot
 be restored**: every navigation that depends on the committed anchor stores
-`{ anchor: { id64, name } | null }` in SvelteKit history state
-(`goto(url, { state })`), hydration reads `page.state.anchor` before falling
+`{ anchor: { id64, name, x, y, z } | null }` in SvelteKit history state
+(`goto(url, { state })`) — the coordinates included, because the live request
+derivation enters the anchored 500-LY branch only when `anchor.x/y/z` are
+numeric and otherwise issues a galaxy-wide search, so an id-only payload would
+display the restored anchor while querying the wrong result set; a restored
+payload with non-finite coordinates is treated as no anchor and the URL is
+canonicalized accordingly. Hydration reads `page.state.anchor` before falling
 back to “no anchor”, and Back/Forward therefore restore offset, selection
 **and** the anchor that produced the page together. A fresh load or copied
 link carries no state and hydrates as unanchored, which is exactly what its URL
 says. A test drives anchor A → anchor B → Back and asserts the 500-LY request
+for A's coordinates
 is re-issued for anchor A with its offset and selection. It does not open detail. The
 existing `system=<id64>` remains exclusively the explicit Explore
 `SystemOverlay`/Inspect trigger: the parameters may coexist, closing the overlay
@@ -1249,8 +1261,13 @@ eight keyed rows per system to one wide row with per-archetype score columns
 (`docs/ROADMAP.md` step 4′; design PR #806), so the generic
 `system_archetype_key_score (generation, archetype_key, archetype_score,
 system_id64)` access path this slice was first written against will not exist.
-Slice 1c therefore lands **after** F2d PR1 and reads, for the selected key, the
-per-archetype **partial** index
+Slice 1c therefore lands **after** F2d PR1 — and only once the owner's answer
+to capacity-decision question 6 (the score-index layout) is recorded in
+`docs/operations/v3-finder-capacity-decision-2026-10-10.md`, which is the
+ROADMAP's stated prerequisite for the F2d code; the owner answered **yes** to
+the partial layout on 2026-10-10 and the F2d design PR (#806) records it, so
+that PR merges before this slice may start. Slice 1c reads, for the selected
+key, the per-archetype **partial** index
 `(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60`
 that F2d defines (section 3.3 there). That index keeps the deterministic
 `score DESC, system_id64 ASC` order the bounded probe needs without a tie sort:
@@ -1266,6 +1283,16 @@ is inside the partial index's predicate, so the probe is always index-only.
 The scale proof seeds and tears down production-shaped relations/views only
 inside the disposable PostgreSQL 18 fixture, using the **final F2d DDL and
 indexes** (not a flattened or keyed stand-in).
+
+Because the partial index holds only rows scoring ≥ 60, the **API boundary
+changes with it**: `/api/archetypes/rankings` makes `min_score` default to 60
+and rejects values below 60 with 422 (today it defaults to 40 and accepts 0–100,
+`apps/api/src/routers/archetypes.py:508-518`); a request below the floor would
+not be bounded by the index and could force a scan/sort of the wide relation.
+The tier floors S/A/B ⇒ 88/76/60 remain inside the contract, C/D were already
+excluded from the initial product, and the floor rule is part of the hashed
+ranking identity. The OpenAPI parameter constraint changes, so slice 1c
+regenerates the typed clients.
 
 For one pinned generation and selected archetype, the API first reads through
 that key's partial index in `<key>_score DESC, system_id64 ASC` order. Apart
@@ -1302,9 +1329,13 @@ raw `archetype_score DESC, system_id64 ASC` order; the indexed `min_score`
 exception; post-window non-indexed filters; the within-window
 confidence/completeness modifier and tie-breaks; the capped-count rule (`total`
 is the post-filter count within the window); and raw-window `is_truncated`.
-Bump `RANKING_VERSION` from
-`v3-colony-potential-1` to **`v3-colony-potential-2`**, record the resulting new
-`ranking_sha256`, and update the human-reviewed pinned drift-guard digest. The
+Bump `RANKING_VERSION` **from the identity F2d PR1 lands** (planned
+`v3-colony-potential-2`, because the wide-row change is itself a new ranking
+identity per the capacity decision) to the next one — **`v3-colony-potential-3`**
+if F2d lands as planned; the candidate-window semantics are a distinct profile
+change and must never reuse or overwrite F2d's identity. Record the resulting
+new `ranking_sha256`, and update the human-reviewed pinned drift-guard digest
+and every response-identity assertion from the version actually on `main`. The
 current identity, hash source and recorded-hash guard are at
 `apps/api/src/ranking/profile.py:33`,
 `apps/api/src/ranking/profile.py:132-183` and
@@ -1822,8 +1853,9 @@ product/implementation choices are:
     within-window filters/modifier, capped post-filter within-window count and
     raw-window truncation semantics. Because those rules change which results a
     response means, bump the advertised identity from
-    `v3-colony-potential-1` (`apps/api/src/ranking/profile.py:33`) to
-    **`v3-colony-potential-2`**, record its new hash and update the reviewed
+    the identity F2d lands (planned `v3-colony-potential-2`;
+    `apps/api/src/ranking/profile.py:33` is `-1` today) to the next one
+    (**`v3-colony-potential-3`** if F2d lands as planned), record its new hash and update the reviewed
     drift-guard digest (`tests/test_ranking_profile_identity.py:37-62`) plus the
     response identity assertions
     (`tests/test_ranking_identity_and_no_legacy.py:159-162`,
@@ -2089,3 +2121,27 @@ product/implementation choices are:
    so Back/Forward restore offset, selection and anchor together, and no history
    entry exists whose query cannot be restored. A fresh load is unanchored, as
    its URL says.
+
+#### Round 13 — 2026-10-10 (PR #801)
+
+1. **P1 — Persist coordinates with restored anchors** → the history payload is
+   `{ id64, name, x, y, z }`; the live request derivation enters the anchored
+   branch only with numeric coordinates, so an id-only payload would have queried
+   galaxy-wide under a restored anchor. Non-finite restored coordinates mean no
+   anchor. The A → B → Back test asserts the request carries A's coordinates.
+2. **P1 — Reject sub-B scores before relying on the partial index** → slice 1c
+   changes the API boundary with the index: `min_score` defaults to 60 and
+   values below 60 are 422; the floor rule is part of the hashed identity and the
+   typed clients are regenerated.
+3. **P1 — Wait for the owner-approved score-index layout** → the owner answered
+   yes to the partial layout on 2026-10-10; the F2d design PR (#806) records it
+   in the capacity decision as the ROADMAP requires, and slice 1c may start only
+   after that PR has merged.
+4. **P2 — Qualify empty results from a truncated candidate window** →
+   `total === 0` with `is_truncated=true` uses window-qualified copy (“None of
+   the top 10,000 systems by … score match these filters”) and offers
+   **Clear filters**; only `is_truncated=false` is a genuine no-match.
+5. **P1 — Version slice 1c after the landed F2d identity** → the bump starts
+   from the identity F2d lands (planned `v3-colony-potential-2`) and goes to the
+   next (`-3`), never reusing F2d's; digest and response assertions follow the
+   version actually on `main`.
