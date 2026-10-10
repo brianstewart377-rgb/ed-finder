@@ -528,7 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         main_sha = args.main_sha or _git(["rev-parse", "origin/main"], args.repo)
         main_sha = main_sha.strip().lower()
 
-        if hold is not None and not is_ancestor(
+        # The expected-SHA gate must stay independent of local git history.
+        if args.expected_sha is None and hold is not None and not is_ancestor(
             hold.covers_main_sha, main_sha, args.repo
         ):
             print(

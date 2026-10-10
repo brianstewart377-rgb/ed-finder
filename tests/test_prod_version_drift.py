@@ -423,6 +423,36 @@ def test_hold_with_future_held_since_exits_three_before_live_fetch(
     )
 
 
+def test_expected_sha_with_non_ancestor_hold_is_history_independent(
+    tmp_path, monkeypatch, capsys
+):
+    hold_path = tmp_path / "promotion-hold.json"
+    hold_path.write_text(json.dumps(VALID_HOLD), encoding="utf-8")
+    monkeypatch.setattr(mod, "is_ancestor", lambda _candidate, _main, _repo: False)
+    monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: A)
+    monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: A)
+
+    code = mod.main(
+        [
+            "--repo",
+            str(tmp_path),
+            "--hold-file",
+            hold_path.name,
+            "--main-sha",
+            C,
+            "--expected-sha",
+            A,
+            "--now-epoch",
+            str(ACTIVE_NOW),
+        ]
+    )
+
+    assert code == 0
+    assert (
+        f"OK: prod serves the expected build {A}" in capsys.readouterr().out
+    )
+
+
 def test_hold_covers_main_sha_not_on_main_exits_three_before_live_fetch(
     tmp_path, monkeypatch, capsys
 ):

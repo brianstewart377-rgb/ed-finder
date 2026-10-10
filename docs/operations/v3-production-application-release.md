@@ -344,6 +344,8 @@ deployable commits at or before that main commit are acknowledged; later
 deployable changes remain subject to the normal drift grace period and alert.
 The hold does not authorize a promotion or relax the web/API, SHA, or
 post-deploy expected-SHA checks.
+The hold's `covers_main_sha` ancestry invariant is enforced only in staleness
+mode; the `--expected-sha` post-deploy gate remains history-independent.
 
 Extending the hold requires a reviewed pull request that bumps
 `covers_main_sha` (and `expires_at` if needed). This is how each later deployable
