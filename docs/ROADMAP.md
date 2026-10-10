@@ -178,18 +178,71 @@ newer dated source wins).
      generation.
   11. Run the governed application release and promote `main`.
 
-  For step 0, the read-only action `v3-derived-lifecycle-status` is built (PR
-  pending merge) and must be run and its receipt recorded before step 1 is
-  dispatched; `scripts/operator/actions/v3-derived-data-status.sh` remains the
+  **Capacity decision (owner, 2026-10-10) — steps 4–9 above are superseded.**
+  Step 0 ran on 2026-10-10 (receipt in
+  `docs/operations/v3-finder-production-rollout-state.md`): the data volume has
+  about 292 GB free, and a complete fresh generation plus the Finder products as
+  `011` defines them measures about 1.4 TB, so the fresh-generation plan cannot
+  run. The owner chose **A + B** (recorded in
+  `docs/operations/v3-finder-capacity-decision-2026-10-10.md`): rewrite the
+  unapplied migration `011` as one wide archetype row per system with
+  explanations computed on demand (≈65 GB measured instead of ≈1 TB), attach
+  both Finder products to the already-published
+  `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
+  (new migration `015`), defer any purge, and accept the new ranking identity.
+  The replacement for steps 4–9 is therefore — and **4′ comes before step 2**,
+  because the governed migration runner applies *every* pending entry: running
+  step 2 today would apply the current eight-row `011`, record its hash in the
+  production ledger and make the rewrite impossible without a corrective
+  migration. Step 2 (and therefore step 3, which needs `010` applied) is
+  **blocked until 4′'s amended registration has merged**:
+
+  4′. Land the F2d design (PR #806) and its code PRs (rewritten `011` + wide-row
+     model/builder/validator; `015` + API publication gate; ranking SQL and
+     explanation endpoint; registration amended to
+     `[014, 010, 011-rewritten, 013, 015]` with recomputed identities; governed
+     archetype-build and product-publish actions, and the search action
+     retargeted from `opt1` to `parallel_v1`). Code only; verified on
+     disposable PostgreSQL 18, including a repeat of the wide-row footprint
+     measurement with the final migration text
+     (`scripts/dev/measure_wide_archetype_footprint.py`). Prerequisites: the
+     owner's recorded answers to questions 5 and 6 of
+     `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
+     exact-version rule for on-demand explanations; the deduplicating
+     score-index layout) — the code PRs that encode either may not merge
+     before the answer is recorded there.
+  2–3. Only then: governed migration `plan` → review → `apply` of
+     `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
+     validation.
+  5′. Register, build and validate post-`010` `system_search` on
+     `ratings_v4_prod_p4_parallel_v1` (≈87 GB).
+  6. Unchanged: run the read-only calibration probe and record the coefficient
+     decision before the archetype product is registered.
+  7′. Register, build and validate the wide-row `system_archetype` on the same
+     generation (≈65 GB measured; the gate re-measures and stops if search +
+     archetype + working room exceed the free space in a fresh step 0 receipt).
+  8′. Both products reach `READY` through the receipted governed validation
+     routes.
+  9′. Publish both **products** with `v3_meta.publish_derived_product` in one
+     governed transaction; the generation pointer does not move (no
+     `publish_derived_generation`).
+
+  Steps 10–11 keep their shape against the published generation. Until 4′ has
+  merged, **no production step beyond step 0 may be dispatched** (not even the
+  migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
+  every detached worker stopped (the paused `opt1` worker was killed by the
+  owner on 2026-10-10; the confirming receipt is pending). The step 0 action
+  `v3-derived-lifecycle-status` is merged (#798);
+  `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.
-  Step 3 must run before the fresh build so its full-table scan covers about
-  198.5M retained `opt1` rows instead of about 397M rows after the second product;
-  the `NOT VALID` checks still enforce every subsequent builder insert
+  Step 3 must run before 5′ so its full-table scan covers about 198.5M retained
+  `opt1` rows instead of about 397M rows after the second product; the
+  `NOT VALID` checks still enforce every subsequent builder insert
   automatically. The step 3 action `v3-system-search-validate-constraints` is
-  built (PR pending merge) and may only start once migration `010` is applied.
-  For step 6, the read-only action `v3-archetype-calibration-probe` is built (PR pending merge); the probe
-  can read the already-published `parallel_v1` ratings vectors and does not wait
-  for the fresh generation, so it may run earlier once step 0 reconfirms state.
+  merged (#799) and may only start once migration `010` is applied.
+  For step 6, the read-only action `v3-archetype-calibration-probe` is merged
+  (#800); the probe reads the already-published `parallel_v1` ratings vectors and
+  may run once step 0 is closed.
   For step 8, **NO governed action — must be built:** the step 5 and step 7 build
   actions must expose and receipt the validation path (search: inline in `run()`;
   archetype: `--validate`) so READY is reached through a reviewed route.

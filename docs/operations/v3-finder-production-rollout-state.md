@@ -127,9 +127,9 @@ generation) over a reduced-scope launch on `opt1`.
 
 | # | Step | Tooling status |
 |---|---|---|
-| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **Action built, not yet run:** `scripts/operator/actions/v3-derived-lifecycle-status.sh`, allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-derived-lifecycle-status` (this PR). Its receipt records the four worker states, the migration ledger, and the canonical/derived/spatial pointers; step 0 is complete only when a dated run receipt is recorded here. |
+| 0 | Run a new read-only governed inspection and confirm every relevant detached worker (`edfinder-ratings-v4-prod-p4`, `edfinder-ratings-v4-prod-p4-opt1`, `edfinder-ratings-v4-prod-p4-parallel-v1`, `edfinder-v3-system-search-p4-opt1`) has stopped; record `v3_meta.derived_generation` and `v3_meta.derived_product` lifecycle states and the current canonical/derived/spatial pointers before dispatching any migration apply. | **Inspection run 2026-10-10; step 0 stays OPEN until the stopped-workers receipt is recorded.** First receipt recorded below (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`): pointers recorded, ledger unchanged, `edfinder-ratings-v4-prod-p4-opt1` **paused** (`ready_for_governed_plan: false`), data volume ≈292 GB free — see 'Disk decision (2026-10-10)'. The owner then killed the paused container on the host (`docker kill edfinder-ratings-v4-prod-p4-opt1`, 2026-10-10) and a second governed run (38081240686) exited 0; step 0 is DONE only when that second receipt is recorded here showing `all_named_workers_stopped: true` and `ready_for_governed_plan: true` |
 | 1 | Register the rewritten `010`, then `011` and `013`, after `014` in the V3 manifest + authority. | **DONE (PR #792); not applied.** PR #780 is superseded. `013` creates only two new empty scheduler tables; it adds no constraint to or scan of an existing populated table. Registration makes the [parallel rebuild](../development/system-search-parallel-rebuild.md) available but does not authorize or execute it |
-| 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`). With step 1 complete in PR #792, the production pending set is `[014, 010, 011, 013]` in that order |
+| 2 | Run the governed migration `plan`, review it, and apply the pending migrations. | tooling exists (`v3-production-schema-migration.yml`). With step 1 complete in PR #792, the production pending set is `[014, 010, 011, 013]` in that order. **Blocked (2026-10-10):** the runner applies every pending entry, so this step would apply the current eight-row `011`; it may run only after the rewritten `011` and `015` are registered (ROADMAP step 4′) |
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **Action built, not yet run:** `scripts/operator/actions/v3-system-search-validate-constraints.sh` (`start`/`status`), allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-system-search-validate-constraints-start` / `-status` (this PR). It runs only after migration `010` is in the live ledger with hash `a042ccd1…`, validates each check in its own transaction under a detached runner, and `status` reports `pg_constraint.convalidated` for all 18 — the catalog is the receipt. Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
 | 4 | Create a fresh, non-published, `010`-aware derived generation. | **needs new tooling/decision** — `ratings-v4-generation.sh:174-177` always derives `ratings_v4_prod_p${sequence}` and `ratings_v4_prod_p4` already exists BUILDING, so dispatching it *resumes `p4`*, it does not create a fresh key. Either adopt `p4` as the candidate or add fresh-key/retarget support |
 | 5 | Build `system_search` with body-type counts on that generation. | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** AND verifies only migration `006` (not `010`), while the v2 builder writes `010`'s columns — so it needs **both** a retarget to the fresh generation **and** to pin+verify exact `010`, or it passes preflight then fails on the first body-count write. After step 2, `013` makes the code-only parallel chunk-range builder available |
@@ -185,6 +185,21 @@ replicated rows repeat the same 12 systems' content, so name lengths and body
 counts carry no real-world variation; the per-row widths are structural
 (fixed columns plus the `explanation` jsonb, which averages about 410 bytes per
 `system_archetype` row in the sample) and should be read as order-of-magnitude.
+The two wide-row lines were measured the same day with the F2d design's DDL
+(section 3.1 of `docs/superpowers/specs/2026-10-10-v3-finder-f2d-wide-archetype-and-product-attachment-design.md`, PR #806;
+foreign keys to other relations omitted) filled with 200,000 synthetic rows of
+realistic shape by the committed script
+`scripts/dev/measure_wide_archetype_footprint.py` (disposable loopback database
+only); its output is
+[`evidence/2026-10-10-wide-archetype-footprint-200k.json`](evidence/2026-10-10-wide-archetype-footprint-200k.json)
+and the design is under review as PR #806. Each
+per-key score index entry is unique when `system_id64` is a trailing column
+(49.8 B/row each); without it, PostgreSQL's B-tree deduplication collapses the
+101 distinct score values into posting lists (7.5 B/row each). The picked
+ranking orders by the computed product `score × confidence × completeness`,
+which no score index can serve, and the wide row is joined by its primary key,
+so the trailing `system_id64` buys nothing; the deduplicating form keeps the
+`min_development_score` / tier-floor range path at about 1.5 GB per key.
 
 | Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -194,6 +209,8 @@ counts carry no real-world variation; the per-row widths are structural
 | `system_search` | 199,992 | 273 | 164 | 198.5 M | 54 | 33 | **87** |
 | `system_archetype` | 199,968 | 422 | 194 | 1,588.0 M | 670 | 307 | **978** |
 | `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
+| wide-row `system_archetype` (F2d design, one row per system, 42 columns, no explanation; PK + 8 `(generation, <key>_score DESC, system_id64)` indexes + weighted index — the spec's first draft) | 200,000 | 186 | 480 | 198.5 M | 37 | 95 | **132** |
+| wide-row `system_archetype` (same table; PK + 8 deduplicating `(generation, <key>_score DESC)` indexes + weighted index — the recommended layout) | 200,000 | 186 | 142 | 198.5 M | 37 | 28 | **65** |
 
 Sum of the four system-level relations for one complete fresh generation: about
 **1,174 GB**, of which `system_archetype` alone is about
@@ -222,6 +239,113 @@ runner and does not depend on a generation pin. The step 6 calibration action is
 now built but not yet run; it reads the published `parallel_v1` ratings vectors,
 does not depend on the fresh generation, and may run earlier once step 0
 reconfirms state.
+
+## Step 0 receipt (read-only governed inspection, 2026-10-10)
+
+Run: `chatgpt-ed-new-ops.yml` run 38079894267, operation `v3-derived-lifecycle-status`
+(request `20261010-v3-derived-lifecycle-status-step0-run2.json`), exit 0, `status: success`,
+`failures: []`. Full receipt:
+[`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json)
+(GitHub masked the two-character SSH port and the SSH user name wherever they
+occurred in the log; the file restores them from context — the canonical id is
+`a7076522-…` and the key is `root_filesystem`.)
+
+What it established:
+
+- **Workers:** `edfinder-ratings-v4-prod-p4` exited (137, 2026-09-13),
+  `edfinder-ratings-v4-prod-p4-parallel-v1` exited (0, 2026-09-16),
+  `edfinder-v3-system-search-p4-opt1` exited (0, 2026-09-21), but
+  **`edfinder-ratings-v4-prod-p4-opt1` is `paused`** (Docker `State.Running`
+  true). `all_named_workers_stopped` is therefore **false** and
+  `ready_for_governed_plan` is **false**. The paused container must be killed
+  (not unpaused — unpausing would resume its writes) before any migration apply.
+  No allowlisted operation does this yet; it is an owner action on the host.
+  **Done by the owner on 2026-10-10** (`docker kill edfinder-ratings-v4-prod-p4-opt1`
+  on the production host, after this receipt). A second governed
+  `v3-derived-lifecycle-status` run (38081240686) exited 0 afterwards; its
+  receipt is not yet recorded here, so step 0 stays open until it is.
+- **Ledger:** 001, 002, r1_v3/001, 003, 004, 005, 006, 008, 009, 012 applied;
+  **014, 010, 011, 013 not applied** (pending set unchanged).
+- **Pointers:** canonical `phase4c_full_20260827_r5` PUBLISHED (seq 4); derived
+  `ratings_v4_prod_p4_parallel_v1` PUBLISHED (seq 1); spatial `pyramid_v1`
+  PUBLISHED (seq 1, 2026-09-23). Current pointers recorded.
+- **Generations/products:** `ratings_v4_prod_p4` BUILDING (4.94 M of 198.5 M
+  systems), `ratings_v4_prod_p4_opt1` VALIDATING with `system_search`
+  `v3-system-search-1` READY (pre-`010`), `ratings_v4_prod_p4_parallel_v1`
+  PUBLISHED with **no Finder products**.
+- **Disk (the decisive number):** the PostgreSQL data volume `/dev/md1` is
+  1,948 GB with **292 GB available** (1,557 GB used); the database is
+  1,345 GB. Live derived relations: `system_rating_vector` 158 GB,
+  `body_mechanics` 210 GB, `economy_opportunity` 265 GB,
+  `system_search` 81 GB. Attributed to the one complete published
+  generation (`parallel_v1`): rating vectors 78 GB + body mechanics 104 GB +
+  economy opportunities 131 GB = **313 GB of ratings relations per
+  generation**. The superseded `opt1` holds about 313 GB of ratings relations
+  plus its 81 GB `system_search`; partial `p4` about 8 GB.
+
+### Disk decision (2026-10-10): the fresh-generation plan does not fit
+
+A complete fresh generation as the controlling sequence describes it needs the
+ratings relations (313 GB measured live) plus post-`010` `system_search`
+(≈87 GB), `system_archetype` (≈978 GB) and `system_archetype_summary` (≈35 GB)
+from the disposable-sample measurement above: **≈1,413 GB against 292 GB
+available.** Even after a governed purge of `p4` and `opt1` (≈401 GB
+recoverable), only ≈693 GB would be free. Step 4 therefore **cannot be
+dispatched as designed**. Before any further Finder production step the owner
+must choose a path that fits; the realistic candidates are:
+
+1. **Redesign the archetype product for scale before applying `011`** (it is
+   not applied anywhere in production, so it can still change without
+   migration debt): one wide row per system (eight scores/tiers/confidences,
+   explanation not stored or stored compactly) is ≈198.5 M rows instead of
+   1.59 B and removes the ≈978 GB term. This needs a new F2 schema/plan review.
+2. **Attach Finder products to the published `parallel_v1` generation instead
+   of rebuilding ratings** — removes the 313 GB ratings rebuild — but
+   requires a reviewed change to migration `006`'s guard (products may only be
+   inserted while the base generation is BUILDING/VALIDATING) and a product-level
+   publication step; a design decision, not a tooling one.
+3. **A governed purge path** for `p4`/`opt1` (insert-only triggers reject
+   DELETE/TRUNCATE today), worth ≈401 GB, as a complement to 1 and 2.
+
+Because applying `011` as written would commit production to the
+1.59-billion-row layout — and the governed migration runner applies every
+pending entry, `011` included — **step 2 (plan/apply) and step 3 are blocked
+as well**, not only steps 4–9, until the rewritten `011` and `015` are
+registered (ROADMAP step 4′). (An earlier draft of this paragraph said steps
+1–3 remained allowed; that was wrong for the reason just given.)
+
+The options, with numbers, effort and risk, are written up in
+[`v3-finder-capacity-decision-2026-10-10.md`](v3-finder-capacity-decision-2026-10-10.md)
+(recommendation: redesign the archetype product as one wide row per system and
+attach the Finder products to the published generation; purge later).
+
+**Owner decision (2026-10-10, recorded by Claude from the owner's approval in
+chat):** A + B — rewrite `011` as the wide-row archetype product with
+explanations computed on demand (model version pinned to the product), attach
+the Finder products to the published `ratings_v4_prod_p4_parallel_v1` behind an
+explicit product-publication gate (migration `015`), defer the purge path (C),
+and accept the new ranking identity. Steps 4–9 of the controlling sequence are
+superseded by the `v3-finder-capacity-decision-2026-10-10.md` sequence, and
+`docs/ROADMAP.md` is amended in the same change so the programme authority
+carries the decision. Two consequences recorded with the decision:
+
+- **B touches every write path, not only registration.** Attaching a product
+  to a PUBLISHED generation must relax, together and with the same
+  product-state and insert-only enforcement kept: `v3_meta.guard_derived_product`
+  (registration/transitions), `v3_derived.guard_system_search_insert`, the
+  `011` archetype insert guard, and the base-state checks inside both Python
+  builders (`scripts/v3_system_search.py`, `scripts/v3_system_archetype.py`);
+  the API's `_current_derived_generation` then also requires the explicit
+  product publication. Relaxing only the registration guard would let
+  registration succeed and the first chunk insert fail.
+- **On-demand explanations are served only under an exact version match.**
+  The fit model is one mutable implementation whose `ARCHETYPE_VERSION` has
+  been advanced in place before, so the API must refuse (HTTP 409, fail
+  closed) to explain a product whose pinned `archetype_version` differs from
+  the deployed model's; after a later model change the old product's
+  explanations are unavailable until the product is rebuilt. No versioned
+  replay registry is kept. This is a recorded owner question in the F2d
+  design, not a silent default.
 
 ## Where else this pattern can bite (watch-list)
 
