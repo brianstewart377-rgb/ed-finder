@@ -172,8 +172,18 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
                     raise SystemExit(2)
                 raise SystemExit(1)
             if "run.log" in joined and "-d" not in args:
-                if os.environ.get("FAKE_LOG_LINES"):
-                    print(os.environ["FAKE_LOG_LINES"])
+                log_lines = os.environ.get("FAKE_LOG_LINES", "").splitlines()
+                command = str(args[-1])
+                if "grep -E" in command:
+                    exit_lines = [
+                        line
+                        for line in log_lines
+                        if line.startswith("exit=") and line[5:].isdigit()
+                    ]
+                    if exit_lines:
+                        print(exit_lines[-1])
+                elif log_lines:
+                    print("\\n".join(log_lines))
                 raise SystemExit(0)
             if "run.sql" in joined and "-i" in args:
                 raise SystemExit(0)
@@ -504,8 +514,43 @@ def test_status_reports_catalog_state_and_canned_log_tail(tmp_path: Path):
     assert len(receipt["constraints"]) == 18
     assert [row["name"] for row in receipt["constraints"]] == list(CONSTRAINTS)
     assert receipt["constraints"][-1]["validated"] is False
+    assert receipt["runner_exit_code"] is None
     assert receipt["log_tail"] == list(log_lines)
+    assert "validation_runner_failed" not in receipt["failures"]
     assert _was_detached(calls) is False
+
+
+def test_status_stops_when_runner_failed_with_unvalidated_constraint(
+    tmp_path: Path,
+):
+    result, _ = _run_action(
+        tmp_path,
+        "status",
+        unvalidated=(CONSTRAINTS[-1],),
+        log_lines=("exit=2", "not-an-exit", "exit=7"),
+    )
+
+    assert result.returncode == 1
+    receipt = _receipt(result)
+    assert receipt["status"] == "stopped"
+    assert receipt["validated_count"] == 17
+    assert receipt["all_validated"] is False
+    assert receipt["runner_exit_code"] == 7
+    assert "validation_runner_failed" in receipt["failures"]
+
+
+def test_status_keeps_success_when_runner_failed_after_all_validated(
+    tmp_path: Path,
+):
+    result, _ = _run_action(tmp_path, "status", log_lines=("exit=9",))
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = _receipt(result)
+    assert receipt["status"] == "success"
+    assert receipt["validated_count"] == 18
+    assert receipt["all_validated"] is True
+    assert receipt["runner_exit_code"] == 9
+    assert "validation_runner_failed" not in receipt["failures"]
 
 
 def test_status_prints_stopped_receipt_and_fails_when_ledger_query_fails(

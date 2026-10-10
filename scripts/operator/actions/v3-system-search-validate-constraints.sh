@@ -259,7 +259,7 @@ SET statement_timeout = '45min';"
 }
 
 status_operation() {
-  local state active ledger_sha pid_alive=false log_tail names failure_text
+  local state active ledger_sha pid_alive=false log_tail runner_exit_line names failure_text
   local ledger_query_ok=true
   local -a failures=()
   require_target || {
@@ -293,6 +293,9 @@ status_operation() {
   log_tail="$(docker exec "$POSTGRES_CONTAINER" sh -c \
     'test -f /tmp/edfinder-validate-constraints/run.log && tail -n 40 /tmp/edfinder-validate-constraints/run.log' \
     2>/dev/null || true)"
+  runner_exit_line="$(docker exec "$POSTGRES_CONTAINER" sh -c \
+    'test -f /tmp/edfinder-validate-constraints/run.log && grep -E "^exit=[0-9]+$" /tmp/edfinder-validate-constraints/run.log | tail -n 1' \
+    2>/dev/null || true)"
   names="$(printf '%s\n' "${CONSTRAINTS[@]}")"
   failure_text="$(printf '%s\n' "${failures[@]:-}")"
 
@@ -300,7 +303,7 @@ status_operation() {
 import json
 import sys
 
-migration_sha, expected_sha, names_text, state_text, active_text, pid_alive, log_text, failure_text = sys.argv[1:]
+migration_sha, expected_sha, names_text, state_text, active_text, pid_alive, log_text, runner_exit_line, failure_text = sys.argv[1:]
 names = names_text.splitlines()
 failures = [failure for failure in failure_text.splitlines() if failure]
 states = {}
@@ -326,6 +329,10 @@ for line in active_text.splitlines():
             "query": fields[3],
         })
 validated_count = sum(item["validated"] for item in constraints)
+all_validated = validated_count == len(names)
+runner_exit_code = int(runner_exit_line[5:]) if runner_exit_line else None
+if runner_exit_code not in (None, 0) and not all_validated:
+    failures.append("validation_runner_failed")
 receipt = {
     "schema_version": "ed-finder/operator-operation-result/v1",
     "operation": "v3-system-search-validate-constraints-status",
@@ -335,15 +342,16 @@ receipt = {
     "migration_010_in_ledger": migration_sha == expected_sha,
     "constraints": constraints,
     "validated_count": validated_count,
-    "all_validated": validated_count == len(names),
+    "all_validated": all_validated,
     "active_validations": active_validations,
     "runner_pid_alive": pid_alive == "true",
+    "runner_exit_code": runner_exit_code,
     "log_tail": log_text.splitlines(),
     "failures": sorted(set(failures)),
 }
 print(json.dumps(receipt, separators=(",", ":")))
 sys.exit(1 if failures else 0)
-' "$ledger_sha" "$MIGRATION_SHA" "$names" "$state" "$active" "$pid_alive" "$log_tail" "$failure_text"
+' "$ledger_sha" "$MIGRATION_SHA" "$names" "$state" "$active" "$pid_alive" "$log_tail" "$runner_exit_line" "$failure_text"
 }
 
 case "$ACTION" in
