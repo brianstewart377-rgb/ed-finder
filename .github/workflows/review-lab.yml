@@ -23,8 +23,8 @@ jobs:
   review-lab:
     name: Review Lab
     runs-on: ubuntu-latest
-    # Pull budget: 3 images x 3 attempts x 60 s plus backoff (~9.5 min), with build/browser/teardown headroom.
-    timeout-minutes: 20
+    # Job budget: previous 15-minute phase allowance plus ~10 minutes for bounded image-pull retries.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

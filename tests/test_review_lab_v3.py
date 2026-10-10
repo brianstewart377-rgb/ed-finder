@@ -855,7 +855,7 @@ def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     assert 'python-version: "3.14"' in workflow
     assert 'uv==0.11.33' in workflow
     assert 'uv sync --project apps/api --frozen --group test --no-install-project' in workflow
-    assert 'timeout-minutes: 20' in workflow
+    assert 'timeout-minutes: 25' in workflow
     assert 'Review backend runtime:' in workflow
     assert "'review-api', '/proc/1/exe'" in read('scripts/dev/review_lab/lifecycle.py')
     assert "sys.version_info[:2] == (3, 14)" in read('scripts/dev/review_lab/lifecycle.py')
