@@ -443,9 +443,12 @@ order; keep item 6 after the button as it is today:
    available on that response shape.
 6. Existing Inspect and shortlist actions, unchanged.
 
-If an optional value is absent, omit that datum or say “Unknown”; never render
-zero. Missing evidence is unknown rather than absent under the product truth
-contract (`docs/colonisation-redesign/spatial-platform-product-contract.md:82-98`).
+If an optional value is `null` or absent, omit that datum or say “Unknown”.
+A finite zero is a measured fact and is rendered as such — the anchor system's
+own distance is `0.00 LY`, not “Unknown” — exactly as the live row already
+renders every non-null distance. Only null/absent means unknown under the
+product truth contract
+(`docs/colonisation-redesign/spatial-platform-product-contract.md:82-98`).
 
 ### Tier semantics and colours
 
@@ -520,14 +523,23 @@ above 10,000
 `navigable_total` is the returned `total`, and the Any truncation state is the
 existing `total_is_capped === true` rather than selected mode's differently
 defined `is_truncated`. Thus an anchored exact total remains fully navigable.
-For a saturated unanchored response, set `navigation_limit: 10000`, require
-`offset < 10000`, and cap the wire page at
-`min(page_size, 10000 - offset)`; canonicalize and refetch a URL at or crossing
-that boundary so no request or displayed page exceeds the advertised cap. This
-browser clamp is required because `local_db_search_v3` otherwise forwards page
-`LIMIT`/`OFFSET` independently of its capped count
+For every **unanchored** (galaxy-wide) Any request the clamp is applied
+**before dispatch and without waiting for any response**: set
+`navigation_limit: 10000`, require `offset < 10000`, cap the wire page at
+`min(page_size, 10000 - offset)`, and canonicalize a URL whose offset is at or
+beyond that boundary to the last valid page **before** the first request is
+issued. A freshly loaded shared URL such as `/explore?offset=2000000000`
+therefore never reaches the API with that offset: the request model accepts
+`from` up to 2,147,483,647 and `local_db_search_v3` forwards page
+`LIMIT`/`OFFSET` to SQL independently of its capped count, so a response-driven
+clamp would let the first request scan the ranking index
 (`apps/api/src/local_search.py:902-923`,
-`apps/api/src/ranking/ranking_sql.py:479-506`). When `total_is_capped=true`, show
+`apps/api/src/ranking/ranking_sql.py:479-506`). The same pre-dispatch rule
+applies to selected mode, whose navigable window is 0–10,000 by contract.
+Anchored Any is the only mode whose offset is not pre-clamped, because its
+exact total may exceed 10,000; it is clamped to the returned `total` once known.
+`total_is_capped` drives only the truncation copy, never the clamp. When
+`total_is_capped=true`, show
 **10,000+ matches; navigation is limited to the first 10,000 results.** Do not
 infer a cap from the number 10,000
 (`apps/api/src/local_search.py:965-970`, `apps/api/src/models.py:408-412`).
@@ -678,13 +690,30 @@ type DistanceReference = Readonly<{
   name: string;
 }>;
 
+type RankingProvenance = Readonly<{
+  ranking_version: string;
+  ranking_sha256: string;
+  derived_generation_id: string;
+  publication_sequence: number;
+}>;
+
 type RankingIdentityFields = Readonly<{
   ranking_score: number | null;
   score_kind: "overall_potential" | "selected_fit";
   selected_archetype: ArchetypeKey | null;
   distance_reference: DistanceReference | null;
+  ranking_provenance: RankingProvenance | null;
 }>;
 ```
+
+`ranking_provenance` is copied from the response envelope that produced the row
+(both the local search and the rankings responses carry `ranking_version`,
+`ranking_sha256`, the generation id and the publication sequence for
+reproducibility). It is persisted with every pin/compare snapshot. Slice 1c
+already moves the profile from `v1` to `v2`, and the F2d capacity design
+changes the ranking identity again, so two saved selected-fit scores with the
+same archetype can have been computed under different semantics; the
+provenance is what tells them apart.
 
 Selected rankings carry their `score` as `ranking_score` with
 `score_kind: 'selected_fit'`, their exact selected archetype, and Sol
@@ -780,8 +809,13 @@ directly from the component.
 Comparison is mode-aware. **Best Colony Potential** remains comparable across
 modes because its overall value is persisted separately. A selected-fit row is
 shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
-for the same `selected_archetype`; otherwise it is omitted with a “different
-ranking modes” note. Distance is compared only when every entry has the same
+for the same `selected_archetype` **and** an equal `ranking_provenance`
+(`ranking_version` and `ranking_sha256` must match; the generation id and
+publication sequence are shown as “ranked on generation …” but do not block
+the comparison, because a data refresh changes freshness, not semantics);
+otherwise it is omitted with a “different ranking modes” or “different
+ranking versions” note. A snapshot without `ranking_provenance` (saved before
+F4c) never enters a selected-fit comparison. Distance is compared only when every entry has the same
 `distance_reference.kind` and id64, labelled **Distance from Sol** or
 **Distance from _name_**. Mixed-reference distances are excluded rather than
 silently compared. For referenced snapshots, every finite measured distance is
@@ -837,6 +871,23 @@ exercise view expansion, join order or the real indexes and **does not unblock
 F4b**. This is representative-scale evidence, not a claim of full
 198.5-million-row parity; failure to obtain it blocks F4b rather than weakening
 the contract.
+
+The receipt passes only if it also meets explicit latency budgets; stable but
+slow timings fail. Proposed budgets for the 1,000,000-row PostgreSQL 18 fixture
+(owner question 5 confirms or adjusts them; they are recorded in the receipt
+and the Cypress/integration test that reads it):
+
+| Query (selected mode, tier floor B, galaxy-wide) | Warm (median of 5 runs) | Cold (first run after `pg_ctl restart`) |
+|---|---:|---:|
+| first page (`offset=0`, `page_size=50`) | ≤ 300 ms | ≤ 1,500 ms |
+| near-ceiling page (`offset=9950`, `page_size=50`) | ≤ 600 ms | ≤ 2,500 ms |
+| post-filter within-window count | ≤ 600 ms | ≤ 2,500 ms |
+| the same three with a selective region/distance/body-count filter | same budgets | same budgets |
+
+Each timing is the server-side statement time from `EXPLAIN (ANALYZE, BUFFERS)`
+(execution time, not browser round trip). Exceeding any budget blocks the
+receipt and therefore F4b; the budgets may only be raised by an owner decision
+recorded in this document, never by the implementing PR.
 
 ### Slice 1d future Any-tier proof
 
@@ -1019,10 +1070,37 @@ failure, empty, fault and containment states and explicitly does not own the
 normal Explore → Inspect or visual-baseline journey
 (`docs/development/v3-browser-validation-lanes.md:62-103`). Its current scenarios
 are synthetic wiring, API failure, empty results and renderer recovery
-(`scripts/dev/review_lab/scenarios.py:6-51`). They should remain unchanged and
-green. Update a selector or message only if F4 intentionally changes the shared
-empty/error DOM; do not duplicate picker, axe or visual assertions there. The
-current wiring check only requires Review Wiring and Babylon readiness
+(`scripts/dev/review_lab/scenarios.py:6-51`); they remain unchanged and green.
+
+Because the lane contract assigns deliberate API failure and empty states to
+Review Lab, F4b **adds two F4-enabled scenarios** there instead of leaving the
+ranked empty/error UI to mocked component tests alone:
+
+- `rankings_api_failure` — the review-only middleware in
+  `apps/api/src/review_main.py` (today it intercepts only
+  `POST /api/local/search`, `apps/api/src/review_main.py:129-158`) gains a mode
+  that answers `GET /api/archetypes/rankings` with a tagged synthetic 503
+  (`x-edfinder-review-failure: rankings-api-failure`). Browser flow
+  `rankingsApiFailure`: open Explore with a selected archetype in the URL,
+  observe **Ranking temporarily unavailable** in the result region's
+  `role="alert"`, and prove the map/selection state survives (the selected
+  marker, if any, is not cleared by the failed rerank).
+- `rankings_empty_results` — the same middleware answers the rankings request
+  with a contract-shaped empty envelope (`results: []`, `total: 0`,
+  `is_truncated: false`, the normal ranking identity fields). Browser flow
+  `rankingsEmptyResults`: observe the ranked empty state copy, a zero-target
+  Babylon scene, and that switching back to Any issues a normal search.
+
+Both run against the F4-enabled bundle: the Review Lab browser runner builds
+`apps/web` itself with environment overrides
+(`scripts/dev/review_lab/browser_runner.py:164-172`), so F4b adds
+`VITE_FINDER_F4_ENABLED: '1'` to that override set — the Review Lab bundle is a
+disposable diagnostic build, never a release artifact, so this does not enable
+F4 anywhere else. The existing four scenarios keep their behaviour under the
+enabled flag (Any mode with no archetype in the URL is the default-off path).
+Cypress does not stub either response; the backend mode does. Do not duplicate
+picker, axe or visual assertions there. The current wiring check only requires
+Review Wiring and Babylon readiness
 (`apps/web/cypress/e2e/review-lab.cy.ts:184-205`).
 
 ### Visual validation and OpenAPI drift
@@ -1268,6 +1346,17 @@ Exact files:
 - modify `apps/web/src/lib/features/explore/compare-metrics.test.ts`
 - modify `apps/web/src/lib/features/explore/ComparePanel.svelte`
 - modify `apps/web/src/lib/features/explore/ComparePanel.test.ts`
+- modify `apps/api/src/review_main.py` (review-only `rankings_api_failure` and
+  `rankings_empty_results` modes for `GET /api/archetypes/rankings`)
+- modify `scripts/dev/review_lab/scenarios.py` (the two new scenario
+  definitions and browser flow keys)
+- modify `scripts/dev/review_lab/browser_runner.py` (`VITE_FINDER_F4_ENABLED: '1'`
+  in the Review Lab bundle build overrides)
+- modify `apps/web/cypress/e2e/review-lab.cy.ts` (`rankingsApiFailure` and
+  `rankingsEmptyResults` flows)
+- modify `tests/test_review_lab_v3.py` (the module that already covers the
+  review-only scenario modes and the scenario registry) for the new modes and
+  scenario entries
 - modify `apps/web/src/lib/components/AppShell.svelte` (reactive selection
   hydration, including independent `selected`/`system` semantics)
 - create `apps/web/src/lib/components/AppShell.test.ts`
@@ -1487,6 +1576,10 @@ product/implementation choices are:
    index/access path compatible with `best_colony_potential`, a fixed
    weighted-order candidate window, or an explicit candidate/count-work cap with
    truthful truncation?
+5. **Yes/no:** confirm (or adjust) the proposed slice 1c latency budgets in the
+   validation plan — warm ≤ 300 ms first page, ≤ 600 ms near-ceiling page and
+   within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms — as the pass/fail
+   line for the receipt that unblocks F4b?
 
 ### Review dispositions (2026-10-10)
 
@@ -1751,3 +1844,48 @@ product/implementation choices are:
    is a non-blocking API nicety because ordinary PostgreSQL errors also become
    503 (`apps/api/src/routers/archetypes.py:365-387`); free-form detail never
    drives the copy.
+
+#### Round 8 — 2026-10-10 (PR #801)
+
+1. **P1 — Clamp unanchored Any offsets before issuing the request** → Round 7
+   disposition 4 is superseded: the 10,000 clamp for galaxy-wide Any (and for
+   selected mode, whose window is 0–10,000 by contract) is applied **before
+   dispatch**, independent of any response — `offset < 10000`, wire page
+   `min(page_size, 10000 - offset)`, and a URL at or beyond the boundary is
+   canonicalized to the last valid page before the first request. A fresh load of
+   `/explore?offset=2000000000` therefore never reaches `/api/local/search`,
+   whose request model accepts `from` up to 2,147,483,647 and whose SQL forwards
+   `OFFSET` unbounded (`apps/api/src/local_search.py:902-923`,
+   `apps/api/src/ranking/ranking_sql.py:479-506`). Only anchored Any, whose exact
+   total may exceed 10,000, is clamped to the returned `total` once known.
+   `total_is_capped` drives only the truncation copy.
+2. **P2-A — Preserve valid zero values in result cards** → the card rule now
+   omits or says “Unknown” only for `null`/absent values and renders every finite
+   zero (the anchor's own distance is `0.00 LY`), consistent with the live row's
+   non-null rendering and with Round 7 disposition 3 for comparisons.
+3. **P2-B — Exercise ranked failure states in Review Lab** → F4b adds two
+   F4-enabled Review Lab scenarios, `rankings_api_failure` and
+   `rankings_empty_results`, served by new review-only modes in
+   `apps/api/src/review_main.py` for `GET /api/archetypes/rankings` (the
+   existing middleware covers only `POST /api/local/search`,
+   `apps/api/src/review_main.py:129-158`), with browser flows
+   `rankingsApiFailure`/`rankingsEmptyResults` in `review-lab.cy.ts`; the Review
+   Lab bundle build (`scripts/dev/review_lab/browser_runner.py:164-172`) sets
+   `VITE_FINDER_F4_ENABLED: '1'`. The four existing scenarios stay unchanged; no
+   normal picker journey is duplicated there. The F4b file list records the
+   exact files.
+4. **P2-C — Define pass/fail latency budgets for the scale gate** → the slice 1c
+   receipt now carries explicit budgets (warm median-of-5 and cold-after-restart,
+   per first page / near-ceiling page / within-window count, including the
+   selective-filter cases) measured as `EXPLAIN (ANALYZE, BUFFERS)` execution
+   time; exceeding any budget blocks the receipt and F4b, and budgets may only be
+   raised by a recorded owner decision. The numbers are proposed and listed as
+   owner question 5.
+5. **P2-D — Persist ranking provenance before comparing saved scores** →
+   `RankingIdentityFields` gains `ranking_provenance` (`ranking_version`,
+   `ranking_sha256`, generation id, publication sequence) copied from the response
+   envelope and persisted with every snapshot. Selected-fit comparison requires
+   equal `score_kind`, `selected_archetype`, `ranking_version` **and**
+   `ranking_sha256`; generation/sequence are displayed, not required. Snapshots
+   without provenance never enter a selected-fit comparison. This also covers the
+   ranking-identity change the F2d capacity design introduces.
