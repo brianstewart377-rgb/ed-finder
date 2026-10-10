@@ -536,22 +536,28 @@ def test_generation_seed_runs_on_host_with_pinned_dsn_and_bounded_failure(monkey
 
 def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch):
     events = []
+    base_image = read('apps/api/Dockerfile').splitlines()[0].split()[1]
+
+    def fake_review_api_base_image():
+        events.append(('validate', base_image))
+        return base_image
 
     def fake_run_subprocess(command, **kwargs):
         events.append(('command', command, kwargs))
         return SimpleNamespace(returncode=0, stdout='', stderr='')
 
+    monkeypatch.setattr(lifecycle, '_review_api_base_image', fake_review_api_base_image)
     monkeypatch.setattr(lifecycle, 'run_subprocess', fake_run_subprocess)
     monkeypatch.setattr(lifecycle.time, 'sleep', lambda seconds: events.append(('sleep', seconds)))
 
     result = lifecycle.pull_review_images()
 
-    base_image = read('apps/api/Dockerfile').splitlines()[0].split()[1]
     expected_prefix = [
         'docker', 'compose', '-f', str(contract.COMPOSE_FILE), '-p', contract.PROJECT_NAME,
         'pull', '--quiet',
     ]
     assert events == [
+        ('validate', base_image),
         ('command', [*expected_prefix, 'review-postgres'], {
             'allow_failure': True, 'timeout_seconds': 60,
         }),
@@ -670,7 +676,7 @@ def test_pull_review_images_rejects_non_mirror_api_base_without_docker_pull(tmp_
         lifecycle.pull_review_images()
 
     assert error.value.failure_code == 'STATIC_CONTAINMENT_FAILED'
-    assert not any(command[:2] == ['docker', 'pull'] for command in calls)
+    assert calls == []
 
 
 @pytest.mark.parametrize('seed_fails', [False, True])

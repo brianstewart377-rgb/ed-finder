@@ -298,6 +298,7 @@ def _review_api_base_image() -> str:
 
 
 def pull_review_images() -> dict[str, Any]:
+    base_image = _review_api_base_image()
     pulls: list[dict[str, Any]] = []
     services = ('review-postgres', 'review-redis')
     for index, service in enumerate(services):
@@ -312,7 +313,6 @@ def pull_review_images() -> dict[str, Any]:
         if index < len(services) - 1:
             time.sleep(TIMEOUTS.image_pull_backoff_seconds)
 
-    base_image = _review_api_base_image()
     time.sleep(TIMEOUTS.image_pull_backoff_seconds)
     attempts = _pull_with_retry(
         ['docker', 'pull', '--quiet', base_image],
