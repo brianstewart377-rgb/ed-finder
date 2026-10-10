@@ -547,6 +547,15 @@ the `v3_app.system_archetype_summary` join and
 `system_id64` tie-breaks and all selected aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
 
+The partial score indexes (section 3.3) cover only rows scoring ≥ 60. This PR
+does not change the rankings route's `min_score` contract (default 40, range
+0–100 today, `apps/api/src/routers/archetypes.py:508-518`): a picked request
+below 60 is exactly as unbounded after this change as before it (the picked
+ordering is a computed product the old keyed index never served either). The
+F4 design's slice 1c — sequenced after PR1 — moves the API floor to 60 and
+introduces the bounded 10,001-row probe over these indexes; that is where the
+contract change and its client regeneration live.
+
 The outward ranking and Search response fields do not change: selected score,
 tier, confidence, primary, secondary, Best Colony Potential, archetype
 confidence, completeness, uncertainty, and ranking identity remain present.
