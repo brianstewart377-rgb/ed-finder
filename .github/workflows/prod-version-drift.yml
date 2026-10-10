@@ -22,6 +22,10 @@ on:
         description: Hours an un-deployed deployable change may sit before alerting
         default: '12'
         required: false
+      ignore_hold:
+        description: Ignore the reviewed promotion hold and show raw drift
+        default: 'false'
+        required: false
 
 permissions:
   contents: read
@@ -47,9 +51,15 @@ jobs:
         env:
           BASE_URL: ${{ github.event.inputs.base_url || 'https://ed-finder.app' }}
           MAX_LAG_HOURS: ${{ github.event.inputs.max_lag_hours || '12' }}
+          IGNORE_HOLD: ${{ github.event.inputs.ignore_hold || 'false' }}
           MAIN_SHA: ${{ github.sha }}
         run: |
+          hold_args=(--hold-file "deploy/v3-production/promotion-hold.json")
+          if [[ "${IGNORE_HOLD}" == "true" ]]; then
+            hold_args=(--ignore-hold)
+          fi
           python scripts/checks/prod_version_drift.py \
             --base-url "${BASE_URL}" \
             --main-sha "${MAIN_SHA}" \
-            --max-lag-hours "${MAX_LAG_HOURS}"
+            --max-lag-hours "${MAX_LAG_HOURS}" \
+            "${hold_args[@]}"
