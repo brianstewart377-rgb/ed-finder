@@ -14,7 +14,14 @@ Layouts measured:
 * ``v1_with_system_id64`` — eight ``(generation, <key>_score DESC, system_id64)``
   indexes (every entry unique; no B-tree deduplication);
 * ``v2_score_only`` — eight ``(generation, <key>_score DESC)`` indexes (B-tree
-  deduplication collapses the 101 distinct score values into posting lists).
+  deduplication collapses the 101 distinct score values into posting lists);
+* ``v3_partial_ge60_score_sysid`` — the layout the F2d design adopted: eight partial
+  ``(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60`` indexes.
+  Its size scales with the fraction of rows scoring >= 60, so this variant is filled
+  with a bell-shaped score distribution (mean ~45, sd ~15; the same shape as
+  ``measure_wide_archetype_probe_indexes.py``) and reports that fraction per key;
+  the first two variants keep the uniform distribution so their numbers stay
+  comparable with the 2026-10-10 evidence.
 
 Both layouts share the primary key and the ``weighted_potential`` index.
 
@@ -103,11 +110,20 @@ CREATE TABLE scratch.{table} (
 )"""
 
 
-def _fill(conn: psycopg.Connection, table: str, rows: int) -> None:
+def _score_expr(index: int, distribution: str) -> str:
+    if distribution == "uniform":
+        return f"((g.n * {97 + index * 13}) %% 101)"
+    if distribution == "bell":
+        uniforms = "+".join(["random()"] * 12)
+        return f"LEAST(100, GREATEST(0, round(45 + 15 * (({uniforms}) - 6))))::int"
+    raise ValueError(f"unknown distribution {distribution!r}")
+
+
+def _fill(conn: psycopg.Connection, table: str, rows: int, distribution: str = "uniform") -> None:
     key_array = "ARRAY[" + ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS) + "]"
     select: list[str] = [f"'{GENERATION_ID}'::uuid", "g.n::bigint * 7919", "'v3-archetype-4'"]
     for index, _key in enumerate(ARCHETYPE_KEYS):
-        score = f"((g.n * {97 + index * 13}) %% 101)"
+        score = _score_expr(index, distribution)
         select.append(f"{score}::smallint")
         select.append(_tier(score))
         select.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6)::real")
@@ -245,21 +261,39 @@ def main() -> None:
             sys.exit(str(exc))
         out["postgres"] = conn.execute("SELECT version()").fetchone()[0]
         conn.execute("CREATE SCHEMA IF NOT EXISTS scratch")
-        for layout, trailing in (("v1_with_system_id64", ", system_id64"), ("v2_score_only", "")):
+        layouts = (
+            ("v1_with_system_id64", ", system_id64", "", "uniform"),
+            ("v2_score_only", "", "", "uniform"),
+            ("v3_partial_ge60_score_sysid", ", system_id64", " WHERE {key}_score >= 60", "bell"),
+        )
+        for layout, trailing, predicate, distribution in layouts:
             table = f"wide_archetype_{layout}"
             conn.execute(f"DROP TABLE IF EXISTS scratch.{table}")
             conn.execute(_ddl(table))
-            _fill(conn, table, args.rows)
+            _fill(conn, table, args.rows, distribution)
             for key in ARCHETYPE_KEYS:
                 conn.execute(
                     f"CREATE INDEX {table}_{key} ON scratch.{table} "
-                    f"(derived_generation_id, {key}_score DESC{trailing})"
+                    f"(derived_generation_id, {key}_score DESC{trailing}){predicate.format(key=key)}"
                 )
             conn.execute(
                 f"CREATE INDEX {table}_weighted ON scratch.{table} (derived_generation_id, weighted_potential DESC)"
             )
             conn.execute(f"VACUUM ANALYZE scratch.{table}")
-            out[layout] = _sizes(conn, table)
+            report = _sizes(conn, table)
+            report["score_distribution"] = distribution
+            report["fraction_ge60_by_key"] = {
+                key: round(count / args.rows, 4)
+                for key, count in zip(
+                    ARCHETYPE_KEYS,
+                    conn.execute(
+                        "SELECT " + ", ".join(f"count(*) FILTER (WHERE {key}_score >= 60)" for key in ARCHETYPE_KEYS)
+                        + f" FROM scratch.{table}"
+                    ).fetchone(),
+                    strict=True,
+                )
+            }
+            out[layout] = report
     json.dump(out, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 

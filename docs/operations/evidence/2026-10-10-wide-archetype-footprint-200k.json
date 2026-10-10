@@ -11,6 +11,16 @@
       "table_gb": 37.0,
       "total_gb": 132.3
     },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
+    },
     "index_bytes": 96051200,
     "index_bytes_per_row": 480.3,
     "indexes": {
@@ -56,6 +66,7 @@
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 133341184,
@@ -68,6 +79,16 @@
       "systems": 198500000,
       "table_gb": 37.0,
       "total_gb": 65.2
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
     },
     "index_bytes": 28352512,
     "index_bytes_per_row": 141.8,
@@ -114,9 +135,79 @@
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 65642496,
     "total_bytes_per_row": 328.2
+  },
+  "v3_partial_ge60_score_sysid": {
+    "avg_tuple_bytes": 179.81816,
+    "extrapolated_prod": {
+      "index_gb": 29.7,
+      "systems": 198500000,
+      "table_gb": 37.0,
+      "total_gb": 66.7
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.1682,
+      "manufacturing_hub": 0.1698,
+      "megacomplex": 0.1682,
+      "mining_hub": 0.1677,
+      "paradise": 0.1713,
+      "population_capital": 0.1692,
+      "research_hub": 0.1695,
+      "stronghold": 0.1693
+    },
+    "index_bytes": 29941760,
+    "index_bytes_per_row": 149.7,
+    "indexes": {
+      "wide_archetype_v3_partial_ge60_score_sysid_flexible": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_manufacturing_hub": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_megacomplex": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_mining_hub": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_paradise": {
+        "bytes": 1728512,
+        "bytes_per_row": 8.6
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_population_capital": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_research_hub": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_stronghold": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      }
+    },
+    "rows": 200000,
+    "score_distribution": "bell",
+    "table_bytes": 37289984,
+    "table_bytes_per_row": 186.4,
+    "total_bytes": 67231744,
+    "total_bytes_per_row": 336.2
   }
 }

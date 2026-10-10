@@ -269,6 +269,11 @@ systems with that key's score ≥ 60) per row; the synthetic sample gives
 (≈ 95 GB) if every system scored ≥ 60 on every key. **The calibration probe (rollout step 6) reports the per-key tier histogram on the real
 `parallel_v1` vectors; PR1's final footprint re-measurement must use those
 fractions, and the production gate stops if the result does not fit.** The
+committed `scripts/dev/measure_wide_archetype_footprint.py` now measures this
+partial layout as its third built-in variant (`v3_partial_ge60_score_sysid`,
+same synthetic distribution as the probe experiment); PR1 extends it to apply
+the final `011` text itself (`--migration-sql`) so the receipt is for the real
+relation and indexes, not a stand-in. The
 wide row is joined through its primary key (one row per system — the old
 `archetype_key` lookup no longer exists). The last index retains the current
 indexable no-pick ordering over `weighted_potential`.
@@ -292,15 +297,15 @@ footprint measurement”, PR #805)
 | table heap (`pg_table_size`; average tuple 180 B) | 186.4 | 37.0 GB |
 | primary key `(derived_generation_id, system_id64)` | 40.7 | 8.1 GB |
 | `weighted_potential` index | 40.8 | 8.1 GB |
-| eight partial `(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes (synthetic 16.9 % ≥ 60) | 8 × 8.4 = 67 | 13.3 GB |
-| **total, section 3.3 layout** (synthetic distribution) | **335** | **≈ 66 GB** |
+| eight partial `(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes (bell-shaped synthetic distribution, ≈ 17 % ≥ 60 per key; 200k-row full wide table, `v3_partial_ge60_score_sysid` in the committed evidence) | 8 × 8.5 = 68 | 13.5 GB |
+| **total, section 3.3 layout** (synthetic distribution) | **336** | **≈ 67 GB** |
 | *(ceiling)* the same if every system scored ≥ 60 on every key (= full unique-entry indexes) | 8 × 49.8 + 81.5 = 480 index | ≈ 132 GB |
 | *(earlier draft)* eight deduplicated `(derived_generation_id, <key>_score DESC)` indexes | 8 × 7.5 = 60 | 11.9 GB (≈ 65 GB total) — rejected: cannot bound the slice 1c probe without a tie sort |
 
 The decision text's earlier “about 80 GB” and this design's first-draft
 “about 90 GB” were unmeasured guesses: the heap is wider than assumed (186 B,
 not 150 B) and a unique-entry score index is 49.8 B/row, not 30 B. The
-measured layout is **≈ 66 GB** of persistent product data on the synthetic
+measured layout is **≈ 67 GB** of persistent product data on the synthetic
 distribution (the partial score indexes scale with the real ≥ 60 fractions —
 see section 3.3); re-measuring with
 integer-ppm confidences gave the identical 186.4 B/row heap (same 4-byte width
@@ -547,14 +552,24 @@ the `v3_app.system_archetype_summary` join and
 `system_id64` tie-breaks and all selected aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
 
-The partial score indexes (section 3.3) cover only rows scoring ≥ 60. This PR
-does not change the rankings route's `min_score` contract (default 40, range
-0–100 today, `apps/api/src/routers/archetypes.py:508-518`): a picked request
-below 60 is exactly as unbounded after this change as before it (the picked
-ordering is a computed product the old keyed index never served either). The
-F4 design's slice 1c — sequenced after PR1 — moves the API floor to 60 and
-introduces the bounded 10,001-row probe over these indexes; that is where the
-contract change and its client regeneration live.
+The partial score indexes (section 3.3) cover only rows scoring ≥ 60, so **PR1
+changes the rankings route's `min_score` contract deliberately**: today it is
+`Query(40, ge=0, le=100)` (`apps/api/src/routers/archetypes.py:511`) and the SQL
+binds the requested floor directly (`apps/api/src/ranking/ranking_sql.py:355-357`);
+after PR1 it is `Query(60, ge=60, le=100)` — the default request and every
+accepted value fall inside the indexed range, and a value below 60 is a 422
+rather than a silently truncated or unbounded result. This is a real contract
+change and is treated as one: it is part of the hashed ranking identity (tier
+floors S/A/B ⇒ 88/76/60 remain; C/D were already excluded from the initial
+product by the F4 design), the OpenAPI parameter constraint changes so PR1
+regenerates all three typed clients (`apps/web/src/lib/api/generated/*` and
+`packages/api-client/src/generated/api.gen.ts`), and the tests cover the default
+request, `min_score=60`, `min_score=59` → 422 and `min_score=100`. Nothing in
+`apps/web` calls `/api/archetypes/rankings` yet (the F4 UI is unbuilt and the
+legacy frontend is retired), so no live caller loses a result. The alternative —
+indexing all scores so 0–59 stays bounded — costs ≈ 95 GB of indexes for rows
+no planned caller asks for. The F4 design's slice 1c then adds the bounded
+10,001-row probe over these indexes without a further contract change.
 
 The outward ranking and Search response fields do not change: selected score,
 tier, confidence, primary, secondary, Best Colony Potential, archetype
@@ -900,8 +915,19 @@ Files:
   new pinned `ranking_sha256`)
 - `apps/api/src/ranking/ranking_sql.py` (fixed key → wide-column map; no-pick
   path unchanged through the `v3_app.system_archetype_summary` view)
-- `apps/api/src/routers/archetypes.py` (only if the row-form resolution leaks
-  into the router; response fields unchanged)
+- `apps/api/src/routers/archetypes.py` (`min_score` → `Query(60, ge=60, le=100)`;
+  response fields unchanged)
+- `apps/web/src/lib/api/generated/types.gen.ts`,
+  `apps/web/src/lib/api/generated/sdk.gen.ts`,
+  `packages/api-client/src/generated/api.gen.ts` (regenerated for the changed
+  parameter constraint)
+- `scripts/dev/measure_wide_archetype_footprint.py` (gains `--migration-sql
+  sql/v3/migrations/011_v3_system_archetype.sql`: applies the final migration
+  text to the disposable database instead of its built-in DDL, fills the real
+  `v3_derived.system_archetype` with synthetic rows whose per-key ≥ 60 fractions
+  come from the calibration-probe histogram, and sizes the heap and all nine
+  indexes; the committed built-in layouts stay as the pre-migration reference)
+- `tests/test_measure_wide_archetype_footprint.py`
 - `scripts/dev/seed_v3_fixture_generation.py`,
   `scripts/dev/seed_cypress_v3_generation.py` (wide rows; generation publication
   as today — product publication waits for PR2)
@@ -935,12 +961,14 @@ calibration, ranking profile/SQL/identity and no-legacy tests; disposable-PG18
 migration/build/validate and rankings integration tests; both seed test modules;
 exact `011` file hash, ordered migration-set identity and schema-identity
 reproduction, plan exact-prefix and every reachable accepted-release prefix; a
-new ~200k-row PG18 footprint receipt from
-`scripts/dev/measure_wide_archetype_footprint.py` run against the final `011`
-text; migration/script, PostgreSQL integration, canonical-safety,
+new PG18 footprint receipt from
+`scripts/dev/measure_wide_archetype_footprint.py --migration-sql …` run against
+the final `011` text (heap and all nine indexes, partial ones included);
+migration/script, PostgreSQL integration, canonical-safety,
 application-deployment, Cypress, Review Lab and security CI. The rankings
-response shape does not change, so no OpenAPI regeneration is expected; the
-drift check proves it.
+response shape does not change, but the `min_score` parameter constraint does,
+so PR1 regenerates the typed clients and the OpenAPI drift check proves they
+match.
 
 ### PR2 — migration `015`, builders on PUBLISHED, API publication gate, registration
 
