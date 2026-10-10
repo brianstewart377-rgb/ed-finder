@@ -373,28 +373,13 @@ def wait_for_api_health(timeout_seconds: int = TIMEOUTS.stack_readiness) -> None
     raise ReviewLabError('review-api did not become healthy on 127.0.0.1:8001 in time', failure_code='REVIEW_STACK_READINESS_TIMEOUT')
 
 
-# The V3 production lineage, in dependency order. This is the manifest set
-# (sql/v3/migration-manifest.txt) PLUS the Finder migrations 010/011/013, which
-# are deliberately absent from the manifest but ARE applied on prod and are read
-# at request time by the Finder/search surface (v3_app.system_search /
-# v3_app.system_archetype). Review Lab must mirror the schema production runs, so
-# it applies the full prod+Finder set rather than the legacy V2 sql/*.sql files.
-# Paths are relative to the sql/ mount (./sql:/workspace/sql:ro).
-V3_LINEAGE_FILES: tuple[str, ...] = (
-    'v3/migrations/001_v3_baseline.sql',
-    'v3/migrations/002_v3_accounts_identity.sql',
-    'r1_v3/001_structural_shell.sql',
-    'v3/migrations/003_ratings_v4_derived.sql',
-    'v3/migrations/004_v3_search_spatial_clusters.sql',
-    'v3/migrations/005_v3_journal_intelligence.sql',
-    'v3/migrations/006_v3_derived_product_lifecycle.sql',
-    'v3/migrations/008_v3_journal_commander_ownership.sql',
-    'v3/migrations/009_v3_journal_galaxy_contributions.sql',
-    'v3/migrations/010_v3_system_search_body_type_counts.sql',
-    'v3/migrations/011_v3_system_archetype.sql',
-    'v3/migrations/012_v3_spatial_pyramid_decouple.sql',
-    'v3/migrations/013_v3_system_search_parallel.sql',
-    'v3/migrations/014_v3_watchlist.sql',
+# Review Lab applies the declared V3 production lineage in manifest order; it
+# never applies anything the manifest does not declare. Paths are relative to
+# the sql/ mount (./sql:/workspace/sql:ro).
+V3_LINEAGE_FILES: tuple[str, ...] = tuple(
+    line.split()[2]
+    for line in (ROOT / 'sql/v3/migration-manifest.txt').read_text(encoding='utf-8').splitlines()
+    if line.strip() and not line.startswith('#')
 )
 
 
