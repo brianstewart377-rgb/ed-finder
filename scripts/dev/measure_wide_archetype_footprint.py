@@ -18,9 +18,12 @@ Layouts measured:
 
 Both layouts share the primary key and the ``weighted_potential`` index.
 
-Safety: the DSN comes only from ``EDFINDER_DISPOSABLE_DSN`` and must point at a
-loopback host; the script refuses anything else. It writes only to the ``scratch``
-schema of that database and never reads production.
+Safety: the DSN comes only from ``EDFINDER_DISPOSABLE_DSN``; it must be a plain
+``postgresql://`` URI with no query string or fragment (so no ``hostaddr``,
+``service`` or other libpq overrides can redirect it), its effective libpq ``host``
+must be a loopback address and ``hostaddr`` may not be set; the connection is
+opened from the validated keyword dictionary, not the raw string. It writes only
+to the ``scratch`` schema of that database and never reads production.
 
 Usage::
 
@@ -36,6 +39,7 @@ import sys
 from urllib.parse import urlsplit
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 
 PROD_SYSTEMS = 198_500_000
 ARCHETYPE_KEYS = (
@@ -149,14 +153,39 @@ def _sizes(conn: psycopg.Connection, table: str) -> dict[str, object]:
     }
 
 
-def _disposable_dsn() -> str:
+def disposable_conninfo(dsn: str) -> dict[str, str]:
+    """Validate a disposable loopback DSN and return the libpq keywords to connect with.
+
+    Fails closed on anything that could redirect the connection away from the
+    loopback host the URI authority names: a non-postgresql scheme, a query
+    string or fragment (``?hostaddr=…``, ``?service=…`` and the like), a
+    missing or non-loopback effective ``host``, or any ``hostaddr``/``service``
+    keyword surviving parsing.
+    """
+    parts = urlsplit(dsn)
+    if parts.scheme not in {"postgresql", "postgres"}:
+        raise ValueError("EDFINDER_DISPOSABLE_DSN must be a postgresql:// URI")
+    if parts.query or parts.fragment:
+        raise ValueError("EDFINDER_DISPOSABLE_DSN may not carry a query string or fragment (libpq overrides refused)")
+    keywords = {key: str(value) for key, value in conninfo_to_dict(dsn).items() if value is not None}
+    if "hostaddr" in keywords or "service" in keywords or "passfile" in keywords:
+        raise ValueError("EDFINDER_DISPOSABLE_DSN resolved a hostaddr/service/passfile override; refused")
+    host = keywords.get("host", "")
+    if host not in LOOPBACK_HOSTS:
+        raise ValueError(f"refusing non-loopback host {host!r}: this script runs only against a disposable local database")
+    if not keywords.get("dbname"):
+        raise ValueError("EDFINDER_DISPOSABLE_DSN must name a database")
+    return keywords
+
+
+def _disposable_conninfo_from_env() -> dict[str, str]:
     dsn = os.environ.get("EDFINDER_DISPOSABLE_DSN", "")
     if not dsn:
         sys.exit("EDFINDER_DISPOSABLE_DSN is required (disposable local PostgreSQL only)")
-    host = urlsplit(dsn).hostname or ""
-    if host not in LOOPBACK_HOSTS:
-        sys.exit(f"refusing non-loopback host {host!r}: this script runs only against a disposable local database")
-    return dsn
+    try:
+        return disposable_conninfo(dsn)
+    except ValueError as exc:
+        sys.exit(str(exc))
 
 
 def main() -> None:
@@ -169,7 +198,7 @@ def main() -> None:
         "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, "
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"
     )}
-    with psycopg.connect(_disposable_dsn(), autocommit=True) as conn:
+    with psycopg.connect(**_disposable_conninfo_from_env(), autocommit=True) as conn:
         out["postgres"] = conn.execute("SELECT version()").fetchone()[0]
         conn.execute("CREATE SCHEMA IF NOT EXISTS scratch")
         for layout, trailing in (("v1_with_system_id64", ", system_id64"), ("v2_score_only", "")):
