@@ -10,8 +10,11 @@ production sequence has applied the pending migrations, built and validated both
 Finder products, published their owning generation, and passed the separate
 application-release gate (`docs/ROADMAP.md:140-179`). In addition, F4b must not
 be enabled anywhere—not even behind that gate in Product E2E—until slice 1c has
-landed with its representative-scale timing proof. This design does not authorize
-migration application, product build/publication, deployment or promotion.
+landed with its representative-scale timing proof. F4b suppresses distance from
+Compare until F4c makes it reference-safe, and F4c is a hard prerequisite before
+the flag is enabled in any governed production/release build. This design does
+not authorize migration application, product build/publication, deployment or
+promotion.
 The first F4 surface keeps Any mode on today's no-floor request; exposing a
 minimum tier in Any additionally depends on the bounded access path in slice 1d.
 
@@ -92,10 +95,13 @@ false empty result (`apps/api/src/local_search.py:602-643`).
 
 That failure is the expected production state today: the published generation
 has no Finder products, so the readiness check returns HTTP 503 before a ranked
-read (`docs/ROADMAP.md:140-179`, `apps/api/src/routers/archetypes.py:365-380`).
-F4 treats this as a first-class **Ranking unavailable** state, not as zero
-matches. It preserves the current selection and map, offers Retry and Any mode,
-and never converts 503 into an empty-state message.
+read (`docs/ROADMAP.md:140-179`, `apps/api/src/local_search.py:620-642`). But the
+same handler also maps missing relations and ordinary PostgreSQL errors to 503
+(`apps/api/src/routers/archetypes.py:365-387`), so status alone cannot identify
+unpublished data. F4 treats every 503 as temporary unavailability, not as zero
+matches; readiness-specific copy requires a stable machine-readable reason. It
+preserves the current selection and map, offers Retry and Any mode, and never
+converts 503 into an empty-state message.
 
 `/api/local/search` has no archetype request field
 (`apps/api/src/models.py:537-564`) and currently calls the ranking builder with
@@ -155,9 +161,9 @@ ordinary and production builds default to hidden until the governed gate opens.
 That flag gates the complete F4 behavior boundary, not only its DOM. With the
 flag disabled, Explore does not hydrate ranking state from `archetype`,
 `min-tier`, `page_size`, `offset` or future `weight` parameters; it strips those
-F4 parameters with replace-state while preserving `system` and unrelated query
-parameters. The rankings request branch is unreachable, no rankings query/effect
-is constructed, and Explore preserves today's exact request derivation and
+F4 parameters with SvelteKit replace-state while preserving `selected`, `system`
+and unrelated query parameters. The rankings request branch is unreachable, no
+rankings query/effect is constructed, and Explore preserves today's exact request derivation and
 `searchExploreSystems` call (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-144`).
 Picker/cards/status, ranking URL writers, history hydration and selected-point F4
 reconstruction are all disabled with it. Thus a hand-authored archetype URL in a
@@ -205,8 +211,13 @@ modules or raw fetch; a repository guard enforces that boundary
 (`tests/test_svelte_generated_client_boundary.py:18-62`).
 
 Explore does not currently encode Finder inputs in the URL. The existing URL
-pattern parses `?system=` in `AppShell` and copies it into the selected-system
-store after hydration (`apps/web/src/lib/components/AppShell.svelte:19-52`).
+pattern parses `?system=` in `AppShell`, copies it into the selected-system store,
+and on `/explore` mounts `SystemOverlay`
+(`apps/web/src/lib/components/AppShell.svelte:19-52`,
+`apps/web/src/lib/components/AppShell.svelte:76`). The modal takes focus and its
+close path removes `system` (`apps/web/src/lib/components/SystemOverlay.svelte:37-44`,
+`apps/web/src/lib/components/SystemOverlay.svelte:79-86`), so that parameter
+cannot also be F4's passive shared-selection contract.
 Central persistence keys and validated stores live in
 `apps/web/src/lib/persistence/storage.ts:6-26` and
 `apps/web/src/lib/persistence/stores.ts:40-125`; there is no Finder-query key.
@@ -214,8 +225,7 @@ Selecting a result currently writes only that store
 (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:468-473`), and a
 Babylon system pick does the same
 (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:505-516`); neither
-handler serializes the `system=` parameter that `AppShell` uses to reconstruct a
-shared selection.
+handler has a distinct passive `selected=` share contract.
 
 ### Fixtures
 
@@ -291,7 +301,8 @@ pin these computed rows before Cypress relies on the exact values.
 5. The two slice-1 response shapes, search scopes, score meanings and distance
    references are not reconciled, and neither exposes summary `best_tier`.
 6. Finder query and offset state is not URL-backed or shareable; result/map
-   selection also fails to write the existing `system=` share contract.
+   selection has no passive `selected=` share contract distinct from the
+   `system=` detail-overlay trigger.
 7. Result rows omit tier, score, confidence/completeness, primary/secondary and
    Best Colony Potential.
 8. Ranking loading, empty and error messages do not name the active archetype or
@@ -311,7 +322,7 @@ pin these computed rows before Cypress relies on the exact values.
 14. A render-only feature gate would leave hand-authored F4 URLs able to select
     the rankings request path.
 15. Ranking URL hydration has no reactive SvelteKit navigation/popstate contract,
-    and current result/map selection writes the store without `system=`.
+    and current result/map selection writes the store without `selected=`.
 
 ## 4. API dependency map
 
@@ -327,7 +338,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Its current `total` is uncapped, and its response model has no truncation flag (`apps/api/src/models.py:911-924`). Any local search accepts a much larger `from` value (`apps/api/src/models.py:541-545`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:918-923`). | Slice 1c probes at most 10,001 raw/index-eligible rows. `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st raw-score candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to existing wire `limit`, and applies the 10,000 navigation ceiling only to selected rankings. Any derives its separate `navigable_total` and truncation state from the local-search `total`/`total_is_capped` response. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together.                          |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 raw/index-eligible rows. `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st raw-score candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies the 10,000 navigation ceiling to selected rankings and saturated unanchored Any responses. Anchored Any retains its exact total and may navigate beyond 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The V3 product stores explanation data (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs slice 2. Do not show legacy rationale as V3 explanation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -500,16 +511,23 @@ as `total=3, is_truncated=true` is valid. Provide Previous/Next only across the
 filtered rows inside that window; never imply that they cover a broader filtered
 search outside it.
 
-Any mode has no 10,000 URL/navigation ceiling. The local-search count builder
-passes a cap only for `galaxy_wide`; an anchored search, whose default distance
-is 500 LY, receives no count cap and may return an exact `total` above 10,000
+Any mode has no unconditional 10,000 URL/navigation ceiling. The local-search
+count builder passes a cap only for `galaxy_wide`; an anchored search, whose
+default distance is 500 LY, receives no count cap and may return an exact `total`
+above 10,000
 (`apps/api/src/local_search.py:248-254`,
 `apps/api/src/local_search.py:918-923`). Normalize Any responses separately:
 `navigable_total` is the returned `total`, and the Any truncation state is the
 existing `total_is_capped === true` rather than selected mode's differently
-defined `is_truncated`. Thus an anchored exact total remains fully navigable,
-while a galaxy-wide saturated total advertises truncation and allows navigation
-only through the returned `navigable_total`. When `total_is_capped=true`, show
+defined `is_truncated`. Thus an anchored exact total remains fully navigable.
+For a saturated unanchored response, set `navigation_limit: 10000`, require
+`offset < 10000`, and cap the wire page at
+`min(page_size, 10000 - offset)`; canonicalize and refetch a URL at or crossing
+that boundary so no request or displayed page exceeds the advertised cap. This
+browser clamp is required because `local_db_search_v3` otherwise forwards page
+`LIMIT`/`OFFSET` independently of its capped count
+(`apps/api/src/local_search.py:902-923`,
+`apps/api/src/ranking/ranking_sql.py:479-506`). When `total_is_capped=true`, show
 **10,000+ matches; navigation is limited to the first 10,000 results.** Do not
 infer a cap from the number 10,000
 (`apps/api/src/local_search.py:965-970`, `apps/api/src/models.py:408-412`).
@@ -523,22 +541,28 @@ change updates them together, as required by the spatial product contract
   naming the active mode: “Ranking systems for Manufacturing Hub…” Existing
   result loading already uses those semantics
   (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:743-763`).
-- Out-of-range page: when a response has `total > 0` and `offset >= total`, do
-  not render the empty state. Clamp to the last valid page at
-  `floor((total - 1) / page_size) * page_size`, replace the URL with
-  `history.replaceState` so Back is not polluted, request that page, and show a
-  one-line polite `role="status"` notice: **Page reset to the last available
-  results.**
+- Out-of-range page: when a response has `total > 0` and `offset >= total`, or a
+  saturated unanchored Any page would cross 10,000, do not render the empty
+  state. Clamp to the last valid page, derive the destination from reactive
+  `page.url`, then call `goto(destination, { replaceState: true })` from
+  `$app/navigation`; never call native `history.replaceState`. Request that page
+  and show a one-line polite `role="status"` notice: **Page reset to the last
+  available results.** This keeps `page.url` hydration and Back/Forward aligned
+  (`apps/web/src/lib/components/AppShell.svelte:2-3`,
+  `apps/web/src/lib/components/AppShell.svelte:54-58`).
 - Empty: only `total === 0` is a genuine no-match state. Say “No systems meet
   minimum tier B for Manufacturing Hub.” Include **Reset to tier B** (when the
   active floor is A/S) and **Choose Any** actions. Empty is not an error; do not
   offer gated C/D as an escape hatch.
-- Error: HTTP 503 is a first-class **Ranking unavailable** state with
-  `role="alert"`: “Archetype rankings are unavailable until Finder ranking data
-  is published,” plus Retry and Choose Any actions. Retain the current
-  selection/map and do not call this “no matches.” Other errors use the same
-  retained-state retry pattern. Existing error state already has an
-  alert and retry pattern
+- Error: HTTP 503 is a first-class **Ranking temporarily unavailable** state with
+  `role="alert"`: “Archetype rankings are temporarily unavailable. Try again
+  shortly.” If an optional additive slice-1 API reason such as
+  `finder_products_not_ready` is present, instead show **Ranking data not ready**:
+  “Archetype rankings are unavailable until Finder ranking data is published.”
+  Status or free-form detail must never select that readiness copy. Both states
+  offer Retry and Choose Any, retain the current selection/map, and never say
+  “no matches.” Other errors use the same retained-state retry pattern. Existing
+  error state already has an alert and retry pattern
   (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:764-780`).
 - Stale transition: keep previous rows visibly marked “Updating…” while the new
   query is in flight; never relabel old rows as the newly selected archetype.
@@ -568,15 +592,20 @@ presentation only
 
 Selection continues to update the current persisted selected-system id and the
 renderer-neutral scene, and every committed result or system-map pick also
-serializes the lossless id as `system=<id64>` in the shared Explore URL while
-preserving ranking and unrelated parameters. The current handlers write only
-`selectedSystem` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:468-473`,
-`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:505-516`), whereas
-`AppShell` reconstructs URL selection only from `system=`
-(`apps/web/src/lib/components/AppShell.svelte:19-43`); F4 centralizes those
-selection commits so the store, URL, scene and Inspect hand-off cannot diverge.
-Inspect remains `/inspect?system={id64}`. No ranking field enters a Babylon
-contract. This preserves the north star that the map is the constant and
+serializes the lossless id as `selected=<id64>` in the shared Explore URL while
+preserving ranking and unrelated parameters. It does not open detail. The
+existing `system=<id64>` remains exclusively the explicit Explore
+`SystemOverlay`/Inspect trigger: the parameters may coexist, closing the overlay
+removes only `system`, and clearing selection removes only `selected`. The current
+handlers write only `selectedSystem`
+(`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:468-473`,
+`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:505-516`), while
+`AppShell` currently makes `system` both store input and overlay id
+(`apps/web/src/lib/components/AppShell.svelte:19-43`,
+`apps/web/src/lib/components/AppShell.svelte:76`); F4 decouples those paths and
+centralizes selection commits so the store, URL, scene and Inspect hand-off
+cannot diverge. Inspect remains `/inspect?system={id64}`. No ranking field enters
+a Babylon contract. This preserves the north star that the map is the constant and
 information changes around it
 (`docs/colonisation-redesign/spatial-platform-product-contract.md:10-26`) and the
 existing synchronized result/map hand-off
@@ -592,9 +621,9 @@ is absent from new result points today, and Babylon otherwise drops its marker
 `apps/web/src/lib/spatial/babylon/adapter.ts:1432-1438`,
 `apps/web/src/lib/spatial/babylon/adapter.ts:2032-2040`).
 
-That point must also survive a hard reload of a shared selection URL in a clean
-session, without relying on browser storage. The selected-system store persists
-only the id64
+That point must also survive a hard reload of a shared `selected=` URL in a clean
+session without opening `SystemOverlay` or relying on browser storage. The
+selected-system store persists only the id64
 (`apps/web/src/lib/persistence/stores.ts:107-112`), so F4b chooses API
 reconstruction rather than a new persisted point snapshot. After selection and
 URL hydration, when the selected id64 is absent from the current result page,
@@ -680,48 +709,54 @@ The URL is the source of truth for shareable ranking state:
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
 | Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit`, whose current API contract is default 50 and range 1–500 (`apps/api/src/routers/archetypes.py:517-518`). F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
-| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. For a selected archetype, additionally reject `offset >= 10,000`, and send at most `min(page_size, 10,000 - offset)` so a hand-written URL cannot cross its candidate window. Any mode has no 10,000 ceiling and maps the value to local-search `from`, whose current request bound is `2,147,483,647` (`apps/api/src/models.py:541-545`). Previous/Next step by normalized `page_size` and stop at the response's mode-specific `navigable_total`. Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. After any response with `total > 0` and `offset >= total`, replace the URL with the last valid page offset, refetch, and announce the page reset. |
+| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. For a selected archetype, reject `offset >= 10,000` and send at most `min(page_size, 10,000 - offset)`. Anchored Any may navigate its exact total beyond 10,000. Once unanchored Any reports `total_is_capped=true`, apply the same `offset < 10,000` and page-size clamp and correct/refetch a URL that would cross the cap. Previous/Next stop at the envelope's `navigable_total`. Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Selected system    | existing `system=<id64>`                                 | Preserve current overlay/selection meaning (`apps/web/src/lib/components/AppShell.svelte:19-43`). It is not a ranking input. Result selection and a Babylon system pick must write the lossless id into this parameter; clearing selection removes it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
+| Detail overlay     | existing `system=<id64>`                                 | Exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`). Closing the overlay removes only `system`; it never clears or creates `selected`. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
 history entry; offset navigation creates one entry; Reset creates one history
-entry; selection commits create one entry with `system=<id64>`; future slider
+entry; selection commits create one entry with `selected=<id64>`; future slider
 edits remain local draft state until Apply. Preserve
 unrelated query parameters. A response-driven out-of-range correction is not a
-user navigation: compute
-`floor((total - 1) / page_size) * page_size`, use `history.replaceState`, refetch
-that page, and show the one-line page-reset notice. The facade returns
+user navigation: compute the last valid offset, derive the destination from
+reactive `page.url`, use `goto(destination, { replaceState: true })` from
+`$app/navigation`, refetch that page, and show the one-line page-reset notice.
+Native `history.replaceState` is forbidden. The facade returns
 `page_size`, page `count`, raw response `total`, `navigable_total`, request
-`offset`, a selected-only `navigation_limit`, and source-owned truncation
+`offset`, a conditional `navigation_limit`, and source-owned truncation
 metadata rather than a bare result array. For selected rankings,
 `is_truncated=true` means the bounded raw-score probe observed a 10,001st row;
 `total` and `navigable_total` both count only filtered survivors among the first
 10,000. For Any, `navigable_total` is the local-search `total` and
 `total_is_capped` remains the distinct truncation flag; an anchored exact total
 above 10,000 therefore remains navigable, while a capped galaxy-wide response
-stops at the known returned total. Navigation, Next, count and truncation copy
+sets `navigation_limit: 10000` and clamps offset plus page size to that cap.
+Navigation, Next, count and truncation copy
 must never be computed independently of that envelope.
 
 URL hydration is reactive to SvelteKit's `page.url`, not a one-time `onMount` or
 `location` snapshot. On initial load and after every SvelteKit navigation or
 browser popstate, parse and canonicalize archetype, selected-only tier, page
-size, offset and `system` together; atomically update committed controls,
+size, offset and `selected` together; atomically update committed controls,
 selection and the query key so the correct local-search or rankings request and
 page refetch. `AppShell` already demonstrates a reactive `page.url` derivation
 for non-null selections (`apps/web/src/lib/components/AppShell.svelte:19-47`),
 but F4 also defines omission on `/explore`: an Explore history entry without
-`system` clears the URL-owned selection rather than leaving the persisted value
-active. Other routes retain their existing selection contract. Hydration never
+`selected` clears the URL-owned selection rather than leaving the persisted value
+active. `system` independently controls only the detail overlay/Inspect trigger;
+closing it leaves `selected` and the marker intact. Other routes retain their
+existing detail contract. Hydration never
 pushes another history entry and URL-writing effects must not loop. User
 picker, pagination and selection commits push; canonicalization and
 response-driven page correction replace.
 
 When `VITE_FINDER_F4_ENABLED !== '1'`, the hydrator does not parse or apply the
 F4 parameters at all. It removes `archetype`, `min-tier`, `page_size`, `offset`
-and `weight` with replace-state, leaves `system` and unrelated parameters
-intact, and retains the unchanged local-search request branch described above.
+and `weight` with SvelteKit replace-state, leaves `selected`, `system` and
+unrelated parameters intact, and retains the unchanged local-search request
+branch described above.
 
 The initial archetype mode is intentionally galaxy-wide. The current anchor is
 not added to this new contract because its exact shared reconstruction and its
@@ -749,7 +784,12 @@ for the same `selected_archetype`; otherwise it is omitted with a “different
 ranking modes” note. Distance is compared only when every entry has the same
 `distance_reference.kind` and id64, labelled **Distance from Sol** or
 **Distance from _name_**. Mixed-reference distances are excluded rather than
-silently compared.
+silently compared. For referenced snapshots, every finite measured distance is
+valid, including `0`; the reference metadata, not a positive-value test, proves
+the measurement. A legacy snapshot without `distance_reference` is unknown and
+excluded even if it stores zero (or another finite distance). The current
+positive-only sentinel is at
+`apps/web/src/lib/features/explore/compare-metrics.ts:164-167`.
 
 ## 7. Validation plan
 
@@ -824,20 +864,22 @@ for:
   boundaries, including that Any-mode output never contains “fit”;
 - URL parse/serialize round trips, canonical ordering, defaults, duplicate and
   unknown parameters, `page_size` default 50 and inclusive 1–50 bounds, the
-  selected-only exclusive 10,000 offset ceiling and request-size clamp, Any
-  offsets above 10,000, anchored exact totals above 10,000, galaxy-wide
-  `total_is_capped` → `navigable_total`/truncation normalization, the raw-window
+  selected-only exclusive 10,000 offset ceiling and request-size clamp, anchored
+  Any offsets/exact totals above 10,000, saturated unanchored Any
+  `total_is_capped` → 10,000 offset/page-size clamp and URL correction, the raw-window
   10,001 sentinel, post-filter within-window total and independent truncation
   rules, offset/reset rules, last-valid-page calculation, Any-mode removal of
-  `min-tier`, and preservation of `system` plus unrelated parameters;
+  `min-tier`, and preservation of independent `selected`/`system` plus unrelated
+  parameters;
 - request selection: Any → unchanged local search with no tier field, key →
   rankings, selected default B → score 60, and facade `page_size=1` → wire
   `limit=1`;
 - ranking-row normalization preserving `score_kind`, selected archetype,
   overall potential, `distance_reference`, page metadata, absent `best_tier`
   and lossless id64 handling;
-- persistence backward compatibility plus mode-aware scores and same-reference
-  distance comparison;
+- persistence backward compatibility plus mode-aware scores, same-reference
+  distance comparison accepting finite zero, and exclusion of legacy snapshots
+  without a reference;
 - default-off feature config and explicit fixture opt-in; the disabled request
   selector must make the rankings branch unreachable for a hand-authored F4 URL;
 - future weight basis-point parsing behind a disabled feature flag, activated
@@ -862,12 +904,13 @@ Use Testing Library Svelte, which is installed in the current stack
   `is_truncated=true`; a three-row fixture envelope at `page_size=1` has three
   real pages and two enabled Next transitions; also cover anchored Any with an
   exact total above 10,000 and galaxy-wide Any with `total_is_capped=true`;
-- a stale/shared `offset=9950` response with `total=3` replaces the URL with the
-  last valid page at `offset=0`, refetches it, shows the one-line page-reset
-  notice and never flashes the no-match state; `total=0` alone renders the
-  genuine empty state;
-- loading `status`, genuine-empty actions, first-class 503 ranking-unavailable
-  `alert` and Retry;
+- a stale/shared `offset=9950` response with `total=3` calls mocked SvelteKit
+  `goto` with `replaceState: true` for the last valid page at `offset=0`, refetches
+  exactly once without a hydration loop, shows the page-reset notice and never
+  flashes the no-match state; a saturated unanchored Any page crossing 10,000
+  uses the same correction, while `total=0` alone renders the genuine empty state;
+- loading `status`, genuine-empty actions, generic 503 **Ranking temporarily
+  unavailable**, readiness-reason **Ranking data not ready**, and Retry;
 - focus remains on the picker during rerank/page changes, while choosing a new
   Any-mode anchor focuses the first completed result once;
 - commit an anchor, switch to an archetype, edit the combobox draft without
@@ -879,11 +922,12 @@ Use Testing Library Svelte, which is installed in the current stack
 - hydration resolves a selected id64 omitted from the current page through
   `GET /api/system/{id64}`, emits one point only after validated coordinates,
   and ignores stale, missing or invalid responses;
-- result and Babylon-map selection serialize `system=<id64>` without losing
-  ranking/unrelated parameters; reactive SvelteKit URL hydration reparses the
-  ranking state and selection on Back/Forward, clears URL-owned selection when
-  `system` disappears from Explore, and refetches the restored request/page
-  without a loop;
+- result and Babylon-map selection serialize `selected=<id64>` without losing
+  ranking, `system` or unrelated parameters; reactive SvelteKit URL hydration
+  reparses ranking and selection on Back/Forward, clears URL-owned selection when
+  `selected` disappears from Explore, and refetches the restored request/page
+  without a loop; `selected` alone never mounts the overlay, and closing a
+  coexisting `system` overlay leaves `selected` and its marker intact;
 - with the feature flag disabled, loading
   `/explore?archetype=flexible&min-tier=A&page_size=1&offset=1` strips those F4
   parameters by replacement, issues exactly today's unanchored local-search body
@@ -913,16 +957,18 @@ Add a Product E2E journey that:
    Best Colony Potential, evidence wording and primary/secondary text;
 5. uses Next to traverse the three committed systems as three one-row pages
    (offsets 0, 1 and 2), selects a row, reranks/pages so the new page omits it,
-   proves the copied URL now contains `system=<id64>`, and verifies its map
-   marker plus Inspect URL remain; then clears localStorage and sessionStorage
-   and loads that copied URL as a clean session with the selected row still
-   absent, waits for the real
+   proves the copied URL contains `selected=<id64>` and no `system` trigger, and
+   verifies its map marker plus Inspect URL remain without a modal; then clears
+   localStorage and sessionStorage and loads that copied URL as a clean session
+   with the selected row still absent, waits for the real
    `GET /api/system/{id64}` hydration request, and proves the validated selected
    marker/label appears exactly once while the DOM page still omits the row and
    the Inspect href remains `/inspect?system={id64}`; then runs axe;
 6. uses Back/Forward across picker and pagination commits, asserting that
    archetype, tier, offset, selection, result/map envelope and the corresponding
-   local-search/rankings request are restored and refetched from each URL;
+   local-search/rankings request are restored and refetched from each URL; the
+   select → rerank/page journey retains its marker from `selected`, while an
+   explicit `system` overlay can open/close independently;
 7. captures approved 1280×800 and 390×844 screenshots with animation disabled.
 
 Only after slice 1c and its representative-scale proof have landed must the
@@ -1030,6 +1076,12 @@ promotion. Three API dependencies remain explicit:
   `apps/api/src/ranking/ranking_sql.py:451-462`,
   `apps/api/src/ranking/ranking_sql.py:512-565`,
   `sql/v3/migrations/011_v3_system_archetype.sql:52-56`).
+- **Optional slice-1 readiness reason:** an additive stable machine-readable
+  reason such as `finder_products_not_ready` may distinguish the product-readiness
+  503 at `apps/api/src/local_search.py:620-642` from ordinary database 503s at
+  `apps/api/src/routers/archetypes.py:376-387`. This is a copy nicety, not an
+  F4a/F4b prerequisite; without it the UI always uses generic temporary-
+  unavailability copy and never branches on free-form detail.
 
 ### PR slice 1c — bounded selected ranking API (hard prerequisite for F4b)
 
@@ -1167,9 +1219,12 @@ page-envelope normalizer,
 snapshot shape (`ranking_score`, `score_kind`, selected archetype and distance
 reference), and ranking query key. The facade constrains `page_size` to 1–50
 (default 50), maps it to existing endpoint `limit`, exposes the exclusive 10,000
-offset/window limit only for selected rankings, and clamps selected request size
-at its boundary. Any accepts offsets above 10,000 within the local-search wire
-bound. The envelope preserves slice 1c's post-filter within-window total and
+offset/window limit for selected rankings and clamps selected request size at
+its boundary. Anchored Any accepts exact offsets above 10,000 within the local-
+search wire bound; saturated unanchored Any applies the 10,000 offset/page-size
+clamp and SvelteKit URL correction because page `LIMIT`/`OFFSET` is otherwise
+independent of the capped count. The envelope preserves slice 1c's post-filter
+within-window total and
 independent API-owned `is_truncated`; for Any it exposes `navigable_total` and
 the existing `total_is_capped` state from the local-search response, so exact
 anchored totals remain fully navigable and capped galaxy-wide totals do not
@@ -1180,7 +1235,8 @@ point F4 behavior and rendering. Its disabled-build regression loads a hand-
 authored archetype/tier/page URL, proves those parameters are replace-stripped,
 asserts the rankings facade is never invoked, deep-compares the local-search
 body with today's `{ galaxy_wide: true, sort_by: 'development', size: 24,
-from: 0 }`, and finds no ranking UI. Preserve `system` and unrelated parameters.
+from: 0 }`, and finds no ranking UI. Preserve independent `selected`, `system`
+and unrelated parameters.
 F4a may land without slice 1b and must then omit the headline tier. Extend the
 isolated-PostgreSQL seed test to pin all three Product systems' ranking fields
 before Cypress relies on exact values. The slice 1c PR owns generated changes;
@@ -1207,8 +1263,13 @@ Exact files:
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.test.ts` (including
   three one-row pages and stale-offset replacement/refetch)
 - modify `apps/web/src/lib/features/explore/ExploreWorkspaceTestHost.svelte`
+- modify `apps/web/src/lib/features/explore/compare-metrics.ts` (temporarily
+  suppress distance in F4 Compare table and CSV)
+- modify `apps/web/src/lib/features/explore/compare-metrics.test.ts`
+- modify `apps/web/src/lib/features/explore/ComparePanel.svelte`
+- modify `apps/web/src/lib/features/explore/ComparePanel.test.ts`
 - modify `apps/web/src/lib/components/AppShell.svelte` (reactive selection
-  hydration, including Explore URL omission)
+  hydration, including independent `selected`/`system` semantics)
 - create `apps/web/src/lib/components/AppShell.test.ts`
 - create `apps/web/src/lib/components/AppShellTestHost.svelte`
 - modify `apps/web/src/lib/spatial/explore-scene.ts`
@@ -1238,16 +1299,20 @@ committed anchor so archetype mode cannot erase the Any query. Retain a separate
 deduplicated selected point before replacing result points so reranking cannot
 drop its marker, and reconstruct that point after hydration with the existing
 `getSystem`/`GET /api/system/{id64}` path when it is absent from the page. Set
-result and Babylon system-pick commits to write `system=<id64>`, and rehydrate
-archetype, selected-only tier, offset and selection reactively from `page.url` on
-every SvelteKit navigation/popstate. Back/Forward must restore the matching
-request/page/map, and omission of `system` on Explore clears the URL-owned
-selection. Set
+result and Babylon system-pick commits to write `selected=<id64>` without opening
+detail. Keep `system=<id64>` exclusively for `SystemOverlay`/Inspect, and
+rehydrate archetype, selected-only tier, offset and passive selection reactively
+from `page.url` on every SvelteKit navigation/popstate. Back/Forward must restore
+the matching request/page/map; omission of `selected` on Explore clears the
+URL-owned selection, while closing `system` leaves it intact. Set
 each radio's accessible name from its short label only and reference its separate
 one-line description with `aria-describedby`. When a returned `total > 0` is at
-or below the requested offset, replace the URL with the calculated last valid
-page, refetch, and show the one-line page-reset notice; only `total === 0` enters
-the no-match state. Add both unit and component regressions for this flow. Set
+or below the requested offset, or saturated unanchored Any would cross 10,000,
+call SvelteKit `goto` with `replaceState: true` for the calculated last valid
+page, refetch once, and show the page-reset notice; never use native History API.
+Only `total === 0` enters the no-match state. Add unit and component regressions.
+Until F4c lands, suppress the distance metric from both Compare table and CSV in
+the F4 opt-in surface; do not compare unlike references. Set
 `VITE_FINDER_F4_ENABLED: '1'` only on the protected workflow's Svelte bundle
 build step and update its named workflow-contract tests; production/release
 builds keep the default `0`. Product E2E enters selected mode with `page_size=1`,
@@ -1255,8 +1320,9 @@ chooses Flexible at B, asserts the real request sends `min_score=60` and
 `limit=1`, and traverses the computed V3 Lossless Reach → Achenar → HD 38179
 order at offsets 0, 1 and 2 across the unchanged three-system corpus. It also
 exercises Back/Forward across picker and page commits, and loads a copied
-`system=<id64>` URL after clearing both browser storage mechanisms to prove the
-marker and Inspect hand-off come from the URL. Required
+`selected=<id64>` URL after clearing both browser storage mechanisms to prove the
+marker and Inspect hand-off come from the URL without mounting the overlay.
+Required
 proof: focused unit/component tests; full
 Svelte web checks; OpenAPI drift;
 **Svelte Web E2E** in Chrome and
@@ -1281,7 +1347,16 @@ Exact files:
 Replace duplicated/underscore-derived labels with the canonical F4 metadata.
 Persist overall potential alongside selected-fit identity; compare overall
 potential across modes, selected fits only for the same archetype, and distances
-only for one exact reference with a reference-specific label. Preserve legacy
+only for one exact reference with a reference-specific label. Remove F4b's
+temporary distance suppression only when this full contract lands. Referenced
+snapshots accept every finite distance including `0`; a legacy snapshot without
+a reference remains unknown rather than treating zero as a sentinel. Add a
+regression in which same-reference distances `0` and positive render `0.00 LY`
+with zero best, while a no-reference legacy zero cannot make the row eligible.
+This replaces the current positive-only behavior
+(`apps/web/src/lib/features/explore/compare-metrics.ts:164-167`,
+`apps/web/src/lib/features/explore/compare-metrics.test.ts:43-62`,
+`apps/web/src/lib/features/explore/compare-metrics.test.ts:70-95`). Preserve legacy
 snapshots as unknown-mode/reference rather than guessing.
 Compare currently has its own mapping and tier thresholds
 (`apps/web/src/lib/features/explore/compare-metrics.ts:17-28`,
@@ -1289,6 +1364,8 @@ Compare currently has its own mapping and tier thresholds
 browser tier calculation and show a tier only from the corresponding API field.
 Preserve historical unknown keys as readable fallbacks rather than pretending
 they are V3 keys.
+F4c is the final hard prerequisite before the default-off flag may be enabled in
+a governed production/release build.
 Required proof: focused Vitest/component tests, Svelte web checks, visual review
 of saved/compare rows, Product E2E and Review Lab.
 
@@ -1347,30 +1424,33 @@ baselines, and unchanged Review Lab.
   it.
 - **Premature production exposure:** repository handlers exist before production
   has the required Finder products. Mitigation: default-off build gate, fixture
-  validation, first-class 503 state, and enablement only in the governed release
-  after publication receipts; only after slice 1c and its scale proof land does
-  the protected Product E2E build opt in at its bundle step, while
+  validation, generic temporary-unavailability copy for 503, and enablement only
+  in the governed release after publication receipts and F4c; only after slice 1c
+  and its scale proof land does the protected Product E2E build opt in at its
+  bundle step, with distance comparison suppressed until F4c, while
   production/release builds retain default `0`. This design authorizes no
   promotion. The gate covers URL hydration, request selection, history effects
   and selected-point F4 behavior as well as rendered controls; the disabled
   regression proves a hand-authored archetype URL cannot reach rankings.
 - **Pagination drift:** a page may be mistaken for the full result set, diverge
   from the map, or be empty only because a shared offset outlived its result set.
-  Mitigation: apply the first-10,000 navigation window only to selected mode;
-  expose its exact filtered-within-window total separately from raw-window
-  `is_truncated`; derive Any `navigable_total`/cap state from local search; and
-  update `page_size`, Next, count/truncation status, list and Finder contribution
-  from one envelope. Clamp a positive out-of-range total to its last valid page
-  with `replaceState` and reserve the no-match state for `total === 0`.
+  Mitigation: expose the selected mode's exact filtered-within-window total
+  separately from raw-window `is_truncated`; derive Any `navigable_total`/cap
+  state from local search; clamp saturated unanchored Any offset plus page size
+  to 10,000 while preserving anchored exact navigation; and update `page_size`,
+  Next, count/truncation status, list and Finder contribution from one envelope.
+  Correct positive out-of-range URLs with SvelteKit replacement navigation and
+  reserve the no-match state for `total === 0`.
 - **Interaction regressions:** refetch may steal picker focus or omit the selected
   marker; draft edits may erase the committed Any anchor; and store-only
   selection or one-shot hydration may break copied links and Back/Forward.
   Mitigation:
   anchor-selection-only autofocus, separate draft/committed-anchor state, a
   retained selected point contribution, and exact-system reconstruction after
-  hydration; both selection handlers write `system=`, URL hydration reacts to
-  every SvelteKit navigation/popstate, and component/Product E2E cover clean-
-  storage sharing plus history traversal.
+  hydration; both selection handlers write passive `selected=`, `system=` remains
+  an independent overlay trigger, URL hydration reacts to every SvelteKit
+  navigation/popstate, and component/Product E2E cover clean-storage sharing plus
+  history traversal.
 - **False scale proof:** a flattened scratch table can hide view expansion, join
   order and real-index costs. Mitigation: slice 1c executes builder-produced page
   and count SQL against the production-shaped three-relation/view/index layout;
@@ -1399,9 +1479,10 @@ product/implementation choices are:
    “clear/close fit” label in F4b, in addition to the evidence badge?
 2. **Choose one:** keep future custom weights URL-only, or also remember them as a
    validated local preference after slice 2?
-3. **Who owns the governed enablement decision:** which publication and release
-   receipts authorize changing `VITE_FINDER_F4_ENABLED` from its default `0` to
-   `1` in a later immutable web build?
+3. **Who owns the governed enablement decision:** after F4c has landed and made
+   comparison reference-safe, which publication and release receipts authorize
+   changing `VITE_FINDER_F4_ENABLED` from its default `0` to `1` in a later
+   immutable production/release web build?
 4. **Before Any gets a tier control, choose slice 1d's bounded semantics:** an
    index/access path compatible with `best_colony_potential`, a fixed
    weighted-order candidate window, or an explicit candidate/count-work cap with
@@ -1552,8 +1633,9 @@ product/implementation choices are:
     `tests/test_ranking_identity_and_no_legacy.py:203-206`), so responses
     advertise an identity that reproduces the returned ranking.
 19. **Report the Any-mode navigation cap** → the 10,000 URL and request ceiling
-    now applies only to selected rankings. Local search passes a count cap only
-    for `galaxy_wide`, so an anchored Any request (500 LY by default) can return
+    applies to selected rankings and saturated unanchored Any responses. Local
+    search passes a count cap only for `galaxy_wide`, so an anchored Any request
+    (500 LY by default) can return
     an exact total above 10,000 (`apps/api/src/local_search.py:248-254`,
     `apps/api/src/local_search.py:918-923`). The Any envelope therefore exposes
     the returned `total` as `navigable_total` and retains the response's
@@ -1561,13 +1643,13 @@ product/implementation choices are:
     saturated galaxy-wide count and is absent on precise distance-bounded
     searches (`apps/api/src/local_search.py:965-970`,
     `apps/api/src/models.py:408-412`). Exact anchored results can navigate beyond
-    9,999; capped galaxy-wide results stop Next at the known `navigable_total`
-    while visibly reporting the cap.
+    9,999; capped galaxy-wide results clamp offset plus page size at 10,000 while
+    visibly reporting the cap.
 20. **Normalize offsets that exceed the returned total** → after a response with
     `total > 0` and `offset >= total`, F4b computes
-    `floor((total - 1) / page_size) * page_size`, rewrites the URL with
-    `history.replaceState`, refetches that last valid page and shows **Page reset
-    to the last available results.** It never turns the stale page's empty array
+    `floor((total - 1) / page_size) * page_size`, rewrites the URL with SvelteKit
+    `goto(..., { replaceState: true })`, refetches that last valid page and shows
+    **Page reset to the last available results.** It never turns the stale page's empty array
     into a no-match claim; only `total === 0` renders the genuine empty state.
     F4b's unit and component tests cover the clamp, replacement/refetch, notice,
     absence of a false empty state, and the real-zero case.
@@ -1594,24 +1676,22 @@ product/implementation choices are:
 2. **P1-B — Gate the ranking request path, not only the new controls** → the
    default-off gate now owns URL hydration/canonicalization, request selection,
    history effects, selected-point F4 behavior and rendering. A disabled build
-   strips F4 parameters, preserves `system`/unrelated parameters, cannot reach
+   strips F4 parameters, preserves `selected`/`system`/unrelated parameters, cannot reach
    rankings, and issues today's unchanged local-search request
    (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-144`). F4a's
    exact test list includes the disabled hand-authored-archetype URL regression.
-3. **P2-A — Put the selected system into the shared URL** → result and Babylon
-   system-pick commits now must serialize `system=<id64>` as well as update the
-   store. This closes the verified gap between the store-only handlers
+3. **P2-A — Put the selected system into the shared URL (superseded by Round 7
+   disposition 1)** → Round 6 identified the store-only handler gap
    (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:468-473`,
-   `apps/web/src/lib/features/explore/ExploreWorkspace.svelte:505-516`) and
-   `AppShell`'s `system=` hydration
-   (`apps/web/src/lib/components/AppShell.svelte:19-43`). Product E2E copies that
-   URL, clears localStorage/sessionStorage, loads it as a clean session and proves
-   the marker and Inspect hand-off are restored.
-4. **P2-B — Rehydrate ranking state on history navigation** → hydration is now
+   `apps/web/src/lib/features/explore/ExploreWorkspace.svelte:505-516`) but chose
+   `system=`. Round 7 corrects that parameter to passive `selected=` because
+   `system=` opens the overlay.
+4. **P2-B — Rehydrate ranking state on history navigation (selection parameter
+   corrected by Round 7 disposition 1)** → hydration is now
    reactive to SvelteKit `page.url` on initial load, client navigation and
    popstate. It atomically reparses archetype, selected-only tier, page size,
    offset and selection, refetches the matching branch/page, and clears URL-owned
-   selection when `system` disappears from an Explore history entry. Component
+   selection when `selected` disappears from an Explore history entry. Component
    and Product E2E cover
    Back/Forward across picker and pagination changes without URL-write loops.
 5. **P2-C — Benchmark the production-shaped join plan** → slice 1c's receipt now
@@ -1621,3 +1701,53 @@ product/implementation choices are:
    production-shaped `system_search`, `system_archetype` and summary
    relations/views with their real indexes on disposable PostgreSQL 18. A
    hand-written or flattened-table EXPLAIN does not unblock F4b.
+
+#### Round 7 — 2026-10-10 (PR #801)
+
+1. **P1 — Separate passive selection from the detail-overlay trigger** → Round
+   6 dispositions 3–4 are superseded: result and Babylon picks write
+   `selected=<id64>`, which hydrates Explore selection and a validated marker
+   without mounting a modal. `system=<id64>` remains exclusively the explicit
+   `SystemOverlay`/Inspect trigger. The two parameters may coexist; closing the
+   overlay removes only `system`, and clearing selection removes only `selected`.
+   This follows the verified current behavior that `system` derives `overlayId`
+   and mounts `SystemOverlay` (`apps/web/src/lib/components/AppShell.svelte:19-33`,
+   `apps/web/src/lib/components/AppShell.svelte:76`), whose close path removes
+   `system` (`apps/web/src/lib/components/SystemOverlay.svelte:37-44`). The clean-
+   session E2E restores the marker from `selected` with no modal, and the select
+   → rerank/page journey keeps that marker.
+2. **P2-A — Use SvelteKit navigation for URL replacement** → canonicalization
+   and stale/capped-offset correction derive their destination from reactive
+   `page.url` and call `$app/navigation` `goto(..., { replaceState: true })`;
+   native `history.replaceState` is forbidden. This matches the current app
+   precedent (`apps/web/src/lib/components/AppShell.svelte:2-3`,
+   `apps/web/src/lib/components/AppShell.svelte:54-58`) and keeps hydration plus
+   Back/Forward synchronized.
+3. **P2-B — Preserve measured zero-distance comparisons** → F4c accepts every
+   finite distance, including `0`, when a snapshot carries the exact shared
+   `distance_reference`; only legacy snapshots without a reference are unknown.
+   Its regression replaces the current positive-only sentinel
+   (`apps/web/src/lib/features/explore/compare-metrics.ts:164-167`) and proves
+   same-reference zero renders `0.00 LY` and wins against a positive distance.
+4. **P2-C — Clamp saturated galaxy-wide Any pages at 10,000** → anchored Any
+   keeps its exact total and may navigate beyond 10,000. Once unanchored Any
+   reports `total_is_capped=true`, F4 clamps `offset + page_size` to 10,000 and
+   corrects/refetches URLs at or beyond that boundary. This is necessary because
+   `local_db_search_v3` passes page size/offset to `LIMIT`/`OFFSET` independently
+   of the galaxy-wide-only capped count (`apps/api/src/local_search.py:902-923`,
+   `apps/api/src/ranking/ranking_sql.py:479-506`,
+   `apps/api/src/ranking/ranking_sql.py:530-565`).
+5. **P2-D — Make comparison reference-safe before release enablement** → F4b
+   temporarily suppresses distance from both Compare table and CSV while the F4
+   opt-in surface is exercised. F4c restores it only with exact-reference,
+   reference-labelled and zero-safe behavior, and is a hard prerequisite before
+   the default-off flag is enabled in a governed production/release build. The
+   PR plan and enablement owner question record that ordering.
+6. **P2-E — Do not attribute every 503 to unpublished data** → generic 503s
+   show **Ranking temporarily unavailable**: “Archetype rankings are temporarily
+   unavailable. Try again shortly.” Only an optional stable slice-1 reason such as
+   `finder_products_not_ready` selects **Ranking data not ready**: “Archetype
+   rankings are unavailable until Finder ranking data is published.” The reason
+   is a non-blocking API nicety because ordinary PostgreSQL errors also become
+   503 (`apps/api/src/routers/archetypes.py:365-387`); free-form detail never
+   drives the copy.
