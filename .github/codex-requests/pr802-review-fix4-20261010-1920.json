@@ -1,0 +1,5 @@
+{
+  "mode": "implement",
+  "target_branch": "codex/run-38040971079-1",
+  "task": "FIX ONE FOLLOW-UP REVIEW FINDING ON PR #802. Target branch codex/run-38040971079-1, expected head 9537497; fail closed and write nothing if it moved. Only .github/workflows/review-lab.yml and the test that pins its timeout (grep tests/ for 'timeout-minutes' and 'review-lab.yml'; likely tests/test_review_lab_v3.py) may change.\n\nFINDING (P2, review-lab.yml:26): the Review Lab job timeout rose only from 15 to 20 minutes although the pull retry budget alone can take about 9.4 minutes, squeezing the existing phases. CHANGE: set the Review Lab job timeout-minutes to 25 (previous 15-minute phase budget + the ~10-minute pull budget) and update the comment and the test assertion.\n\nVALIDATION: python -m pytest tests/test_review_lab_v3.py tests/test_review_lab_timeouts.py -q -p no:cacheprovider; yaml.safe_load of the workflow; git diff --name-only 9537497 lists only the allowed files. Commit message: 'ci: Review Lab job budget covers the pull retry allowance'."
+}
