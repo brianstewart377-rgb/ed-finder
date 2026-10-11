@@ -365,8 +365,16 @@ statistics window** (`idx_scan` is cumulative since the last statistics reset,
 so a recently reset counter must not be read as “never used”), dead-tuple
 estimates, and derived-generation attribution, followed by an explicit
 accounted-versus-unaccounted summary whose candidate directories exclude
-everything already counted (`base/`, `pg_wal`, `pg_tblspc`, the temp and stat
-directories).
+**only** what an accounted figure genuinely covers — `base/` (the per-database
+storage `pg_database_size` sums) and `pg_wal`/`pg_xlog` (`wal_bytes`). The
+temporary directory is `base/pgsql_tmp`, inside `base`, so it needs no entry of
+its own. The cluster-level statistics directories `pg_stat` and `pg_stat_tmp`,
+`global`, `pg_xact`, `pg_multixact`, `pg_tblspc`, logs and replication-slot state
+are **not** covered by any accounted figure, so they appear as candidates flagged
+`inside_data_directory` — listed so the summary can locate every byte it reports
+as unaccounted, **not** as reclaim suggestions: several of them must never be
+deleted. pg_wal's own subdirectories are reported separately too, because
+`pg_ls_waldir()` lists only its top-level ordinary files.
 
 The directory scan is **fail-closed**: if it cannot run, the operation stops
 rather than returning a receipt that looks complete while missing the only

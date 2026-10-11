@@ -1069,3 +1069,61 @@ def test_v3_disk_inventory_reports_an_untruncated_index_inventory(tmp_path):
 
     assert inventory["indexes_truncated"] is False
     assert inventory["indexes_limit"] == 200
+
+
+def test_v3_disk_inventory_closes_the_measurement_window_last():
+    """Every input to the summary must describe one state.
+
+    The accounted-size queries (databases, WAL, temporary directory) originally all ran
+    after the closing reconciliation, so a concurrent derived build or WAL change could
+    make accounted_bytes describe a later state than the directory totals and produce a
+    wrong — or negative — unaccounted_bytes while the receipt reported success.
+    """
+    source = _read(ACTION)
+
+    # The reconciliation now runs after the database figures and before the summary.
+    databases = source.index('inventory["databases"] = psql_json(')
+    reconcile = source.index('inventory["postgres_data_directory_reconciliation"] = {')
+    summary = source.index('inventory["summary"] = {')
+    assert databases < reconcile < summary
+    # And the summary uses the reconciled reading, not the opening df.
+    assert 'volume_used = used_bracket["bytes_after_filesystem_scan"]' in source
+    assert "volume_used_not_reconciled" in source
+    assert 'volume_used = inventory["volume"]["used_bytes"]' not in source
+
+
+def test_v3_disk_inventory_separates_the_pgdata_scan_from_the_root_scan():
+    """A PGDATA scan failure must not discard the completed host-level scan."""
+    source = _read(ACTION)
+
+    assert (
+        source.count('section_failed(failures, inventory, "volume_directory_usage", exc)')
+        == 1
+    )
+    assert (
+        source.count(
+            'section_failed(failures, inventory, "postgres_data_directory_usage", exc)'
+        )
+        == 1
+    )
+    # The root scan's handler comes before the PGDATA scan, so they cannot share one.
+    root_handler = source.index(
+        'section_failed(failures, inventory, "volume_directory_usage", exc)'
+    )
+    pgdata_scan = source.index('"postgres_data_directory_usage_failed",')
+    assert root_handler < pgdata_scan
+
+
+def test_v3_disk_inventory_distinguishes_failed_tablespace_inspection(tmp_path):
+    """"Never inspected" and "tablespaces found" are different facts.
+
+    section_failed leaves an error object, which is still a dict, so a missing validity
+    flag was read as "tablespaces found" — telling the operator tablespaces exist when
+    they were never successfully inspected.
+    """
+    source = _read(ACTION)
+
+    assert "tablespace_section.get(\"single_filesystem_accounting_valid\"), bool" in source
+    assert 'tablespace_section["single_filesystem_accounting_valid"]' in source
+    # The truthiness test that conflated the two cases is gone.
+    assert 'if not tablespace_section.get("single_filesystem_accounting_valid")' not in source

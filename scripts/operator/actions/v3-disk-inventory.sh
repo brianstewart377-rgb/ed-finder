@@ -782,7 +782,16 @@ try:
     inventory["volume_directory_usage"] = sorted(
         usage_full, key=lambda item: (-item["bytes"], item["path"])
     )[:40]
+except RuntimeError as exc:
+    section_failed(failures, inventory, "volume_directory_usage", exc)
 
+try:
+    # The PGDATA depth-1 scan gets its own section too. It was the last scan still
+    # sharing the root scan's handler, so a timeout or an unreadable directory here
+    # replaced the already-stored host-level evidence with an error object -- discarding
+    # exactly the scan an operator would need in order to investigate this failure.
+    if pgdata_host is None or postgres_data_directory_bytes is None:
+        raise RuntimeError("postgres_data_directory_unresolved")
     data_usage = du_rows(
         ["du", "-x", "-B1", "--max-depth=1", pgdata_host],
         scan_budget,
@@ -806,7 +815,7 @@ try:
     }
 
 except RuntimeError as exc:
-    section_failed(failures, inventory, "volume_directory_usage", exc)
+    section_failed(failures, inventory, "postgres_data_directory_usage", exc)
 
 try:
     # The drill-down runs in a section of its own. It used to share the one above, so a
@@ -854,40 +863,6 @@ try:
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "non_database_drill_down", exc)
-
-try:
-    # Close the bracket around the drill-down as well, in a section of its own so that
-    # failing to reconcile cannot overwrite the scans above. The earlier bracket proved
-    # the data directory was stable across the filesystem scan, but the walk runs up to
-    # eight further scans afterwards and compares current ancestor totals against the
-    # one fixed data-directory size. If the database grew in between -- a concurrent
-    # derived build, say -- that growth is mislabelled as non-database usage and can
-    # send the walk down into the PostgreSQL volume; if it shrank, real sibling usage
-    # is hidden. Either way the receipt would still have said `success`.
-    if pgdata_host is None or pgdata_before is None:
-        raise RuntimeError("postgres_data_directory_unresolved")
-    bracket = inventory.get("postgres_data_directory_bracket")
-    if not isinstance(bracket, dict):
-        raise RuntimeError("postgres_data_directory_bracket_unavailable")
-    scan_budget.release_reserve()
-    pgdata_final = du_total(pgdata_host, scan_budget)
-    span_drift = abs(pgdata_final - pgdata_before)
-    bracket["bytes_after_drill_down"] = pgdata_final
-    bracket["span_drift_bytes"] = pgdata_final - pgdata_before
-    bracket["span_reconciled"] = span_drift <= tolerance
-    inventory["postgres_data_directory_reconciliation"] = {
-        "span_drift_bytes": pgdata_final - pgdata_before,
-        "tolerance_bytes": tolerance,
-        "reconciled": span_drift <= tolerance,
-    }
-    if span_drift > tolerance:
-        raise RuntimeError(
-            f"directory_usage_inconsistent:span_drift_{span_drift}_over_{tolerance}"
-        )
-except RuntimeError as exc:
-    section_failed(
-        failures, inventory, "postgres_data_directory_reconciliation", exc
-    )
 
 try:
     inventory["databases"] = psql_json(
@@ -1239,14 +1214,71 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "tablespaces", exc)
 
 try:
+    # CLOSE THE MEASUREMENT WINDOW. This runs last, after every input the summary uses
+    # -- the directory scans, the drill-down, and the database, WAL and
+    # temporary-directory queries -- because all of them are inputs to one piece of
+    # arithmetic and must describe one state. Closing it earlier (as it first did, right
+    # after the drill-down) left every accounted-size query outside the window, so a
+    # concurrent derived build or WAL change could make accounted_bytes describe a later
+    # state than the directory totals and produce a wrong, or even negative,
+    # unaccounted_bytes while the receipt reported success.
+    #
+    # It is also a section of its own, so failing to reconcile cannot overwrite the
+    # scans above. The earlier bracket proved
+    # the data directory was stable across the filesystem scan, but the walk runs up to
+    # eight further scans afterwards and compares current ancestor totals against the
+    # one fixed data-directory size. If the database grew in between -- a concurrent
+    # derived build, say -- that growth is mislabelled as non-database usage and can
+    # send the walk down into the PostgreSQL volume; if it shrank, real sibling usage
+    # is hidden. Either way the receipt would still have said `success`.
+    if pgdata_host is None or pgdata_before is None:
+        raise RuntimeError("postgres_data_directory_unresolved")
+    bracket = inventory.get("postgres_data_directory_bracket")
+    if not isinstance(bracket, dict):
+        raise RuntimeError("postgres_data_directory_bracket_unavailable")
+    scan_budget.release_reserve()
+    pgdata_final = du_total(pgdata_host, scan_budget)
+    span_drift = abs(pgdata_final - pgdata_before)
+    bracket["bytes_after_drill_down"] = pgdata_final
+    bracket["span_drift_bytes"] = pgdata_final - pgdata_before
+    bracket["span_reconciled"] = span_drift <= tolerance
+    inventory["postgres_data_directory_reconciliation"] = {
+        "span_drift_bytes": pgdata_final - pgdata_before,
+        "tolerance_bytes": tolerance,
+        "reconciled": span_drift <= tolerance,
+    }
+    if span_drift > tolerance:
+        raise RuntimeError(
+            f"directory_usage_inconsistent:span_drift_{span_drift}_over_{tolerance}"
+        )
+except RuntimeError as exc:
+    section_failed(
+        failures, inventory, "postgres_data_directory_reconciliation", exc
+    )
+
+try:
     tablespace_section = inventory.get("tablespaces")
-    if not isinstance(tablespace_section, dict):
+    # section_failed leaves an error object here, which IS a dict, so a missing validity
+    # flag used to be read as "tablespaces found" -- telling the operator that
+    # tablespaces exist when they were never successfully inspected. Those are different
+    # facts needing different responses, so the flag must be present and boolean.
+    if not isinstance(tablespace_section, dict) or not isinstance(
+        tablespace_section.get("single_filesystem_accounting_valid"), bool
+    ):
         raise RuntimeError("tablespaces_unavailable")
-    if not tablespace_section.get("single_filesystem_accounting_valid"):
+    if not tablespace_section["single_filesystem_accounting_valid"]:
         # Named, not swallowed: the receipt lists the tablespaces so the operator knows
         # exactly which assumption broke and what would have to be measured.
         raise RuntimeError("tablespaces_present_single_filesystem_accounting_invalid")
-    volume_used = inventory["volume"]["used_bytes"]
+    # The RECONCILED reading, not the opening `df` from the volume section: that one is
+    # taken before the scans and is never validated against anything, so every summary
+    # figure derived from it -- unaccounted_bytes, the df/du residual -- could be stale
+    # while the receipt reported success. Recording a bracket and then not using it
+    # would have been the appearance of rigour without the substance.
+    used_bracket = inventory.get("volume_used_bracket")
+    if not isinstance(used_bracket, dict) or used_bracket.get("reconciled") is not True:
+        raise RuntimeError("volume_used_not_reconciled")
+    volume_used = used_bracket["bytes_after_filesystem_scan"]
     database_rows = inventory["databases"]
     operating_database_bytes = next(
         row["size_bytes"] for row in database_rows if row["datname"] == db_name
