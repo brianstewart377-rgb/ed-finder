@@ -218,7 +218,18 @@ newer dated source wins).
      F4 design review showed that layout cannot bound the slice 1c probe) — the
      code PRs that encode either may not merge before the answer is recorded
      there. **Both were answered yes by the owner on 2026-10-10 and are
-     recorded there**, so this prerequisite is satisfied. The rewritten `011`
+     recorded there**, so *that* prerequisite is satisfied. **It is not the only
+     one.** The F2d design still records owner questions 2, 3, 4, 7 and 8 as
+     unresolved, and they govern the persisted confidence representation, model
+     ownership, the new explanation endpoint, PR sequencing and atomic
+     publication. Question 9 (hard filters in selected mode) is answered by the
+     design's 422 contract and the owner's stated wish for filtered archetypes as
+     a later increment, which the design records. So the code PRs encoding any
+     still-unresolved choice **may not merge** until that question's answer is
+     recorded in the capacity decision alongside 1, 5, 6 and 6b: declaring the
+     prerequisite satisfied on the strength of two answers would let
+     implementations of choices the owner has not accepted reach `main`, and this
+     document is the one that would have authorized it. The rewritten `011`
      also changes the rankings route's `min_score` contract deliberately:
      it accepts **exactly the three indexed tier floors**
      `Literal[60, 76, 88]` with default 60 — not the continuous range 60–100 —
@@ -263,7 +274,23 @@ newer dated source wins).
      valid-looking empty search and a broken picked ranking. Deploying first
      removes that interval.
   6′. Run the read-only calibration probe, record the coefficient decision, and
-     commit its per-key tier histogram — it is the capacity gate's input.
+     commit its per-key tier histogram — it is the capacity gate's input. **The
+     recorded decision must be an explicit `coefficient_decision: accepted`, and
+     the probe's recorded code/coefficient identity must equal the manifest the
+     Archetype builder registers.** A complete in-bounds histogram is evidence
+     that the build would *fit*, not that its scoring logic was *approved*: a
+     review concluding the coefficients must change leaves exactly that evidence
+     behind, so gating on completeness, digest, size and disk space alone lets the
+     immutable, non-purgeable build launch from a **rejected** probe. And without
+     the identity match, an approved probe could authorize a build whose real tier
+     fractions were never capacity-tested at all. Both checks are stated here, not
+     only in the design, because this document outranks it.
+     The histogram also needs the defined cumulative conversion before the
+     measurement script can read it (`f["88"]=S/total`, `f["76"]=(S+A)/total`,
+     `f["60"]=(S+A+B)/total`): the probe emits `S`/`A`/`B`/`C`/`D` counts under
+     `per_archetype.<key>.tier_histogram`, which `--fractions-json` cannot
+     consume, so handing it the probe artifact reports every archetype missing and
+     the mandatory receipt could never be produced.
   7′. **Combined capacity gate, the last point of no return.** One governed
      read-only action computes `Σ_all` (the sum of all 24 per-key tier
      fractions) from that committed histogram, refusing if it is absent,

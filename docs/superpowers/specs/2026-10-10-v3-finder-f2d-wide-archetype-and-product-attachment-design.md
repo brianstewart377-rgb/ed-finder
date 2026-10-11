@@ -679,9 +679,17 @@ during validation rather than left to trust. `archetype_manifest_sha256`, which
 does cover the source files, remains the field for exact-build identity. It is persisted
 on the product row and exposed in `ranking_provenance` beside
 `archetype_manifest_sha256`, which keeps its own job and its own meaning. PR1
-owns both the column and the envelope field; the validator asserts the digest is
-stable across two builds of the same model on different generations, and changes
-when any covered component does.
+owns both the column and the envelope field. The validator asserts the digest is
+**stable across two builds of the same model on different generations** and
+changes when any covered component does — but it does **not** assert that those
+two generations produced identical keys (review round 22). They legitimately may
+not: a later generation rebuilt from different canonical data can give the same
+system different rating vectors or completeness, and so a different
+`<key>_weighted_e4`, under an identical model. Requiring equal keys would reject
+that valid rebuild and block READY. The key-equality assertion is against the
+committed **frozen input fixture** of `(score, confidence_ppm,
+completeness_ppm)` vectors instead, as section 5.2 states; this list is the
+implementation of that, not a second weaker rule.
 
 Add a canonical ordered `wide_columns` list (the eight `_weighted_e4` keys and their exact definition
 the integer definition `(score × confidence_ppm × completeness_ppm + 50_000_000) // 100_000_000` included verbatim, not a `round(...)` form),
@@ -1835,7 +1843,12 @@ Files:
   mismatch)
 - `scripts/operator/actions/v3-archetype-plan-probe.sh` (new, read-only: builds
   the real picked page and count SQL through `build_ranked_query` /
-  `build_count_query` for one archetype at each of the three floors, runs
+  `build_count_query` for **all eight archetypes** at each of the three floors —
+  24 pairs, not one key's three (review round 22): planner choices depend on each
+  weighted-key column's own statistics and its partial index's selectivity, so the
+  tested key can use its bounded partial while another chooses a sequential scan
+  and sort over the 198.5-million-row table. Publication would pass and that
+  user-selectable archetype would serve the unbounded plan. It runs
   `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` under `plan_cache_mode =
   force_generic_plan` with a 60 s statement timeout, and **asserts** from the
   plan that the window node is an `Index Only Scan` on the expected
@@ -1844,7 +1857,28 @@ Files:
   that the fetch node's rows are ≤ `page_size`; it writes nothing. This is the
   executable form of step 10's bounded-plan check —
   `v3-derived-lifecycle-status` reports lifecycle and footprint data and
-  contains no `EXPLAIN`, so it cannot perform it)
+  contains no `EXPLAIN`, so it cannot perform it.
+
+  **The pre-commit probe is NOT this action (review round 22).** A standalone
+  action opens its own connection and therefore cannot see the publisher's
+  uncommitted `published_at` updates, so it cannot plan against the newly visible
+  views before the one-way publication commits — the pre-commit check would have
+  been impossible as specified. The publish action therefore executes the same
+  generated `EXPLAIN` statements **on its own publication connection, inside its
+  transaction**, after both updates and before commit, and rolls back on any
+  mismatch. The SQL builders and the plan assertions are shared between the two so
+  they cannot diverge; this read-only action remains the post-commit form for step
+  10 and for ad-hoc checks.
+
+  **Both probes require an explicit `ANALYZE` first (review round 22).** Nothing in
+  the rollout analyzes `v3_app.system_archetype` after its 198.5 million rows are
+  inserted, and an `EXPLAIN` on default or stale statistics is not evidence about
+  the production plan in either direction: it can reject a sound build on bad
+  estimates, or — worse — pass, and then autovacuum analyzes **after** commit and
+  the planner moves off the bounded plan with users already being served. So the
+  Archetype build step runs and receipts `ANALYZE` on the completed table as its
+  last action, and each probe asserts that `pg_stat_user_tables.last_analyze` for
+  the relation is later than the final insert before it reads any plan)
 - `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
@@ -2572,3 +2606,67 @@ Swept rather than reviewed:
    change is still reversible. Any plan mismatch now rolls the publication back. The
    post-commit probe at step 10 is kept, but as confirmation that the committed
    state still plans correctly rather than as the first check.
+
+### Review round 22 (2026-10-11)
+
+Six findings, all accepted. Three of them (1, 5 and the ROADMAP half of 2) are the
+same lesson I have now been taught several times: a fix recorded only in the design
+does not bind, because the ROADMAP outranks it.
+
+1. **P1 — Gate the build on the approved probe identity** → correct. Round 16 added
+   `coefficient_decision: accepted` and the probe-identity match to the design and
+   not to the ROADMAP, which still gated on histogram completeness, digest, size and
+   disk space alone. Since the ROADMAP wins, an implementation following it could
+   still launch the immutable, non-purgeable build from a **rejected** probe, or from
+   an approved probe whose scoring logic differs from the manifest the builder
+   registers. Both checks are now in step 6′, with the cumulative histogram
+   conversion alongside them, since that is the other thing step 6′ cannot be
+   executed without.
+2. **P1 — Run the plan probe on the publication connection** → correct, and the
+   pre-commit check was **impossible as specified**. Round 21 said the probe runs
+   inside the publication transaction; the implementation plan still described a
+   standalone read-only action, which opens its own connection and therefore cannot
+   see the publisher's uncommitted `published_at` updates. So the one thing the
+   round-21 fix existed for — planning against the newly visible views while the
+   change is still reversible — could not have happened. The publish action now
+   executes the same generated `EXPLAIN` statements on its **own** connection inside
+   its transaction, sharing the SQL builders and plan assertions with the read-only
+   action so the two cannot diverge; that action remains the post-commit form.
+3. **P1 — Validate model identity against frozen inputs** → correct. I fixed the
+   prose in section 5.1 and left the implementation list asserting that equal digests
+   must produce identical keys for a shared sample of systems **across generations** —
+   which is the defect, stated as an implementation requirement. A later generation
+   rebuilt from different canonical data can legitimately give a system a different
+   key under an identical model, so the assertion would reject a valid rebuild and
+   block READY. The list now states what it does assert (digest stability) and
+   explicitly that key equality is against the frozen fixture, not across
+   generations.
+4. **P1 — Probe every archetype's production plan** → correct, and the same defect as
+   the F4 scale receipt's (its round 35), here on the production gate where it matters
+   more. One archetype at three floors tests 3 of 24 pairs, and planner choices depend
+   on each weighted-key column's own statistics and its partial index's selectivity —
+   so the tested key can use its bounded partial while another chooses a sequential
+   scan and sort over 198.5 million rows. Publication would pass, and that
+   user-selectable archetype would serve the unbounded plan. All eight keys at all
+   three floors, before commit.
+5. **P1 — Keep implementation blocked on unresolved owner decisions** → correct, and
+   the wording was the problem: having recorded answers to questions 1 and 5, the
+   ROADMAP said "this prerequisite is satisfied" — which reads as *the* prerequisite.
+   Questions 2, 3, 4, 7 and 8 remain open and govern the persisted confidence
+   representation, model ownership, the explanation endpoint, PR sequencing and atomic
+   publication. Following that sentence, implementations of choices the owner has not
+   accepted could reach `main`, authorized by the controlling document. It now names
+   which prerequisite is satisfied, lists what is still open, and states that the code
+   PRs encoding any unresolved choice may not merge until the answer is recorded.
+   (Question 9 is answered: the 422 contract plus the owner's stated wish for filtered
+   archetypes as a later increment.)
+6. **P1 — Analyze the completed table before probing its plans** → correct, and I had
+   not thought about statistics at all. Nothing analyzes `system_archetype` after its
+   198.5 million rows are inserted, and an `EXPLAIN` on default or stale statistics is
+   not evidence about the production plan **in either direction**: it can reject a
+   sound build on bad estimates, or — the dangerous case — pass, and then autovacuum
+   analyzes after commit and the planner moves off the bounded plan with users already
+   being served. The gate would have certified a plan that was about to change. The
+   Archetype build now runs and receipts `ANALYZE` on the completed table as its last
+   action, and both probes assert `last_analyze` is later than the final insert before
+   reading any plan.
