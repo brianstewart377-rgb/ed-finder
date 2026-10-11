@@ -85,6 +85,7 @@ def _run_inventory_action(
     volume_df_failure: bool = False,
     du_layout: str = "default",
     du_churn: bool = False,
+    du_churn_once: bool = False,
     du_permission_denied: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
@@ -187,7 +188,11 @@ def _run_inventory_action(
             data="$vol/18/docker"
             # Ordinary PostgreSQL churn: a WAL segment recycled mid-scan. du still
             # totals everything else and exits nonzero.
-            if [ "$DU_CHURN" = '1' ]; then
+            if [ "$DU_CHURN_ONCE" = '1' ] && [ ! -e "$DU_CHURN_STAMP" ]; then
+              : > "$DU_CHURN_STAMP"
+              printf "du: cannot access '%s/pg_wal/0000000100000ABC': No such file or directory\\n" "$data" >&2
+              CHURN_EXIT=1
+            elif [ "$DU_CHURN" = '1' ]; then
               printf "du: cannot access '%s/pg_wal/0000000100000ABC': No such file or directory\\n" "$data" >&2
               CHURN_EXIT=1
             else
@@ -204,7 +209,7 @@ def _run_inventory_action(
               *"--max-depth=0 $data")
                 printf '1465000\\t%s\\n' "$data" ;;
               *"--max-depth=1 $data")
-                printf '1337000\\t%s/base\\n' "$data"
+                printf '1330000\\t%s/base\\n' "$data"
                 printf '120000\\t%s/pg_wal\\n' "$data"
                 printf '8000\\t%s/global\\n' "$data"
                 printf '1465000\\t%s\\n' "$data" ;;
@@ -325,6 +330,8 @@ def _run_inventory_action(
     env["VOLUME_DF_FAILURE"] = "1" if volume_df_failure else "0"
     env["DU_LAYOUT"] = du_layout
     env["DU_CHURN"] = "1" if du_churn else "0"
+    env["DU_CHURN_ONCE"] = "1" if du_churn_once else "0"
+    env["DU_CHURN_STAMP"] = str(tmp_path / "du-churn-stamp")
     env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
     return subprocess.run(
         [sys.executable, str(program)],
@@ -373,7 +380,7 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "host_path": pgdata,
         "mount_destination": "/var/lib/postgresql",
     }
-    assert {"path": f"{pgdata}/base", "bytes": 1337000} in (
+    assert {"path": f"{pgdata}/base", "bytes": 1330000} in (
         inventory["postgres_data_directory_usage"]["children"]
     )
     assert inventory["postgres_data_directory_bracket"]["drift_bytes"] == 0
@@ -622,7 +629,11 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
 
     assert by_path[f"{pgdata}/global"]["exclusive_bytes"] == 8000
     assert by_path[f"{pgdata}/global"]["inside_data_directory"] is True
-    assert summary["unaccounted_inside_data_directory_bytes"] == 8000
+    # Files directly at PGDATA's root: 1,465,000 total minus 1,458,000 of children.
+    root_files = f"{pgdata} (files directly in this directory)"
+    assert by_path[root_files]["exclusive_bytes"] == 7000
+    assert by_path[root_files]["inside_data_directory"] is True
+    assert summary["unaccounted_inside_data_directory_bytes"] == 8000 + 7000
     # base/ and pg_wal are already in accounted_bytes and must not be listed again.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
@@ -803,3 +814,36 @@ def test_v3_disk_inventory_still_fails_closed_on_an_unreadable_directory(tmp_pat
     assert receipt["status"] == "stopped"
     reason = receipt["inventory"]["volume_directory_usage"]["volume_directory_usage_failed"]
     assert "Permission denied" in reason
+
+
+def test_v3_disk_inventory_retries_churn_and_prefers_a_clean_scan(tmp_path):
+    """A churned total can be wrong, not merely smaller, so it must not be accepted first.
+
+    PostgreSQL recycles WAL by *renaming* a segment, so a path `du` enumerated and then
+    could not stat may still occupy the same space under its new name. Accepting that
+    output undercounts storage — the dangerous direction for a reclaim decision — so a
+    churn failure is a reason to retry, and a clean rerun must win. The churn here
+    happens once; the retry succeeds and no degraded figure is reported.
+    """
+    result = _run_inventory_action(tmp_path, du_churn_once=True)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    # The clean attempt was used, so nothing is recorded as tolerated or degraded.
+    assert inventory["non_database_drill_down"]["tolerated_file_churn"] == []
+    assert inventory["summary"]["non_database_directory_bytes"] == 92000
+
+
+def test_v3_disk_inventory_flags_a_scan_that_churned_every_attempt(tmp_path):
+    """When no attempt comes back clean, the figures are used but marked."""
+    result = _run_inventory_action(tmp_path, du_churn=True)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    churn = json.loads(result.stdout)["inventory"]["non_database_drill_down"][
+        "tolerated_file_churn"
+    ]
+    assert churn
+    for entry in churn:
+        # Every attempt was used before the output was accepted.
+        assert entry["attempts"] == 3
+        assert entry["accepted_possibly_undercounting"] is True

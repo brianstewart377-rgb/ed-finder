@@ -358,7 +358,21 @@ tolerated_churn: list[dict[str, Any]] = []
 def du_rows(
     argv: list[str], budget: ScanBudget, error: str, *, expect_path: str | None = None
 ) -> list[dict[str, Any]]:
-    reason = f"exit_unknown"
+    """Run one `du`, retrying churn and preferring a clean attempt over a churned one.
+
+    A churned total is not merely smaller, it can be *wrong*: PostgreSQL recycles WAL by
+    **renaming** a segment, so a path `du` enumerated and then could not stat may still
+    occupy the same space under its new name. Accepting that output undercounts storage,
+    which is the dangerous direction for a reclaim decision. So a churn failure is a
+    reason to retry, not to accept -- a clean rerun is both likely and cheap, because the
+    churn is a moment, not a condition. The churned output is used only when every
+    attempt churned, and then the result is flagged degraded rather than reported as
+    clean, because failing closed here would put us back to the inventory failing from
+    ordinary database activity.
+    """
+    reason = "exit_unknown"
+    churned: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
+    target = expect_path.rstrip("/") if expect_path else None
     for attempt in range(1, DU_ATTEMPTS + 1):
         result = run(argv, timeout=budget.call_timeout())
         if result.returncode == 0:
@@ -372,25 +386,39 @@ def du_rows(
         vanished_only = bool(stderr_lines) and all(
             any(marker in line for marker in DU_VANISHED_MARKERS) for line in stderr_lines
         )
-        if vanished_only:
-            rows = parse_du(result.stdout)
-            target = expect_path.rstrip("/") if expect_path else None
-            # The root total must still be present, or the scan is not usable whatever
-            # the cause.
-            if target is None or any(
-                (row["path"].rstrip("/") or "/") == (target or "/") for row in rows
-            ):
-                tolerated_churn.append(
-                    {
-                        "scan": error,
-                        "attempt": attempt,
-                        "vanished_paths": len(stderr_lines),
-                        "first_diagnostic": stderr_lines[0][:240],
-                    }
-                )
-                return rows
+        if not vanished_only:
+            # Not churn. Retrying will not help and may mask a real fault.
+            break
+        rows = parse_du(result.stdout)
+        # The scanned root's own total must still be present, or the output is unusable
+        # whatever the cause.
+        if target is not None and not any(
+            (row["path"].rstrip("/") or "/") == (target or "/") for row in rows
+        ):
+            break
+        if churned is None:
+            churned = (
+                rows,
+                {
+                    "scan": error,
+                    "attempts": attempt,
+                    "vanished_paths": len(stderr_lines),
+                    "first_diagnostic": stderr_lines[0][:240],
+                },
+            )
+        else:
+            churned[1]["attempts"] = attempt
+            churned[1]["vanished_paths"] = len(stderr_lines)
         if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
             break
+    if churned is not None:
+        rows, record = churned
+        # Every attempt churned. Use the output, but say so: a renamed WAL segment can
+        # still hold its space, so these totals may undercount, and the df-versus-du
+        # residual in the summary is where that difference surfaces.
+        record["accepted_possibly_undercounting"] = True
+        tolerated_churn.append(record)
+        return rows
     raise RuntimeError(f"{error}:{reason}")
 
 
@@ -1161,6 +1189,24 @@ try:
         if row["path"].rstrip("/").rsplit("/", 1)[-1] not in ACCOUNTED_PGDATA_CHILDREN
         and row["bytes"] > 0
     ]
+    # PGDATA also holds files directly at its root -- PG_VERSION, postgresql.conf,
+    # postmaster.pid, and anything anyone has ever left there. The depth-1 root total
+    # includes them, but iterating only the child directories drops them, while the
+    # outside partition has already subtracted the whole PGDATA total. They would sit
+    # inside unaccounted_bytes and appear in no candidate at all -- and an unexpected
+    # large file directly under PGDATA is exactly the kind of thing this action exists
+    # to surface, so it is the worst possible row to lose.
+    pgdata_root_files = postgres_data_directory_bytes - sum(
+        row["bytes"] for row in pgdata_children
+    )
+    if pgdata_root_files > 0:
+        inside.append(
+            {
+                "path": f"{data_dir} (files directly in this directory)",
+                "exclusive_bytes": pgdata_root_files,
+                "inside_data_directory": True,
+            }
+        )
     candidates = sorted(
         outside + inside,
         key=lambda item: (-item["exclusive_bytes"], item["path"]),
