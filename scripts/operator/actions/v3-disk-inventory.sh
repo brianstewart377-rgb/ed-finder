@@ -296,14 +296,30 @@ except RuntimeError as exc:
 try:
     if mount_source is None:
         raise RuntimeError("postgres_data_mount_unresolved")
+    # `df` measures the whole filesystem, so `du` must scan the whole filesystem too.
+    # The PostgreSQL data directory is a Docker volume subdirectory of the same
+    # device, so scanning only that subdirectory would hide every sibling consumer
+    # (Docker layers, logs, backups) — exactly the unaccounted usage this action
+    # exists to locate. Resolve the mount point and scan from there, staying on the
+    # one filesystem with `-x`.
+    target_result = run(["df", "--output=target", mount_source])
+    if target_result.returncode != 0:
+        raise RuntimeError("directory_usage_mount_point_unresolved")
+    target_lines = [line.strip() for line in target_result.stdout.splitlines() if line.strip()]
+    if len(target_lines) < 2 or not target_lines[1].startswith("/"):
+        raise RuntimeError("directory_usage_mount_point_unresolved")
+    usage_root = target_lines[1]
+    inventory["volume_directory_usage_root"] = usage_root
     usage_result = run(
-        ["du", "-x", "-B1", "--max-depth=2", mount_source],
+        ["du", "-x", "-B1", "--max-depth=2", usage_root],
         timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
     )
     if usage_result.returncode != 0:
         detail = (usage_result.stderr or usage_result.stdout).strip().splitlines()
         reason = detail[-1][:240] if detail else f"exit_{usage_result.returncode}"
-        inventory["volume_directory_usage"] = {"du_failed": reason}
+        # Fail closed: without this evidence the receipt cannot answer its own
+        # question, so it must not be presented as a complete inventory.
+        raise RuntimeError(f"directory_usage_failed:{reason}")
     else:
         usage: list[dict[str, Any]] = []
         for line in usage_result.stdout.splitlines():
@@ -422,9 +438,13 @@ try:
         "SELECT n.nspname AS schema, c.relname AS name, c.relkind::text AS relkind, "
         "GREATEST(c.reltuples,0)::bigint AS estimated_rows, "
         "pg_table_size(c.oid)::bigint AS table_bytes, "
+        "pg_relation_size(c.oid)::bigint AS heap_bytes, "
         "pg_indexes_size(c.oid)::bigint AS index_bytes, "
-        "(pg_total_relation_size(c.oid) - pg_table_size(c.oid) - "
-        "pg_indexes_size(c.oid))::bigint AS toast_bytes, "
+        # pg_table_size already includes TOAST, and pg_total_relation_size is
+        # table + indexes, so subtracting both always yields zero. Read the TOAST
+        # footprint from the relation's own toast relation instead.
+        "(CASE WHEN c.reltoastrelid <> 0 "
+        "THEN pg_total_relation_size(c.reltoastrelid) ELSE 0 END)::bigint AS toast_bytes, "
         "pg_total_relation_size(c.oid)::bigint AS total_bytes "
         "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
         "WHERE c.relkind IN ('r','p','m') "
@@ -455,6 +475,26 @@ try:
     )
 except RuntimeError as exc:
     section_failed(failures, inventory, "indexes", exc)
+
+try:
+    # idx_scan is cumulative since the statistics were last reset, so a receipt
+    # that reports scan counts without the window invites reading a recently
+    # reset counter as "never used". Report the window alongside it.
+    stats_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT stats_reset::text AS stats_reset, "
+        "(now() - COALESCE(stats_reset, now()))::text AS window_age, "
+        "(stats_reset IS NULL) AS stats_never_reset "
+        "FROM pg_stat_database WHERE datname = current_database()) q",
+        db_user,
+        db_name,
+    )
+    inventory["index_statistics_window"] = stats_rows[0] if stats_rows else {
+        "stats_reset": None,
+        "stats_never_reset": None,
+    }
+except RuntimeError as exc:
+    section_failed(failures, inventory, "index_statistics_window", exc)
 
 try:
     inventory["dead_tuples"] = psql_json(
@@ -609,14 +649,24 @@ try:
         operating_database_bytes + other_databases_bytes + wal_bytes + temp_bytes
     )
     usage_rows = inventory["volume_directory_usage"]
-    base_path = f"{mount_source.rstrip('/')}/base"
+    usage_root = inventory.get("volume_directory_usage_root")
+    data_dir = mount_source.rstrip("/")
+    # Everything already in accounted_bytes must be excluded, or the "unaccounted"
+    # list contradicts the arithmetic above it: base/ is the databases, pg_wal is
+    # wal_bytes, and the temp/stat directories are temp_bytes.
+    accounted_prefixes = tuple(
+        f"{data_dir}/{name}"
+        for name in ("base", "pg_wal", "pg_xlog", "pg_tblspc", "pg_stat_tmp", "pg_stat", "pgsql_tmp")
+    )
     candidates = (
         [
             row
             for row in usage_rows
-            if row["path"] != mount_source
-            and row["path"] != base_path
-            and not row["path"].startswith(f"{base_path}/")
+            if row["path"] not in (mount_source, data_dir, usage_root)
+            and not any(
+                row["path"] == prefix or row["path"].startswith(f"{prefix}/")
+                for prefix in accounted_prefixes
+            )
         ]
         if isinstance(usage_rows, list)
         else []
@@ -632,7 +682,11 @@ try:
         "method": (
             "accounted_bytes = operating_database_bytes + other_databases_bytes + "
             "wal_bytes + current PostgreSQL temporary-directory bytes; "
-            "unaccounted_bytes = volume_used_bytes - accounted_bytes"
+            "unaccounted_bytes = volume_used_bytes - accounted_bytes; "
+            "largest_unaccounted_directories excludes base/, pg_wal, pg_tblspc and the "
+            "temp/stat directories because those are already in accounted_bytes; "
+            "the du scan covers the whole filesystem that holds the data directory, "
+            "not only the PostgreSQL volume subdirectory"
         ),
     }
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:

@@ -149,6 +149,9 @@ def _run_inventory_action(
               *'--output=source,fstype,size,used,avail'*)
                 printf 'Filesystem Type 1B-blocks Used Available\\n'
                 printf '/dev/md1 ext4 1948000 1557000 292000\\n' ;;
+              *'--output=target'*)
+                printf 'Mounted on\\n'
+                printf '/\\n' ;;
               *)
                 printf '1B-blocks Used Available\\n'
                 printf '500000 200000 300000\\n' ;;
@@ -199,6 +202,8 @@ def _run_inventory_action(
                 printf '%s\\n' '{"max_wal_size":"1GB","min_wal_size":"80MB","wal_keep_size":"0","archive_mode":"off"}' ;;
               *'pg_ls_tmpdir'*)
                 printf '%s\\n' '{"temp_directory_bytes":5}' ;;
+              *'stats_reset'*)
+                printf '%s\\n' '{"stats_reset":"2026-09-01 00:00:00+00","window_age":"40 days","stats_never_reset":false}' ;;
               *'pg_stat_database'*)
                 printf '%s\\n' '{"temp_bytes":99,"temp_files":7}' ;;
               *"current_setting('log_directory')"*)
@@ -208,7 +213,7 @@ def _run_inventory_action(
               *'pg_stat_user_tables'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","estimated_dead_fraction":0.2500}' ;;
               *'pg_total_relation_size'*)
-                printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
+                printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"heap_bytes":500,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
               *'pg_database_size'*)
                 printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1345,"datistemplate":false,"datallowconn":true}'
                 printf '%s\\n' '{"datname":"postgres","size_bytes":20,"datistemplate":false,"datallowconn":true}' ;;
@@ -279,17 +284,61 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert inventory["summary"]["unaccounted_bytes"] == 1557000 - 1382
 
 
-def test_v3_disk_inventory_reports_du_failure_without_stopping_receipt(tmp_path):
+def test_v3_disk_inventory_fails_closed_when_the_directory_scan_fails(tmp_path):
+    """The directory scan is the only evidence that locates unaccounted usage.
+
+    Without it the receipt cannot answer its own question, so it must not be
+    presented as a complete inventory.
+    """
     result = _run_inventory_action(tmp_path, du_failure=True)
-    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.returncode == 1, result.stderr or result.stdout
     receipt = json.loads(result.stdout)
 
-    assert receipt["status"] == "success"
-    assert receipt["failures"] == []
-    assert receipt["inventory"]["volume_directory_usage"] == {
-        "du_failed": "directory scan denied"
-    }
-    assert receipt["inventory"]["summary"]["largest_unaccounted_directories"] == []
+    assert receipt["status"] == "stopped"
+    assert receipt["failures"] == ["read_only_query_failed"]
+    usage = receipt["inventory"]["volume_directory_usage"]
+    assert "directory_usage_failed" in usage["volume_directory_usage_failed"]
+
+
+def test_v3_disk_inventory_scans_the_whole_filesystem_not_only_the_pg_volume():
+    """`df` measures the filesystem, so `du` must scan the filesystem.
+
+    The data directory is a Docker-volume subdirectory of the same device, so
+    scanning only that subdirectory would hide every sibling consumer — Docker
+    layers, logs, backups — which is exactly the unaccounted usage this action
+    exists to find.
+    """
+    source = _read(ACTION)
+
+    assert '["df", "--output=target", mount_source]' in source
+    assert '["du", "-x", "-B1", "--max-depth=2", usage_root]' in source
+    assert '"volume_directory_usage_root"' in source
+
+
+def test_v3_disk_inventory_records_the_index_statistics_window():
+    """`idx_scan` is cumulative since the last reset, so the window must be reported."""
+    source = _read(ACTION)
+
+    assert "stats_reset::text AS stats_reset" in source
+    assert '"index_statistics_window"' in source
+
+
+def test_v3_disk_inventory_reads_toast_from_the_toast_relation():
+    """pg_table_size already includes TOAST, so the old subtraction was always zero."""
+    source = _read(ACTION)
+
+    assert "c.reltoastrelid <> 0" in source
+    assert "pg_total_relation_size(c.reltoastrelid)" in source
+    assert "pg_relation_size(c.oid)::bigint AS heap_bytes" in source
+
+
+def test_v3_disk_inventory_excludes_accounted_directories_from_candidates():
+    """A candidate list that includes pg_wal contradicts the accounting above it."""
+    source = _read(ACTION)
+
+    assert "accounted_prefixes" in source
+    for name in ("base", "pg_wal", "pg_tblspc", "pg_stat_tmp"):
+        assert f'"{name}"' in source
 
 
 def test_v3_disk_inventory_preserves_volume_when_root_df_fails(tmp_path):

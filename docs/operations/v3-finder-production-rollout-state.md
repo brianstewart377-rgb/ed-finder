@@ -353,11 +353,24 @@ The step 0 receipt accounts for 1,345 GB of the data volume's 1,557 GB used as
 the operating database, leaving 212 GB unaccounted. The governed
 `v3-disk-inventory` action is intended to locate that usage and identify
 potentially reclaimable space by reporting the volume and root-filesystem
-figures, the largest directories on the PostgreSQL volume, every database, WAL
-usage and retention signals, temporary-file and logging figures, the largest
-non-system relations, their indexes and scan counts, dead-tuple estimates, and
-derived-generation attribution, followed by an explicit accounted-versus-
-unaccounted summary.
+figures, **the largest directories on the whole filesystem that holds the data
+directory** (not only the PostgreSQL volume subdirectory — the data directory is
+a Docker-volume path on the same device as `/`, so a scan limited to it would
+hide every sibling consumer such as Docker layers, logs and backups, which is
+precisely the unaccounted usage being looked for), every database, WAL usage and
+retention signals (including replication slots and prepared transactions, which
+can pin WAL), temporary-file and logging figures, the largest non-system
+relations with heap/TOAST/index sizes, their indexes and scan counts **with the
+statistics window** (`idx_scan` is cumulative since the last statistics reset,
+so a recently reset counter must not be read as “never used”), dead-tuple
+estimates, and derived-generation attribution, followed by an explicit
+accounted-versus-unaccounted summary whose candidate directories exclude
+everything already counted (`base/`, `pg_wal`, `pg_tblspc`, the temp and stat
+directories).
+
+The directory scan is **fail-closed**: if it cannot run, the operation stops
+rather than returning a receipt that looks complete while missing the only
+host-level evidence that answers the question.
 
 The action is strictly read-only and reclaims nothing. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and
