@@ -361,7 +361,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is `min(systems at this floor, 10000)` — selected mode takes no hard filters, so there is no post-filter story — and `is_truncated` says a 10,001st qualifying row existed, i.e. the ranking is longer than the window. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **Top 10,000 by [Archetype] fit** (the window is the canonical weighted ranking, not the raw fit score); URL, Next, list, map and count stop together. |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is `min(systems at this floor, 10000)` — selected mode takes no hard filters, so there is no post-filter story — and `is_truncated` says a 10,001st qualifying row existed, i.e. the ranking is longer than the window. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **within the top 10,000 for [Archetype]** (the window is the canonical weighted ranking, not the raw fit score); URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The current `011` product stores explanation JSON (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but the owner's 2026-10-10 capacity decision removes it: the F2d wide row stores no explanation and F2d PR3 adds `GET /api/archetypes/system/{id64}/explanation`, computed on demand and version/hash-gated (HTTP 409 on mismatch). `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs the F2d explanation endpoint (F2d PR3) and **PR F4e** (section 8), which is a pre-enablement prerequisite — not slice 2. Never read a stored explanation field (there is none) and never show legacy rationale as V3 explanation. |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -557,7 +557,7 @@ alternative**, but must not be folded into the evidence badge
 
 Above the selected-ranking list, show **Showing _COUNT_ of _TOTAL_ (results
 _START_–_END_)** from the same response page, and when `is_truncated` is true
-**Top 10,000 by _[Archetype]_ fit** beside it. Selected mode reads the first
+**within the top 10,000 for _[Archetype]_** beside it. Selected mode reads the first
 10,000 systems of the key's **canonical** ranking (`score × confidence ×
 completeness`, served in that order by the F2d stored-key index) and takes **no
 hard filters at all** (see “Hard filters in selected mode” below), so its
@@ -655,6 +655,16 @@ change updates them together, as required by the spatial product contract
   (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:764-780`).
 - Stale transition: keep previous rows visibly marked “Updating…” while the new
   query is in flight; never relabel old rows as the newly selected archetype.
+  **Placeholder data must not drive navigation.** Those retained rows carry
+  their old envelope, so during a Back/Forward that restores a high offset a
+  previous response with a smaller `total` could satisfy the out-of-range test
+  and replace the just-restored URL with its own last page before the real
+  response lands. Page correction, the empty state and the no-match state are
+  therefore gated on a **non-placeholder** response whose mode, archetype,
+  floor, page size and offset all equal the active query's; while that is not
+  true the UI shows the updating state and changes no URL. A test navigates
+  Back/Forward between two envelopes with different totals and asserts no
+  spurious `goto` and no empty state.
 
 ### Keyboard and screen readers
 
@@ -866,7 +876,7 @@ The URL is the source of truth for shareable ranking state:
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
-| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it with the two selection parameters appended, so `archetype`, `min-tier`, `page_size`, `offset` and any filters come back exactly as they were. The anchor, which is not URL state, travels in SvelteKit history state on the forward navigation and is restored by the return link's `goto` through the shared anchor-state-preserving helper; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
+| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it **after deleting any `selected` and `system` entries it already contains** and then setting both to the inspected id — a replay that merely appended them would produce `selected=A&selected=B` when the user inspected B from a page where A was selected, which a first-value parser resolves to A and a fail-closed duplicate parser rejects outright. So `archetype`, `min-tier`, `page_size` and `offset` come back exactly as they were, while the selection is unambiguously the inspected system; a test returns from a page whose prior selection was a different system and asserts single-valued `selected`/`system` equal to the inspected id. The anchor, which is not URL state, travels in SvelteKit history state on the forward navigation and is restored by the return link's `goto` through the shared anchor-state-preserving helper; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
@@ -1000,7 +1010,11 @@ least 10,001 index-eligible rows (assert the count), so the offset-9950 page is
 populated and the 10,001st-row sentinel is actually observed; a corpus of
 mostly ineligible rows would pass every latency budget without exercising the
 bounded path that motivated slice 1c. After loading and index creation and
-before the warm or cold runs, run `ANALYZE` on all three underlying relations,
+before the warm or cold runs, run `ANALYZE` on **every underlying relation the
+query reaches after view expansion** — under the F2d schema that is exactly two,
+`v3_derived.system_search` and the wide `v3_derived.system_archetype`, because
+the summary is a view over the latter and the superseded summary table must not
+be materialized by the fixture,
 as the derived-data decision requires before any validation benchmark
 (`docs/development/v3-search-spatial-derived-data-decision.md:350-364`);
 freshly bulk-loaded relations otherwise plan from absent or stale statistics
@@ -1119,7 +1133,7 @@ Use Testing Library Svelte, which is installed in the current stack
   wordings;
 - headline tier omitted without API `best_tier` and rendered only when supplied;
 - page count/range and offset navigation keep `page_size`, the window total,
-  the **Top 10,000 by [Archetype] fit** message (canonical weighted window,
+  the **within the top 10,000 for [Archetype]** message (canonical weighted window,
   never “by score”), Next state, DOM and map synchronized; cover
   `total = 10,000, is_truncated=true` and an exact `total < 10,000` with
   `is_truncated=false`; a three-row fixture envelope at `page_size=1` has three
@@ -1185,7 +1199,11 @@ Add a Product E2E journey that:
    with the selected row still absent, waits for the real
    `GET /api/system/{id64}` hydration request, and proves the validated selected
    marker/label appears exactly once while the DOM page still omits the row and
-   the Inspect href remains `/inspect?system={id64}`; then runs axe;
+   the Inspect href is the **state-carrying** form —
+   `/inspect?system={id64}&from=<URL-encoded originating Explore query>` — and
+   that following it and using **Open in Explore** restores the archetype,
+   floor, page and selection (the full round trip of the return-link contract);
+   then runs axe;
 6. uses Back/Forward across picker and pagination commits, asserting that
    archetype, tier, offset, selection, result/map envelope and the corresponding
    local-search/rankings request are restored and refetched from each URL; the
@@ -1318,11 +1336,11 @@ promotion. Three API dependencies remain explicit:
   and test that it is summary-owned. F4a may land first and represents the
   headline as a number without a tier; the browser never derives it.
 - **Slice 1c — bounded selected ranking:** this is a hard prerequisite for every
-  selected-archetype mode, including B/60. Take the window from the F2d
-  stored-key tier-partial index in canonical order before every non-indexed
-  filter, apply those filters only inside it, and make `is_truncated` report the
-  10,001st-qualifying-row sentinel independently of the post-filter
-  within-window `total`.
+  selected-archetype mode, including B/60. Read the window from the F2d
+  stored-key tier-partial index in canonical order, restate that order on the
+  ≤ 10,000 survivors before paging, reject every hard filter with 422 (F2d owner
+  question 9), return `total = min(qualifying, 10000)` and set `is_truncated`
+  from the 10,001st-qualifying-row sentinel.
   Validate its plan and timing at representative scale. The present raw-score
   index cannot satisfy the current cross-table ordering, and the endpoint calls
   an uncapped `COUNT(*)`
@@ -1449,7 +1467,7 @@ error.
 The companion `total` is `min(systems at this floor, 10000)`; `count` remains
 the returned page length. `is_truncated` records whether a 10,001st qualifying
 row existed, i.e. whether the ranking is longer than the window; clients then
-render **Top 10,000 by [Archetype] fit**. Preserve the repeatable-read
+render **within the top 10,000 for [Archetype]**. Preserve the repeatable-read
 generation pin across window probe, page and count.
 
 **Hard filters in selected mode.** They are not available, by decision of the
@@ -1458,19 +1476,29 @@ is unbounded, and applying them after it would let a selective filter return an
 empty page while millions of matching systems exist — a quiet change in what a
 filter means, which the product contract forbids
 (`docs/colonisation-redesign/spatial-platform-product-contract.md:102-110`).
-So: the API answers 422 for a picked request carrying `galaxy_region`,
-`max_distance_ly`, `has_elw`, `min_slots` or `max_contamination`, and **F4b
-disables (never hides) those controls while an archetype is picked**, each with
-`aria-disabled` plus a single shared explanation — “Filters apply to Any
-searches. Archetype ranking covers the whole galaxy.” — rendered once next to the
-disabled group and referenced by `aria-describedby`, so a screen-reader user
-learns why without hearing it five times. Switching to a picked archetype while
-filters are active clears them from the URL and announces **“Filters cleared for
-archetype ranking.”** in the existing `role="status"` region; switching back to
-Any restores the previous filters from the committed draft state, exactly as the
-anchor is restored. Tests: each disabled control, the shared explanation and its
-`aria-describedby` wiring, the filter-clearing announcement, the restore on
-returning to Any, and that no picked request ever carries a filter parameter.
+So the API answers 422 for a picked request carrying `galaxy_region`,
+`max_distance_ly`, `has_elw`, `min_slots` or `max_contamination`.
+
+**What F4b owes here is narrow, because those controls do not exist yet.** The
+live `apps/web` Finder has no UI for any of the five (the economy/body controls
+it does have map to Any-mode local-search fields the rankings route never
+receives), and F4 does not add them — an Any-filter increment is out of scope
+and is not smuggled in through this rule. F4b's obligation is therefore exactly
+one guarantee, with one test: **a picked request never carries a hard-filter
+parameter**, because the URL codec does not emit any and the facade does not
+accept any for the rankings path. Alongside it, a short line in the picker's
+help text — “Archetype ranking covers the whole galaxy.” — tells the user what
+selected mode does, with no reference to controls that are not on screen.
+
+**The rule for when such controls are added** (F4d or a later Any-filter
+increment, not F4b): while an archetype is picked they are disabled, never
+hidden, each carrying `aria-disabled` and sharing one explanation — “Filters
+apply to Any searches. Archetype ranking covers the whole galaxy.” — rendered
+once beside the group and referenced with `aria-describedby`, so a screen-reader
+user hears it once rather than per control; picking an archetype while filters
+are active clears them from the URL with a polite **“Filters cleared for
+archetype ranking.”**, and returning to Any restores them from committed draft
+state exactly as the anchor is restored. That increment owns those tests.
 
 These two-stage semantics are part of ranking identity, not an implementation
 detail — and because the deployed route performs them from F2d PR1 onwards (the
@@ -2522,7 +2550,7 @@ carrying `galaxy_region`, `max_distance_ly`, `has_elw`, `min_slots` or
 `max_contamination` (F2d owner question 9). This design is aligned accordingly —
 every “filters applied within the top 10,000” behaviour is replaced by a plain
 window: `total = min(qualifying, 10000)`, `is_truncated` means the ranking is
-longer than the window, and the copy becomes **Top 10,000 by [Archetype] fit**.
+longer than the window, and the copy becomes **within the top 10,000 for [Archetype]**.
 F4b disables (never hides) those controls while an archetype is picked, with one
 shared `aria-describedby` explanation, clears them from the URL with a polite
 announcement, and restores them on returning to Any. Earlier rounds' dispositions
@@ -2555,3 +2583,35 @@ that describe post-window filtering are superseded by this one.
    restored through the shared helper; a bare-link arrival falls back to default
    Any, which its URL honestly describes. The round-trip test covers a
    selected-archetype page and an anchored Any page.
+
+#### Round 25 — 2026-10-11 (PR #801)
+
+1. **P2 — Remove post-window filters from the slice 1c plan** → the slice 1c gap
+   bullet now describes the filter-free bounded ranking (canonical window,
+   restated outer order, 422 for every hard filter,
+   `total = min(qualifying, 10000)`), matching the normative section.
+2. **P2 — Define the filter controls before requiring their state** → scoped
+   honestly: those five controls do not exist in `apps/web` and F4 does not add
+   them, so F4b owes exactly one guarantee with one test — a picked request never
+   carries a hard-filter parameter — plus a line of picker help text. The
+   disable/clear/restore rule is written as the contract for whichever later
+   increment adds such controls, and that increment owns its tests.
+3. **P2 — Update the E2E assertion for the state-carrying Inspect link** → the
+   acceptance step now asserts the `from`-carrying Inspect href and the full
+   **Open in Explore** round trip instead of the pre-F4 href.
+4. **P2 — Replace prior selection parameters on Inspect return** → the return
+   link deletes any existing `selected`/`system` before setting both to the
+   inspected id, with a test returning from a page whose prior selection differed.
+5. **P2 — Prevent placeholder rows from resetting the active page** → page
+   correction and the empty/no-match states are gated on a non-placeholder
+   response whose mode, archetype, floor, page size and offset match the active
+   query; a Back/Forward test between envelopes with different totals asserts no
+   spurious navigation.
+6. **P2 — Benchmark the actual wide-row relation shape** → `ANALYZE` covers every
+   relation reached after view expansion, which under F2d is exactly two
+   (`system_search` and the wide `system_archetype`); the superseded summary table
+   must not be materialized by the fixture.
+7. **P2 — Describe the weighted window without calling it raw fit** → the visible
+   message is **within the top 10,000 for [Archetype]** everywhere, since the
+   window is ordered by `score × confidence × completeness`, not by the fit score
+   shown on the card.
