@@ -384,6 +384,18 @@ Why this shape (each point came out of review):
   (`docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json`
   method notes; PostgreSQL 18 docs, “Partial Indexes”).
 
+  **The literal is the only floor predicate — the parameter is dropped, not kept
+  beside it (F4 review round 37).** "Redundant literal" above describes how the
+  behaviour was *measured*, against a parameterized form; it is not the shape to
+  ship. Keeping a parameterized `<key>_score >= $n` next to the literal defeats the
+  **index-only** window, because the partial carries only
+  `(generation, <key>_weighted_e4, system_id64)` and evaluating a parameterized
+  `<key>_score` forces a heap fetch for every candidate row — losing the acceptance
+  criterion the bounded-plan proof rests on. Nothing is lost by dropping it:
+  `min_score` is validated to exactly 60, 76 or 88, so the server-chosen literal
+  **is** the requested value in every accepted case, and the route branches on the
+  validated floor to emit it.
+
 Measured on the disposable PostgreSQL 18.4 (200,000 rows, bell-shaped scores
 with 16.9 % ≥ 60, 2.1 % ≥ 76, 0.19 % ≥ 88 per key; `v4_weighted_key_tier_partials`
 in the committed evidence): ≥ 60 partial 8.5 B/row, ≥ 76 1.1 B/row, ≥ 88 0.2 B/row
