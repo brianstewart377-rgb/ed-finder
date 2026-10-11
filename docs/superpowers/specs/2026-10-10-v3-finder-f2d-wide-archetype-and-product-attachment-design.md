@@ -175,6 +175,11 @@ CREATE TABLE v3_derived.system_archetype (
         CHECK (archetype_confidence_ppm BETWEEN 0 AND 1000000),
     weighted_potential double precision NOT NULL
         CHECK (weighted_potential BETWEEN 0 AND 100),
+    -- exact integer completeness input to every <key>_weighted_e4, stored so the
+    -- builder, the validator and the explanation route read one value instead of
+    -- each re-deriving it: min(rating-vector evidence_completeness) x 100
+    completeness_ppm integer NOT NULL
+        CHECK (completeness_ppm BETWEEN 0 AND 1000000),
     computed_at timestamptz NOT NULL DEFAULT now(),
 
     PRIMARY KEY (derived_generation_id, system_id64),
@@ -253,9 +258,11 @@ float in the path.
 `completeness_ppm integer` is **persisted on the wide row**, so the builder, the
 exact validator and the explanation route all read one stored integer and cannot
 diverge by recomputing from different sources. That adds 4 bytes per row
-(≈ 0.8 GB over 198.5 M); the capacity gate's 221.7 B/row heap constant must
-therefore be re-measured against the final migration text before the build, as
-section 8 already requires.
+(≈ 0.8 GB over 198.5 M). The capacity gate does not hold a heap constant to
+correct — round 18 moved every per-row cost into the footprint receipt it already
+verifies — but the receipt must be produced **against the final migration text**,
+including this column, before the build, as section 8 requires. The 221.7 B/row
+in section 3.4 is the measurement as taken, and is superseded by that receipt.
 
 The divisor follows from the units and is not a tuning constant:
 `score × (conf_ppm / 1e6) × (comp_ppm / 1e6) × 1e4 = score × conf_ppm ×
@@ -673,10 +680,14 @@ the new shape makes the complete stored row the seal boundary.
 
 - base generation state is READY or PUBLISHED;
 - the same generation's `system_search` product is **READY with a VERIFIED
-  validation receipt** — the stored ranking keys depend on
-  `system_search.completeness`, so a complete-but-unverified Search product (all
-  rows inserted, validation not run or failed on another invariant) must fail
-  Archetype promotion; registration (`register_product`) applies the same check
+  validation receipt**. The stated reason has to change with round 17: the stored
+  ranking keys take their completeness from the **rating vector**, not from
+  `system_search.completeness`, so the keys no longer depend on Search at all.
+  The dependency remains for a different and still-sufficient reason — the
+  builder reads `system_search` confidence for `weighted_potential`, and the
+  rankings envelope joins `system_search` for its response columns — so a
+  complete-but-unverified Search product (all rows inserted, validation not run
+  or failed on another invariant) must still fail Archetype promotion; registration (`register_product`) applies the same check
   so a build cannot start against an unverified dependency, and the tests cover
   the complete-but-unverified case;
 - every Ratings chunk has exactly one matching archetype receipt;
@@ -692,8 +703,15 @@ the new shape makes the complete stored row the seal boundary.
   `min(evidence_completeness) × 100` on the same generation's rating vector and
   fails closed if the row is missing or the two disagree;
 - every tier equals `tier_of(its score)`;
-- each stored `_confidence_ppm` integer equals `round(model confidence × 10⁶)`
-  exactly (no tolerance);
+- each stored `_confidence_ppm` integer equals the value returned by **the shared
+  half-up helper** (`floor(confidence * 1_000_000 + 0.5)`; section 3.1) called on
+  a fresh model confidence, exactly and with no tolerance. The validator **calls
+  that helper** rather than writing the expression itself: at an exact half,
+  Python's `round()` is ties-to-even while the builder's helper is half-up, so a
+  validator that reimplemented it with `round()` would **reject a correctly built
+  row** and the immutable product could never reach READY — a build failure with
+  no bad data to point at. The validator's tests include a half-boundary
+  confidence vector;
 - primary, secondary, best potential, best tier, archetype confidence, and
   full-precision weighted potential equal a fresh model recomputation;
 - source and complete-wide-row content seals match; and
@@ -923,8 +941,12 @@ check that `offset + limit <= 10000` (422 otherwise) — both derived from the
 hashed window constant — so no request can read rows beyond the advertised top
 10,000 (today `offset=Query(0, ge=0)` is passed straight to `OFFSET`; review
 round 6). This is a real contract change and is treated as one: the default, the
-three accepted floors, the stored-key definition (`round(score × confidence ×
-completeness × 10000)`), the 10,000 window and its offset/limit bound, the
+three accepted floors, the stored-key definition — hashed as the exact integer
+expression `(score × confidence_ppm × completeness_ppm + 50_000_000) //
+100_000_000`, never a `round(...)` form, because `PROFILE_SPEC` is the hashed
+authority and a notation that leaves half-ties open would let two
+implementations order boundary rows differently while claiming the same
+`ranking_sha256` — the 10,000 window and its combined offset/limit bound, the
 `is_truncated` rule, the **hard-filter rejection rule** (the exact set of
 parameters a picked request may not carry, and that carrying one is a 422 — not
 a post-window filter rule, which the route cannot execute and which would make
@@ -939,10 +961,14 @@ digest changes each time. The response models gain
 (`apps/api/src/models.py:911-924` has `extra='forbid'`, so returning the key
 without the field would be a 500, and omitting it would make a saturated
 `total=10000` indistinguishable from an exact one), and the archetype
-**product identity** — `archetype_version` and `archetype_manifest_sha256`
-(hex) of the published product the scores came from — on both the rankings
-envelope and the local-search envelope beside the existing `ranking_version` /
-`ranking_sha256` / generation fields. The ranking hash covers score selection,
+**product identity** — `archetype_version`, `archetype_manifest_sha256` (hex,
+identifying one build exactly) and `archetype_model_sha256` (hex,
+generation-free model semantics; section 5.1) of the published product the scores
+came from — on both the rankings envelope and the local-search envelope beside
+the existing `ranking_version` / `ranking_sha256` / generation fields. All three
+are required on both envelopes: the manifest digest cannot answer "same model?"
+because it embeds generation identity, and the model digest cannot answer "same
+build?" because it deliberately does not. The ranking hash covers score selection,
 modifiers, filters and ordering but not the model coefficients, so clients that
 persist or compare scores (the F4 design's saved surfaces) need the product
 identity as well; the explanation route's expected-identity parameters
@@ -1216,7 +1242,14 @@ On a fresh PostgreSQL 18 database, test every rule:
 7. publishing both products in one transaction makes views and API reads
    available;
 8. `publish_derived_generation` succeeds when every registered product is READY
-   but unpublished and does not populate `published_at`; and
+   but unpublished **and the outgoing generation has no published Finder
+   products** — the first-launch case — and does not populate `published_at`;
+8b. the same promotion is **refused** when any Finder product published on the
+   outgoing generation lacks a published counterpart on the incoming one,
+   whether that counterpart is unpublished or not registered at all (section
+   7.4). Without this scoping, case 8 as previously written would have driven an
+   implementation that flips the pointer away from two visible products to
+   unpublished replacements — the Finder outage section 7.4 exists to forbid; and
 9. the inherited `opt1` READY product remains NULL/unpublished and invisible.
 
 The present tests already exercise the migration guards, insert-only behavior,
@@ -1408,8 +1441,13 @@ Files:
 - `apps/api/src/routers/archetypes.py` (`min_score: Literal[60, 76, 88] = Query(60)`;
   `offset` bounded to the window; `is_truncated` returned)
 - `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`,
-  additive; `archetype_version` and `archetype_manifest_sha256` on the shared
-  ranking-identity model both envelopes use)
+  additive; `archetype_version`, `archetype_manifest_sha256` **and the
+  generation-free `archetype_model_sha256`** (section 5.1) on the shared
+  ranking-identity model both envelopes use. All three go through both envelope
+  constructors, the regenerated clients and the identity tests: the model digest
+  is the only one stable across equivalent-model generations, so omitting it from
+  the wire leaves F4's cross-generation comparison with nothing to compare on,
+  and the feature silently never fires)
 - `apps/api/src/local_search.py` (**PR1, not PR2**: the galaxy-wide count query
   gains the same **10,001st-row sentinel** the picked path uses — `LIMIT cap + 1`
   instead of `LIMIT cap` — and the response reports `total = min(count, cap)`
@@ -1427,9 +1465,11 @@ Files:
   10,000 by contract and a galaxy-wide count is capped there. Tests pin
   `from=9_950,size=50` (ok), `from=10_000,size=1` (422) and
   `from=10_001` (422). Also: the local-search envelope's
-  ranking identity gains `archetype_version` and `archetype_manifest_sha256`;
+  ranking identity gains `archetype_version`, `archetype_manifest_sha256` and
+  `archetype_model_sha256`;
   `_current_derived_generation()` returns the published archetype product's
-  code/version/manifest hash alongside the generation id and sequence, and
+  code/version/manifest hash **and model hash** alongside the generation id and
+  sequence, and
   `local_db_search_v3()` builds the envelope from it. It fails closed exactly as
   today when that product is missing or not READY — 503, never an envelope
   without identity. PR2 touches this file again only for the publication gate)
@@ -1583,9 +1623,11 @@ Files:
   live count of eligible systems the build will write, read in the same gate run.
 
   ```
-  projected_heap_bytes        = 221.7 × system_count                  # measured wide row, stored keys included
-  projected_fixed_index_bytes = (40.7 + 40.8) × system_count          # primary key + weighted_potential
-  projected_tier_index_bytes  = 9.9 × sigma_all × 1e9 / 198_500_000 × system_count
+  projected_heap_bytes        = receipt.heap_bytes_per_row × system_count
+  projected_fixed_index_bytes = receipt.primary_key_bytes_per_row × system_count
+                              + receipt.weighted_index_bytes_per_row × system_count
+  projected_tier_index_bytes  = receipt.tier_index_bytes_per_row_per_unit_fraction
+                              × sigma_all × system_count
   projected_archetype_bytes   = heap + fixed_index + tier_index
   projected_search_bytes      = 0 if system_search is already written for this
                                 generation, else 87_000_000_000
@@ -1594,6 +1636,22 @@ Files:
   reserve_bytes               = required_bytes − projected_new_bytes
   gate passes  iff  available_bytes >= required_bytes
   ```
+
+  **Every per-row cost comes from the footprint receipt, not from a constant in
+  this document (review round 18).** The gate already requires that receipt and
+  verifies its provenance, so reading the measured numbers out of it costs
+  nothing and removes a whole class of error: section 3.1 adds a persisted
+  `completeness_ppm` column after these figures were measured, which alone moves
+  the heap by 4 bytes per row (≈ 0.8 GB), and any further migration edit moves it
+  again. A hard-coded 221.7 would have let the irreversible build pass near the
+  free-space boundary while short of the reserve the gate claims to enforce — and
+  it would have done so **silently**, because the receipt it checked would have
+  been present and valid and simply not consulted for the one number that
+  mattered. The gate refuses when the receipt does not carry all four per-row
+  measurements, rather than falling back to a default.
+
+  The figures below are therefore illustrative of the arithmetic, not inputs to
+  it; the gate recomputes from its own receipt every time.
 
   **The reserve is 15 % of the projected new footprint — not of free space and
   not of the volume.** This is the only denominator that scales with the risk
@@ -2219,3 +2277,79 @@ fixed in the same commit:
    single place — `floor(confidence * 1_000_000 + 0.5)`, round-half-up and named
    explicitly, computed by a shared helper that the validator **calls** rather
    than reimplements, and never recomputed in SQL.
+
+### Review round 18 (2026-10-11)
+
+Six findings, all accepted, and all the same failure on my part: a decision made
+in one section and not carried to the places that depend on it. Round 17 added
+three such decisions (the persisted `completeness_ppm`, the integer key rule, the
+half-up confidence helper) and round 31 on PR #801 added a fourth (the
+generation-free model digest); each of those is where one of these six landed. So
+after fixing the six I swept the normative body for **every** mention of each
+decision rather than only the cited lines, and found two more (below).
+
+1. **P1 — Add `completeness_ppm` to the wide-table DDL** → correct, and it was the
+   most basic kind of gap: I wrote that the column is persisted and that the
+   validator recomputes and compares it, and never added it to the `CREATE TABLE`.
+   An implementer following the normative DDL would have had nothing to store the
+   value in. Added with its range check, a comment naming the exact source, and
+   its migration tests.
+2. **P1 — Derive the capacity heap cost from the final measurement** → correct, and
+   the silence is what makes it serious: the gate checks the footprint receipt's
+   provenance and then ignored its numbers in favour of a hard-coded 221.7 B/row,
+   so near the free-space boundary the irreversible build could pass while short
+   of the reserve the gate claims to enforce, with a valid receipt sitting right
+   there unconsulted. **Every** per-row cost now comes from the receipt — heap,
+   primary key, weighted index and the tier coefficient — and the gate refuses
+   when the receipt does not carry all four rather than falling back to a default.
+   The figures in the document are now explicitly illustrative of the arithmetic
+   rather than inputs to it, which also means a future migration edit cannot leave
+   a stale constant behind.
+3. **P2 — Carry `archetype_model_sha256` through PR1's envelopes** → correct.
+   Section 5.1 added the digest and required it in `ranking_provenance`, but the
+   implementation list, both envelope constructors and the generated-client entry
+   still named only two fields — so the field would have existed in the design and
+   never reached the wire, and F4's cross-generation comparison would have had
+   nothing to compare on. All three digests now go through the shared model, both
+   envelopes, the regenerated clients and the identity tests, with a note on why
+   both hashes are needed: the manifest digest cannot answer "same model?" because
+   it embeds generation identity, and the model digest cannot answer "same build?"
+   because it deliberately does not.
+4. **P1 — Scope the unpublished-generation success test** → correct, and this is
+   the one that would have done real damage: the test as written required
+   `publish_derived_generation` to **succeed** whenever registered products are
+   READY but unpublished, which is section 7.4's forbidden case stated as an
+   acceptance criterion. An implementer satisfying the test suite would have built
+   the outage. Case 8 is now scoped to an empty outgoing published set — the
+   first-launch case — and a new case 8b requires refusal when any product
+   published on the outgoing generation lacks a published incoming counterpart,
+   whether unpublished or not registered at all.
+5. **P2 — Hash the exact integer key formula in `PROFILE_SPEC`** → correct, and
+   `PROFILE_SPEC` is precisely the wrong place to leave it ambiguous, because it
+   is the **hashed** authority: two implementations could order boundary rows
+   differently while claiming the same `ranking_sha256`, which is the one
+   guarantee that hash exists to give. The exact integer expression is now hashed,
+   with the reason recorded next to it.
+6. **P2 — Use the shared half-up helper in validation** → correct, and the
+   direction of the failure is the notable part: a row built **correctly** by the
+   half-up builder would be **rejected** by a ties-to-even validator, so the
+   immutable product could never reach READY — a build that fails with no bad data
+   to point at, on one row in a few hundred million. The validator now **calls**
+   the shared helper rather than restating the expression, which is the only form
+   of this fix that cannot drift, and its tests carry a half-boundary confidence
+   vector.
+
+Swept rather than reviewed:
+
+7. The Search dependency's stated reason was now false — "the stored ranking keys
+   depend on `system_search.completeness`" — since round 17 moved completeness to
+   the rating vector. The dependency itself still holds for different reasons (the
+   builder reads `system_search` confidence for `weighted_potential`, and the
+   rankings envelope joins it for response columns), so the requirement stands
+   with a corrected justification rather than being dropped. A requirement resting
+   on a reason that no longer applies is one refactor away from being deleted as
+   dead weight.
+8. Section 3.1 still told the reader the capacity gate's "221.7 B/row heap
+   constant must be re-measured", which finding 2 had just made meaningless. It
+   now says what actually has to happen: the receipt must be produced against the
+   final migration text including the new column.
