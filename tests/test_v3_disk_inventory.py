@@ -78,7 +78,12 @@ def test_v3_disk_inventory_shell_syntax_is_valid():
 
 
 def _run_inventory_action(
-    tmp_path: Path, *, du_failure: bool = False, root_df_failure: bool = False
+    tmp_path: Path,
+    *,
+    du_failure: bool = False,
+    root_df_failure: bool = False,
+    volume_df_failure: bool = False,
+    du_layout: str = "default",
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -145,6 +150,13 @@ def _run_inventory_action(
                   exit 8 ;;
               esac
             fi
+            if [ "$VOLUME_DF_FAILURE" = '1' ]; then
+              case "$*" in
+                *'--output=source,fstype,size,used,avail'*)
+                  printf '%s\\n' 'volume unavailable' >&2
+                  exit 8 ;;
+              esac
+            fi
             case "$*" in
               *'--output=source,fstype,size,used,avail'*)
                 printf 'Filesystem Type 1B-blocks Used Available\\n'
@@ -178,8 +190,9 @@ def _run_inventory_action(
               *"--max-depth=0 $data")
                 printf '1465000\\t%s\\n' "$data" ;;
               *"--max-depth=1 $data")
-                printf '1345000\\t%s/base\\n' "$data"
+                printf '1337000\\t%s/base\\n' "$data"
                 printf '120000\\t%s/pg_wal\\n' "$data"
+                printf '8000\\t%s/global\\n' "$data"
                 printf '1465000\\t%s\\n' "$data" ;;
               *'--max-depth=1 /var/lib/docker/volumes')
                 printf '1465000\\t%s\\n' "$vol"
@@ -197,9 +210,19 @@ def _run_inventory_action(
                 printf '5000\\t/var/lib/apt\\n'
                 printf '1515000\\t/var/lib\\n' ;;
               *'--max-depth=1 /var')
-                printf '1515000\\t/var/lib\\n'
-                printf '30000\\t/var/log\\n'
-                printf '1545000\\t/var\\n' ;;
+                if [ "$DU_LAYOUT" = 'direct_files' ]; then
+                  printf '1465000\\t/var/lib\\n'
+                  printf '80000\\t/var/log\\n'
+                  printf '1545000\\t/var\\n'
+                else
+                  printf '1515000\\t/var/lib\\n'
+                  printf '30000\\t/var/log\\n'
+                  printf '1545000\\t/var\\n'
+                fi ;;
+              *'--max-depth=1 /var/log')
+                # 70,000 bytes sit directly in /var/log; the largest child is 10,000.
+                printf '10000\\t/var/log/journal\\n'
+                printf '80000\\t/var/log\\n' ;;
               *'--max-depth=1 /')
                 printf '1545000\\t/var\\n'
                 printf '12000\\t/home\\n'
@@ -284,6 +307,8 @@ def _run_inventory_action(
     env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
     env["DU_FAILURE"] = "1" if du_failure else "0"
     env["ROOT_DF_FAILURE"] = "1" if root_df_failure else "0"
+    env["VOLUME_DF_FAILURE"] = "1" if volume_df_failure else "0"
+    env["DU_LAYOUT"] = du_layout
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -331,7 +356,7 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "host_path": pgdata,
         "mount_destination": "/var/lib/postgresql",
     }
-    assert {"path": f"{pgdata}/base", "bytes": 1345000} in (
+    assert {"path": f"{pgdata}/base", "bytes": 1337000} in (
         inventory["postgres_data_directory_usage"]["children"]
     )
     assert inventory["postgres_data_directory_bracket"]["drift_bytes"] == 0
@@ -417,10 +442,17 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
     assert by_path["/var/lib"] == 50000
     assert by_path["/var/log"] == 30000
     assert by_path["/home/claude"] == 12000
-    # No candidate is the data directory or inside it.
+    # The data directory itself is never a candidate, and the only rows inside it are
+    # the PostgreSQL directories accounted_bytes does not cover (see the test below).
     data_dir = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
-    assert not any(p == data_dir or p.startswith(f"{data_dir}/") for p in paths)
-    # The partition is exact: the candidates plus the database are the used bytes.
+    assert data_dir not in paths
+    assert all(
+        row["inside_data_directory"]
+        for row in candidates
+        if row["path"].startswith(f"{data_dir}/")
+    )
+    # The partition is exact: the rows outside the data directory plus the database
+    # are the used bytes.
     assert summary["non_database_directory_bytes"] == 1557000 - 1465000
     assert (
         summary["non_database_directory_bytes"] + summary["postgres_data_directory_bytes"]
@@ -507,3 +539,140 @@ def test_v3_disk_inventory_preserves_volume_when_root_df_fails(tmp_path):
         "root_filesystem_failed": "disk_usage_command_failed"
     }
     assert receipt["inventory"]["summary"]["unaccounted_bytes"] == 1557000 - 1382
+
+
+def test_v3_disk_inventory_stops_cleanly_when_the_volume_measurement_failed(tmp_path):
+    """A failed volume `df` must stop the section, not raise KeyError out of it.
+
+    The mount can resolve and the `df` on it still fail, which leaves
+    inventory["volume"] as an error object. Reading used_bytes from it raises KeyError,
+    which is not RuntimeError and so escapes the section's handler — the action would
+    scan for minutes and then die with a traceback where a structured stopped receipt
+    belongs, giving the operator neither the inventory nor a reason.
+    """
+    result = _run_inventory_action(tmp_path, volume_df_failure=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    # Still exactly one line of JSON on stdout, not a partial write plus a traceback.
+    assert len(result.stdout.splitlines()) == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    inventory = receipt["inventory"]
+    assert "volume_failed" in inventory["volume"]
+    assert (
+        inventory["volume_directory_usage"]["volume_directory_usage_failed"]
+        == "volume_measurement_unavailable"
+    )
+
+
+def test_v3_disk_inventory_stops_when_a_directory_owns_its_bytes_directly(tmp_path):
+    """Following the largest child blindly can name the wrong owner.
+
+    If /var/log holds 70,000 bytes directly in its own files and its largest
+    subdirectory holds 10,000, the bytes are owned by /var/log — descending would report
+    the 10,000 subdirectory as the consumer and send the operator to the wrong place.
+    """
+    result = _run_inventory_action(tmp_path, du_layout="direct_files")
+    assert result.returncode == 0, result.stderr or result.stdout
+    chain = json.loads(result.stdout)["inventory"]["non_database_drill_down"]["chain"]
+
+    last = chain[-1]
+    assert last["directory"] == "/var/log"
+    assert last["own_file_bytes"] == 70000
+    assert last["followed"] is None
+    assert last["stop_reason"] == "directory_owns_more_directly_than_any_child"
+    # The child was above the floor, so only the direct-ownership check stopped it.
+    assert last["children"][0]["bytes_excluding_database"] == 10000
+    assert last["children"][0]["bytes_excluding_database"] >= 3892
+
+
+def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tmp_path):
+    """Subtracting the whole data directory removes more than accounted_bytes covers.
+
+    accounted_bytes is the databases (base/), WAL (pg_wal) and the temp directories.
+    PGDATA also holds `global`, `pg_xact`, `pg_multixact` and often log files, which
+    stayed inside unaccounted_bytes while vanishing from every candidate — so the
+    candidate list could not locate the value it claimed to explain.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    by_path = {
+        row["path"]: row for row in summary["largest_unaccounted_directories"]
+    }
+
+    assert by_path[f"{pgdata}/global"]["exclusive_bytes"] == 8000
+    assert by_path[f"{pgdata}/global"]["inside_data_directory"] is True
+    assert summary["unaccounted_inside_data_directory_bytes"] == 8000
+    # base/ and pg_wal are already in accounted_bytes and must not be listed again.
+    assert f"{pgdata}/base" not in by_path
+    assert f"{pgdata}/pg_wal" not in by_path
+    # Rows outside the data directory are flagged as such, and excluded from the
+    # non-database total, so the two figures never double count.
+    assert by_path["/var/log"]["inside_data_directory"] is False
+    assert summary["non_database_directory_bytes"] == 92000
+
+
+def test_v3_disk_inventory_does_not_claim_a_per_index_statistics_window(tmp_path):
+    """A zero idx_scan is not evidence an index is unused.
+
+    pg_stat_reset_single_table_counters zeroes one index's idx_scan without touching
+    pg_stat_database.stats_reset, and PostgreSQL records no per-index reset time.
+    Presenting the database-wide value as the index's window would pair a freshly reset
+    index with a months-old age — and an unused index is exactly what someone hunting
+    reclaimable space would drop.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    window = json.loads(result.stdout)["inventory"]["index_statistics_window"]
+
+    assert window["scope"] == "database"
+    assert window["per_index_window_known"] is False
+    assert "pg_stat_reset_single_table_counters" in window["note"]
+    assert "not evidence" in window["note"]
+    # The database-wide value is still reported, just not as the index's window.
+    assert window["stats_reset"] == "2026-09-01 00:00:00+00"
+
+
+def test_v3_disk_inventory_shares_one_scan_budget_within_the_job_timeout(tmp_path):
+    """Per-call timeouts alone can exceed the operator job's 40-minute limit.
+
+    Four fixed scans plus eight drill-down steps at the 300 s per-call limit is 60
+    minutes, so a valid but slow production inventory could be killed before emitting
+    any receipt. One shared wall-clock budget makes the walk stop and say why instead.
+    """
+    source = _read(ACTION)
+
+    assert "DIRECTORY_SCAN_BUDGET_SECONDS = 1_500" in source
+    assert "class ScanBudget" in source
+    assert "def call_timeout(" in source
+    assert "scan_budget_exhausted" in source
+    assert "directory_scan_budget_exhausted" in source
+    # The budget is created once and threaded through every scan.
+    assert source.count("scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS)") == 1
+    assert "budget=scan_budget" in source
+    # The bracket closes around the drill-down, not only the filesystem scan.
+    assert "bytes_after_drill_down" in source
+    assert "span_drift_bytes" in source
+
+
+def test_v3_disk_inventory_reconciles_pgdata_after_the_drill_down(tmp_path):
+    """The drill-down runs further scans after the first bracket closed.
+
+    Those scans compare current ancestor totals against one fixed data-directory size,
+    so a database that grew in between has its growth mislabelled as non-database usage
+    (and the walk can be sent into the PostgreSQL volume), while shrinkage hides real
+    sibling usage — with the receipt still reporting success.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    bracket = json.loads(result.stdout)["inventory"]["postgres_data_directory_bracket"]
+
+    assert bracket["bytes_before_filesystem_scan"] == 1465000
+    assert bracket["bytes_after_filesystem_scan"] == 1465000
+    assert bracket["bytes_after_drill_down"] == 1465000
+    assert bracket["drift_bytes"] == 0
+    assert bracket["span_drift_bytes"] == 0
+    assert bracket["tolerance_bytes"] == 1 << 30

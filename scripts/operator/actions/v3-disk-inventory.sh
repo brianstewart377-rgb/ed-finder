@@ -19,8 +19,10 @@ exec "$PYTHON_BIN" - <<'PY'
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 import sys
+import time
 from typing import Any
 
 EXPECTED_HOST = "ed-finder-prod"
@@ -40,6 +42,18 @@ DIRECTORY_DRIFT_FRACTION_PPM = 5_000  # 0.5 %
 # magic size, and so the floor is a stated property of the volume in the receipt.
 DRILL_DOWN_FLOOR_PPM = 2_500  # 0.25 % of used bytes
 DRILL_DOWN_MAX_STEPS = 8
+# Every directory scan shares one wall-clock budget. Individually bounded calls are not
+# enough: the operator workflow kills the job at 40 minutes, and four fixed scans plus
+# eight drill-down steps at the 300 s per-call limit would be 60 minutes, so a valid but
+# slow production inventory could be killed before it emitted any receipt at all. With a
+# shared budget the walk stops early and records why, which is a usable receipt.
+DIRECTORY_SCAN_BUDGET_SECONDS = 1_500
+# PGDATA children whose bytes are already inside accounted_bytes. Everything else under
+# PGDATA (global, pg_xact, pg_multixact, log, replication-slot state) is unaccounted and
+# must stay visible as a candidate, or the summary cannot reconcile its own figure.
+ACCOUNTED_PGDATA_CHILDREN = frozenset(
+    {"base", "pg_wal", "pg_xlog", "pg_stat_tmp", "pg_stat", "pgsql_tmp"}
+)
 # `df` reports filesystem space; `du` estimates space used by files. The difference is
 # real (ext4 metadata, reserved blocks, blocks held by deleted-but-open files) and is
 # reported rather than hidden, with a flag when it is too large to ignore.
@@ -280,21 +294,60 @@ def host_pgdata(
     return (f"{source}/{relative}" if relative else source), container_pgdata
 
 
-def du_total(path: str) -> int:
-    result = run(["du", "-x", "-B1", "--max-depth=0", path], timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS)
+class ScanBudget:
+    """One wall-clock budget shared by every directory scan in this run.
+
+    Bounding each `du` call individually is not enough. The operator workflow kills the
+    job at 40 minutes, and four fixed scans plus eight drill-down steps at the 300 s
+    per-call limit is 60 minutes, so a valid but slow production inventory could be
+    killed before emitting any receipt. Each call is given whichever is smaller, the
+    per-call limit or what is left, and the walk stops and records why when the budget
+    runs out -- a partial receipt that says where it stopped beats no receipt at all.
+    """
+
+    def __init__(self, seconds: int) -> None:
+        self.total_seconds = seconds
+        self._deadline = time.monotonic() + seconds
+
+    def remaining(self) -> float:
+        return self._deadline - time.monotonic()
+
+    def call_timeout(self) -> int:
+        left = self.remaining()
+        if left <= 0:
+            raise RuntimeError("directory_scan_budget_exhausted")
+        return max(1, min(DIRECTORY_USAGE_TIMEOUT_SECONDS, math.ceil(left)))
+
+
+def du_rows(argv: list[str], budget: ScanBudget, error: str) -> list[dict[str, Any]]:
+    result = run(argv, timeout=budget.call_timeout())
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
         reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
-        raise RuntimeError(f"directory_total_failed:{reason}")
-    rows = parse_du(result.stdout)
-    total = next((row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")), None)
+        raise RuntimeError(f"{error}:{reason}")
+    return parse_du(result.stdout)
+
+
+def du_total(path: str, budget: ScanBudget) -> int:
+    rows = du_rows(
+        ["du", "-x", "-B1", "--max-depth=0", path], budget, "directory_total_failed"
+    )
+    total = next(
+        (row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")), None
+    )
     if total is None:
         raise RuntimeError("directory_total_missing")
     return total
 
 
 def drill_down(
-    root: str, pgdata: str, pgdata_bytes: int, *, floor_bytes: int, max_steps: int
+    root: str,
+    pgdata: str,
+    pgdata_bytes: int,
+    *,
+    floor_bytes: int,
+    max_steps: int,
+    budget: ScanBudget,
 ) -> list[dict[str, Any]]:
     """Walk from `root` towards the directory that actually owns the non-database bytes.
 
@@ -306,44 +359,53 @@ def drill_down(
 
     So descend one level at a time instead: list a directory's children, subtract the
     measured data-directory size from whichever child contains it, and step into the
-    largest remaining child. Each step is one bounded `du --max-depth=1`, the number of
-    steps is capped, and the walk stops as soon as the largest child falls under the
-    floor -- at which point the usage is spread, not owned, and naming one directory
-    would be misleading. The returned chain is the evidence: each entry records where it
-    looked, the children it saw and the child it followed.
+    largest remaining child -- but only when that child is bigger than what the current
+    directory holds directly in its own files. A directory with one huge file and one
+    modest subdirectory owns its bytes itself, and descending would name the wrong
+    owner, so the walk stops and says so.
+
+    The walk also stops when the largest child falls under the floor (the usage is
+    spread, not owned) or when the shared scan budget runs out. Each stop records its
+    reason, and the chain is the evidence: where it looked, what it saw, what it chose.
     """
     chain: list[dict[str, Any]] = []
     current = root.rstrip("/") or "/"
     for _ in range(max_steps):
-        result = run(
-            ["du", "-x", "-B1", "--max-depth=1", current],
-            timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
+        if budget.remaining() <= 0:
+            if chain:
+                chain[-1]["stop_reason"] = "scan_budget_exhausted"
+            break
+        rows = du_rows(
+            ["du", "-x", "-B1", "--max-depth=1", current], budget, "drill_down_failed"
         )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip().splitlines()
-            reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
-            raise RuntimeError(f"drill_down_failed:{reason}")
-        rows = parse_du(result.stdout)
         here = current
+        here_total = next(
+            (row["bytes"] for row in rows if (row["path"].rstrip("/") or "/") == here), None
+        )
+        if here_total is None:
+            raise RuntimeError("drill_down_total_missing")
         children = []
+        child_total = 0
         for row in rows:
             path = row["path"].rstrip("/") or "/"
             if path == here:
                 continue
-            size = row["bytes"]
+            child_total += row["bytes"]
             contains_pgdata = path == pgdata or pgdata.startswith(f"{path}/")
-            if contains_pgdata:
-                size -= pgdata_bytes
             children.append(
                 {
                     "path": path,
-                    "bytes_excluding_database": size,
+                    "bytes_excluding_database": row["bytes"]
+                    - (pgdata_bytes if contains_pgdata else 0),
                     "contains_database": contains_pgdata,
                 }
             )
         children.sort(key=lambda item: (-item["bytes_excluding_database"], item["path"]))
+        # What this directory holds directly in its own files, which no child reports.
+        own_file_bytes = here_total - child_total
         step: dict[str, Any] = {
             "directory": here,
+            "own_file_bytes": own_file_bytes,
             "children": children[:10],
             "followed": None,
             "stop_reason": None,
@@ -362,13 +424,19 @@ def drill_down(
             step["stop_reason"] = "no_child_above_floor"
             chain.append(step)
             break
+        if own_file_bytes > candidate["bytes_excluding_database"]:
+            # Descending here would name a smaller child as the owner of bytes this
+            # directory holds itself, in its own files.
+            step["stop_reason"] = "directory_owns_more_directly_than_any_child"
+            chain.append(step)
+            break
         step["followed"] = candidate["path"]
         chain.append(step)
         current = candidate["path"]
     else:
-        chain[-1]["stop_reason"] = "step_limit_reached"
+        if chain:
+            chain[-1]["stop_reason"] = "step_limit_reached"
     return chain
-
 
 def section_failed(
     failures: list[str], inventory: dict[str, Any], section: str, exc: RuntimeError
@@ -440,6 +508,7 @@ receipt["postgres"] = {
     "database_name": db_name,
 }
 
+scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS)
 mount_source: str | None = None
 mount_destination: str | None = None
 usage_full: list[dict[str, Any]] | None = None
@@ -504,19 +573,15 @@ try:
     # `> 0` filter would then silently drop the row) or invent usage when it shrank --
     # in both cases while the receipt still said `success`. Measuring either side of
     # the scan turns that into a detectable, and refusable, inconsistency.
-    pgdata_before = du_total(pgdata_host)
-    usage_result = run(
+    pgdata_before = du_total(pgdata_host, scan_budget)
+    # Fail closed on a failed scan: without this evidence the receipt cannot answer
+    # its own question, so it must not be presented as a complete inventory.
+    usage_full = du_rows(
         ["du", "-x", "-B1", "--max-depth=2", usage_root],
-        timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
+        scan_budget,
+        "directory_usage_failed",
     )
-    if usage_result.returncode != 0:
-        detail = (usage_result.stderr or usage_result.stdout).strip().splitlines()
-        reason = detail[-1][:240] if detail else f"exit_{usage_result.returncode}"
-        # Fail closed: without this evidence the receipt cannot answer its own
-        # question, so it must not be presented as a complete inventory.
-        raise RuntimeError(f"directory_usage_failed:{reason}")
-    usage_full = parse_du(usage_result.stdout)
-    pgdata_after = du_total(pgdata_host)
+    pgdata_after = du_total(pgdata_host, scan_budget)
     drift = abs(pgdata_after - pgdata_before)
     tolerance = max(
         DIRECTORY_DRIFT_FLOOR_BYTES, pgdata_before * DIRECTORY_DRIFT_FRACTION_PPM // 1_000_000
@@ -539,15 +604,11 @@ try:
         usage_full, key=lambda item: (-item["bytes"], item["path"])
     )[:40]
 
-    data_usage_result = run(
+    data_usage = du_rows(
         ["du", "-x", "-B1", "--max-depth=1", pgdata_host],
-        timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
+        scan_budget,
+        "postgres_data_directory_usage_failed",
     )
-    if data_usage_result.returncode != 0:
-        detail = (data_usage_result.stderr or data_usage_result.stdout).strip().splitlines()
-        reason = detail[-1][:240] if detail else f"exit_{data_usage_result.returncode}"
-        raise RuntimeError(f"postgres_data_directory_usage_failed:{reason}")
-    data_usage = parse_du(data_usage_result.stdout)
     inventory["postgres_data_directory_usage"] = {
         "path": pgdata_host,
         "bytes": postgres_data_directory_bytes,
@@ -559,20 +620,47 @@ try:
 
     # Name the directory that owns the non-database usage, which a single bounded-depth
     # scan from the root cannot do (see drill_down).
+    # The volume section may have failed after the mount resolved, in which case
+    # inventory["volume"] is an error object. Stop this section deliberately instead of
+    # raising KeyError out of the `except RuntimeError` below, which would scan for
+    # minutes and then die with a traceback where a structured stopped receipt belongs.
+    volume_section = inventory.get("volume")
+    if not isinstance(volume_section, dict) or "used_bytes" not in volume_section:
+        raise RuntimeError("volume_measurement_unavailable")
     drill_floor = max(
-        1, inventory["volume"]["used_bytes"] * DRILL_DOWN_FLOOR_PPM // 1_000_000
+        1, volume_section["used_bytes"] * DRILL_DOWN_FLOOR_PPM // 1_000_000
     )
+    chain = drill_down(
+        usage_root,
+        pgdata_host,
+        postgres_data_directory_bytes,
+        floor_bytes=drill_floor,
+        max_steps=DRILL_DOWN_MAX_STEPS,
+        budget=scan_budget,
+    )
+    # Close the bracket around the drill-down as well. The earlier bracket proved the
+    # data directory was stable across the filesystem scan, but the walk runs up to
+    # eight further scans afterwards and compares current ancestor totals against the
+    # one fixed data-directory size. If the database grew in between -- a concurrent
+    # derived build, say -- that growth is mislabelled as non-database usage and can
+    # send the walk down into the PostgreSQL volume; if it shrank, real sibling usage
+    # is hidden. Either way the receipt would still have said `success`.
+    pgdata_final = du_total(pgdata_host, scan_budget)
+    span_drift = abs(pgdata_final - pgdata_before)
+    inventory["postgres_data_directory_bracket"]["bytes_after_drill_down"] = pgdata_final
+    inventory["postgres_data_directory_bracket"]["span_drift_bytes"] = (
+        pgdata_final - pgdata_before
+    )
+    if span_drift > tolerance:
+        raise RuntimeError(
+            f"directory_usage_inconsistent:span_drift_{span_drift}_over_{tolerance}"
+        )
     inventory["non_database_drill_down"] = {
         "floor_bytes": drill_floor,
         "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
         "max_steps": DRILL_DOWN_MAX_STEPS,
-        "chain": drill_down(
-            usage_root,
-            pgdata_host,
-            postgres_data_directory_bytes,
-            floor_bytes=drill_floor,
-            max_steps=DRILL_DOWN_MAX_STEPS,
-        ),
+        "scan_budget_seconds": scan_budget.total_seconds,
+        "chain": chain,
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "volume_directory_usage", exc)
@@ -726,10 +814,30 @@ try:
         db_user,
         db_name,
     )
-    inventory["index_statistics_window"] = stats_rows[0] if stats_rows else {
+    # This is the DATABASE-wide reset time, and it is not every index's observation
+    # window. PostgreSQL supports resetting a single table or index independently
+    # (pg_stat_reset_single_table_counters), which zeroes that index's idx_scan without
+    # touching pg_stat_database.stats_reset. Presenting the database figure as the
+    # index's window would pair a freshly reset index with a months-old age and make a
+    # heavily used index look unused -- and an unused index is exactly what someone
+    # hunting for reclaimable space would drop. There is no per-index reset timestamp
+    # in PostgreSQL, so the honest reading is that an individual index's window is
+    # unknown; the receipt says so rather than implying a precision it does not have.
+    window = dict(stats_rows[0]) if stats_rows else {
         "stats_reset": None,
         "stats_never_reset": None,
     }
+    window["scope"] = "database"
+    window["per_index_window_known"] = False
+    window["note"] = (
+        "stats_reset is pg_stat_database's database-wide value. A single index or table "
+        "may have been reset independently with pg_stat_reset_single_table_counters, "
+        "which zeroes idx_scan without changing this timestamp, and PostgreSQL records "
+        "no per-index reset time. Treat each index's observation window as unknown: a "
+        "zero idx_scan is not evidence that an index is unused, and must not on its own "
+        "justify dropping one."
+    )
+    inventory["index_statistics_window"] = window
 except RuntimeError as exc:
     section_failed(failures, inventory, "index_statistics_window", exc)
 
@@ -908,14 +1016,32 @@ try:
     if data_dir not in exclusive and strict_ancestors:
         container = max(strict_ancestors, key=len)
         exclusive[container] -= postgres_data_directory_bytes
+    outside = [
+        {"path": path, "exclusive_bytes": size, "inside_data_directory": False}
+        for path, size in exclusive.items()
+        if path != data_dir and not path.startswith(f"{data_dir}/") and size > 0
+    ]
+    # Subtracting the whole data directory removes more than accounted_bytes covers.
+    # accounted_bytes is the databases (base/), WAL (pg_wal) and the temp directories;
+    # PGDATA also holds `global`, `pg_xact`, `pg_multixact`, replication-slot state and
+    # often relative log files. Dropping those with the rest of the data directory left
+    # them inside unaccounted_bytes but absent from every candidate, so the candidate
+    # list could not reconcile or locate the value it claimed to explain. They are
+    # therefore kept as candidates in their own right, flagged so nobody mistakes them
+    # for ordinary directories: some of them must never be deleted.
+    pgdata_children = inventory["postgres_data_directory_usage"]["children"]
+    inside = [
+        {
+            "path": row["path"],
+            "exclusive_bytes": row["bytes"],
+            "inside_data_directory": True,
+        }
+        for row in pgdata_children
+        if row["path"].rstrip("/").rsplit("/", 1)[-1] not in ACCOUNTED_PGDATA_CHILDREN
+        and row["bytes"] > 0
+    ]
     candidates = sorted(
-        (
-            {"path": path, "exclusive_bytes": size}
-            for path, size in exclusive.items()
-            if path != data_dir
-            and not path.startswith(f"{data_dir}/")
-            and size > 0
-        ),
+        outside + inside,
         key=lambda item: (-item["exclusive_bytes"], item["path"]),
     )
     # `du` and `df` measure different things, so the partition closes against the du
@@ -937,7 +1063,12 @@ try:
     if du_root_bytes is None:
         raise RuntimeError("directory_usage_root_total_missing")
     residual = volume_used - du_root_bytes
-    non_database_directory_bytes = sum(item["exclusive_bytes"] for item in candidates)
+    non_database_directory_bytes = sum(
+        item["exclusive_bytes"] for item in candidates if not item["inside_data_directory"]
+    )
+    unaccounted_inside_data_directory_bytes = sum(
+        item["exclusive_bytes"] for item in candidates if item["inside_data_directory"]
+    )
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
         "operating_database_bytes": operating_database_bytes,
@@ -947,6 +1078,7 @@ try:
         "unaccounted_bytes": volume_used - accounted_bytes,
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         "non_database_directory_bytes": non_database_directory_bytes,
+        "unaccounted_inside_data_directory_bytes": unaccounted_inside_data_directory_bytes,
         "directory_scan_root_bytes": du_root_bytes,
         "filesystem_minus_directory_scan_bytes": residual,
         "filesystem_minus_directory_scan_is_significant": (
@@ -962,8 +1094,13 @@ try:
             "measured PostgreSQL data-directory size is subtracted from the deepest "
             "scanned directory that contains it, and the data directory and everything "
             "under it are excluded. No row therefore counts the database, and no row "
-            "counts another row's bytes, and they sum to directory_scan_root_bytes "
-            "minus postgres_data_directory_bytes. The du scan covers the whole "
+            "counts another row's bytes. Rows outside the data directory sum to "
+            "non_database_directory_bytes; rows inside it are the PostgreSQL "
+            "directories that accounted_bytes does not cover (global, pg_xact, "
+            "pg_multixact, replication-slot state, relative log files) and are flagged "
+            "inside_data_directory, because some of them must never be deleted -- they "
+            "are listed so the summary can locate every byte it reports as "
+            "unaccounted, not as reclaim suggestions. The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is volume_used_bytes "
             "minus directory_scan_root_bytes: df reports filesystem space and du "
