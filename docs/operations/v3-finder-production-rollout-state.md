@@ -467,9 +467,10 @@ The following bounding, metric and windowing rules govern how the receipt may be
   `volume_used_bytes_at_directory_scan`, the reading taken immediately after the
   `du` scan it is subtracted from. Pairing the scan with the closing reading
   would charge every byte written or freed by the intervening SQL to the
-  residual — and the residual's whole meaning is filesystem metadata and blocks
-  held by deleted-but-open files, so that contamination cannot be told apart
-  from the signal. Both readings appear in the summary.
+  residual — and the residual's meaning is filesystem metadata, blocks held by
+  deleted-but-open files and files hidden beneath mount points, so that
+  contamination cannot be told apart from the signal. Both readings appear in the
+  summary.
 - **`base/` is broken down in one metric, and orphans are named by path.** GNU `du`
   reports allocated filesystem blocks; `pg_database_size` sums each entry's `st_size`.
   Subtracting the latter from the former turned ordinary per-file block rounding,
@@ -545,13 +546,27 @@ The following bounding, metric and windowing rules govern how the receipt may be
   across that window, and a residual no larger than it is not flagged. (At production
   scale the extra condition is inert — the bracket permits at most 0.5% of used while
   significance needs 2% — so the figure is the part that carries the value.)
+- **Files hidden beneath mount points are disclosed, not measured.** A directory that
+  already held files when something was mounted over it keeps using those blocks:
+  `df` counts them, but `du -x` cannot see beneath a mount, so they land in the
+  residual. A read-only walk cannot reach them without unmounting. When any mount
+  exists below the scan root, `filesystem_minus_directory_scan_may_include_files_hidden_beneath_mounts`
+  is true and `mount_points_below_scan_root` gives the count. Such files *are*
+  directory contents and *can* be reclaimed after unmounting, so the method text no
+  longer says the whole residual is unreclaimable. This is not treated as a gap in
+  the candidate list: the scan root of a real host always has mounts beneath it
+  (`/proc`, `/sys`, `/dev`), so doing that would null the verdict on every run.
 - **Index definitions are bounded, not just index rows.** `pg_get_indexdef()` can return
   arbitrarily large text for an expression or partial index, so a row cap alone does not
   bound the output that `run()` buffers, `psql_json()` materializes and the receipt
   serializes. A bounded prefix is kept with the original length and a truncation flag.
-- **The dead-tuple inventory is ranked by estimated reclaimable bytes, then capped.**
-  Not drawn from the largest relations: dead tuples *are* reclaimable space, and the
-  table holding the most of it need not be among the largest by total size — a moderate
+- **The dead-tuple inventory is ranked by estimated dead bytes, then capped.**
+  These bytes are **not free disk**: ordinary `VACUUM` makes dead pages reusable by the
+  same relation's future rows only, and returning them to the filesystem needs a table
+  rewrite (`VACUUM FULL`, `CLUSTER` or `pg_repack`) with an exclusive lock and temporary
+  space for the copy; the receipt says so in `dead_tuple_bytes_meaning`. The inventory is
+  not drawn from the largest relations, because the table holding the most dead space
+  need not be among the largest by total size — a moderate
   table that is mostly dead outranks a huge one that is almost all live. Ranked by
   estimated dead bytes rather than dead tuple count, because the count says nothing
   about row width. `dead_tuple_inventory_scope` and `_truncated` record the scope.

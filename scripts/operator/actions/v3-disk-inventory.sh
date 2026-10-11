@@ -98,8 +98,10 @@ INDEX_INVENTORY_LIMIT = 200
 INDEX_DEFINITION_LIMIT = 2_000
 # pg_stat_user_tables has one row per user table, so the dead-tuple inventory needs its
 # own bound. Ranked by ESTIMATED DEAD BYTES across every table rather than drawn from
-# the largest relations: the table holding the most reclaimable dead space need not be
-# among the largest by total size.
+# the largest relations: the table holding the most dead space need not be among the
+# largest by total size. Dead space is reusable INSIDE its relation once PostgreSQL's
+# routine dead-row cleanup has run; it returns to the filesystem only through a full
+# table rewrite (see dead_tuple_bytes_meaning).
 DEAD_TUPLE_INVENTORY_LIMIT = 100
 # Derived generation manifests cannot be deleted, so the attribution queries return one
 # row per historical generation and grow without bound as generations accumulate. The
@@ -1489,37 +1491,11 @@ try:
 except RuntimeError as exc:
     section_failed(failures, inventory, "volume_directory_usage", exc)
 
-try:
-    # The PGDATA depth-1 scan gets its own section too. It was the last scan still
-    # sharing the root scan's handler, so a timeout or an unreadable directory here
-    # replaced the already-stored host-level evidence with an error object -- discarding
-    # exactly the scan an operator would need in order to investigate this failure.
-    if pgdata_host is None or postgres_data_directory_bytes is None:
-        raise RuntimeError("postgres_data_directory_unresolved")
-    data_usage = du_rows(
-        ["du", "--null", "-x", "-B1", "--max-depth=1", pgdata_host],
-        scan_budget,
-        "postgres_data_directory_usage_failed",
-        expect_path=pgdata_host,
-    )
-    # The COMPLETE child list is kept for accounting and only the receipt view is
-    # truncated. Truncating before accounting would roll the discarded children into
-    # `postgres_data_directory_bytes - sum(children)` and report them as files directly
-    # in PGDATA -- so a large omitted directory would hide behind a synthetic
-    # root-files figure, which is the opposite of what this action is for.
-    pgdata_children_all = sorted(
-        (row for row in data_usage if row["path"].rstrip("/") != pgdata_host),
-        key=lambda item: (-item["bytes"], item["path"]),
-    )
-    inventory["postgres_data_directory_usage"] = {
-        "path": pgdata_host,
-        "bytes": postgres_data_directory_bytes,
-        "child_count": len(pgdata_children_all),
-        "children": pgdata_children_all[:40],
-    }
-
-except RuntimeError as exc:
-    section_failed(failures, inventory, "postgres_data_directory_usage", exc)
+# No PGDATA depth-1 scan before the closing phase. One used to run here, but the
+# closing reconciliation repeats the same measurement and overwrites every field
+# it produced, so it only spent walk budget -- and a timeout here stopped an
+# otherwise valid receipt even when the closing scan then succeeded. The closing
+# scan, in its own section, is the only source of the PGDATA child list.
 
 try:
     # The drill-down runs in a section of its own. It used to share the one above, so a
@@ -2046,7 +2022,7 @@ try:
     # the same defect as ranking indexes within the largest relations.
     #
     # Dead BYTES rather than dead tuple count, because the count says nothing about
-    # width: a million tiny dead rows reclaim less than a thousand wide ones. It is an
+    # width: a million tiny dead rows occupy less than a thousand wide ones. It is an
     # estimate -- planner statistics times a size, named as such in the output -- and
     # numeric throughout, so no intermediate can overflow.
     dead_tuple_rows = psql_json(
@@ -2077,6 +2053,17 @@ try:
     )
     inventory["dead_tuple_inventory_scope"] = (
         "all_user_tables_ranked_by_estimated_dead_bytes"
+    )
+    # Stated in the receipt, not only in comments, because the receipt is what an
+    # operator reads when deciding whether the volume has room for the next build.
+    # PostgreSQL's routine dead-row cleanup makes dead pages reusable by the same
+    # relation's future rows; it does not hand them back to the filesystem, so these
+    # bytes are not free space.
+    inventory["dead_tuple_bytes_meaning"] = (
+        "estimated dead space inside each relation: reusable by that relation's own "
+        "future rows once routine dead-row cleanup has run, and not returned to the "
+        "filesystem. Returning it needs a full table rewrite, which takes an "
+        "exclusive lock and temporary space for the new copy."
     )
 except RuntimeError as exc:
     section_failed(failures, inventory, "dead_tuples", exc)
@@ -3370,6 +3357,12 @@ try:
     # these measurements can resolve", not "do the numbers balance to the byte" -- which
     # they cannot on a live filesystem and never needed to.
     candidate_shortfall = unaccounted_at_scan - candidate_total
+    nested_mount_report = inventory.get("directory_scan_same_device_mounts")
+    mount_points_below_scan_root = (
+        nested_mount_report.get("mount_points_below_root", 0)
+        if isinstance(nested_mount_report, dict)
+        else 0
+    )
     # Whether the list is even eligible for that comparison. An unavailable base
     # breakdown means base/ contributes NO candidate rows at all, so the shortfall then
     # contains a gap this action put there knowingly -- and a known gap cannot be told
@@ -3465,6 +3458,17 @@ try:
             > volume_used_at_scan * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
             and abs(residual) > intra_scan_drift
         ),
+        # A third cause, disclosed rather than measured: files hidden beneath a mount
+        # point below the scan root. `du -x` cannot see under a mount, while `df` still
+        # counts those blocks, and a read-only walk cannot reach them without
+        # unmounting. Not a candidate-list gap -- no row was omitted -- and not grounds
+        # to null the verdict either, because the scan root of a real host always has
+        # mounts beneath it (/proc, /sys, /dev); doing so would switch the self-check
+        # off on every run. Every mount counts here, including the ones not stat()ed.
+        "mount_points_below_scan_root": mount_points_below_scan_root,
+        "filesystem_minus_directory_scan_may_include_files_hidden_beneath_mounts": (
+            mount_points_below_scan_root > 0
+        ),
         "largest_unaccounted_directories": candidates[:10],
         # The totals above sum the full constructed candidate list, so hiding the tail without
         # saying so leaves an operator unable to reconcile the figure the method claims
@@ -3553,8 +3557,12 @@ try:
             "by the intervening SQL to this residual, which is the same category the "
             "residual measures and so could not be told apart from it. "
             "df reports filesystem space and du "
-            "estimates space used by files, so this gap is filesystem metadata and "
-            "blocks held by deleted-but-open files -- but only beyond "
+            "estimates space used by files, so this gap is filesystem metadata, "
+            "blocks held by deleted-but-open files, and any files hidden beneath a "
+            "mount point below the scan root (du -x cannot see under a mount, while df "
+            "still counts those blocks; see "
+            "filesystem_minus_directory_scan_may_include_files_hidden_beneath_mounts) "
+            "-- but only beyond "
             "filesystem_minus_directory_scan_uncertainty_bytes, which is how much the "
             "volume moved while the root walk was running. df is one instant and du "
             "is a traversal, so a sibling changing during the walk leaves its earlier "
@@ -3564,7 +3572,9 @@ try:
             "Reserved blocks are NOT a cause: "
             "they explain size minus (used + available) because they remain free while "
             "being unavailable to ordinary users, so they never enter `used`; changing "
-            "the reserved-block percentage cannot close this residual. The gap is not "
+            "the reserved-block percentage cannot close this residual. Apart from files "
+            "hidden beneath mount points -- which ARE directory contents, reachable only "
+            "by unmounting and so invisible to this read-only scan -- the gap is not "
             "directory usage and cannot be reclaimed by deleting a directory. "
             "non_database_drill_down names the directory that owns the non-database "
             "usage, which a single bounded-depth scan from the root cannot do: GNU du "

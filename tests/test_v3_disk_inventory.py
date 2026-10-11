@@ -968,6 +968,12 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     summary = inventory["summary"]
     assert inventory["volume_directory_usage_scan"]["records_omitted_by_cap"] == 0
     assert inventory["volume_directory_usage_scan"]["path_attribution_complete"] is True
+    # No mount below the scan root in this fixture, so nothing can hide beneath one.
+    assert summary["mount_points_below_scan_root"] == 0
+    assert (
+        summary["filesystem_minus_directory_scan_may_include_files_hidden_beneath_mounts"]
+        is False
+    )
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     by_path = {
         row["path"]: row for row in summary["largest_unaccounted_directories"]
@@ -1502,11 +1508,19 @@ def test_v3_disk_inventory_separates_the_pgdata_scan_from_the_root_scan():
         source.count('section_failed(failures, inventory, "volume_directory_usage", exc)')
         == 1
     )
+    # The PGDATA child list now comes only from the closing reconciliation, which
+    # has its own handler; the superseded pre-closing scan, which stopped valid
+    # receipts by timing out on a measurement the closing scan repeats, is gone.
     assert (
         source.count(
-            'section_failed(failures, inventory, "postgres_data_directory_usage", exc)'
+            'failures, inventory, "postgres_data_directory_reconciliation", exc'
         )
         == 1
+    )
+    assert "data_usage = du_rows(" not in source
+    assert (
+        'section_failed(failures, inventory, "postgres_data_directory_usage", exc)'
+        not in source
     )
     # The root scan's handler comes before the PGDATA scan, so they cannot share one.
     root_handler = source.index(
@@ -1660,8 +1674,10 @@ def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
     assert 'for record in stdout.split("\\0"):' in source
     assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
     # Every du invocation asks for NUL-delimited output. The root walk uses a
-    # multi-line argv literal, while the other calls use compact literals.
-    assert source.count('["du", "--null", "-x", "-B1"') == 5
+    # multi-line argv literal, while the other calls use compact literals. Four, not
+    # five: the superseded pre-closing PGDATA depth-1 scan was removed because the
+    # closing reconciliation repeats that measurement.
+    assert source.count('["du", "--null", "-x", "-B1"') == 4
     assert source.count('"du",\n            "--null",') == 1
     assert '["du", "-x", "-B1"' not in source
 
@@ -2237,14 +2253,17 @@ def test_v3_disk_inventory_carries_a_negative_outside_remainder(tmp_path):
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
-def test_v3_disk_inventory_ranks_dead_tuples_by_reclaimable_bytes(tmp_path):
-    """The table holding the most reclaimable dead space need not be the largest.
+def test_v3_disk_inventory_ranks_dead_tuples_by_estimated_dead_bytes(tmp_path):
+    """The table holding the most dead space need not be the largest.
 
-    Dead tuples ARE reclaimable space, so drawing them from the top 20 relations by
-    total size hid the moderate table that is mostly dead behind huge tables that are
-    almost all live -- and with no truncation flag to say anything had been left out.
-    Exactly the defect found for the index inventory, in a section where the omission
-    costs more, because this is the one that says what vacuuming would return.
+    Drawing dead tuples from the top 20 relations by total size hid the moderate table
+    that is mostly dead behind huge tables that are almost all live -- and with no
+    truncation flag to say anything had been left out. Exactly the defect found for the
+    index inventory.
+
+    Dead space is NOT free disk: VACUUM makes it reusable by the same relation only, and
+    the filesystem gets it back only through a table rewrite. The receipt must say so,
+    because an operator sizing the next build reads the receipt, not the comments.
 
     Ranked by estimated dead BYTES rather than dead tuple count: the count says nothing
     about row width, so a million tiny dead rows would outrank a thousand wide ones.
@@ -2276,6 +2295,11 @@ def test_v3_disk_inventory_ranks_dead_tuples_by_reclaimable_bytes(tmp_path):
         "all_user_tables_ranked_by_estimated_dead_bytes"
     )
     assert inventory["dead_tuples"][0]["estimated_dead_bytes"] == 150
+    # The receipt itself says these bytes are not free disk.
+    meaning = inventory["dead_tuple_bytes_meaning"]
+    assert "not returned to the filesystem" in meaning
+    assert "table rewrite" in meaning
+    assert "reclaimable" not in meaning
 
 
 def test_v3_disk_inventory_ranks_indexes_globally_before_capping(tmp_path):
@@ -3189,7 +3213,21 @@ def test_v3_disk_inventory_refuses_an_unreadable_mount_table(tmp_path):
 def test_v3_disk_inventory_allows_a_different_device_nested_mount(tmp_path):
     result = _run_inventory_action(tmp_path, nested_mount_mode="different_device")
     assert result.returncode == 0, result.stderr or result.stdout
-    report = json.loads(result.stdout)["inventory"]["directory_scan_same_device_mounts"]
+    receipt = json.loads(result.stdout)
+    report = receipt["inventory"]["directory_scan_same_device_mounts"]
+    # A mount below the scan root may hide files that `df` counts and `du -x` cannot
+    # see, so the residual discloses that cause -- without nulling the verdict.
+    summary = receipt["inventory"]["summary"]
+    assert summary["mount_points_below_scan_root"] == 1
+    assert (
+        summary["filesystem_minus_directory_scan_may_include_files_hidden_beneath_mounts"]
+        is True
+    )
+    assert "files hidden beneath a" in summary["method"]
+    assert "Apart from files hidden beneath mount points" in summary["method"]
+    # The unqualified claim that the whole residual is unreclaimable is gone.
+    assert "The gap is not directory usage" not in summary["method"]
+    assert summary["candidate_list_complete"] is True
     assert report["available"] is True
     assert report["safe_to_scan"] is True
     assert report["mount_points_below_root"] == 1
