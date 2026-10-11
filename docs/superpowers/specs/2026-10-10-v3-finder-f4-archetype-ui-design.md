@@ -1033,14 +1033,29 @@ bit-identical — and the cross-generation comparison this field exists to enabl
 would be silently suppressed by an edit that changed nothing. That is the same
 failure as using the manifest digest, reached by a different route.
 
-The honest cost of hashing declared values instead of source is that the digest
-becomes a **declaration** that the semantics are unchanged, not a proof. Two
-builds could in principle agree on every declared constant and compute different
-scores through a code change the manifest does not describe. So F2d's validator
-converts the declaration into a checked claim: **two builds whose
-`archetype_model_sha256` agree must produce identical `<key>_weighted_e4` values
-for a shared sample of systems**, asserted as part of validation rather than left
-to trust. `archetype_manifest_sha256` — which does cover the source files —
+F2d's digest covers the enumerated semantic fields **plus the shared model
+file's hash** — the file that owns scoring — and not the builder or the migration,
+whose changes concern how rows are iterated and stored rather than how scores are
+computed (F2d review round 19). So a change to the scoring logic always moves the
+digest, and a batching fix or a storage-only DDL change never does.
+
+The validator then checks the digest means what it claims — but it must **not** do
+so by comparing values two generations stored (review round 34). A new generation
+contains updated canonical facts, so a sampled system's `<key>_weighted_e4` can
+legitimately differ under an identical model; canonical changes are expected to
+trigger derived rebuilds
+(`docs/development/v3-search-spatial-derived-data-decision.md:8-12`). Comparing
+stored outputs would therefore reject the **data-refresh case this digest exists
+to permit** — the check would fail precisely when the feature was working.
+
+The assertion is instead that **two implementations with equal
+`archetype_model_sha256` produce identical `<key>_weighted_e4` values when
+evaluated against the same frozen input records** — a committed fixture of
+`(score, confidence_ppm, completeness_ppm)` vectors including the half boundaries
+— which isolates the model from the data it is applied to. That is the only form
+of the check that can distinguish "the model changed" from "the galaxy did".
+
+`archetype_manifest_sha256`, which covers the source files and the generation,
 remains available and displayed for anyone who needs exact-build identity. `archetype_manifest_sha256`
 keeps its existing job of identifying one build exactly, and is still shown with
 the generation line; it is simply not the field a semantic comparison may hinge
@@ -1272,7 +1287,27 @@ Use Testing Library Svelte, which is installed in the current stack
   `/inspect?system=<id64>&from=<URL-encoded originating Explore query>` and an
   outbound navigation that passes `state: page.state` so the anchor survives the
   round trip (the pre-F4 bare `?system=` href would lose the ranking state and
-  the anchor);
+  the anchor). **This applies to every Inspect entry point reachable from
+  `/explore`, not only the result row (review round 34).** Enumerated from the
+  current tree rather than from the three the review cited, because a partial list
+  is how this recurs — there are **seven** bare `/inspect?system=` links across
+  five components:
+
+  | Entry point | Location |
+  | --- | --- |
+  | result row | `ExploreWorkspace.svelte:820` |
+  | selected map card | `ExploreWorkspace.svelte:1053` |
+  | system overlay | `SystemOverlay.svelte:121` |
+  | AppShell context chip | `AppShell.svelte:71` |
+  | watchlist entry | `WatchlistPanel.svelte:220` |
+  | watchlist system row | `WatchlistPanel.svelte:366` |
+  | compare entry | `ComparePanel.svelte:104` |
+
+  Every one of them must carry `from` and the outbound `page.state`, and the
+  round-trip test covers each, because a user who reaches Inspect by any of these
+  and presses **Open in Explore** must come back to the ranking and anchor they
+  left — losing it from one path is as broken as losing it from all of them, and
+  harder to notice;
 - rerank omission retains the selected system point and Babylon marker;
 - hydration resolves a selected id64 omitted from the current page through
   `GET /api/system/{id64}`, emits one point only after validated coordinates,
@@ -1765,10 +1800,17 @@ URL/page-size/offset codec with selected-only tier state, tier/evidence
 presentation helpers, lossless
 page-envelope normalizer,
 `ExploreSystem` confidence/completeness plus score/distance identity **and
-`ranking_provenance`** (the facade copies `ranking_version`, `ranking_sha256`,
-generation id and publication sequence from each response envelope onto every
-normalized row, so `SystemActions`/`snapshotFromExplore` need only the
-`ExploreSystem` they already receive), persisted snapshot shape
+`ranking_provenance`** (the facade copies **all seven** provenance fields from
+each response envelope onto every normalized row — `ranking_version`,
+`ranking_sha256`, generation id, publication sequence, `archetype_version`,
+`archetype_manifest_sha256` and `archetype_model_sha256` — so
+`SystemActions`/`snapshotFromExplore` need only the `ExploreSystem` they already
+receive. **All seven, in both normalizers (review round 34):** `snapshotFromExplore`
+sees only the normalized `ExploreSystem`, so a field omitted here cannot be
+recovered later — the save would either be discarded as incomplete provenance or
+stored with a missing model identity, and a snapshot missing
+`archetype_model_sha256` is exactly the one that silently drops out of every
+cross-generation comparison. Both normalizers' tests assert all seven), persisted snapshot shape
 (`ranking_score`, `score_kind`, selected archetype, distance reference and
 `ranking_provenance`), and ranking query key. Without this in F4a every
 selected-fit snapshot saved before F4c would have null provenance and F4c would
@@ -1835,6 +1877,14 @@ Exact files:
   400 and neither browser flow ever reaches Explore) and its contract tests
 - modify `scripts/dev/review_lab/scenarios.py` (the two new scenario
   definitions and browser flow keys)
+- modify `tests/test_v3_web_release_image.py` (**required**: that module owns the
+  deployable web image contract and currently pins the Svelte build command, so
+  without release-image assertions a Dockerfile could ignore the new build
+  argument, pass it to Vite incorrectly, or default it to `1` — and every listed
+  feature-config and workflow test would still pass, because none of them inspect
+  the image. Assert that the argument **defaults fail-closed to `0`** and is
+  passed into the Svelte build; a feature that reaches a release bundle because a
+  default was wrong is the one failure this gate exists to prevent)
 - modify `scripts/dev/review_lab/browser_runner.py` (**required**, two changes):
   `VITE_FINDER_F4_ENABLED: '1'` in the Review Lab bundle build overrides, **and
   `REQUIRED_CHECKS_BY_FLOW` entries for both new flow keys**. That map is closed
@@ -3093,3 +3143,51 @@ had written in the preceding round, which is worth noting rather than hiding.
    wrong. Corrected, with the distinction spelled out so the reference cannot drift
    back. The other four F4c mentions were checked and are all correct as they
    stand (distance reference-safety, and the "F4c **and** F4e" pairings).
+
+### Review round 34 (2026-10-11)
+
+1. **P1 — Validate model semantics against frozen inputs** → correct, and the
+   check I added in round 32 was wrong in the one way that matters: it would have
+   **failed precisely when the feature was working**. A new generation carries
+   updated canonical facts, so a sampled system's `<key>_weighted_e4` can
+   legitimately differ under a byte-identical model — canonical changes are
+   expected to trigger derived rebuilds
+   (`v3-search-spatial-derived-data-decision.md:8-12`) — so comparing values two
+   generations stored would reject the data-refresh case the generation-free digest
+   exists to permit. I had written an assertion that contradicted the field's
+   purpose while appearing to defend it.
+   The check is now against the same **frozen input records**: a committed fixture
+   of `(score, confidence_ppm, completeness_ppm)` vectors including the half
+   boundaries, evaluated by both implementations. That isolates the model from the
+   data it is applied to, which is the only form of the check that can tell "the
+   model changed" from "the galaxy did". (F2d review round 19 separately moved the
+   digest to cover the shared **model file's** hash as well as the enumerated
+   fields, which does most of the work the round-32 caveat was apologising for.)
+2. **P2 — Preserve state from every Explore-to-Inspect entry point** → correct, and
+   enumerating the tree rather than trusting the three cited paths found **seven**
+   bare `/inspect?system=` links across five components: the result row and the
+   selected map card (`ExploreWorkspace.svelte:820,1053`), the system overlay
+   (`SystemOverlay.svelte:121`), the AppShell context chip (`AppShell.svelte:71`),
+   two watchlist rows (`WatchlistPanel.svelte:220,366`) and the compare entry
+   (`ComparePanel.svelte:104`). My checklist covered one of the seven. The table is
+   now in the design with each location, because a partial list is how this
+   recurs — and losing the ranking and anchor from **one** path is as broken as
+   losing it from all of them, and considerably harder to notice. The round-trip
+   test covers each.
+3. **P2 — Populate the complete ranking provenance** → correct, and your point
+   about recoverability is what makes it unfixable later: `snapshotFromExplore`
+   receives only the normalized `ExploreSystem`, so a provenance field the
+   normalizer drops is gone — the save is either discarded as incomplete or stored
+   with a missing model identity. And a snapshot missing `archetype_model_sha256`
+   is exactly the one that silently falls out of every cross-generation comparison,
+   which is the feature the field was added for. Both normalizers now copy all
+   **seven** fields, and their tests assert all seven rather than the four.
+4. **P2 — Extend the release-image contract for the F4 build argument** → correct.
+   `tests/test_v3_web_release_image.py` owns the deployable web image contract, and
+   without assertions there a Dockerfile could ignore the argument, expose it to
+   Vite incorrectly, or **default it to `1`** while every listed feature-config and
+   workflow test still passed — none of them inspect the image. A feature reaching
+   a release bundle because a default was wrong is the single failure this gate
+   exists to prevent, so the gate was missing an assertion about its own premise.
+   Added as **required**, asserting the argument defaults fail-closed to `0` and is
+   passed into the Svelte build.
