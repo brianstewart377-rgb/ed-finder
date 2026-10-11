@@ -593,21 +593,36 @@ The browser clamp is not the only defence: a caller can post to
 `/api/local/search` directly. **The same ceiling is enforced at the API
 boundary**, in the release that deploys before publication (F2d PR1, which
 already bounds the rankings route's `offset`): the local-search request model
-bounds `from` to `0–10_000`, so a larger offset is a 422 rather than an
-`OFFSET 2000000000` against the ranking index. This costs nothing real — no mode
-navigates past 10,000 by contract, and a galaxy-wide count is capped at 10,000
-anyway, so offsets beyond it cannot address rows a client could legitimately
-reach. Tests assert the 422 at `from = 10_001` and success at `from = 10_000`.
+enforces the **combined** window bound — `from >= 0`, `size >= 1` and
+`from + size <= 10_000` — so neither `from=2000000000` nor `from=10000` nor
+`from=9999&size=500` can address rows beyond the first 10,000 the contract
+describes; each is a 422 rather than an `OFFSET` against the ranking index.
+(Bounding `from` alone would have accepted `from=10_000` — a page starting one
+row past the window — and any oversized `size` straddling the boundary.) This
+costs nothing real: no mode navigates past 10,000 by contract and a galaxy-wide
+count is capped there. Tests assert success at `from=9_950, size=50` and 422 at
+`from=10_000, size=1`, `from=9_999, size=500` and `from=10_001`.
 
 Normalize Any responses
 separately: `navigable_total` is `min(total, 10000)`, and the Any truncation
 state is the existing `total_is_capped === true` rather than selected mode's
 differently defined `is_truncated`. An anchored exact `total` above 10,000 is
 still **displayed** exactly (“12,345 matches; navigation is limited to the
-first 10,000 results”); only navigation is bounded. When `total_is_capped=true`,
-show **10,000+ matches; navigation is limited to the first 10,000 results.** Do
-not infer a cap from the number 10,000
-(`apps/api/src/local_search.py:965-970`, `apps/api/src/models.py:408-412`).
+first 10,000 results”); only navigation is bounded.
+
+**The plus sign needs a sentinel the API does not yet provide.** Today
+`total_is_capped` is set whenever `total >= GALAXY_WIDE_COUNT_CAP`
+(`apps/api/src/local_search.py:965-970`), so a galaxy-wide search with *exactly*
+10,000 matches raises the same flag as one with a million — the inference is
+already baked into the source, and telling the UI “do not infer a cap from the
+number” cannot undo it. So F4 does **not** use “10,000+” on that flag alone.
+Until the count query carries a 10,001st-row sentinel (the same cheap
+`LIMIT cap + 1` the selected path uses for `is_truncated`, a small API change
+that can ride with F2d PR1), the copy claims nothing unseen:
+**“Showing the first 10,000 matches; there may be more.”** Once the sentinel
+exists, an exact 10,000 reads **“10,000 matches”** and a true overflow reads
+**“10,000+ matches; navigation is limited to the first 10,000 results.”** A
+component test pins all three states.
 
 The URL codec, facade request size, Next availability, visible range, DOM list
 and Finder contribution all derive from that one normalized envelope. A page
@@ -769,10 +784,18 @@ resolve it through the existing facade `getSystem` call
 (`apps/api/src/routers/systems.py:38-100`). Its response provides `id64`, `name`,
 `x`, `y` and `z` (`apps/api/src/models.py:281-295`). Emit the separate
 Finder-selection contribution only after the response id matches the current
-selection and all three coordinates are finite; deduplicate it against the
+selection and all three coordinates are finite **and pass the repository's
+canonical origin guard** — an all-zero `(0, 0, 0)` triple counts as unknown
+unless the id really is Sol (`id64 == 10477373803`), exactly as
+`apps/api/src/helpers.py:19-53` treats it, because the legacy table defaults
+missing coordinates to the origin and a finite-only test would plant the marker
+on Sol for any such system after a shared-URL reload. The facade normalizes that
+triple to absent coordinates so every consumer inherits the rule, and a test
+covers a non-Sol system returning `(0, 0, 0)` (no point, selection retained) and
+Sol itself (point emitted). Deduplicate against the
 current page and ignore or cancel a stale response when selection changes.
-While resolution is pending, or on 404/error/non-finite coordinates, retain the
-selection and Inspect hand-off but emit no guessed or origin-defaulted point.
+While resolution is pending, or on 404/error/non-finite/origin coordinates,
+retain the selection and Inspect hand-off but emit no guessed point.
 
 Reserve an end-aligned `ranking-tools` slot beside the picker in the responsive
 layout, but render no dead slider controls in the first increment. This preserves
@@ -1024,12 +1047,15 @@ page SQL and companion count SQL returned, with bound parameters, by
 (`apps/api/src/ranking/ranking_sql.py:392-509`,
 `apps/api/src/ranking/ranking_sql.py:512-574`). Record
 `EXPLAIN (ANALYZE, BUFFERS)` plus wall-clock timings for the first page, a
-near-ceiling page and the post-filter within-window count. The plan must
-demonstrate that the canonical-order index probe stops after at most 10,001 rows before
-any non-indexed predicate, and that the real joins, filtering, modifier sorting
-and counting touch at most the first 10,000. Include selective
-region/distance/body-count cases so stable latency under warm and cold fixture
-runs proves that filter selectivity cannot reopen a population scan. A
+near-ceiling page and the bounded count, **at each of the B/A/S floors** so all
+three partial indexes are exercised. The plan must demonstrate that the page
+query's window reads at most 10,000 rows and the count query's at most 10,001,
+and that the join, sort and count touch no more. There are deliberately **no**
+selective region/distance/body-count cases: a picked request carrying a hard
+filter is rejected with 422, so a filtered benchmark would measure SQL the
+endpoint never builds; filter selectivity cannot reopen a population scan
+because no filter reaches the query at all. Hard filters are covered by
+rejection tests instead. A
 hand-written query or an EXPLAIN against one flattened scratch table does not
 exercise view expansion, join order or the real indexes and **does not unblock
 F4b**. This is representative-scale evidence, not a claim of full
@@ -2690,3 +2716,25 @@ that describe post-window filtering are superseded by this one.
    `best_tier` to the `ExploreSystem` facade type and both normalizers, with
    present- and absent-value tests, since components read the facade rather than
    the generated modules.
+
+#### Round 28 — 2026-10-11 (PR #801)
+
+1. **P2 — Reject Any pages that cross the 10,000-row boundary** → the API bound
+   is the **combined** `from + size <= 10_000` with `size >= 1`, so `from=10000`
+   and `from=9999&size=500` are 422s too, not just oversized offsets; tests pin
+   all four cases. (The F2d design carries the same bound.)
+2. **P2 — Remove unreachable filtered benchmark cases** → the required-proof
+   paragraph now benchmarks the first page, a near-ceiling page and the bounded
+   count at each of the B/A/S floors, and states that there are no filtered cases
+   because such requests are 422s and no filter reaches the query.
+3. **P2 — Distinguish an exact 10,000 total from a capped count** → correct, and
+   the source flag makes the inference regardless of UI wording. Until the count
+   query carries a 10,001st-row sentinel (a small API change that can ride with
+   F2d PR1), the copy claims nothing unseen — **“Showing the first 10,000
+   matches; there may be more.”** — and only afterwards does an exact 10,000 read
+   “10,000 matches” and a true overflow “10,000+ matches”. A component test pins
+   all three states.
+4. **P2 — Reject placeholder origin coordinates during point reconstruction** →
+   reconstruction applies the repository's canonical origin guard: an all-zero
+   triple is unknown unless the id is Sol, normalized in the facade so every
+   consumer inherits it, with tests for a non-Sol `(0,0,0)` and for Sol.
