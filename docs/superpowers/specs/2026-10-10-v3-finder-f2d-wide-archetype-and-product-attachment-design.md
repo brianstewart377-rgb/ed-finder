@@ -1315,16 +1315,21 @@ Files:
 - `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
-  gate: exact generation key/UUID/sequence, both product versions/manifests,
-  both products **READY with VERIFIED validation receipts**, validation audits,
-  row counts, and the new ranking version/SHA. It must **not** require
-  `published_at` or a publication audit: rollout step 8 promotes the release
-  while both products are still unpublished — that is the point, the bounded
-  ranking code reaches production before anything is visible — and step 9's
-  publication is the go-live switch afterwards. A gate that demanded publication
-  would make step 8 impossible and step 9 unreachable. Publication is verified
-  by the publish action's own receipt (timestamps, audit rows, view counts) and
-  by a post-go-live check, both specified in this PR)
+  gate, matching rollout step 5 — the release deploys **before any product
+  exists**, so the gate requires **no product rows at all**: the exact current
+  PUBLISHED generation key/UUID/sequence; the applied migration set
+  `[014, 010, 011-rewritten, 013, 015]` with its exact ledger hashes; the new
+  `ranking_version`/`ranking_sha256`; and built-image contracts — the bounded
+  ranking route, the `Literal[60, 76, 88]` floor, the hard-filter rejection, the
+  bounded `from`/`offset`, and the publication check in
+  `_current_derived_generation()`. It must **not** require product READY,
+  validation receipts, row counts, `published_at` or a publication audit: any of
+  those would block step 5 and force the products to be built under the old
+  deployed build, recreating exactly the unsafe interval the reorder removes.
+  Product validation stays with the step 6/7 build actions' receipts;
+  publication is verified by the publish action's own receipt (timestamps, audit
+  rows, view counts) and by the step 9 post-go-live check, both specified in
+  this PR)
 - `deploy/v3-production/target-authority.json` (release-gate fields only; the
   migration identities were recut in PR1/PR2)
 - tests: `tests/test_v3_system_search_production_operator.py`,
@@ -1493,3 +1498,10 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    `POST /api/local/search`'s `from` to 0–10,000 as well as the rankings route's
    `offset`, so a direct caller cannot force `OFFSET 2000000000` against the
    ranking index once the products are published.
+
+3. **PR4's gate carries no product prerequisites** (round 10 follow-up). The
+   gate text now matches rollout step 5 exactly: generation identity, the applied
+   migration set and hashes, the ranking identity and built-image contracts —
+   and explicitly not product READY, validation receipts, row counts,
+   `published_at` or publication audits, any of which would force the products to
+   be built under the old deployed build and recreate the unsafe interval.
