@@ -380,8 +380,8 @@ def _run_inventory_action(
                 if [ "$TABLESPACE_PRESENT" = '1' ]; then
                   printf '%s\\n' '{"spcname":"fast_ssd","location":"/mnt/ssd/pgtbs","size_bytes":40000}'
                 fi ;;
-              *'AS wal_pinning_slots FROM pg_replication_slots'*)
-                printf '%s\\n' '{"slots":"0","inactive_slots":"0","wal_pinning_slots":"0"}' ;;
+              *'AS lost_slots FROM pg_replication_slots'*)
+                printf '%s\\n' '{"slots":"0","inactive_slots":"0","wal_retaining_slots":"0","wal_beyond_max_wal_size_slots":"0","lost_slots":"0"}' ;;
               *'pg_replication_slots'*)
                 exit 0 ;;
               *'pg_prepared_xacts'*)
@@ -1805,22 +1805,30 @@ def test_v3_disk_inventory_writes_no_bytecode():
     assert '"filesystem_writes_performed":false' in source
 
 
-def test_v3_disk_inventory_bounds_replication_slots_by_wal_held(tmp_path):
-    """pg_replication_slots is as unbounded as pg_database, and worse ordered by name.
+def test_v3_disk_inventory_bounds_replication_slots_by_wal_actually_retained(tmp_path):
+    """pg_replication_slots is as unbounded as pg_database, and the obvious order is wrong.
 
     The view lists every slot that exists and max_replication_slots is operator
-    configuration, so the row count is not something this action controls. The counts
-    therefore come from an aggregate. The sample is ordered by WAL held rather than by
-    slot_name, because the slots that matter here are the ones pinning WAL -- and a
-    bound must never drop the row that explains the WAL the receipt is accounting for.
+    configuration, so the counts come from an aggregate and the sample is bounded. The
+    ORDER has to follow PostgreSQL's documented wal_status semantics, which invert the
+    intuitive reading: `extended` means "max_wal_size is exceeded but the files are
+    still retained" -- the state that actually puts unexpected WAL on the volume --
+    while `unreserved` means the slot "no longer retains the required WAL files" and
+    `lost` means it "is no longer usable". Ordering by lost/unreserved first filled the
+    sample with slots that had already stopped holding WAL and could drop the ones
+    responsible for it, while the receipt claimed the sample was ordered by WAL held.
     """
     source = _read(ACTION)
     assert "REPLICATION_SLOT_INVENTORY_LIMIT = 50" in source
     assert "LIMIT {REPLICATION_SLOT_INVENTORY_LIMIT}" in source
-    assert "AS wal_pinning_slots FROM pg_replication_slots" in source
-    # `lost` first, then `unreserved`, then furthest behind by restart_lsn.
-    assert "ORDER BY (wal_status = 'lost') DESC, (wal_status = 'unreserved') DESC, " in (
-        source
+    # Counting what retains WAL, not what has stopped: the old counter filtered on
+    # ('unreserved','lost') and reported it as the WAL-pinning count.
+    assert "wal_status IN ('reserved','extended')" in source
+    assert "AS wal_pinning_slots" not in source
+    # extended first, then reserved, then furthest behind by restart_lsn.
+    assert (
+        "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
+        in source
     )
     assert "restart_lsn ASC NULLS LAST, slot_name " in source
 
@@ -1829,8 +1837,30 @@ def test_v3_disk_inventory_bounds_replication_slots_by_wal_held(tmp_path):
     wal = json.loads(result.stdout)["inventory"]["wal"]
     assert wal["replication_slot_count"] == 0
     assert wal["inactive_replication_slot_count"] == 0
-    assert wal["wal_pinning_replication_slot_count"] == 0
+    assert wal["wal_retaining_replication_slot_count"] == 0
+    assert wal["wal_beyond_max_wal_size_replication_slot_count"] == 0
+    assert wal["lost_replication_slot_count"] == 0
+    assert wal["replication_slot_sample_order"] == (
+        "wal_retained_then_oldest_restart_lsn"
+    )
     assert wal["replication_slots_truncated"] is False
+
+
+def test_v3_disk_inventory_requires_the_temp_directory_through_the_base_cap(tmp_path):
+    """base/pgsql_tmp must survive the cap for the same reason the live OIDs must.
+
+    Its bytes are already inside accounted_bytes via pg_ls_tmpdir(), so a size-based
+    cap that drops it presents the live temporary directory among the unaccounted
+    candidates while it is still being subtracted as accounted -- and the negative
+    metric-difference term that follows can leave the closure flag true. Only required
+    when the directory exists: the wrapper returns NULL when base/pgsql_tmp is not a
+    directory, and a cluster that has never spilled to disk legitimately has none.
+    """
+    source = _read(ACTION)
+    assert 'temp_section.get("temp_directory_bytes") is not None' in source
+    assert "temp_directory_observed = any(" in source
+    assert "elif temp_directory_exists and not temp_directory_observed:" in source
+    assert '"reason": "temporary_directory_not_observed"' in source
 
 
 def test_v3_disk_inventory_keeps_the_operating_database_inside_its_bound(tmp_path):

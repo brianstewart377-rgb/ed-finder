@@ -405,9 +405,20 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   the **operating database** inside its own bound (it sorts ahead of size) and bounds
   the **tablespace refusal path** off a count rather than a row per tablespace — a
   fail-closed guard must not be the thing that fails to emit the stopped receipt.
-  **Replication slots** follow it too, ordered by WAL held (`lost`, then `unreserved`,
-  then furthest behind by `restart_lsn`) rather than by name: the bound must never drop
-  the slot that explains the WAL the receipt is accounting for.
+  **Replication slots** follow it too, ordered by WAL *actually retained* rather than
+  by name: the bound must never drop the slot that explains the WAL the receipt is
+  accounting for. PostgreSQL's `wal_status` semantics invert the intuitive reading —
+  `extended` means `max_wal_size` is exceeded but the files are **still retained** (the
+  state that puts unexpected WAL on the volume), while `unreserved` means the slot *no
+  longer* retains the required WAL and `lost` means it is unusable — so the sample is
+  ordered `extended`, then `reserved`, then furthest behind by `restart_lsn`, and the
+  counts report what retains WAL (`reserved`/`extended`) rather than what has stopped.
+- **`base/pgsql_tmp` and every live database directory must survive the `base` cap.**
+  Their bytes are already inside `accounted_bytes`, so an entry dropped by the
+  size-based cap would be presented among the unaccounted candidates while still being
+  subtracted as accounted — and the negative metric-difference term that follows can
+  leave the closure flag `true`. The breakdown is refused when either was not observed
+  (`live_database_directories_not_all_observed`, `temporary_directory_not_observed`).
 - **Row caps emit an aggregate candidate, never a silent gap.** Where a `du` row cap
   drops entries — PGDATA's children or `base/`'s — their bytes are subtracted from the
   "files directly in this directory" remainder (so they are not mislabelled) **and**

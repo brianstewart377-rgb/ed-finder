@@ -1256,17 +1256,27 @@ try:
     # Count first, then a bounded sample -- same rule as pg_database and
     # pg_tablespace. pg_replication_slots lists every slot that exists, and
     # max_replication_slots can be set high, so the row count is operator
-    # configuration rather than anything this action controls. The slots that MATTER
-    # here are the ones pinning WAL, so the sample is ordered by that rather than by
-    # name: a bound must never drop the row that explains the WAL the receipt is
-    # trying to account for. `lost` first (it pinned WAL and can no longer release
-    # it), then by restart_lsn ascending -- the furthest behind holds the most.
+    # configuration rather than anything this action controls.
+    #
+    # The ORDER follows PostgreSQL's documented wal_status semantics, which are the
+    # opposite of the intuitive reading: `extended` means "max_wal_size is exceeded but
+    # the files are still retained", so it is the state that actually causes unexpected
+    # WAL on disk; `reserved` retains WAL within max_wal_size; `unreserved` means the
+    # slot "no longer retains the required WAL files"; `lost` means the slot "is no
+    # longer usable". Ordering by lost/unreserved first -- as this did -- filled the
+    # sample with the slots that have ALREADY stopped holding WAL and could drop the
+    # ones responsible for it, while the receipt claimed the sample was ordered by WAL
+    # held. extended, then reserved, then furthest behind by restart_lsn.
     slot_count_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT count(*)::bigint::text AS slots, "
         "count(*) FILTER (WHERE NOT active)::bigint::text AS inactive_slots, "
-        "count(*) FILTER (WHERE wal_status IN ('unreserved','lost'))"
-        "::bigint::text AS wal_pinning_slots FROM pg_replication_slots) q",
+        "count(*) FILTER (WHERE wal_status IN ('reserved','extended'))"
+        "::bigint::text AS wal_retaining_slots, "
+        "count(*) FILTER (WHERE wal_status = 'extended')"
+        "::bigint::text AS wal_beyond_max_wal_size_slots, "
+        "count(*) FILTER (WHERE wal_status = 'lost')"
+        "::bigint::text AS lost_slots FROM pg_replication_slots) q",
         db_user,
         db_name,
     )
@@ -1279,15 +1289,26 @@ try:
         slot_count_rows[0].get("inactive_slots"),
         "replication_slot_count_output_invalid",
     )
-    wal_pinning_slot_count = required_int(
-        slot_count_rows[0].get("wal_pinning_slots"),
+    # Slots RETAINING WAL, not slots that have stopped. The previous counter filtered
+    # on ('unreserved','lost'), which is precisely the set that no longer retains it,
+    # and reported the result as the WAL-pinning count.
+    wal_retaining_slot_count = required_int(
+        slot_count_rows[0].get("wal_retaining_slots"),
+        "replication_slot_count_output_invalid",
+    )
+    wal_beyond_max_slot_count = required_int(
+        slot_count_rows[0].get("wal_beyond_max_wal_size_slots"),
+        "replication_slot_count_output_invalid",
+    )
+    lost_slot_count = required_int(
+        slot_count_rows[0].get("lost_slots"),
         "replication_slot_count_output_invalid",
     )
     slots = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT slot_name, active, wal_status, safe_wal_size, "
         "restart_lsn::text AS restart_lsn FROM pg_replication_slots "
-        "ORDER BY (wal_status = 'lost') DESC, (wal_status = 'unreserved') DESC, "
+        "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
         "restart_lsn ASC NULLS LAST, slot_name "
         f"LIMIT {REPLICATION_SLOT_INVENTORY_LIMIT}) q",
         db_user,
@@ -1320,8 +1341,18 @@ try:
         "replication_slots": slots,
         "replication_slot_count": slot_count,
         "inactive_replication_slot_count": inactive_slot_count,
-        "wal_pinning_replication_slot_count": wal_pinning_slot_count,
+        # wal_status in ('reserved','extended'): the slots that still retain WAL.
+        "wal_retaining_replication_slot_count": wal_retaining_slot_count,
+        # wal_status = 'extended': retaining WAL BEYOND max_wal_size, which is the
+        # state that puts unexpected WAL on the volume.
+        "wal_beyond_max_wal_size_replication_slot_count": wal_beyond_max_slot_count,
+        # Counted even though such slots no longer retain WAL, because a lost slot
+        # means WAL was already removed from under it -- a broken replica, not a
+        # space finding, and the receipt should not make the operator infer it from
+        # the sample.
+        "lost_replication_slot_count": lost_slot_count,
         "replication_slot_limit": REPLICATION_SLOT_INVENTORY_LIMIT,
+        "replication_slot_sample_order": "wal_retained_then_oldest_restart_lsn",
         "replication_slots_truncated": slot_count > REPLICATION_SLOT_INVENTORY_LIMIT,
         "prepared_transactions": prepared_rows[0]["prepared_transactions"],
         "container_directory": wal_container,
@@ -1965,6 +1996,24 @@ try:
                     - sum(row["bytes"] for row in unreferenced)
                     - base_omitted_bytes
                 )
+                # base/pgsql_tmp has to survive the cap for the same reason the live
+                # OID directories do: its bytes are already inside accounted_bytes via
+                # pg_ls_tmpdir(), so if the SIZE-based cap drops it, the live temporary
+                # directory is presented among the unaccounted candidates while still
+                # being subtracted as accounted -- and the negative metric-difference
+                # term that follows can leave the closure flag true. Only required when
+                # the directory actually exists: pg_ls_tmpdir()'s wrapper returns NULL
+                # when base/pgsql_tmp is not a directory, and a cluster that has never
+                # spilled to disk legitimately has none.
+                temp_section = inventory.get("temp_and_logs")
+                temp_directory_exists = (
+                    isinstance(temp_section, dict)
+                    and temp_section.get("temp_directory_bytes") is not None
+                )
+                temp_directory_observed = any(
+                    row["path"].rstrip("/").rsplit("/", 1)[-1] == "pgsql_tmp"
+                    for row in base_usage
+                )
                 if observed_oids != set(live_database_oids):
                     # A live database directory the SIZE-based row cap dropped is not in
                     # live_database_directory_bytes, so its bytes land in the
@@ -1983,6 +2032,12 @@ try:
                         "unobserved_live_database_oids": sorted(
                             set(live_database_oids) - observed_oids
                         )[:40],
+                        "entries_omitted_by_cap": base_omitted,
+                    }
+                elif temp_directory_exists and not temp_directory_observed:
+                    base_breakdown = {
+                        "available": False,
+                        "reason": "temporary_directory_not_observed",
                         "entries_omitted_by_cap": base_omitted,
                     }
                 else:
