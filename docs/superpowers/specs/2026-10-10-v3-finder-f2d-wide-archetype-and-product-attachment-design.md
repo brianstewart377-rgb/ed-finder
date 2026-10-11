@@ -506,6 +506,13 @@ the new shape makes the complete stored row the seal boundary.
 `validate_product` must gate all of the following before BUILDING → READY:
 
 - base generation state is READY or PUBLISHED;
+- the same generation's `system_search` product is **READY with a VERIFIED
+  validation receipt** — the stored ranking keys depend on
+  `system_search.completeness`, so a complete-but-unverified Search product (all
+  rows inserted, validation not run or failed on another invariant) must fail
+  Archetype promotion; registration (`register_product`) applies the same check
+  so a build cannot start against an unverified dependency, and the tests cover
+  the complete-but-unverified case;
 - every Ratings chunk has exactly one matching archetype receipt;
 - `count(system_archetype) == count(system_rating_vector)` and every system has
   exactly one `v3-archetype-4` row;
@@ -609,7 +616,15 @@ window, never before it: a filter in the inner `WHERE` would let the index scan
 run past 10,001 entries looking for matches (unbounded again, and the very
 reason the F4 design's slice 1c existed). `total` is the number of survivors
 (0–10,000) and `is_truncated` is whether a 10,001st qualifying row existed
-before filtering. Because the route is live in production the moment the
+before filtering. This is what keeps selective filters bounded: the inner
+`LIMIT 10001` caps index entries examined (it runs over the archetype relation
+alone, with no filter that could make the scan run on), and a filter that
+matches nothing yields `total = 0, is_truncated = true` after inspecting at most
+10,001 archetype rows and 10,001 joined Search rows — never a walk of the whole
+tier partial. The disposable-PG18 tests include a selective filter (`has_elw`, a
+sparse region) and a no-match filter and assert, from the plan, that the inner
+scan reads ≤ 10,001 entries in each case. Because the route is live in
+production the moment the
 products are published, this bounded form must be deployed **before**
 publication (section 8), not left to a later F4 slice.
 
@@ -619,10 +634,16 @@ passes Sol coordinates for that purpose. The stored key's ties are broken inside
 the index by `system_id64` alone; honouring a distance tie-break would require
 sorting the whole window by distance for equal keys and would defeat the
 index-order guarantee. The new identity therefore **changes the picked-mode
-tie-break to `system_id64` only** — declared in `PROFILE_SPEC`, hashed, and
-asserted by the response-order tests, which replace the Sol-distance tie cases.
-The no-pick path keeps its existing tie-breaks. Distance from Sol remains a
-displayed fact, not an ordering term.
+tie-break to `system_id64` only**. `PROFILE_SPEC` today has one global
+`tie_break = ["distance", "system_id64"]`; it becomes **mode-specific** —
+`tie_break: {"picked": ["system_id64"], "no_pick": ["distance", "system_id64"]}`
+— so the hash describes exactly what each path executes: the no-pick path keeps
+its distance-then-id order unchanged, the picked path drops distance, and the
+SQL builder reads the mode's list rather than a shared constant. The identity
+test mutates each list separately and asserts the digest changes; the
+response-order tests replace the Sol-distance tie cases for picked mode and keep
+them for no-pick. Distance from Sol remains a displayed fact, not an ordering
+term, for picked results.
 
 **The count is bounded too.** Today `/api/archetypes/rankings` awaits
 `build_count_query(..., cap=None)`, an exact count over every qualifying row —
