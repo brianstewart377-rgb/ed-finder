@@ -25,8 +25,10 @@ bounding lives in F2d PR1 and is a prerequisite of publication, not only of F4b.
 In addition, F4b must not
 be enabled anywhere—not even behind that gate in Product E2E—until slice 1c has
 landed with its representative-scale timing proof. F4b suppresses distance from
-Compare until F4c makes it reference-safe, and F4c is a hard prerequisite before
-the flag is enabled in any governed production/release build. This design does
+Compare until F4c makes it reference-safe, and **F4c and F4e** (the per-archetype
+explanation increment on the F2d on-demand endpoint, section 8) are both hard
+prerequisites before the flag is enabled in any governed production/release
+build — explanations are not a slice-2 item. This design does
 not authorize migration application, product build/publication, deployment or
 promotion.
 The first F4 surface keeps Any mode on today's no-floor request; exposing a
@@ -98,7 +100,7 @@ build, validation, publication and release sequence remains outstanding
 | `POST /api/local/search`                       | The route delegates to `local_db_search_v3` (`apps/api/src/routers/search.py:157-203`, `apps/api/src/routers/search.py:243-245`). That implementation reads V3 search and archetype-summary projections through the ranking query, pins one published generation, and emits ranking identity (`apps/api/src/local_search.py:843-850`, `apps/api/src/local_search.py:925-963`). | Available in code and disposable fixtures for **Any** (no selected archetype); not production-ready until the governed data gate opens.                                                 |
 | `GET /api/archetypes/rankings`                 | The handler validates one of the eight V3 keys, passes it as `picked_archetype`, and reads in one repeatable-read snapshot (`apps/api/src/routers/archetypes.py:294-405`).                                                                                                                                                                                                     | Available in code and disposable fixtures, but no selected-archetype F4 mode may be enabled until slice 1c bounds its ordering and count; production also has no usable Finder product. |
 | `POST /api/archetypes/rerank`                  | The handler reads `system_archetype_scores` and other legacy relations (`apps/api/src/routers/archetypes.py:535-590`).                                                                                                                                                                                                                                                         | Not usable; wait for slice 2.                                                                                                                                                           |
-| `GET /api/archetypes/system/{id64}`            | The current handler reads legacy systems/archetype/topology relations (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                          | No V3 per-system explanation drawer yet; wait for slice 2.                                                                                                                              |
+| `GET /api/archetypes/system/{id64}`            | The current handler reads legacy systems/archetype/topology relations (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                          | No V3 per-system explanation drawer yet. The F2d design adds `GET /api/archetypes/system/{id64}/explanation` (on demand, version/hash-gated) and PR F4e renders it before enablement; this legacy route is not the path.                                                                                                                              |
 | `POST /api/archetypes/simulate`                | The current handler reads legacy `system_archetype_scores` (`apps/api/src/routers/archetypes.py:905-929`).                                                                                                                                                                                                                                                                     | Not usable; wait for slice 2.                                                                                                                                                           |
 | `GET /api/archetypes/profiles`                 | It returns static legacy preset data, including the old archetype set (`apps/api/src/routers/archetypes.py:114-171`, `apps/api/src/routers/archetypes.py:989-1005`).                                                                                                                                                                                                           | It must not populate the V3 picker.                                                                                                                                                     |
 | `/api/search/galaxy` and `/api/search/cluster` | The module deliberately leaves both on the older implementation pending slice 2 (`apps/api/src/local_search.py:574-586`).                                                                                                                                                                                                                                                      | Not part of F4a/F4b.                                                                                                                                                                    |
@@ -325,8 +327,10 @@ pin these computed rows before Cypress relies on the exact values.
    selected marker when the selected system is absent from the new page.
 10. No default-off F4 gate, state, component, Cypress or visual-regression
     coverage.
-11. V3 explanations, custom reranking and simulation are still blocked on slice
-    2, as the handler inventory above shows.
+11. Custom reranking and simulation are still blocked on slice 2, as the
+    handler inventory above shows. V3 explanations are instead delivered by the
+    F2d on-demand explanation endpoint (F2d PR3) and rendered by PR F4e, a
+    pre-enablement prerequisite.
 12. Selected-archetype ordering still sorts the eligible set by a cross-table
     modifier and its companion count is uncapped; B/60 is only a predicate, not
     a candidate bound. The three-system Product E2E corpus also cannot exercise
@@ -645,7 +649,13 @@ display the restored anchor while querying the wrong result set; a restored
 payload with non-finite coordinates is treated as no anchor and the URL is
 canonicalized accordingly. Hydration reads `page.state.anchor` before falling
 back to “no anchor”, and Back/Forward therefore restore offset, selection
-**and** the anchor that produced the page together. A fresh load or copied
+**and** the anchor that produced the page together — including the **visible
+anchor text**: the combobox is bound to a separate draft `query` string that
+choosing B overwrote with B's name, so popstate hydration also resets that
+draft to the restored anchor's name (or to empty when the restored state has no
+anchor); otherwise Back would query around A while the input still showed B.
+The A → B → Back regression asserts the combobox value as well as A's request
+coordinates. A fresh load or copied
 link carries no state and hydrates as unanchored, which is exactly what its URL
 says. **Every** navigation on `/explore` in an F4-enabled build is part of this
 contract, including the overlay close path: today `SystemOverlay.svelte:37-44`
@@ -747,6 +757,10 @@ type RankingProvenance = Readonly<{
   ranking_sha256: string;
   derived_generation_id: string;
   publication_sequence: number;
+  // the archetype product that produced the scores: coefficients and model
+  // version are versioned independently of the query-time ranking profile
+  archetype_version: string;
+  archetype_manifest_sha256: string;
 }>;
 
 type RankingIdentityFields = Readonly<{
@@ -764,7 +778,11 @@ type RankingIdentityFields = Readonly<{
 `ranking_provenance` is copied from the response envelope that produced the row
 (both the local search and the rankings responses carry `ranking_version`,
 `ranking_sha256`, the generation id and the publication sequence for
-reproducibility). It is persisted with every pin/compare snapshot. Slice 1c
+reproducibility; F2d PR1 adds the archetype product's `archetype_version` and
+manifest hash to the same envelope — F4a requires that addition, because
+`ranking_sha256` covers score selection, modifiers, filters and ordering but not
+the model coefficients that produced `archetype_score` and Best Colony
+Potential). It is persisted with every pin/compare snapshot. Slice 1c
 already moves the profile from `v1` to `v2`, and the F2d capacity design
 changes the ranking identity again, so two saved selected-fit scores with the
 same archetype can have been computed under different semantics; the
@@ -864,17 +882,19 @@ directly from the component.
 
 Comparison is mode-aware and provenance-aware. **Best Colony Potential** is
 comparable across modes (its overall value is persisted separately) but only
-between entries whose `ranking_provenance.ranking_version` and
-`ranking_sha256` are equal; the archetype product that produces it is pinned to
-the same ranking identity, and the design already anticipates another identity
-change, so overall values from before and after a change are not ranked
-against each other — they are omitted with the same “different ranking
-versions” note. A selected-fit row is
+between entries whose `ranking_version`, `ranking_sha256`, `archetype_version`
+**and** `archetype_manifest_sha256` are all equal: the ranking hash does not
+cover the model coefficients, so a later generation built with a changed
+archetype model under an unchanged query profile is a different score
+semantics and is omitted with the same “different ranking versions” note. A
+selected-fit row is
 shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
 for the same `selected_archetype` **and** an equal `ranking_provenance`
-(`ranking_version` and `ranking_sha256` must match; the generation id and
-publication sequence are shown as “ranked on generation …” but do not block
-the comparison, because a data refresh changes freshness, not semantics);
+(`ranking_version`, `ranking_sha256`, `archetype_version` and
+`archetype_manifest_sha256` must match; the generation id and publication
+sequence are shown as “ranked on generation …” but do not block the comparison,
+because a data refresh under identical ranking and model identities changes
+freshness, not semantics);
 otherwise it is omitted with a “different ranking modes” or “different
 ranking versions” note. A snapshot without `ranking_provenance` (saved before
 F4a) never enters any score comparison, selected or overall; it is still
@@ -1045,8 +1065,8 @@ Use Testing Library Svelte, which is installed in the current stack
   wordings;
 - headline tier omitted without API `best_tier` and rendered only when supplied;
 - page count/range and offset navigation keep `page_size`, post-filter
-  within-window total, the **filters applied within the top 10,000 by
-  [Archetype] score** message, Next
+  within-window total, the **filters applied within the top 10,000 for
+  [Archetype]** message (canonical weighted window, never “by score”), Next
   state, DOM and map synchronized; cover `total < 10,000` with
   `is_truncated=true`; a three-row fixture envelope at `page_size=1` has three
   real pages and two enabled Next transitions; also cover anchored Any with an
@@ -1638,8 +1658,9 @@ Preserve historical unknown keys as readable fallbacks rather than pretending
 they are V3 keys.
 F4c is a hard prerequisite before the default-off flag may be enabled in a
 governed production/release build — but not the only one. The spatial product
-contract requires Finder score breakdowns to be accessible, and this design's
-only V3 explanation path is deferred (section 4, “Per-archetype explanation”).
+contract requires Finder score breakdowns to be accessible, and the only V3
+explanation path is the F2d on-demand endpoint (section 4, “Per-archetype
+explanation”).
 Enablement therefore also requires **an accessible explanation path**: the F2d
 design's `GET /api/archetypes/system/{id64}/explanation` (its PR3) plus **PR F4e**
 below, which renders the per-archetype breakdown from it in the result
@@ -2359,3 +2380,18 @@ tier partials.
    is labelled buffer-cold unless the runner can drop the page cache, in which
    case it is run and labelled I/O-cold; the receipt records which was achieved
    and no cold-I/O claim is made otherwise.
+
+#### Round 19 — 2026-10-11 (PR #801)
+
+1. **P2 — Add F4e to the opening enablement gate** → the opening status names
+   F4c **and** F4e as hard prerequisites; the handler inventory and gap item 11
+   no longer say explanations wait for slice 2.
+2. **P2 — Assert the canonical weighted-window copy** → the component-test
+   requirement now expects “within the top 10,000 for [Archetype]”.
+3. **P2 — Restore the visible anchor text during history navigation** →
+   popstate hydration also resets the combobox draft to the restored anchor's
+   name (or empty), and the A → B → Back regression asserts the combobox value.
+4. **P2 — Compare scores only across matching archetype products** →
+   `RankingProvenance` gains `archetype_version` and `archetype_manifest_sha256`
+   (F2d PR1 adds them to the envelope; F4a requires that), and both overall and
+   selected-fit comparisons require ranking **and** product identities to match.
