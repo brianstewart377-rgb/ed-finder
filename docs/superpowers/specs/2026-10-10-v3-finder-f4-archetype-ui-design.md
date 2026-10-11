@@ -648,16 +648,17 @@ change updates them together, as required by the spatial product contract
   available results.** This keeps `page.url` hydration and Back/Forward aligned
   (`apps/web/src/lib/components/AppShell.svelte:2-3`,
   `apps/web/src/lib/components/AppShell.svelte:54-58`).
-- Empty: `total === 0` is a no-match state, but its copy depends on
-  `is_truncated`. With `is_truncated=false` it is a genuine no-match: “No systems
-  meet minimum tier B for Manufacturing Hub.” With `is_truncated=true` the
-  bounded window had candidates and every one was removed by a non-indexed
-  filter, while lower-scoring systems outside the window might match, so the
-  copy is window-qualified: “None of the top 10,000 systems for Manufacturing Hub
-  match these filters.” — never “no systems meet the criteria”. Both
-  include **Reset to tier B** (when the active floor is A/S) and **Choose Any**
-  actions; the truncated form also offers **Clear filters**. Empty is not an
-  error; do not offer gated C/D as an escape hatch.
+- Empty: in selected mode `total === 0` is always a genuine no-match, because no
+  filter can remove a qualifying system — a picked request carrying a hard filter
+  is rejected with 422 and never reaches the ranking. The copy is therefore
+  unconditional: “No systems meet minimum tier B for Manufacturing Hub.” There is
+  no filtered-survivor variant and no **Clear filters** action, because there are
+  no filters to clear. `is_truncated` cannot be true when `total === 0`: the
+  sentinel means a 10,001st **qualifying** row existed, so a truncated window has
+  at least 10,000 results. A response carrying both is a contract violation, not
+  a state to render, and the component asserts against it. Empty offers **Reset
+  to tier B** (when the active floor is A/S) and **Choose Any**; it is not an
+  error, and gated C/D is not offered as an escape hatch.
 - Error: HTTP 503 is a first-class **Ranking temporarily unavailable** state with
   `role="alert"`: “Archetype rankings are temporarily unavailable. Try again
   shortly.” If an optional additive slice-1 API reason such as
@@ -845,7 +846,13 @@ type RankingProvenance = Readonly<{
   // the archetype product that produced the scores: coefficients and model
   // version are versioned independently of the query-time ranking profile
   archetype_version: string;
+  // identifies one build exactly; includes generation identity, so it changes on
+  // every rebuild and must never gate a cross-generation comparison
   archetype_manifest_sha256: string;
+  // model semantics only (coefficients, anchors, key order, weighted-key integer
+  // definition, tier thresholds, model file and code hashes) and deliberately no
+  // generation identity, so two generations built from the same model agree
+  archetype_model_sha256: string;
 }>;
 
 type RankingIdentityFields = Readonly<{
@@ -915,9 +922,10 @@ Native `history.replaceState` is forbidden. The facade returns
 `page_size`, page `count`, raw response `total`, `navigable_total`, request
 `offset`, a conditional `navigation_limit`, and source-owned truncation
 metadata rather than a bare result array. For selected rankings,
-`is_truncated=true` means the bounded canonical-order probe observed a 10,001st row;
-`total` and `navigable_total` both count only filtered survivors among the first
-10,000. For Any, `navigable_total` is `min(total, 10000)` and
+`is_truncated=true` means the bounded canonical-order probe observed a 10,001st
+qualifying row; `total` and `navigable_total` are both
+`min(systems at this floor, 10000)`. There are no filtered survivors to count,
+because a picked request accepts no hard filters (422). For Any, `navigable_total` is `min(total, 10000)` and
 `total_is_capped` remains the distinct truncation flag; an anchored exact total
 above 10,000 is displayed exactly but, like every mode, navigates only within
 `navigation_limit: 10000`, with offset plus page size clamped to that cap before
@@ -969,18 +977,49 @@ directly from the component.
 Comparison is mode-aware and provenance-aware. **Best Colony Potential** is
 comparable across modes (its overall value is persisted separately) but only
 between entries whose `ranking_version`, `ranking_sha256`, `archetype_version`
-**and** `archetype_manifest_sha256` are all equal: the ranking hash does not
+**and** `archetype_model_sha256` are all equal: the ranking hash does not
 cover the model coefficients, so a later generation built with a changed
 archetype model under an unchanged query profile is a different score
-semantics and is omitted with the same “different ranking versions” note. A
+semantics and is omitted with the same “different ranking versions” note. The
+model digest is used rather than `archetype_manifest_sha256` because the
+manifest embeds generation identity and so never agrees across generations —
+see the comparison rule below. A
 selected-fit row is
 shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
 for the same `selected_archetype` **and** an equal `ranking_provenance`
 (`ranking_version`, `ranking_sha256`, `archetype_version` and
-`archetype_manifest_sha256` must match; the generation id and publication
-sequence are shown as “ranked on generation …” but do not block the comparison,
-because a data refresh under identical ranking and model identities changes
-freshness, not semantics);
+`archetype_model_sha256` must match; the generation id and publication sequence
+are shown as “ranked on generation …” but do not block the comparison, because a
+data refresh under identical ranking and model identities changes freshness, not
+semantics);
+
+**That last field cannot be `archetype_manifest_sha256` (review round 31).**
+`product_manifest()` hashes `derived_generation_id`, `generation_key`,
+`canonical_generation_id`, `canonical_publication_sequence` and `expected_rows`
+alongside the coefficients and code identity
+(`scripts/v3_system_archetype.py:128-138`), so the manifest digest changes on
+**every** rebuild even when the model is byte-identical. Requiring it to match
+would not merely weaken cross-generation comparison, it would make it impossible
+— the feature would silently never fire, and the stated reason for ignoring
+generation ("a data refresh changes freshness, not semantics") would be
+contradicted by the very field used to enforce it.
+
+F2d therefore persists and exposes a second, **generation-free** digest,
+`archetype_model_sha256`, over the model semantics only: coefficients, anchors,
+archetype key order, the `_weighted_e4` integer definition and rounding rule, the
+tier thresholds, `model_file_sha256` and `code_sha256`. It deliberately excludes
+generation identity, publication sequence and `expected_rows` — everything that
+describes *which data* was scored rather than *how*. `archetype_manifest_sha256`
+keeps its existing job of identifying one build exactly, and is still shown with
+the generation line; it is simply not the field a semantic comparison may hinge
+on. Comparison is then possible exactly when it is meaningful: same model, any
+generation.
+
+This is a dependency on F2d, not an F4 change, so it is recorded in the F2d
+design as a PR1 requirement; F4 consumes the field. Until it exists, snapshots
+from different generations are listed with their stored values and the same
+“older save” treatment, rather than being compared on a digest that can never
+agree.
 otherwise it is omitted with a “different ranking modes” or “different
 ranking versions” note. A snapshot without `ranking_provenance` (saved before
 F4a) never enters any score comparison, selected or overall; it is still
@@ -1732,7 +1771,27 @@ Exact files:
 - modify `scripts/dev/review_lab/browser_runner.py` (`VITE_FINDER_F4_ENABLED: '1'`
   in the Review Lab bundle build overrides)
 - modify `apps/web/cypress/e2e/review-lab.cy.ts` (`rankingsApiFailure` and
-  `rankingsEmptyResults` flows)
+  `rankingsEmptyResults` flows, **and the console collector's expected-failure
+  classification**: it matches the `x-edfinder-review-failure` header against the
+  exact string `api-failure` today
+  (`apps/web/cypress/e2e/review-lab.cy.ts:123-126`), so the rankings request's new
+  tag would not be recognised, its deliberate 503 would be reported by
+  `list_unexpected_api_errors`, and the Review Lab browser-console phase would
+  fail even though the new UI flow passed — a synthetic failure the scenario
+  asked for, counted as a defect). The collector must accept the rankings tag,
+  and its own tests must cover both tags rather than only the new one, so the
+  existing classification cannot regress unnoticed
+- modify `scripts/dev/review_lab/support_matrix.py` (**required**: the declared
+  Review Lab contract still lists only `normal`, `api_failure` and
+  `empty_results` and carries no `/api/archetypes/rankings` entry
+  (`scripts/dev/review_lab/support_matrix.py:33-40`). Because this file inventory
+  is exact, omitting the matrix would let the generated report mark
+  `support_route_matrix_complete` while the new synthetic route behaviour is
+  absent from the contract it claims to have checked — the report would be
+  accurate about itself and wrong about the system.) Add the rankings route with
+  both new scenarios, extend the control route's
+  `allowed_response_characteristics` and `scenario_coverage`, and add focused
+  matrix assertions
 - modify `tests/test_review_lab_v3.py` (the module that already covers the
   review-only scenario modes and the scenario registry) for the new modes and
   scenario entries
@@ -1968,8 +2027,10 @@ considered for a governed release build.
   the F2d wide row stores the canonical key `<key>_weighted_e4` and indexes it
   under each exposed tier floor; F2d PR1 reads the top-10,000 window straight
   from that index in canonical order (literal floor, `LIMIT 10001`, bounded
-  count, offset bound) **before** any non-indexed filter, and applies joins and
-  filters only inside the window — deployed before the products are published.
+  count, combined offset bound) and joins only to fetch response columns. There
+  is no filtering stage anywhere in the query: a picked request carrying a hard
+  filter is rejected with 422 before any SQL is built, so no filter — indexed or
+  not — can redefine the window. Deployed before the products are published.
   Slice 1c adds the browser contract and the 1M-row PostgreSQL 18 timing proof;
   F4b remains disabled until that proof lands.
 - **Unbounded Any tier floor:** Any orders through the indexed
@@ -2803,3 +2864,63 @@ that describe post-window filtering are superseded by this one.
    contract and all three regenerated clients belong to F2d PR1 (deferring them
    would fail PR1's own OpenAPI drift gate); slice 1c, F4a and F4b consume the
    landed contract.
+
+### Review round 31 (2026-10-11)
+
+1. **P2 — Remove the surviving post-window filter path** → correct, at all three
+   cited locations. Round 30's sweep used specific phrases and missed these,
+   because the residue speaks a different vocabulary each time: "before any
+   non-indexed filter", "filtered survivors", "removed by a non-indexed filter".
+   So this round the sweep enumerated **every** occurrence of "filter" in the
+   normative body and read each one. All now either concern Any mode, which
+   legitimately has filters, or state that selected mode has none. The three
+   fixes: the risk mitigation no longer directs F2d to filter inside the window;
+   the envelope reports `total = min(systems at this floor, 10000)` instead of
+   counting filtered survivors; and the truncated empty state is gone, because it
+   described a condition that cannot occur. That last one is worth stating plainly
+   — with no filters, `total === 0` and `is_truncated` are **mutually exclusive**
+   (the sentinel means a 10,001st *qualifying* row existed, so a truncated window
+   has at least 10,000 results), so a response carrying both is a contract
+   violation rather than a state to render, and the component now asserts against
+   it. The **Clear filters** action is removed with it: there are no filters to
+   clear.
+2. **P2 — Recognize the ranking failure tag in diagnostics** → correct, and the
+   failure shape is the irritating kind: the UI flow passes, the scenario produces
+   exactly the 503 it was asked to produce, and the run fails anyway because the
+   collector counts that deliberate failure as a defect. The collector matches
+   `x-edfinder-review-failure` against the exact string `api-failure`
+   (`apps/web/cypress/e2e/review-lab.cy.ts:123-126`), so the rankings tag falls
+   through to `list_unexpected_api_errors`. F4b now owns that classification, and
+   its tests must cover **both** tags rather than only the new one, so the
+   existing behaviour cannot regress unnoticed while the new one is added.
+3. **P2 — Update the Review Lab support matrix** → correct, and the consequence is
+   the worst kind of green: `support_route_matrix_complete` would be *accurate
+   about itself* and wrong about the system, because the matrix it checked would
+   not contain the new route. `scripts/dev/review_lab/support_matrix.py:33-40`
+   still lists three modes and no `/api/archetypes/rankings` entry, and this file
+   inventory is labelled exact, so omitting the module was a real gap rather than
+   an implicit inclusion. F4b now adds the rankings route with both scenarios,
+   extends the control route's `allowed_response_characteristics` and
+   `scenario_coverage`, and adds focused matrix assertions.
+4. **P1 — Separate model identity from the generation manifest** → correct, and
+   this one would have shipped a feature that silently never fires.
+   `product_manifest()` hashes `derived_generation_id`, `generation_key`,
+   `canonical_generation_id`, `canonical_publication_sequence` and `expected_rows`
+   alongside the coefficients (`scripts/v3_system_archetype.py:128-138`), so
+   `archetype_manifest_sha256` changes on **every** rebuild even when the model is
+   byte-identical. Requiring equality would make cross-generation comparison
+   impossible — and would have contradicted the stated reason for ignoring
+   generation ("a data refresh changes freshness, not semantics") using the very
+   field meant to enforce it.
+   Took the first option. F2d persists a second, generation-free
+   `archetype_model_sha256` over model semantics only: coefficients, anchors, key
+   order, the `_weighted_e4` integer definition and rounding rule, tier
+   thresholds, `model_file_sha256` and `code_sha256` — excluding everything that
+   describes *which data* was scored rather than *how*. `archetype_manifest_sha256`
+   keeps its job of identifying one build exactly and is still displayed; it is
+   simply not what a semantic comparison hinges on. Both comparison rules and the
+   TypeScript identity type are updated, with comments on each field saying which
+   is which so the two cannot be confused again. The explanation cache key keeps
+   the manifest digest deliberately — a per-build cache key is correct there.
+   This is a dependency on F2d rather than an F4 change, so it is also recorded as
+   a PR1 requirement in the F2d design.
