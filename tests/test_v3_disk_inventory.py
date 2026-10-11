@@ -86,6 +86,7 @@ def _run_inventory_action(
     du_layout: str = "default",
     du_churn: bool = False,
     du_churn_once: bool = False,
+    du_churn_then_deny: bool = False,
     du_permission_denied: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
@@ -188,7 +189,15 @@ def _run_inventory_action(
             data="$vol/18/docker"
             # Ordinary PostgreSQL churn: a WAL segment recycled mid-scan. du still
             # totals everything else and exits nonzero.
-            if [ "$DU_CHURN_ONCE" = '1' ] && [ ! -e "$DU_CHURN_STAMP" ]; then
+            if [ "$DU_CHURN_THEN_DENY" = '1' ]; then
+              if [ ! -e "$DU_CHURN_STAMP" ]; then
+                : > "$DU_CHURN_STAMP"
+                printf "du: cannot access '%s/pg_wal/0000000100000ABC': No such file or directory\\n" "$data" >&2
+              else
+                printf "du: cannot read directory '/var/lib/private': Permission denied\\n" >&2
+              fi
+              CHURN_EXIT=1
+            elif [ "$DU_CHURN_ONCE" = '1' ] && [ ! -e "$DU_CHURN_STAMP" ]; then
               : > "$DU_CHURN_STAMP"
               printf "du: cannot access '%s/pg_wal/0000000100000ABC': No such file or directory\\n" "$data" >&2
               CHURN_EXIT=1
@@ -212,6 +221,7 @@ def _run_inventory_action(
                 printf '1330000\\t%s/base\\n' "$data"
                 printf '120000\\t%s/pg_wal\\n' "$data"
                 printf '8000\\t%s/global\\n' "$data"
+                printf '4000\\t%s/pg_stat\\n' "$data"
                 printf '1465000\\t%s\\n' "$data" ;;
               *'--max-depth=1 /var/lib/docker/volumes')
                 printf '1465000\\t%s\\n' "$vol"
@@ -331,6 +341,7 @@ def _run_inventory_action(
     env["DU_LAYOUT"] = du_layout
     env["DU_CHURN"] = "1" if du_churn else "0"
     env["DU_CHURN_ONCE"] = "1" if du_churn_once else "0"
+    env["DU_CHURN_THEN_DENY"] = "1" if du_churn_then_deny else "0"
     env["DU_CHURN_STAMP"] = str(tmp_path / "du-churn-stamp")
     env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
     return subprocess.run(
@@ -631,9 +642,9 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     assert by_path[f"{pgdata}/global"]["inside_data_directory"] is True
     # Files directly at PGDATA's root: 1,465,000 total minus 1,458,000 of children.
     root_files = f"{pgdata} (files directly in this directory)"
-    assert by_path[root_files]["exclusive_bytes"] == 7000
+    assert by_path[root_files]["exclusive_bytes"] == 3000
     assert by_path[root_files]["inside_data_directory"] is True
-    assert summary["unaccounted_inside_data_directory_bytes"] == 8000 + 7000
+    assert summary["unaccounted_inside_data_directory_bytes"] == 8000 + 4000 + 3000
     # base/ and pg_wal are already in accounted_bytes and must not be listed again.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
@@ -794,8 +805,9 @@ def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
     assert inventory["summary"]["non_database_directory_bytes"] == 92000
     assert inventory["postgres_data_directory_reconciliation"]["reconciled"] is True
     # And the churn is disclosed rather than hidden, so a reviewer can see it happened.
-    churn = inventory["non_database_drill_down"]["tolerated_file_churn"]
+    churn = receipt["tolerated_file_churn"]
     assert churn, churn
+    assert receipt["directory_scans_degraded"] is True
     assert all(entry["vanished_paths"] >= 1 for entry in churn)
     assert any("No such file or directory" in entry["first_diagnostic"] for entry in churn)
 
@@ -828,10 +840,11 @@ def test_v3_disk_inventory_retries_churn_and_prefers_a_clean_scan(tmp_path):
     result = _run_inventory_action(tmp_path, du_churn_once=True)
 
     assert result.returncode == 0, result.stderr or result.stdout
-    inventory = json.loads(result.stdout)["inventory"]
+    receipt = json.loads(result.stdout)
     # The clean attempt was used, so nothing is recorded as tolerated or degraded.
-    assert inventory["non_database_drill_down"]["tolerated_file_churn"] == []
-    assert inventory["summary"]["non_database_directory_bytes"] == 92000
+    assert receipt["tolerated_file_churn"] == []
+    assert receipt["directory_scans_degraded"] is False
+    assert receipt["inventory"]["summary"]["non_database_directory_bytes"] == 92000
 
 
 def test_v3_disk_inventory_flags_a_scan_that_churned_every_attempt(tmp_path):
@@ -839,11 +852,58 @@ def test_v3_disk_inventory_flags_a_scan_that_churned_every_attempt(tmp_path):
     result = _run_inventory_action(tmp_path, du_churn=True)
 
     assert result.returncode == 0, result.stderr or result.stdout
-    churn = json.loads(result.stdout)["inventory"]["non_database_drill_down"][
-        "tolerated_file_churn"
-    ]
+    receipt = json.loads(result.stdout)
+    churn = receipt["tolerated_file_churn"]
     assert churn
+    # Reported at the top level, after every scan including the closing reconciliation:
+    # a snapshot taken inside a section would have missed a degraded closing scan.
+    assert receipt["directory_scans_degraded"] is True
+    assert any(e["scan"] == "directory_total_failed" for e in churn), churn
     for entry in churn:
         # Every attempt was used before the output was accepted.
         assert entry["attempts"] == 3
         assert entry["accepted_possibly_undercounting"] is True
+
+
+def test_v3_disk_inventory_rejects_a_non_churn_failure_after_churn(tmp_path):
+    """A real failure on a retry must not be answered with the earlier churned output.
+
+    Attempt one churns, so its partial output is held in case every attempt churns.
+    Attempt two hits a permission error — a real fault. Returning the saved output then
+    would report success from a measurement taken *before* the failure was even seen.
+    """
+    result = _run_inventory_action(tmp_path, du_churn_then_deny=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    reason = receipt["inventory"]["volume_directory_usage"]["volume_directory_usage_failed"]
+    assert "Permission denied" in reason
+    # The churned attempt was discarded, not reported as a tolerated success.
+    assert receipt["tolerated_file_churn"] == []
+    assert receipt["directory_scans_degraded"] is False
+
+
+def test_v3_disk_inventory_keeps_statistics_directories_locatable(tmp_path):
+    """pg_stat and pg_stat_tmp are not inside accounted_bytes, so they must be candidates.
+
+    accounted_bytes is the per-database storage pg_database_size sums (base/), WAL
+    (pg_wal) and the temporary directory — which is base/pgsql_tmp, inside base. The
+    cluster-level statistics directories are covered by none of those, so excluding them
+    from the candidates removed their bytes from every row while leaving them inside
+    unaccounted_bytes: the summary would claim a figure it could not locate.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    by_path = {row["path"]: row for row in summary["largest_unaccounted_directories"]}
+
+    assert by_path[f"{pgdata}/pg_stat"]["exclusive_bytes"] == 4000
+    assert by_path[f"{pgdata}/pg_stat"]["inside_data_directory"] is True
+    # Only base and the WAL directories are genuinely accounted for elsewhere.
+    assert f"{pgdata}/base" not in by_path
+    assert f"{pgdata}/pg_wal" not in by_path
+    # global 8,000 + pg_stat 4,000 + root files 3,000 = the whole PGDATA remainder.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 15000

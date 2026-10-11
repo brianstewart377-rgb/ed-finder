@@ -57,12 +57,16 @@ RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
 # A drill-down step starting with barely any budget beyond the reserve would time out
 # and fail the section. Below this, stop and record the exhaustion instead.
 DRILL_DOWN_MIN_CALL_SECONDS = 30
-# PGDATA children whose bytes are already inside accounted_bytes. Everything else under
-# PGDATA (global, pg_xact, pg_multixact, log, replication-slot state) is unaccounted and
-# must stay visible as a candidate, or the summary cannot reconcile its own figure.
-ACCOUNTED_PGDATA_CHILDREN = frozenset(
-    {"base", "pg_wal", "pg_xlog", "pg_stat_tmp", "pg_stat", "pgsql_tmp"}
-)
+# PGDATA children whose bytes are genuinely already inside accounted_bytes, and only
+# those. `base` is the per-database storage that pg_database_size sums, and pg_wal is
+# wal_bytes; the temp-directory query measures `base/pgsql_tmp`, which is inside `base`
+# and so needs no entry of its own. The cluster-level statistics directories `pg_stat`
+# and `pg_stat_tmp` are NOT covered by any of those figures, so filtering them here
+# would delete their bytes from every candidate while leaving them inside
+# unaccounted_bytes -- the summary would then claim a figure it could not locate.
+# Everything not listed (global, pg_xact, pg_multixact, pg_stat, pg_stat_tmp, log,
+# replication-slot state) stays visible as an inside-PGDATA candidate.
+ACCOUNTED_PGDATA_CHILDREN = frozenset({"base", "pg_wal", "pg_xlog"})
 # `df` reports filesystem space; `du` estimates space used by files. The difference is
 # real (ext4 metadata, reserved blocks, blocks held by deleted-but-open files) and is
 # reported rather than hidden, with a flag when it is too large to ignore.
@@ -387,7 +391,11 @@ def du_rows(
             any(marker in line for marker in DU_VANISHED_MARKERS) for line in stderr_lines
         )
         if not vanished_only:
-            # Not churn. Retrying will not help and may mask a real fault.
+            # Not churn: a permission error, an unreadable device, a timeout. Retrying
+            # cannot help, and -- the part that matters -- an earlier churned attempt
+            # must NOT be returned in its place. Doing so would report success after a
+            # real failure, using output from before the failure was even seen.
+            churned = None
             break
         rows = parse_du(result.stdout)
         # The scanned root's own total must still be present, or the output is unusable
@@ -395,6 +403,8 @@ def du_rows(
         if target is not None and not any(
             (row["path"].rstrip("/") or "/") == (target or "/") for row in rows
         ):
+            # Unusable output, for whatever reason. Same rule as above.
+            churned = None
             break
         if churned is None:
             churned = (
@@ -770,7 +780,6 @@ try:
         "max_steps": DRILL_DOWN_MAX_STEPS,
         "scan_budget_seconds": scan_budget.total_seconds,
         "reconcile_reserve_seconds": scan_budget.reserve_seconds,
-        "tolerated_file_churn": list(tolerated_churn),
         "chain": chain,
     }
 except RuntimeError as exc:
@@ -1283,6 +1292,13 @@ try:
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:
     section_failed(failures, inventory, "summary", RuntimeError(str(exc)))
 
+# Reported at the very end, after every scan including the closing reconciliation.
+# Snapshotting it inside a section captured only the scans that had run by then, so a
+# degraded closing measurement could be reported as a clean, reconciled success.
+receipt["tolerated_file_churn"] = list(tolerated_churn)
+receipt["directory_scans_degraded"] = any(
+    entry.get("accepted_possibly_undercounting") for entry in tolerated_churn
+)
 receipt["failures"] = sorted(set(failures))
 receipt["status"] = "success" if not failures else "stopped"
 print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
