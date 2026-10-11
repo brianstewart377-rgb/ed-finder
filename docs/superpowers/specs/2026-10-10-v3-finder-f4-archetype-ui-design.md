@@ -920,8 +920,21 @@ anchored save ineligible for the reference-aware comparisons; attaching it after
 normalization would contradict the normalized `ExploreSystem` shape this section
 defines. So the facade's normalization call takes the committed anchor's
 `{ id64, name }` — which the caller already holds, since it is the same value the
-history state carries — as an explicit argument alongside the request. A
-galaxy-wide Any row with no measured distance has a null reference. These fields,
+history state carries — as an explicit argument alongside the request.
+
+**That identity must also go into the Any query key (review round 39).** It is a
+second input that changes every normalized row's `distance_reference`, and the
+live key fingerprints only `ExploreSearchRequest`
+(`apps/web/src/lib/api/query.ts:77-78`) with a 30-second freshness window
+(`:109-113`). Two committed anchors with the **same coordinates but different
+identities** — a renamed system, or two catalogue entries at one position —
+therefore produce the same key, and TanStack would serve the first anchor's
+normalized rows for the second: the distance figures right, the reference label
+and id wrong, and the saved snapshots then ineligible for comparison against
+either. So F4a's query key covers the wire request, the page size **and the
+committed anchor's `{ id64, name }`**.
+
+A galaxy-wide Any row with no measured distance has a null reference. These fields,
 plus `overall_development_potential`, are retained in pin/compare snapshots.
 Never store a selected fit in generic `archetype_score`. Current code otherwise
 collapses `archetype_score ?? overall_development_potential` into that generic
@@ -1163,13 +1176,26 @@ offset-9950 page is
 populated and the 10,001st-row sentinel is actually observed; a corpus of
 mostly ineligible rows would pass every latency budget without exercising the
 bounded path that motivated slice 1c. After loading and index creation and
-before the warm or cold runs, run `ANALYZE` on **every underlying relation the
-query reaches after view expansion** — under the F2d schema that is exactly two,
+before the warm or cold runs, run **`VACUUM (ANALYZE)`** — not `ANALYZE` alone
+(review round 39) — on **every underlying relation the query reaches after view
+expansion** — under the F2d schema that is exactly two,
 `v3_derived.system_search` and the wide `v3_derived.system_archetype`, because
 the summary is a view over the latter and the superseded summary table must not
 be materialized by the fixture,
 as the derived-data decision requires before any validation benchmark
-(`docs/development/v3-search-spatial-derived-data-decision.md:350-364`);
+(`docs/development/v3-search-spatial-derived-data-decision.md:350-364`). The
+**vacuum** is not optional on a freshly bulk-loaded fixture: `ANALYZE` updates
+planner statistics but does not mark heap pages all-visible, so the visibility
+map is empty and the purported index-only candidate scan performs **up to 10,001
+heap fetches even when `EXPLAIN` names an `Index Only Scan`**. The receipt would
+then either benchmark a different heap-access path or claim index-only behaviour
+without proving it — and `Index Only Scan` is the acceptance criterion this proof
+exists to establish. The repository's own footprint measurement already uses
+`VACUUM ANALYZE` for this reason
+(`scripts/dev/measure_wide_archetype_footprint.py`). The plan assertions
+therefore also require **`Heap Fetches: 0`** on the window node, which is the
+only assertion that tests what index-only means rather than what the node is
+called;
 freshly bulk-loaded relations otherwise plan from absent or stale statistics
 and the recorded join order would not be the production-shaped plan. Execute the actual
 page SQL and companion count SQL returned, with bound parameters, by
@@ -3376,3 +3402,32 @@ had written in the preceding round, which is worth noting rather than hiding.
    facade's normalization call now takes the committed anchor's `{ id64, name }` as an
    explicit argument, which costs nothing because the caller already holds it: it is
    the same value the history state carries.
+
+### Review round 39 (2026-10-11)
+
+1. **P1 — Partition Any-result queries by anchor identity** → correct, and it is the
+   consequence of round 38's fix that I did not follow through. Adding the anchor's
+   `{ id64, name }` as a normalization input makes it a determinant of every row's
+   `distance_reference`, so it has to be in the key — and the live key fingerprints
+   only `ExploreSearchRequest` (`query.ts:77-78`) with a 30-second freshness window
+   (`:109-113`).
+   Your collision is the one that matters: two committed anchors with the **same
+   coordinates but different identities** — a renamed system, two catalogue entries
+   at one position — share a key, so TanStack serves the first anchor's normalized
+   rows for the second. The distances would be right and the reference label and id
+   wrong, which is the hardest version to notice, and the snapshots saved from it
+   would then be ineligible for comparison against either anchor. F4a's key now
+   covers the wire request, the page size and the committed anchor identity.
+2. **P1 — Vacuum the scale fixture before proving index-only access** → correct, and
+   the same defect as the production gate's (F2d round 24), here on the fixture that
+   is supposed to prove the behaviour in the first place. `ANALYZE` updates statistics
+   but does not mark heap pages all-visible, so on freshly bulk-loaded scratch
+   relations the visibility map is empty and the candidate scan performs up to 10,001
+   heap fetches **even when `EXPLAIN` names an `Index Only Scan`**. The receipt would
+   either benchmark a different heap-access path or claim index-only behaviour without
+   proving it — and `Index Only Scan` is the acceptance criterion the whole proof
+   exists to establish, so it would have certified exactly the thing it could not see.
+   The repository's own footprint measurement already uses `VACUUM ANALYZE` for this
+   reason, which I should have followed. The fixture now runs `VACUUM (ANALYZE)`, and
+   the plan assertions require **`Heap Fetches: 0`** on the window node — the only
+   assertion that tests what index-only means rather than what the node is called.
