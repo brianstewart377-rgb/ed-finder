@@ -578,14 +578,21 @@ For a picked archetype, join the one wide `v3_app.system_archetype` row by
 stored key**: `a.<key>_weighted_e4 DESC, s.system_id64 ASC` (distance is not a
 term for a picked ranking — selected mode is galaxy-wide by the F4 design — and
 the response still reports `primary_score`, `ranking_confidence` and
-`uncertainty_factor` from the stored columns). The picked `WHERE` carries **two**
-floor predicates: a **literal** tier-floor predicate chosen server-side — the
-largest of `>= 60`, `>= 76`, `>= 88` not above the requested `min_score`, emitted
-as text so the planner can prove the matching partial index applies under a
-generic plan — and the parameterized `>= $n` for the exact requested value.
-Measured under `plan_cache_mode = force_generic_plan`: parameter-only ⇒ parallel
-sequential scan + sort; with the literal ⇒ index scan on the matching partial,
-10,001 rows read. For no pick, keep the `v3_app.system_archetype_summary` join
+`uncertainty_factor` from the stored columns). The requested floor is **one of
+exactly three values** — 60, 76 or 88, the tier floors B/A/S — and the picked
+`WHERE` carries it as a **literal** tier-floor predicate chosen server-side from
+that validated value (`<key>_score >= 60`, `>= 76` or `>= 88`, emitted as text so
+the planner can prove the matching partial index applies under a generic plan;
+no user string is ever interpolated — the literal is picked from a fixed
+three-entry map). Because the floor can only be one of the three indexed
+values, the literal *is* the exact requested floor: there is no residual heap
+filter on raw score, and the scan is index-only and bounded for every accepted
+request (an arbitrary value such as 100 would have been served from the `>= 88`
+partial with a heap filter that could read that whole partial — review round 6 —
+which is why non-tier values are not accepted). Measured under
+`plan_cache_mode = force_generic_plan`: parameter-only ⇒ parallel sequential
+scan + sort; with the literal ⇒ index scan on the matching partial, 10,001 rows
+read. For no pick, keep the `v3_app.system_archetype_summary` join
 and `sum.weighted_potential DESC NULLS LAST` unchanged. Preserve `system_id64`
 tie-breaks and all selected aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
@@ -608,20 +615,32 @@ The partial indexes (section 3.3) cover only rows scoring ≥ 60, so **PR1
 changes the rankings route's `min_score` contract deliberately**: today it is
 `Query(40, ge=0, le=100)` (`apps/api/src/routers/archetypes.py:511`) and the SQL
 binds the requested floor directly (`apps/api/src/ranking/ranking_sql.py:355-357`);
-after PR1 it is `Query(60, ge=60, le=100)` — the default request and every
-accepted value fall inside the indexed range, and a value below 60 is a 422
-rather than a silently truncated or unbounded result. This is a real contract
-change and is treated as one: the default, the bounds, the three literal tier
-floors, the stored-key definition (`round(score × confidence × completeness ×
-10000)`), the 10,000 window and the `is_truncated` rule are all declared in
-`PROFILE_SPEC` and therefore hashed into `ranking_sha256`; the route's
-`Query(...)` declaration is built from those spec constants rather than typed
-beside them, and the identity test mutates the default, a bound, a floor literal
-and the key definition in turn and asserts the digest changes each time. The
-OpenAPI parameter constraint changes so PR1
+after PR1 it is `min_score: Literal[60, 76, 88] = Query(60)` — the default
+request and every accepted value name an indexed tier floor, and any other value
+(59, 70, 100, …) is a 422 rather than a silently truncated or unbounded result.
+**Pagination is bounded to the same window:** `offset` becomes
+`Query(0, ge=0, le=9999)` and `limit` keeps `ge=1, le=500`, with a route-level
+check that `offset + limit <= 10000` (422 otherwise) — both derived from the
+hashed window constant — so no request can read rows beyond the advertised top
+10,000 (today `offset=Query(0, ge=0)` is passed straight to `OFFSET`; review
+round 6). This is a real contract change and is treated as one: the default, the
+three accepted floors, the stored-key definition (`round(score × confidence ×
+completeness × 10000)`), the 10,000 window and its offset/limit bound, and the
+`is_truncated` rule are all declared in `PROFILE_SPEC` and therefore hashed into
+`ranking_sha256`; the route's `Query(...)` declarations are built from those
+spec constants rather than typed beside them, and the identity test mutates the
+default, the accepted-floor set, the window size and the key definition in turn
+and asserts the digest changes each time. The response model gains **one
+additive field**, `is_truncated: bool`, on `ArchetypeRankingsResponse`
+(`apps/api/src/models.py:911-924` has `extra='forbid'`, so returning the key
+without the field would be a 500, and omitting it would make a saturated
+`total=10000` indistinguishable from an exact one). The OpenAPI parameter
+constraints and response schema change so PR1
 regenerates all three typed clients (`apps/web/src/lib/api/generated/*` and
 `packages/api-client/src/generated/api.gen.ts`), and the tests cover the default
-request, `min_score=60`, `min_score=59` → 422 and `min_score=100`. Nothing in
+request, each of 60/76/88, `min_score=59`/`70`/`100` → 422, `offset=9999,
+limit=1` → 200, `offset=9999, limit=2` and `offset=10000` → 422, and
+`is_truncated` true/false. Nothing in
 `apps/web` calls `/api/archetypes/rankings` yet (the F4 UI is unbuilt and the
 legacy frontend is retired), so no live caller loses a result. The alternative —
 indexing all scores so 0–59 stays bounded — costs ≈ 95 GB of indexes for rows
@@ -630,16 +649,18 @@ tier partials in canonical order, the F4 design's slice 1c no longer needs a
 separate raw-score candidate window: it inherits this contract and specifies
 the browser side of the 10,000 window.
 
-The outward ranking and Search response fields do not change: selected score,
+The outward ranking and Search response fields do not otherwise change (the one
+addition is `is_truncated` above): selected score,
 tier, confidence, primary, secondary, Best Colony Potential, archetype
 confidence, completeness, uncertainty, and ranking identity remain present.
-Only `ranking_version`/`ranking_sha256` change. (`apps/api/src/routers/archetypes.py:389-406,422-494`,
+Beyond that, only `ranking_version`/`ranking_sha256` change. (`apps/api/src/routers/archetypes.py:389-406,422-494`,
 `apps/api/src/local_search.py:790-839,951-964`)
 
 Tests must cover all eight key-to-column mappings (score, tier, confidence
 **and weighted key**), that the SQL map is derived from the hashed spec and that
 mutating a mapping, the floor default/bounds or a floor literal changes
-`ranking_sha256`, the literal-floor selection for `min_score` 60/70/76/88/100,
+`ranking_sha256`, the literal-floor selection for each of 60/76/88 and the
+rejection of every other value, the offset/limit window bound,
 the bounded count, both ranked and count SQL,
 unknown-key rejection, and adversarial strings that must never appear in SQL.
 Retain selected weighted ordering, no-pick indexable ordering, count/page filter
@@ -917,7 +938,9 @@ same shared fixture builder. (`scripts/dev/review_lab/lifecycle.py:426-443`,
 Change tests as follows:
 
 - Migration/builder tests assert one wide row per system, all 24 key columns,
-  all constraints, eight picked-score indexes, the weighted index, folded
+  all constraints, **all 24 tier-partial stored-key indexes** (three floors ×
+  eight keys, asserted by name and predicate), the weighted index and the
+  primary key — 26 physical indexes in total — folded
   summary view, complete-row seal, and unchanged chunk resumability.
 - Cypress and Review Lab seed tests assert both product rows are READY,
   `published_at IS NOT NULL`, one wide row per fixture system, and unchanged
@@ -977,8 +1000,9 @@ Files:
   new pinned `ranking_sha256`)
 - `apps/api/src/ranking/ranking_sql.py` (fixed key → wide-column map; no-pick
   path unchanged through the `v3_app.system_archetype_summary` view)
-- `apps/api/src/routers/archetypes.py` (`min_score` → `Query(60, ge=60, le=100)`;
-  response fields unchanged)
+- `apps/api/src/routers/archetypes.py` (`min_score: Literal[60, 76, 88] = Query(60)`;
+  `offset` bounded to the window; `is_truncated` returned)
+- `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`, additive)
 - `apps/web/src/lib/api/generated/types.gen.ts`,
   `apps/web/src/lib/api/generated/sdk.gen.ts`,
   `packages/api-client/src/generated/api.gen.ts` (regenerated for the changed
@@ -987,8 +1011,9 @@ Files:
   sql/v3/migrations/011_v3_system_archetype.sql`: applies the final migration
   text to the disposable database instead of its built-in DDL, fills the real
   `v3_derived.system_archetype` with synthetic rows whose per-key ≥ 60 fractions
-  come from the calibration-probe histogram, and sizes the heap and all nine
-  indexes; the committed built-in layouts stay as the pre-migration reference)
+  come from the calibration-probe histogram, and sizes the heap and all 26
+  physical indexes; the committed built-in layouts stay as the pre-migration
+  reference)
 - `tests/test_measure_wide_archetype_footprint.py`
 - `scripts/dev/seed_v3_fixture_generation.py`,
   `scripts/dev/seed_cypress_v3_generation.py` (wide rows; generation publication
@@ -1025,7 +1050,8 @@ exact `011` file hash, ordered migration-set identity and schema-identity
 reproduction, plan exact-prefix and every reachable accepted-release prefix; a
 new PG18 footprint receipt from
 `scripts/dev/measure_wide_archetype_footprint.py --migration-sql …` run against
-the final `011` text (heap and all nine indexes, partial ones included);
+the final `011` text (heap and all 26 physical indexes — 24 tier partials,
+weighted index, primary key);
 migration/script, PostgreSQL integration, canonical-safety,
 application-deployment, Cypress, Review Lab and security CI. The rankings
 response shape does not change, but the `min_score` parameter constraint does,
