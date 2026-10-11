@@ -876,7 +876,7 @@ The URL is the source of truth for shareable ranking state:
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
-| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it **after deleting any `selected` and `system` entries it already contains** and then setting both to the inspected id — a replay that merely appended them would produce `selected=A&selected=B` when the user inspected B from a page where A was selected, which a first-value parser resolves to A and a fail-closed duplicate parser rejects outright. So `archetype`, `min-tier`, `page_size` and `offset` come back exactly as they were, while the selection is unambiguously the inspected system; a test returns from a page whose prior selection was a different system and asserts single-valued `selected`/`system` equal to the inspected id. The anchor, which is not URL state, travels in SvelteKit history state on the forward navigation and is restored by the return link's `goto` through the shared anchor-state-preserving helper; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
+| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it **after deleting any `selected` and `system` entries it already contains** and then setting both to the inspected id — a replay that merely appended them would produce `selected=A&selected=B` when the user inspected B from a page where A was selected, which a first-value parser resolves to A and a fail-closed duplicate parser rejects outright. So `archetype`, `min-tier`, `page_size` and `offset` come back exactly as they were, while the selection is unambiguously the inspected system; a test returns from a page whose prior selection was a different system and asserts single-valued `selected`/`system` equal to the inspected id. The anchor, which is not URL state, travels in SvelteKit history state — which means the **outbound** navigation must carry it: Explore's Inspect affordance is not a plain `<a href>` in an enabled build but a `goto('/inspect?…', { state: page.state })` (or an anchor whose click handler does the same), so the new Inspect history entry holds `page.state.anchor` for the return `goto` to preserve; the anchored round-trip test asserts the state transfer on the way out as well as the restored 500-LY request on the way back. Without that, the return side would have no anchor to carry and an anchored Any search would come back galaxy-wide; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
@@ -1396,9 +1396,16 @@ tie-break, and the representative-scale timing receipt that unblocks F4b.
 Slice 1c therefore lands **after** F2d PR1 — and only once the owner's answer
 to capacity-decision question 6 (the score-index layout) is recorded in
 `docs/operations/v3-finder-capacity-decision-2026-10-10.md`, which is the
-ROADMAP's stated prerequisite for the F2d code; the owner answered **yes** to
-the partial layout on 2026-10-10 and the F2d design PR (#806) records it, so
-that PR merges before this slice may start. Slice 1c reads, for the selected
+ROADMAP's stated prerequisite for the F2d code. The capacity authority on
+`main` still shows question 6 open with the ≈ 65 GB eight-index measurement,
+because the answers and the re-measurement live on PR #806: the owner approved
+the partial layout on 2026-10-10 (question 6) and the stored-key refinement on
+2026-10-11 (question 6b), and #806 carries the PG18.4 measurement of this exact
+24-index layout (heap 221.7 B/row, indexes 160 B/row, ≈ 76 GB at the synthetic
+Σ_all of 1.54) plus the Σ_all-based capacity gate. **#806 must therefore merge
+before this prerequisite counts as satisfied**, and PR1's own receipt
+re-measures the final `011` text; until then this section's figures are
+attributed to #806, not to `main`. Slice 1c reads, for the selected
 key and floor, the per-archetype **tier-partial stored-key** index
 `(derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 | 76 | 88`
 that F2d defines (section 3.3 there; `<key>_weighted_e4` is the stored
@@ -1504,9 +1511,11 @@ These two-stage semantics are part of ranking identity, not an implementation
 detail — and because the deployed route performs them from F2d PR1 onwards (the
 products may be published before slice 1c), **F2d PR1 hashes all of them**: the
 stored-key definition, the accepted floors, the literal tier floors, the 10,000
-window and offset bound, the `is_truncated` rule, the **post-window non-indexed
-filter rule** (filters apply inside the window only; which rows may enter) and
-the **within-window `total` rule**, plus the mode-specific tie-break. Nothing
+window and the combined `offset + limit` bound, the `is_truncated` rule, the
+**hard-filter rejection rule** (the exact parameter set a picked request may not
+carry, and that carrying one is a 422 — there is no post-window filter rule to
+hash, because the route does not execute one) and the
+**`total = min(qualifying, 10000)` rule**, plus the mode-specific tie-break. Nothing
 the route executes may be outside the hash at publication time. Slice 1c
 therefore does **not** bump `RANKING_VERSION` unless it changes a hashed
 semantic; if it does, it bumps from the identity actually on `main` (planned
@@ -1537,10 +1546,12 @@ ranking order (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:50-54`).
 Required proof: focused SQL-builder and router tests; the ordinary disposable
 PostgreSQL integration suite; OpenAPI regeneration/drift; and the production-
 shaped, at-least-1,000,000-system PostgreSQL 18 timing proof specified in the
-validation plan. It must execute builder-produced page/count SQL over the real
-three-relation/view/index shape and include reviewed
-`EXPLAIN (ANALYZE, BUFFERS)` for first/near-ceiling pages and the within-window
-filtered count. A flattened-table plan is insufficient. F4b is blocked,
+validation plan. It must execute builder-produced page/count SQL over the real final F2d shape —
+exactly **two** underlying relations, `system_search` and the wide
+`system_archetype`, with the summary expanded as a view and the real tier-partial
+indexes; the superseded summary table must not be materialized — and include
+reviewed `EXPLAIN (ANALYZE, BUFFERS)` for the first page, a near-ceiling page
+and the bounded count. A flattened-table plan is insufficient. F4b is blocked,
 including its Product E2E gate opt-in, until this PR and proof have landed.
 
 ### PR slice 1d — bounded Any-mode tier API (deferred prerequisite for Any tier only)
@@ -2615,3 +2626,25 @@ that describe post-window filtering are superseded by this one.
    message is **within the top 10,000 for [Archetype]** everywhere, since the
    window is ordered by `score × confidence × completeness`, not by the fit score
    shown on the card.
+
+#### Round 26 — 2026-10-11 (PR #801)
+
+1. **P2 — Remove stale post-window filtering from slice 1c** → the hashed-rule
+   list now names the **hard-filter rejection rule** and
+   `total = min(qualifying, 10000)`; the post-window filter rule is gone, since
+   the route does not execute one.
+2. **P2 — Carry anchor state into the Inspect history entry** → the **outbound**
+   navigation carries it: in an enabled build the Inspect affordance is a
+   `goto('/inspect?…', { state: page.state })` rather than a plain `href`, so the
+   new entry holds `page.state.anchor` for the return `goto`; the anchored
+   round-trip test asserts the transfer in both directions.
+3. **P2 — Benchmark the final two-relation F2d shape** → the required-proof
+   section now names exactly two underlying relations (`system_search` and the
+   wide `system_archetype`, summary as a view, real tier partials) and forbids
+   materializing the superseded summary table.
+4. **P1 — Re-measure and approve the 24-index ranking layout** → correct about
+   ordering: the owner's answers (questions 6 and 6b) and the PG18.4 measurement
+   of this exact 24-index layout live on PR #806, not yet on `main`. The section
+   now says so explicitly, attributes its figures to #806, and states that **#806
+   must merge before this prerequisite counts as satisfied**, with PR1's own
+   receipt re-measuring the final `011` text.
