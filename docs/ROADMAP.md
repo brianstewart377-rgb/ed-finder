@@ -272,7 +272,13 @@ newer dated source wins).
      10000` bounds are not expressible in JSON Schema and are proved by a
      behavioural probe against the deployed image, which a 503 does not prevent
      because request validation raises 422 before the generation is consulted:
-     `offset=9999&limit=1` accepted, `offset=9999&limit=2` rejected with 422.
+     `offset=9999&limit=1` accepted, `offset=9999&limit=2` rejected with 422 —
+     **and the local-search pair as well**, `from=9999&size=1` accepted,
+     `from=9999&size=2` rejected. Both pairs are needed: an image missing only the
+     local-search `from + size` validator publishes an identical OpenAPI schema and
+     passes the `offset`/`limit` probes, after which a direct
+     `from=9999&size=2` escapes the promised 10,000-row window and drives an
+     excessive `OFFSET`.
      The identity is re-verified from a real envelope at step 9. This ordering is required: the
      currently deployed API gates only on both products being READY, so if the
      products reached READY under that build it would stop answering 503 and
@@ -338,10 +344,16 @@ newer dated source wins).
      expected bounded shape. All 24 pairs, because planner choices depend on each
      key's own statistics and partial-index selectivity, so one tested key proves
      nothing about the other seven, each of which is user-selectable. The
-     Archetype build step must have run and receipted `ANALYZE` on the completed
-     table, and the probe asserts `last_analyze` postdates the final insert: an
-     `EXPLAIN` on stale statistics can reject a sound build, or pass and then have
-     autovacuum move the planner off the bounded plan after users are exposed.
+     Archetype build step must have run and receipted **`VACUUM (ANALYZE)`** on the
+     completed table, and the probe asserts **both `last_vacuum` and
+     `last_analyze`** postdate the final insert, and requires **`Heap Fetches: 0`**
+     on the window node. `ANALYZE` alone is not enough twice over: an `EXPLAIN` on
+     stale statistics can reject a sound build, or pass and then have autovacuum
+     move the planner off the bounded plan after users are exposed; and `ANALYZE`
+     does not populate the visibility map, so after the bulk insert an apparent
+     `Index Only Scan` can still perform up to 10,001 heap fetches per request and
+     be published as bounded. Only the zero-heap-fetch assertion tests what
+     index-only actually means.
      Without this, the one-way publication can commit without the production plan
      ever having been validated. Then
      verify from the live app that results are served and the envelopes carry

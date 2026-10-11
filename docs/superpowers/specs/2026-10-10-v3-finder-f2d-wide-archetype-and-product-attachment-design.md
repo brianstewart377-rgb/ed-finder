@@ -692,9 +692,27 @@ no score. The design would have broken its own field on its own next version bum
 So the digest covers a **named set of members of the model file**, not the file:
 the coefficients, the anchors, the archetype key order, the tier thresholds, the
 `_weighted_e4` integer expression, the confidence rounding rule, **and the source
-text of the named scoring functions** (`fit_all` and what it calls). It explicitly
-excludes `ARCHETYPE_VERSION`, the explanation construction and every storage-shape
+text of the named scoring functions**. It explicitly excludes
+`ARCHETYPE_VERSION`, the explanation construction and every storage-shape
 constant.
+
+**That exclusion requires a small refactor in PR1 (review round 25).** Hashing
+`fit_all` and everything it calls does **not** currently exclude explanation
+construction, because `_fit_anchored` and `_fit_flexible` build their explanation
+dictionaries **inside** the scoring functions themselves
+(`scripts/v3_system_archetype_model.py:120-145`) — so an explanation-only edit
+would still move the digest and silently suppress the F4 comparison with scores
+provably unchanged, which is the exact defect this scope was narrowed to avoid.
+The exclusion was unimplementable as written.
+
+PR1 therefore **separates explanation construction out of the scoring path**: each
+`_fit_*` function returns its score, tier and confidence, and a distinct
+`_explain_*` function builds the dictionary from the same `SystemVectors`.
+`archetype_model_sha256` hashes the `_fit_*` functions and excludes the
+`_explain_*` ones. That is a behaviour-preserving refactor of code PR1 already
+changes, and it is what makes the stated exclusion true rather than aspirational.
+A test asserts the digest is unchanged by an edit confined to an `_explain_*`
+function and changed by any edit to a `_fit_*` one.
 
 That keeps the property round 19 was after — a change to **how scores are
 computed** always moves the digest — while a change to how they are stored,
@@ -2797,3 +2815,41 @@ does not bind, because the ROADMAP outranks it.
    constant. That preserves round 19's requirement — a change to how scores are
    computed always moves the digest — while a change to how they are stored,
    versioned or explained never does, which hashing the file could not deliver.
+
+### Review round 25 (2026-10-11)
+
+1. **P1 — Require VACUUM in the controlling publication gate** → correct, and the
+   same design-only pattern for the fifth time on this PR: round 24 put
+   `VACUUM (ANALYZE)`, `last_vacuum` and `Heap Fetches: 0` into the design and left
+   the ROADMAP requiring `ANALYZE`/`last_analyze` alone. Since the ROADMAP outranks
+   it, the weaker gate is the one that binds — and the consequence is the specific
+   one round 24 identified: after the bulk insert the visibility map is empty, so an
+   apparent `Index Only Scan` can still perform up to 10,001 heap fetches per request
+   and be **published as bounded**. ROADMAP step 9′ now carries all three
+   requirements with the reason for each, including that only the zero-heap-fetch
+   assertion tests what index-only means.
+2. **P1 — Exclude explanation code from the semantic digest** → correct, and the
+   exclusion was **unimplementable as written**. Hashing `fit_all` and everything it
+   calls does not exclude explanation construction, because `_fit_anchored` and
+   `_fit_flexible` build their explanation dictionaries **inside** the scoring
+   functions (`scripts/v3_system_archetype_model.py:120-145`) — which I asserted an
+   exclusion for without checking. So an explanation-only edit would still move the
+   digest and suppress the F4 comparison with scores provably unchanged, which is the
+   precise defect round 24 narrowed this scope to avoid.
+   PR1 now **separates explanation construction out of the scoring path**: each
+   `_fit_*` returns score, tier and confidence, and a distinct `_explain_*` builds the
+   dictionary from the same `SystemVectors`; the digest hashes the `_fit_*` functions
+   and excludes the `_explain_*` ones. That is a behaviour-preserving refactor of code
+   PR1 already touches, and it is what makes the exclusion true rather than
+   aspirational. A test asserts the digest is unchanged by an edit confined to an
+   `_explain_*` function and changed by any edit to a `_fit_*` one — which is the
+   assertion that would have caught this.
+3. **P1 — Probe the local-search window bound before release** → correct. Round 16
+   established that JSON Schema cannot express a cross-field bound and that both
+   combined bounds therefore need behavioural probes; the ROADMAP then described only
+   the `offset`/`limit` pair while claiming to prove both. An image missing **only**
+   the local-search `from + size` validator publishes a byte-identical OpenAPI schema
+   and passes both stated probes, after which a direct `from=9999&size=2` escapes the
+   10,000-row window and drives an excessive `OFFSET`. Both pairs are now required,
+   accepted and rejected, with that reasoning recorded so neither is dropped as
+   duplicative of the other.
