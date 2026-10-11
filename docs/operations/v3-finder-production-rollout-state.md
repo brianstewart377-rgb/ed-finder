@@ -347,6 +347,22 @@ carries the decision. Two consequences recorded with the decision:
   replay registry is kept. This is a recorded owner question in the F2d
   design, not a silent default.
 
+## Disk inventory (read-only, 2026-10-11)
+
+The step 0 receipt accounts for 1,345 GB of the data volume's 1,557 GB used as
+the operating database, leaving 212 GB unaccounted. The governed
+`v3-disk-inventory` action is intended to locate that usage and identify
+potentially reclaimable space by reporting the volume and root-filesystem
+figures, the largest directories on the PostgreSQL volume, every database, WAL
+usage and retention signals, temporary-file and logging figures, the largest
+non-system relations, their indexes and scan counts, dead-tuple estimates, and
+derived-generation attribution, followed by an explicit accounted-versus-
+unaccounted summary.
+
+The action is strictly read-only and reclaims nothing. Any purge, index removal,
+relation rewrite, or other reclamation remains a separate reviewed design and
+operator action.
+
 ## Where else this pattern can bite (watch-list)
 
 - **Three distinct states — don't conflate them.** (1) *Committed*: a

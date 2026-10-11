@@ -19,6 +19,7 @@ on:
           - v3-system-search-f1-status
           - v3-spatial-status
           - v3-derived-lifecycle-status
+          - v3-disk-inventory
           - v3-system-search-validate-constraints-start
           - v3-system-search-validate-constraints-status
           - v3-archetype-calibration-probe
@@ -80,6 +81,7 @@ jobs:
           fi
           case "$operation" in
             host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-derived-lifecycle-status) ;;
+            v3-disk-inventory) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -171,6 +173,19 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-derived-lifecycle-status.sh
+
+      - name: Inspect V3 disk inventory
+        if: steps.request.outputs.operation == 'v3-disk-inventory'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-disk-inventory.sh
 
       - name: Launch V3 Search constraint validation
         if: steps.request.outputs.operation == 'v3-system-search-validate-constraints-start'
