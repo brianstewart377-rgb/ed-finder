@@ -1210,7 +1210,15 @@ Files:
 - `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`,
   additive; `archetype_version` and `archetype_manifest_sha256` on the shared
   ranking-identity model both envelopes use)
-- `apps/api/src/local_search.py` (**PR1, not PR2**: the request model enforces
+- `apps/api/src/local_search.py` (**PR1, not PR2**: the galaxy-wide count query
+  gains the same **10,001st-row sentinel** the picked path uses — `LIMIT cap + 1`
+  instead of `LIMIT cap` — and the response reports `total = min(count, cap)`
+  with `total_is_capped = count > cap`. Today the flag is set whenever
+  `total >= GALAXY_WIDE_COUNT_CAP` (`apps/api/src/local_search.py:965-970`), so a
+  search with exactly 10,000 matches is indistinguishable from one with a
+  million and any “10,000+” copy is a claim about rows that may not exist; the
+  sentinel costs one extra row and makes the flag true. Tests pin exactly 10,000
+  (flag false) and 10,001 (flag true). The request model also enforces
   the same **combined** window bound as the rankings route —
   `from >= 0`, `size >= 1` and `from + size <= 10_000` — so a direct caller can
   neither post `from: 2000000000` and force an unbounded `OFFSET` against the
@@ -1685,3 +1693,10 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    recomputed-vs-stored comparison happens on one consistent snapshot; a missing
    row is a 404, and a test seeds a divergent stored row and asserts the
    fail-closed response.
+
+5. **Any-mode count sentinel** (round 13 follow-up, from the F4 design's review).
+   PR1 also gives the galaxy-wide count query the 10,001st-row sentinel
+   (`LIMIT cap + 1`), so `total_is_capped` means “more than 10,000 exist” rather
+   than “at least 10,000 were counted”. Without it a search with exactly 10,000
+   matches raises the same flag as one with a million, and the F4 UI cannot
+   honestly write “10,000+”. Tests pin exactly 10,000 (false) and 10,001 (true).
