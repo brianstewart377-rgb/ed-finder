@@ -653,8 +653,11 @@ the page:
    `LIMIT 10001`. Those are exactly the partial index's own columns
    `(derived_generation_id, <key>_weighted_e4, system_id64)`, so this stage is a
    genuine `Index Only Scan` with no heap access.
-2. **Filter.** Join `v3_app.system_search` to those ≤ 10,001 rows and apply
-   every hard filter (region, distance, body counts, …).
+2. **Join (no filtering).** Join `v3_app.system_search` to those ≤ 10,001 rows
+   **for the response columns only**. No hard filter appears here or anywhere
+   else in the query: a picked request carrying one is rejected with 422 before
+   any SQL is built (see “Hard filters in selected mode” below), so there is no
+   filtering stage to implement. The join is for data, not selection.
 3. **Page.** Restate the order explicitly on the ≤ 10,000 survivors —
    `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC` — then `OFFSET`/`LIMIT`.
    The outer `ORDER BY` is required, not decorative: an ordered index scan
@@ -671,7 +674,7 @@ the page:
 
 Carrying those columns as INCLUDE payload on the 24 partial indexes was
 rejected: it would add payload to every indexed row to save ≤ 50 key lookups
-per request. The count query needs stages 1 and 2 only.
+per request. The count query needs stages 1 and 2 only (and stage 2 only for its join shape — it filters nothing).
 
 **Hard filters are rejected on a picked archetype, not redefined (review round
 9).** A filter inside the inner `WHERE` would let the index scan run past 10,001
@@ -1056,12 +1059,28 @@ replace either; the rollout below is authorized only once both say so:
 | 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`, recompute every migration-set/transition identity, and re-attest reachable prefixes. | Reuse the V3 manifest/schema-identity mechanism; PR1 (rewritten `011`) and PR2 (`015`) each recut the authority and the hard-coded lineage tests, so this step is complete when PR2 merges. Current registered tail is `[014,010,011,013]`. (`sql/v3/migration-manifest.txt:52-55`, `docs/ROADMAP.md:121-127`) | negligible catalog/empty-DDL space |
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
-| 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 5 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity and the built-image contracts** are proved from the release evidence — the gate's own record of `ranking_version`/`ranking_sha256`, the deployed image digest, and the served `/openapi.json` showing the `Literal[60, 76, 88]` floor and the bounded `from`/`offset`. The identity is re-verified from a real envelope at step 9, once products are published. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
-| 6 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
-| 7 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
-| 8 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
-| 9 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded (the governed read-only status action reports the product rows, publication timestamps and audit rows). | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+| 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity and the built-image contracts** are proved from the release evidence — the gate's own record of `ranking_version`/`ranking_sha256`, the deployed image digest, and the served `/openapi.json` showing the `Literal[60, 76, 88]` floor and the bounded `from`/`offset`. The identity is re-verified from a real envelope at step 9, once products are published. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
+| 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
+| 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
+| 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
+| 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
+| 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
+| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+
+**Rollback is constrained from the moment `011`/`015` are applied (review round
+12).** Deploying first removes the forward hazard but not the backward one: the
+previously accepted image's `_current_derived_generation()` gates on READY only
+and its ranking SQL reads the removed keyed columns, so rolling back to it after
+the products reach READY would reproduce exactly the empty-Finder/broken-ranking
+failure. PR4 therefore makes the release authority record, at step 4, that **the
+F2d release is the minimum schema-compatible image**: every earlier accepted
+image is marked incompatible with the applied migration set, the deployment
+workflow's rollback target list is cut to images at or after it, and the gate
+refuses to promote unless a compatible rollback artifact (the F2d image itself,
+or a later one) exists and is recorded. If a rollback is ever needed below that
+line it is an incident requiring its own reviewed plan — not a routine
+redeploy — because the schema cannot go back. Tests assert the trimmed rollback
+list and the refusal when no compatible artifact is recorded.
 
 **Why the release must be deployed before any product reaches READY (review
 round 9).** The currently deployed API's `_current_derived_generation()` gates
@@ -1321,19 +1340,47 @@ Files:
   non-zero exit code and a receipt on any failure: (a) read the recorded
   calibration-probe histogram from the committed decision evidence and refuse if
   it is absent or does not cover all eight keys and three floors; (b) compute
-  `Σ_all` = the sum of all 24 per-key tier fractions and refuse if `Σ_all > 4.0`;
+  `Σ_all` = the sum of all 24 per-key tier fractions, cross-check it against the
+  receipt's own `sigma_all`, and refuse if `Σ_all > 4.0`;
   (c) require a footprint receipt produced by
   `scripts/dev/measure_wide_archetype_footprint.py --migration-sql <the applied
   011> --fractions-json <that histogram>`, whose `score_distribution_source` is
-  `measured-histogram` and whose `011` file hash matches the applied ledger
-  entry; (d) take a fresh `df` reading of the data volume through the same
-  read-only path the step 0 action uses, and refuse unless
-  `free − (measured archetype total + 15 % working room)` is positive, counting
-  Search's rows as already written. The receipt records every input and the
-  arithmetic, so the decision is reproducible from the log)
+  `measured-histogram`, whose `011` file hash matches the applied ledger entry,
+  **and whose `fractions_sha256` equals the SHA-256 of the canonical form of
+  that same committed histogram** (the script records `fractions_canonical`,
+  `fractions_sha256` and `sigma_all` for exactly this purpose, so a stale or
+  substituted JSON cannot pass as a measured histogram); (d) take a fresh `df`
+  reading of the data volume through the same read-only path the step 0 action
+  uses, and refuse unless `free − (Search ≈ 87 GB where not yet written +
+  measured archetype total + 15 % working room)` is positive. The receipt
+  records every input and the arithmetic, so the decision is reproducible from
+  the log. **The same gate runs before the Search build** (rollout step 6),
+  because Search is equally irreversible)
 - `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
   in one transaction via `publish_derived_product`; receipts timestamps, audits
-  and view counts)
+  and view counts — **and fails closed on the deployed application before it
+  publishes anything**, because publication is what makes the route live: it
+  reads the running API container's image digest and compares it with the
+  accepted-release attestation for the F2d release, and reads the live
+  `/api/local/search` (or the health/identity surface) to confirm the advertised
+  `ranking_version`/`ranking_sha256` are the expected new values, refusing with
+  distinct exit codes if either differs. Without that check the SQL function
+  would happily publish READY products while an out-of-order dispatch or an
+  application rollback left the old keyed-schema image running. Tests cover the
+  out-of-order case — products READY, old image digest — and the identity
+  mismatch)
+- `scripts/operator/actions/v3-archetype-plan-probe.sh` (new, read-only: builds
+  the real picked page and count SQL through `build_ranked_query` /
+  `build_count_query` for one archetype at each of the three floors, runs
+  `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` under `plan_cache_mode =
+  force_generic_plan` with a 60 s statement timeout, and **asserts** from the
+  plan that the window node is an `Index Only Scan` on the expected
+  `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= …`
+  index with ≤ 10,001 actual rows, that the sort node's input is ≤ 10,000, and
+  that the fetch node's rows are ≤ `page_size`; it writes nothing. This is the
+  executable form of step 10's bounded-plan check —
+  `v3-derived-lifecycle-status` reports lifecycle and footprint data and
+  contains no `EXPLAIN`, so it cannot perform it)
 - `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
@@ -1562,3 +1609,41 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    of the data volume, refusing unless the measured archetype total plus 15 %
    working room fits. Four refusal tests plus a passing case that records the
    arithmetic.
+
+### Review round 12 (2026-10-11)
+
+1. **P1 — Bind capacity receipts to the governed histogram** → the footprint
+   script now records `fractions_canonical`, `fractions_sha256` (SHA-256 of the
+   canonical, key-sorted form) and `sigma_all`, and the gate requires that digest
+   to equal the digest of the committed calibration evidence, so a stale or
+   substituted JSON cannot pass as a measured histogram. Verified end to end.
+2. **P1 — Run the capacity gate before building Search** → correct: Search is
+   itself an irreversible 198.5 M-row insert-only write, so building it first and
+   failing the gate afterwards would strand an unpublishable 87 GB product. The
+   rollout gains an explicit **step 6, a combined Search + Archetype capacity
+   gate**, which both build actions call as a fail-closed precondition.
+3. **P1 — Preserve a schema-compatible rollback release** → PR4's authority
+   records the F2d release as the **minimum schema-compatible image**, marks every
+   earlier accepted image incompatible with the applied migration set, trims the
+   deployment workflow's rollback target list to that image and later, and refuses
+   promotion unless a compatible rollback artifact is recorded; a rollback below
+   that line is an incident with its own plan, not a routine redeploy.
+4. **P2 — Remove the remaining post-window filter stage** → stage 2 is now
+   “Join (no filtering)”, for response columns only, stating that no hard filter
+   appears anywhere in the query because such a request is rejected with 422
+   before any SQL is built.
+5. **P2 — Add an executable production-plan verification step** → new read-only
+   `v3-archetype-plan-probe.sh` runs the real page and count SQL under
+   `force_generic_plan` with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` and asserts
+   the index-only window (≤ 10,001 rows), the ≤ 10,000-row sort input and the
+   ≤ `page_size` fetch; step 10 names it instead of the lifecycle-status action,
+   which contains no `EXPLAIN`.
+6. **P1 — Gate publication on the deployed F2d release** → the publish action
+   fails closed before publishing anything: it compares the running API
+   container's image digest with the accepted-release attestation for the F2d
+   release and confirms the live advertised `ranking_version`/`ranking_sha256`,
+   with distinct exit codes and an out-of-order test (products READY, old image).
+7. **P2 — Align calibration and release ordering with the ROADMAP** → one order
+   now, in both documents: 4 deploy the release, 5 calibration probe (its
+   histogram is the gate's input), 6 combined capacity gate, 7 Search build,
+   8 Archetype build, 9 publish, 10 post-go-live verification.

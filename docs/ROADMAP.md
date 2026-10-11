@@ -249,22 +249,30 @@ newer dated source wins).
      start reading the post-`015` views, which hide unpublished rows — a
      valid-looking empty search and a broken picked ranking. Deploying first
      removes that interval.
-  6. Unchanged: run the read-only calibration probe and record the coefficient
-     decision before the archetype product is registered. Its per-key tier
-     histogram also sizes the archetype indexes for the capacity gate.
-  7′. Register, build and validate post-`010` `system_search` on
-     `ratings_v4_prod_p4_parallel_v1` (≈87 GB). The deployed app stays 503
-     because the products are not published.
-  8′. Register, build and validate the wide-row `system_archetype` on the same
-     generation (≈76 GB measured on the synthetic distribution). The partial
-     indexes are nested, so the capacity gate is on the **sum of all 24 per-key
-     tier fractions** (Σ_all): archetype ≈ 44 GB heap + 16 GB primary/weighted +
-     9.9 GB × Σ_all, which is ≈ 76 GB at the synthetic Σ_all of 1.54 and
-     ≈ 297 GB only in the absurd case where every fraction is 1. The gate
-     computes Σ_all from the step 6 histogram, may proceed only while Σ_all ≤ 4.0,
-     and re-measures with the final `011` text, stopping if search + archetype +
-     working room exceed the free space in a fresh step 0 receipt.
-  9′ (last — go-live). Publish both **products** with
+  6′. Run the read-only calibration probe, record the coefficient decision, and
+     commit its per-key tier histogram — it is the capacity gate's input.
+  7′. **Combined capacity gate, the last point of no return.** One governed
+     read-only action computes `Σ_all` (the sum of all 24 per-key tier
+     fractions) from that committed histogram, refusing if it is absent,
+     incomplete or its digest does not match; refuses `Σ_all > 4.0`; requires a
+     footprint receipt for the applied `011` whose `score_distribution_source`
+     is `measured-histogram` and whose fractions digest matches; takes a fresh
+     read-only `df`; and refuses unless Search (≈87 GB) plus the measured
+     Archetype total plus 15 % working room fits. Archetype ≈ 44 GB heap +
+     16 GB primary/weighted + 9.9 GB × Σ_all — ≈76 GB at the synthetic Σ_all of
+     1.54, ≈297 GB only if every fraction were 1. **This gate must pass before
+     the Search build**, because `system_search` is itself an irreversible
+     insert-only 198.5 M-row write: building it first and failing the gate
+     afterwards would strand an unpublishable 87 GB product. Both build actions
+     call it as a fail-closed precondition.
+  8′. Register, build and validate post-`010` `system_search` on
+     `ratings_v4_prod_p4_parallel_v1` (≈87 GB), then the wide-row
+     `system_archetype` on the same generation. The deployed app stays 503
+     throughout, because the products are not published.
+  9′ (last — go-live). The publish action first fails closed on the deployed
+     application — the running API image digest must match the accepted F2d
+     release and the live advertised ranking identity must be the expected new
+     one — then publishes both **products** with
      `v3_meta.publish_derived_product` in one governed transaction; the
      generation pointer does not move (no `publish_derived_generation`). Then
      verify from the live app that results are served and the envelopes carry

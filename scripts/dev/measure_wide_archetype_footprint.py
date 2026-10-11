@@ -55,6 +55,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -301,19 +302,35 @@ def main() -> None:
     if args.rows < 1000 or args.rows > 5_000_000:
         sys.exit("--rows must be between 1000 and 5000000")
     fractions: dict[str, dict[str, float]] | None = None
+    fractions_canonical: dict[str, dict[str, float]] | None = None
+    fractions_sha256: str | None = None
+    sigma_all: float | None = None
     if args.fractions_json:
         fractions = json.loads(Path(args.fractions_json).read_text(encoding="utf-8"))
         missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
         if missing:
             sys.exit(f"--fractions-json is missing archetype keys: {', '.join(missing)}")
+        normalized: dict[str, dict[str, float]] = {}
         for key in ARCHETYPE_KEYS:
             floors = fractions[key]
             values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
             if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
                 sys.exit(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
+            normalized[key] = {"60": values[0], "76": values[1], "88": values[2]}
+        # The capacity gate trusts this receipt's provenance, so record the exact
+        # probabilities used and their digest. The gate re-computes this digest from the
+        # governed calibration evidence and refuses the receipt unless the two match, so a
+        # stale or substituted JSON file cannot pass as a measured histogram.
+        canonical = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+        fractions_canonical = normalized
+        fractions_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        sigma_all = round(sum(sum(v.values()) for v in normalized.values()), 6)
     out: dict[str, object] = {
         "score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell",
         "fractions_json": args.fractions_json,
+        "fractions_canonical": fractions_canonical if fractions else None,
+        "fractions_sha256": fractions_sha256 if fractions else None,
+        "sigma_all": sigma_all if fractions else None,
         "rows": args.rows, "method": (
         "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, "
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"

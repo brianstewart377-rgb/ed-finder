@@ -126,3 +126,14 @@ def test_receipt_declares_its_score_distribution_source():
     # or a measured calibration histogram, so a capacity gate cannot mistake one for the other.
     assert '"score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell"' in source
     assert "--fractions-json" in source
+
+
+def test_receipt_binds_fractions_to_a_canonical_copy_and_digest():
+    """A capacity gate must be able to prove which histogram a receipt used."""
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '"fractions_canonical"' in source
+    assert '"fractions_sha256"' in source
+    assert '"sigma_all"' in source
+    assert "hashlib.sha256" in source
+    # The digest must cover a canonical form, not the caller's file bytes or path.
+    assert 'json.dumps(normalized, sort_keys=True, separators=(",", ":"))' in source
