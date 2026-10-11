@@ -686,9 +686,28 @@ the page:
    (`apps/api/src/routers/archetypes.py:517`), not 50: the F4 facade exposes
    1–50, but the API contract is the limit that matters here and the plan probe
    must exercise a 500-row page so a legal large page is never truncated or
-   left unverified. The plan assertions therefore require: the window node is an
-   `Index Only Scan` on the expected partial index with ≤ 10,001 actual rows,
-   and the fetch node's actual rows are ≤ `page_size` (tested at both 50 and the route's maximum 500); for the count query the window node may read exactly 10,001.
+   left unverified.
+
+   **The outermost `SELECT` repeats `ORDER BY <key>_weighted_e4 DESC,
+   system_id64 ASC` after this join (review round 15).** Stage 3's `ORDER BY`
+   orders stage 3's output; it does not survive being joined again. A hash or
+   nested-loop plan for this fetch may emit the page in any order, so without a
+   final `ORDER BY` the response would contain the correct 50 systems in an
+   arbitrary sequence — the worst shape of this bug, because every row is right
+   and only the ranking is wrong, which no row-set assertion would catch. The
+   sort is over at most `page_size` (≤ 500) already-materialized rows.
+
+   The plan assertions therefore require: the window node is an `Index Only
+   Scan` on the expected partial index with ≤ 10,001 actual rows, and the fetch
+   node's actual rows are ≤ `page_size` (tested at both 50 and the route's
+   maximum 500); for the count query the window node may read exactly 10,001.
+   **A plan assertion is not sufficient on its own**: the tests also assert the
+   returned rows' actual order — that the response's `<key>_weighted_e4` values
+   are non-increasing and ties break by ascending `system_id64` — on a fixture
+   seeded with deliberate ties, and that two adjacent pages concatenate into one
+   correctly ordered sequence with no repeated or skipped system. Bounding the
+   sort node's input proves the query is cheap; only the row order proves it is
+   right.
 
 Carrying those columns as INCLUDE payload on the 24 partial indexes was
 rejected: it would add payload to every indexed row to save at most `page_size`
@@ -1083,7 +1102,7 @@ replace either; the rollout below is authorized only once both say so:
 | 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`, recompute every migration-set/transition identity, and re-attest reachable prefixes. | Reuse the V3 manifest/schema-identity mechanism; PR1 (rewritten `011`) and PR2 (`015`) each recut the authority and the hard-coded lineage tests, so this step is complete when PR2 merges. Current registered tail is `[014,010,011,013]`. (`sql/v3/migration-manifest.txt:52-55`, `docs/ROADMAP.md:121-127`) | negligible catalog/empty-DDL space |
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
-| 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity and the built-image contracts** are proved from the release evidence — the gate's own record of `ranking_version`/`ranking_sha256`, the deployed image digest, and the served `/openapi.json` showing the `Literal[60, 76, 88]` floor and the bounded `from`/`offset`. The identity is re-verified from a real envelope at step 9, once products are published. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
+| 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape**, where the values are concrete: the `Literal[60, 76, 88]` floor as an enum and the combined `from`/`offset` bound as a maximum. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
 | 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
@@ -1383,24 +1402,95 @@ Files:
   `fractions_sha256` and `sigma_all` for exactly this purpose, so a stale or
   substituted JSON cannot pass as a measured histogram); (d) take a fresh `df`
   reading of the data volume through the same read-only path the step 0 action
-  uses, and refuse unless `free − (Search ≈ 87 GB where not yet written +
-  measured archetype total + 15 % working room)` is positive. The receipt
-  records every input and the arithmetic, so the decision is reproducible from
-  the log. **The same gate runs before the Search build** (rollout step 6),
-  because Search is equally irreversible)
+  uses, and refuse unless `available_bytes >= required_bytes` under the exact
+  arithmetic below. The receipt records every input and every intermediate, so
+  the decision is reproducible from the log. **The same gate runs before the
+  Search build** (rollout step 6), because Search is equally irreversible)
+
+  **Capacity arithmetic (exact; PR4 implements this formula and nothing else).**
+  All byte figures are integers; every division rounds up. `system_count` is the
+  live count of eligible systems the build will write, read in the same gate run.
+
+  ```
+  projected_heap_bytes        = 221.7 × system_count                  # measured wide row, stored keys included
+  projected_fixed_index_bytes = (40.7 + 40.8) × system_count          # primary key + weighted_potential
+  projected_tier_index_bytes  = 9.9 × sigma_all × 1e9 / 198_500_000 × system_count
+  projected_archetype_bytes   = heap + fixed_index + tier_index
+  projected_search_bytes      = 0 if system_search is already written for this
+                                generation, else 87_000_000_000
+  projected_new_bytes         = projected_archetype_bytes + projected_search_bytes
+  required_bytes              = ceil(1.15 × projected_new_bytes)
+  reserve_bytes               = required_bytes − projected_new_bytes
+  gate passes  iff  available_bytes >= required_bytes
+  ```
+
+  **The reserve is 15 % of the projected new footprint — not of free space and
+  not of the volume.** This is the only denominator that scales with the risk
+  being covered. The reserve exists for three things, all proportional to what
+  is being written: the WAL generated while writing it, the temporary sort space
+  `CREATE INDEX` spills beyond `maintenance_work_mem` (indexes are built one at a
+  time, so the peak is the largest single index, ~8 GB for the primary key), and
+  the gap between these measured per-row figures and reality. Fifteen per cent of
+  free space would hand a trivial build a huge reserve and a vast build a tiny
+  one; fifteen per cent of the 1,948 GB volume is ~292 GB, which is the entire
+  current free reading, so that gate could never pass and would be indistinguishable
+  from a hard stop. Both were live readings of the same sentence, which is why it
+  had to be pinned.
+
+  Worked example at the synthetic `sigma_all = 1.54` and 198.5 M systems:
+  heap 44.0 GB + fixed 16.2 GB + tier 15.2 GB = 75.4 GB archetype; with Search
+  unwritten, 162.4 GB projected, 186.8 GB required, 24.4 GB reserve. At the
+  gate's refusal ceiling `sigma_all = 4.0`: tier 39.6 GB, archetype 99.8 GB,
+  186.8 GB projected, 214.8 GB required, 28.0 GB reserve. Against the 292 GB
+  free reading both pass; neither figure is assumed by the gate, which recomputes
+  from its own fresh readings. The formula reproduces the directly measured
+  75.7 GB archetype total (section 3.4) to within 0.4 %, the difference being
+  rounding in the 9.9 GB-per-unit-`sigma_all` coefficient; where the two differ
+  the gate uses the formula, because the formula is what the live `sigma_all` and
+  `system_count` feed.
+
+  PR4 pins this formula in two tests that differ only in the `df` fixture: one
+  with `available_bytes == required_bytes` (passes, proving the boundary is
+  inclusive) and one with `available_bytes == required_bytes − 1` (refuses). A
+  third asserts the receipt reports `projected_new_bytes`, `reserve_bytes`,
+  `required_bytes`, `available_bytes`, `sigma_all` and `system_count`, so a
+  reviewer can recompute the decision without rerunning the gate.
 - `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
   in one transaction via `publish_derived_product`; receipts timestamps, audits
   and view counts — **and fails closed on the deployed application before it
   publishes anything**, because publication is what makes the route live: it
   reads the running API container's image digest and compares it with the
-  accepted-release attestation for the F2d release, and confirms the expected
-  `ranking_version`/`ranking_sha256` **from that attestation and the served
-  `/openapi.json`** — deliberately **not** from a Finder response envelope,
-  because `_current_derived_generation()` answers 503 until the products are
-  published, so no envelope exists at this point and a check that required one
-  could never pass. Both comparisons refuse with distinct exit codes. The live
-  envelope's identity is verified immediately afterwards, at step 10, when it
-  exists. Without that check the SQL function
+  accepted-release attestation for the F2d release, and takes the expected
+  `ranking_version`/`ranking_sha256` **from that attestation alone** —
+  deliberately **not** from a Finder response envelope, because
+  `_current_derived_generation()` answers 503 until the products are published,
+  so no envelope exists at this point and a check that required one could never
+  pass; and deliberately **not** from the served `/openapi.json`, because
+  `RankingIdentity.ranking_version` and `ranking_sha256` are unconstrained `str`
+  fields (`apps/api/src/models.py:378-379`), so the schema says only that they
+  are strings. A check against it would be vacuous — it would pass against any
+  image, including the old keyed-schema one, which is precisely the failure this
+  gate exists to catch.
+
+  **The digest is what carries the identity.** If the running container's digest
+  equals the digest the F2d release was attested at, the code inside it is the
+  code that was built and attested, and the attestation records the
+  `ranking_version`/`ranking_sha256` that code computes. Identity therefore
+  follows from digest equality and needs no runtime surface at all. This places
+  one requirement on step 4: the accepted-release attestation for the F2d release
+  **must record both concrete values**. If the existing attestation format has no
+  field for them, step 4 adds it; the publish action refuses when the attestation
+  carries no identity to compare, rather than treating a missing value as a match.
+
+  `/openapi.json` keeps the job it can actually do — proving parameter **shape**,
+  where the values are concrete in the schema: the `Literal[60, 76, 88]` floor
+  appears as an enum and the combined `from`/`offset` bound as a maximum. It is
+  checked for those and not consulted for identity.
+
+  All comparisons refuse with distinct exit codes. The live envelope's identity is
+  verified immediately afterwards, at step 10, when it exists — and that check is
+  the one that closes the loop, because it compares a value the running code
+  actually computed against the attested one. Without that check the SQL function
   would happily publish READY products while an out-of-order dispatch or an
   application rollback left the old keyed-schema image running. Tests cover the
   out-of-order case — products READY, old image digest — and the identity
@@ -1727,3 +1817,52 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    step 9′ now requires the pre-publication check to use the accepted-release
    attestation, the running image digest and the served OpenAPI contract, with the
    **response** identity verified only after publication, matching the design.
+
+### Review round 15 (2026-10-11)
+
+1. **P1 — Define the denominator for the capacity reserve** → correct, and the
+   ambiguity was load-bearing: at `Σ_all = 4.0`, 15 % of the ~187 GB new
+   footprint is ~28 GB, 15 % of the 292 GB free reading is ~44 GB, and 15 % of
+   the 1,948 GB volume is ~292 GB — the last of which is the entire free space,
+   so that reading would make the gate unpassable and indistinguishable from a
+   hard stop. Section 10's PR4 row now pins the exact formula: the reserve is
+   **15 % of the projected new footprint**, the only denominator that scales with
+   the risk it covers (WAL written during the build, `CREATE INDEX` temp spill
+   beyond `maintenance_work_mem`, and the gap between the measured per-row
+   figures and reality). `required_bytes = ceil(1.15 × projected_new_bytes)`,
+   with `projected_new_bytes` computed from the measured per-row constants, the
+   live `system_count` and the calibrated `sigma_all`, plus 87 GB for Search when
+   it is not yet written. Two tests differing only in the `df` fixture pin the
+   boundary at `available == required` (passes) and `available == required − 1`
+   (refuses); a third pins the receipt's reported inputs so the decision can be
+   recomputed without rerunning the gate. The worked examples were checked
+   arithmetically and reproduce the directly measured 75.7 GB archetype total to
+   within 0.4 %.
+2. **P1 — Do not require OpenAPI to prove the ranking identity** → correct, and
+   the check was worse than merely weak: `RankingIdentity.ranking_version` and
+   `ranking_sha256` are unconstrained `str` (`apps/api/src/models.py:378-379`),
+   so an OpenAPI comparison would have passed against **any** image, including
+   the old keyed-schema one — exactly the failure the gate exists to catch. Took
+   the first of the two offered options. The deployed image digest now carries
+   the identity on its own: if the digest matches the one the F2d release was
+   attested at, the attested `ranking_version`/`ranking_sha256` are the values
+   that code computes. That places one requirement on step 4, now recorded — the
+   accepted-release attestation **must record both concrete values**, and the
+   publish action refuses when the attestation carries no identity rather than
+   treating a missing value as a match. `/openapi.json` keeps the job it can do,
+   proving parameter shape, where the values are concrete in the schema (the
+   `Literal[60, 76, 88]` enum, the combined `from`/`offset` maximum). Both
+   normative sites are corrected (section 10 step 4, and the publish action).
+   Rounds 12.1 and 13.1 above described the superseded version.
+3. **P2 — Restate the ranking order after the fetch join** → correct. Stage 3's
+   `ORDER BY` orders stage 3's output and does not survive stage 4's join, so a
+   hash or nested-loop fetch plan could return the right 50 systems in an
+   arbitrary sequence. That is the worst shape this bug could take: every row
+   correct, only the ranking wrong, and no row-set assertion would see it. Stage
+   4 now requires the outermost `SELECT` to repeat `ORDER BY <key>_weighted_e4
+   DESC, system_id64 ASC` over the ≤ `page_size` materialized rows, and — taking
+   the second half of the finding, which matters as much as the first — the tests
+   now assert the **returned row order** on a fixture seeded with deliberate
+   ties, plus that two adjacent pages concatenate into one correctly ordered
+   sequence with nothing repeated or skipped. Bounding the sort node's input
+   proves the query is cheap; only the row order proves it is right.
