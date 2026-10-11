@@ -102,12 +102,46 @@ def _run_inventory_action(
     pgdata_inner_mount: bool = False,
     database_grew: int = 0,
     volume_used_drift: int = 0,
-    wal_recycled: int = 0,
+    wal_at_window_close: int = 118000,
+    nested_mount_mode: str = "none",
+    root_scan_truncated: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -I -B - <<'PY'\n", 1)[1].rsplit(
         "\nPY\n", 1
     )[0]
+    usage_root = "/"
+    mounts_file = tmp_path / "proc-mounts"
+    mounts_lines = ["/dev/root / ext4 rw,relatime 0 0"]
+    if nested_mount_mode in {"same_device", "stat_failure"}:
+        scan_root = tmp_path / "scan-root"
+        scan_root.mkdir()
+        usage_root = str(scan_root)
+        nested = scan_root / "nested"
+        if nested_mount_mode == "same_device":
+            nested.mkdir()
+        mounts_lines.extend(
+            [
+                f"/dev/root {scan_root} ext4 rw,relatime 0 0",
+                f"/dev/nested {nested} ext4 rw,relatime 0 0",
+            ]
+        )
+    elif nested_mount_mode == "different_device":
+        different_device_path = next(
+            path
+            for path in (Path("/proc"), Path("/dev"), Path("/sys"))
+            if path.exists() and path.stat().st_dev != Path("/").stat().st_dev
+        )
+        mounts_lines.append(
+            f"proc {different_device_path} proc rw,nosuid,nodev,noexec 0 0"
+        )
+    elif nested_mount_mode not in {"none", "unreadable"}:
+        raise ValueError(f"unsupported nested_mount_mode: {nested_mount_mode}")
+    if nested_mount_mode != "unreadable":
+        mounts_file.write_text("\n".join(mounts_lines) + "\n", encoding="utf-8")
+    body = body.replace(
+        'PROC_MOUNTS = "/proc/mounts"', f"PROC_MOUNTS = {str(mounts_file)!r}"
+    )
     program = tmp_path / "action.py"
     program.write_text(body, encoding="utf-8")
 
@@ -238,14 +272,14 @@ def _run_inventory_action(
             case "$*" in
               *'--output=source,fstype,size,used,avail'*)
                 printf 'Filesystem Type 1B-blocks Used Available\\n'
-                printf '/dev/md1 ext4 1948000 1557000 292000\\n' ;;
+                printf '/dev/md1 ext4 1948000 %s 292000\\n' "$(( 1557000 + ROOT_SCAN_EXTRA ))" ;;
               *'--output=target'*)
                 if [ "$MOUNT_POINT_FAILURE" = '1' ]; then
                   printf '%s\\n' 'cannot resolve mount point' >&2
                   exit 9
                 fi
                 printf 'Mounted on\\n'
-                printf '/\\n' ;;
+                printf '%s\\n' "$USAGE_ROOT" ;;
               *'--output=used'*)
                 printf 'Used\\n'
                 # The action reads --output=used three times: before the root scan,
@@ -260,14 +294,14 @@ def _run_inventory_action(
                 calls="$(( calls + 1 ))"
                 printf '%s' "$calls" > "$DF_USED_STAMP"
                 if [ "$calls" -ge 3 ]; then
-                  printf '%s\\n' "$(( 1557000 + DF_USED_DRIFT ))"
+                  printf '%s\\n' "$(( 1557000 + ROOT_SCAN_EXTRA + DF_USED_DRIFT ))"
                 elif [ "$calls" -eq 1 ]; then
                   # VOLUME_USED_DRIFT moves only the reading taken BEFORE the root
                   # walk, so before and after differ by it -- the width of the window
                   # the du total was measured across.
-                  printf '%s\\n' "$(( 1557000 + VOLUME_USED_DRIFT ))"
+                  printf '%s\\n' "$(( 1557000 + ROOT_SCAN_EXTRA + VOLUME_USED_DRIFT ))"
                 else
-                  printf '1557000\\n'
+                  printf '%s\\n' "$(( 1557000 + ROOT_SCAN_EXTRA ))"
                 fi ;;
               *)
                 printf '1B-blocks Used Available\\n'
@@ -316,11 +350,6 @@ def _run_inventory_action(
             # below the scanned root, so the depth-2 scan from / emits /var/lib but
             # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
             case "$*" in
-              *"--max-depth=0 $data/pg_wal")
-                # pg_wal measured beside the pg_ls_waldir() read. WAL_RECYCLED makes
-                # it SMALLER than the closing walk's 120,000, which is the case where
-                # already-removed WAL was being emitted as a reclaim candidate.
-                printf '%s\\t%s/pg_wal\\0' "$(( 120000 - WAL_RECYCLED ))" "$data" ;;
               *"--max-depth=0 $data")
                 # Called twice, bracketing the root walk. PGDATA_AFTER_GREW drifts only
                 # the SECOND reading, which is the one the outside candidates subtract
@@ -360,6 +389,9 @@ def _run_inventory_action(
                 # data-directory figures differ by exactly that much.
                 printf '1330000\\t%s/base\\0' "$data"
                 printf '120000\\t%s/pg_wal\\0' "$data"
+                if [ "$DU_LAYOUT" = 'pg_xlog' ]; then
+                  printf '9000\\t%s/pg_xlog\\0' "$data"
+                fi
                 printf '8000\\t%s/global\\0' "$data"
                 printf '4000\\t%s/pg_stat\\0' "$data"
                 printf '%s\\t%s\\0' "$(( 1465000 + PGDATA_GREW ))" "$data" ;;
@@ -400,6 +432,14 @@ def _run_inventory_action(
                 printf '1515000\\t/var/lib\\0'
                 printf '30000\\t/var/log\\0'
                 printf '1545000\\t/var\\0'
+                if [ "$ROOT_SCAN_EXTRA" -gt 0 ]; then
+                  printf '5000\\t/synthetic\\0'
+                  i=1
+                  while [ "$i" -le 4001 ]; do
+                    printf '1\\t/synthetic/child-%04d\\0' "$i"
+                    i="$(( i + 1 ))"
+                  done
+                fi
                 if [ "$DU_BELOW_DF" = '1' ]; then
                   # du totals 1,547,000 against df's 1,557,000 used: the ordinary ext4
                   # case -- filesystem metadata and blocks held by deleted-but-open
@@ -407,11 +447,11 @@ def _run_inventory_action(
                   # partition stays exact.
                   printf '2000\\t/home/claude\\0'
                   printf '2000\\t/home\\0'
-                  printf '1547000\\t/\\0'
+                  printf '%s\\t/\\0' "$(( 1547000 + ROOT_SCAN_EXTRA ))"
                 else
                   printf '12000\\t/home/claude\\0'
                   printf '12000\\t/home\\0'
-                  printf '1557000\\t/\\0'
+                  printf '%s\\t/\\0' "$(( 1557000 + ROOT_SCAN_EXTRA ))"
                 fi ;;
               *)
                 printf '%s\\n' "unexpected du: $*" >&2
@@ -455,11 +495,27 @@ def _run_inventory_action(
               *'AS lost_slots FROM pg_replication_slots'*)
                 printf '%s\\n' '{"slots":"0","inactive_slots":"0","wal_retaining_slots":"0","wal_beyond_max_wal_size_slots":"0","lost_slots":"0"}' ;;
               *'pg_replication_slots'*)
-                exit 0 ;;
+                case "$sql" in
+                  *"(wal_status = 'extended') DESC NULLS LAST, (wal_status = 'reserved') DESC NULLS LAST"*)
+                    exit 0 ;;
+                  *)
+                    printf '%s\\n' 'slot ordering missing NULLS LAST' >&2
+                    exit 3 ;;
+                esac ;;
               *'pg_prepared_xacts'*)
                 printf '%s\\n' '{"prepared_transactions":0}' ;;
               *'pg_ls_waldir'*)
-                printf '%s\\n' '{"segments":3,"bytes":118000}' ;;
+                wal_calls=0
+                if [ -f "$WAL_QUERY_STAMP" ]; then
+                  wal_calls="$(cat "$WAL_QUERY_STAMP")"
+                fi
+                wal_calls="$(( wal_calls + 1 ))"
+                printf '%s' "$wal_calls" > "$WAL_QUERY_STAMP"
+                if [ "$wal_calls" -ge 2 ]; then
+                  printf '{"segments":3,"bytes":%s}\\n' "$WAL_AT_WINDOW_CLOSE"
+                else
+                  printf '%s\\n' '{"segments":3,"bytes":118000}'
+                fi ;;
               *"current_setting('max_wal_size')"*)
                 printf '%s\\n' '{"max_wal_size":"1GB","min_wal_size":"80MB","wal_keep_size":"0","archive_mode":"off"}' ;;
               *'pg_ls_tmpdir'*)
@@ -537,7 +593,8 @@ def _run_inventory_action(
     env["WAL_NESTED_MOUNT"] = "1" if wal_nested_mount else "0"
     env["PGDATA_INNER_MOUNT"] = "1" if pgdata_inner_mount else "0"
     env["VOLUME_USED_DRIFT"] = str(volume_used_drift)
-    env["WAL_RECYCLED"] = str(wal_recycled)
+    env["WAL_AT_WINDOW_CLOSE"] = str(wal_at_window_close)
+    env["WAL_QUERY_STAMP"] = str(tmp_path / "wal-query-stamp")
     env["DATABASE_GREW"] = str(database_grew)
     env["DB_TOTAL_STAMP"] = str(tmp_path / "db-total-stamp")
     env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
@@ -545,6 +602,8 @@ def _run_inventory_action(
     env["DU_BELOW_DF"] = "1" if du_below_df else "0"
     env["DF_USED_DRIFT"] = str(df_used_drift)
     env["DF_USED_STAMP"] = str(tmp_path / "df-used-stamp")
+    env["USAGE_ROOT"] = usage_root
+    env["ROOT_SCAN_EXTRA"] = "5000" if root_scan_truncated else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -592,8 +651,28 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert isinstance(atime["directory_atime_writes_suppressed"], bool)
     assert inventory["volume"]["avail_bytes"] == 292000
     assert {"path": "/var/log", "bytes": 30000} in inventory["volume_directory_usage"]
+    assert inventory["directory_scan_same_device_mounts"] == {
+        "available": True,
+        "safe_to_scan": True,
+        "mount_points_below_root": 0,
+        "same_device_mount_count": 0,
+        "same_device_mount_paths": [],
+        "same_device_mount_paths_truncated": False,
+    }
+    assert inventory["volume_directory_usage_scan"] == {
+        "record_limit": 4000,
+        "records_retained": 6,
+        "records_omitted_by_cap": 0,
+        "omitted_record_cumulative_bytes": 0,
+        "omitted_record_bytes_may_overlap": True,
+        "path_attribution_complete": True,
+    }
     assert inventory["databases"][0]["datname"] == "edfinder_v3_db"
     assert inventory["wal"]["bytes"] == 118000
+    assert inventory["wal"]["unlisted_directory_classification"] == {
+        "available": False,
+        "reason": "live_wal_cannot_be_snapshotted_read_only",
+    }
     assert inventory["relations"][0]["name"] == "system_rating_vector"
     assert inventory["indexes"][0]["idx_scan"] == 0
     assert inventory["dead_tuples"][0]["estimated_dead_fraction"] == 0.25
@@ -622,6 +701,8 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         inventory["postgres_data_directory_usage"]["children"]
     )
     assert inventory["postgres_data_directory_bracket"]["drift_bytes"] == 0
+    assert inventory["summary"]["directory_scan_path_attribution_complete"] is True
+    assert inventory["summary"]["candidate_list_incomplete_reasons"] == []
 
 
 def test_v3_disk_inventory_fails_closed_when_the_directory_scan_fails(tmp_path):
@@ -657,8 +738,7 @@ def test_v3_disk_inventory_scans_the_whole_filesystem_not_only_the_pg_volume():
     source = _read(ACTION)
 
     assert '["df", "--output=target", mount_source]' in source
-    # The root walk still scans the whole filesystem at depth 2; its argument list is
-    # now built up so same-device bind aliases can be excluded from it.
+    # The root walk still scans the whole filesystem at depth 2.
     assert '"--max-depth=2",\n            usage_root,' in source
     assert '"volume_directory_usage_root"' in source
 
@@ -693,7 +773,10 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
     """
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
-    summary = json.loads(result.stdout)["inventory"]["summary"]
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+    assert inventory["volume_directory_usage_scan"]["records_omitted_by_cap"] == 0
+    assert inventory["volume_directory_usage_scan"]["path_attribution_complete"] is True
     candidates = summary["largest_unaccounted_directories"]
     paths = [row["path"] for row in candidates]
     by_path = {row["path"]: row["exclusive_bytes"] for row in candidates}
@@ -729,6 +812,8 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
     assert summary["directory_scan_root_bytes"] == 1557000
     assert summary["filesystem_minus_directory_scan_bytes"] == 0
     assert summary["filesystem_minus_directory_scan_is_significant"] is False
+    assert summary["directory_scan_path_attribution_complete"] is True
+    assert summary["candidate_list_incomplete_reasons"] == []
 
 
 def test_v3_disk_inventory_drill_down_names_the_owning_directory(tmp_path):
@@ -866,7 +951,10 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     """
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
-    summary = json.loads(result.stdout)["inventory"]["summary"]
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+    assert inventory["volume_directory_usage_scan"]["records_omitted_by_cap"] == 0
+    assert inventory["volume_directory_usage_scan"]["path_attribution_complete"] is True
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     by_path = {
         row["path"]: row for row in summary["largest_unaccounted_directories"]
@@ -878,14 +966,12 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     root_files = f"{pgdata} (files directly in this directory)"
     assert by_path[root_files]["exclusive_bytes"] == 3000
     assert by_path[root_files]["inside_data_directory"] is True
-    # pg_ls_waldir() reported 12 bytes of the 120,000-byte pg_wal directory, because it
-    # lists only top-level ordinary files; the rest (archive_status, summaries) is
-    # inside neither wal_bytes nor the accounted children, so it is its own candidate.
+    # A live pg_wal directory cannot be snapshotted read-only, so no aggregate
+    # difference is classified as reclaimable.
     wal_unlisted = (
         f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
     )
-    assert by_path[wal_unlisted]["exclusive_bytes"] == 120000 - 118000
-    assert by_path[wal_unlisted]["inside_data_directory"] is True
+    assert wal_unlisted not in by_path
     # base/: the orphaned OID directory by PATH, and the 200 bytes sitting directly in
     # base/ as their own row. Not one lump remainder, and not inflated by the
     # du-versus-pg_database_size metric difference, which is its own summary term.
@@ -903,16 +989,23 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     assert by_path[orphan]["proven_unreferenced"] is False
     base_other = f"{pgdata}/base (files directly in this directory)"
     assert by_path[base_other]["exclusive_bytes"] == 200
-    # 18,995 under the old mixed-metric arithmetic; 1,295 of that was block rounding.
-    assert summary["unaccounted_inside_data_directory_bytes"] == 17700
+    # Aggregate pg_wal content is not classified; its direct 2,000-byte difference
+    # from the final SQL total is a measurement width, not a candidate.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 15700
     assert summary["database_size_metric_difference_bytes"] == 1295
     # And the candidate list accounts for the figure it explains, to within what
     # these measurements can resolve. The only unresolved width in this fixture is the
-    # du-versus-st_size metric difference, so the shortfall equals it exactly.
-    assert summary["candidate_shortfall_bytes"] == 1295
-    assert summary["measurement_uncertainty_bytes"] == 1295
+    # du-versus-st_size width plus the direct PGDATA-WAL-to-final-SQL width.
+    assert summary["candidate_shortfall_bytes"] == 3295
+    assert summary["measurement_uncertainty_bytes"] == 3295
+    assert {
+        "term": "pg_wal_pgdata_walk_to_window_close",
+        "bytes": 2000,
+        "path": f"{pgdata}/pg_wal",
+    } in summary["measurement_uncertainty_terms"]
     assert summary["candidate_list_complete"] is True
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
+    assert summary["directory_scan_path_attribution_complete"] is True
     # No drift in this fixture, so the two windows agree and the closing figure is the
     # same value.
     assert summary["post_scan_volume_drift_bytes"] == 0
@@ -956,16 +1049,14 @@ def test_v3_disk_inventory_shares_one_scan_budget_within_the_job_timeout(tmp_pat
     """
     source = _read(ACTION)
 
-    # The budget is the walk's allowance PLUS the reserve, not a total the reserve is
-    # carved out of. remaining() deducts the reserve for every pre-closing caller, so a
-    # fixed total meant raising the reserve silently shortened the walk -- enough for
-    # the mandatory PGDATA detail scan to exhaust the budget before the drill-down took
-    # a single step, and enough to make the sizing comment beside it untrue.
-    assert "DIRECTORY_SCAN_WALK_SECONDS = 1_200" in source
-    assert (
-        "DIRECTORY_SCAN_BUDGET_SECONDS = "
-        "DIRECTORY_SCAN_WALK_SECONDS + RECONCILE_RESERVE_SECONDS" in source
-    )
+    assert "ACTION_BUDGET_SECONDS = 1_800" in source
+    assert "NON_SCAN_AND_RECEIPT_BUDGET_SECONDS = 240" in source
+    assert "RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    assert "ACTION_BUDGET_SECONDS\n    - RECONCILE_RESERVE_SECONDS" in source
+    assert "- NON_SCAN_AND_RECEIPT_BUDGET_SECONDS" in source
+    assert "DIRECTORY_SCAN_BUDGET_SECONDS" not in source
+    assert 960 + 600 + 240 == 1800
+    assert "timeout-minutes: 40" in _read(WORKFLOW)
     assert "class ScanBudget" in source
     assert "def call_timeout(" in source
     assert "scan_budget_exhausted" in source
@@ -974,7 +1065,7 @@ def test_v3_disk_inventory_shares_one_scan_budget_within_the_job_timeout(tmp_pat
     assert (
         source.count(
             "scan_budget = ScanBudget("
-            "DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)"
+            "DIRECTORY_SCAN_WALK_SECONDS, RECONCILE_RESERVE_SECONDS)"
         )
         == 1
     )
@@ -1021,45 +1112,34 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     # timeout, which is just a different way of failing it. The closing phase makes
     # TWO scans -- the PGDATA re-read and the depth-1 breakdown of base/ that keeps the
     # base remainder in a single metric.
-    assert (
-        "2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS" in source
-    )
+    assert "RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    assert "WAL_DIRECTORY_SCAN_SECONDS" not in source
     # The budget OWNS the reserve. Passing it per call site meant forgetting it at four
     # of them, which unreserved the reserve without changing a line that mentioned it,
     # so there must be no per-call reserve argument left to forget.
     assert "reserve_seconds" not in source.split("def du_rows(")[1].split("def du_total")[0]
-    assert "def reserve(self) -> float:" in source
-    assert "own = self._deadline - time.monotonic() - self.reserve()" in source
-    # Bounded by the ACTION deadline too. Each phase was bounded but their SUM was
-    # not, and the sum is what the workflow kills: walk 1,200 s + closing 660 s + up
-    # to 31 queries at the 30 s subprocess cap is about 40 minutes against a 40-minute
-    # job that also does checkout, Python setup and SSH. So the action could be killed
-    # before emitting the receipt every one of these budgets exists to guarantee.
+    assert "def charge_scan_elapsed(self, elapsed: float)" in source
+    assert "self.walk_seconds_remaining -= charged" in source
+    assert "self._current_closing_seconds_remaining -= charged" in source
+    assert "future_closing = self.closing_scan_seconds_remaining" in source
+    assert "overall = action_remaining() - non_scan_left - future_closing" in source
+    # Bounded by the ACTION deadline and the independent non-scan/receipt ledger.
     assert "ACTION_BUDGET_SECONDS = 1_800" in source
-    assert "POST_SCAN_SQL_RESERVE_SECONDS = 240" in source
-    assert "overall = action_remaining() - POST_SCAN_SQL_RESERVE_SECONDS" in source
+    assert "NON_SCAN_AND_RECEIPT_BUDGET_SECONDS = 240" in source
+    assert "non_scan_and_receipt_seconds_remaining()" in source
     assert "return min(own, overall)" in source
     # And every subprocess is measured against it, so no single call can carry the
     # action past the point where a receipt is still possible.
     assert 'raise RuntimeError("action_deadline_exceeded")' in source
-    # The reserve is opened once per closing scan, and there are exactly three: the
-    # PGDATA re-read, the base/ breakdown, and the depth-0 re-measure of pg_wal beside
-    # the pg_ls_waldir() read. Opening it once for the phase let a later scan start
-    # with whatever the earlier ones and the intervening SQL left over.
+    # The reserve is opened once per closing scan, and there are exactly two: PGDATA
+    # and base/. A third release and an over-release are refused.
     assert source.count("def begin_closing_scan(") == 1
-    assert source.count("scan_budget.begin_closing_scan(") == 3
-    assert "self._deadline = time.monotonic() + seconds" in source
-    # pg_wal gets the NORMAL allowance. It had a short one on the reasoning that
-    # max_wal_size bounds the directory, and that premise is false: max_wal_size is a
-    # soft limit and max_slot_wal_keep_size defaults to -1, so a lagging slot can
-    # retain WAL without limit -- which is exactly the condition that makes pg_wal
-    # huge and exactly when this inventory is wanted.
-    assert (
-        "WAL_DIRECTORY_SCAN_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
-    )
-    assert (
-        "2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS" in source
-    )
+    assert source.count("scan_budget.begin_closing_scan(") == 2
+    assert "self._closing_releases >= 2" in source
+    assert "seconds > self.closing_scan_seconds_remaining" in source
+    # Sub-second remainders are not rounded into an overspend.
+    assert "math.ceil" not in source
+    assert "max(1, min(" not in source
     release = source.index("scan_budget.begin_closing_scan()")
     # The closing scan is the FIRST du after begin_closing_scan(), so search from there
     # rather than from the top of the file -- the same call shape appears earlier, in
@@ -1105,7 +1185,14 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
         "reconciled": True,
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
-    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 900
+    budget = inventory["non_database_drill_down"]
+    assert budget["action_budget_seconds"] == 1800
+    assert budget["directory_scan_walk_budget_seconds"] == 960
+    assert budget["closing_scan_budget_seconds"] == 600
+    assert budget["non_scan_and_receipt_budget_seconds"] == 240
+    assert budget["closing_scan_seconds_remaining_after_walk"] == 600
+    assert budget["directory_scan_walk_seconds_remaining_after_walk"] <= 960
+    assert budget["non_scan_and_receipt_seconds_remaining_after_walk"] <= 240
 
 
 def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
@@ -1228,11 +1315,9 @@ def test_v3_disk_inventory_keeps_statistics_directories_locatable(tmp_path):
     # Only base and the WAL directories are genuinely accounted for elsewhere.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
-    # global 8,000 + pg_stat 4,000 + root files 3,000 + pg_wal's unlisted 2,000
-    # + base/'s orphaned 16999 at 500 + base/'s own 200 = everything accounted_bytes
-    # does not cover, in du's metric. The remaining 1,295 of the old figure was the
-    # du-versus-pg_database_size difference and is now its own summary term.
-    assert summary["unaccounted_inside_data_directory_bytes"] == 17700
+    # global 8,000 + pg_stat 4,000 + root files 3,000 + base/'s orphaned 16999
+    # at 500 + base/'s own 200. Aggregate pg_wal content is deliberately not classified.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 15700
 
 
 def test_v3_disk_inventory_records_that_no_tablespaces_break_the_accounting(tmp_path):
@@ -1382,6 +1467,10 @@ def test_v3_disk_inventory_closes_the_measurement_window_last():
     reconcile = source.index('inventory["postgres_data_directory_reconciliation"] = {')
     summary = source.index('inventory["summary"] = {')
     assert databases < reconcile < summary
+    closing_pgdata = source.index("closing_usage, pgdata_children_omitted")
+    closing_base = source.index("base_usage, base_omitted, base_omitted_bytes")
+    final_wal = source.index("    closing_wal = psql_json(")
+    assert closing_pgdata < closing_base < final_wal < summary
     # And the summary uses the reconciled reading, not the opening df.
     # The CLOSING reading, validated across the whole window — not the post-root-scan
     # one, which is only validated against the opening value.
@@ -1443,10 +1532,47 @@ def test_v3_disk_inventory_reserve_survives_the_sql_phase():
     # more than half the single reserve or observe different states.
     assert "postgres_data_directory_usage_total_missing" in source
     assert source.count("pgdata_final = du_total(") == 0
-    release = source[source.index("def begin_closing_scan(") :]
-    release = release[: release.index("\n    def ")]
-    assert "self._reserved = False" in release
-    assert "self._deadline = time.monotonic() + seconds" in release
+    assert "budget.charge_scan_elapsed(time.monotonic() - attempt_started)" in source
+    assert "finally:" in source.split("def du_stream(", 1)[1].split("def du_rows(", 1)[0]
+
+    body = source.split("exec \"$PYTHON_BIN\" -I -B - <<'PY'\n", 1)[1].rsplit(
+        "\nPY\n", 1
+    )[0]
+    definitions = body.split("receipt: dict[str, Any] = {", 1)[0]
+    namespace: dict[str, object] = {}
+    exec(compile(definitions, "budget-test.py", "exec"), namespace)
+
+    class FakeTime:
+        now = 0.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+    clock = FakeTime()
+    namespace["time"] = clock
+    namespace["ACTION_STARTED"] = 0.0
+    namespace["ACTION_DEADLINE"] = 1800.0
+    namespace["directory_scan_seconds_charged"] = 0.0
+    budget = namespace["ScanBudget"](960, 600)
+    assert budget.remaining() == 960
+
+    # A 100-second walk consumes only the walk ledger.
+    clock.now = 100.0
+    budget.charge_scan_elapsed(100.0)
+    assert budget.remaining() == 860
+    # A later 100 seconds of SQL consumes only the 240-second non-scan bucket; it does
+    # not silently steal either 300-second closing allowance.
+    clock.now = 200.0
+    assert namespace["non_scan_and_receipt_seconds_remaining"]() == 140
+    assert budget.remaining() == 860
+    budget.begin_closing_scan()
+    assert budget.remaining() == 300
+    clock.now = 450.0
+    budget.charge_scan_elapsed(250.0)
+    clock.now = 500.0
+    assert namespace["non_scan_and_receipt_seconds_remaining"]() == 90
+    budget.begin_closing_scan()
+    assert budget.remaining() == 300
 
 
 def test_v3_disk_inventory_rechecks_the_filesystem_when_closing(tmp_path):
@@ -1462,25 +1588,30 @@ def test_v3_disk_inventory_rechecks_the_filesystem_when_closing(tmp_path):
     assert "volume_changed_during_window" in _read(ACTION)
 
 
-def test_v3_disk_inventory_treats_pg_xlog_as_unexpected_storage():
+def test_v3_disk_inventory_treats_pg_xlog_as_unexpected_storage(tmp_path):
     """pg_ls_waldir() measures the live WAL directory, which on PostgreSQL 18 is pg_wal.
 
     Subtracting wal_bytes from a stale pg_xlog would treat it as measured: smaller than
     the live WAL it vanishes from the candidates, larger and only its excess shows — and
     a directory full of old WAL is exactly the reclaimable space this action looks for.
     """
-    source = _read(ACTION)
-
-    assert (
-        'for name, subtract in (("pg_wal", wal_for_subtraction), ("pg_xlog", 0)):'
-        in source
+    result = _run_inventory_action(tmp_path, du_layout="pg_xlog")
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    rows = {
+        row["path"]: row
+        for row in inventory["summary"]["largest_unaccounted_directories"]
+    }
+    pg_xlog = (
+        f"{pgdata}/pg_xlog "
+        "(not the live WAL directory on PostgreSQL 18; unexpected storage)"
     )
-    # The WAL figure comes from the same state as the directory breakdown: otherwise
-    # ordinary top-level WAL growth within the accepted drift is labelled
-    # "subdirectories pg_ls_waldir does not list" — normal WAL reported as unexpected.
-    assert 'inventory["wal"]["bytes_at_window_close"]' in source
-    assert "wal_bytes_not_reconciled" in source
-    assert "not the live WAL directory on PostgreSQL 18; unexpected storage" in source
+    assert rows[pg_xlog]["exclusive_bytes"] == 9000
+    assert rows[pg_xlog]["inside_data_directory"] is True
+    # pg_ls_waldir() describes pg_wal only; none of its 118,000 bytes may be
+    # subtracted from the independent stale pg_xlog directory.
+    assert rows[pg_xlog]["exclusive_bytes"] != 9000 - 118000
 
 
 def test_v3_disk_inventory_workflow_elevates_the_whole_filesystem_scan():
@@ -1511,9 +1642,8 @@ def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
 
     assert 'for record in stdout.split("\\0"):' in source
     assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
-    # Every du invocation asks for NUL-delimited output.
-    # One fewer literal list: the root walk builds its argv so alias excludes can be
-    # inserted. Every invocation still asks for NUL-delimited output.
+    # Every du invocation asks for NUL-delimited output. The root walk uses a
+    # multi-line argv literal, while the other calls use compact literals.
     assert source.count('["du", "--null", "-x", "-B1"') == 5
     assert source.count('"du",\n            "--null",') == 1
     assert '["du", "-x", "-B1"' not in source
@@ -1585,9 +1715,44 @@ def test_v3_disk_inventory_bounds_each_drill_down_child_listing():
     assert "heapq.heapreplace(kept, item)" in source
     assert "start_new_session=True" in source
     assert "os.killpg(os.getpgid(process.pid), signal.SIGKILL)" in source
+    root_scan = source.split("usage_full, root_rows_omitted, root_rows_omitted_bytes", 1)[1]
+    root_scan = root_scan.split("volume_used_after =", 1)[0]
+    assert "= du_stream(" in root_scan
+    assert "keep=DU_DEFAULT_KEEP" in root_scan
+    assert "du_rows(" not in root_scan
     # The omitted children's bytes are returned and used, not discarded.
     assert "own_file_bytes = here_total - child_total - omitted_child_bytes" in source
     assert '"children_omitted_by_cap": omitted_children,' in source
+
+
+def test_v3_disk_inventory_discloses_root_scan_truncation(tmp_path):
+    result = _run_inventory_action(tmp_path, root_scan_truncated=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    scan = inventory["volume_directory_usage_scan"]
+    assert scan == {
+        "record_limit": 4000,
+        "records_retained": 4000,
+        "records_omitted_by_cap": 8,
+        "omitted_record_cumulative_bytes": 8,
+        "omitted_record_bytes_may_overlap": True,
+        "path_attribution_complete": False,
+    }
+    summary = inventory["summary"]
+    assert summary["directory_scan_path_attribution_complete"] is False
+    assert summary["candidate_list_complete"] is False
+    assert summary["candidate_list_incomplete_reasons"] == [
+        "volume_directory_usage_scan_truncated"
+    ]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is None
+    assert all(
+        row["exclusive_bytes"] != scan["omitted_record_cumulative_bytes"]
+        for row in summary["largest_unaccounted_directories"]
+    )
+    assert all(
+        term["bytes"] != scan["omitted_record_cumulative_bytes"]
+        for term in summary["measurement_uncertainty_terms"]
+    )
 
 
 def test_v3_disk_inventory_top_k_keeps_the_largest_and_totals_the_rest():
@@ -1651,14 +1816,12 @@ def test_v3_disk_inventory_measures_pgdata_detail_at_window_close(tmp_path):
         inventory["postgres_data_directory_usage"]["bytes"]
         == inventory["postgres_data_directory_bracket"]["bytes_after_drill_down"]
     )
-    # The partition still closes exactly against the figure it explains, with the
-    # du-versus-pg_database_size difference named rather than absorbed.
-    assert (
-        summary["non_database_directory_bytes"]
-        + summary["unaccounted_inside_data_directory_bytes"]
-        + summary["database_size_metric_difference_bytes"]
-        == summary["unaccounted_bytes_at_directory_scan"]
-    )
+    # The shortfall is judged against declared measurement widths; no live read-only
+    # sequence is claimed to close exactly.
+    assert abs(summary["candidate_shortfall_bytes"]) <= summary[
+        "measurement_uncertainty_bytes"
+    ]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_bounds_generation_attribution(tmp_path):
@@ -1704,7 +1867,7 @@ def test_v3_disk_inventory_names_the_post_scan_drift_instead_of_hiding_it(tmp_pa
     # The candidate comparison is against the scan-window figure, so the 9,000 bytes
     # of drift do not have to be explained by a candidate -- which is the whole point.
     # It becomes a width instead: the volume moved by that much across the window.
-    assert summary["candidate_shortfall_bytes"] == 1295
+    assert summary["candidate_shortfall_bytes"] == 3295
     assert {
         "term": "volume_used_across_window",
         "bytes": 9000,
@@ -1807,18 +1970,16 @@ def test_v3_disk_inventory_includes_the_df_du_residual_in_the_closure(tmp_path):
     assert summary["filesystem_minus_directory_scan_bytes"] == 10000
     # /home shrank by 10,000 with it, so the outside total drops by the same amount.
     assert summary["non_database_directory_bytes"] == 82000
-    assert summary["unaccounted_inside_data_directory_bytes"] == 17700
+    assert summary["unaccounted_inside_data_directory_bytes"] == 15700
     assert summary["database_size_metric_difference_bytes"] == 1295
 
-    # The 10,000 df/du residual is a width, not a candidate: 82,000 + 17,700 of listed
-    # directories leaves an 11,295 shortfall, inside the 11,295 the two instruments
-    # cannot resolve between them (10,000 residual + 1,295 metric difference).
-    assert summary["candidate_shortfall_bytes"] == 11295
+    # The residual, WAL movement and metric difference are widths, not candidates.
+    assert summary["candidate_shortfall_bytes"] == 13295
     assert {
         "term": "filesystem_minus_directory_scan",
         "bytes": 10000,
     } in summary["measurement_uncertainty_terms"]
-    assert summary["measurement_uncertainty_bytes"] == 11295
+    assert summary["measurement_uncertainty_bytes"] == 13295
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
@@ -1904,10 +2065,10 @@ def test_v3_disk_inventory_carries_negative_remainders_as_uncertainty(tmp_path):
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
     summary = json.loads(result.stdout)["inventory"]["summary"]
-    # Nothing moved in the coherent fixture, so none of these terms appears at all and
-    # the only width is the metric difference -- which is what makes recording them a
-    # safe addition rather than an error bar wide enough to swallow a real gap.
+    # The coherent fixture still has a direct, non-reclaimable 2,000-byte WAL width,
+    # followed by the du-versus-st_size metric width.
     assert [item["term"] for item in summary["measurement_uncertainty_terms"]] == [
+        "pg_wal_pgdata_walk_to_window_close",
         "database_size_du_versus_st_size"
     ]
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
@@ -1928,6 +2089,7 @@ def test_v3_disk_inventory_partitions_across_a_row_cap_ancestor_gap():
     assert "while ancestor != \"/\":" in block
     assert "if ancestor in totals:" in block
     assert "parent = path.rsplit" not in block
+    assert '"directory_scan_path_attribution_complete"' in source
 
     # Exercise the function itself on an ancestor gap: /var/lib dropped by the cap.
     namespace: dict[str, object] = {"Any": object}
@@ -2282,46 +2444,35 @@ def test_v3_disk_inventory_distinguishes_an_unknown_count_from_zero(tmp_path):
     assert attribution["aaa_superseded"]["ratings_physical_bodies"] == 20
 
 
-def test_v3_disk_inventory_classifies_wal_only_from_one_stable_snapshot(tmp_path):
-    """WAL is not monotonic, so two endpoint reads do not bracket the scan.
-
-    This quantity took four rounds: use the closing figure, then measure `du` beside
-    the SQL read, then bracket with a second read. Each fix was attacked by the next,
-    because WAL can grow during the scan and be recycled before the second read -- so
-    the directory figure can exceed BOTH endpoint totals and `max(before, after)`
-    bounds nothing. The error was never in an implementation; it was in asserting an
-    exact classification over a quantity that cannot be pinned to one instant.
-
-    So classification now happens only when the two reads AGREE, which is the single
-    case where the scan pairs to one WAL snapshot. Otherwise no pg_wal candidate is
-    emitted and the whole difference goes to the closure as unresolvable. Refusing is
-    stable under this line of attack -- there is no remaining window to point at --
-    where a fifth correction term would not be.
-    """
+def test_v3_disk_inventory_never_classifies_live_wal_from_equal_endpoints(tmp_path):
+    """Equal sequential readings do not make a live, non-monotonic directory atomic."""
     source = _read(ACTION)
-    assert "reclosing_wal = psql_json(" in source
-    assert "wal_snapshot_stable = wal_bytes_at_close == wal_bytes_after_scan" in source
+    assert "reclosing_wal = psql_json(" not in source
+    assert "wal_snapshot_stable = wal_bytes_at_close == wal_bytes_after_scan" not in source
     assert "max(wal_bytes_at_close, wal_bytes_after_scan)" not in source
-    # No candidate when it cannot be paired; the difference becomes a signed term.
-    assert 'if name == "pg_wal" and not wal_snapshot_stable:' in source
-    assert 'uncertain("pg_wal_unpairable_to_one_snapshot", unresolvable,' in source
-    assert "wal_bytes_at_close = wal_bytes_after_scan" in source
-    # The scan sits between the two reads.
-    first = source.index("closing_wal = psql_json(")
-    scan = source.index("wal_dir_bytes_at_sql = du_total(", first)
-    second = source.index("reclosing_wal = psql_json(", scan)
-    assert first < scan < second
+    assert "wal_dir_bytes_at_sql" not in source
+    assert "wal_unlisted =" not in source
+    for deleted_field in (
+        "directory_bytes_beside_sql_read",
+        "listed_bytes_before_directory_scan",
+        "listed_bytes_after_directory_scan",
+        "listed_bytes_for_candidate",
+        "directory_paired_to_one_snapshot",
+        "listed_bytes_scan_bracket_width",
+    ):
+        assert deleted_field not in source
 
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
-    wal = json.loads(result.stdout)["inventory"]["wal"]
-    assert wal["listed_bytes_before_directory_scan"] == 118000
-    assert wal["listed_bytes_after_directory_scan"] == 118000
-    assert wal["listed_bytes_scan_bracket_width"] == 0
-    # The reads agree in this fixture, so the scan pairs to one snapshot and
-    # classification is permitted.
-    assert wal["directory_paired_to_one_snapshot"] is True
-    assert wal["listed_bytes_for_candidate"] == 118000
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["wal"]["unlisted_directory_classification"] == {
+        "available": False,
+        "reason": "live_wal_cannot_be_snapshotted_read_only",
+    }
+    assert not any(
+        "subdirectories and files pg_ls_waldir does not list" in row["path"]
+        for row in inventory["summary"]["largest_unaccounted_directories"]
+    )
 
 
 def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
@@ -2337,38 +2488,38 @@ def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
     shrink case the adjacent comment acknowledged was the one still landing in
     candidates.
 
-    `pg_wal` is therefore measured again beside the SQL read, and the candidate is
-    computed from that pairing while the walk-to-SQL movement becomes a measurement
-    width.
+    The only safe output is the direct width from the retained PGDATA child to the one
+    final SQL aggregate, never an aggregate reclaim candidate.
     """
     source = _read(ACTION)
-    assert "wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)" in source
-    assert 'wal_child = dict(wal_child, bytes=wal_dir_bytes_at_sql)' in source
-    assert 'uncertain(f"{name}_walk_to_sql_drift",' in source
+    assert "wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)" not in source
+    assert '"pg_wal_pgdata_walk_to_window_close",' in source
+    assert "if wal_unlisted > 0" not in source
 
-    # 2,000 bytes of WAL recycled between the walk and the SQL read: the walk saw
-    # 120,000, the re-measure sees 118,000, and pg_ls_waldir() reports 118,000.
-    result = _run_inventory_action(tmp_path, wal_recycled=2000)
+    # Opening SQL saw 118,000, the closing PGDATA child saw 120,000, and final SQL saw
+    # 116,000. Only abs(P-A) = 4,000 is carried.
+    result = _run_inventory_action(tmp_path, wal_at_window_close=116000)
     assert result.returncode == 0, result.stderr or result.stdout
     inventory = json.loads(result.stdout)["inventory"]
     summary = inventory["summary"]
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
 
-    assert inventory["wal"]["directory_bytes_beside_sql_read"] == 118000
-    # No pg_wal candidate at all now: 118,000 measured against 118,000 listed means
-    # there is genuinely no unlisted content, where the walk's figure invented 2,000.
+    assert inventory["wal"]["bytes"] == 118000
+    assert inventory["wal"]["bytes_at_window_close"] == 116000
     unlisted = f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
     assert unlisted not in {
         row["path"] for row in summary["largest_unaccounted_directories"]
     }
-    # The movement is named instead, as what it is: 2,000 bytes that the walk and the
-    # SQL read disagree about because they happened at different moments.
     assert {
-        "term": "pg_wal_walk_to_sql_drift",
-        "bytes": 2000,
+        "term": "pg_wal_pgdata_walk_to_window_close",
+        "bytes": 4000,
         "path": f"{pgdata}/pg_wal",
     } in summary["measurement_uncertainty_terms"]
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
+    assert not any(
+        failure.startswith("candidates_do_not_account_for_unaccounted")
+        for failure in json.loads(result.stdout)["failures"]
+    )
 
 
 def test_v3_disk_inventory_gives_the_df_du_residual_an_error_bar(tmp_path):
@@ -2527,7 +2678,8 @@ def test_v3_disk_inventory_measures_the_atime_policy_rather_than_assuming_it():
     assert "def mount_atime_policy(path: str) -> dict[str, Any]:" in source
     # Read from /proc/mounts: reading a virtual file writes nothing, and it does not
     # depend on findmnt being installed on the host.
-    assert 'open("/proc/mounts"' in source
+    assert 'PROC_MOUNTS = "/proc/mounts"' in source
+    assert "open(PROC_MOUNTS" in source
     # Longest matching mount point wins, because a nested mount governs what is below
     # it -- the same reasoning as the nearest-ancestor attribution in exclusive_usage.
     assert "if best is None or len(stripped) > best[0]:" in source
@@ -2597,10 +2749,10 @@ def test_v3_disk_inventory_bounds_replication_slots_by_wal_actually_retained(tmp
     # the most WAL: exactly the row this ordering exists to keep.
     assert "pg_replication_slots.restart_lsn ASC NULLS LAST" in source
     # extended first, then reserved, then furthest behind by restart_lsn.
-    assert (
-        "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
-        in source
-    )
+    assert "ORDER BY (wal_status = 'extended') DESC NULLS LAST, " in source
+    assert "(wal_status = 'reserved') DESC NULLS LAST, " in source
+    assert "(wal_status = 'extended') DESC, " not in source
+    assert "(wal_status = 'reserved') DESC, " not in source
     assert "restart_lsn ASC NULLS LAST, slot_name " in source
 
     result = _run_inventory_action(tmp_path)
@@ -2736,7 +2888,10 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     # computed, and the candidate list declares itself incomplete so the shortfall it
     # reports is not read as a verdict.
     assert "metric_difference = None" in source
-    assert "candidate_list_complete = bool(base_breakdown_used)" in source
+    assert (
+        "candidate_list_complete = bool(base_breakdown_used) and root_rows_omitted == 0"
+        in source
+    )
     assert "if candidate_list_complete" in source
     # And null is distinguished from false at the failure site, so "cannot be asserted"
     # does not stop the operation the way "disproved" does.
@@ -2768,7 +2923,7 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     assert summary["database_size_metric_difference_bytes"] is None
     assert summary["candidate_list_complete"] is False
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is None
-    assert summary["candidate_shortfall_bytes"] == 1995
+    assert summary["candidate_shortfall_bytes"] == 3995
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     paths = [row["path"] for row in summary["largest_unaccounted_directories"]]
     assert not any(path.startswith(f"{pgdata}/base") for path in paths)
@@ -2899,7 +3054,7 @@ def test_v3_disk_inventory_always_retains_the_published_generation(tmp_path):
 
 
 def test_v3_disk_inventory_reconciles_wal_bytes_at_window_close(tmp_path):
-    """The WAL figure must come from the same state as the directory breakdown."""
+    """The final WAL total is accounted without classifying a sequential difference."""
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
     inventory = json.loads(result.stdout)["inventory"]
@@ -2910,11 +3065,17 @@ def test_v3_disk_inventory_reconciles_wal_bytes_at_window_close(tmp_path):
         row["path"]: row
         for row in inventory["summary"]["largest_unaccounted_directories"]
     }
-    wal_unlisted = (
-        f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
-    )
-    # 120,000 measured at close minus 118,000 of listed WAL at close.
-    assert by_path[wal_unlisted]["exclusive_bytes"] == 2000
+    wal_unlisted = f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
+    assert wal_unlisted not in by_path
+    assert inventory["wal"]["unlisted_directory_classification"] == {
+        "available": False,
+        "reason": "live_wal_cannot_be_snapshotted_read_only",
+    }
+    assert {
+        "term": "pg_wal_pgdata_walk_to_window_close",
+        "bytes": 2000,
+        "path": f"{pgdata}/pg_wal",
+    } in inventory["summary"]["measurement_uncertainty_terms"]
 
 
 def test_v3_disk_inventory_documents_the_unlisted_base_remainder():
@@ -2951,38 +3112,81 @@ def test_v3_disk_inventory_reports_relation_inventory_truncation(tmp_path):
     assert inventory["relation_inventory_truncated"] is False
 
 
-def test_v3_disk_inventory_excludes_same_device_bind_aliases(tmp_path):
-    """`du -x` skips other filesystems, which is no protection against a bind alias.
-
-    GNU documents `--one-file-system` as skipping directories on a DIFFERENT
-    filesystem, so a bind mount whose target shares its source's device is traversed
-    through both paths. `df` counts those blocks once while the candidate partition
-    lists them twice -- and the resulting negative df/du residual offsets the
-    duplicate, so the closure can still read true. A double count the receipt's own
-    self-check cannot see.
-
-    Detected by identity rather than by guessing at mount flags: two paths that are
-    aliases of one directory share `st_dev` AND `st_ino`, which is exactly what "the
-    same directory" means to the kernel.
-    """
+def test_v3_disk_inventory_checks_nested_mounts_before_the_first_du(tmp_path):
     source = _read(ACTION)
-    assert "def same_device_aliases(root: str) -> dict[str, Any]:" in source
-    assert 'run(["stat", "-c", "%d %i", point])' in source
-    assert "identities.setdefault((dev, ino), []).append(point)" in source
-    # One path per alias set is kept, deterministically, and the rest excluded --
-    # rather than refusing, because a host-side bind under the scanned root is a
-    # legitimate configuration and refusing would make the action unusable on it.
-    assert "alias_excludes.extend(paths[1:])" in source
-    assert 'f"--exclude={path}" for path in alias_excludes' in source
+    assert 'PROC_MOUNTS = "/proc/mounts"' in source
+    assert "def same_device_nested_mounts(root: str) -> dict[str, Any]:" in source
+    assert "os.stat(base).st_dev" in source
+    assert "os.stat(point).st_dev" in source
+    assert "def same_device_aliases(" not in source
+    assert "directory_scan_same_device_aliases" not in source
+    assert "alias_excludes" not in source
+    assert "--exclude=" not in source
+    assert 'run(["stat", "-c", "%d %i", point])' not in source
+    check = source.index("nested_mount_report = same_device_nested_mounts(usage_root)")
+    first_du = source.index("pgdata_before = du_total(pgdata_host, scan_budget)")
+    assert check < first_du
 
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
-    report = json.loads(result.stdout)["inventory"][
-        "directory_scan_same_device_aliases"
-    ]
+    report = json.loads(result.stdout)["inventory"]["directory_scan_same_device_mounts"]
     assert report["available"] is True
-    # The fixture's stat stub reports one device and one inode for everything, so it
-    # cannot exercise a genuine alias set; what is asserted here is that the detection
-    # runs, reports, and does not refuse on an ordinary host.
-    assert isinstance(report["alias_sets"], list)
-    assert isinstance(report["aliases_present"], bool)
+    assert report["safe_to_scan"] is True
+    assert report["mount_points_below_root"] == 0
+
+
+def test_v3_disk_inventory_refuses_a_same_device_nested_mount(tmp_path):
+    result = _run_inventory_action(tmp_path, nested_mount_mode="same_device")
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    report = receipt["inventory"]["directory_scan_same_device_mounts"]
+    nested = str(tmp_path / "scan-root" / "nested")
+    assert report["reason"] == "same_device_nested_mount_under_scan_root"
+    assert report["safe_to_scan"] is False
+    assert report["same_device_mount_count"] == 1
+    assert report["same_device_mount_paths"] == [nested]
+    assert report["same_device_mount_paths_truncated"] is False
+    assert (
+        receipt["inventory"]["volume_directory_usage"][
+            "volume_directory_usage_failed"
+        ]
+        == "same_device_nested_mount_under_scan_root"
+    )
+
+
+def test_v3_disk_inventory_refuses_an_unreadable_mount_table(tmp_path):
+    result = _run_inventory_action(tmp_path, nested_mount_mode="unreadable")
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    report = receipt["inventory"]["directory_scan_same_device_mounts"]
+    assert report["available"] is False
+    assert report["reason"] == "proc_mounts_unreadable"
+    assert (
+        receipt["inventory"]["volume_directory_usage"][
+            "volume_directory_usage_failed"
+        ]
+        == "proc_mounts_unreadable"
+    )
+
+
+def test_v3_disk_inventory_allows_a_different_device_nested_mount(tmp_path):
+    result = _run_inventory_action(tmp_path, nested_mount_mode="different_device")
+    assert result.returncode == 0, result.stderr or result.stdout
+    report = json.loads(result.stdout)["inventory"]["directory_scan_same_device_mounts"]
+    assert report["available"] is True
+    assert report["safe_to_scan"] is True
+    assert report["mount_points_below_root"] == 1
+    assert report["same_device_mount_count"] == 0
+    assert report["same_device_mount_paths"] == []
+
+
+def test_v3_disk_inventory_refuses_a_failed_nested_mount_stat(tmp_path):
+    result = _run_inventory_action(tmp_path, nested_mount_mode="stat_failure")
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    report = receipt["inventory"]["directory_scan_same_device_mounts"]
+    missing = str(tmp_path / "scan-root" / "nested")
+    assert report["reason"] == "nested_mount_stat_failed"
+    assert report["failed_stat_paths"] == [missing]
+    assert report["failed_stat_path_count"] == 1
+    assert report["failed_stat_paths_truncated"] is False

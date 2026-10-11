@@ -383,16 +383,31 @@ temporary directory is `base/pgsql_tmp`, inside `base`, so it needs no entry of
 its own. The cluster-level statistics directories `pg_stat` and `pg_stat_tmp`,
 `global`, `pg_xact`, `pg_multixact`, `pg_tblspc`, logs and replication-slot state
 are **not** covered by any accounted figure, so they appear as candidates flagged
-`inside_data_directory` — listed so the summary can locate every byte it reports
-as unaccounted, **not** as reclaim suggestions: several of them must never be
-deleted. pg_wal's own subdirectories are reported separately too, because
-`pg_ls_waldir()` lists only its top-level ordinary files.
+`inside_data_directory` — location evidence, **not** reclaim suggestions: several
+of them must never be deleted. A bounded root scan can preserve numerical coverage
+through a retained ancestor without proving every descendant's path, so the receipt
+states path-attribution completeness separately. `pg_wal` is also treated
+separately: no aggregate difference between its live directory and
+`pg_ls_waldir()` is classified as reclaimable, because the available read-only
+observations cannot snapshot a live, non-monotonic WAL directory atomically.
 
 The directory scan is **fail-closed**: if it cannot run, the operation stops
 rather than returning a receipt that looks complete while missing the only
 host-level evidence that answers the question.
 
-Five bounding, metric and windowing rules govern how the receipt may be read:
+Before the first `du`, the action reads the fixed `/proc/mounts` path, decodes its
+kernel octal path escapes, and uses in-process `os.stat()` on `usage_root` and every
+mount point strictly below it. A different-device nested mount is allowed because
+`du -x` skips it. A same-device nested mount stops with
+`same_device_nested_mount_under_scan_root`; an unreadable mount table or a failed
+root/nested-mount stat also stops under its own named reason. The bounded evidence
+is recorded in `inventory.directory_scan_same_device_mounts` (first 50 offending
+paths, total count and truncation flag). The action refuses rather than
+deduplicating: `/proc/mounts` does not reliably reveal an ordinary bind source, so
+excluding an arbitrary target or presumed source could omit unique content or
+falsify path attribution. There is therefore no `du --exclude` alias machinery.
+
+The following bounding, metric and windowing rules govern how the receipt may be read:
 
 - **Bounded lists, unbounded totals.** `pg_database` and the generation
   attribution tables both grow without limit, so the receipt displays only the
@@ -413,19 +428,31 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   longer* retains the required WAL and `lost` means it is unusable — so the sample is
   ordered `extended`, then `reserved`, then furthest behind by `restart_lsn`, and the
   counts report what retains WAL (`reserved`/`extended`) rather than what has stopped.
+  Null or unknown `wal_status` values sort after known retaining and non-retaining
+  states; `restart_lsn` is only an oldest-first tie-break, not an exact retained-byte
+  measurement.
 - **`base/pgsql_tmp` and every live database directory must survive the `base` cap.**
   Their bytes are already inside `accounted_bytes`, so an entry dropped by the
   size-based cap would be presented among the unaccounted candidates while still being
   subtracted as accounted — and the negative metric-difference term that follows can
   leave the closure flag `true`. The breakdown is refused when either was not observed
   (`live_database_directories_not_all_observed`, `temporary_directory_not_observed`).
-- **Row caps emit an aggregate candidate, never a silent gap.** Where a `du` row cap
-  drops entries — PGDATA's children or `base/`'s — their bytes are subtracted from the
+- **Depth-1 row caps emit an aggregate candidate, never a silent gap.** Where a `du`
+  row cap drops immediate entries — PGDATA's children or `base/`'s — their bytes are subtracted from the
   "files directly in this directory" remainder (so they are not mislabelled) **and**
   reported as their own candidate saying how many entries it covers and that the paths
   were not retained. Subtracting without adding back removed those bytes from the
   partition altogether, and a directory with thousands of entries is overwhelmingly
   the unexpected storage this inventory exists to find.
+- **The depth-2 root cap discloses incomplete path attribution.** Its omitted records
+  can include both ancestors and descendants, so
+  `omitted_record_cumulative_bytes` may count the same physical bytes more than once.
+  It is diagnostic only and is never a candidate or uncertainty term. The sibling
+  `volume_directory_usage_scan` object reports the record limit, retained and omitted
+  counts, cumulative diagnostic, overlap warning, and `path_attribution_complete`.
+  Retained ancestors preserve numerical coverage, but `candidate_list_complete` also
+  requires zero root omissions; `candidate_list_incomplete_reasons` and summary
+  `directory_scan_path_attribution_complete` state why a verdict is null.
 - **The published generation is always retained.** Generation keys carry no
   chronology, so lexicographic order can place the live generation past the
   bound. Both the SQL ordering and the receipt assembly therefore keep the
@@ -463,17 +490,24 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   directory reported as orphaned — the most dangerous output this receipt could
   produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
   `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
-  All of its figures, including `base/`'s own total, come from the `base` scan.
-- **The action has a hard wall clock of its own.** Each phase was bounded but their
-  *sum* was not, and the sum is what the operator workflow kills: the walk's 1,200 s
-  plus the closing phase's 660 s plus up to 31 queries at the 30 s subprocess cap is
-  about 40 minutes against a 40-minute job that also does checkout, Python setup and
-  SSH. `ACTION_BUDGET_SECONDS` (1,800) is measured from process start and enforced at
-  **every** subprocess and scan, with `POST_SCAN_SQL_RESERVE_SECONDS` held back so the
-  scans cannot starve the closing queries. The scans shorten when the queries are slow
-  instead of the two phases overrunning together, and a receipt is always emitted.
-  (Raising the job timeout was not available: `execute` is shared by every allowlisted
-  operation and its 40 minutes is sized for the 35-minute calibration probe.)
+  All of its figures, including `base/`'s own total, come from the `base` scan. Root
+  path-attribution truncation is the other independent reason the candidate list and
+  within-uncertainty verdict can be incomplete/null.
+- **The action has a hard wall clock and category ledgers of its own.** Its 1,800
+  seconds are partitioned into a 960-second pre-closing walk, 600 seconds for exactly
+  two closing scans (PGDATA and optional `base/`, up to 300 seconds each), and 240
+  seconds for all non-scan work and receipt emission. The latter includes setup, SQL
+  before/between/after scans, subprocess handling, Python bookkeeping and final JSON
+  serialization. Actual scan elapsed time is charged in `finally` paths, including
+  failed attempts, timeouts and churn retries; every other elapsed second consumes
+  `NON_SCAN_AND_RECEIPT_BUDGET_SECONDS`. Category ledgers prevent SQL from consuming a
+  later scan allowance and scans from consuming receipt time, while `ACTION_DEADLINE`
+  remains the final ceiling. The shared workflow ceiling is 2,400 seconds, leaving a
+  nominal 600-second margin only under the assumption that checkout, Python setup, SSH
+  preparation and connection finish inside it; the action cannot guarantee the shared
+  workflow will never kill receipt emission. Raising the job timeout is not available:
+  `execute` is shared by every allowlisted operation and its 40 minutes is sized for
+  the 35-minute calibration probe.
 - **Both interpreters run in isolated mode (`-I -B`), and `-I` is the load-bearing
   flag.** Without it CPython prepends the working directory to `sys.path`, and the
   workflow runs `cd /opt/ed-finder` then escalates with `sudo -n bash -s` — so a
@@ -487,13 +521,15 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   `du`-versus-`st_size` difference and nothing else. The opening values stay as a
   bracket in `databases_at_window_close`, so the movement is visible rather than merely
   corrected.
-- **`pg_wal`'s directory scan sits between two `pg_ls_waldir()` reads.** One read
-  beside the scan only moved the asymmetry — WAL generated *during* the scan makes the
-  directory figure exceed the earlier SQL total, and that difference was again emitted
-  as reclaimable WAL. With a read either side the listed figure at the scan's own
-  instant is known to lie between them, and the candidate uses the larger end:
-  understating unlisted content rather than inventing a reclaim candidate out of
-  ordinary WAL.
+- **Live `pg_wal` aggregate classification is unavailable.** The one final
+  `pg_ls_waldir()` aggregate runs after both closing scans and supplies
+  `bytes_at_window_close` for accounting, but it is not atomic with the retained
+  closing-PGDATA child. The receipt therefore exposes
+  `unlisted_directory_classification.available = false` with reason
+  `live_wal_cannot_be_snapshotted_read_only`, emits no aggregate `pg_wal` reclaim
+  candidate, and records only the direct non-reclaimable
+  `pg_wal_pgdata_walk_to_window_close` absolute width. The required retained `pg_wal`
+  child guard remains, and stale `pg_xlog` remains independently reported whole.
 - **A truncated product query reports `null`, not zero.** The products have different
   histories, so a generation kept by one attribution query can fall beyond another's
   row cap; emitting zero made a superseded generation look as though it held none of
@@ -502,13 +538,6 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   tablespace created while the scans ran would have left
   `single_filesystem_accounting_valid` true while `pg_database_size` had begun
   including bytes outside the selected filesystem. Both observations must now hold.
-- **`pg_wal` is measured again beside the `pg_ls_waldir()` read.** The closing walk
-  visits it part-way through its own traversal, so WAL recycled in between left the walk
-  holding the larger figure and the difference was emitted as an "unlisted
-  subdirectories" candidate — already-removed WAL presented as reclaimable space, with
-  the closure still true because the smaller SQL value also fed `accounted_bytes`. The
-  candidate now comes from the two figures taken at the same instant, and the
-  walk-to-SQL movement is a signed term.
 - **The `df`/`du` residual carries its own error bar.** `df` is one instant and `du` is
   a traversal, so a sibling changing during the walk leaves its earlier or
   partly-observed size in `directory_scan_root_bytes`.
@@ -532,13 +561,14 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   `indexes_truncated` still said `false`. `index_inventory_scope` records the scope.
 - **A negative remainder is a named measurement width, never a dropped row.** Every
   remainder in the summary is a measured total minus figures measured by a different
-  instrument or at a different moment, so each can come out negative — WAL recycled
-  between the directory walk and `pg_ls_waldir()`, `base/` changing between the two
-  walks. A negative cannot be a candidate (there is no negative storage to reclaim),
-  and dropping it with `if x > 0` made the receipt silent about a quantity it had
-  measured; a shrink even turned already-recycled WAL into an "unlisted storage"
-  candidate. Each is recorded in `measurement_uncertainty_terms` — by magnitude, since
-  a width has no direction — and summed as `measurement_uncertainty_bytes`. That
+  instrument or at a different moment, so each can come out negative — for example
+  `base/` changing between its two walks. A negative cannot be a candidate (there is no
+  negative storage to reclaim), and dropping it with `if x > 0` made the receipt silent
+  about a quantity it had measured. Each is recorded in
+  `measurement_uncertainty_terms` — by magnitude, since a width has no direction — and
+  summed as `measurement_uncertainty_bytes`. The direct
+  `pg_wal_pgdata_walk_to_window_close` difference follows the same non-reclaimable rule
+  without attempting an intermediate WAL classification. The uncertainty also
   includes the **accepted** `base/` drift: the add-backs come from the `base` walk
   while the outer partition removed `base` as measured by the PGDATA walk, so any
   drift inside the tolerance shifts the candidate total by exactly that amount.
@@ -572,16 +602,18 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   absent from the PGDATA total while `pg_ls_waldir()` is still subtracted from the
   volume. `stat -c %d` reads the same `st_dev` the kernel gives `du -x`, so it tests
   exactly the property the arithmetic depends on.
-- **Each closing scan gets its own full allowance.** The reserve is opened once per
-  closing scan rather than once for the phase, so the `base/` walk cannot start with
-  whatever the PGDATA re-read and the intervening SQL left over — its failure is an
-  optional unavailable breakdown, which would have dropped the base attribution
-  silently.
-- **The directory partition is exact across row-cap ancestor gaps.** The retained set is
-  a bounded top-k and so is not ancestor-closed — the cap can keep a child while
-  dropping its parent. Each row's exclusive size subtracts its reported descendants that
-  have no *nearer* reported ancestor, rather than only its immediate children, so the
-  exclusive sizes still sum to the scanned root's total exactly once.
+- **Each closing scan gets its own full allowance.** Exactly two releases exist:
+  closing PGDATA and optional `base/`, each for at most 300 seconds. Unopened future
+  time remains reserved, and an over-release or third release is refused, so the
+  `base/` walk cannot start with whatever the PGDATA re-read and intervening SQL left.
+  A failed `base/` scan still yields the existing optional unavailable breakdown.
+- **Retained rows remain numerically non-overlapping across ancestor gaps.** The
+  retained set is a bounded top-k and so is not ancestor-closed — the cap can keep a
+  child while dropping its parent. Each row's exclusive size subtracts its reported
+  descendants that have no *nearer* reported ancestor, rather than only its immediate
+  children, so the retained numerical coverage still sums without double-counting.
+  That does not prove complete path enumeration when depth-2 root records were omitted;
+  the separate path completeness fields say so.
 - **The receipt states an uncertainty, not an exact identity — deliberately.** The
   candidates explain **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`,
   and the receipt reports two figures against each other:
@@ -607,8 +639,9 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   known.
 
   `measurement_uncertainty_terms` itemises every window involved — the volume's
-  movement across the window and across the root scan, the PGDATA, `base/` and WAL
-  brackets, the database total's movement, `df` against `du`
+  movement across the window and across the root scan, the PGDATA and `base/`
+  brackets, the direct `pg_wal_pgdata_walk_to_window_close` width, the database
+  total's movement, `df` against `du`
   (`filesystem_minus_directory_scan_bytes`), and `du`'s allocated blocks against
   `pg_database_size`'s `st_size` sums (`database_size_metric_difference_bytes`). **None
   of these is storage anyone can free**; they are how precisely the two sides are
@@ -623,7 +656,10 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   looks like. That still **fails the operation**
   (`candidates_do_not_account_for_unaccounted:shortfall_N_uncertainty_M`, summary
   preserved for diagnosis). A shortfall *within* the uncertainty is reported and is no
-  longer treated as an error, because it never was one. The paired `df` reading is taken
+  longer treated as an error, because it never was one. When the base breakdown or root
+  path attribution is incomplete, `candidate_list_complete` is false,
+  `candidate_list_incomplete_reasons` names the cause, and the verdict is null rather
+  than guessed. The paired `df` reading is taken
   **immediately** after the root scan, before the second full data-directory walk, so
   the pairing holds in time and not merely in name.
 

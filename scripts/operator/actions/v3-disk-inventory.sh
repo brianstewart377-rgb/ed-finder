@@ -36,7 +36,6 @@ import contextlib
 import heapq
 import json
 import selectors
-import math
 import os
 import signal
 import subprocess
@@ -48,30 +47,31 @@ from typing import Any
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+PROC_MOUNTS = "/proc/mounts"
 STATEMENT_TIMEOUT_MS = 20000
 PROCESS_TIMEOUT_SECONDS = 30
 # A hard wall clock for the WHOLE action, from process start.
 #
-# The per-phase budgets were each bounded but their SUM was not, and the sum is what
-# the operator workflow kills: the walk's 1,200 s plus the closing phase's 660 s plus
-# up to 31 read-only queries at the 30 s subprocess cap is about 40 minutes on its own,
-# against a 40-minute job that also does checkout, Python setup and SSH. So the action
-# could be killed before emitting the structured receipt -- the exact outcome every
-# budget in this file exists to prevent, reached by a route none of them measured.
+# The action partitions its own 1,800 seconds into 960 seconds of pre-closing scans,
+# 600 seconds for two closing scans, and 240 seconds for every other operation and
+# receipt emission. Category elapsed-time ledgers stop one kind of work consuming
+# another's allowance, while ACTION_DEADLINE remains the final ceiling.
 #
 # Raising the job timeout is not the fix: the `execute` job is shared by every
 # allowlisted operation and its 40 minutes is sized for the 35-minute calibration
-# probe. Instead this action promises to finish inside its own share, and every
-# subprocess and scan is measured against that one deadline, so the scans shorten when
-# the queries are slow instead of the two phases overrunning together.
+# probe. The resulting 600-second nominal job margin assumes checkout, Python setup,
+# SSH preparation and connection finish inside it; the action cannot guarantee that
+# shared workflow work will leave the margin available.
 ACTION_BUDGET_SECONDS = 1_800
-# Held back from the SCAN budget for the queries and receipt that follow the scans --
-# the same principle as the closing reserve, one level up. Without it the scans would
-# consume the whole action budget and the closing SQL would have nothing left.
-POST_SCAN_SQL_RESERVE_SECONDS = 240
+# One category for everything that is not an actual `du` attempt: setup, SQL,
+# subprocess handling, Python bookkeeping and receipt serialization. It is measured
+# independently of scan time so a long scan cannot spend this allowance, and slow SQL
+# cannot spend either closing scan's allowance.
+NON_SCAN_AND_RECEIPT_BUDGET_SECONDS = 240
 # Fixed at import, so every later measurement shares one origin rather than each
 # phase starting its own clock -- which is how the sum escaped being bounded.
-ACTION_DEADLINE = time.monotonic() + ACTION_BUDGET_SECONDS
+ACTION_STARTED = time.monotonic()
+ACTION_DEADLINE = ACTION_STARTED + ACTION_BUDGET_SECONDS
 DIRECTORY_USAGE_TIMEOUT_SECONDS = 300
 # The data directory is measured either side of the filesystem scan; a live database
 # writes while they run, so a small difference is expected and a large one means the
@@ -124,42 +124,19 @@ REPLICATION_SLOT_INVENTORY_LIMIT = 50
 # slow production inventory could be killed before it emitted any receipt at all. With a
 # shared budget the walk stops early and records why, which is a usable receipt.
 #
-# The depth-0 scan of pg_wal gets the NORMAL per-call allowance.
-#
-# It had 60 s on the reasoning that max_wal_size bounds the directory. That premise is
-# false: PostgreSQL documents max_wal_size as a SOFT limit, and max_slot_wal_keep_size
-# defaults to -1, which lets a replication slot retain WAL without limit. A lagging
-# slot or a failing archive_command is exactly the condition that makes pg_wal huge --
-# and exactly when this inventory is wanted -- so a short timeout would stop the
-# mandatory reconciliation in the one case it needs to report on.
-WAL_DIRECTORY_SCAN_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
 # Held back from the budget for the closing reconciliation, so the walk can never consume
-# the budget the reconciliation needs and take the whole section down with it. One
-# allowance per closing scan, and the closing phase makes THREE: the PGDATA re-read, the
-# depth-1 breakdown of `base` that keeps the base remainder in one metric, and the
-# depth-0 re-measure of pg_wal beside the pg_ls_waldir() read. Reserving fewer would
-# leave a later scan running against whatever the earlier ones left over, which is a
-# different way of failing the scan the reserve exists to protect.
-RECONCILE_RESERVE_SECONDS = (
-    2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS
+# the budget the reconciliation needs and take the whole section down with it. The
+# closing phase has exactly two scans: the PGDATA re-read and the optional depth-1
+# `base` breakdown. There is deliberately no dedicated live-WAL scan: read-only
+# observations cannot make that non-monotonic directory atomic.
+RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS
+# The three ledgers are a complete partition of the action's own ceiling. Derive the
+# walk rather than promising more scan time than the action can supply.
+DIRECTORY_SCAN_WALK_SECONDS = (
+    ACTION_BUDGET_SECONDS
+    - RECONCILE_RESERVE_SECONDS
+    - NON_SCAN_AND_RECEIPT_BUDGET_SECONDS
 )
-# Note on the arithmetic: three full allowances is 900 s, which exceeds what the
-# action deadline leaves for scans (1,800 - 240 = 1,560 against a 1,200 s walk). That
-# is handled rather than hoped about -- ScanBudget.remaining() takes the minimum of
-# this budget and the action deadline, so the WALK shortens to fit instead of the
-# closing phase being cut off. Adding the overall deadline first is what made raising
-# this reserve safe.
-# The budget is the WALK's allowance PLUS the reserve, not a total the reserve is carved
-# out of. ScanBudget.remaining() subtracts the reserve from this number for every
-# pre-closing caller, so defining it as a fixed total meant that raising the reserve
-# silently cut the walk: doubling the reserve took the walk from 1,200 s to 900 s, which
-# is enough for the mandatory PGDATA detail scan to raise
-# directory_scan_budget_exhausted before the drill-down starts a single step. Stating it
-# as a sum keeps the two independent, and keeps the arithmetic in this comment true:
-# worst case is 1,200 s of walking plus 600 s of closing = 30 minutes, inside the
-# workflow's 40-minute kill.
-DIRECTORY_SCAN_WALK_SECONDS = 1_200
-DIRECTORY_SCAN_BUDGET_SECONDS = DIRECTORY_SCAN_WALK_SECONDS + RECONCILE_RESERVE_SECONDS
 # A drill-down step starting with barely any budget beyond the reserve would time out
 # and fail the section. Below this, stop and record the exhaustion instead.
 DRILL_DOWN_MIN_CALL_SECONDS = 30
@@ -180,13 +157,10 @@ DU_DEFAULT_KEEP = 4000
 # Everything not listed (global, pg_xact, pg_multixact, pg_stat, pg_stat_tmp, log,
 # replication-slot state) stays visible as an inside-PGDATA candidate.
 ACCOUNTED_PGDATA_CHILDREN = frozenset({"base", "pg_wal", "pg_xlog"})
-# `pg_ls_waldir()` lists the top-level ORDINARY FILES of pg_wal and documents that it
-# excludes directories, so wal_bytes does not cover pg_wal/archive_status or
-# PostgreSQL 18's pg_wal/summaries. Excluding the whole pg_wal child would therefore
-# drop those bytes from every candidate while leaving them inside unaccounted_bytes.
-# The difference between pg_wal's measured size and wal_bytes is reported as its own
-# inside-PGDATA candidate.
-WAL_CHILD_NAMES = ("pg_wal", "pg_xlog")
+# A live pg_wal directory cannot be snapshotted atomically by these read-only
+# observations, so no aggregate difference against pg_ls_waldir() is classified as a
+# candidate. Its direct PGDATA-walk-to-final-SQL difference is a measurement width.
+# pg_xlog remains independent and is reported whole when unexpectedly present.
 # `df` reports filesystem space; `du` estimates space used by files. The difference is
 # real -- filesystem metadata, and blocks held by deleted-but-open files -- and is
 # reported rather than hidden, with a flag when it is too large to ignore. Reserved
@@ -204,17 +178,32 @@ def action_remaining() -> float:
     return ACTION_DEADLINE - time.monotonic()
 
 
+# Completed `du` attempt time is subtracted from total process elapsed time. Everything
+# else therefore consumes the one non-scan/receipt ledger automatically, including
+# pure Python work and JSON serialization that no subprocess wrapper can see.
+directory_scan_seconds_charged = 0.0
+
+
+def non_scan_and_receipt_seconds_remaining() -> float:
+    elapsed = time.monotonic() - ACTION_STARTED
+    non_scan_elapsed = max(0.0, elapsed - directory_scan_seconds_charged)
+    return NON_SCAN_AND_RECEIPT_BUDGET_SECONDS - non_scan_elapsed
+
+
 def run(
-    argv: list[str], *, timeout: int = PROCESS_TIMEOUT_SECONDS
+    argv: list[str], *, timeout: float = PROCESS_TIMEOUT_SECONDS
 ) -> subprocess.CompletedProcess[str]:
-    # Every subprocess is measured against the action deadline as well as its own
-    # timeout, so no single call can carry the action past the point where it can still
-    # emit a receipt. RuntimeError, not SystemExit: each section catches it, records the
-    # reason, and the structured receipt is still printed at the end.
-    left = action_remaining()
-    if left <= 0:
+    # Every subprocess is measured against both the action ceiling and the category
+    # containing all non-scan work. The latter is derived from process elapsed time, so
+    # normal completion, timeout and OSError are charged alike. Keep the float remainder:
+    # ceil() plus max(1, ...) can spend a full second after less than one remains.
+    action_left = action_remaining()
+    non_scan_left = non_scan_and_receipt_seconds_remaining()
+    if action_left <= 0:
         raise RuntimeError("action_deadline_exceeded")
-    timeout = max(1, min(timeout, math.ceil(left)))
+    if non_scan_left <= 0:
+        raise RuntimeError("non_scan_and_receipt_budget_exhausted")
+    timeout = min(float(timeout), action_left, non_scan_left)
     try:
         # errors="surrogateescape", not the strict TextIOWrapper default: a path may
         # contain any byte except NUL and /, so a sequence invalid in the host locale
@@ -412,6 +401,16 @@ def exclusive_usage(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {path: size - child_bytes.get(path, 0) for path, size in totals.items()}
 
 
+def decode_proc_mount_path(value: str) -> str:
+    """Decode the four octal escapes used by proc mount tables."""
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
+
+
 def mount_atime_policy(path: str) -> dict[str, Any]:
     """The access-time policy of the filesystem holding `path`.
 
@@ -428,7 +427,7 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
     because a nested mount governs the paths below it.
     """
     try:
-        with open("/proc/mounts", encoding="utf-8", errors="surrogateescape") as handle:
+        with open(PROC_MOUNTS, encoding="utf-8", errors="surrogateescape") as handle:
             lines = handle.read().splitlines()
     except OSError as exc:
         return {"available": False, "reason": f"proc_mounts_unreadable:{exc.errno}"}
@@ -439,13 +438,7 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
         if len(fields) < 4:
             continue
         # /proc/mounts octal-escapes spaces, tabs, newlines and backslashes.
-        point = (
-            fields[1]
-            .replace("\\040", " ")
-            .replace("\\011", "\t")
-            .replace("\\012", "\n")
-            .replace("\\134", "\\")
-        )
+        point = decode_proc_mount_path(fields[1])
         stripped = point.rstrip("/") or "/"
         if stripped == "/" or target == stripped or target.startswith(f"{stripped}/"):
             if best is None or len(stripped) > best[0]:
@@ -474,63 +467,84 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
     }
 
 
-def same_device_aliases(root: str) -> dict[str, Any]:
-    """Mount points under `root` that are aliases of the same underlying directory.
+def same_device_nested_mounts(root: str) -> dict[str, Any]:
+    """Refuse nested mounts that `du -x` would traverse on the root's device.
 
-    `du -x` skips directories on a DIFFERENT filesystem, which is all GNU documents it
-    as doing -- so it is no protection against a bind mount whose target is on the
-    same device as its source. The walk then traverses the same underlying files
-    through both paths and the candidate partition can list those bytes twice, while
-    `df` counts them once. The resulting negative df/du residual offsets the duplicate,
-    so the closure can still come out true: a double count that the receipt's own
-    self-check cannot see.
-
-    Detected by identity rather than by guessing at mount flags: two paths that are
-    aliases of one directory have the same `st_dev` AND the same `st_ino`, which is
-    exactly what "the same directory" means to the kernel. /proc/mounts supplies the
-    candidate paths; `stat` decides.
+    /proc/mounts reliably gives mount targets but not an ordinary bind source. Without
+    the source, choosing a target to exclude can omit unique bytes or falsify path
+    attribution. The safe read-only policy is therefore to allow different-device
+    mounts (which `du -x` skips) and refuse every same-device nested mount.
     """
+    report: dict[str, Any] = {
+        "available": False,
+        "safe_to_scan": False,
+        "mount_points_below_root": 0,
+        "same_device_mount_count": 0,
+        "same_device_mount_paths": [],
+        "same_device_mount_paths_truncated": False,
+    }
     try:
-        with open("/proc/mounts", encoding="utf-8", errors="surrogateescape") as handle:
+        with open(PROC_MOUNTS, encoding="utf-8", errors="surrogateescape") as handle:
             lines = handle.read().splitlines()
     except OSError as exc:
-        return {"available": False, "reason": f"proc_mounts_unreadable:{exc.errno}"}
-    base = root.rstrip("/")
-    points: list[str] = []
-    for line in lines:
+        report.update(
+            reason="proc_mounts_unreadable",
+            errno=exc.errno,
+        )
+        return report
+    base = os.path.normpath(root)
+    points: set[str] = set()
+    for line_number, line in enumerate(lines, start=1):
         fields = line.split()
         if len(fields) < 2:
-            continue
-        point = (
-            fields[1]
-            .replace("\\040", " ")
-            .replace("\\011", "\t")
-            .replace("\\012", "\n")
-            .replace("\\134", "\\")
+            report.update(reason="proc_mounts_invalid", line_number=line_number)
+            return report
+        point = os.path.normpath(decode_proc_mount_path(fields[1]))
+        strictly_below = (
+            point != "/" and point.startswith("/")
+            if base == "/"
+            else point.startswith(f"{base}/")
         )
-        stripped = point.rstrip("/")
-        if base in ("", "/") or stripped == base or stripped.startswith(f"{base}/"):
-            points.append(point)
-    identities: dict[tuple[int, int], list[str]] = {}
-    for point in points:
-        probe = run(["stat", "-c", "%d %i", point])
-        if probe.returncode != 0:
-            continue
-        parts = probe.stdout.split()
-        if len(parts) != 2:
-            continue
-        dev = as_int(parts[0])
-        ino = as_int(parts[1])
-        if dev is None or ino is None:
-            continue
-        identities.setdefault((dev, ino), []).append(point)
-    aliases = [sorted(paths) for paths in identities.values() if len(paths) > 1]
-    return {
-        "available": True,
-        "mount_points_under_root": len(points),
-        "alias_sets": sorted(aliases),
-        "aliases_present": bool(aliases),
-    }
+        if strictly_below:
+            points.add(point)
+    ordered_points = sorted(points)
+    report["mount_points_below_root"] = len(ordered_points)
+    try:
+        root_device = os.stat(base).st_dev
+    except OSError as exc:
+        report.update(
+            reason="usage_root_stat_failed",
+            failed_stat_paths=[base],
+            failed_stat_path_count=1,
+            failed_stat_paths_truncated=False,
+            errno=exc.errno,
+        )
+        return report
+    same_device: list[str] = []
+    for point in ordered_points:
+        try:
+            point_device = os.stat(point).st_dev
+        except OSError as exc:
+            report.update(
+                reason="nested_mount_stat_failed",
+                failed_stat_paths=[point],
+                failed_stat_path_count=1,
+                failed_stat_paths_truncated=False,
+                errno=exc.errno,
+            )
+            return report
+        if point_device == root_device:
+            same_device.append(point)
+    report.update(
+        available=True,
+        safe_to_scan=not same_device,
+        same_device_mount_count=len(same_device),
+        same_device_mount_paths=same_device[:50],
+        same_device_mount_paths_truncated=len(same_device) > 50,
+    )
+    if same_device:
+        report["reason"] = "same_device_nested_mount_under_scan_root"
+    return report
 
 
 def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
@@ -645,57 +659,51 @@ def host_pgdata(
 
 
 class ScanBudget:
-    """One wall-clock budget shared by every directory scan in this run.
+    """Elapsed-time ledgers for the walk and exactly two closing scans.
 
-    Bounding each `du` call individually is not enough. The operator workflow kills the
-    job at 40 minutes, and four fixed scans plus eight drill-down steps at the 300 s
-    per-call limit is 60 minutes, so a valid but slow production inventory could be
-    killed before emitting any receipt. A partial receipt that says where it stopped
-    beats no receipt at all.
-
-    The budget **owns its reserve** rather than taking it as an argument at each call
-    site. Passing it per call meant forgetting it at four of them, which silently
-    unreserved the reserve: the closing reconciliation scan is mandatory, so any earlier
-    scan allowed to spend its time takes the whole section down. Here every call is
-    held back from the reserve by default, and only `begin_closing_scan()` opens it --
-    once before each of the two closing scans the reserve exists for.
+    Advancing deadlines cannot reserve a later category: SQL between scans keeps moving
+    the deadline even though it belongs to the separate non-scan ledger. Actual `du`
+    elapsed time is therefore charged to its category, while `remaining()` protects all
+    unopened closing allowances and the unspent non-scan/receipt allowance under the
+    final action ceiling.
     """
 
-    def __init__(self, seconds: int, reserve_seconds: int) -> None:
-        self.total_seconds = seconds
-        self.reserve_seconds = reserve_seconds
-        self._reserved = True
-        self._deadline = time.monotonic() + seconds
+    def __init__(self, walk_seconds: int, closing_seconds: int) -> None:
+        self.walk_budget_seconds = walk_seconds
+        self.closing_budget_seconds = closing_seconds
+        self.total_seconds = walk_seconds + closing_seconds
+        self.reserve_seconds = closing_seconds
+        self.walk_seconds_remaining = float(walk_seconds)
+        self.closing_scan_seconds_remaining = float(closing_seconds)
+        self._current_closing_seconds_remaining = 0.0
+        self._closing_releases = 0
+        self._phase = "walk"
 
     def begin_closing_scan(
         self, seconds: int = DIRECTORY_USAGE_TIMEOUT_SECONDS
     ) -> None:
-        """Give the next closing scan its own allowance.
+        """Release one bounded allowance; refuse an over-release or third scan."""
+        if (
+            seconds <= 0
+            or seconds > DIRECTORY_USAGE_TIMEOUT_SECONDS
+            or self._closing_releases >= 2
+            or seconds > self.closing_scan_seconds_remaining
+        ):
+            raise RuntimeError("closing_scan_budget_release_invalid")
+        self._closing_releases += 1
+        self.closing_scan_seconds_remaining -= seconds
+        self._current_closing_seconds_remaining = float(seconds)
+        self._phase = "closing"
 
-        Called once before EACH closing scan, not once for the phase. The reserve has
-        to be an allowance rather than a slice of an advancing deadline: between the
-        walk and the closing phase, the database, WAL, relation, index, attribution and
-        tablespace queries run without touching the budget at all, while the wall clock
-        keeps moving, so a single deadline set at the start of the phase could be
-        consumed by time the scan never asked for.
-
-        The same argument applies BETWEEN the two closing scans. The PGDATA re-read can
-        take nearly its whole allowance, and the closing WAL query and the base
-        classification run after it; against one phase deadline the `base` scan would
-        then start with less than a per-call allowance and could time out on a walk it
-        would have finished. Its failure is treated as an optional unavailable
-        breakdown, so the action would still report success while silently dropping the
-        base attribution it exists to produce -- the quietest possible way to lose a
-        finding.
-
-        The reserve stays two full allowances, so the pre-closing walk is still held
-        back by everything the closing phase can need.
-        """
-        self._reserved = False
-        self._deadline = time.monotonic() + seconds
-
-    def reserve(self) -> float:
-        return self.reserve_seconds if self._reserved else 0.0
+    def charge_scan_elapsed(self, elapsed: float) -> None:
+        """Charge every attempt, including failed spawn, timeout and churn retry."""
+        global directory_scan_seconds_charged
+        charged = max(0.0, elapsed)
+        directory_scan_seconds_charged += charged
+        if self._phase == "walk":
+            self.walk_seconds_remaining -= charged
+        else:
+            self._current_closing_seconds_remaining -= charged
 
     def remaining(self) -> float:
         """Time left that the caller may actually use, reserve already deducted.
@@ -705,15 +713,23 @@ class ScanBudget:
         scans could spend the action's whole wall clock and the closing SQL would be
         cut off by the workflow kill rather than by anything this file controls.
         """
-        own = self._deadline - time.monotonic() - self.reserve()
-        overall = action_remaining() - POST_SCAN_SQL_RESERVE_SECONDS
+        non_scan_left = non_scan_and_receipt_seconds_remaining()
+        if non_scan_left <= 0:
+            return non_scan_left
+        if self._phase == "walk":
+            own = self.walk_seconds_remaining
+            future_closing = self.closing_scan_seconds_remaining
+        else:
+            own = self._current_closing_seconds_remaining
+            future_closing = self.closing_scan_seconds_remaining
+        overall = action_remaining() - non_scan_left - future_closing
         return min(own, overall)
 
-    def call_timeout(self) -> int:
+    def call_timeout(self) -> float:
         left = self.remaining()
         if left <= 0:
             raise RuntimeError("directory_scan_budget_exhausted")
-        return max(1, min(DIRECTORY_USAGE_TIMEOUT_SECONDS, math.ceil(left)))
+        return min(float(DIRECTORY_USAGE_TIMEOUT_SECONDS), left)
 
 
 # `du` exits nonzero when any file it enumerated has gone before it could be examined.
@@ -796,89 +812,98 @@ def du_stream(
     target = expect_path.rstrip("/") if expect_path else None
     for attempt in range(1, DU_ATTEMPTS + 1):
         timeout = budget.call_timeout()
-        stderr_chunks: list[str] = []
         kept: list[tuple[int, str]] = []
         omitted = [0, 0]
-        timed_out = False
+        attempt_started = time.monotonic()
         try:
-            # BINARY pipes. The deadline has to be enforced between reads, and a text
-            # wrapper's read() blocks until its request is satisfied or EOF -- so a `du`
-            # that goes quiet traversing a large subtree, or emits less than one chunk
-            # and stalls, would never return control to the deadline check and both the
-            # per-call and the shared budget would be decoration. Raw descriptors can be
-            # polled with a timeout; the bytes are decoded per chunk instead.
-            process = subprocess.Popen(
-                argv,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            raise RuntimeError(f"{error}:{type(exc).__name__}") from exc
+            stderr_chunks: list[str] = []
+            stderr_bytes = 0
+            timed_out = False
+            process: subprocess.Popen[bytes] | None = None
+            reader: threading.Thread | None = None
+            selector: selectors.BaseSelector | None = None
+            read_completed = False
+            try:
+                # BINARY pipes. The deadline has to be enforced between reads, and a
+                # text wrapper's read() blocks until its request is satisfied or EOF.
+                process = subprocess.Popen(
+                    argv,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                )
 
-        stderr_bytes = 0
+                def drain(stream: Any = process.stderr) -> None:
+                    # Bounded: only the first diagnostic and count are reported.
+                    nonlocal stderr_bytes
+                    with contextlib.suppress(Exception):
+                        while True:
+                            block = stream.read(DU_READ_CHUNK)
+                            if not block:
+                                break
+                            if stderr_bytes < DU_STDERR_LIMIT:
+                                stderr_chunks.append(
+                                    block[: DU_STDERR_LIMIT - stderr_bytes].decode(
+                                        "utf-8", "surrogateescape"
+                                    )
+                                )
+                            stderr_bytes += len(block)
 
-        def drain(stream: Any = process.stderr) -> None:
-            # Bounded. `du` can emit one diagnostic per vanished or unreadable path, so
-            # on a churn-heavy PostgreSQL or Docker tree stderr is as unbounded as
-            # stdout was; only the first DU_STDERR_LIMIT bytes are needed, because the
-            # decision is "are all of these vanished-file messages" and the receipt
-            # records the first diagnostic and a count.
-            nonlocal stderr_bytes
-            with contextlib.suppress(Exception):
+                reader = threading.Thread(target=drain, daemon=True)
+                reader.start()
+                deadline = time.monotonic() + timeout
+                selector = selectors.DefaultSelector()
+                assert process.stdout is not None
+                selector.register(process.stdout, selectors.EVENT_READ)
+                carry = b""
                 while True:
-                    block = stream.read(DU_READ_CHUNK)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        timed_out = True
+                        break
+                    if not selector.select(timeout=min(remaining, DU_POLL_SECONDS)):
+                        continue
+                    block = process.stdout.read1(DU_READ_CHUNK)
                     if not block:
                         break
-                    if stderr_bytes < DU_STDERR_LIMIT:
-                        stderr_chunks.append(
-                            block[: DU_STDERR_LIMIT - stderr_bytes].decode(
-                                "utf-8", "surrogateescape"
-                            )
-                        )
-                    stderr_bytes += len(block)
-
-        reader = threading.Thread(target=drain, daemon=True)
-        reader.start()
-        deadline = time.monotonic() + timeout
-        selector = selectors.DefaultSelector()
-        selector.register(process.stdout, selectors.EVENT_READ)
-        carry = b""
-        try:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    timed_out = True
-                    break
-                if not selector.select(timeout=min(remaining, DU_POLL_SECONDS)):
-                    continue
-                block = process.stdout.read1(DU_READ_CHUNK)
-                if not block:
-                    break
-                carry += block
-                # Split on NUL in BYTES, so a multi-byte character spanning a chunk
-                # boundary is never decoded in halves.
-                parts = carry.split(b"\0")
-                carry = parts.pop()
-                for raw in parts:
-                    record = raw.decode("utf-8", "surrogateescape")
-                    if record.strip():
-                        absorb(record, kept, omitted)
-            if not timed_out and carry.strip():
-                absorb(carry.decode("utf-8", "surrogateescape"), kept, omitted)
+                    carry += block
+                    # Split on NUL in BYTES, so a multi-byte character spanning a chunk
+                    # boundary is never decoded in halves.
+                    parts = carry.split(b"\0")
+                    carry = parts.pop()
+                    for raw in parts:
+                        record = raw.decode("utf-8", "surrogateescape")
+                        if record.strip():
+                            absorb(record, kept, omitted)
+                if not timed_out and carry.strip():
+                    absorb(carry.decode("utf-8", "surrogateescape"), kept, omitted)
+                read_completed = True
+            except OSError as exc:
+                raise RuntimeError(f"{error}:{type(exc).__name__}") from exc
+            finally:
+                if selector is not None:
+                    with contextlib.suppress(Exception):
+                        selector.close()
+                if process is not None:
+                    if timed_out or not read_completed:
+                        with contextlib.suppress(OSError, ProcessLookupError):
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    if process.stdout is not None:
+                        with contextlib.suppress(Exception):
+                            process.stdout.close()
+                    returncode = process.wait()
+                    if reader is not None:
+                        reader.join(timeout=5)
+                    if process.stderr is not None:
+                        with contextlib.suppress(Exception):
+                            process.stderr.close()
         finally:
-            with contextlib.suppress(Exception):
-                selector.close()
-            if timed_out:
-                with contextlib.suppress(OSError, ProcessLookupError):
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            with contextlib.suppress(Exception):
-                process.stdout.close()
-            returncode = process.wait()
-            reader.join(timeout=5)
-            with contextlib.suppress(Exception):
-                process.stderr.close()
+            budget.charge_scan_elapsed(time.monotonic() - attempt_started)
 
+        if budget.remaining() < 0:
+            reason = "directory_scan_budget_exhausted"
+            churned = None
+            break
         if timed_out:
             reason = "timeout"
             churned = None
@@ -1161,8 +1186,32 @@ failures: list[str] = []
 inventory: dict[str, Any] = {}
 receipt["inventory"] = inventory
 
-short_result = run(["hostname", "-s"])
-fqdn_result = run(["hostname", "-f"])
+
+def emit_receipt() -> None:
+    """Serialize inside the non-scan ledger and expose any exhausted ceiling."""
+    receipt["failures"] = sorted(set(failures))
+    receipt["status"] = "success" if not failures else "stopped"
+    encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+    failures_before_serialization = set(failures)
+    if non_scan_and_receipt_seconds_remaining() < 0:
+        failures.append("non_scan_and_receipt_budget_exhausted")
+    if action_remaining() < 0:
+        failures.append("action_deadline_exceeded")
+    if set(failures) != failures_before_serialization:
+        receipt["failures"] = sorted(set(failures))
+        receipt["status"] = "stopped"
+        encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+    print(encoded)
+    sys.exit(0 if not failures else 1)
+
+
+try:
+    short_result = run(["hostname", "-s"])
+    fqdn_result = run(["hostname", "-f"])
+    working_directory_result = run(["pwd", "-P"])
+except RuntimeError as exc:
+    failures.append(str(exc))
+    emit_receipt()
 host = short_result.stdout.strip()
 fqdn = fqdn_result.stdout.strip()
 receipt["host"] = {"short": host, "fqdn": fqdn}
@@ -1173,28 +1222,28 @@ if (
     or fqdn != EXPECTED_FQDN
 ):
     failures.append("unexpected_host_identity")
-if run(["pwd", "-P"]).stdout.strip() != "/opt/ed-finder":
+if working_directory_result.stdout.strip() != "/opt/ed-finder":
     failures.append("unexpected_working_directory")
 if failures:
-    receipt["failures"] = sorted(set(failures))
-    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
-    sys.exit(1)
+    emit_receipt()
 
-container = run(["docker", "inspect", "-f", "{{.State.Running}}", POSTGRES_CONTAINER])
+try:
+    container = run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", POSTGRES_CONTAINER]
+    )
+except RuntimeError as exc:
+    failures.append(str(exc))
+    emit_receipt()
 if container.returncode != 0 or container.stdout.strip() != "true":
     failures.append("postgres_container_unavailable")
-    receipt["failures"] = sorted(set(failures))
-    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
-    sys.exit(1)
+    emit_receipt()
 
 try:
     db_user, db_name = resolve_database_identity()
 except RuntimeError as exc:
     failures.append("postgres_runtime_identity_unavailable")
     receipt["query_error"] = str(exc)
-    receipt["failures"] = sorted(set(failures))
-    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
-    sys.exit(1)
+    emit_receipt()
 
 receipt["direct_db_access_performed"] = True
 receipt["postgres"] = {
@@ -1203,7 +1252,7 @@ receipt["postgres"] = {
     "database_name": db_name,
 }
 
-scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)
+scan_budget = ScanBudget(DIRECTORY_SCAN_WALK_SECONDS, RECONCILE_RESERVE_SECONDS)
 mount_source: str | None = None
 # The container's full mount list, read in the volume section and used by the WAL
 # section to detect a mount nested at or below PGDATA. Module scope for the same reason
@@ -1222,6 +1271,8 @@ usage_root: str | None = None
 # RuntimeError and would escape the section handler as a traceback.
 pgdata_container: str | None = None
 usage_full: list[dict[str, Any]] | None = None
+root_rows_omitted = 0
+root_rows_omitted_bytes = 0
 postgres_data_directory_bytes: int | None = None
 pgdata_children_all: list[dict[str, Any]] | None = None
 pgdata_host: str | None = None
@@ -1315,6 +1366,17 @@ try:
         "mount_destination": mount_destination,
     }
 
+    # Before the first `du`, inventory every mount point strictly below the scan root
+    # with in-process os.stat(). `du -x` skips a different device, but traverses a
+    # same-device bind in addition to its ordinary source. /proc/mounts cannot reliably
+    # identify that source, so deduplication cannot be proved and the safe action is to
+    # refuse rather than invent an exclusion.
+    nested_mount_report = same_device_nested_mounts(usage_root)
+    inventory["directory_scan_same_device_mounts"] = nested_mount_report
+    nested_mount_reason = nested_mount_report.get("reason")
+    if nested_mount_reason is not None:
+        raise RuntimeError(str(nested_mount_reason))
+
     # Bracket the data-directory measurement around the filesystem scan. The database
     # is live: it extends relations, recycles WAL and writes logs while these commands
     # run. Subtracting a size measured after the scan from a total measured before it
@@ -1331,37 +1393,30 @@ try:
     pgdata_before = du_total(pgdata_host, scan_budget)
     # Fail closed on a failed scan: without this evidence the receipt cannot answer
     # its own question, so it must not be presented as a complete inventory.
-    # Same-device bind aliases, EXCLUDED from the walk rather than left to be counted
-    # twice. `-x` only skips other filesystems, so a bind whose target shares the
-    # source's device is traversed through both paths; `df` counts those blocks once
-    # while the candidate partition lists them twice, and the resulting negative
-    # residual offsets the duplicate so the closure can still read true.
-    #
-    # One path per alias set is kept -- the first in sorted order, so the choice is
-    # deterministic -- and the rest are excluded. Excluding rather than refusing,
-    # because a host-side bind under the scanned root is a legitimate configuration
-    # and refusing would make the action unusable on it; the alias sets are reported
-    # so the omission is visible.
-    alias_report = same_device_aliases(usage_root)
-    inventory["directory_scan_same_device_aliases"] = alias_report
-    alias_excludes: list[str] = []
-    if alias_report.get("available"):
-        for paths in alias_report.get("alias_sets", []):
-            alias_excludes.extend(paths[1:])
-    usage_full = du_rows(
+    usage_full, root_rows_omitted, root_rows_omitted_bytes = du_stream(
         [
             "du",
             "--null",
             "-x",
             "-B1",
-            *(f"--exclude={path}" for path in alias_excludes),
             "--max-depth=2",
             usage_root,
         ],
         scan_budget,
         "directory_usage_failed",
+        keep=DU_DEFAULT_KEEP,
         expect_path=usage_root,
     )
+    inventory["volume_directory_usage_scan"] = {
+        "record_limit": DU_DEFAULT_KEEP,
+        "records_retained": len(usage_full),
+        "records_omitted_by_cap": root_rows_omitted,
+        # Diagnostic only: depth-2 records can include an ancestor and descendant, so
+        # this cumulative sum may count the same physical bytes more than once.
+        "omitted_record_cumulative_bytes": root_rows_omitted_bytes,
+        "omitted_record_bytes_may_overlap": True,
+        "path_attribution_complete": root_rows_omitted == 0,
+    }
     # IMMEDIATELY after the root scan, before the PGDATA re-read. This is the reading
     # the df/du residual is paired with, and `pgdata_after` is another full walk of a
     # 1.3 TB directory -- minutes. Taken after it, the reading described a filesystem
@@ -1483,11 +1538,22 @@ try:
         "floor_bytes": drill_floor,
         "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
         "max_steps": DRILL_DOWN_MAX_STEPS,
-        "scan_budget_seconds": scan_budget.total_seconds,
         "action_budget_seconds": ACTION_BUDGET_SECONDS,
-        "post_scan_sql_reserve_seconds": POST_SCAN_SQL_RESERVE_SECONDS,
+        "directory_scan_walk_budget_seconds": DIRECTORY_SCAN_WALK_SECONDS,
+        "closing_scan_budget_seconds": RECONCILE_RESERVE_SECONDS,
+        "non_scan_and_receipt_budget_seconds": (
+            NON_SCAN_AND_RECEIPT_BUDGET_SECONDS
+        ),
+        "directory_scan_walk_seconds_remaining_after_walk": round(
+            max(0.0, scan_budget.walk_seconds_remaining), 1
+        ),
+        "closing_scan_seconds_remaining_after_walk": round(
+            max(0.0, scan_budget.closing_scan_seconds_remaining), 1
+        ),
+        "non_scan_and_receipt_seconds_remaining_after_walk": round(
+            max(0.0, non_scan_and_receipt_seconds_remaining()), 1
+        ),
         "action_seconds_remaining_after_walk": round(action_remaining(), 1),
-        "reconcile_reserve_seconds": scan_budget.reserve_seconds,
         "chain": chain,
     }
 except RuntimeError as exc:
@@ -1672,7 +1738,8 @@ try:
         # newer slots and omit the one retaining the most WAL: the exact row the
         # ordering exists to keep. A qualified reference is unambiguously the input
         # column, so it sorts as pg_lsn.
-        "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
+        "ORDER BY (wal_status = 'extended') DESC NULLS LAST, "
+        "(wal_status = 'reserved') DESC NULLS LAST, "
         "pg_replication_slots.restart_lsn ASC NULLS LAST, slot_name "
         f"LIMIT {REPLICATION_SLOT_INVENTORY_LIMIT}) q",
         db_user,
@@ -2332,82 +2399,6 @@ try:
     if pgdata_final is None:
         raise RuntimeError("postgres_data_directory_usage_total_missing")
     postgres_data_directory_bytes = pgdata_final
-    # The WAL figure has to come from the same state as the directory breakdown. It was
-    # the earlier SQL value, so ordinary top-level WAL growth between the two -- within
-    # the accepted drift -- was being labelled "subdirectories and files pg_ls_waldir
-    # does not list", which is both wrong and points at the opposite conclusion from
-    # the truth: normal WAL reported as unexpected storage.
-    closing_wal = psql_json(
-        "SELECT row_to_json(q)::text FROM (SELECT "
-        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
-        db_user,
-        db_name,
-    )
-    if not closing_wal or "bytes" not in closing_wal[0]:
-        raise RuntimeError("wal_bytes_not_reconciled")
-    wal_bytes_at_close = closing_wal[0]["bytes"]
-    inventory["wal"]["bytes_at_window_close"] = wal_bytes_at_close
-    # Measure pg_wal AGAIN, beside the SQL read. The closing walk visited pg_wal at
-    # some earlier point in its own traversal, so WAL recycled in between makes the
-    # walk's figure the LARGER one -- and the difference then came out positive and was
-    # emitted as an "unlisted subdirectories and files" candidate. That is
-    # already-removed ordinary WAL presented as reclaimable storage, and because the
-    # smaller SQL value also feeds accounted_bytes the closure stayed true while it
-    # happened. Only the negative sign took the drift path, so the shrink case the
-    # adjacent comment acknowledged was the one still landing in candidates.
-    #
-    # pg_wal is bounded by max_wal_size plus wal_keep_size, so a depth-0 scan of it is
-    # cheap -- it needs its own allowance rather than a share of another scan's, for
-    # the same reason every other closing scan does.
-    wal_host_dir = f"{pgdata_host.rstrip('/')}/pg_wal"
-    scan_budget.begin_closing_scan(WAL_DIRECTORY_SCAN_SECONDS)
-    wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)
-    # BRACKETED: a second pg_ls_waldir() read after the scan. One read before it was
-    # not enough -- that only moved the asymmetry, because WAL generated DURING the
-    # scan (up to 60 s) makes the directory figure exceed the earlier SQL total, and
-    # the difference was again emitted as unlisted/reclaimable WAL when it is ordinary
-    # top-level WAL. With a read either side, the listed figure at the scan's own
-    # instant is known to lie between them.
-    reclosing_wal = psql_json(
-        "SELECT row_to_json(q)::text FROM (SELECT "
-        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
-        db_user,
-        db_name,
-    )
-    if not reclosing_wal or "bytes" not in reclosing_wal[0]:
-        raise RuntimeError("wal_bytes_not_reconciled")
-    wal_bytes_after_scan = reclosing_wal[0]["bytes"]
-    # NOT a bracket, because WAL is not monotonic. Taking max(before, after) assumed
-    # the scan-time value lies between the endpoints, and it need not: WAL can grow
-    # during the scan and be recycled before the second read, so the directory figure
-    # can exceed BOTH totals and the excess ordinary WAL is emitted as reclaimable
-    # again. That makes this the fourth round on one quantity -- closing figure, then
-    # measure beside the read, then bracket -- each fix attacked by the next, because
-    # the error is not in any implementation but in asserting an exact classification
-    # over a quantity that cannot be pinned to one instant.
-    #
-    # So: classify only when the two reads AGREE, which is the one case where the
-    # scan can be paired to a single WAL snapshot. Otherwise emit no pg_wal candidate
-    # at all and record why. Refusing is stable under this line of attack in a way
-    # that a fifth correction term would not be -- there is no window left to point
-    # at -- and an unexplained figure is the honest outcome where a classified one
-    # would be a guess presented as a finding.
-    wal_snapshot_stable = wal_bytes_at_close == wal_bytes_after_scan
-    wal_listed_for_candidate = wal_bytes_after_scan
-    # accounted_bytes uses the figure taken after every scan, so it is genuinely the
-    # closing one.
-    wal_bytes_at_close = wal_bytes_after_scan
-    inventory["wal"]["bytes_at_window_close"] = wal_bytes_at_close
-    inventory["wal"]["directory_bytes_beside_sql_read"] = wal_dir_bytes_at_sql
-    inventory["wal"]["listed_bytes_before_directory_scan"] = closing_wal[0]["bytes"]
-    inventory["wal"]["listed_bytes_after_directory_scan"] = wal_bytes_after_scan
-    inventory["wal"]["listed_bytes_for_candidate"] = (
-        wal_listed_for_candidate if wal_snapshot_stable else None
-    )
-    inventory["wal"]["directory_paired_to_one_snapshot"] = wal_snapshot_stable
-    inventory["wal"]["listed_bytes_scan_bracket_width"] = abs(
-        wal_bytes_after_scan - closing_wal[0]["bytes"]
-    )
     pgdata_children_all = sorted(
         (row for row in closing_usage if row["path"].rstrip("/") != pgdata_host),
         key=lambda item: (-item["bytes"], item["path"]),
@@ -2692,6 +2683,24 @@ try:
                         "live_database_count": len(live_database_oids),
                     }
     inventory["postgres_base_directory_breakdown"] = base_breakdown
+    # One final SQL aggregate, after both closing directory scans. A live WAL directory
+    # is non-monotonic and no read-only primitive used here can snapshot it atomically,
+    # so sequential endpoint equality never authorizes an aggregate reclaim candidate.
+    # The retained closing-PGDATA child is compared directly with this final value only
+    # as a measurement width in the summary.
+    closing_wal = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT "
+        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
+        db_user,
+        db_name,
+    )
+    if not closing_wal or "bytes" not in closing_wal[0]:
+        raise RuntimeError("wal_bytes_not_reconciled")
+    inventory["wal"]["bytes_at_window_close"] = closing_wal[0]["bytes"]
+    inventory["wal"]["unlisted_directory_classification"] = {
+        "available": False,
+        "reason": "live_wal_cannot_be_snapshotted_read_only",
+    }
     # Re-read the filesystem too. The PGDATA bracket closes over the database, but a
     # sibling consumer -- a backup, a Docker layer, a host log -- can change during the
     # drill-down and the SQL inventory, and only a fresh `df` can see that. Closing on
@@ -2871,11 +2880,9 @@ try:
     other_databases_bytes = database_total_bytes_at_close - operating_database_bytes
     if other_databases_bytes < 0:
         raise RuntimeError("closing_database_total_output_invalid")
-    # The CLOSING WAL figure, for the same reason the PGDATA total is the closing one:
-    # every input to this arithmetic has to describe one state. Collecting
-    # bytes_at_window_close and then leaving accounted_bytes on the opening value put
-    # the candidate partition and the figure it explains on different sides of the
-    # accepted drift.
+    # Use the final WAL aggregate for headline accounting. It is deliberately not
+    # claimed to describe the same atomic state as the closing PGDATA walk: their
+    # direct difference is carried below as a non-reclaimable measurement width.
     wal_bytes = (
         inventory["wal"].get("bytes_at_window_close")
         if isinstance(inventory.get("wal"), dict)
@@ -3031,8 +3038,8 @@ try:
     ]
     # Every remainder in this section is a measured total minus figures measured by a
     # DIFFERENT instrument or at a DIFFERENT moment, so each one can come out negative:
-    # WAL recycled between the directory walk and pg_ls_waldir(), base/ changing between
-    # the two walks, children the row cap dropped. A negative cannot be a candidate --
+    # base/ changing between the two walks or children the row cap dropped. A negative
+    # cannot be a candidate --
     # there is no negative storage to reclaim -- but silently dropping it is what broke
     # the closure, repeatedly and in a receipt reporting success. So it becomes a NAMED
     # SIGNED TERM in the identity instead. This is one helper rather than a filter at
@@ -3059,32 +3066,14 @@ try:
     # inside unaccounted_bytes and appear in no candidate at all -- and an unexpected
     # large file directly under PGDATA is exactly the kind of thing this action exists
     # to surface, so it is the worst possible row to lose.
-    # pg_wal is excluded as accounted, but wal_bytes comes from pg_ls_waldir(), which
-    # lists only pg_wal's top-level ordinary files and documents that it excludes
-    # directories. pg_wal/archive_status and PostgreSQL 18's pg_wal/summaries are
-    # therefore inside neither figure, so the difference becomes its own candidate.
-    # wal_bytes is pg_ls_waldir()'s figure for the LIVE WAL directory, which on
-    # PostgreSQL 18 is pg_wal. Subtracting it from pg_xlog as well would treat a stale
-    # pg_xlog as though it had been measured: smaller than the live WAL it would vanish
-    # from the candidates entirely, larger and only its excess would show -- and an
-    # unexpected directory full of old WAL is exactly the reclaimable space this action
-    # is looking for. So pg_wal gets the subtraction and pg_xlog is reported whole.
-    # The BRACKETED figure for the candidate -- the larger end of the two reads either
-    # side of the pg_wal scan -- not the closing one. The candidate is a difference
-    # against a du measurement taken between those reads, so pairing it with a figure
-    # from outside the bracket reintroduces exactly the invented candidate the bracket
-    # exists to prevent. accounted_bytes still uses the closing figure.
-    wal_for_subtraction = wal_bytes
-    if isinstance(inventory.get("wal"), dict):
-        paired = inventory["wal"].get("listed_bytes_for_candidate")
-        if paired is not None:
-            wal_for_subtraction = paired
-    wal_snapshot_stable = (
-        inventory["wal"].get("directory_paired_to_one_snapshot", False)
-        if isinstance(inventory.get("wal"), dict)
-        else False
-    )
-    for name, subtract in (("pg_wal", wal_for_subtraction), ("pg_xlog", 0)):
+    # pg_wal is excluded as accounted, but no sequential read-only observations can
+    # classify the aggregate difference between its live directory and pg_ls_waldir()
+    # at one instant. Never turn that difference into a reclaim candidate. Keep the
+    # retained child guard and record only the direct walk-to-final-SQL width.
+    #
+    # pg_xlog is independent: PostgreSQL 18's live WAL total covers only pg_wal, so an
+    # unexpected stale pg_xlog directory is still reported whole.
+    for name in ("pg_wal", "pg_xlog"):
         wal_child = next(
             (
                 row
@@ -3093,59 +3082,29 @@ try:
             ),
             None,
         )
-        # For pg_wal, the candidate is computed from the measurement taken BESIDE the
-        # SQL read, and the walk-to-SQL movement becomes a signed term. Both figures
-        # are du measurements of the same directory at two instants, so their
-        # difference is temporal by construction and belongs nowhere near a reclaim
-        # candidate -- in either direction.
-        walk_figure = wal_child["bytes"] if wal_child is not None else None
-        if name == "pg_wal" and wal_child is not None:
-            wal_child = dict(wal_child, bytes=wal_dir_bytes_at_sql)
         if wal_child is None:
-            # pg_wal is REQUIRED, pg_xlog is not. The subtraction of wal_bytes happens
-            # only here, so a pg_wal that the size-based child cap dropped would skip
-            # it while the omitted-children aggregate still reports those bytes as an
-            # unaccounted candidate -- live, already-accounted WAL presented as a
-            # reclaim candidate, with the closure flag false and the receipt still
-            # reporting success. The data directory always has a WAL directory, so its
-            # absence from the retained children means the cap took it, which is a
-            # partition this action cannot honestly present.
+            # pg_wal is REQUIRED, pg_xlog is not. The data directory always has a WAL
+            # directory, so absence from the retained children means the cap took it,
+            # which is a partition this action cannot honestly present.
             #
             # pg_xlog genuinely does not exist on a PostgreSQL 18 cluster, and its
             # absence means only that there is no stale pre-10 directory to report.
             if name == "pg_wal":
                 raise RuntimeError("wal_directory_not_observed_in_data_directory")
             continue
-        # When pg_wal could not be paired to one snapshot, the whole difference is
-        # unresolvable rather than unlisted content: it goes to the closure as a
-        # signed term and NO candidate is emitted. The pg_xlog arm is unaffected --
-        # it subtracts nothing, so there is no second measurement to pair with.
-        if name == "pg_wal" and not wal_snapshot_stable:
-            unresolvable = wal_child["bytes"] - subtract
-            if unresolvable:
-                uncertain("pg_wal_unpairable_to_one_snapshot", unresolvable, wal_child["path"])
+        if name == "pg_wal":
+            uncertain(
+                "pg_wal_pgdata_walk_to_window_close",
+                wal_child["bytes"] - wal_bytes,
+                wal_child["path"],
+            )
             continue
-        wal_unlisted = wal_child["bytes"] - subtract
-        label = (
-            "subdirectories and files pg_ls_waldir does not list"
-            if subtract
-            else "not the live WAL directory on PostgreSQL 18; unexpected storage"
-        )
-        # Still signed, for the residue: pg_wal's du figure and pg_ls_waldir()'s sum
-        # are now taken at essentially the same instant, but they remain two different
-        # instruments, so a small difference either way is possible and is temporal
-        # rather than storage.
         remainder(
-            f"{wal_child['path']} ({label})",
-            wal_unlisted,
-            term=f"{name}_measurement_drift",
+            f"{wal_child['path']} "
+            "(not the live WAL directory on PostgreSQL 18; unexpected storage)",
+            wal_child["bytes"],
+            term="pg_xlog_measurement_drift",
         )
-        # The walk-to-SQL movement, as its own signed term. The inside candidates now
-        # describe pg_wal as it was beside the SQL read, while the PGDATA total they
-        # partition came from the walk, so the difference has to be named or the
-        # closure is out by it.
-        if walk_figure is not None and walk_figure != wal_child["bytes"]:
-            uncertain(f"{name}_walk_to_sql_drift", walk_figure - wal_child["bytes"], wal_child["path"])
     # `base` is excluded as accounted, but pg_database_size scans base/<database OID>
     # rather than the whole directory, and the temp figure covers base/pgsql_tmp's
     # ordinary files. Anything else under base -- an orphaned OID directory from a
@@ -3372,11 +3331,6 @@ try:
     uncertain("filesystem_minus_directory_scan", residual)
     if metric_difference is not None:
         uncertain("database_size_du_versus_st_size", metric_difference)
-    wal_bracket = inventory.get("wal", {})
-    if isinstance(wal_bracket, dict):
-        uncertain(
-            "wal_listed_bracket", wal_bracket.get("listed_bytes_scan_bracket_width") or 0
-        )
     databases_closing = inventory.get("databases_at_window_close", {})
     if isinstance(databases_closing, dict):
         uncertain(
@@ -3400,7 +3354,16 @@ try:
     # therefore null rather than false: "not asserted", not "disproved". The shortfall
     # and the uncertainty are still reported, because they are still the best available
     # description of what was measured.
-    candidate_list_complete = bool(base_breakdown_used)
+    candidate_list_incomplete_reasons: list[str] = []
+    if not base_breakdown_used:
+        candidate_list_incomplete_reasons.append(
+            "postgres_base_directory_breakdown_unavailable"
+        )
+    if root_rows_omitted:
+        candidate_list_incomplete_reasons.append(
+            "volume_directory_usage_scan_truncated"
+        )
+    candidate_list_complete = bool(base_breakdown_used) and root_rows_omitted == 0
     accounted_within_uncertainty = (
         abs(candidate_shortfall) <= measurement_uncertainty
         if candidate_list_complete
@@ -3439,9 +3402,11 @@ try:
         # place the error could not be seen.
         "candidate_shortfall_bytes": candidate_shortfall,
         "candidate_list_complete": candidate_list_complete,
+        "candidate_list_incomplete_reasons": candidate_list_incomplete_reasons,
         "candidates_account_for_unaccounted_within_uncertainty": (
             accounted_within_uncertainty
         ),
+        "directory_scan_path_attribution_complete": root_rows_omitted == 0,
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         # Which figure the outside candidates were actually built against, and how wide
         # the unresolvable part is. The root walk visits the data directory at an
@@ -3478,7 +3443,7 @@ try:
             and abs(residual) > intra_scan_drift
         ),
         "largest_unaccounted_directories": candidates[:10],
-        # The totals above sum the COMPLETE candidate list, so hiding the tail without
+        # The totals above sum the full constructed candidate list, so hiding the tail without
         # saying so leaves an operator unable to reconcile the figure the method claims
         # to partition -- and a normal PGDATA has enough unaccounted cluster
         # directories to make that likely rather than exceptional.
@@ -3491,21 +3456,26 @@ try:
             "accounted_bytes = operating_database_bytes + other_databases_bytes + "
             "wal_bytes + current PostgreSQL temporary-directory bytes; "
             "unaccounted_bytes = volume_used_bytes - accounted_bytes. "
-            "largest_unaccounted_directories is a non-overlapping partition: each row "
+            "largest_unaccounted_directories is numerically non-overlapping across its "
+            "retained rows: each row "
             "reports its own total minus the totals of its scanned children, the "
             "measured PostgreSQL data-directory size is subtracted from the deepest "
             "scanned directory that contains it, and the data directory itself is "
             "excluded. Directories UNDER it are not all excluded: only the accounted "
             "ones are, so those an accounted figure does not cover (global, pg_xact, "
             "pg_multixact, pg_stat, pg_stat_tmp, pg_xlog, replication-slot state, "
-            "pg_wal's unlisted subdirectories, base/ entries that are not live "
+            "base/ entries that are not live "
             "database directories, relative log files, and files at the data "
             "directory's own root) appear as rows flagged inside_data_directory. No "
             "row counts the database twice, and no row counts another row's bytes. "
             "Rows outside the data directory sum to non_database_directory_bytes; rows "
             "inside it sum to unaccounted_inside_data_directory_bytes. Some of the "
-            "latter must never be deleted -- they are listed so the summary can locate "
-            "every byte it reports as unaccounted, not as reclaim suggestions. "
+            "latter must never be deleted -- they are location evidence, not reclaim "
+            "suggestions. The depth-2 root stream is bounded; retained ancestors keep "
+            "numerical byte coverage, but when records_omitted_by_cap is nonzero the "
+            "receipt does not claim complete path ownership or enumeration. Its "
+            "omitted_record_cumulative_bytes is diagnostic only because ancestor and "
+            "descendant records may overlap, and it is never a candidate or uncertainty. "
             "The base/ rows come from postgres_base_directory_breakdown, a depth-1 du "
             "scan that identifies live database directories by OID, so each entry that "
             "is NOT a live database is named by path. They are NOT base/'s du total "
@@ -3532,7 +3502,8 @@ try:
             "not explain -- and measurement_uncertainty_bytes is the summed width of "
             "every window involved, itemised in measurement_uncertainty_terms: the "
             "volume's movement across the window and across the root scan, the PGDATA "
-            "and base/ and WAL brackets, the database total's movement, df against du "
+            "and base/ brackets, the direct pg_wal PGDATA-walk-to-window-close width, "
+            "the database total's movement, df against du "
             "(filesystem_minus_directory_scan_bytes), and du's allocated blocks against "
             "pg_database_size's st_size sums (database_size_metric_difference_bytes). "
             "candidates_account_for_unaccounted_within_uncertainty is whether the "
@@ -3543,11 +3514,11 @@ try:
             "the figure, which is what a large directory missing from the scan looks "
             "like. "
             "That comparison is only made when candidate_list_complete is true. An "
-            "unavailable base breakdown removes base/'s rows from the list entirely, so "
-            "the shortfall then contains a gap this action left knowingly, and a known "
-            "gap cannot be told apart from the unknown one the check is for. The "
-            "verdict is null in that case -- not asserted, not disproved -- while the "
-            "shortfall and uncertainty are still reported. "
+            "unavailable base breakdown removes base/'s rows from the list entirely, "
+            "and root-stream truncation prevents complete path attribution. Either "
+            "condition is named in candidate_list_incomplete_reasons, and makes the "
+            "verdict null -- not asserted, not disproved -- while the shortfall and "
+            "uncertainty are still reported. "
             "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is "
@@ -3612,8 +3583,5 @@ receipt["tolerated_file_churn"] = list(tolerated_churn)
 receipt["directory_scans_degraded"] = any(
     entry.get("accepted_possibly_undercounting") for entry in tolerated_churn
 )
-receipt["failures"] = sorted(set(failures))
-receipt["status"] = "success" if not failures else "stopped"
-print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
-sys.exit(0 if not failures else 1)
+emit_receipt()
 PY
