@@ -708,11 +708,31 @@ The exclusion was unimplementable as written.
 PR1 therefore **separates explanation construction out of the scoring path**: each
 `_fit_*` function returns its score, tier and confidence, and a distinct
 `_explain_*` function builds the dictionary from the same `SystemVectors`.
-`archetype_model_sha256` hashes the `_fit_*` functions and excludes the
-`_explain_*` ones. That is a behaviour-preserving refactor of code PR1 already
-changes, and it is what makes the stated exclusion true rather than aspirational.
-A test asserts the digest is unchanged by an edit confined to an `_explain_*`
-function and changed by any edit to a `_fit_*` one.
+
+**The digest then hashes the complete scoring call graph, not the `_fit_*` bodies
+alone (review round 26).** Hashing only those bodies leaves score-affecting code
+outside the digest: the fits call `_quality`, `_clamp` and `tier_of`
+(`scripts/v3_system_archetype_model.py:65-84`), and `fit_all` is the **dispatcher**
+that decides which fit applies to each key (`:148`). A semantic edit to any of
+them — a changed clamp bound, a different quality rule, a reordered tier
+threshold, a key routed to the other fit — would change persisted scores while
+leaving `archetype_model_sha256` identical, and F4 would compare outputs from
+**different models as equivalent**. That is the false-"comparable" direction, which
+the round-35 asymmetry argument identified as the one that must never happen: a
+silently wrong comparison presented to the user as fact.
+
+So the digest covers `fit_all` and **every function reachable from it**, with the
+`_explain_*` functions as the only exclusion. Determined by walking the call graph
+rather than by a hand-maintained list, because a list is one refactor away from
+being incomplete and would fail in the dangerous direction. A helper added to the
+scoring path later is therefore covered automatically.
+
+That is a behaviour-preserving refactor of code PR1 already changes, and it makes
+the stated exclusion true rather than aspirational. Two tests: the digest is
+**unchanged** by an edit confined to an `_explain_*` function, and **changed** by an
+edit to each of `fit_all`, `_fit_anchored`, `_fit_flexible`, `_quality`, `_clamp`
+and `tier_of` — one case per covered function, since "the call graph" is only as
+real as the assertions behind it.
 
 That keeps the property round 19 was after — a change to **how scores are
 computed** always moves the digest — while a change to how they are stored,
@@ -2853,3 +2873,28 @@ does not bind, because the ROADMAP outranks it.
    10,000-row window and drives an excessive `OFFSET`. Both pairs are now required,
    accepted and rejected, with that reasoning recorded so neither is dropped as
    duplicative of the other.
+
+### Review round 26 (2026-10-11)
+
+1. **P1 — Hash the complete scoring call graph** → correct, and it fails in the
+   **dangerous** direction, which is what makes it the more serious of the two errors
+   this field has had. Round 25 narrowed the digest to the `_fit_*` function bodies
+   and left score-affecting code outside it: the fits call `_quality`, `_clamp` and
+   `tier_of` (`scripts/v3_system_archetype_model.py:65-84`), and `fit_all` is the
+   **dispatcher** deciding which fit applies to each key (`:148`). A changed clamp
+   bound, a different quality rule, a reordered tier threshold or a key routed to the
+   other fit would all change persisted scores while leaving `archetype_model_sha256`
+   identical — and F4 would then compare outputs from **different models as
+   equivalent**.
+   Round 35 settled that this field must err towards suppressing a comparison rather
+   than allowing a wrong one, because a false "not comparable" loses a feature
+   visibly while a false "comparable" is a silently wrong comparison shown as fact.
+   Every previous correction to this digest narrowed it; this one is the first to
+   widen it, and that is the right direction for the risk.
+   The digest now covers `fit_all` and **every function reachable from it**, with the
+   `_explain_*` functions as the only exclusion, determined by **walking the call
+   graph** rather than from a hand-maintained list — a list is one refactor away from
+   being incomplete and would fail silently in the dangerous direction, whereas a
+   graph walk covers a helper added later automatically. Tests assert one changed
+   case per covered function, because "the call graph" is only as real as the
+   assertions behind it.
