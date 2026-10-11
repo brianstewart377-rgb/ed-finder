@@ -690,11 +690,19 @@ rule** are all declared in `PROFILE_SPEC` and therefore hashed into
 `ranking_sha256`; the route's `Query(...)` declarations are built from those
 spec constants rather than typed beside them, and the identity test mutates the
 default, the accepted-floor set, the window size and the key definition in turn
-and asserts the digest changes each time. The response model gains **one
-additive field**, `is_truncated: bool`, on `ArchetypeRankingsResponse`
+and asserts the digest changes each time. The response models gain
+**additive fields**: `is_truncated: bool` on `ArchetypeRankingsResponse`
 (`apps/api/src/models.py:911-924` has `extra='forbid'`, so returning the key
 without the field would be a 500, and omitting it would make a saturated
-`total=10000` indistinguishable from an exact one). The OpenAPI parameter
+`total=10000` indistinguishable from an exact one), and the archetype
+**product identity** — `archetype_version` and `archetype_manifest_sha256`
+(hex) of the published product the scores came from — on both the rankings
+envelope and the local-search envelope beside the existing `ranking_version` /
+`ranking_sha256` / generation fields. The ranking hash covers score selection,
+modifiers, filters and ordering but not the model coefficients, so clients that
+persist or compare scores (the F4 design's saved surfaces) need the product
+identity as well; the explanation route's expected-identity parameters
+(section 4.1) take the same values. The OpenAPI parameter
 constraints and response schema change so PR1
 regenerates all three typed clients (`apps/web/src/lib/api/generated/*` and
 `packages/api-client/src/generated/api.gen.ts`), and the tests cover the default
