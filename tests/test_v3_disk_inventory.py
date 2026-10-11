@@ -97,7 +97,7 @@ def _run_inventory_action(
     du_below_df: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
-    body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
+    body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
         "\nPY\n", 1
     )[0]
     program = tmp_path / "action.py"
@@ -1688,6 +1688,121 @@ def test_v3_disk_inventory_bounds_the_tablespace_refusal_path(tmp_path):
         inventory["summary"]["summary_failed"]
         == "tablespaces_present_single_filesystem_accounting_invalid"
     )
+
+
+def test_v3_disk_inventory_carries_negative_remainders_as_signed_terms(tmp_path):
+    """A remainder that comes out negative must be named, not dropped.
+
+    Every remainder here is a measured total minus figures measured by a different
+    instrument or at a different moment -- WAL recycled between the directory walk and
+    pg_ls_waldir(), base/ changing between the two walks, children the row cap dropped
+    -- so each can come out negative. A negative cannot be a candidate, since there is
+    no negative storage to reclaim, but silently dropping it broke the closure in a
+    receipt reporting success, and a shrink even turned WAL that had already been
+    recycled into an "unlisted storage" candidate. One shared helper, because the same
+    `if x > 0` mistake was found at four separate sites.
+    """
+    source = _read(ACTION)
+    assert "def remainder(path: str, value: int, *, term: str) -> None:" in source
+    assert "closure_adjustments: list[dict[str, Any]] = []" in source
+    # Every remainder goes through it, and none keeps its own positive-only filter.
+    assert source.count("        remainder(") + source.count("    remainder(") >= 4
+    assert "if wal_unlisted > 0:" not in source
+    assert "if pgdata_root_files > 0:" not in source
+    assert 'if base_breakdown["other_bytes"] > 0:' not in source
+    assert "if tail > 0:" not in source
+    # The accepted base drift is a term too: the add-backs come from the base walk
+    # while the outer partition removed base as measured by the PGDATA walk, so any
+    # drift inside the tolerance shifted the candidate total by exactly that amount.
+    assert '"term": "base_directory_scan_drift"' in source
+    assert (
+        'base_drift = base_breakdown["bytes_at_pgdata_scan"] - base_breakdown["bytes"]'
+        in source
+    )
+    # And the identity includes their sum.
+    assert "+ closure_adjustment_bytes" in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    # Nothing is negative in the coherent fixture, so the term is zero and the closure
+    # is unaffected -- which is what makes it a safe addition rather than a fudge.
+    assert summary["closure_adjustments"] == []
+    assert summary["closure_adjustment_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_partitions_across_a_row_cap_ancestor_gap():
+    """The retained set is a bounded top-k, so it is not ancestor-closed.
+
+    The cap can keep a child while dropping its parent -- two equal-sized rows either
+    side of the cutoff, the tie-break keeping the child. Subtracting only when the
+    immediate parent survived then counted that child's bytes twice: once as its own
+    row and again inside whichever ancestor the cap did keep, inflating the candidate
+    total and breaking the closure after a scan that succeeded.
+    """
+    source = _read(ACTION)
+    block = source.split("def exclusive_usage(")[1].split("\ndef ")[0]
+    # Nearest surviving ancestor, not immediate parent.
+    assert "while ancestor != \"/\":" in block
+    assert "if ancestor in totals:" in block
+    assert "parent = path.rsplit" not in block
+
+    # Exercise the function itself on an ancestor gap: /var/lib dropped by the cap.
+    namespace: dict[str, object] = {"Any": object}
+    exec(  # noqa: S102 - running the action's own helper is the point of the test
+        "from typing import Any\n" + source[source.index("def exclusive_usage(") :]
+        .split("\ndef ")[0],
+        namespace,
+    )
+    exclusive_usage = namespace["exclusive_usage"]
+    rows = [
+        {"path": "/", "bytes": 1000},
+        {"path": "/var", "bytes": 900},
+        {"path": "/var/lib/docker", "bytes": 800},
+    ]
+    result = exclusive_usage(rows)  # type: ignore[operator]
+    # 800 is attributed to /var even though /var/lib is missing, so the exclusive
+    # sizes still sum to the scanned root's total exactly once.
+    assert result == {"/": 100, "/var": 100, "/var/lib/docker": 800}
+    assert sum(result.values()) == 1000
+
+
+def test_v3_disk_inventory_ranks_indexes_globally_before_capping(tmp_path):
+    """A large index on a relation outside the top 20 was invisible and unreported.
+
+    The 21st relation can be mostly one very large index while the first 20 are larger
+    only because of heap data. Drawing indexes from the largest relations meant that
+    index was absent while indexes_truncated still said false -- an omission with no
+    indication it happened, in a receipt about reclaiming space.
+    """
+    source = _read(ACTION)
+    index_query = source.split('inventory["indexes"] = psql_json(')[1].split(
+        'inventory["indexes_truncated"]'
+    )[0]
+    assert "WITH largest AS" not in index_query
+    assert "FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid" in index_query
+    assert "ORDER BY pg_relation_size(i.oid) DESC" in index_query
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["index_inventory_scope"] == "all_user_indexes_ranked_by_size"
+    assert inventory["index_inventory_limit"] == 200
+    assert inventory["indexes_truncated"] is False
+
+
+def test_v3_disk_inventory_writes_no_bytecode():
+    """The receipt states filesystem_writes_performed: false unconditionally.
+
+    Without -B, importing `platform` or any stdlib module whose bytecode cache is
+    missing or stale writes .pyc files -- and this action runs as root. A read-only
+    claim has to be true to be worth making.
+    """
+    source = _read(ACTION)
+    assert '"$PYTHON_BIN" -B -c' in source
+    assert "exec \"$PYTHON_BIN\" -B - <<'PY'" in source
+    assert '"filesystem_writes_performed":false' in source
 
 
 def test_v3_disk_inventory_bounds_replication_slots_by_wal_held(tmp_path):

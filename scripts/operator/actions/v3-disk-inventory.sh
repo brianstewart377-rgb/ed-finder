@@ -10,12 +10,16 @@ else
     printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-disk-inventory","status":"stopped","failures":["python3_unavailable"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
     exit 1
 fi
-if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+# -B on both interpreters. Every receipt states filesystem_writes_performed: false
+# unconditionally, and this action runs as root; without -B, importing `platform` or any
+# stdlib module whose bytecode cache is missing or stale writes .pyc files under the
+# runtime's directories. Small, but a read-only claim has to be true to be worth making.
+if ! "$PYTHON_BIN" -B -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
     printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-disk-inventory","status":"stopped","failures":["python314_required"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
     exit 1
 fi
 
-exec "$PYTHON_BIN" - <<'PY'
+exec "$PYTHON_BIN" -B - <<'PY'
 from __future__ import annotations
 
 import contextlib
@@ -304,18 +308,31 @@ def exclusive_usage(rows: list[dict[str, Any]]) -> dict[str, int]:
     so `/var`, `/var/lib` and `/var/lib/docker` all count the same bytes. Ranking those
     rows directly makes the ancestors of the largest subtree the top answers, which says
     nothing about where the bytes are. Each reported directory's exclusive size is its
-    own total minus the totals of its reported children; the deepest reported rows keep
-    their full total because nothing below them was measured separately. The exclusive
-    sizes sum to the scanned root's total exactly once.
+    own total minus the totals of the reported descendants that have no NEARER reported
+    ancestor; the deepest reported rows keep their full total because nothing below them
+    was measured separately. The exclusive sizes sum to the scanned root's total exactly
+    once.
+
+    Nearest reported ancestor, not immediate parent. The reported set comes out of a
+    bounded top-k, so it is not ancestor-closed: the cap can retain a child while
+    dropping its parent -- two equal-sized rows either side of the cutoff, with the
+    tie-break keeping the child. Subtracting only when the immediate parent survived
+    then left that child's bytes counted twice, once as its own row and again inside
+    whichever ancestor the cap did keep, inflating the candidate total and breaking the
+    closure after a scan that succeeded. Attributing to the nearest surviving ancestor
+    keeps the partition exact whatever the cap drops.
     """
     totals = {row["path"].rstrip("/") or "/": row["bytes"] for row in rows}
     child_bytes: dict[str, int] = {}
     for path, size in totals.items():
         if path == "/":
             continue
-        parent = path.rsplit("/", 1)[0] or "/"
-        if parent in totals:
-            child_bytes[parent] = child_bytes.get(parent, 0) + size
+        ancestor = path
+        while ancestor != "/":
+            ancestor = ancestor.rsplit("/", 1)[0] or "/"
+            if ancestor in totals:
+                child_bytes[ancestor] = child_bytes.get(ancestor, 0) + size
+                break
     return {path: size - child_bytes.get(path, 0) for path, size in totals.items()}
 
 
@@ -1378,26 +1395,39 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "relations", exc)
 
 try:
+    # Ranked over EVERY user index, then capped -- not drawn from the largest relations.
+    # Restricting to the top 20 relations first made the bound mean something other
+    # than it said: the 21st relation can be mostly one very large index while the
+    # first 20 are larger only because of heap data, so that index was absent and
+    # indexes_truncated still reported false. In a receipt whose purpose is finding
+    # reclaimable space, a large index invisible with no indication it was skipped is
+    # the worst shape of omission. Ranking globally and capping afterwards makes
+    # indexes_truncated describe the actual index population.
     inventory["indexes"] = psql_json(
-        "SELECT row_to_json(q)::text FROM (WITH largest AS ("
-        + largest_relations_sql
-        + ") SELECT largest.nspname AS schema, largest.relname AS \"table\", "
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT n.nspname AS schema, c.relname AS \"table\", "
         "i.relname AS index_name, pg_relation_size(i.oid)::bigint AS index_bytes, "
         "x.indisunique AS is_unique, x.indisprimary AS is_primary, "
         "s.idx_scan::bigint AS idx_scan, pg_get_indexdef(i.oid) AS definition "
-        "FROM largest JOIN pg_index x ON x.indrelid=largest.oid "
-        "JOIN pg_class i ON i.oid=x.indexrelid "
+        "FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid "
+        "JOIN pg_class c ON c.oid=x.indrelid "
+        "JOIN pg_namespace n ON n.oid=c.relnamespace "
         "LEFT JOIN pg_stat_user_indexes s ON s.indexrelid=i.oid "
-        "ORDER BY pg_relation_size(i.oid) DESC, largest.nspname, "
-        "largest.relname, i.relname "
-        # Indexes per table are unlimited in PostgreSQL, so capping the relations does
-        # not cap this result. One extra row is fetched to detect truncation, and the
-        # largest indexes come first, so a cut loses the least interesting rows.
+        "WHERE c.relkind IN ('r','p','m') "
+        "AND n.nspname NOT IN ('pg_catalog','information_schema') "
+        "AND n.nspname NOT LIKE 'pg_toast%' "
+        "ORDER BY pg_relation_size(i.oid) DESC, n.nspname, c.relname, i.relname "
+        # Indexes are unlimited in PostgreSQL, so this needs its own bound. One extra
+        # row detects truncation, and the largest come first, so a cut loses the least
+        # interesting rows rather than an arbitrary slice.
         f"LIMIT {INDEX_INVENTORY_LIMIT + 1}) q",
         db_user,
         db_name,
     )
     inventory["indexes_truncated"] = len(inventory["indexes"]) > INDEX_INVENTORY_LIMIT
+    inventory["indexes"] = inventory["indexes"][:INDEX_INVENTORY_LIMIT]
+    inventory["index_inventory_limit"] = INDEX_INVENTORY_LIMIT
+    inventory["index_inventory_scope"] = "all_user_indexes_ranked_by_size"
     inventory["indexes_limit"] = INDEX_INVENTORY_LIMIT
     if inventory["indexes_truncated"]:
         inventory["indexes"] = inventory["indexes"][:INDEX_INVENTORY_LIMIT]
@@ -1907,6 +1937,7 @@ try:
             else:
                 live_bytes = 0
                 temp_dir_bytes = 0
+                observed_oids: set[str] = set()
                 unreferenced: list[dict[str, Any]] = []
                 for row in base_usage:
                     if row["path"].rstrip("/") == base_path:
@@ -1914,6 +1945,7 @@ try:
                     name = row["path"].rstrip("/").rsplit("/", 1)[-1]
                     if name in live_database_oids:
                         live_bytes += row["bytes"]
+                        observed_oids.add(name)
                     elif name == "pgsql_tmp":
                         temp_dir_bytes += row["bytes"]
                     else:
@@ -1933,26 +1965,47 @@ try:
                     - sum(row["bytes"] for row in unreferenced)
                     - base_omitted_bytes
                 )
-                base_breakdown = {
-                    "available": True,
-                    "path": base_path,
-                    "bytes": base_total,
-                    "bytes_at_pgdata_scan": base_row["bytes"],
-                    "live_database_directory_bytes": live_bytes,
-                    "temporary_directory_bytes": temp_dir_bytes,
-                    "unreferenced_directory_bytes": sum(
-                        row["bytes"] for row in unreferenced
-                    ),
-                    "unreferenced_entries": sorted(
-                        unreferenced, key=lambda item: (-item["bytes"], item["path"])
-                    )[:40],
-                    "unreferenced_entry_count": len(unreferenced),
-                    "other_bytes": other_bytes,
-                    "entries_omitted_by_cap": base_omitted,
-                    "entries_omitted_bytes": base_omitted_bytes,
-                    "metric": "du_allocated_blocks",
-                    "live_database_count": len(live_database_oids),
-                }
+                if observed_oids != set(live_database_oids):
+                    # A live database directory the SIZE-based row cap dropped is not in
+                    # live_database_directory_bytes, so its bytes land in the
+                    # omitted-entry candidate while accounted_bytes still subtracts that
+                    # database's full pg_database_size. The resulting negative metric
+                    # difference can even keep the closure flag true while accounted
+                    # live storage sits among the candidate bytes -- presented, in a
+                    # receipt about reclaiming space, as space to reclaim. A breakdown
+                    # that did not observe every live database cannot classify base/,
+                    # so it is refused, naming which OIDs were missed.
+                    base_breakdown = {
+                        "available": False,
+                        "reason": "live_database_directories_not_all_observed",
+                        "live_database_count": len(live_database_oids),
+                        "observed_live_database_count": len(observed_oids),
+                        "unobserved_live_database_oids": sorted(
+                            set(live_database_oids) - observed_oids
+                        )[:40],
+                        "entries_omitted_by_cap": base_omitted,
+                    }
+                else:
+                    base_breakdown = {
+                        "available": True,
+                        "path": base_path,
+                        "bytes": base_total,
+                        "bytes_at_pgdata_scan": base_row["bytes"],
+                        "live_database_directory_bytes": live_bytes,
+                        "temporary_directory_bytes": temp_dir_bytes,
+                        "unreferenced_directory_bytes": sum(
+                            row["bytes"] for row in unreferenced
+                        ),
+                        "unreferenced_entries": sorted(
+                            unreferenced, key=lambda item: (-item["bytes"], item["path"])
+                        )[:40],
+                        "unreferenced_entry_count": len(unreferenced),
+                        "other_bytes": other_bytes,
+                        "entries_omitted_by_cap": base_omitted,
+                        "entries_omitted_bytes": base_omitted_bytes,
+                        "metric": "du_allocated_blocks",
+                        "live_database_count": len(live_database_oids),
+                    }
     inventory["postgres_base_directory_breakdown"] = base_breakdown
     # Re-read the filesystem too. The PGDATA bracket closes over the database, but a
     # sibling consumer -- a backup, a Docker layer, a host log -- can change during the
@@ -2110,6 +2163,30 @@ try:
         if row["path"].rstrip("/").rsplit("/", 1)[-1] not in ACCOUNTED_PGDATA_CHILDREN
         and row["bytes"] > 0
     ]
+    # Every remainder in this section is a measured total minus figures measured by a
+    # DIFFERENT instrument or at a DIFFERENT moment, so each one can come out negative:
+    # WAL recycled between the directory walk and pg_ls_waldir(), base/ changing between
+    # the two walks, children the row cap dropped. A negative cannot be a candidate --
+    # there is no negative storage to reclaim -- but silently dropping it is what broke
+    # the closure, repeatedly and in a receipt reporting success. So it becomes a NAMED
+    # SIGNED TERM in the identity instead. This is one helper rather than a filter at
+    # each site because the same `if x > 0` mistake has now been found at four of them;
+    # a shared route makes the next remainder correct by construction.
+    closure_adjustments: list[dict[str, Any]] = []
+
+    def remainder(path: str, value: int, *, term: str) -> None:
+        if value > 0:
+            inside.append(
+                {
+                    "path": path,
+                    "exclusive_bytes": value,
+                    "inside_data_directory": True,
+                }
+            )
+        elif value < 0:
+            closure_adjustments.append(
+                {"term": term, "bytes": value, "path": path}
+            )
     # PGDATA also holds files directly at its root -- PG_VERSION, postgresql.conf,
     # postmaster.pid, and anything anyone has ever left there. The depth-1 root total
     # includes them, but iterating only the child directories drops them, while the
@@ -2144,19 +2221,22 @@ try:
         if wal_child is None:
             continue
         wal_unlisted = wal_child["bytes"] - subtract
-        if wal_unlisted > 0:
-            label = (
-                "subdirectories and files pg_ls_waldir does not list"
-                if subtract
-                else "not the live WAL directory on PostgreSQL 18; unexpected storage"
-            )
-            inside.append(
-                {
-                    "path": f"{wal_child['path']} ({label})",
-                    "exclusive_bytes": wal_unlisted,
-                    "inside_data_directory": True,
-                }
-            )
+        label = (
+            "subdirectories and files pg_ls_waldir does not list"
+            if subtract
+            else "not the live WAL directory on PostgreSQL 18; unexpected storage"
+        )
+        # Signed. `du` visits pg_wal during the closing PGDATA walk and
+        # pg_ls_waldir() runs after it, so WAL written in between makes this
+        # negative. Dropping it then left the closure false; worse, a shrink turned
+        # ordinary WAL that had already been recycled into an "unlisted storage"
+        # candidate. Neither is reclaimable space, and the signed term says which
+        # way the WAL moved.
+        remainder(
+            f"{wal_child['path']} ({label})",
+            wal_unlisted,
+            term=f"{name}_measurement_drift",
+        )
     # `base` is excluded as accounted, but pg_database_size scans base/<database OID>
     # rather than the whole directory, and the temp figure covers base/pgsql_tmp's
     # ordinary files. Anything else under base -- an orphaned OID directory from a
@@ -2189,6 +2269,23 @@ try:
             base_breakdown["live_database_directory_bytes"]
             + base_breakdown["temporary_directory_bytes"]
         ) - (operating_database_bytes + other_databases_bytes + temp_bytes)
+        # The accepted base drift, as a signed term. The add-backs below are measured by
+        # the BASE walk while the outer partition removed base as an accounted child
+        # measured by the PGDATA walk, so any nonzero drift -- including drift well
+        # inside the tolerance that is deliberately accepted -- shifts the candidate
+        # total by exactly that amount and made the closure false in an otherwise
+        # correct receipt. Requiring equality instead would fail the inventory on
+        # ordinary database activity, which is what the tolerance exists to prevent, so
+        # the drift is carried rather than refused.
+        base_drift = base_breakdown["bytes_at_pgdata_scan"] - base_breakdown["bytes"]
+        if base_drift:
+            closure_adjustments.append(
+                {
+                    "term": "base_directory_scan_drift",
+                    "bytes": base_drift,
+                    "path": base_breakdown["path"],
+                }
+            )
         # Named individually: "base/16401 is not a live database" is actionable in a
         # way that a lump remainder never is.
         for row in base_breakdown["unreferenced_entries"]:
@@ -2202,27 +2299,19 @@ try:
         tail = base_breakdown["unreferenced_directory_bytes"] - sum(
             row["bytes"] for row in base_breakdown["unreferenced_entries"]
         )
-        if tail > 0:
-            inside.append(
-                {
-                    "path": (
-                        f"{base_breakdown['path']} (further entries that are not live "
-                        "database directories)"
-                    ),
-                    "exclusive_bytes": tail,
-                    "inside_data_directory": True,
-                }
-            )
-        if base_breakdown["other_bytes"] > 0:
-            inside.append(
-                {
-                    "path": (
-                        f"{base_breakdown['path']} (files directly in this directory)"
-                    ),
-                    "exclusive_bytes": base_breakdown["other_bytes"],
-                    "inside_data_directory": True,
-                }
-            )
+        remainder(
+            (
+                f"{base_breakdown['path']} (further entries that are not live "
+                "database directories)"
+            ),
+            tail,
+            term="base_unreferenced_tail",
+        )
+        remainder(
+            f"{base_breakdown['path']} (files directly in this directory)",
+            base_breakdown["other_bytes"],
+            term="base_direct_files",
+        )
         # Entries the row cap dropped get their own aggregate candidate. other_bytes
         # subtracts them so they are not mislabelled as files sitting directly in
         # base/, but subtracting without adding back deleted them from the partition
@@ -2247,14 +2336,11 @@ try:
         - sum(row["bytes"] for row in pgdata_children)
         - pgdata_children_omitted_bytes
     )
-    if pgdata_root_files > 0:
-        inside.append(
-            {
-                "path": f"{data_dir} (files directly in this directory)",
-                "exclusive_bytes": pgdata_root_files,
-                "inside_data_directory": True,
-            }
-        )
+    remainder(
+        f"{data_dir} (files directly in this directory)",
+        pgdata_root_files,
+        term="postgres_data_directory_direct_files",
+    )
     # And the PGDATA children the row cap dropped, for the same reason as base/'s. The
     # subtraction above stops them being reported as files directly in the data
     # directory, but the outside partition has already removed the whole PGDATA total,
@@ -2336,6 +2422,7 @@ try:
     #   filesystem_minus_directory_scan_bytes -- df against du, for the whole volume.
     post_scan_volume_drift = volume_used - volume_used_at_scan
     unaccounted_at_scan = volume_used_at_scan - accounted_bytes
+    closure_adjustment_bytes = sum(item["bytes"] for item in closure_adjustments)
     candidate_total = (
         non_database_directory_bytes + unaccounted_inside_data_directory_bytes
     )
@@ -2353,6 +2440,11 @@ try:
         "post_scan_volume_drift_bytes": post_scan_volume_drift,
         "database_size_metric_difference_bytes": metric_difference,
         "candidate_total_bytes": candidate_total,
+        # Each one is a signed difference between two measurements of the same storage,
+        # taken by different instruments or at different moments. They are part of the
+        # identity, not commentary on it, and none of them is reclaimable space.
+        "closure_adjustments": closure_adjustments,
+        "closure_adjustment_bytes": closure_adjustment_bytes,
         # Stated, not implied. When the breakdown is unavailable the metric difference
         # is unknown, so the closure cannot be asserted -- and saying so is the point.
         #
@@ -2368,7 +2460,11 @@ try:
         "candidates_partition_unaccounted_at_scan": (
             None
             if metric_difference is None
-            else candidate_total + metric_difference + residual == unaccounted_at_scan
+            else candidate_total
+            + metric_difference
+            + residual
+            + closure_adjustment_bytes
+            == unaccounted_at_scan
         ),
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         "non_database_directory_bytes": non_database_directory_bytes,
@@ -2428,13 +2524,20 @@ try:
             "where up to the whole reconciliation tolerance could hide. The identity "
             "the receipt asserts is candidate_total_bytes + "
             "database_size_metric_difference_bytes + "
-            "filesystem_minus_directory_scan_bytes == "
+            "filesystem_minus_directory_scan_bytes + closure_adjustment_bytes == "
             "unaccounted_bytes_at_directory_scan, reported as "
             "candidates_partition_unaccounted_at_scan. The residual belongs in that "
             "identity because every candidate is a du measurement, so they sum towards "
             "directory_scan_root_bytes while the figure they explain starts from a df "
-            "reading, and the gap between the two IS the residual. Neither "
-            "post_scan_volume_drift_bytes nor database_size_metric_difference_bytes is "
+            "reading, and the gap between the two IS the residual. "
+            "closure_adjustments lists every other signed difference between two "
+            "measurements of the same storage -- WAL recycled between the directory "
+            "walk and pg_ls_waldir(), base/ changing between the two walks, a "
+            "remainder that came out negative because its operands were measured at "
+            "different moments. A negative remainder cannot be a candidate, because "
+            "there is no negative storage to reclaim, so it is carried here instead of "
+            "being dropped. Nothing in closure_adjustments, and neither "
+            "post_scan_volume_drift_bytes nor database_size_metric_difference_bytes, is "
             "storage anyone can free. "
             "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "

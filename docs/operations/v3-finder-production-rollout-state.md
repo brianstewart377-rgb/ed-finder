@@ -451,7 +451,27 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
   `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
   All of its figures, including `base/`'s own total, come from the `base` scan.
-- **Three terms in the summary are artefacts, not reclaimable space.**
+- **The index inventory is ranked globally, then capped.** It is not drawn from the
+  largest relations: the 21st relation can be mostly one very large index while the
+  first 20 are larger only because of heap data, so that index was absent while
+  `indexes_truncated` still said `false`. `index_inventory_scope` records the scope.
+- **A negative remainder is a named signed term, never a dropped row.** Every remainder
+  in the summary is a measured total minus figures measured by a different instrument
+  or at a different moment, so each can come out negative — WAL recycled between the
+  directory walk and `pg_ls_waldir()`, `base/` changing between the two walks. A
+  negative cannot be a candidate (there is no negative storage to reclaim), and
+  dropping it broke the closure; a shrink even turned already-recycled WAL into an
+  "unlisted storage" candidate. These are listed in `closure_adjustments` and summed as
+  `closure_adjustment_bytes`, which includes the **accepted** `base/` drift: the
+  add-backs come from the `base` walk while the outer partition removed `base` as
+  measured by the PGDATA walk, so any drift inside the tolerance shifts the candidate
+  total by exactly that amount.
+- **The directory partition is exact across row-cap ancestor gaps.** The retained set is
+  a bounded top-k and so is not ancestor-closed — the cap can keep a child while
+  dropping its parent. Each row's exclusive size subtracts its reported descendants that
+  have no *nearer* reported ancestor, rather than only its immediate children, so the
+  exclusive sizes still sum to the scanned root's total exactly once.
+- **Four terms in the summary are artefacts, not reclaimable space.**
   `post_scan_volume_drift_bytes` (sibling consumers moving between the root scan and
   the close), `database_size_metric_difference_bytes` (above), and
   `filesystem_minus_directory_scan_bytes` (`df` against `du`). The candidates partition
@@ -462,10 +482,11 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   candidate_total_bytes
     + database_size_metric_difference_bytes
     + filesystem_minus_directory_scan_bytes
+    + closure_adjustment_bytes
     == unaccounted_bytes_at_directory_scan
   ```
 
-  All three artefact terms belong in it. Every candidate is a `du` measurement, so the
+  All four artefact terms belong in it (`closure_adjustment_bytes` is the fourth). Every candidate is a `du` measurement, so the
   candidates sum towards `directory_scan_root_bytes` while the figure they explain
   starts from a `df` reading — and the gap between those two *is* the residual. (An
   identity asserted without it would be false on any real filesystem, since `df` and
