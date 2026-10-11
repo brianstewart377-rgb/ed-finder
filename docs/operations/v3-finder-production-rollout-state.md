@@ -218,6 +218,15 @@ sized by the real ≥ 60 fraction the step 6 calibration probe reports.
 | wide-row `system_archetype` (same table; PK + 8 **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes + weighted index — the layout adopted after review, 1M-row probe experiment with 16.9 % of rows ≥ 60) | 1,000,000 | 186 | 149 | 198.5 M | 37 | 30 | **≈ 66** (ceiling 132 if every system scored ≥ 60) |
 | wide-row `system_archetype` with the eight stored ranking keys `<key>_weighted_e4` (PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes — the F2d design's final layout, `v4_weighted_key_tier_partials` in the committed evidence; bell-shaped synthetic scores, 16.9 % / 2.1 % / 0.19 %) | 200,000 | 222 | 160 | 198.5 M | 44 | 32 | **≈ 76** (the three partials per key are nested, so this scales with the sum of all 24 per-key tier fractions Σ_all — 1.54 here; ≈ 297 GB only if every fraction were 1) |
 
+**Superseded planning text — retained as historical measurement evidence only.**
+The next two paragraphs through “step 0 reconfirms state” describe the
+fresh-generation route superseded by the owner's A + B decision below and are
+not rollout instructions. The controlling ROADMAP replacement sequence attaches
+both Finder products to the existing published
+`ratings_v4_prod_p4_parallel_v1` generation; no step creates or waits for a
+fresh generation. Capacity is decided by the final-wide-row, histogram-backed
+combined gate before either product build.
+
 Sum of the four system-level relations for one complete fresh generation: about
 **1,174 GB**, of which `system_archetype` alone is about
 978 GB (422 B/row table + 194 B/row for its
