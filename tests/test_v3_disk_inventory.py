@@ -88,6 +88,7 @@ def _run_inventory_action(
     du_churn_once: bool = False,
     du_churn_then_deny: bool = False,
     du_permission_denied: bool = False,
+    tablespace_present: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -168,6 +169,9 @@ def _run_inventory_action(
               *'--output=target'*)
                 printf 'Mounted on\\n'
                 printf '/\\n' ;;
+              *'--output=used'*)
+                printf 'Used\\n'
+                printf '1557000\\n' ;;
               *)
                 printf '1B-blocks Used Available\\n'
                 printf '500000 200000 300000\\n' ;;
@@ -289,6 +293,10 @@ def _run_inventory_action(
             case "$sql" in
               *'data_directory'*)
                 printf '%s\\n' '/var/lib/postgresql/18/docker' ;;
+              *'pg_tablespace'*)
+                if [ "$TABLESPACE_PRESENT" = '1' ]; then
+                  printf '%s\\n' '{"spcname":"fast_ssd","location":"/mnt/ssd/pgtbs","size_bytes":40000}'
+                fi ;;
               *'pg_replication_slots'*)
                 exit 0 ;;
               *'pg_prepared_xacts'*)
@@ -344,6 +352,7 @@ def _run_inventory_action(
     env["DU_CHURN_THEN_DENY"] = "1" if du_churn_then_deny else "0"
     env["DU_CHURN_STAMP"] = str(tmp_path / "du-churn-stamp")
     env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
+    env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -470,8 +479,11 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
     by_path = {row["path"]: row["exclusive_bytes"] for row in candidates}
 
     # The database is 1,465,000 of the volume's 1,557,000 used bytes. Every candidate
-    # must be smaller than the remaining 92,000, which no cumulative ancestor total is.
-    assert max(by_path.values()) <= 1557000 - 1465000
+    # OUTSIDE the data directory must be smaller than the remaining 92,000, which no
+    # cumulative ancestor total is. (Inside-PGDATA rows are bounded by PGDATA's own
+    # size instead, and are asserted separately below.)
+    outside = [row for row in candidates if not row["inside_data_directory"]]
+    assert max(row["exclusive_bytes"] for row in outside) <= 1557000 - 1465000
     # /var/lib is the deepest row a depth-2 scan from / can emit, and it holds the
     # database; only its 50,000 of non-database bytes survive the subtraction.
     assert by_path["/var/lib"] == 50000
@@ -595,8 +607,10 @@ def test_v3_disk_inventory_stops_cleanly_when_the_volume_measurement_failed(tmp_
     assert receipt["status"] == "stopped"
     inventory = receipt["inventory"]
     assert "volume_failed" in inventory["volume"]
+    # The guard lives in the drill-down section, which is where the used_bytes lookup
+    # is, so the root scan above it is not overwritten by this failure.
     assert (
-        inventory["volume_directory_usage"]["volume_directory_usage_failed"]
+        inventory["non_database_drill_down"]["non_database_drill_down_failed"]
         == "volume_measurement_unavailable"
     )
 
@@ -644,7 +658,17 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     root_files = f"{pgdata} (files directly in this directory)"
     assert by_path[root_files]["exclusive_bytes"] == 3000
     assert by_path[root_files]["inside_data_directory"] is True
-    assert summary["unaccounted_inside_data_directory_bytes"] == 8000 + 4000 + 3000
+    # pg_ls_waldir() reported 12 bytes of the 120,000-byte pg_wal directory, because it
+    # lists only top-level ordinary files; the rest (archive_status, summaries) is
+    # inside neither wal_bytes nor the accounted children, so it is its own candidate.
+    wal_unlisted = (
+        f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
+    )
+    assert by_path[wal_unlisted]["exclusive_bytes"] == 120000 - 12
+    assert by_path[wal_unlisted]["inside_data_directory"] is True
+    assert summary["unaccounted_inside_data_directory_bytes"] == (
+        8000 + 4000 + 3000 + (120000 - 12)
+    )
     # base/ and pg_wal are already in accounted_bytes and must not be listed again.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
@@ -905,5 +929,86 @@ def test_v3_disk_inventory_keeps_statistics_directories_locatable(tmp_path):
     # Only base and the WAL directories are genuinely accounted for elsewhere.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
-    # global 8,000 + pg_stat 4,000 + root files 3,000 = the whole PGDATA remainder.
-    assert summary["unaccounted_inside_data_directory_bytes"] == 15000
+    # global 8,000 + pg_stat 4,000 + root files 3,000 + pg_wal's unlisted 119,988
+    # = the whole PGDATA remainder, i.e. everything accounted_bytes does not cover.
+    assert summary["unaccounted_inside_data_directory_bytes"] == (
+        8000 + 4000 + 3000 + (120000 - 12)
+    )
+
+
+def test_v3_disk_inventory_records_that_no_tablespaces_break_the_accounting(tmp_path):
+    """The single-filesystem assumption is now evidence, not an assumption."""
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+
+    assert inventory["tablespaces"] == {
+        "non_default": [],
+        "single_filesystem_accounting_valid": True,
+    }
+
+
+def test_v3_disk_inventory_refuses_a_partition_when_a_tablespace_exists(tmp_path):
+    """pg_database_size spans tablespaces; the scan covers one filesystem.
+
+    A tablespace on another device is subtracted from this volume despite consuming
+    none of it, and one elsewhere on the same device is counted twice — inside
+    accounted_bytes and again as an outside candidate. Rather than present arithmetic
+    that assumes something untrue, the summary refuses and names what it found.
+    """
+    result = _run_inventory_action(tmp_path, tablespace_present=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    inventory = receipt["inventory"]
+    assert inventory["tablespaces"]["single_filesystem_accounting_valid"] is False
+    assert inventory["tablespaces"]["non_default"][0]["spcname"] == "fast_ssd"
+    assert (
+        inventory["summary"]["summary_failed"]
+        == "tablespaces_present_single_filesystem_accounting_invalid"
+    )
+    # The evidence above the summary is preserved, so the operator can still see the
+    # scans and decide what to measure.
+    assert inventory["non_database_drill_down"]["chain"]
+    assert isinstance(inventory["volume_directory_usage"], list)
+
+
+def test_v3_disk_inventory_brackets_the_root_scan_with_filesystem_usage(tmp_path):
+    """The PGDATA bracket cannot see a sibling consumer growing during the root scan."""
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    bracket = json.loads(result.stdout)["inventory"]["volume_used_bracket"]
+
+    assert bracket["bytes_before_filesystem_scan"] == 1557000
+    assert bracket["bytes_after_filesystem_scan"] == 1557000
+    assert bracket["drift_bytes"] == 0
+    assert bracket["reconciled"] is True
+
+
+def test_v3_disk_inventory_does_not_blame_reserved_blocks_for_the_residual():
+    """Reserved blocks explain size - (used + available), never used - du.
+
+    They remain free blocks that ordinary users cannot allocate, so they never enter
+    `used`. Listing them as a cause would send an operator to tune the reserved-block
+    percentage, which cannot close this residual.
+    """
+    source = _read(ACTION)
+    method = source[source.index('"method": ('):]
+
+    assert "Reserved blocks are NOT a cause" in method
+    assert "size minus (used + available)" in method
+    assert "reserved blocks and blocks held by deleted-but-open files" not in source
+
+
+def test_v3_disk_inventory_keeps_the_complete_pgdata_child_list_for_accounting():
+    """Truncating before accounting hides a large directory behind the root-files row."""
+    source = _read(ACTION)
+
+    assert "pgdata_children_all = sorted(" in source
+    assert "pgdata_children_all[:40]" in source
+    assert "pgdata_children = pgdata_children_all" in source
+    assert '"child_count": len(pgdata_children_all)' in source
+    # The summary must not read the truncated receipt view.
+    assert 'inventory["postgres_data_directory_usage"]["children"]' not in source

@@ -67,9 +67,21 @@ DRILL_DOWN_MIN_CALL_SECONDS = 30
 # Everything not listed (global, pg_xact, pg_multixact, pg_stat, pg_stat_tmp, log,
 # replication-slot state) stays visible as an inside-PGDATA candidate.
 ACCOUNTED_PGDATA_CHILDREN = frozenset({"base", "pg_wal", "pg_xlog"})
+# `pg_ls_waldir()` lists the top-level ORDINARY FILES of pg_wal and documents that it
+# excludes directories, so wal_bytes does not cover pg_wal/archive_status or
+# PostgreSQL 18's pg_wal/summaries. Excluding the whole pg_wal child would therefore
+# drop those bytes from every candidate while leaving them inside unaccounted_bytes.
+# The difference between pg_wal's measured size and wal_bytes is reported as its own
+# inside-PGDATA candidate.
+WAL_CHILD_NAMES = ("pg_wal", "pg_xlog")
 # `df` reports filesystem space; `du` estimates space used by files. The difference is
-# real (ext4 metadata, reserved blocks, blocks held by deleted-but-open files) and is
-# reported rather than hidden, with a flag when it is too large to ignore.
+# real -- filesystem metadata, and blocks held by deleted-but-open files -- and is
+# reported rather than hidden, with a flag when it is too large to ignore. Reserved
+# blocks are deliberately NOT listed as a cause: they explain df's size minus
+# (used + available), because they stay FREE while being unavailable to ordinary users,
+# so they never appear in `used` and cannot contribute to used-minus-du. Naming them
+# here would send an operator to tune the reserved-block percentage, which cannot close
+# this residual.
 DF_DU_RESIDUAL_SIGNIFICANT_PPM = 20_000  # 2 % of used bytes
 MOUNT_INSPECT_FORMAT = "{{range .Mounts}}{{.Source}}\t{{.Destination}}\n{{end}}"
 
@@ -194,6 +206,11 @@ def required_int(value: str | None, error: str) -> int:
     if number is None:
         raise RuntimeError(error)
     return number
+
+
+def df_used_bytes(path: str) -> int:
+    """The filesystem's used bytes, from the same read-only path as the volume section."""
+    return df_values(["df", "-B1", "--output=used", path], ("used_bytes",))["used_bytes"]
 
 
 def parse_du(stdout: str) -> list[dict[str, Any]]:
@@ -638,6 +655,7 @@ mount_source: str | None = None
 mount_destination: str | None = None
 usage_full: list[dict[str, Any]] | None = None
 postgres_data_directory_bytes: int | None = None
+pgdata_children_all: list[dict[str, Any]] | None = None
 pgdata_host: str | None = None
 pgdata_before: int | None = None
 tolerance: int = 0
@@ -700,6 +718,12 @@ try:
     # `> 0` filter would then silently drop the row) or invent usage when it shrank --
     # in both cases while the receipt still said `success`. Measuring either side of
     # the scan turns that into a detectable, and refusable, inconsistency.
+    # The PGDATA bracket cannot see changes in SIBLING paths, and the root scan can run
+    # for minutes: a backup, a Docker layer or a log rotating during it would leave the
+    # early `df` reading and the `du` total describing different filesystem states, and
+    # the whole difference would be silently relabelled as filesystem overhead. So the
+    # filesystem's used bytes are read either side of the root scan too.
+    volume_used_before = df_used_bytes(mount_source)
     pgdata_before = du_total(pgdata_host, scan_budget)
     # Fail closed on a failed scan: without this evidence the receipt cannot answer
     # its own question, so it must not be presented as a complete inventory.
@@ -710,6 +734,23 @@ try:
         expect_path=usage_root,
     )
     pgdata_after = du_total(pgdata_host, scan_budget)
+    volume_used_after = df_used_bytes(mount_source)
+    volume_drift = abs(volume_used_after - volume_used_before)
+    volume_tolerance = max(
+        DIRECTORY_DRIFT_FLOOR_BYTES,
+        volume_used_before * DIRECTORY_DRIFT_FRACTION_PPM // 1_000_000,
+    )
+    inventory["volume_used_bracket"] = {
+        "bytes_before_filesystem_scan": volume_used_before,
+        "bytes_after_filesystem_scan": volume_used_after,
+        "drift_bytes": volume_used_after - volume_used_before,
+        "tolerance_bytes": volume_tolerance,
+        "reconciled": volume_drift <= volume_tolerance,
+    }
+    if volume_drift > volume_tolerance:
+        raise RuntimeError(
+            f"volume_changed_during_scan:drift_{volume_drift}_over_{volume_tolerance}"
+        )
     drift = abs(pgdata_after - pgdata_before)
     tolerance = max(
         DIRECTORY_DRIFT_FLOOR_BYTES, pgdata_before * DIRECTORY_DRIFT_FRACTION_PPM // 1_000_000
@@ -738,15 +779,34 @@ try:
         "postgres_data_directory_usage_failed",
         expect_path=pgdata_host,
     )
+    # The COMPLETE child list is kept for accounting and only the receipt view is
+    # truncated. Truncating before accounting would roll the discarded children into
+    # `postgres_data_directory_bytes - sum(children)` and report them as files directly
+    # in PGDATA -- so a large omitted directory would hide behind a synthetic
+    # root-files figure, which is the opposite of what this action is for.
+    pgdata_children_all = sorted(
+        (row for row in data_usage if row["path"].rstrip("/") != pgdata_host),
+        key=lambda item: (-item["bytes"], item["path"]),
+    )
     inventory["postgres_data_directory_usage"] = {
         "path": pgdata_host,
         "bytes": postgres_data_directory_bytes,
-        "children": sorted(
-            (row for row in data_usage if row["path"].rstrip("/") != pgdata_host),
-            key=lambda item: (-item["bytes"], item["path"]),
-        )[:40],
+        "child_count": len(pgdata_children_all),
+        "children": pgdata_children_all[:40],
     }
 
+except RuntimeError as exc:
+    section_failed(failures, inventory, "volume_directory_usage", exc)
+
+try:
+    # The drill-down runs in a section of its own. It used to share the one above, so a
+    # timeout or an unreadable directory partway down the walk replaced the
+    # already-recorded host-level scan with an error object -- discarding the very
+    # evidence the shared-budget design exists to preserve.
+    if usage_full is None or usage_root is None or pgdata_host is None:
+        raise RuntimeError("volume_directory_usage_unavailable")
+    if postgres_data_directory_bytes is None:
+        raise RuntimeError("postgres_data_directory_usage_unavailable")
     # Name the directory that owns the non-database usage, which a single bounded-depth
     # scan from the root cannot do (see drill_down).
     # The volume section may have failed after the mount resolved, in which case
@@ -783,7 +843,7 @@ try:
         "chain": chain,
     }
 except RuntimeError as exc:
-    section_failed(failures, inventory, "volume_directory_usage", exc)
+    section_failed(failures, inventory, "non_database_drill_down", exc)
 
 try:
     # Close the bracket around the drill-down as well, in a section of its own so that
@@ -1134,6 +1194,40 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "generation_attribution", exc)
 
 try:
+    # pg_database_size includes a database's files across ALL tablespaces, while
+    # volume_used_bytes and the `-x` directory scan cover only the filesystem holding
+    # PGDATA. A tablespace on another device would therefore be subtracted from this
+    # volume despite consuming none of it; one elsewhere on the same device would be
+    # counted twice -- once inside accounted_bytes and again as an outside candidate.
+    # This action's arithmetic assumes single-filesystem storage, so rather than ship an
+    # untested multi-filesystem accounting model it ENUMERATES non-default tablespaces
+    # and refuses to present a partition when any exists, naming what it found. The
+    # enumeration is also the evidence that none exists, which is the expected case and
+    # was previously only assumed.
+    tablespaces = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT spcname, pg_tablespace_location(oid) AS location, "
+        "pg_tablespace_size(oid)::bigint AS size_bytes FROM pg_tablespace "
+        "WHERE spcname NOT IN ('pg_default','pg_global') "
+        "ORDER BY spcname) q",
+        db_user,
+        db_name,
+    )
+    inventory["tablespaces"] = {
+        "non_default": tablespaces,
+        "single_filesystem_accounting_valid": not tablespaces,
+    }
+except RuntimeError as exc:
+    section_failed(failures, inventory, "tablespaces", exc)
+
+try:
+    tablespace_section = inventory.get("tablespaces")
+    if not isinstance(tablespace_section, dict):
+        raise RuntimeError("tablespaces_unavailable")
+    if not tablespace_section.get("single_filesystem_accounting_valid"):
+        # Named, not swallowed: the receipt lists the tablespaces so the operator knows
+        # exactly which assumption broke and what would have to be measured.
+        raise RuntimeError("tablespaces_present_single_filesystem_accounting_invalid")
     volume_used = inventory["volume"]["used_bytes"]
     database_rows = inventory["databases"]
     operating_database_bytes = next(
@@ -1187,7 +1281,10 @@ try:
     # list could not reconcile or locate the value it claimed to explain. They are
     # therefore kept as candidates in their own right, flagged so nobody mistakes them
     # for ordinary directories: some of them must never be deleted.
-    pgdata_children = inventory["postgres_data_directory_usage"]["children"]
+    # The complete list, not the truncated receipt view: see the note where it is built.
+    if pgdata_children_all is None:
+        raise RuntimeError("postgres_data_directory_usage_unavailable")
+    pgdata_children = pgdata_children_all
     inside = [
         {
             "path": row["path"],
@@ -1205,6 +1302,30 @@ try:
     # inside unaccounted_bytes and appear in no candidate at all -- and an unexpected
     # large file directly under PGDATA is exactly the kind of thing this action exists
     # to surface, so it is the worst possible row to lose.
+    # pg_wal is excluded as accounted, but wal_bytes comes from pg_ls_waldir(), which
+    # lists only pg_wal's top-level ordinary files and documents that it excludes
+    # directories. pg_wal/archive_status and PostgreSQL 18's pg_wal/summaries are
+    # therefore inside neither figure, so the difference becomes its own candidate.
+    for name in WAL_CHILD_NAMES:
+        wal_child = next(
+            (
+                row
+                for row in pgdata_children
+                if row["path"].rstrip("/").rsplit("/", 1)[-1] == name
+            ),
+            None,
+        )
+        if wal_child is None:
+            continue
+        wal_unlisted = wal_child["bytes"] - wal_bytes
+        if wal_unlisted > 0:
+            inside.append(
+                {
+                    "path": f"{wal_child['path']} (subdirectories and files pg_ls_waldir does not list)",
+                    "exclusive_bytes": wal_unlisted,
+                    "inside_data_directory": True,
+                }
+            )
     pgdata_root_files = postgres_data_directory_bytes - sum(
         row["bytes"] for row in pgdata_children
     )
@@ -1280,8 +1401,11 @@ try:
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is volume_used_bytes "
             "minus directory_scan_root_bytes: df reports filesystem space and du "
-            "estimates space used by files, so this gap is filesystem metadata, "
-            "reserved blocks and blocks held by deleted-but-open files. It is not "
+            "estimates space used by files, so this gap is filesystem metadata and "
+            "blocks held by deleted-but-open files. Reserved blocks are NOT a cause: "
+            "they explain size minus (used + available) because they remain free while "
+            "being unavailable to ordinary users, so they never enter `used`; changing "
+            "the reserved-block percentage cannot close this residual. The gap is not "
             "directory usage and cannot be reclaimed by deleting a directory. "
             "non_database_drill_down names the directory that owns the non-database "
             "usage, which a single bounded-depth scan from the root cannot do: GNU du "
