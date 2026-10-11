@@ -89,6 +89,7 @@ def _run_inventory_action(
     du_churn_then_deny: bool = False,
     du_permission_denied: bool = False,
     tablespace_present: bool = False,
+    mount_point_failure: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -167,6 +168,10 @@ def _run_inventory_action(
                 printf 'Filesystem Type 1B-blocks Used Available\\n'
                 printf '/dev/md1 ext4 1948000 1557000 292000\\n' ;;
               *'--output=target'*)
+                if [ "$MOUNT_POINT_FAILURE" = '1' ]; then
+                  printf '%s\\n' 'cannot resolve mount point' >&2
+                  exit 9
+                fi
                 printf 'Mounted on\\n'
                 printf '/\\n' ;;
               *'--output=used'*)
@@ -353,6 +358,7 @@ def _run_inventory_action(
     env["DU_CHURN_STAMP"] = str(tmp_path / "du-churn-stamp")
     env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
     env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
+    env["MOUNT_POINT_FAILURE"] = "1" if mount_point_failure else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -1012,3 +1018,54 @@ def test_v3_disk_inventory_keeps_the_complete_pgdata_child_list_for_accounting()
     assert '"child_count": len(pgdata_children_all)' in source
     # The summary must not read the truncated receipt view.
     assert 'inventory["postgres_data_directory_usage"]["children"]' not in source
+
+
+def test_v3_disk_inventory_stops_cleanly_when_the_mount_point_cannot_resolve(tmp_path):
+    """`usage_root` is read by a later section than the one that assigns it.
+
+    A failed `df --output=target` records the directory-usage failure and leaves the
+    name unassigned; the drill-down section's guard then reads it and raises NameError,
+    which is not RuntimeError and so escapes the section handler — a traceback where
+    the structured fail-closed receipt belongs.
+    """
+    result = _run_inventory_action(tmp_path, mount_point_failure=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "NameError" not in result.stderr
+    assert len(result.stdout.splitlines()) == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    inventory = receipt["inventory"]
+    assert (
+        inventory["volume_directory_usage"]["volume_directory_usage_failed"]
+        == "directory_usage_mount_point_unresolved"
+    )
+    # The dependent section stops with its own reason rather than crashing.
+    assert (
+        inventory["non_database_drill_down"]["non_database_drill_down_failed"]
+        == "volume_directory_usage_unavailable"
+    )
+
+
+def test_v3_disk_inventory_bounds_the_index_inventory():
+    """Capping the relations does not cap their indexes.
+
+    PostgreSQL documents no limit on indexes per table, so one relation could make the
+    receipt — and the memory used to parse it — arbitrarily large.
+    """
+    source = _read(ACTION)
+
+    assert "INDEX_INVENTORY_LIMIT = 200" in source
+    assert "LIMIT {INDEX_INVENTORY_LIMIT + 1}" in source
+    assert 'inventory["indexes_truncated"]' in source
+    assert 'inventory["indexes_limit"] = INDEX_INVENTORY_LIMIT' in source
+
+
+def test_v3_disk_inventory_reports_an_untruncated_index_inventory(tmp_path):
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+
+    assert inventory["indexes_truncated"] is False
+    assert inventory["indexes_limit"] == 200

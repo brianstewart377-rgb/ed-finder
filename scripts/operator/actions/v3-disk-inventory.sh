@@ -42,6 +42,10 @@ DIRECTORY_DRIFT_FRACTION_PPM = 5_000  # 0.5 %
 # magic size, and so the floor is a stated property of the volume in the receipt.
 DRILL_DOWN_FLOOR_PPM = 2_500  # 0.25 % of used bytes
 DRILL_DOWN_MAX_STEPS = 8
+# The relation cap does not bound the index inventory: PostgreSQL documents no limit on
+# indexes per table, so without this one relation could make the receipt, and the memory
+# used to parse it, arbitrarily large.
+INDEX_INVENTORY_LIMIT = 200
 # Every directory scan shares one wall-clock budget. Individually bounded calls are not
 # enough: the operator workflow kills the job at 40 minutes, and four fixed scans plus
 # eight drill-down steps at the 300 s per-call limit would be 60 minutes, so a valid but
@@ -653,6 +657,12 @@ receipt["postgres"] = {
 scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)
 mount_source: str | None = None
 mount_destination: str | None = None
+# Assigned inside the directory-usage section, but read by the drill-down section that
+# follows it. Without this, a failed `df --output=target` leaves the name undefined and
+# the later guard raises NameError -- which is not RuntimeError, so it escapes the
+# section handler and the action dies with a traceback where the structured fail-closed
+# receipt belongs.
+usage_root: str | None = None
 usage_full: list[dict[str, Any]] | None = None
 postgres_data_directory_bytes: int | None = None
 pgdata_children_all: list[dict[str, Any]] | None = None
@@ -1008,10 +1018,18 @@ try:
         "JOIN pg_class i ON i.oid=x.indexrelid "
         "LEFT JOIN pg_stat_user_indexes s ON s.indexrelid=i.oid "
         "ORDER BY pg_relation_size(i.oid) DESC, largest.nspname, "
-        "largest.relname, i.relname) q",
+        "largest.relname, i.relname "
+        # Indexes per table are unlimited in PostgreSQL, so capping the relations does
+        # not cap this result. One extra row is fetched to detect truncation, and the
+        # largest indexes come first, so a cut loses the least interesting rows.
+        f"LIMIT {INDEX_INVENTORY_LIMIT + 1}) q",
         db_user,
         db_name,
     )
+    inventory["indexes_truncated"] = len(inventory["indexes"]) > INDEX_INVENTORY_LIMIT
+    inventory["indexes_limit"] = INDEX_INVENTORY_LIMIT
+    if inventory["indexes_truncated"]:
+        inventory["indexes"] = inventory["indexes"][:INDEX_INVENTORY_LIMIT]
 except RuntimeError as exc:
     section_failed(failures, inventory, "indexes", exc)
 
