@@ -2049,6 +2049,17 @@ product/implementation choices are:
 
 ### Review dispositions (2026-10-10)
 
+**These entries are a dated record of how each review round was answered, not a
+live specification.** Where an early entry conflicts with a later one — most
+notably anything describing post-window filtering, a raw-score candidate window,
+a three-relation fixture or an anchored-Any navigation exception — the **later**
+round governs, and the normative sections above are the contract. Rounds 23–29
+replaced the post-window filter model with 422 rejection, the raw-score window
+with the canonical stored-key window, the three-relation fixture with the
+two-relation F2d shape, and the mode-dependent offset ceiling with one
+pre-dispatch ceiling for every mode. Nothing below may be implemented in
+preference to the sections above.
+
 1. **Expose the overall tier before requiring it** → the headline tier is now
    conditional on API `best_tier`; slice 1b exposes the summary field, while F4a
    may land with a number-only headline and no browser tier calculation.
