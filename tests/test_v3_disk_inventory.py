@@ -906,15 +906,13 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     # 18,995 under the old mixed-metric arithmetic; 1,295 of that was block rounding.
     assert summary["unaccounted_inside_data_directory_bytes"] == 17700
     assert summary["database_size_metric_difference_bytes"] == 1295
-    # And the whole partition reconciles against the figure it explains, with the
-    # metrological term named rather than hidden inside a candidate.
-    assert (
-        summary["non_database_directory_bytes"]
-        + summary["unaccounted_inside_data_directory_bytes"]
-        + summary["database_size_metric_difference_bytes"]
-        == summary["unaccounted_bytes_at_directory_scan"]
-    )
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    # And the candidate list accounts for the figure it explains, to within what
+    # these measurements can resolve. The only unresolved width in this fixture is the
+    # du-versus-st_size metric difference, so the shortfall equals it exactly.
+    assert summary["candidate_shortfall_bytes"] == 1295
+    assert summary["measurement_uncertainty_bytes"] == 1295
+    assert summary["candidate_list_complete"] is True
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
     # No drift in this fixture, so the two windows agree and the closing figure is the
     # same value.
     assert summary["post_scan_volume_drift_bytes"] == 0
@@ -1703,16 +1701,18 @@ def test_v3_disk_inventory_names_the_post_scan_drift_instead_of_hiding_it(tmp_pa
         == summary["unaccounted_bytes_at_directory_scan"]
         + summary["post_scan_volume_drift_bytes"]
     )
-    # The asserted identity is against the scan-window figure, and it holds even with
-    # 9,000 bytes of drift -- which is the whole point: the drift is outside the
-    # partition rather than inside a candidate.
+    # The candidate comparison is against the scan-window figure, so the 9,000 bytes
+    # of drift do not have to be explained by a candidate -- which is the whole point.
+    # It becomes a width instead: the volume moved by that much across the window.
+    assert summary["candidate_shortfall_bytes"] == 1295
+    assert {
+        "term": "volume_used_across_window",
+        "bytes": 9000,
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
     assert (
-        summary["candidate_total_bytes"]
-        + summary["database_size_metric_difference_bytes"]
-        == summary["unaccounted_bytes_at_directory_scan"]
+        "no instant at which all of these could be read together" in summary["method"]
     )
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
-    assert "cannot be read atomically" in summary["method"]
 
 
 def test_v3_disk_inventory_pairs_the_scan_df_reading_in_time_not_just_in_name(tmp_path):
@@ -1810,14 +1810,16 @@ def test_v3_disk_inventory_includes_the_df_du_residual_in_the_closure(tmp_path):
     assert summary["unaccounted_inside_data_directory_bytes"] == 17700
     assert summary["database_size_metric_difference_bytes"] == 1295
 
-    # 82,000 + 17,700 + 1,295 + 10,000 == 1,557,000 - 1,446,005.
-    assert (
-        summary["candidate_total_bytes"]
-        + summary["database_size_metric_difference_bytes"]
-        + summary["filesystem_minus_directory_scan_bytes"]
-        == summary["unaccounted_bytes_at_directory_scan"]
-    )
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    # The 10,000 df/du residual is a width, not a candidate: 82,000 + 17,700 of listed
+    # directories leaves an 11,295 shortfall, inside the 11,295 the two instruments
+    # cannot resolve between them (10,000 residual + 1,295 metric difference).
+    assert summary["candidate_shortfall_bytes"] == 11295
+    assert {
+        "term": "filesystem_minus_directory_scan",
+        "bytes": 10000,
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["measurement_uncertainty_bytes"] == 11295
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_bounds_the_tablespace_refusal_path(tmp_path):
@@ -1861,21 +1863,24 @@ def test_v3_disk_inventory_bounds_the_tablespace_refusal_path(tmp_path):
     )
 
 
-def test_v3_disk_inventory_carries_negative_remainders_as_signed_terms(tmp_path):
+def test_v3_disk_inventory_carries_negative_remainders_as_uncertainty(tmp_path):
     """A remainder that comes out negative must be named, not dropped.
 
     Every remainder here is a measured total minus figures measured by a different
     instrument or at a different moment -- WAL recycled between the directory walk and
     pg_ls_waldir(), base/ changing between the two walks, children the row cap dropped
     -- so each can come out negative. A negative cannot be a candidate, since there is
-    no negative storage to reclaim, but silently dropping it broke the closure in a
-    receipt reporting success, and a shrink even turned WAL that had already been
-    recycled into an "unlisted storage" candidate. One shared helper, because the same
-    `if x > 0` mistake was found at four separate sites.
+    no negative storage to reclaim, and a shrink once turned WAL that had already been
+    recycled into an "unlisted storage" candidate. Dropping it with `if x > 0` instead
+    made the receipt silent about a quantity it had measured. It is recorded as a
+    measurement width, which is what a difference between two readings of one thing
+    actually is. One shared helper, because the same mistake was found at four sites.
     """
     source = _read(ACTION)
     assert "def remainder(path: str, value: int, *, term: str) -> None:" in source
-    assert "closure_adjustments: list[dict[str, Any]] = []" in source
+    assert "uncertainty_terms: list[dict[str, Any]] = []" in source
+    # A width has no direction, so the helper takes the magnitude.
+    assert 'entry: dict[str, Any] = {"term": term, "bytes": abs(bytes_)}' in source
     # Every remainder goes through it, and none keeps its own positive-only filter.
     assert source.count("        remainder(") + source.count("    remainder(") >= 4
     assert "if wal_unlisted > 0:" not in source
@@ -1885,22 +1890,27 @@ def test_v3_disk_inventory_carries_negative_remainders_as_signed_terms(tmp_path)
     # The accepted base drift is a term too: the add-backs come from the base walk
     # while the outer partition removed base as measured by the PGDATA walk, so any
     # drift inside the tolerance shifted the candidate total by exactly that amount.
-    assert '"term": "base_directory_scan_drift"' in source
+    assert 'uncertain("base_directory_scan_drift", base_drift,' in source
     assert (
         'base_drift = base_breakdown["bytes_at_pgdata_scan"] - base_breakdown["bytes"]'
         in source
     )
-    # And the identity includes their sum.
-    assert "+ closure_adjustment_bytes" in source
+    # And every width is summed into the figure the shortfall is judged against.
+    assert (
+        "measurement_uncertainty = sum(item[\"bytes\"] for item in uncertainty_terms)"
+        in source
+    )
 
     result = _run_inventory_action(tmp_path)
     assert result.returncode == 0, result.stderr or result.stdout
     summary = json.loads(result.stdout)["inventory"]["summary"]
-    # Nothing is negative in the coherent fixture, so the term is zero and the closure
-    # is unaffected -- which is what makes it a safe addition rather than a fudge.
-    assert summary["closure_adjustments"] == []
-    assert summary["closure_adjustment_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    # Nothing moved in the coherent fixture, so none of these terms appears at all and
+    # the only width is the metric difference -- which is what makes recording them a
+    # safe addition rather than an error bar wide enough to swallow a real gap.
+    assert [item["term"] for item in summary["measurement_uncertainty_terms"]] == [
+        "database_size_du_versus_st_size"
+    ]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_partitions_across_a_row_cap_ancestor_gap():
@@ -1963,10 +1973,14 @@ def test_v3_disk_inventory_uses_the_conservative_end_of_the_pgdata_bracket(tmp_p
     # to 75,000 by 25,000 bytes of removed database.
     assert summary["postgres_data_directory_bytes_used_for_outside_rows"] == 1465000
     assert by_path["/var/lib"]["exclusive_bytes"] == 50000
-    # And the width of what cannot be resolved is stated rather than implied.
+    # And the width of what cannot be resolved is stated rather than implied -- both
+    # on its own and as a term in the figure the shortfall is judged against.
     assert summary["postgres_data_directory_within_walk_uncertainty_bytes"] == 25000
-    assert summary["candidate_closure_gap_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    assert {
+        "term": "postgres_data_directory_bracket",
+        "bytes": 25000,
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_rejects_a_mount_nested_inside_pgdata(tmp_path):
@@ -2016,7 +2030,9 @@ def test_v3_disk_inventory_carries_a_negative_outside_remainder(tmp_path):
     remainders; this was the fifth site of the same `if x > 0`.
     """
     source = _read(ACTION)
-    assert '"term": "outside_directory_negative_remainder"' in source
+    assert (
+        'uncertain("outside_directory_negative_remainder", size, path)' in source
+    )
     # The comprehension that could only drop a negative is gone.
     assert (
         'if path != data_dir and not path.startswith(f"{data_dir}/") and size > 0'
@@ -2032,14 +2048,14 @@ def test_v3_disk_inventory_carries_a_negative_outside_remainder(tmp_path):
 
     paths = [row["path"] for row in summary["largest_unaccounted_directories"]]
     assert "/var/lib" not in paths
+    # Recorded as a width, by magnitude: 5,000 bytes of this ancestor's size cannot be
+    # resolved between the two readings, and that is what the receipt says.
     assert {
         "term": "outside_directory_negative_remainder",
-        "bytes": -5000,
+        "bytes": 5000,
         "path": "/var/lib",
-    } in summary["closure_adjustments"]
-    # Carried, so the identity still closes exactly rather than being 5,000 out.
-    assert summary["candidate_closure_gap_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_ranks_dead_tuples_by_reclaimable_bytes(tmp_path):
@@ -2153,7 +2169,10 @@ def test_v3_disk_inventory_keeps_pgdata_drift_out_of_outside_candidates(tmp_path
     assert "pgdata_scan_side = max(pgdata_before, pgdata_after)" in source
     assert "exclusive[container] -= pgdata_scan_side" in source
     assert "postgres_data_directory_scan_side_size_unavailable" in source
-    assert '"term": "postgres_data_directory_scan_to_close_drift"' in source
+    assert (
+        'uncertain("postgres_data_directory_scan_to_close_drift", -pgdata_span,'
+        in source
+    )
 
     # PGDATA grows by 7,000 between the root walk and the closing scan.
     result = _run_inventory_action(tmp_path, pgdata_grew=7000)
@@ -2176,15 +2195,15 @@ def test_v3_disk_inventory_keeps_pgdata_drift_out_of_outside_candidates(tmp_path
     assert by_path[f"{pgdata} (files directly in this directory)"][
         "exclusive_bytes"
     ] == 10000
-    # And the deliberate difference between the two sides is a named signed term, so
-    # the identity still closes exactly.
+    # And the deliberate difference between the two sides is named as a width, so the
+    # 7,000 bytes are visible in the receipt rather than implied by a number that does
+    # not add up.
     assert {
         "term": "postgres_data_directory_scan_to_close_drift",
-        "bytes": -7000,
+        "bytes": 7000,
         "path": pgdata,
-    } in summary["closure_adjustments"]
-    assert summary["candidate_closure_gap_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_detects_wal_mounted_at_its_canonical_path(tmp_path):
@@ -2285,7 +2304,7 @@ def test_v3_disk_inventory_classifies_wal_only_from_one_stable_snapshot(tmp_path
     assert "max(wal_bytes_at_close, wal_bytes_after_scan)" not in source
     # No candidate when it cannot be paired; the difference becomes a signed term.
     assert 'if name == "pg_wal" and not wal_snapshot_stable:' in source
-    assert '"term": "pg_wal_unpairable_to_one_snapshot"' in source
+    assert 'uncertain("pg_wal_unpairable_to_one_snapshot", unresolvable,' in source
     assert "wal_bytes_at_close = wal_bytes_after_scan" in source
     # The scan sits between the two reads.
     first = source.index("closing_wal = psql_json(")
@@ -2319,12 +2338,13 @@ def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
     candidates.
 
     `pg_wal` is therefore measured again beside the SQL read, and the candidate is
-    computed from that pairing while the walk-to-SQL movement becomes a signed term.
+    computed from that pairing while the walk-to-SQL movement becomes a measurement
+    width.
     """
     source = _read(ACTION)
     assert "wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)" in source
     assert 'wal_child = dict(wal_child, bytes=wal_dir_bytes_at_sql)' in source
-    assert '"term": f"{name}_walk_to_sql_drift"' in source
+    assert 'uncertain(f"{name}_walk_to_sql_drift",' in source
 
     # 2,000 bytes of WAL recycled between the walk and the SQL read: the walk saw
     # 120,000, the re-measure sees 118,000, and pg_ls_waldir() reports 118,000.
@@ -2341,14 +2361,14 @@ def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
     assert unlisted not in {
         row["path"] for row in summary["largest_unaccounted_directories"]
     }
-    # The movement is named instead, and the identity still closes.
+    # The movement is named instead, as what it is: 2,000 bytes that the walk and the
+    # SQL read disagree about because they happened at different moments.
     assert {
         "term": "pg_wal_walk_to_sql_drift",
         "bytes": 2000,
         "path": f"{pgdata}/pg_wal",
-    } in summary["closure_adjustments"]
-    assert summary["candidate_closure_gap_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_gives_the_df_du_residual_an_error_bar(tmp_path):
@@ -2435,8 +2455,14 @@ def test_v3_disk_inventory_reads_database_sizes_at_the_closing_window(tmp_path):
     # The metric difference stays metrological: du's live total against the CLOSING
     # st_size sum, so it drops by exactly the 9,000 that is no longer misattributed.
     assert summary["database_size_metric_difference_bytes"] == 1295 - 9000
-    assert summary["candidate_closure_gap_bytes"] == 0
-    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    # The database's own movement across the window is a width too, so the shortfall is
+    # judged against a figure that includes it rather than against the metric term
+    # alone.
+    assert {
+        "term": "database_total_across_window",
+        "bytes": 9000,
+    } in summary["measurement_uncertainty_terms"]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is True
 
 
 def test_v3_disk_inventory_resolves_pgdata_through_the_deepest_covering_mount(tmp_path):
@@ -2700,18 +2726,21 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     assert '"reason": "live_database_oids_unbounded"' in source
     # base/ is no longer an "unavailable" reason: like pg_wal it is REQUIRED, because
     # the omitted-children aggregate would otherwise report all live database storage
-    # as an unaccounted candidate while the null closure flag let the run succeed.
+    # as an unaccounted candidate while the null verdict let the run succeed.
     assert "base_directory_not_observed_in_data_directory" in source
     # The budget is no longer a reason of its own here: each closing scan is given its
     # own full allowance, so an exhausted budget surfaces as the scan's own failure
     # rather than as a pre-emptive skip against a deadline the scan never had.
     assert "scan_budget.begin_closing_scan()" in source
-    # Unavailable means no claim, not a claim of zero.
+    # Unavailable means no claim, not a claim of zero: no metric difference is
+    # computed, and the candidate list declares itself incomplete so the shortfall it
+    # reports is not read as a verdict.
     assert "metric_difference = None" in source
-    assert "None\n        if metric_difference is None" in source
-    assert "partition_closes = None if closure_gap is None else closure_gap == 0" in (
-        source
-    )
+    assert "candidate_list_complete = bool(base_breakdown_used)" in source
+    assert "if candidate_list_complete" in source
+    # And null is distinguished from false at the failure site, so "cannot be asserted"
+    # does not stop the operation the way "disproved" does.
+    assert "if accounted_within_uncertainty is False:" in source
     # And the OID set is only accepted when it is provably complete: bounded by the
     # same limit as the row list, and cross-checked against the SQL count.
     assert (
@@ -2731,10 +2760,15 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     assert inventory["postgres_data_directory_reconciliation"]["reconciled"] is True
     summary = inventory["summary"]
     assert "summary_failed" not in summary
-    # ...but makes NO base claim, and says the closure is unknown rather than
-    # asserting it against a metric difference it could not compute.
+    # ...but makes NO base claim, and declares the candidate list incomplete rather
+    # than judging a shortfall that contains a gap this action left knowingly. The
+    # shortfall is still reported -- it is still the best description of what was
+    # measured -- but the verdict is null, not false, so the run is not failed by a
+    # gap whose cause is already recorded.
     assert summary["database_size_metric_difference_bytes"] is None
-    assert summary["candidates_partition_unaccounted_at_scan"] is None
+    assert summary["candidate_list_complete"] is False
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is None
+    assert summary["candidate_shortfall_bytes"] == 1995
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     paths = [row["path"] for row in summary["largest_unaccounted_directories"]]
     assert not any(path.startswith(f"{pgdata}/base") for path in paths)

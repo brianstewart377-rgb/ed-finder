@@ -2957,7 +2957,33 @@ try:
     if data_dir not in exclusive and strict_ancestors:
         container = max(strict_ancestors, key=len)
         exclusive[container] -= pgdata_scan_side
-    closure_adjustments: list[dict[str, Any]] = []
+    # MEASUREMENT UNCERTAINTY, not signed corrections.
+    #
+    # Every figure here is a measurement taken at a different moment from the one it is
+    # compared with, and on a live multi-terabyte filesystem nothing holds still: the
+    # database writes, WAL is created and recycled, `df` is one instant while `du` is a
+    # minutes-long walk. The receipt used to assert that the candidate list summed
+    # EXACTLY to the unaccounted figure and defend that claim with a growing set of
+    # signed correction terms -- one per way the two sides could disagree. That claim
+    # was never needed to answer the question this action exists for ("what large
+    # things on this volume are not the database"), and it is not achievable: each
+    # correction created another pair of measurements to disagree about.
+    #
+    # The same bracket widths make a better error bar than they made corrections. Each
+    # one is recorded here with the reason it exists, summed into
+    # measurement_uncertainty_bytes, and the receipt states the shortfall against that
+    # width instead of claiming to balance. The safety property is kept where it
+    # matters: a shortfall LARGER than the uncertainty means the list genuinely fails
+    # to explain the figure -- a big directory missing -- and that still fails closed.
+    uncertainty_terms: list[dict[str, Any]] = []
+
+    def uncertain(term: str, bytes_: int, path: str | None = None) -> None:
+        """Record a measurement width. Magnitude only: a width has no direction."""
+        if bytes_:
+            entry: dict[str, Any] = {"term": term, "bytes": abs(bytes_)}
+            if path is not None:
+                entry["path"] = path
+            uncertainty_terms.append(entry)
     # The last positive-only drop on a computed difference, and the same hazard as the
     # remainders: the ancestor holding the data directory has `pgdata_after` subtracted
     # from it, and that figure is measured at a different instant than `usage_full`, so
@@ -2980,13 +3006,7 @@ try:
                 }
             )
         elif size < 0:
-            closure_adjustments.append(
-                {
-                    "term": "outside_directory_negative_remainder",
-                    "bytes": size,
-                    "path": path,
-                }
-            )
+            uncertain("outside_directory_negative_remainder", size, path)
     # Subtracting the whole data directory removes more than accounted_bytes covers.
     # accounted_bytes is the databases (base/), WAL (pg_wal) and the temp directories;
     # PGDATA also holds `global`, `pg_xact`, `pg_multixact`, replication-slot state and
@@ -3031,9 +3051,7 @@ try:
                 }
             )
         elif value < 0:
-            closure_adjustments.append(
-                {"term": term, "bytes": value, "path": path}
-            )
+            uncertain(term, value, path)
     # PGDATA also holds files directly at its root -- PG_VERSION, postgresql.conf,
     # postmaster.pid, and anything anyone has ever left there. The depth-1 root total
     # includes them, but iterating only the child directories drops them, while the
@@ -3105,13 +3123,7 @@ try:
         if name == "pg_wal" and not wal_snapshot_stable:
             unresolvable = wal_child["bytes"] - subtract
             if unresolvable:
-                closure_adjustments.append(
-                    {
-                        "term": "pg_wal_unpairable_to_one_snapshot",
-                        "bytes": unresolvable,
-                        "path": wal_child["path"],
-                    }
-                )
+                uncertain("pg_wal_unpairable_to_one_snapshot", unresolvable, wal_child["path"])
             continue
         wal_unlisted = wal_child["bytes"] - subtract
         label = (
@@ -3133,13 +3145,7 @@ try:
         # partition came from the walk, so the difference has to be named or the
         # closure is out by it.
         if walk_figure is not None and walk_figure != wal_child["bytes"]:
-            closure_adjustments.append(
-                {
-                    "term": f"{name}_walk_to_sql_drift",
-                    "bytes": walk_figure - wal_child["bytes"],
-                    "path": wal_child["path"],
-                }
-            )
+            uncertain(f"{name}_walk_to_sql_drift", walk_figure - wal_child["bytes"], wal_child["path"])
     # `base` is excluded as accounted, but pg_database_size scans base/<database OID>
     # rather than the whole directory, and the temp figure covers base/pgsql_tmp's
     # ordinary files. Anything else under base -- an orphaned OID directory from a
@@ -3182,13 +3188,7 @@ try:
         # the drift is carried rather than refused.
         base_drift = base_breakdown["bytes_at_pgdata_scan"] - base_breakdown["bytes"]
         if base_drift:
-            closure_adjustments.append(
-                {
-                    "term": "base_directory_scan_drift",
-                    "bytes": base_drift,
-                    "path": base_breakdown["path"],
-                }
-            )
+            uncertain("base_directory_scan_drift", base_drift, base_breakdown["path"])
         # Named individually: "base/16401 is not a live database" is actionable in a
         # way that a lump remainder never is.
         # A NUMERIC name cannot be proven unreferenced by catalog reads at all.
@@ -3364,27 +3364,48 @@ try:
     # right paths instead of absorbing database churn.
     pgdata_span = postgres_data_directory_bytes - pgdata_scan_side
     if pgdata_span:
-        closure_adjustments.append(
-            {
-                "term": "postgres_data_directory_scan_to_close_drift",
-                "bytes": -pgdata_span,
-                "path": data_dir,
-            }
+        uncertain("postgres_data_directory_scan_to_close_drift", -pgdata_span, data_dir)
+    # The remaining widths, which the signed-term model never counted because they were
+    # not corrections to anything -- they are simply how precisely each figure is known.
+    uncertain("volume_used_across_window", post_scan_volume_drift)
+    uncertain("postgres_data_directory_bracket", pgdata_after - pgdata_before)
+    uncertain("filesystem_minus_directory_scan", residual)
+    if metric_difference is not None:
+        uncertain("database_size_du_versus_st_size", metric_difference)
+    wal_bracket = inventory.get("wal", {})
+    if isinstance(wal_bracket, dict):
+        uncertain(
+            "wal_listed_bracket", wal_bracket.get("listed_bytes_scan_bracket_width") or 0
         )
-    closure_adjustment_bytes = sum(item["bytes"] for item in closure_adjustments)
+    databases_closing = inventory.get("databases_at_window_close", {})
+    if isinstance(databases_closing, dict):
+        uncertain(
+            "database_total_across_window",
+            databases_closing.get("database_total_drift_bytes") or 0,
+        )
+    measurement_uncertainty = sum(item["bytes"] for item in uncertainty_terms)
     candidate_total = (
         non_database_directory_bytes + unaccounted_inside_data_directory_bytes
     )
-    # The self-check, and the gap when it fails. `None` only where the optional base
-    # breakdown is unavailable, which is a deliberate "cannot be asserted" rather than
-    # a failure.
-    closure_gap = (
-        None
-        if metric_difference is None
-        else unaccounted_at_scan
-        - (candidate_total + metric_difference + residual + closure_adjustment_bytes)
+    # How much of the unaccounted figure the candidate list does not explain, against
+    # how precisely the two sides are known. This replaces an exact identity: the
+    # question that matters is "does the list account for the figure, to within what
+    # these measurements can resolve", not "do the numbers balance to the byte" -- which
+    # they cannot on a live filesystem and never needed to.
+    candidate_shortfall = unaccounted_at_scan - candidate_total
+    # Whether the list is even eligible for that comparison. An unavailable base
+    # breakdown means base/ contributes NO candidate rows at all, so the shortfall then
+    # contains a gap this action put there knowingly -- and a known gap cannot be told
+    # apart from the unknown one the comparison exists to detect. The verdict is
+    # therefore null rather than false: "not asserted", not "disproved". The shortfall
+    # and the uncertainty are still reported, because they are still the best available
+    # description of what was measured.
+    candidate_list_complete = bool(base_breakdown_used)
+    accounted_within_uncertainty = (
+        abs(candidate_shortfall) <= measurement_uncertainty
+        if candidate_list_complete
+        else None
     )
-    partition_closes = None if closure_gap is None else closure_gap == 0
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
         "operating_database_bytes": operating_database_bytes,
@@ -3402,8 +3423,8 @@ try:
         # Each one is a signed difference between two measurements of the same storage,
         # taken by different instruments or at different moments. They are part of the
         # identity, not commentary on it, and none of them is reclaimable space.
-        "closure_adjustments": closure_adjustments,
-        "closure_adjustment_bytes": closure_adjustment_bytes,
+        "measurement_uncertainty_terms": uncertainty_terms,
+        "measurement_uncertainty_bytes": measurement_uncertainty,
         # Stated, not implied. When the breakdown is unavailable the metric difference
         # is unknown, so the closure cannot be asserted -- and saying so is the point.
         #
@@ -3416,8 +3437,11 @@ try:
         # have reported that its own candidates did not partition the figure they
         # explain. It passed only in a fixture where df and du agree, which is the one
         # place the error could not be seen.
-        "candidates_partition_unaccounted_at_scan": partition_closes,
-        "candidate_closure_gap_bytes": closure_gap,
+        "candidate_shortfall_bytes": candidate_shortfall,
+        "candidate_list_complete": candidate_list_complete,
+        "candidates_account_for_unaccounted_within_uncertainty": (
+            accounted_within_uncertainty
+        ),
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         # Which figure the outside candidates were actually built against, and how wide
         # the unresolvable part is. The root walk visits the data directory at an
@@ -3490,32 +3514,40 @@ try:
             "reported ordinary per-file block rounding as orphaned storage. That "
             "difference is database_size_metric_difference_bytes, which is two tools "
             "measuring the same files differently and is not reclaimable. When the "
-            "breakdown is unavailable (reason recorded there) no base/ row is emitted "
-            "and candidates_partition_unaccounted_at_scan is null, because the closure "
-            "cannot then be asserted. "
-            "THE CANDIDATES PARTITION unaccounted_bytes_at_directory_scan, NOT "
-            "unaccounted_bytes: they are du measurements from the scan window, while "
-            "unaccounted_bytes uses the closing df reading. df, du and the SQL queries "
-            "cannot be read atomically on a live cluster, so the difference is named "
-            "(post_scan_volume_drift_bytes) rather than absorbed into a candidate, "
-            "where up to the whole reconciliation tolerance could hide. The identity "
-            "the receipt asserts is candidate_total_bytes + "
-            "database_size_metric_difference_bytes + "
-            "filesystem_minus_directory_scan_bytes + closure_adjustment_bytes == "
-            "unaccounted_bytes_at_directory_scan, reported as "
-            "candidates_partition_unaccounted_at_scan. The residual belongs in that "
-            "identity because every candidate is a du measurement, so they sum towards "
-            "directory_scan_root_bytes while the figure they explain starts from a df "
-            "reading, and the gap between the two IS the residual. "
-            "closure_adjustments lists every other signed difference between two "
-            "measurements of the same storage -- WAL recycled between the directory "
-            "walk and pg_ls_waldir(), base/ changing between the two walks, a "
-            "remainder that came out negative because its operands were measured at "
-            "different moments. A negative remainder cannot be a candidate, because "
-            "there is no negative storage to reclaim, so it is carried here instead of "
-            "being dropped. Nothing in closure_adjustments, and neither "
-            "post_scan_volume_drift_bytes nor database_size_metric_difference_bytes, is "
-            "storage anyone can free. "
+            "breakdown is unavailable (reason recorded there) no base/ row is emitted. "
+            "THIS RECEIPT DOES NOT CLAIM THE CANDIDATES BALANCE EXACTLY, and it is "
+            "worth saying why, because an exact claim would look stronger. Every figure "
+            "here is measured at a different moment from the one it is compared with: "
+            "df is a single instant, du is a walk lasting minutes, and the SQL queries "
+            "fall between them, while the database writes and WAL is created and "
+            "recycled throughout. There is no instant at which all of these could be "
+            "read together, so an exact identity could only ever be defended by adding "
+            "one correction term per way the measurements can disagree -- and each such "
+            "term is another pair of readings to disagree about. The question this "
+            "action exists to answer does not need it: an operator deciding what to "
+            "reclaim needs to know which large things on the volume are not the "
+            "database, and how precisely that is known. "
+            "So candidate_shortfall_bytes is unaccounted_bytes_at_directory_scan minus "
+            "candidate_total_bytes -- how much of the figure the listed directories do "
+            "not explain -- and measurement_uncertainty_bytes is the summed width of "
+            "every window involved, itemised in measurement_uncertainty_terms: the "
+            "volume's movement across the window and across the root scan, the PGDATA "
+            "and base/ and WAL brackets, the database total's movement, df against du "
+            "(filesystem_minus_directory_scan_bytes), and du's allocated blocks against "
+            "pg_database_size's st_size sums (database_size_metric_difference_bytes). "
+            "candidates_account_for_unaccounted_within_uncertainty is whether the "
+            "shortfall fits inside that width. None of those terms is storage anyone "
+            "can free; they are how precisely the two sides are known. "
+            "A shortfall LARGER than the uncertainty is a different matter and fails "
+            "the operation: it means the listed directories genuinely do not explain "
+            "the figure, which is what a large directory missing from the scan looks "
+            "like. "
+            "That comparison is only made when candidate_list_complete is true. An "
+            "unavailable base breakdown removes base/'s rows from the list entirely, so "
+            "the shortfall then contains a gap this action left knowingly, and a known "
+            "gap cannot be told apart from the unknown one the check is for. The "
+            "verdict is null in that case -- not asserted, not disproved -- while the "
+            "shortfall and uncertainty are still reported. "
             "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is "
@@ -3557,11 +3589,19 @@ try:
     # Recorded directly rather than raised, because section_failed replaces the
     # section's whole value with an error object -- which would delete the summary
     # that is the only evidence of what failed to close. The gap, the candidates and
-    # every term of the identity stay in the receipt for diagnosis; only the status
-    # changes. `None` is left alone: it means the optional base breakdown was
-    # unavailable, which is "cannot be asserted", not "disproved".
-    if partition_closes is False:
-        failures.append(f"candidate_partition_does_not_close:gap_{closure_gap}")
+    # The safety property, kept where it earns its place: a shortfall LARGER than the
+    # measurement uncertainty is not a rounding artefact -- it means the candidate list
+    # genuinely fails to explain the figure, which is what a big directory missing from
+    # the scan looks like. That still fails closed, and every term stays in the receipt
+    # for diagnosis; only the status changes. A shortfall within the uncertainty is
+    # reported and no longer treated as an error, because it never was one. `None` is
+    # left alone -- the candidate list is knowingly incomplete, so there is nothing to
+    # disprove.
+    if accounted_within_uncertainty is False:
+        failures.append(
+            "candidates_do_not_account_for_unaccounted:"
+            f"shortfall_{candidate_shortfall}_uncertainty_{measurement_uncertainty}"
+        )
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:
     section_failed(failures, inventory, "summary", RuntimeError(str(exc)))
 

@@ -453,9 +453,11 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   remainder never is. The residual difference between the two metrics is
   `database_size_metric_difference_bytes`, which is **not reclaimable**: it is two
   tools measuring the same files differently. When the breakdown is unavailable (its
-  `reason` says why) **no `base/` candidate is emitted at all** and
-  `candidates_partition_unaccounted_at_scan` is `null`. An unexplained gap in the
-  partition is honest; a fabricated reclaim target is not. The breakdown is refused
+  `reason` says why) **no `base/` candidate is emitted at all**, so
+  `candidate_list_complete` is `false` and the within-uncertainty verdict is `null`:
+  the shortfall then contains a gap this action left knowingly, and a known gap cannot
+  be told apart from the unknown one the check exists to detect. An unexplained gap in
+  the partition is honest; a fabricated reclaim target is not. The breakdown is refused
   when its inputs cannot be trusted to describe one state: an unbounded or **changed**
   OID set (a database created between the OID query and the scan would have its live
   directory reported as orphaned — the most dangerous output this receipt could
@@ -528,17 +530,18 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   largest relations: the 21st relation can be mostly one very large index while the
   first 20 are larger only because of heap data, so that index was absent while
   `indexes_truncated` still said `false`. `index_inventory_scope` records the scope.
-- **A negative remainder is a named signed term, never a dropped row.** Every remainder
-  in the summary is a measured total minus figures measured by a different instrument
-  or at a different moment, so each can come out negative — WAL recycled between the
-  directory walk and `pg_ls_waldir()`, `base/` changing between the two walks. A
-  negative cannot be a candidate (there is no negative storage to reclaim), and
-  dropping it broke the closure; a shrink even turned already-recycled WAL into an
-  "unlisted storage" candidate. These are listed in `closure_adjustments` and summed as
-  `closure_adjustment_bytes`, which includes the **accepted** `base/` drift: the
-  add-backs come from the `base` walk while the outer partition removed `base` as
-  measured by the PGDATA walk, so any drift inside the tolerance shifts the candidate
-  total by exactly that amount.
+- **A negative remainder is a named measurement width, never a dropped row.** Every
+  remainder in the summary is a measured total minus figures measured by a different
+  instrument or at a different moment, so each can come out negative — WAL recycled
+  between the directory walk and `pg_ls_waldir()`, `base/` changing between the two
+  walks. A negative cannot be a candidate (there is no negative storage to reclaim),
+  and dropping it with `if x > 0` made the receipt silent about a quantity it had
+  measured; a shrink even turned already-recycled WAL into an "unlisted storage"
+  candidate. Each is recorded in `measurement_uncertainty_terms` — by magnitude, since
+  a width has no direction — and summed as `measurement_uncertainty_bytes`. That
+  includes the **accepted** `base/` drift: the add-backs come from the `base` walk
+  while the outer partition removed `base` as measured by the PGDATA walk, so any
+  drift inside the tolerance shifts the candidate total by exactly that amount.
 - **Database churn is never attributed to a sibling path.** The outside candidates
   subtract the data-directory size measured **beside the root walk**, not the closing
   one: `usage_full` holds the data directory as it was during that walk, so subtracting
@@ -546,7 +549,7 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   `/var/lib` — a shrink inflated that candidate by the removed database bytes and growth
   could drive it negative, pointing an operator at a sibling directory as reclaimable
   space that is actually the live database moving. The deliberate difference between the
-  two sides is carried as a signed closure term.
+  two sides is named as a measurement width.
 - **`pg_wal`'s location is tested by path, by device, AND against the container's
   mount list.** A volume or bind attached at `pg_wal`'s canonical destination hides a
   directory that still exists in the PGDATA volume, and from the host `stat` and `du`
@@ -579,35 +582,50 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   dropping its parent. Each row's exclusive size subtracts its reported descendants that
   have no *nearer* reported ancestor, rather than only its immediate children, so the
   exclusive sizes still sum to the scanned root's total exactly once.
-- **Four terms in the summary are artefacts, not reclaimable space.**
-  `post_scan_volume_drift_bytes` (sibling consumers moving between the root scan and
-  the close), `database_size_metric_difference_bytes` (above), and
-  `filesystem_minus_directory_scan_bytes` (`df` against `du`). The candidates partition
-  **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`, and the receipt
-  asserts the identity explicitly as `candidates_partition_unaccounted_at_scan`, and
-  **a `false` verdict fails the operation** (`candidate_partition_does_not_close:gap_N`,
-  with the summary preserved for diagnosis). `null` is the separate "cannot be
-  asserted" case where the optional `base/` breakdown is unavailable:
+- **The receipt states an uncertainty, not an exact identity — deliberately.** The
+  candidates explain **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`,
+  and the receipt reports two figures against each other:
 
   ```
-  candidate_total_bytes
-    + database_size_metric_difference_bytes
-    + filesystem_minus_directory_scan_bytes
-    + closure_adjustment_bytes
-    == unaccounted_bytes_at_directory_scan
+  candidate_shortfall_bytes      = unaccounted_bytes_at_directory_scan
+                                   - candidate_total_bytes
+  measurement_uncertainty_bytes  = sum(measurement_uncertainty_terms)
   ```
 
-  All four artefact terms belong in it (`closure_adjustment_bytes` is the fourth). Every candidate is a `du` measurement, so the
-  candidates sum towards `directory_scan_root_bytes` while the figure they explain
-  starts from a `df` reading — and the gap between those two *is* the residual. (An
-  identity asserted without it would be false on any real filesystem, since `df` and
-  `du` always differ; it would only hold in a fixture where they agree.) `df`, `du` and
-  the SQL queries cannot be read atomically on a live multi-terabyte cluster, so each
-  difference is named rather than absorbed into a candidate, where up to the whole
-  reconciliation tolerance — several GiB here — could hide in a receipt reporting
-  success. The paired `df` reading is taken **immediately** after the root scan, before
-  the second full data-directory walk, so the pairing holds in time and not merely in
-  name.
+  with `candidates_account_for_unaccounted_within_uncertainty` the verdict on whether
+  the shortfall fits inside that width. An earlier revision asserted an exact identity
+  instead, defended by a growing set of signed correction terms — one per way the two
+  sides could disagree. That claim was abandoned because it is not achievable and was
+  never needed. Every figure here is measured at a different moment from the one it is
+  compared with: `df` is a single instant, `du` is a walk lasting minutes, the SQL
+  queries fall between them, and throughout, the database writes and WAL is created
+  and recycled. There is **no instant at which all of these could be read together**,
+  so each correction only created another pair of readings to disagree about — four
+  consecutive review rounds went to one such term. The question this action exists to
+  answer does not need exactness: an operator deciding what to reclaim needs to know
+  which large things on the volume are not the database, and how precisely that is
+  known.
+
+  `measurement_uncertainty_terms` itemises every window involved — the volume's
+  movement across the window and across the root scan, the PGDATA, `base/` and WAL
+  brackets, the database total's movement, `df` against `du`
+  (`filesystem_minus_directory_scan_bytes`), and `du`'s allocated blocks against
+  `pg_database_size`'s `st_size` sums (`database_size_metric_difference_bytes`). **None
+  of these is storage anyone can free**; they are how precisely the two sides are
+  known. Every candidate is a `du` measurement, so the candidates sum towards
+  `directory_scan_root_bytes` while the figure they explain starts from a `df` reading —
+  and the gap between those two *is* the residual, which is why it belongs in the width
+  rather than in a candidate.
+
+  **The safety property is kept where it earns its place.** A shortfall *larger* than
+  the uncertainty is not a rounding artefact: it means the listed directories genuinely
+  fail to explain the figure, which is what a large directory missing from the scan
+  looks like. That still **fails the operation**
+  (`candidates_do_not_account_for_unaccounted:shortfall_N_uncertainty_M`, summary
+  preserved for diagnosis). A shortfall *within* the uncertainty is reported and is no
+  longer treated as an error, because it never was one. The paired `df` reading is taken
+  **immediately** after the root scan, before the second full data-directory walk, so
+  the pairing holds in time and not merely in name.
 
 The action is read-only and reclaims nothing: it creates, modifies and deletes
 no file and no file content, and both interpreter invocations take `-B` so no bytecode
