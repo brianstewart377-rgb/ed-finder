@@ -132,9 +132,20 @@ def _run_inventory_action(
             for path in (Path("/proc"), Path("/dev"), Path("/sys"))
             if path.exists() and path.stat().st_dev != Path("/").stat().st_dev
         )
+        # Labelled ext4, the root's type, so the st_dev comparison -- not the
+        # filesystem-type filter -- is what allows it.
         mounts_lines.append(
-            f"proc {different_device_path} proc rw,nosuid,nodev,noexec 0 0"
+            f"proc {different_device_path} ext4 rw,nosuid,nodev,noexec 0 0"
         )
+    elif nested_mount_mode == "network_mount":
+        # A network mount at a path that does not exist: os.stat() on it would fail,
+        # so the run succeeds ONLY if the type filter skips it without a stat --
+        # which is what keeps a hung NFS server from blocking the inventory forever.
+        mounts_lines.append(
+            f"server:/export {tmp_path / 'absent-nfs-mount'} nfs4 rw,relatime 0 0"
+        )
+    elif nested_mount_mode == "no_root_entry":
+        mounts_lines = ["proc /proc proc rw,nosuid,nodev,noexec 0 0"]
     elif nested_mount_mode not in {"none", "unreadable"}:
         raise ValueError(f"unsupported nested_mount_mode: {nested_mount_mode}")
     if nested_mount_mode != "unreadable":
@@ -655,6 +666,8 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "available": True,
         "safe_to_scan": True,
         "mount_points_below_root": 0,
+        "different_filesystem_type_skipped": 0,
+        "scan_root_filesystem_type": "ext4",
         "same_device_mount_count": 0,
         "same_device_mount_paths": [],
         "same_device_mount_paths_truncated": False,
@@ -3176,8 +3189,50 @@ def test_v3_disk_inventory_allows_a_different_device_nested_mount(tmp_path):
     assert report["available"] is True
     assert report["safe_to_scan"] is True
     assert report["mount_points_below_root"] == 1
+    assert report["different_filesystem_type_skipped"] == 0
     assert report["same_device_mount_count"] == 0
     assert report["same_device_mount_paths"] == []
+
+
+def test_v3_disk_inventory_skips_other_filesystem_types_without_stat(tmp_path):
+    """A hung network mount must not be able to block the inventory.
+
+    os.stat() runs in-process, where neither the per-command timeout nor the action
+    deadline can interrupt it. A mount of a different filesystem type cannot share
+    the scan root's st_dev, so it is skipped without a stat. The fixture puts an nfs4
+    mount at a path that does not exist: if it were stat()ed the run would stop with
+    nested_mount_stat_failed, so success here proves the stat never happened.
+    """
+    source = _read(ACTION)
+    assert "if fstype == root_fstype" in source
+    result = _run_inventory_action(tmp_path, nested_mount_mode="network_mount")
+    assert result.returncode == 0, result.stderr or result.stdout
+    report = json.loads(result.stdout)["inventory"]["directory_scan_same_device_mounts"]
+    assert report["available"] is True
+    assert report["scan_root_filesystem_type"] == "ext4"
+    assert report["mount_points_below_root"] == 1
+    assert report["different_filesystem_type_skipped"] == 1
+    assert report["same_device_mount_count"] == 0
+    assert "reason" not in report
+
+
+def test_v3_disk_inventory_refuses_a_mount_table_without_the_scan_root(tmp_path):
+    """The scan root is a mount target by construction, so its entry must exist.
+
+    Without it the root's filesystem type is unknown, and the type filter could not
+    tell which mounts are candidates; the check stops rather than guessing.
+    """
+    result = _run_inventory_action(tmp_path, nested_mount_mode="no_root_entry")
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    report = receipt["inventory"]["directory_scan_same_device_mounts"]
+    assert report["reason"] == "scan_root_mount_entry_missing"
+    assert (
+        receipt["inventory"]["volume_directory_usage"][
+            "volume_directory_usage_failed"
+        ]
+        == "scan_root_mount_entry_missing"
+    )
 
 
 def test_v3_disk_inventory_refuses_a_failed_nested_mount_stat(tmp_path):
@@ -3190,3 +3245,9 @@ def test_v3_disk_inventory_refuses_a_failed_nested_mount_stat(tmp_path):
     assert report["failed_stat_paths"] == [missing]
     assert report["failed_stat_path_count"] == 1
     assert report["failed_stat_paths_truncated"] is False
+    assert (
+        receipt["inventory"]["volume_directory_usage"][
+            "volume_directory_usage_failed"
+        ]
+        == "nested_mount_stat_failed"
+    )

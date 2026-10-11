@@ -474,11 +474,19 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
     the source, choosing a target to exclude can omit unique bytes or falsify path
     attribution. The safe read-only policy is therefore to allow different-device
     mounts (which `du -x` skips) and refuse every same-device nested mount.
+
+    Only mounts of the scan root's own filesystem TYPE are stat()ed. Equal st_dev
+    means the same filesystem, and the same filesystem has the same type, so a mount
+    of any other type cannot be a same-device mount. Skipping them is not merely an
+    optimisation: os.stat() on a hung network filesystem (NFS, CIFS, FUSE) blocks
+    in-process, where neither the per-command timeout nor the action deadline can
+    interrupt it, and the inventory would never emit a receipt.
     """
     report: dict[str, Any] = {
         "available": False,
         "safe_to_scan": False,
         "mount_points_below_root": 0,
+        "different_filesystem_type_skipped": 0,
         "same_device_mount_count": 0,
         "same_device_mount_paths": [],
         "same_device_mount_paths_truncated": False,
@@ -493,22 +501,37 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         )
         return report
     base = os.path.normpath(root)
-    points: set[str] = set()
+    # Mount point -> filesystem type. A later line for the same point is a mount
+    # stacked on top of the earlier one, so the last entry is the visible one.
+    points: dict[str, str] = {}
+    root_fstype: str | None = None
     for line_number, line in enumerate(lines, start=1):
         fields = line.split()
-        if len(fields) < 2:
+        if len(fields) < 3:
             report.update(reason="proc_mounts_invalid", line_number=line_number)
             return report
         point = os.path.normpath(decode_proc_mount_path(fields[1]))
+        if point == base:
+            root_fstype = fields[2]
+            continue
         strictly_below = (
             point != "/" and point.startswith("/")
             if base == "/"
             else point.startswith(f"{base}/")
         )
         if strictly_below:
-            points.add(point)
-    ordered_points = sorted(points)
-    report["mount_points_below_root"] = len(ordered_points)
+            points[point] = fields[2]
+    # The scan root is a mount target by construction (`df --output=target`), so a
+    # table without its entry is not one this check can reason about.
+    if root_fstype is None:
+        report.update(reason="scan_root_mount_entry_missing")
+        return report
+    report["scan_root_filesystem_type"] = root_fstype
+    ordered_points = sorted(
+        point for point, fstype in points.items() if fstype == root_fstype
+    )
+    report["mount_points_below_root"] = len(points)
+    report["different_filesystem_type_skipped"] = len(points) - len(ordered_points)
     try:
         root_device = os.stat(base).st_dev
     except OSError as exc:
