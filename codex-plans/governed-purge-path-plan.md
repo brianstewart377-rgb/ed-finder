@@ -1,0 +1,357 @@
+# Governed derived-generation purge path
+
+**Planning base SHA:** `c774fb09d11a6a5c0f127dc57fa38bbd10216470` (the exact checked-out wrapper branch head and `origin/main` merge base at planning time).
+
+**Decision implemented by this plan:** retain the already-selected wide-row Finder design and product attachment to the published generation, but add a governed purge of only the incomplete `ratings_v4_prod_p4` generation and the superseded, unpublished `ratings_v4_prod_p4_opt1` generation before the new Finder products are built. This changes the current ROADMAP instruction to defer purge, so the ROADMAP amendment in section 5 is a prerequisite, not optional documentation. The ROADMAP is the first programme authority and old evidence cannot override it (`CLAUDE.md:5-19`, `docs/operations/v3-finder-production-rollout-state.md:9-17`).
+
+This is a design for a later reviewed implementation PR. It is not production authority. Production commands must be provided by a current V3 workflow/runbook with an explicit target and safety boundary (`CLAUDE.md:76-95`), and ordinary coding work may not read or write production (`CLAUDE.md:148-156`).
+
+The repository pointer contract locates V3 migrations under `sql/v3/migrations/`, requires fail-closed validation/parameterized SQL/bounded inputs, and warns that adding a V3 migration triggers a production-promotion registration cascade (`AGENTS.md:26-32`). This plan includes that cascade rather than treating a migration file alone as deployable.
+
+## 1. VERIFIED FACTS
+
+### 1.1 Authority, production boundary, and recovery boundary
+
+The live database is PostgreSQL 18 on `ed-finder-prod` / `nb79a3d.mevnode.com`; commands must use current V3 authority, not retired V2 procedures (`docs/operations/infrastructure-status.md:3-40`). The repository contains no executable PostgreSQL 18 backup/restore/PITR runbook, and repository-driven restore, PITR, and disaster-recovery commands are not authorized (`docs/operations/infrastructure-status.md:73-79`). The retained 75,931,356,521-byte custom dump is only a selective legacy-migration source, is not the operating database, and must not be restored wholesale (`docs/operations/infrastructure-status.md:81-92`). Therefore none of the destructive steps below treats restore as a rollback mechanism.
+
+The current general operator surface is `.github/workflows/chatgpt-ed-new-ops.yml` (`CLAUDE.md:97-115`). It uses an explicit workflow choice list and an independent shell `case` allowlist (`.github/workflows/chatgpt-ed-new-ops.yml:3-24`, `.github/workflows/chatgpt-ed-new-ops.yml:56-85`), executes a credential-free checkout of trusted `main` rather than request-branch code (`.github/workflows/chatgpt-ed-new-ops.yml:46-54`, `.github/workflows/chatgpt-ed-new-ops.yml:87-93`), and uses pinned known-host verification (`.github/workflows/chatgpt-ed-new-ops.yml:94-121`). Those controls must be preserved, but section 4 recommends a stronger dedicated protected workflow for destructive execution.
+
+### 1.2 Generations, products, and pointers in the committed 2026-10-10 receipt
+
+The committed receipt records these derived generations:
+
+| Generation | UUID | State | Systems evidenced | Publication |
+|---|---|---:|---:|---|
+| `ratings_v4_prod_p4` | `49a0c00d-e722-4209-afd8-9d62b877e30a` | `BUILDING` | 4,938,000 completed ratings systems | never published |
+| `ratings_v4_prod_p4_opt1` | `403b2d43-820c-414a-ad57-0d4de0ca3e82` | `VALIDATING` | 198,528,286 completed ratings systems and 198,528,286 Search systems | never published |
+| `ratings_v4_prod_p4_parallel_v1` | `cfc25d36-3bc7-4011-a465-d6460eaaf826` | `PUBLISHED` | 198,528,286 completed ratings systems | published sequence 1 at 2026-09-16 08:38:23 UTC |
+
+The identities and lifecycle states come directly from the receipt (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:43-94`); the completed system/body/opportunity/Search counts come from its receipt aggregation (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:745-775`). The current derived pointer is exactly `parallel_v1`, UUID `cfc25d36-…`, publication sequence 1 (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:35-42`).
+
+The only recorded derived product is `system_search` version `v3-system-search-1` on `opt1`, state `READY`, expected rows 198,528,286 (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:96-111`). The published generation has neither a Search nor archetype product in this receipt (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:122-125`).
+
+The current committed receipt is not sufficient proof that workers are now stopped: it reports `all_named_workers_stopped: false` and the `opt1` ratings worker as paused/running (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:1-2`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:884-916`). The operations evidence says the owner subsequently killed that worker and a second governed run exited successfully, but its receipt is not committed; step 0 therefore remains open (`docs/operations/v3-finder-production-rollout-state.md:253-266`). A new committed, exact-head preflight receipt is mandatory before any purge authorization.
+
+### 1.3 Every final-schema relation that holds derived-generation-scoped rows
+
+The following list is exhaustive for relations carrying a `derived_generation_id` in the migrations on this base. Views are listed separately because they hold no rows.
+
+| Relation | Purpose and key | Foreign-key dependencies | Production status on the dated receipt |
+|---|---|---|---|
+| `v3_meta.derived_generation` | generation manifest; PK `derived_generation_id`; lifecycle `BUILDING/VALIDATING/READY/PUBLISHED/RETIRED/FAILED` | `canonical_generation_id -> v3_meta.canonical_generation` | present |
+| `v3_meta.current_derived_generation` | singleton current pointer | `derived_generation_id -> derived_generation` | present/current points to `parallel_v1` |
+| `v3_meta.derived_publication_audit` | publication history | `from_generation_id` and `to_generation_id -> derived_generation`; canonical FK | present |
+| `v3_meta.derived_product` | immutable product manifest/receipt; PK `(derived_generation_id, product_code)` | generation FK | present |
+| `v3_derived.build_chunk` | ratings chunk receipt; PK `(derived_generation_id, chunk_ordinal)` | generation FK | present |
+| `v3_derived.system_rating_vector` | one rating vector per system; PK `(derived_generation_id, system_id64)` | `(derived_generation_id, chunk_ordinal) -> build_chunk` | present/populated |
+| `v3_derived.body_mechanics` | physical-body mechanics; PK `(derived_generation_id, system_id64, body_pk)` | `(derived_generation_id, system_id64) -> system_rating_vector` | present/populated |
+| `v3_derived.economy_opportunity` | eligible body/economy rows; PK `(derived_generation_id, system_id64, body_pk, economy_ordinal)` | `(derived_generation_id, system_id64, body_pk) -> body_mechanics` | present/populated |
+| `v3_derived.system_search` | Search projection; PK `(derived_generation_id, system_id64)` | generation FK and `(derived_generation_id, system_id64) -> system_rating_vector` | present/populated for `opt1` only |
+| `v3_derived.search_build_chunk` | Search chunk receipt; PK `(derived_generation_id, chunk_ordinal)` | `build_chunk` and `derived_product` composite FKs | present/populated for `opt1` |
+| `v3_spatial.cluster_run` | generation-scoped cluster run; PK `(derived_generation_id, cluster_run_id)` | generation FK | present, no target rows evidenced |
+| `v3_spatial.cluster` | cluster payload; composite PK | `(derived_generation_id, cluster_run_id) -> cluster_run` | present, no target rows evidenced |
+| `v3_spatial.cluster_member` | cluster membership; composite PK | cluster FK and rating-vector FK | present, no target rows evidenced |
+| `v3_derived.system_archetype` | archetype payload | generation and rating-vector FKs | migration `011` registered but not applied in the dated receipt |
+| `v3_derived.system_archetype_summary` | archetype summary | generation and rating-vector FKs | migration `011` registered but not applied in the dated receipt |
+| `v3_derived.archetype_build_chunk` | archetype chunk receipt | `build_chunk` and `derived_product` composite FKs | migration `011` registered but not applied in the dated receipt |
+| `v3_meta.search_rebuild_plan` | Search scheduler plan; PK is generation | `(derived_generation_id, 'system_search') -> derived_product` | migration `013` registered but not applied in the dated receipt |
+| `v3_meta.search_rebuild_range` | Search scheduler range | generation FK to `search_rebuild_plan` | migration `013` registered but not applied in the dated receipt |
+
+The generation, pointer, and publication-audit schemas are defined at `sql/v3/migrations/003_ratings_v4_derived.sql:7-40` and `sql/v3/migrations/003_ratings_v4_derived.sql:72-80`. The ratings payload and receipt relations and their keys/FKs are defined at `sql/v3/migrations/003_ratings_v4_derived.sql:82-94`, `sql/v3/migrations/003_ratings_v4_derived.sql:109-126`, and `sql/v3/migrations/003_ratings_v4_derived.sql:141-185`. Search and cluster relations are defined at `sql/v3/migrations/004_v3_search_spatial_clusters.sql:22-46` and `sql/v3/migrations/004_v3_search_spatial_clusters.sql:94-151`; product and Search receipts are at `sql/v3/migrations/006_v3_derived_product_lifecycle.sql:6-27` and `sql/v3/migrations/006_v3_derived_product_lifecycle.sql:105-122`. The registered archetype relations are at `sql/v3/migrations/011_v3_system_archetype.sql:7-43` and `sql/v3/migrations/011_v3_system_archetype.sql:58-75`; registered scheduler relations are at `sql/v3/migrations/013_v3_system_search_parallel.sql:4-26`.
+
+Migration `012` dropped the old derived-keyed `v3_spatial.cell_summary` and replaced it with a separate `spatial_generation_id` model keyed to the canonical generation (`sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql:1-16`, `sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql:41-58`). Therefore the current `v3_spatial.cell_summary`, current spatial pointer, spatial generation, and spatial publication audit are not derived-purge targets. The `v3_app` and `v3_derived.system_economy_rating` views hold no rows and resolve the current pointer at read time (`sql/v3/migrations/003_ratings_v4_derived.sql:218-231`, `sql/v3/migrations/004_v3_search_spatial_clusters.sql:171-180`, `sql/v3/migrations/011_v3_system_archetype.sql:132-139`).
+
+The dated receipt proves only migrations through `012` (with `006`, `008`, and `009`) applied and reports `010`, `011`, `013`, and `014` false (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:116-121`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:804-854`). The manifest nevertheless registers `014`, `010`, `011`, and `013` after `012` (`sql/v3/migration-manifest.txt:37-40`, `sql/v3/migration-manifest.txt:51-55`). Thus implementation must handle the final post-migration schema while treating absence of target rows in the new relations as something to prove, not assume.
+
+### 1.4 Every deletion/update/truncation guard and its exact conditions
+
+1. `v3_meta.guard_derived_manifest` rejects every deletion of a generation manifest; makes the generation identity/manifest immutable; permits only `BUILDING -> VALIDATING|FAILED`, `VALIDATING -> READY|FAILED`, `READY -> PUBLISHED`, `PUBLISHED -> RETIRED`, and `RETIRED -> PUBLISHED`; and seals source/content after `BUILDING` and validation after `VALIDATING` (`sql/v3/migrations/003_ratings_v4_derived.sql:41-69`). Its row trigger covers `UPDATE OR DELETE` (`sql/v3/migrations/003_ratings_v4_derived.sql:70-71`). Therefore `p4` and `opt1` can both be moved to `FAILED` without inventing a new lifecycle transition, while their manifests cannot be removed.
+
+2. `v3_derived.guard_generation_write` rejects every `TRUNCATE`. For statement transition rows, it locks each referenced generation `FOR SHARE` and permits an insert, delete, or either side of an update only when the generation is exactly `BUILDING`; a missing generation also fails because its state is distinct from `BUILDING` (`sql/v3/migrations/003_ratings_v4_derived.sql:189-205`). Five statement triggers attach it to `build_chunk`, `system_rating_vector`, `body_mechanics`, and `economy_opportunity` (`sql/v3/migrations/003_ratings_v4_derived.sql:206-216`), and migration `004` initially attaches the same five forms to Search and every old derived-spatial/cluster relation (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:153-169`). This means the current generic guard unexpectedly permits deletion from a `BUILDING` generation but not from `opt1` in `VALIDATING`; the purge migration must tighten that delete branch to explicit authorization rather than broaden it.
+
+3. Migration `006` removes all five generic triggers from `system_search` (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:127-134`). `guard_system_search_insert` then permits inserts only when the base generation is `BUILDING`, `VALIDATING`, or `READY` and its `system_search` product is exactly `BUILDING` (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:136-163`). `reject_system_search_mutation` unconditionally rejects updates, deletes, and truncates of both `system_search` and `search_build_chunk`, including zero-row statements (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:165-206`). The new path must change only payload `DELETE`; Search receipts remain insert-only and `UPDATE`/`TRUNCATE` remain unconditional failures.
+
+4. `v3_meta.guard_derived_product` takes advisory transaction lock `764003001`; rejects every delete; allows product change only when the base is `BUILDING`, `VALIDATING`, or `READY`; requires new products to start `BUILDING` without terminal evidence; preserves manifest identity; and permits only `BUILDING -> READY|FAILED` with the stated verified/failure evidence (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:32-95`). Its row trigger covers insert/update/delete and its truncate trigger calls the always-rejecting generic truncate guard (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:97-103`). Product metadata is therefore retained.
+
+5. The registered archetype insert guard permits inserts only while the base is `BUILDING`, `VALIDATING`, or `READY` and the `system_archetype` product is exactly `BUILDING` (`sql/v3/migrations/011_v3_system_archetype.sql:77-99`). A shared rejector unconditionally blocks update/delete/truncate on archetype payload, summary, and chunk-receipt tables (`sql/v3/migrations/011_v3_system_archetype.sql:101-130`). As for Search, the purge migration may open only payload deletion, never receipt deletion, update, or truncate.
+
+6. Cluster tables retain the generic generation guard; `cluster_run` has a lifecycle check but no separate lifecycle-transition trigger (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:96-109`, `sql/v3/migrations/004_v3_search_spatial_clusters.sql:153-169`). Any target cluster rows must be deleted `cluster_member -> cluster -> cluster_run` under the same explicit purge authorization.
+
+7. The independent spatial guard rejects deletion of a spatial generation, enforces immutable identity and enumerated lifecycle transitions, and requires verification/failure/publication evidence (`sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql:65-121`). Spatial `cell_summary` allows insertion only for `BUILDING|VALIDATING|READY` spatial generations and rejects update/delete/truncate (`sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql:123-166`). No part of this guard is to change.
+
+8. No special mutation triggers are installed on `current_derived_generation`, `derived_publication_audit`, or the registered scheduler tables; ordinary keys/checks apply (`sql/v3/migrations/003_ratings_v4_derived.sql:35-40`, `sql/v3/migrations/003_ratings_v4_derived.sql:72-80`, `sql/v3/migrations/013_v3_system_search_parallel.sql:4-26`). Absence of a trigger is not authorization: the purge contract makes all pointer, audit, scheduler, manifest, product, and chunk-receipt rows out of scope.
+
+The bulk-write contract expressly notes that replica mode suppresses ordinary application and FK triggers and forbids using it for primary/foreign-key identity changes (`docs/development/bulk-database-write-safety.md:9-22`). This purge must not set `session_replication_role`, disable triggers, drop constraints, or use cascade.
+
+### 1.5 FK-safe payload order
+
+All listed generation-scoped FKs use the default no-action behavior; none of these definitions declares `ON DELETE CASCADE` (`sql/v3/migrations/003_ratings_v4_derived.sql:109-185`, `sql/v3/migrations/004_v3_search_spatial_clusters.sql:22-46`, `sql/v3/migrations/004_v3_search_spatial_clusters.sql:96-148`). The complete child-first payload order is:
+
+1. `v3_spatial.cluster_member`;
+2. `v3_spatial.cluster`;
+3. `v3_spatial.cluster_run`;
+4. `v3_derived.system_archetype` and `v3_derived.system_archetype_summary` (if the post-`011` schema contains target rows);
+5. `v3_derived.system_search`;
+6. `v3_derived.economy_opportunity`;
+7. `v3_derived.body_mechanics`;
+8. `v3_derived.system_rating_vector`.
+
+`build_chunk`, `search_build_chunk`, `archetype_build_chunk`, `derived_product`, `derived_generation`, `search_rebuild_plan`, and `search_rebuild_range` are retained as provenance/tombstone evidence. Retaining them also avoids their inbound FK cascade: vector depends on `build_chunk`; Search/archetype receipts depend on both `build_chunk` and product; and scheduler ranges depend on scheduler plan, which depends on product (`sql/v3/migrations/003_ratings_v4_derived.sql:82-126`, `sql/v3/migrations/006_v3_derived_product_lifecycle.sql:105-122`, `sql/v3/migrations/011_v3_system_archetype.sql:58-75`, `sql/v3/migrations/013_v3_system_search_parallel.sql:4-26`).
+
+### 1.6 Measured disk position and arithmetic
+
+The dated receipt reports PostgreSQL 18.6 and a 1,948,389,990,400-byte PostgreSQL volume, 1,557,045,571,584 bytes used, 292,296,142,848 bytes available, and a 1,345,287,616,191-byte database (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:126-135`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:789-796`). Decimal units are used below: 292.296 GB available.
+
+Measured total relation sizes are 157.863 GB for `system_rating_vector`, 210.229 GB for `body_mechanics`, 265.418 GB for `economy_opportunity`, and 80.523 GB for `system_search` (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:289-315`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:334-342`). Attribution is proportional to chunk-receipt system counts, not physical partition measurement (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:186-229`).
+
+On that explicit assumption, target bytes are:
+
+| Relation | `opt1` attributed | partial `p4` attributed | modeled reclaim after physical rewrite |
+|---|---:|---:|---:|
+| `system_search` | 80,522,969,088 | 0 | 80,522,969,088 B (80.523 GB) |
+| `economy_opportunity` | 131,078,701,764 | 3,260,324,472 | 134,339,026,236 B (134.339 GB) |
+| `body_mechanics` | 103,823,317,265 | 2,582,400,478 | 106,405,717,743 B (106.406 GB) |
+| `system_rating_vector` | 77,961,825,250 | 1,939,146,813 | 79,900,972,063 B (79.901 GB) |
+| **Total** | 393,386,813,367 | 7,781,871,763 | **401,168,685,130 B (401.169 GB)** |
+
+The source attribution values are at `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:187-270`; the arithmetic is shown rather than presented as a fresh measurement. The published survivor estimates are 131,078,701,764 bytes of opportunity rows/indexes, 103,823,317,265 bytes of mechanics, and 77,961,825,250 bytes of vectors (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:187-259`). The operations evidence independently summarizes about 401 GB purgeable and about 693 GB free afterward, but also says this is not enough for the superseded 1.413-TB fresh-generation design (`docs/operations/v3-finder-production-rollout-state.md:286-308`).
+
+The wide-row Finder design remains necessary: its disposable PostgreSQL 18.4 sample estimates 37.0 GB table plus 28.1 GB indexes, 65.2 GB total, with the method recorded in the evidence (`docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json:1-5`, `docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json:64-73`). Purge does not revive the old eight-row design.
+
+## 2. INVARIANTS
+
+1. **Never target current or ever-published derived data.** `parallel_v1`, every row it owns, and its current pointer remain unchanged. A partial build may never become current, application reads must resolve an explicit published generation, and published generations are immutable (`docs/development/v3-search-spatial-derived-data-decision.md:16-25`, `docs/development/v3-search-spatial-derived-data-decision.md:27-58`, `docs/development/v3-search-spatial-derived-data-decision.md:392-404`). Authorization also rejects any target mentioned as `from_generation_id` or `to_generation_id` in `derived_publication_audit`, even if it is not current.
+
+2. **Retain the only current rollback/read foundation.** The architecture requires at least the previous compatible derived generation to be retained (`docs/development/v3-search-spatial-derived-data-decision.md:330-348`). This plan does not claim either never-published candidate satisfies that rule; it preserves the sole PUBLISHED generation in the evidence and asks the owner to confirm the interpretation in section 7.
+
+3. **Never touch canonical truth or the published spatial pyramid.** Canonical schemas remain source truth and Search/ratings/archetypes are reproducible derived outputs (`docs/development/v3-search-spatial-derived-data-decision.md:16-25`). The canonical pointer is `phase4c_full_20260827_r5`, publication sequence 4, and the spatial pointer is published `pyramid_v1`, sequence 1 (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:3-31`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:858-881`). Both identities and their row counts are pre/post assertions, never mutation targets.
+
+4. **Retain evidence.** Do not delete or rewrite `derived_generation`, `derived_product`, any publication audit, schema-migration ledger, build/search/archetype chunk receipt, scheduler plan/range, or the committed operation receipts. Generation manifests and product manifests are schema-declared retained (`sql/v3/migrations/003_ratings_v4_derived.sql:41-71`, `sql/v3/migrations/006_v3_derived_product_lifecycle.sql:32-103`). Add an append-only purge request/event ledger; never make missing payload indistinguishable from an unfinished or corrupt build.
+
+5. **Fail closed at every mutation boundary.** Exact generation UUID/key/manifest hash, expected lifecycle, canonical/current-derived/current-spatial pointers and sequences, migration ledger hash, stopped workers, relation allowlist, target row count, published survivor row count, filesystem free bytes, WAL conditions, and absence of competing work must all match immediately before each phase. Full-Galaxy operations must be bounded/resumable with explicit lock policy and truthful progress (`docs/development/v3-search-spatial-derived-data-decision.md:350-364`).
+
+6. **No bypass.** FK and application triggers stay enabled; no replica mode, trigger disable, cascade, arbitrary SQL/table input, or `TRUNCATE` is allowed. Replica mode would suppress the exact protections this operation needs (`docs/development/bulk-database-write-safety.md:9-22`).
+
+7. **One small commit at a time.** A delete batch is one transaction with a bounded row limit and timeouts. A relation rewrite is a separate, explicitly approved phase. A failure never causes the operator to infer completion from logs; database row counts/catalog state are truth, following the existing resumable operator principle (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6`).
+
+8. **Do not promise recovery.** Safety comes from proving that only reproducible, never-published candidates are selected; permanently blocking their publication before deletion; preserving manifests/receipts; using transactional batches; preserving current data by predicate; and stopping between relations. The missing restore/PITR path remains visible and unauthorized (`docs/operations/infrastructure-status.md:73-79`).
+
+## 3. AT LEAST THREE MATERIALLY DIFFERENT APPROACHES
+
+PostgreSQL lock/WAL figures below are a design model to be verified on disposable PostgreSQL 18 and then remeasured by the read-only production plan. Repository evidence already establishes that plain deletion plus ordinary `VACUUM` makes pages reusable only inside the same table, while returning space to `/dev/md1` requires a table rewrite (`VACUUM FULL`, `CLUSTER`, or `pg_repack`) or partition drop (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:137-160`). It also requires budgeting 10–15% of data written for WAL/temp/vacuum (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:31-45`). Actual WAL retention, replication, and archive behavior are unverified and remain hard gates.
+
+### 3.1 Approach A — bounded `DELETE` plus ordinary `VACUUM`
+
+**Mechanism.** Execute child-first `DELETE ... WHERE derived_generation_id IN (...)` in bounded key/`ctid` batches through a guarded server function, then `VACUUM (ANALYZE)` each table. A plain `DELETE` does **not** return the measured space to the filesystem; ordinary `VACUUM` primarily makes dead pages reusable by future rows in the same relation (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:145-150`). It therefore does not create filesystem headroom for new Search/archetype relations.
+
+**Locks.** Design assumption to verify: each delete batch holds `ROW EXCLUSIVE` on its table and row locks only until that small transaction commits; ordinary `VACUUM` holds `SHARE UPDATE EXCLUSIVE` for its run but permits ordinary reads/writes. The batch limit and statement/lock timeouts bound each delete transaction; vacuum duration is not known.
+
+**Peak additional disk and WAL.** Persistent rewrite space is approximately zero, but WAL is generated for every deleted heap tuple and index entry. The amount and retention are unmeasured. Filesystem free space stays near the starting 292.296 GB after WAL recycling rather than rising by the modeled 401.169 GB; the removed pages only become table-local free space. A 15% planning allowance on 401.169 GB is 60.175 GB, but this is a budget assumption derived from the repository's 10–15% guidance, not a measured WAL bound (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:41-43`).
+
+**Failure/host death.** A failed current batch rolls back; earlier batches remain committed and are counted on resume. A host death before vacuum leaves dead tuples and no filesystem reclamation. The current published generation remains logically intact because the delete predicate and guard exclude it. This approach does not meet the owner's filesystem-reclamation objective, so it is rejected as the final path.
+
+### 3.2 Approach B — bounded `DELETE`, then one-relation-at-a-time `VACUUM (FULL, ANALYZE)`
+
+**Mechanism.** Use the same guarded, child-first bounded deletes, but after both target generations reach zero rows for one payload relation, run `VACUUM (FULL, ANALYZE)` on that relation. Plain deletion still returns no filesystem space; `VACUUM FULL` performs the physical rewrite that returns old relation files to the filesystem (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:145-153`). Process `system_search` first because it has no published survivor in the dated evidence, then opportunity, mechanics, and vector; this makes later survivor copies fit sequentially.
+
+**Locks.** Design assumption to verify: batched deletes take the bounded locks described in approach A. `VACUUM FULL` takes `ACCESS EXCLUSIVE` for the entire table rewrite, blocking reads and writes of that relation until completion. The repository already treats an `ACCESS EXCLUSIVE` whole-table scan of roughly 198.5 million rows as minutes-long and unsuitable for an ordinary bounded migration (`sql/v3/migrations/010_v3_system_search_body_type_counts.sql:5-11`, `docs/operations/v3-finder-production-rollout-state.md:70-97`). Rewrite duration must be measured; it cannot be hidden inside the migration runner.
+
+**Peak additional disk.** The table below is planning arithmetic, not authorization. It assumes proportional attribution equals compacted survivor/reclaim bytes, temp/WAL from a completed phase is recycled before the next phase, and a 15% working allowance is adequate. Every assumption must be replaced by live preflight measurements and rehearsal evidence.
+
+| Rewrite phase | Modeled free before | New survivor copy | 15% WAL/temp allowance on delete + survivor write | Modeled peak additional | Modeled free after successful rewrite |
+|---|---:|---:|---:|---:|---:|
+| `system_search` (published survivor 0) | 292.296 GB | approximately 0 | 12.078 GB | about 12.078 GB | 372.819 GB |
+| `economy_opportunity` | 372.819 GB | 131.079 GB | 39.813 GB | about 170.892 GB | 507.158 GB |
+| `body_mechanics` | 507.158 GB | 103.823 GB | 31.534 GB | about 135.357 GB | 613.564 GB |
+| `system_rating_vector` | 613.564 GB | 77.962 GB | 23.679 GB | about 101.641 GB | 693.465 GB |
+
+The starting/reclaim/survivor inputs are sourced in section 1.6. The important conclusion is conditional: sequential reclamation appears arithmetically possible, whereas rewriting the 265.418-GB opportunity table before first reclaim was previously judged unsafe against 292 GB free (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:145-153`). Execution still stops unless measured `free_bytes - survivor_copy_budget - measured_WAL/temp_budget` exceeds an owner-approved reserve.
+
+**WAL.** Deletes generate WAL for removed rows/index entries; the full rewrite and rebuilt indexes generate additional WAL. Exact bytes and retained peak are unknown. The plan action records start/end LSN, `pg_wal` bytes, archive/slot state, checkpoints, and free bytes, and will not begin the next phase until WAL has stabilized and the reserve gate passes.
+
+**Failure/host death.** Each delete batch is atomic and resumable. Design assumption to prove in PostgreSQL 18 crash tests: if a full rewrite fails before its transactional filenode swap commits, the old relation remains authoritative; if it commits, the compacted relation is authoritative. A crash after logical deletion but before compaction leaves a valid bloated table and can be resumed. No step needs a backup restore to choose the correct database state; if PostgreSQL itself cannot recover locally, production work stops because no repository-authorized DR route exists (`docs/operations/infrastructure-status.md:73-79`).
+
+### 3.3 Approach C — shadow partitioned tables, checked copy, atomic cutover, then partition drop
+
+**Mechanism.** Create new generation-partitioned replacements for all payload tables, copy only retained rows, rebuild constraints/indexes/triggers, validate counts/seals, acquire short cutover locks, switch application/FK/view dependencies, and drop target-generation partitions. Future purges become `DROP TABLE`/detach-and-drop of exact generation partitions and return space immediately without row-by-row deletes. The repository identifies partition-per-generation as the most plausible long-term purge design (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:150-160`).
+
+**Locks.** The long copy/index phase can be read-compatible, but the final dependency/FK/view/table swap requires `ACCESS EXCLUSIVE` on multiple related tables. Because PostgreSQL dependencies follow object OIDs, a simple rename is not a valid cutover; the reviewed implementation would have to recreate every FK/view/trigger against the replacement. This is a design inference from the explicit dependency graph in section 1.3, not a repository-proven ready procedure.
+
+**Peak additional disk and WAL.** Copying all published survivors needs at least 312.864 GB for the three ratings relations, before temp, indexes beyond the proportional model, and WAL. That already exceeds the dated 292.296 GB free, so the complete shadow set cannot be built on the measured volume without stepwise reclamation or new capacity. Copying relation by relation has similar peak arithmetic to approach B but adds multi-table cutover complexity. Every copied row/index is WAL-generating unless an additional durability design is introduced; no such authorized design exists in the repository.
+
+**Failure/host death.** Before cutover, old tables remain authoritative and shadow objects can be discarded later. A cutover failure must roll back as one transaction; a host death uses PostgreSQL crash recovery to select the committed object graph. A defect in recreated dependencies could affect published reads, and there is no restore runbook. This approach is rejected for the immediate purge but recommended as a separate future schema design before another multi-generation build.
+
+### 3.4 Approach D — guarded delete plus online `pg_repack`
+
+**Mechanism.** Delete target rows through the governed function, then use `pg_repack` to copy live rows and indexes while maintaining a change log, with only a short final swap lock. This could reduce the long `ACCESS EXCLUSIVE` interval compared with approach B.
+
+**Locks, disk, WAL, and failure.** It still needs approximately a live copy plus change-log/temp/WAL space and a final exclusive swap; it generates WAL for deletion, copied data/indexes, and concurrent-change capture. Failure before swap should leave the original relation, but that must be proved against the exact PostgreSQL 18/extension build. The current repository evidence does not establish that `pg_repack` exists in the PostgreSQL 18 production container; older PostgreSQL incidents are historical rather than current authority (`CLAUDE.md:19`, `docs/operations/infrastructure-status.md:36-40`). This approach is unavailable unless a new read-only inventory and separately reviewed extension authority prove it. It is not the recommendation.
+
+Its minimum relation-copy peaks use the same dated survivor model as approach B: approximately 0 GB for empty Search, 131.079 GB for opportunity, 103.823 GB for mechanics, and 77.962 GB for vectors, each plus an unmeasured change log, temp files, and WAL. Against 292.296 GB starting free, a single relation might fit arithmetically, but the unverified extension, extra change-log growth, and unknown WAL retention prevent an execution claim. The long copy would use ordinary read/write-compatible locks plus extension triggers, followed by an `ACCESS EXCLUSIVE` final swap whose wait and hold time must be measured; failure or host death requires extension-specific cleanup proof before any retry.
+
+## 4. YOUR RECOMMENDED APPROACH
+
+Recommend **Approach B: explicit server-authorized bounded deletion followed by separately approved `VACUUM FULL` phases, with Search reclaimed first**. It is implementable with built-in PostgreSQL, preserves all audit/receipt records, and fits the dated arithmetic one relation at a time. It accepts a measured maintenance outage rather than assuming unverified extension availability or attempting a high-risk multi-table replacement.
+
+### 4.1 Migration and fail-closed SQL design
+
+**Numbering assumption:** the current SHA has no migration `015`, while the ROADMAP reserves `015` for product publication (`docs/ROADMAP.md:181-205`). Name the purge migration `016_v3_governed_derived_purge.sql` only if the implementation branch has `015` in that role; otherwise select the next ledger name without renumbering or rewriting an applied migration. Register it after rewritten `011`, `013`, and `015` because the production runner applies the complete pending prefix (`docs/ROADMAP.md:193-216`).
+
+The migration owns `BEGIN`/`COMMIT`, uses bounded lock/statement timeouts for its metadata-only DDL, and creates:
+
+1. `v3_meta.derived_generation_purge_request`: immutable `purge_id`, exact target UUID/key, target manifest SHA-256, original state, expected canonical/current-derived/current-spatial IDs and publication sequences, reviewed plan SHA-256, source Git SHA, actor/reason, created time, and a check that the target key is one of the two owner-approved keys. A guard rejects update/delete/truncate. No caller-supplied relation or generation name is interpolated.
+
+2. `v3_meta.derived_generation_purge_event`: append-only event sequence keyed by `purge_id`, event kind (`AUTHORIZED`, `BATCH_COMMITTED`, `RELATION_LOGICALLY_EMPTY`, `REWRITE_STARTED`, `REWRITE_VERIFIED`, `COMPLETED`, `FAILED_STOP`), hard-coded relation code, rows affected/remaining, target and published survivor counts, relation bytes, filesystem bytes, WAL LSN/bytes, receipt SHA, timestamp, and failure evidence. A guard rejects update/delete/truncate. The latest event is progress truth; history is never overwritten.
+
+3. `v3_meta.begin_derived_generation_purge(...)`: takes advisory transaction lock `764003001`, locks current canonical/current derived and both target generation rows, and rejects unless all expected identities/sequences/hashes/states match, workers were separately attested stopped by the plan receipt, targets are not current, neither target appears in `derived_publication_audit`, and the exact reviewed plan hash is unused. In the same transaction it inserts immutable requests/events and transitions `p4: BUILDING -> FAILED` and `opt1: VALIDATING -> FAILED` with explicit failure evidence stating that owner-authorized purge superseded the build. Both transitions already exist in the manifest guard (`sql/v3/migrations/003_ratings_v4_derived.sql:53-59`). A committed `FAILED` state makes the targets unpublishable because publication accepts only verified `READY`/`RETIRED` candidates (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:245-267`).
+
+4. `v3_meta.purge_derived_payload_batch(purge_id, relation_code, max_rows)`: `SECURITY DEFINER`, fixed `search_path`, revoked from `PUBLIC`, and executable only by the exact operator role already used by the governed DB connection. It accepts `max_rows` only in `1..100000`; maps a closed enum to static SQL; rechecks the request, target `FAILED` state, current pointers, nonpublication, dependency phase, and advisory lock; deletes one deterministic indexed batch for exactly one target; and appends a batch event in the same transaction. Mixed-generation statements fail atomically. A custom transaction-local setting may carry `purge_id` to triggers, but the setting alone is never authority: the trigger must join the immutable request, verify the target UUID/state/current pointer/plan, and verify the executing function context.
+
+5. `v3_meta.complete_derived_payload_relation(...)` and `v3_meta.complete_derived_generation_purge(...)`: append completion events only after exact target counts are zero for all applicable payload relations, published counts match the frozen preflight counts, metadata/receipts still exist, pointers are unchanged, FK checks pass, and post-rewrite relation/free-space measurements exist. Re-execution is an idempotent no-op only after database evidence proves the exact phase complete.
+
+Guard changes are deliberately narrow:
+
+- Replace only the `DELETE` branch of `v3_derived.guard_generation_write`: normal deletion is no longer permitted merely because a generation is `BUILDING`; deletion is permitted only for transition rows belonging to an active exact purge request whose target is `FAILED`, noncurrent, and never published. `INSERT` and both `UPDATE` transition-table checks retain their existing lifecycle behavior; `TRUNCATE` remains unconditional deny (`sql/v3/migrations/003_ratings_v4_derived.sql:189-216`).
+- Replace Search's unconditional payload-delete trigger with an `AFTER DELETE ... REFERENCING OLD TABLE AS changed_rows` authorization guard, so unauthorized work rolls back. Keep Search `UPDATE` and `TRUNCATE` unconditional deny and keep all three `search_build_chunk` mutation rejects unchanged (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:165-206`).
+- Apply the same payload-only delete guard to `system_archetype` and `system_archetype_summary`; keep archetype updates/truncates and every `archetype_build_chunk` mutation rejected (`sql/v3/migrations/011_v3_system_archetype.sql:101-130`). Adapt this precisely to the final rewritten `011` rather than assuming the current eight-row DDL.
+- Cluster relations continue through the tightened generic guard. Spatial guards, generation/product manifest guards, publication functions, current pointers, audits, chunk receipts, and scheduler tables are unchanged.
+
+The migration must not perform the purge or `VACUUM FULL`; it only installs the fail-closed capability. Adding it requires its exact hash/path in `sql/v3/migration-manifest.txt`, a recut `deploy/v3-production/target-authority.json` schema transition and every compatible intermediate prefix, and regenerated schema identity. The current manifest documents ledger-name/path/hash semantics (`sql/v3/migration-manifest.txt:1-13`), while the governed migration runbook requires manifest registration, transition/compatibility attestation, identity regeneration, exact-head acceptance, plan review, and separate apply (`docs/operations/v3-production-schema-migration.md:72-85`).
+
+### 4.2 Operator actions, workflow, and receipts
+
+Use two surfaces:
+
+1. Keep `v3-derived-purge-plan` and `v3-derived-purge-status` as read-only choices in `.github/workflows/chatgpt-ed-new-ops.yml`.
+2. Add a dedicated `.github/workflows/v3-production-derived-purge.yml` for mutation, modeled on the protected production schema-migration workflow, with `workflow_dispatch` only, environment `v3-production`, literal target confirmation `ed-finder-prod/nb79a3d.mevnode.com`, exact current-`main` re-fetch after approval, pinned known-host SSH, concurrency shared with production deployment/schema mutation, `contents: read` plus only the narrow permission needed to authenticate/download the successful plan artifact, and no request-controlled target/relation/path. The stronger migration workflow already demonstrates protected manual inputs, exact-main gates, pinned host trust, reviewed plan authentication, and 180-day receipts (`.github/workflows/v3-production-schema-migration.yml:24-38`, `.github/workflows/v3-production-schema-migration.yml:45-105`, `.github/workflows/v3-production-schema-migration.yml:106-202`).
+
+Implement `scripts/operator/actions/v3-derived-generation-purge.sh` with fixed modes. The workflow exposes each destructive phase as a literal choice, not a free string:
+
+- `authorize` (marks both exact targets `FAILED`; no payload deletion);
+- `delete-cluster-member`, `delete-cluster`, `delete-cluster-run`;
+- `delete-system-archetype`, `delete-system-archetype-summary`;
+- `delete-system-search`;
+- `rewrite-system-search`;
+- `delete-economy-opportunity`;
+- `rewrite-economy-opportunity`;
+- `delete-body-mechanics`;
+- `rewrite-body-mechanics`;
+- `delete-system-rating-vector`;
+- `rewrite-system-rating-vector`;
+- `complete`;
+- `status`.
+
+Each delete dispatch may run a detached, bounded loop of small DB transactions for only that relation, but it stops when its wall-clock budget expires and resumes from database counts. Each rewrite is its own owner-reviewed dispatch. The script pins the exact target host/FQDN, PostgreSQL container/database/user, both target UUID/key pairs, published/canonical/spatial pointers, guard migration name/hash, source SHA, relation enum, and expected migration-set identity. Existing mutating actions demonstrate exact CPython 3.14, host/container/default-context validation, fixed local `psql -X --no-psqlrc --no-password`, and exact migration hash verification (`scripts/operator/actions/v3-system-search-validate-constraints.sh:11-34`, `scripts/operator/actions/v3-system-search-validate-constraints.sh:119-148`, `scripts/operator/actions/v3-system-search-validate-constraints.sh:211-260`).
+
+Immediately before every destructive phase, rerun worker/pointer/lifecycle/size checks equivalent to `v3-derived-lifecycle-status`; that action already treats unknown worker state as failure, records all pointers/generations/products, sizes relations/indexes, resolves the actual PostgreSQL mount, and derives readiness only from stopped workers plus complete inspection (`scripts/operator/actions/v3-derived-lifecycle-status.sh:267-301`, `scripts/operator/actions/v3-derived-lifecycle-status.sh:351-539`, `scripts/operator/actions/v3-derived-lifecycle-status.sh:541-622`, `scripts/operator/actions/v3-derived-lifecycle-status.sh:737-858`).
+
+For a rewrite, one `psql` session acquires advisory session lock `764003001`, rechecks all identities/counts/free-space/WAL gates, executes fixed `VACUUM (FULL, ANALYZE) v3_derived.<allowlisted_table>`, rechecks, appends the rewrite event, and releases the lock. No shell variable becomes an SQL identifier except through a closed internal `case` mapping. A short `lock_timeout` fails rather than waiting behind unknown work; the statement timeout is a separately reviewed per-table bound based on rehearsal, not zero.
+
+Every plan/start/status/rewrite result is JSON-only and includes:
+
+- schema version, operation, phase, status/result/failures;
+- workflow run ID, exact trusted source SHA, script SHA, guard-migration expected/live SHA, migration-set identity, and verified flags;
+- host/FQDN/container/database/PostgreSQL version and data-mount identity;
+- purge ID and reviewed plan SHA;
+- target UUID/key/manifest hash/original and current lifecycle for both targets;
+- canonical, current-derived, and current-spatial UUID/key/sequence before and after;
+- every named worker and observed state;
+- fixed relation, batch limit, rows affected this run/cumulative/remaining, exact published survivor rows before/after, and FK-check result;
+- heap/index/total bytes and filesystem total/used/free bytes before/after;
+- `pg_wal` bytes, current WAL LSN before/after, WAL-byte delta, archive status, replication slots/lag, checkpoint counters, temp bytes, and the configured reserve/abort threshold;
+- lock/statement/wall-clock timeouts, backend/runner state, rewrite start/completion, and database transaction outcome;
+- explicit booleans for database writes, canonical writes, pointer/publication changes, service changes, filesystem reclamation, migration execution, and application deployment. If interruption prevents proving a write outcome, use `null`, never a false success claim.
+
+The workflow uses `tee`, uploads receipts with `if: always()` and `if-no-files-found: error`, retains them at least 180 days, and the owner-reviewed accepted receipts are committed under `docs/operations/evidence/` in a later evidence-only PR. Current mutating actions already retain start/status artifacts but only warn when absent and keep them 30 days (`.github/workflows/chatgpt-ed-new-ops.yml:175-210`, `.github/workflows/chatgpt-ed-new-ops.yml:337-399`); irreversible no-restore work needs the stronger contract.
+
+### 4.3 Exact production order and free-space gates
+
+1. Merge the ROADMAP amendment, final wide-row `011`, product-publication `015`, purge `016`, action/workflow/runbook, manifest/authority identities, and tests. This is code only.
+2. Run governed migration `plan`, review, then `apply` the entire exact pending prefix. The migration runner commits each migration and ledger row together and requires the live ledger to be an exact prefix (`docs/operations/v3-production-schema-migration.md:52-70`).
+3. Run and commit a new read-only purge plan receipt. It must prove all named workers stopped, exact pointers/states/row counts, no target rows in cluster/archetype relations (or report them for deletion), exact relation sizes, WAL/archive/slot topology, and free bytes. Any mismatch stops.
+4. Dispatch `authorize`. In one transaction, create the two immutable purge requests, record the plan, and move `p4` and `opt1` to `FAILED`. Verify the published pointer and its counts are unchanged. This is safe without restore because no payload is removed; after commit, the two owner-rejected candidates cannot be published or resumed through guarded writes.
+5. Run zero-or-bounded deletes for `cluster_member -> cluster -> cluster_run`, then `system_archetype` and `system_archetype_summary`. These are dependency preconditions; current evidence does not show target rows, so the expected operation is a positively receipted zero-row result, not a skipped check. This is safe without restore because the guard can select only the two never-published `FAILED` UUIDs, every deleted payload is reproducible, the current UUID is excluded twice (request and trigger), and the phase must preserve exact current counts before it commits a completion event.
+6. Delete `system_search` batches for `opt1`, verifying `p4` and `parallel_v1` counts are zero for this relation. Plain deletion does not change filesystem free materially. Rewrite `system_search` separately. **Illustrative dated arithmetic:** 292.296 GB before; near-zero survivor copy; 12.078-GB 15% WAL/temp allowance; about 372.819 GB after successful rewrite. Continue only after measured WAL/temp release and owner reserve pass. This is safe without restore because committed evidence assigns every Search row to unpublished `opt1`, the predicate cannot select another generation, each batch is atomic, and the rewrite is separately crash-rehearsed and verified before any dependent ratings row is touched (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:261-270`).
+7. Delete `economy_opportunity` for both targets, then rewrite it. **Illustrative arithmetic:** 372.819 GB before; 131.079-GB published survivor copy plus 39.813-GB allowance; about 507.158 GB after reclaiming 134.339 GB. Verify published row count and FK validity before continuing. This is safe without restore because opportunity is the leaf below mechanics, deletion is limited to the two failed UUIDs, the published survivor count is frozen and checked after every batch/rewrite, and a failed rewrite must prove the old or new relation via local crash recovery before continuing.
+8. Delete `body_mechanics` for both targets, then rewrite it. **Illustrative arithmetic:** 507.158 GB before; 103.823-GB survivor copy plus 31.534-GB allowance; about 613.564 GB after reclaiming 106.406 GB. This is safe without restore only after target opportunity rows are proven zero; the FK-safe order, exact target predicate, atomic batches, unchanged published count, and crash-tested rewrite preserve the live parent/survivor rather than relying on restoration.
+9. Delete `system_rating_vector` for both targets only after every child payload is zero, then rewrite it. **Illustrative arithmetic:** 613.564 GB before; 77.962-GB survivor copy plus 23.679-GB allowance; about 693.465 GB after reclaiming 79.901 GB. This is safe without restore only because all Search/archetype/cluster/mechanics children have positive zero-count receipts, the current generation is rejected by the guard, retained build receipts preserve provenance, and the published vector count/seal and rewritten indexes are verified before completion.
+10. Run `complete`: prove zero target payload rows in every relation; unchanged canonical/derived/spatial pointers; exact preflight-vs-post published counts; retained generation/product/chunk/scheduler/audit/ledger rows; valid FKs; rewritten relation/index validity; `ANALYZE` completion; and final free/WAL bytes. Commit the sanitized completion receipt.
+11. Run the 18 `system_search` constraint validations after old Search rows are removed and before new Search is built. Migration `010` explicitly makes validation a separate governed step (`sql/v3/migrations/010_v3_system_search_body_type_counts.sql:5-15`); the current ROADMAP puts that validation before the new product build (`docs/ROADMAP.md:214-242`).
+12. Continue the already-selected `5'`–`9'` product-build/validation/publication sequence and steps 10–11 only if the fresh post-purge capacity gate passes (`docs/ROADMAP.md:217-230`).
+
+All modeled free-space figures are assumptions based on a dated proportional receipt. Each live phase uses fresh exact bytes; a lower observed free value changes the arithmetic and stops the phase rather than reducing the reserve.
+
+### 4.4 Tests and CI lanes required by the implementation PR
+
+1. Add disposable PostgreSQL 18 integration tests in `tests/test_v3_governed_derived_purge.py` covering both approved target lifecycle transitions, every payload relation, child-first FK enforcement, retained metadata/receipts, append-only events, and successful completion.
+2. Prove fail-closed behavior: unauthorized/wrong purge ID; wrong UUID/key/manifest/plan hash; target current or ever published; pointer/sequence drift; worker not stopped or unknown; mixed-target statement; nonallowlisted relation; out-of-range batch; wrong dependency phase; survivor-count drift; active competing operation; insufficient disk/WAL reserve; and receipt insert failure all leave the attempted transaction unchanged.
+3. Prove `INSERT`/`UPDATE` behavior is unchanged and every `TRUNCATE` remains rejected. Extend the existing lifecycle/Search/archetype tests whose current contracts reject READY-row mutation and insert-only mutation (`tests/test_ratings_v4_production_generation.py:122-135`, `tests/test_ratings_v4_system_search.py:133-139`, `tests/test_v3_system_archetype_migration.py:158-163`).
+4. Run crash/interruption tests on disposable PostgreSQL 18: kill the batch client before/after commit; terminate `VACUUM FULL`; restart PostgreSQL; prove exactly one old/new relation state, current published counts, resumability, and truthful `null` outcome when the wrapper cannot know whether commit occurred. This is the evidence needed for the no-restore safety claim.
+5. Add operator contract tests in `tests/test_v3_derived_generation_purge_operator.py`: exact targets/hashes, host/context/container guards, strict SSH, no secrets/arbitrary SQL/trigger disable/replica role/cascade, timeouts/bounds, worker checks, plan authentication, relation phase allowlist, idempotent completion, receipt schema, `bash -n`, and no mutation on any preflight failure.
+6. Extend `tests/test_v3_lineage_migrations.py` for the new objects/guards and retain its manifest hash/LF/self-transaction checks (`tests/test_v3_lineage_migrations.py:17-60`, `tests/test_v3_lineage_migrations.py:97-116`). Extend `tests/test_v3_production_migration_operation.py` and production deployment authority tests for every new schema prefix/identity and exact reviewed-plan authentication.
+7. Add an integration-scale rehearsal using synthetic generations large enough to measure per-relation delete rate, `VACUUM FULL` duration, peak filesystem/temp/WAL, lock wait, restart behavior, and post-rewrite index validity. Do not extrapolate the maintenance window from the 200,000-row archetype footprint sample; that sample documents row-size methodology, not purge throughput (`docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json:1-5`).
+8. Required CI lanes are Backend unit/Ruff, Script contracts, disposable PostgreSQL 18 Integration/migration, V3 lineage/production-operation authority, canonical safety, and the repository's exact-head acceptance/reviewer-disposition gates. The repository requires applicable backend, integration, migration/script, canonical-safety, web, E2E, Review Lab, and security gates and does not accept green CI alone without disposition of substantive review findings (`CLAUDE.md:194-204`). No browser behavior changes are expected, but Review Lab's schema application must still prove the full manifest works.
+
+## 5. WHERE THIS SITS IN THE FINDER ROLLOUT STEPS
+
+The existing controlling sequence is step 0 inspection; step 2 migration plan/apply; step 3 Search-constraint validation; steps 4–9 generation/product build and publication; and steps 10–11 release-gate revision and governed release (`docs/ROADMAP.md:152-179`). The 2026-10-10 capacity decision supersedes steps 4–9 with wide-row `011`, product attachment to published `parallel_v1`, and product publication without moving the generation pointer (`docs/ROADMAP.md:181-228`). It currently says to defer purge (`docs/ROADMAP.md:181-192`) while also saying a governed purge design is the alternative prerequisite before old step 4 (`docs/ROADMAP.md:250-270`). The owner's new decision cannot be implemented until that contradiction is amended.
+
+The implementation PR must replace the current capacity-decision paragraph/sequence with the following exact text (migration number subject only to the numbering assumption in section 4.1):
+
+> **Capacity decision amendment (owner, 2026-10-11) — governed purge selected.** The 2026-10-10 instruction above to defer purge is superseded. Retain decisions A and B: migration `011` remains the one-wide-row-per-system archetype design, both Finder products attach to the already-published `ratings_v4_prod_p4_parallel_v1` behind migration `015`'s explicit product-publication gate, and the generation pointer does not move. In addition, before either Finder product build, run a reviewed governed purge of only the incomplete `ratings_v4_prod_p4` generation and the superseded, unpublished `ratings_v4_prod_p4_opt1` generation. The current published `ratings_v4_prod_p4_parallel_v1` generation, every payload row it owns, the current canonical/derived/spatial pointers, all schema/publication audit rows, generation/product manifests, and build/product receipts are out of scope and retained.
+>
+> The accepted absence of an executable PostgreSQL 18 recovery runbook is not a recovery mechanism. Every destructive phase must independently prove the two exact target UUIDs/keys/manifests, stopped writers, unchanged current pointers, preserved published row counts, FK-safe order, sufficient free/WAL/temp headroom, and a successful durable phase receipt. Any mismatch stops before mutation.
+>
+> **4″. Before step 2:** land the governed-purge schema/action PR after 4′: register `016_v3_governed_derived_purge.sql` after `015`; add immutable purge request/event records, payload-only delete authorization that leaves UPDATE/TRUNCATE and all metadata/receipt retention fail-closed, the protected plan/authorize/delete/rewrite/status workflow, and disposable PostgreSQL 18 crash/lock/WAL tests. This is code only and performs no production purge. Step 2 remains blocked until 4′ and 4″ have merged because the migration runner applies every pending entry.
+>
+> **2.** Run the governed migration `plan`, review it, and apply the complete pending prefix including rewritten `011`, `015`, and the purge migration.
+>
+> **P. Before step 3 and before 5′:** record a fresh successful lifecycle/disk/WAL/quiescence plan receipt; authorize both exact purge targets into `FAILED`; delete target payload rows in FK-safe bounded batches; and reclaim filesystem space one relation at a time in this order: empty target cluster/archetype payload checks, `system_search`, `economy_opportunity`, `body_mechanics`, then `system_rating_vector`. `system_search` is rewritten first to create headroom. Each relation delete and each physical rewrite is a separate reviewed dispatch with before/after pointer, target-row, published-row, relation-size, free-space, WAL, lock, and outcome evidence. Finish only when every target payload count is zero, every retained manifest/receipt/audit row remains, all published counts match, and the completion receipt is reviewed.
+>
+> **3.** Validate all 18 deferred `system_search` constraints after the old `opt1` Search payload has been physically reclaimed and before 5′ builds the new Search product.
+>
+> **5′–9′, then 10–11.** Continue the published-generation Search/archetype build, READY validation, atomic product publication, release-gate revision, and governed application release only after the post-purge capacity gate passes. Purge does not authorize the superseded eight-row archetype schema or a fresh ratings-generation build.
+
+The old paragraph at `docs/ROADMAP.md:250-270` must then be replaced with a short completed-decision pointer to the new sequence; leaving the statement that retention is the only executable path would contradict the amendment. The operational status/capacity evidence should be updated in the implementation/evidence PR, but it remains subordinate to the ROADMAP (`docs/operations/v3-finder-production-rollout-state.md:9-17`).
+
+## 6. FAILURE ANALYSIS
+
+| Step | Failure or host death | Database state and safe continuation without restore |
+|---|---|---|
+| Migration plan | Any ledger/hash/authority/prefix mismatch | Read-only plan stops. No DB writes. The exact-prefix and compatible-schema gates are current migration requirements (`docs/operations/v3-production-schema-migration.md:24-40`, `docs/operations/v3-production-schema-migration.md:52-70`). |
+| Migration apply | SQL, lock timeout, runner loss, or host death during `016` | `016` and its ledger row share one transaction; either both commit or neither does. Earlier independently committed migrations remain an exact ledger prefix. Do not invoke purge until the live ledger proves the full target (`docs/operations/v3-production-schema-migration.md:56-64`). |
+| Fresh purge plan | Worker/pointer/state/count/disk/WAL fact missing or changed | Read-only phase returns `stopped`; no authorization. The dated receipt is never substituted for live proof; its own worker result was not ready (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:782-803`). |
+| Authorization | One target update/request/event fails | One DB transaction rolls back. No payload is deleted. If commit succeeds and the host dies immediately, both targets are durably `FAILED` with immutable requests; published data is unchanged. Resume through `status`, never by recreating a request. |
+| Batched delete | Statement timeout, FK violation, trigger rejection, connection loss, or host death | The current batch rolls back or commits atomically; already committed batches remain legitimate. Count target rows and resume the same phase. The exact predicate cannot touch published UUIDs; post-batch published-count drift is a critical stop. No restore is required because only owner-rejected, reproducible payload is removed. |
+| Receipt/artifact upload after a committed batch | GitHub runner/network failure | DB purge events and exact row counts are authoritative; workflow reports write outcome `null` if it cannot prove commit. Do not rerun blindly. `status` reconstructs state and emits a replacement receipt; owner review is required before the next phase. |
+| Lock acquisition for rewrite | Readers/writers hold incompatible locks beyond timeout | `VACUUM FULL` does not start; no physical state changes. Report blockers without terminating them, and reschedule. The purge action has no service-stop or backend-cancel authority. |
+| Disk/WAL gate before rewrite | Free-minus-survivor-minus-WAL/temp-minus-reserve is nonpositive, archive/slot retention is unhealthy, or metrics are unavailable | Rewrite does not start. Logical deletion may already be complete, leaving dead tuples and table-local reusable pages; published reads remain logically valid. Owner must add capacity or authorize a separately reviewed alternative. Never lower the reserve automatically. |
+| Host death/termination during `VACUUM FULL` | Rewrite interrupted before or after its transactional swap | Required rehearsal must prove PostgreSQL 18 exposes exactly the old or new relation after crash recovery, never a half-swapped relation. On restart, verify relation/index validity, published count/seal, target count, pointer, and free bytes before recording/retrying. This depends on local transactional crash recovery, not backup restore. |
+| Rewrite commits but verification fails | Published count, FK, index, pointer, or size differs | Stop all later phases. Do not delete another relation and do not claim completion. Because no restore path is authorized, this is an owner/escalation boundary; only read-only diagnosis is allowed until a new reviewed repair authority exists (`docs/operations/infrastructure-status.md:73-79`). |
+| Failure between child and parent phases | Child target rows are gone; parent target rows remain | This is a valid, noncurrent partial purge. Immutable events identify the boundary. Resume only at the same or next dependency-safe phase after fresh preflight; never recreate deleted child rows merely to roll back. |
+| Failure after all deletes but before completion | Payload is absent but final audit checks/receipt incomplete | Targets remain `FAILED` and cannot publish. Run read-only status and the idempotent completion verifier. Do not infer completion from zero rows alone; retained evidence, pointers, survivor counts, FK/index validity, and space/WAL must all pass. |
+| PostgreSQL will not start or the host/storage is lost | Local crash recovery cannot restore service | Stop. The repository has no authorized PostgreSQL 18 restore/PITR/DR command (`docs/operations/infrastructure-status.md:73-79`). This plan deliberately does not invent one; external owner infrastructure action or a separately reviewed recovery runbook is required. |
+
+The irreducible risk is a PostgreSQL/storage defect during a rewrite of a shared table that also contains the published generation. Predicate guards prevent logical deletion of published rows, and transactional rewrite semantics are to be crash-tested, but the absence of a restore path means an engine/filesystem failure cannot be remediated by this repository. That risk must be explicitly accepted at each rewrite dispatch.
+
+## 7. WHAT YOU COULD NOT VERIFY
+
+1. **Current state.** The latest committed evidence is dated 2026-10-10; current free disk, relation sizes, generation/product states, pointers, active sessions, and worker quiescence are unknown. The committed receipt itself shows one paused worker and `ready_for_governed_plan: false` (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:782-786`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:884-916`). **Owner question:** may execution proceed only after the later stopped-worker receipt is committed, or is a new exact-head governed receipt required? Recommendation: require a new receipt regardless.
+
+2. **WAL/archive/replication topology.** The receipt identifies the PostgreSQL mount and free bytes but not `pg_wal` placement, archive mode/backlog, replication slots, standbys, or WAL retention (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:126-135`). **Owner question:** what maximum measured WAL growth and minimum free-space reserve (bytes and percentage) must abort each phase? Until answered and encoded, destructive dispatch remains disabled.
+
+3. **Maintenance outage.** The architecture requires an explicit lock policy but gives no maximum outage (`docs/development/v3-search-spatial-derived-data-decision.md:350-364`). **Owner question:** what per-relation `ACCESS EXCLUSIVE` outage is acceptable for ratings/Search reads, and what window may be scheduled? If no long outage is acceptable, reject approach B and fund the partition/online-rewrite design.
+
+4. **Rewrite throughput and peak.** No repository evidence measures `DELETE` or `VACUUM FULL` on these PostgreSQL 18 production-scale relations. The 10–15% working budget is planning guidance, not a bound (`docs/operations/v3-finder-capacity-decision-2026-10-10.md:41-43`). **Owner question:** what rehearsal scale/error factor is sufficient to authorize extrapolation, and is extra temporary storage available if it is not?
+
+5. **Exact reclaim.** Generation bytes are proportional attribution from shared tables, not partitions (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:186-229`). The final 401.169-GB and 693.465-GB figures are modeled, not guaranteed. **Owner question:** is the purge still required if fresh measurement predicts materially less reclaimed space, and what minimum completion free-space target must be met before Finder builds?
+
+6. **Retention interpretation.** The architecture says to retain at least the previous compatible derived generation (`docs/development/v3-search-spatial-derived-data-decision.md:330-348`), while the receipt shows only `parallel_v1` was published and the two candidates were never published (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:43-94`). **Owner question:** confirm that the retention rule applies to previously published compatible generations and does not require preserving either never-published candidate's payload. This plan still preserves their manifests and receipts.
+
+7. **Terminal representation.** Existing lifecycle transitions support `BUILDING|VALIDATING -> FAILED` but no `PURGED` state (`sql/v3/migrations/003_ratings_v4_derived.sql:15-32`, `sql/v3/migrations/003_ratings_v4_derived.sql:53-59`). **Owner question:** accept `FAILED` plus an append-only purge ledger as the durable tombstone, or require a new `PURGED` lifecycle state? Recommendation: use `FAILED` plus the separate ledger to avoid broadening publication/lifecycle logic.
+
+8. **Final `011`/`015` schema.** On this base, `015` does not exist and `011` is still the registered eight-row design; the ROADMAP says both will be changed before any apply (`docs/ROADMAP.md:181-216`). **Owner question:** should purge ship in the same schema-registration PR after final `011`/`015`, or in the immediately following PR while step 2 remains blocked? Recommendation: same reviewed registration change so every reachable migration prefix and application compatibility statement is evaluated once.
+
+9. **Current PostgreSQL extension availability.** Nothing in current production authority proves `pg_repack` is installed/usable on PostgreSQL 18. **Owner question:** none is needed for the recommended built-in path; if online rewrite becomes mandatory, authorize a read-only extension inventory and a separate design rather than relying on historical PostgreSQL records (`docs/operations/infrastructure-status.md:36-40`).
+
+10. **Shared-table rewrite authorization.** The owner has already accepted that no executable restore/PITR route exists; this plan does not reopen that decision (`docs/operations/infrastructure-status.md:73-79`). What remains unverified is whether the selected purge authorizes an `ACCESS EXCLUSIVE` rewrite of shared tables after disposable crash rehearsal, or instead requires isolated copy/partitioning/additional capacity. That mechanism choice and its outage belong to the owner; no operator should infer it merely from the decision to purge.
