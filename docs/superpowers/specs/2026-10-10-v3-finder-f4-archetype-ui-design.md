@@ -352,7 +352,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st qualifying candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st qualifying candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 for [Archetype]** (the window is the canonical weighted ranking, not the raw fit score); URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The current `011` product stores explanation JSON (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but the owner's 2026-10-10 capacity decision removes it: the F2d wide row stores no explanation and F2d PR3 adds `GET /api/archetypes/system/{id64}/explanation`, computed on demand and version/hash-gated (HTTP 409 on mismatch). `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs the F2d explanation endpoint (F2d PR3) and **PR F4e** (section 8), which is a pre-enablement prerequisite — not slice 2. Never read a stored explanation field (there is none) and never show legacy rationale as V3 explanation. |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -792,11 +792,11 @@ The URL is the source of truth for shareable ranking state:
 | Any archetype      | omit `archetype`                                         | Default. `archetype=any` canonicalizes to omission.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
-| Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit`, whose current API contract is default 50 and range 1–500 (`apps/api/src/routers/archetypes.py:517-518`). F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
+| Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit` (default 50, range 1–500, `apps/api/src/routers/archetypes.py:517-518`) **and, in Any mode, to local search's `size`**, with `offset` mapped to local search's `from` — the live Any request is hard-coded to `size: 24, from: 0` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-139`), so in an F4-enabled build it is no longer “unchanged”: its body takes `size`/`from` from the codec and request-level tests assert both fields for several pages. F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
-| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
+| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits `/explore?selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`), so the round trip Explore → Inspect → Explore keeps the selection and marker and closing the overlay leaves the inspected system selected; an enabled-build return-flow test covers it. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
@@ -953,12 +953,22 @@ slow timings fail. Proposed budgets for the 1,000,000-row PostgreSQL 18 fixture
 (owner question 5 confirms or adjusts them; they are recorded in the receipt
 and the Cypress/integration test that reads it):
 
-| Query (selected mode, tier floor B, galaxy-wide) | Warm (median of 5 runs) | Cold (first run after `pg_ctl restart`) |
+| Query (selected mode, tier floor B, galaxy-wide) | Warm (median of 5 runs) | PostgreSQL-buffer-cold (first run after `pg_ctl restart`; see note) |
 |---|---:|---:|
 | first page (`offset=0`, `page_size=50`) | ≤ 300 ms | ≤ 1,500 ms |
 | near-ceiling page (`offset=9950`, `page_size=50`) | ≤ 600 ms | ≤ 2,500 ms |
 | post-filter within-window count | ≤ 600 ms | ≤ 2,500 ms |
 | the same three with a selective region/distance/body-count filter | same budgets | same budgets |
+
+“Cold” here is honest only about PostgreSQL's shared buffers: a `pg_ctl restart`
+empties them but not the host filesystem cache, and a 1M-row fixture fits in
+RAM, so the first run may still be page-cache-served. The receipt records which
+state it achieved: where the runner allows it (root on a self-hosted runner),
+evict the page cache first (`sync; echo 3 > /proc/sys/vm/drop_caches`) and label
+the column **I/O-cold**; otherwise label it **buffer-cold** and do not claim
+cold-I/O behaviour. The budgets above apply to whichever state was achieved; an
+I/O-cold receipt is preferred and the production step 6/7 receipts remain the
+only evidence of real-disk behaviour.
 
 Each timing is the server-side **statement wall time — planning plus
 execution — as reported by `EXPLAIN (ANALYZE, BUFFERS)`** (the two figures are
@@ -1003,9 +1013,10 @@ for:
   rules, offset/reset rules, last-valid-page calculation, Any-mode removal of
   `min-tier`, and preservation of independent `selected`/`system` plus unrelated
   parameters;
-- request selection: Any → unchanged local search with no tier field, key →
-  rankings, selected default B → score 60, and facade `page_size=1` → wire
-  `limit=1`;
+- request selection: Any → local search with no tier field and `size`/`from`
+  taken from the codec (`page_size=1, offset=2` → `size: 1, from: 2`; defaults
+  `size: 50, from: 0`), key → rankings, selected default B → score 60, and
+  facade `page_size=1` → wire `limit=1`;
 - ranking-row normalization preserving `score_kind`, selected archetype,
   overall potential, `distance_reference`, `ranking_provenance` copied from the
   response envelope onto every row (both the local-search and rankings
@@ -1366,17 +1377,19 @@ than claiming 10,000 filtered matches. Preserve the repeatable-read generation
 pin across window probe, candidate page and within-window count.
 
 These two-stage semantics are part of ranking identity, not an implementation
-detail. F2d PR1 already hashes the stored-key definition, the floor default and
-bounds, the literal tier floors, the 10,000 window and the `is_truncated` rule
-into `PROFILE_SPEC`; slice 1c adds the **post-window non-indexed filter rule**
-(filters apply inside the window only) and the within-window `total` rule.
-Bump `RANKING_VERSION` **from the identity F2d PR1 lands** (planned
-`v3-colony-potential-2`, because the wide-row change is itself a new ranking
-identity per the capacity decision) to the next one — **`v3-colony-potential-3`**
-if F2d lands as planned; the candidate-window semantics are a distinct profile
-change and must never reuse or overwrite F2d's identity. Record the resulting
-new `ranking_sha256`, and update the human-reviewed pinned drift-guard digest
-and every response-identity assertion from the version actually on `main`. The
+detail — and because the deployed route performs them from F2d PR1 onwards (the
+products may be published before slice 1c), **F2d PR1 hashes all of them**: the
+stored-key definition, the accepted floors, the literal tier floors, the 10,000
+window and offset bound, the `is_truncated` rule, the **post-window non-indexed
+filter rule** (filters apply inside the window only; which rows may enter) and
+the **within-window `total` rule**, plus the mode-specific tie-break. Nothing
+the route executes may be outside the hash at publication time. Slice 1c
+therefore does **not** bump `RANKING_VERSION` unless it changes a hashed
+semantic; if it does, it bumps from the identity actually on `main` (planned
+`v3-colony-potential-2` from F2d) to the next value and never reuses F2d's.
+Either way it records the `ranking_sha256` in force, keeps the human-reviewed
+pinned drift-guard digest and every response-identity assertion in step with
+the version on `main`. The
 current identity, hash source and recorded-hash guard are at
 `apps/api/src/ranking/profile.py:33`,
 `apps/api/src/ranking/profile.py:132-183` and
@@ -1524,6 +1537,8 @@ Exact files:
   hydration, including independent `selected`/`system` semantics)
 - modify `apps/web/src/lib/components/SystemOverlay.svelte` (close path carries
   `page.state` — anchor payload — through the shared navigation helper)
+- modify `apps/web/src/routes/inspect/+page.svelte` and its test (Open in
+  Explore emits `selected=<id64>&system=<id64>` in enabled builds)
 - modify `apps/web/src/lib/components/SystemOverlay.test.ts` (anchored
   open/close keeps anchor, coordinates and the 500-LY request)
 - create `apps/web/src/lib/components/AppShell.test.ts`
@@ -1546,7 +1561,8 @@ Exact files:
 
 After slice 1c and its timing proof have landed, add URL-synchronized
 picker/selected-only minimum tier/page-size/offset/selection navigation, keep Any
-on unchanged local search with no floor and branch a key to rankings, render
+on local search with no floor but with codec-driven `size`/`from`, branch a key
+to rankings, render
 normalized cards and page/count state,
 reserve the weight-tools layout slot, and keep all new UI behind the default-off
 build flag (including a validated Docker build argument). Change autofocus to
@@ -1674,9 +1690,16 @@ Exact files:
   `apps/web/src/lib/api/generated/sdk.gen.ts` and
   `packages/api-client/src/generated/api.gen.ts` (from the F2d PR3 OpenAPI)
 - modify `apps/web/src/lib/api/client.ts`, `client.test.ts` (facade
-  `getArchetypeExplanation(id64)`: 200 → eight explanations with their
-  score/tier/confidence, 409 → a typed `explanation_unavailable` result, 404/503
-  → the existing bounded error states; never throws into the UI)
+  `getArchetypeExplanation(id64, expected)` where `expected` is the card's
+  `ranking_provenance` generation id plus the product's `archetype_version` and
+  manifest hash from the ranking envelope: they are sent as query parameters and
+  the F2d endpoint answers 409 when the current product differs, and the facade
+  additionally compares the identity echoed in a 200 response with `expected`
+  before returning it — a product republished between the card's response and
+  the expand click must never render an explanation that does not match the
+  score shown; 200 → eight explanations with their score/tier/confidence, 409 →
+  a typed `explanation_unavailable` result, 404/503 → the existing bounded error
+  states; never throws into the UI)
 - modify `apps/web/src/lib/api/query.ts`, `query.test.ts` (query key includes
   the generation id and `archetype_version` from the ranking envelope so a
   product republish invalidates cached explanations)
@@ -1687,8 +1710,15 @@ Exact files:
   `role="region"` labelled by the card heading, keyboard-reachable, no colour-only
   meaning; the 409 state reads “Explanation unavailable for this ranking
   version” and keeps the scores visible)
-- modify `apps/web/src/lib/features/explore/FinderResultRanking.svelte`,
-  `FinderResultRanking.test.ts` (mount point and lazy fetch on expand only)
+- modify `apps/web/src/lib/features/explore/ExploreWorkspace.svelte`,
+  `ExploreWorkspace.test.ts` and
+  `apps/web/src/lib/features/explore/FinderResultRanking.svelte`,
+  `FinderResultRanking.test.ts` (the disclosure control is mounted as a
+  **sibling** of the result-selection `<button>` (`ExploreWorkspace.svelte:792-817`),
+  never inside it — nested interactive controls are invalid and would make
+  expanding select the row — with lazy fetch on expand only and a component test
+  proving keyboard and click activation of the disclosure do not change the
+  selection and vice versa)
 - modify `apps/web/cypress/e2e/product-journey.cy.ts` (the Flexible B journey
   expands one explanation from the real endpoint against the fixture generation
   and asserts the eight keys and the stored score/tier match the card)
@@ -2300,3 +2330,32 @@ tier partials.
 4. **P1 — Reconcile the stored index with the Sol distance tie-break** → the new
    identity changes the picked-mode tie-break to `system_id64` only (hashed,
    response-order tests replaced); Sol distance stays a displayed fact.
+
+#### Round 18 — 2026-10-11 (PR #801)
+
+1. **P2 — Bind explanation requests to the displayed ranking** → the facade sends
+   the card's expected generation id, `archetype_version` and manifest hash; the
+   F2d endpoint answers 409 on mismatch and the facade re-checks the echoed
+   identity on 200 before rendering (F2d section 4 carries the parameters).
+2. **P2 — Preserve selection on the Inspect return link** → Open in Explore
+   emits `selected=<id64>&system=<id64>` in enabled builds; the Inspect route and
+   its test join the F4b file list with an enabled-build return-flow test.
+3. **P2 — Map pagination state onto the Any request** → `page_size → size` and
+   `offset → from` for Any mode (the live `size: 24, from: 0` body is codec-driven
+   in an enabled build), with request-level pagination tests; "unchanged local
+   search" now applies to the disabled build only.
+4. **P2 — Mount the explanation disclosure outside the selection button** → the
+   disclosure is a sibling of the result-selection button, `ExploreWorkspace`
+   joins F4e, and a component test proves independent activation.
+5. **P2 — Describe truncation using the canonical weighted ranking** → the
+   dependency table and remaining copy say "within the top 10,000 for
+   [Archetype]" (the window is the canonical weighted order).
+6. **P1 — Hash window filtering before exposing F2d rankings** → F2d PR1 hashes
+   the post-window filter rule and the within-window `total` rule along with the
+   rest of the window semantics (recorded in F2d section 6), so nothing the
+   deployed route executes is outside the hash at publication; slice 1c bumps
+   the identity only if it changes a hashed semantic.
+7. **P2 — Evict filesystem cache before the cold latency run** → the cold column
+   is labelled buffer-cold unless the runner can drop the page cache, in which
+   case it is run and labelled I/O-cold; the receipt records which was achieved
+   and no cold-I/O claim is made otherwise.
