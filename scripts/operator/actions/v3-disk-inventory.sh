@@ -474,6 +474,65 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
     }
 
 
+def same_device_aliases(root: str) -> dict[str, Any]:
+    """Mount points under `root` that are aliases of the same underlying directory.
+
+    `du -x` skips directories on a DIFFERENT filesystem, which is all GNU documents it
+    as doing -- so it is no protection against a bind mount whose target is on the
+    same device as its source. The walk then traverses the same underlying files
+    through both paths and the candidate partition can list those bytes twice, while
+    `df` counts them once. The resulting negative df/du residual offsets the duplicate,
+    so the closure can still come out true: a double count that the receipt's own
+    self-check cannot see.
+
+    Detected by identity rather than by guessing at mount flags: two paths that are
+    aliases of one directory have the same `st_dev` AND the same `st_ino`, which is
+    exactly what "the same directory" means to the kernel. /proc/mounts supplies the
+    candidate paths; `stat` decides.
+    """
+    try:
+        with open("/proc/mounts", encoding="utf-8", errors="surrogateescape") as handle:
+            lines = handle.read().splitlines()
+    except OSError as exc:
+        return {"available": False, "reason": f"proc_mounts_unreadable:{exc.errno}"}
+    base = root.rstrip("/")
+    points: list[str] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        point = (
+            fields[1]
+            .replace("\\040", " ")
+            .replace("\\011", "\t")
+            .replace("\\012", "\n")
+            .replace("\\134", "\\")
+        )
+        stripped = point.rstrip("/")
+        if base in ("", "/") or stripped == base or stripped.startswith(f"{base}/"):
+            points.append(point)
+    identities: dict[tuple[int, int], list[str]] = {}
+    for point in points:
+        probe = run(["stat", "-c", "%d %i", point])
+        if probe.returncode != 0:
+            continue
+        parts = probe.stdout.split()
+        if len(parts) != 2:
+            continue
+        dev = as_int(parts[0])
+        ino = as_int(parts[1])
+        if dev is None or ino is None:
+            continue
+        identities.setdefault((dev, ino), []).append(point)
+    aliases = [sorted(paths) for paths in identities.values() if len(paths) > 1]
+    return {
+        "available": True,
+        "mount_points_under_root": len(points),
+        "alias_sets": sorted(aliases),
+        "aliases_present": bool(aliases),
+    }
+
+
 def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
     result = run(argv)
     if result.returncode != 0:
@@ -1272,8 +1331,33 @@ try:
     pgdata_before = du_total(pgdata_host, scan_budget)
     # Fail closed on a failed scan: without this evidence the receipt cannot answer
     # its own question, so it must not be presented as a complete inventory.
+    # Same-device bind aliases, EXCLUDED from the walk rather than left to be counted
+    # twice. `-x` only skips other filesystems, so a bind whose target shares the
+    # source's device is traversed through both paths; `df` counts those blocks once
+    # while the candidate partition lists them twice, and the resulting negative
+    # residual offsets the duplicate so the closure can still read true.
+    #
+    # One path per alias set is kept -- the first in sorted order, so the choice is
+    # deterministic -- and the rest are excluded. Excluding rather than refusing,
+    # because a host-side bind under the scanned root is a legitimate configuration
+    # and refusing would make the action unusable on it; the alias sets are reported
+    # so the omission is visible.
+    alias_report = same_device_aliases(usage_root)
+    inventory["directory_scan_same_device_aliases"] = alias_report
+    alias_excludes: list[str] = []
+    if alias_report.get("available"):
+        for paths in alias_report.get("alias_sets", []):
+            alias_excludes.extend(paths[1:])
     usage_full = du_rows(
-        ["du", "--null", "-x", "-B1", "--max-depth=2", usage_root],
+        [
+            "du",
+            "--null",
+            "-x",
+            "-B1",
+            *(f"--exclude={path}" for path in alias_excludes),
+            "--max-depth=2",
+            usage_root,
+        ],
         scan_budget,
         "directory_usage_failed",
         expect_path=usage_root,
@@ -2293,11 +2377,23 @@ try:
     if not reclosing_wal or "bytes" not in reclosing_wal[0]:
         raise RuntimeError("wal_bytes_not_reconciled")
     wal_bytes_after_scan = reclosing_wal[0]["bytes"]
-    # The LARGER end for the candidate, by the same asymmetry as the PGDATA bracket:
-    # subtracting more understates unlisted content, subtracting less INVENTS a reclaim
-    # candidate out of ordinary WAL. Only one of those can send an operator to delete
-    # something that is not there to delete.
-    wal_listed_for_candidate = max(wal_bytes_at_close, wal_bytes_after_scan)
+    # NOT a bracket, because WAL is not monotonic. Taking max(before, after) assumed
+    # the scan-time value lies between the endpoints, and it need not: WAL can grow
+    # during the scan and be recycled before the second read, so the directory figure
+    # can exceed BOTH totals and the excess ordinary WAL is emitted as reclaimable
+    # again. That makes this the fourth round on one quantity -- closing figure, then
+    # measure beside the read, then bracket -- each fix attacked by the next, because
+    # the error is not in any implementation but in asserting an exact classification
+    # over a quantity that cannot be pinned to one instant.
+    #
+    # So: classify only when the two reads AGREE, which is the one case where the
+    # scan can be paired to a single WAL snapshot. Otherwise emit no pg_wal candidate
+    # at all and record why. Refusing is stable under this line of attack in a way
+    # that a fifth correction term would not be -- there is no window left to point
+    # at -- and an unexplained figure is the honest outcome where a classified one
+    # would be a guess presented as a finding.
+    wal_snapshot_stable = wal_bytes_at_close == wal_bytes_after_scan
+    wal_listed_for_candidate = wal_bytes_after_scan
     # accounted_bytes uses the figure taken after every scan, so it is genuinely the
     # closing one.
     wal_bytes_at_close = wal_bytes_after_scan
@@ -2305,7 +2401,10 @@ try:
     inventory["wal"]["directory_bytes_beside_sql_read"] = wal_dir_bytes_at_sql
     inventory["wal"]["listed_bytes_before_directory_scan"] = closing_wal[0]["bytes"]
     inventory["wal"]["listed_bytes_after_directory_scan"] = wal_bytes_after_scan
-    inventory["wal"]["listed_bytes_for_candidate"] = wal_listed_for_candidate
+    inventory["wal"]["listed_bytes_for_candidate"] = (
+        wal_listed_for_candidate if wal_snapshot_stable else None
+    )
+    inventory["wal"]["directory_paired_to_one_snapshot"] = wal_snapshot_stable
     inventory["wal"]["listed_bytes_scan_bracket_width"] = abs(
         wal_bytes_after_scan - closing_wal[0]["bytes"]
     )
@@ -2419,6 +2518,27 @@ try:
                     if row["path"].rstrip("/") == base_path
                 ),
                 None,
+            )
+            # The temp directory, probed again AFTER the scan. One probe before it
+            # was not enough: a pgsql_tmp created while the up-to-300-second base
+            # walk ran, and then dropped by the row cap, left the pre-scan boolean
+            # false while the closing query counts its bytes in accounted_bytes --
+            # so the omitted aggregate presents live temp bytes as a candidate and
+            # the negative metric-difference term can keep the closure true. Same
+            # principle as the OID set below and as pg_wal: a quantity that cannot
+            # be pinned to one snapshot is not classified.
+            temp_after_rows = psql_json(
+                "SELECT row_to_json(q)::text FROM (SELECT CASE WHEN "
+                "COALESCE((pg_stat_file('base/pgsql_tmp',true)).isdir,false) THEN "
+                "(SELECT sum(size)::bigint FROM pg_ls_tmpdir()) "
+                "ELSE NULL::bigint END AS temp_directory_bytes) q",
+                db_user,
+                db_name,
+            )
+            if len(temp_after_rows) != 1:
+                raise RuntimeError("temp_probe_output_invalid")
+            temp_exists_after_scan = (
+                temp_after_rows[0].get("temp_directory_bytes") is not None
             )
             # Re-read the OID set around the scan and require it UNCHANGED. A database
             # created between the earlier query and this scan has a live base/<oid>
@@ -2535,7 +2655,16 @@ try:
                         )[:40],
                         "entries_omitted_by_cap": base_omitted,
                     }
-                elif temp_directory_exists and not temp_directory_observed:
+                elif temp_directory_exists != temp_exists_after_scan:
+                    base_breakdown = {
+                        "available": False,
+                        "reason": "temporary_directory_changed_during_base_scan",
+                        "exists_before_scan": temp_directory_exists,
+                        "exists_after_scan": temp_exists_after_scan,
+                    }
+                elif (
+                    temp_directory_exists or temp_exists_after_scan
+                ) and not temp_directory_observed:
                     base_breakdown = {
                         "available": False,
                         "reason": "temporary_directory_not_observed",
@@ -2927,10 +3056,15 @@ try:
     # against a du measurement taken between those reads, so pairing it with a figure
     # from outside the bracket reintroduces exactly the invented candidate the bracket
     # exists to prevent. accounted_bytes still uses the closing figure.
-    wal_for_subtraction = (
-        inventory["wal"].get("listed_bytes_for_candidate", wal_bytes)
+    wal_for_subtraction = wal_bytes
+    if isinstance(inventory.get("wal"), dict):
+        paired = inventory["wal"].get("listed_bytes_for_candidate")
+        if paired is not None:
+            wal_for_subtraction = paired
+    wal_snapshot_stable = (
+        inventory["wal"].get("directory_paired_to_one_snapshot", False)
         if isinstance(inventory.get("wal"), dict)
-        else wal_bytes
+        else False
     )
     for name, subtract in (("pg_wal", wal_for_subtraction), ("pg_xlog", 0)):
         wal_child = next(
@@ -2963,6 +3097,21 @@ try:
             # absence means only that there is no stale pre-10 directory to report.
             if name == "pg_wal":
                 raise RuntimeError("wal_directory_not_observed_in_data_directory")
+            continue
+        # When pg_wal could not be paired to one snapshot, the whole difference is
+        # unresolvable rather than unlisted content: it goes to the closure as a
+        # signed term and NO candidate is emitted. The pg_xlog arm is unaffected --
+        # it subtracts nothing, so there is no second measurement to pair with.
+        if name == "pg_wal" and not wal_snapshot_stable:
+            unresolvable = wal_child["bytes"] - subtract
+            if unresolvable:
+                closure_adjustments.append(
+                    {
+                        "term": "pg_wal_unpairable_to_one_snapshot",
+                        "bytes": unresolvable,
+                        "path": wal_child["path"],
+                    }
+                )
             continue
         wal_unlisted = wal_child["bytes"] - subtract
         label = (
@@ -3042,12 +3191,35 @@ try:
             )
         # Named individually: "base/16401 is not a live database" is actionable in a
         # way that a lump remainder never is.
+        # A NUMERIC name cannot be proven unreferenced by catalog reads at all.
+        # A database being created copies its new base/<oid> tree as part of that
+        # statement,
+        # and concurrent transactions cannot see the uncommitted pg_database row --
+        # so both OID reads can legitimately miss a directory that is about to be a
+        # live database. Calling that "not a live database directory" in a receipt
+        # someone reclaims from is the worst error this action can make, and no
+        # number of extra catalog reads fixes it: the row is invisible until the
+        # copy finishes.
+        #
+        # Its BYTES still belong in the partition -- they are real and unaccounted --
+        # so the row is emitted with the classification stated honestly instead of
+        # being suppressed or asserted. A non-numeric stray is different: nothing in
+        # PostgreSQL creates one under base/, so it is reportable as unreferenced.
         for row in base_breakdown["unreferenced_entries"]:
+            name = row["path"].rstrip("/").rsplit("/", 1)[-1]
+            numeric = name.isdigit()
             inside.append(
                 {
-                    "path": f"{row['path']} (not a live database directory)",
+                    "path": (
+                        f"{row['path']} (numeric name not in the live database set; "
+                        "may be a database still being created -- not proven "
+                        "reclaimable)"
+                        if numeric
+                        else f"{row['path']} (not a live database directory)"
+                    ),
                     "exclusive_bytes": row["bytes"],
                     "inside_data_directory": True,
+                    "proven_unreferenced": not numeric,
                 }
             )
         tail = base_breakdown["unreferenced_directory_bytes"] - sum(

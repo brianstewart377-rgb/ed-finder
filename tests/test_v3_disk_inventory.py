@@ -657,7 +657,9 @@ def test_v3_disk_inventory_scans_the_whole_filesystem_not_only_the_pg_volume():
     source = _read(ACTION)
 
     assert '["df", "--output=target", mount_source]' in source
-    assert '["du", "--null", "-x", "-B1", "--max-depth=2", usage_root]' in source
+    # The root walk still scans the whole filesystem at depth 2; its argument list is
+    # now built up so same-device bind aliases can be excluded from it.
+    assert '"--max-depth=2",\n            usage_root,' in source
     assert '"volume_directory_usage_root"' in source
 
 
@@ -887,9 +889,18 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     # base/: the orphaned OID directory by PATH, and the 200 bytes sitting directly in
     # base/ as their own row. Not one lump remainder, and not inflated by the
     # du-versus-pg_database_size metric difference, which is its own summary term.
-    orphan = f"{pgdata}/base/16999 (not a live database directory)"
+    # NUMERIC, so it is reported with its classification stated honestly rather than
+    # asserted: a database being created copies its base/<oid> tree before its
+    # pg_database row is visible to other transactions, so no number of catalog reads
+    # can prove a numeric directory unreferenced. Its bytes still belong in the
+    # partition -- they are real and unaccounted -- so the row is emitted, not hidden.
+    orphan = (
+        f"{pgdata}/base/16999 (numeric name not in the live database set; may be a "
+        "database still being created -- not proven reclaimable)"
+    )
     assert by_path[orphan]["exclusive_bytes"] == 500
     assert by_path[orphan]["inside_data_directory"] is True
+    assert by_path[orphan]["proven_unreferenced"] is False
     base_other = f"{pgdata}/base (files directly in this directory)"
     assert by_path[base_other]["exclusive_bytes"] == 200
     # 18,995 under the old mixed-metric arithmetic; 1,295 of that was block rounding.
@@ -1503,7 +1514,10 @@ def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
     assert 'for record in stdout.split("\\0"):' in source
     assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
     # Every du invocation asks for NUL-delimited output.
-    assert source.count('["du", "--null", "-x", "-B1"') == 6
+    # One fewer literal list: the root walk builds its argv so alias excludes can be
+    # inserted. Every invocation still asks for NUL-delimited output.
+    assert source.count('["du", "--null", "-x", "-B1"') == 5
+    assert source.count('"du",\n            "--null",') == 1
     assert '["du", "-x", "-B1"' not in source
 
 
@@ -2249,26 +2263,29 @@ def test_v3_disk_inventory_distinguishes_an_unknown_count_from_zero(tmp_path):
     assert attribution["aaa_superseded"]["ratings_physical_bodies"] == 20
 
 
-def test_v3_disk_inventory_brackets_the_wal_directory_scan(tmp_path):
-    """One SQL read beside the scan only moved the asymmetry; it needs two.
+def test_v3_disk_inventory_classifies_wal_only_from_one_stable_snapshot(tmp_path):
+    """WAL is not monotonic, so two endpoint reads do not bracket the scan.
 
-    WAL generated DURING the up-to-60-second directory scan makes the directory
-    figure exceed the earlier SQL total, and the difference was again emitted as
-    unlisted/reclaimable WAL when it is ordinary top-level WAL. With a read either
-    side, the listed figure at the scan's own instant is known to lie between them,
-    and the candidate uses the larger end -- understating unlisted content rather than
-    inventing a reclaim candidate, the same asymmetry as the PGDATA bracket.
+    This quantity took four rounds: use the closing figure, then measure `du` beside
+    the SQL read, then bracket with a second read. Each fix was attacked by the next,
+    because WAL can grow during the scan and be recycled before the second read -- so
+    the directory figure can exceed BOTH endpoint totals and `max(before, after)`
+    bounds nothing. The error was never in an implementation; it was in asserting an
+    exact classification over a quantity that cannot be pinned to one instant.
+
+    So classification now happens only when the two reads AGREE, which is the single
+    case where the scan pairs to one WAL snapshot. Otherwise no pg_wal candidate is
+    emitted and the whole difference goes to the closure as unresolvable. Refusing is
+    stable under this line of attack -- there is no remaining window to point at --
+    where a fifth correction term would not be.
     """
     source = _read(ACTION)
     assert "reclosing_wal = psql_json(" in source
-    assert (
-        "wal_listed_for_candidate = max(wal_bytes_at_close, wal_bytes_after_scan)"
-        in source
-    )
-    # The candidate subtracts the bracketed figure; accounted_bytes keeps the closing
-    # one. Pairing the candidate with a figure from outside the bracket would
-    # reintroduce the invented candidate the bracket exists to prevent.
-    assert 'inventory["wal"].get("listed_bytes_for_candidate", wal_bytes)' in source
+    assert "wal_snapshot_stable = wal_bytes_at_close == wal_bytes_after_scan" in source
+    assert "max(wal_bytes_at_close, wal_bytes_after_scan)" not in source
+    # No candidate when it cannot be paired; the difference becomes a signed term.
+    assert 'if name == "pg_wal" and not wal_snapshot_stable:' in source
+    assert '"term": "pg_wal_unpairable_to_one_snapshot"' in source
     assert "wal_bytes_at_close = wal_bytes_after_scan" in source
     # The scan sits between the two reads.
     first = source.index("closing_wal = psql_json(")
@@ -2282,6 +2299,9 @@ def test_v3_disk_inventory_brackets_the_wal_directory_scan(tmp_path):
     assert wal["listed_bytes_before_directory_scan"] == 118000
     assert wal["listed_bytes_after_directory_scan"] == 118000
     assert wal["listed_bytes_scan_bracket_width"] == 0
+    # The reads agree in this fixture, so the scan pairs to one snapshot and
+    # classification is permitted.
+    assert wal["directory_paired_to_one_snapshot"] is True
     assert wal["listed_bytes_for_candidate"] == 118000
 
 
@@ -2594,7 +2614,19 @@ def test_v3_disk_inventory_requires_the_temp_directory_through_the_base_cap(tmp_
     base_scan = source.index("base_usage, base_omitted, base_omitted_bytes = du_stream(")
     assert probe < base_scan
     assert "temp_directory_observed = any(" in source
-    assert "elif temp_directory_exists and not temp_directory_observed:" in source
+    # BRACKETED both sides of the scan. One probe before it was not enough: a
+    # pgsql_tmp created while the up-to-300-second base walk ran, then dropped by the
+    # row cap, left the pre-scan boolean false while the closing query counts its
+    # bytes in accounted_bytes -- so the omitted aggregate presents live temp bytes as
+    # a candidate and the negative metric-difference term can keep the closure true.
+    assert "temp_after_rows = psql_json(" in source
+    assert "elif temp_directory_exists != temp_exists_after_scan:" in source
+    assert '"reason": "temporary_directory_changed_during_base_scan"' in source
+    # Either observation seeing it is enough to require that the scan observed it.
+    assert (
+        "temp_directory_exists or temp_exists_after_scan\n"
+        "                ) and not temp_directory_observed:" in source
+    )
     assert '"reason": "temporary_directory_not_observed"' in source
 
 
@@ -2883,3 +2915,40 @@ def test_v3_disk_inventory_reports_relation_inventory_truncation(tmp_path):
     inventory = json.loads(result.stdout)["inventory"]
     assert inventory["relation_inventory_limit"] == 80
     assert inventory["relation_inventory_truncated"] is False
+
+
+def test_v3_disk_inventory_excludes_same_device_bind_aliases(tmp_path):
+    """`du -x` skips other filesystems, which is no protection against a bind alias.
+
+    GNU documents `--one-file-system` as skipping directories on a DIFFERENT
+    filesystem, so a bind mount whose target shares its source's device is traversed
+    through both paths. `df` counts those blocks once while the candidate partition
+    lists them twice -- and the resulting negative df/du residual offsets the
+    duplicate, so the closure can still read true. A double count the receipt's own
+    self-check cannot see.
+
+    Detected by identity rather than by guessing at mount flags: two paths that are
+    aliases of one directory share `st_dev` AND `st_ino`, which is exactly what "the
+    same directory" means to the kernel.
+    """
+    source = _read(ACTION)
+    assert "def same_device_aliases(root: str) -> dict[str, Any]:" in source
+    assert 'run(["stat", "-c", "%d %i", point])' in source
+    assert "identities.setdefault((dev, ino), []).append(point)" in source
+    # One path per alias set is kept, deterministically, and the rest excluded --
+    # rather than refusing, because a host-side bind under the scanned root is a
+    # legitimate configuration and refusing would make the action unusable on it.
+    assert "alias_excludes.extend(paths[1:])" in source
+    assert 'f"--exclude={path}" for path in alias_excludes' in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    report = json.loads(result.stdout)["inventory"][
+        "directory_scan_same_device_aliases"
+    ]
+    assert report["available"] is True
+    # The fixture's stat stub reports one device and one inode for everything, so it
+    # cannot exercise a genuine alias set; what is asserted here is that the detection
+    # runs, reports, and does not refuse on an ordinary host.
+    assert isinstance(report["alias_sets"], list)
+    assert isinstance(report["aliases_present"], bool)
