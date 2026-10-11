@@ -817,7 +817,7 @@ The URL is the source of truth for shareable ranking state:
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
 | Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit` (default 50, range 1–500, `apps/api/src/routers/archetypes.py:517-518`) **and, in Any mode, to local search's `size`**, with `offset` mapped to local search's `from` — the live Any request is hard-coded to `size: 24, from: 0` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-139`), so in an F4-enabled build it is no longer “unchanged”: its body takes `size`/`from` from the codec and request-level tests assert both fields for several pages. F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
-| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections use SvelteKit `goto(..., { replaceState: true })`, never native History API. |
+| Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
 | Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits `/explore?selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`), so the round trip Explore → Inspect → Explore keeps the selection and marker and closing the overlay leaves the inspected system selected; an enabled-build return-flow test covers it. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
@@ -829,8 +829,9 @@ entry; selection commits create one entry with `selected=<id64>`; future slider
 edits remain local draft state until Apply. Preserve
 unrelated query parameters. A response-driven out-of-range correction is not a
 user navigation: compute the last valid offset, derive the destination from
-reactive `page.url`, use `goto(destination, { replaceState: true })` from
-`$app/navigation`, refetch that page, and show the one-line page-reset notice.
+reactive `page.url`, use the shared anchor-state-preserving helper
+(`goto(destination, { replaceState: true, state: page.state })` from
+`$app/navigation`), refetch that page, and show the one-line page-reset notice.
 Native `history.replaceState` is forbidden. The facade returns
 `page_size`, page `count`, raw response `total`, `navigable_total`, request
 `offset`, a conditional `navigation_limit`, and source-owned truncation
@@ -1606,7 +1607,8 @@ URL-owned selection, while closing `system` leaves it intact. Set
 each radio's accessible name from its short label only and reference its separate
 one-line description with `aria-describedby`. When a returned `total > 0` is at
 or below the requested offset, or saturated unanchored Any would cross 10,000,
-call SvelteKit `goto` with `replaceState: true` for the calculated last valid
+call the shared anchor-state-preserving helper (`goto(destination,
+{ replaceState: true, state: page.state })`) for the calculated last valid
 page, refetch once, and show the page-reset notice; never use native History API.
 Only `total === 0` enters the no-match state. Add unit and component regressions.
 Until F4c lands, suppress the distance metric from both Compare table and CSV in
@@ -2027,7 +2029,8 @@ product/implementation choices are:
 20. **Normalize offsets that exceed the returned total** → after a response with
     `total > 0` and `offset >= total`, F4b computes
     `floor((total - 1) / page_size) * page_size`, rewrites the URL with SvelteKit
-    `goto(..., { replaceState: true })`, refetches that last valid page and shows
+    the shared helper's `goto(..., { replaceState: true, state: page.state })`,
+    refetches that last valid page and shows
     **Page reset to the last available results.** It never turns the stale page's empty array
     into a no-match claim; only `total === 0` renders the genuine empty state.
     F4b's unit and component tests cover the clamp, replacement/refetch, notice,
@@ -2097,7 +2100,8 @@ product/implementation choices are:
    → rerank/page journey keeps that marker.
 2. **P2-A — Use SvelteKit navigation for URL replacement** → canonicalization
    and stale/capped-offset correction derive their destination from reactive
-   `page.url` and call `$app/navigation` `goto(..., { replaceState: true })`;
+   `page.url` and call `$app/navigation` `goto(..., { replaceState: true,
+   state: page.state })` through the shared helper;
    native `history.replaceState` is forbidden. This matches the current app
    precedent (`apps/web/src/lib/components/AppShell.svelte:2-3`,
    `apps/web/src/lib/components/AppShell.svelte:54-58`) and keeps hydration plus
@@ -2409,3 +2413,12 @@ tier partials.
    helper (`goto(..., { replaceState: true, state: page.state })`), and a test
    covers an anchored stale-offset response asserting the corrected request
    keeps the anchor's coordinates.
+
+#### Round 21 — 2026-10-11 (PR #801)
+
+1. **P2 — Preserve anchor state in the URL correction** → every remaining
+   `replaceState` prescription (the canonical URL table's offset row, the
+   out-of-range correction in the envelope section, the F4b summary and the
+   Round 7/18 disposition text) now names the shared anchor-state-preserving
+   helper and carries `state: page.state`, so a stale-offset correction during an
+   anchored Any search cannot drop `page.state.anchor` and refetch galaxy-wide.
