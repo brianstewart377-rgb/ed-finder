@@ -186,9 +186,9 @@ newer dated source wins).
   run. The owner chose **A + B** (recorded in
   `docs/operations/v3-finder-capacity-decision-2026-10-10.md`): rewrite the
   unapplied migration `011` as one wide archetype row per system with
-  explanations computed on demand (≈66 GB measured on a synthetic score
-  distribution with the partial score indexes, ceiling ≈132 GB, instead of
-  ≈1 TB), attach
+  explanations computed on demand (≈76 GB measured on a synthetic score
+  distribution with the stored ranking keys and tier-partial indexes, instead
+  of ≈1 TB), attach
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
@@ -211,9 +211,10 @@ newer dated source wins).
      owner's recorded answers to questions 5 and 6 of
      `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
      exact-version rule for on-demand explanations; the **partial unique-entry**
-     score-index layout `(generation, <key>_score DESC, system_id64) WHERE
-     <key>_score >= 60`, which replaced the deduplicating layout after the F4
-     design review showed that layout cannot bound the slice 1c probe) — the
+     score-index layout, refined by the F2d design review into stored
+     per-archetype ranking keys `<key>_weighted_e4` with partial indexes under
+     each exposed tier floor, which replaced the deduplicating layout after the
+     F4 design review showed that layout cannot bound the slice 1c probe) — the
      code PRs that encode either may not merge before the answer is recorded
      there. **Both were answered yes by the owner on 2026-10-10 and are
      recorded there**, so this prerequisite is satisfied. The rewritten `011`
@@ -228,7 +229,7 @@ newer dated source wins).
   6. Unchanged: run the read-only calibration probe and record the coefficient
      decision before the archetype product is registered.
   7′. Register, build and validate the wide-row `system_archetype` on the same
-     generation (≈66 GB measured on the synthetic distribution, sized for real
+     generation (≈76 GB measured on the synthetic distribution, sized for real
      from the step 6 calibration histogram, ceiling ≈132 GB; the gate
      re-measures with the final `011` text and stops if search +
      archetype + working room exceed the free space in a fresh step 0 receipt).

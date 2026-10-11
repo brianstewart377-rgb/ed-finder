@@ -15,7 +15,14 @@ Layouts measured:
   indexes (every entry unique; no B-tree deduplication);
 * ``v2_score_only`` — eight ``(generation, <key>_score DESC)`` indexes (B-tree
   deduplication collapses the 101 distinct score values into posting lists);
-* ``v3_partial_ge60_score_sysid`` — the layout the F2d design adopted: eight partial
+* ``v4_weighted_key_tier_partials`` — the layout the F2d design adopted after review
+  round 5: eight stored ``<key>_weighted_e4 integer`` columns (score x confidence x
+  completeness in 1e-4 units, the canonical picked-ranking key) and, per key, three
+  partial ``(generation, <key>_weighted_e4 DESC, system_id64)`` indexes under the
+  exposed tier floors ``WHERE <key>_score >= 60 / 76 / 88``, plus the primary key and
+  the ``weighted_potential`` index; bell-shaped distribution, per-floor fractions
+  reported;
+* ``v3_partial_ge60_score_sysid`` — the earlier partial score-ordered layout: eight partial
   ``(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60`` indexes.
   Its size scales with the fraction of rows scoring >= 60, so this variant is filled
   with a bell-shaped score distribution (mean ~45, sd ~15; the same shape as
@@ -85,12 +92,17 @@ def _tier(expr: str) -> str:
     )
 
 
-def _ddl(table: str) -> str:
+def _ddl(table: str, weighted_keys: bool = False) -> str:
     cols: list[str] = []
     for key in ARCHETYPE_KEYS:
         cols.append(f"{key}_score smallint NOT NULL CHECK ({key}_score BETWEEN 0 AND 100)")
         cols.append(f"{key}_tier char(1) NOT NULL CHECK ({key}_tier IN ('S','A','B','C','D'))")
         cols.append(f"{key}_confidence real NOT NULL CHECK ({key}_confidence BETWEEN 0 AND 1)")
+    if weighted_keys:
+        # score x confidence x completeness in 1e-4 units (0..1,000,000): the exact
+        # canonical picked-ranking key the F2d design stores per archetype.
+        for key in ARCHETYPE_KEYS:
+            cols.append(f"{key}_weighted_e4 integer NOT NULL CHECK ({key}_weighted_e4 BETWEEN 0 AND 1000000)")
     key_list = ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS)
     return f"""
 CREATE TABLE scratch.{table} (
@@ -119,29 +131,40 @@ def _score_expr(index: int, distribution: str) -> str:
     raise ValueError(f"unknown distribution {distribution!r}")
 
 
-def _fill(conn: psycopg.Connection, table: str, rows: int, distribution: str = "uniform") -> None:
+def _fill(conn: psycopg.Connection, table: str, rows: int, distribution: str = "uniform",
+          weighted_keys: bool = False) -> None:
     key_array = "ARRAY[" + ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS) + "]"
-    select: list[str] = [f"'{GENERATION_ID}'::uuid", "g.n::bigint * 7919", "'v3-archetype-4'"]
-    for index, _key in enumerate(ARCHETYPE_KEYS):
-        score = _score_expr(index, distribution)
-        select.append(f"{score}::smallint")
-        select.append(_tier(score))
-        select.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6)::real")
-    best = "((g.n * 97) %% 101)"
-    secondary = f"CASE WHEN g.n %% 11 = 0 THEN NULL ELSE ({key_array})[1 + ((g.n + 3) %% 8)] END"
+    # Inner query draws every score once (the bell distribution uses random()), so the
+    # derived tier and weighted key of a row always agree with its score.
+    inner_cols = ["g.n AS n"]
+    for index, key in enumerate(ARCHETYPE_KEYS):
+        inner_cols.append(f"{_score_expr(index, distribution)} AS s_{key}")
+        inner_cols.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6) AS c_{key}")
+    inner_cols.append("0.5 + ((g.n * 53) %% 1000) / 2000.0 AS completeness")
+    inner = f"SELECT {', '.join(inner_cols)} FROM generate_series(1, %s) AS g(n)"
+    select: list[str] = [f"'{GENERATION_ID}'::uuid", "d.n::bigint * 7919", "'v3-archetype-4'"]
+    for key in ARCHETYPE_KEYS:
+        select.append(f"d.s_{key}::smallint")
+        select.append(_tier(f"d.s_{key}"))
+        select.append(f"d.c_{key}::real")
+    if weighted_keys:
+        for key in ARCHETYPE_KEYS:
+            select.append(f"round(d.s_{key} * d.c_{key} * d.completeness * 10000)::integer")
+    best = "((d.n * 97) %% 101)"
+    secondary = f"CASE WHEN d.n %% 11 = 0 THEN NULL ELSE ({key_array})[1 + ((d.n + 3) %% 8)] END"
     select.extend(
         [
-            f"({key_array})[1 + (g.n %% 8)]",
+            f"({key_array})[1 + (d.n %% 8)]",
             secondary,
             f"{best}::smallint",
             _tier(best),
-            "round(((g.n * 17) %% 1000000) / 1000000.0, 6)::real",
-            f"{best} * (((g.n * 17) %% 1000000) / 1000000.0)",
+            "round(((d.n * 17) %% 1000000) / 1000000.0, 6)::real",
+            f"{best} * (((d.n * 17) %% 1000000) / 1000000.0)",
             "'2026-10-10T00:00:00Z'::timestamptz",
         ]
     )
     conn.execute(
-        f"INSERT INTO scratch.{table} SELECT {', '.join(select)} FROM generate_series(1, %s) AS g(n)",
+        f"INSERT INTO scratch.{table} SELECT {', '.join(select)} FROM ({inner}) AS d",
         (rows,),
     )
 
@@ -261,38 +284,49 @@ def main() -> None:
             sys.exit(str(exc))
         out["postgres"] = conn.execute("SELECT version()").fetchone()[0]
         conn.execute("CREATE SCHEMA IF NOT EXISTS scratch")
+        # (layout, index column template, trailing columns, partial predicates, distribution, weighted columns)
         layouts = (
-            ("v1_with_system_id64", ", system_id64", "", "uniform"),
-            ("v2_score_only", "", "", "uniform"),
-            ("v3_partial_ge60_score_sysid", ", system_id64", " WHERE {key}_score >= 60", "bell"),
+            ("v1_with_system_id64", "{key}_score", ", system_id64", ("",), "uniform", False),
+            ("v2_score_only", "{key}_score", "", ("",), "uniform", False),
+            ("v3_partial_ge60_score_sysid", "{key}_score", ", system_id64", (" WHERE {key}_score >= 60",), "bell", False),
+            # The F2d layout adopted after review round 5: the canonical weighted key is
+            # stored per archetype and indexed under each exposed tier floor, so the
+            # picked ranking is served in canonical order by a bounded index scan.
+            ("v4_weighted_key_tier_partials", "{key}_weighted_e4", ", system_id64",
+             (" WHERE {key}_score >= 60", " WHERE {key}_score >= 76", " WHERE {key}_score >= 88"), "bell", True),
         )
-        for layout, trailing, predicate, distribution in layouts:
+        for layout, column, trailing, predicates, distribution, weighted_keys in layouts:
             table = f"wide_archetype_{layout}"
             conn.execute(f"DROP TABLE IF EXISTS scratch.{table}")
-            conn.execute(_ddl(table))
-            _fill(conn, table, args.rows, distribution)
+            conn.execute(_ddl(table, weighted_keys))
+            _fill(conn, table, args.rows, distribution, weighted_keys)
             for key in ARCHETYPE_KEYS:
-                conn.execute(
-                    f"CREATE INDEX {table}_{key} ON scratch.{table} "
-                    f"(derived_generation_id, {key}_score DESC{trailing}){predicate.format(key=key)}"
-                )
+                for ordinal, predicate in enumerate(predicates):
+                    # Keep names under PostgreSQL's 63-character identifier limit.
+                    conn.execute(
+                        f"CREATE INDEX wa_{layout}_{key}_{ordinal} ON scratch.{table} "
+                        f"(derived_generation_id, {column.format(key=key)} DESC{trailing}){predicate.format(key=key)}"
+                    )
             conn.execute(
-                f"CREATE INDEX {table}_weighted ON scratch.{table} (derived_generation_id, weighted_potential DESC)"
+                f"CREATE INDEX wa_{layout}_weighted ON scratch.{table} (derived_generation_id, weighted_potential DESC)"
             )
             conn.execute(f"VACUUM ANALYZE scratch.{table}")
             report = _sizes(conn, table)
             report["score_distribution"] = distribution
-            report["fraction_ge60_by_key"] = {
-                key: round(count / args.rows, 4)
-                for key, count in zip(
-                    ARCHETYPE_KEYS,
-                    conn.execute(
-                        "SELECT " + ", ".join(f"count(*) FILTER (WHERE {key}_score >= 60)" for key in ARCHETYPE_KEYS)
-                        + f" FROM scratch.{table}"
-                    ).fetchone(),
-                    strict=True,
-                )
-            }
+            for floor in (60, 76, 88):
+                report[f"fraction_ge{floor}_by_key"] = {
+                    key: round(count / args.rows, 4)
+                    for key, count in zip(
+                        ARCHETYPE_KEYS,
+                        conn.execute(
+                            "SELECT " + ", ".join(
+                                f"count(*) FILTER (WHERE {key}_score >= {floor})" for key in ARCHETYPE_KEYS
+                            )
+                            + f" FROM scratch.{table}"
+                        ).fetchone(),
+                        strict=True,
+                    )
+                }
             out[layout] = report
     json.dump(out, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")

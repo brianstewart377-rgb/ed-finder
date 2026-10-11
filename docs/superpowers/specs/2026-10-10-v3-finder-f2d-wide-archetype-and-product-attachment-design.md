@@ -146,6 +146,18 @@ CREATE TABLE v3_derived.system_archetype (
     flexible_tier char(1) NOT NULL CHECK (flexible_tier IN ('S','A','B','C','D')),
     flexible_confidence_ppm integer NOT NULL CHECK (flexible_confidence_ppm BETWEEN 0 AND 1000000),
 
+    -- canonical picked-ranking key per archetype, stored so the ranking is
+    -- served in its own order by an index: round(score × confidence ×
+    -- completeness × 10,000), 0..1,000,000
+    paradise_weighted_e4 integer NOT NULL CHECK (paradise_weighted_e4 BETWEEN 0 AND 1000000),
+    mining_hub_weighted_e4 integer NOT NULL CHECK (mining_hub_weighted_e4 BETWEEN 0 AND 1000000),
+    manufacturing_hub_weighted_e4 integer NOT NULL CHECK (manufacturing_hub_weighted_e4 BETWEEN 0 AND 1000000),
+    megacomplex_weighted_e4 integer NOT NULL CHECK (megacomplex_weighted_e4 BETWEEN 0 AND 1000000),
+    research_hub_weighted_e4 integer NOT NULL CHECK (research_hub_weighted_e4 BETWEEN 0 AND 1000000),
+    stronghold_weighted_e4 integer NOT NULL CHECK (stronghold_weighted_e4 BETWEEN 0 AND 1000000),
+    population_capital_weighted_e4 integer NOT NULL CHECK (population_capital_weighted_e4 BETWEEN 0 AND 1000000),
+    flexible_weighted_e4 integer NOT NULL CHECK (flexible_weighted_e4 BETWEEN 0 AND 1000000),
+
     primary_archetype text NOT NULL,
     secondary_archetype text,
     best_colony_potential smallint NOT NULL
@@ -184,6 +196,23 @@ reducing it to a small integer would collapse the default ordering into large
 ties. (`scripts/v3_system_archetype_model.py:155-189`,
 `sql/v3/migrations/011_v3_system_archetype.sql:30-39`)
 
+**`<key>_weighted_e4` is the picked-ranking key, stored.** The ranking profile
+orders a picked archetype by `score × fit confidence × completeness`
+(`apps/api/src/ranking/ranking_sql.py:451-477`); review showed that any design
+which takes a candidate window by *raw score* and sorts it by the weighted
+product afterwards is an approximation (a score-99 system with full certainty
+can be dropped behind 10,001 score-100 systems with near-zero certainty). So the
+builder stores the canonical key itself for every archetype:
+`round(<key>_score × (<key>_confidence_ppm / 1e6) × completeness × 10000)`,
+where `completeness` is the same generation's `system_search.completeness` for
+the system (the builder already reads `system_search` confidence/completeness
+for `weighted_potential`, so the search product must be READY before the
+archetype build, as today). An integer in 1e-4 units is exact and 4 bytes;
+ordering by it equals ordering by the double product except for ties within
+0.0001, which `system_id64` then breaks deterministically — that rounding is part
+of the new ranking identity, not a hidden difference. Measured heap: 221.7 B/row
+(≈ 44 GB), 35 B more than without the eight keys.
+
 ### 3.2 Summary projection
 
 **Decision:** do not keep a physical
@@ -220,63 +249,54 @@ removing duplicated storage. The current common SQL always joins that name.
 
 ### 3.3 Indexes
 
-Create these nine secondary indexes in addition to the primary key:
+In addition to the primary key, create the `weighted_potential` index and, for
+each of the eight archetypes, **three partial indexes over the stored weighted
+key, one per exposed tier floor**:
 
 ```text
-(derived_generation_id, paradise_score DESC, system_id64)            WHERE paradise_score >= 60
-(derived_generation_id, mining_hub_score DESC, system_id64)          WHERE mining_hub_score >= 60
-(derived_generation_id, manufacturing_hub_score DESC, system_id64)   WHERE manufacturing_hub_score >= 60
-(derived_generation_id, megacomplex_score DESC, system_id64)         WHERE megacomplex_score >= 60
-(derived_generation_id, research_hub_score DESC, system_id64)        WHERE research_hub_score >= 60
-(derived_generation_id, stronghold_score DESC, system_id64)          WHERE stronghold_score >= 60
-(derived_generation_id, population_capital_score DESC, system_id64)  WHERE population_capital_score >= 60
-(derived_generation_id, flexible_score DESC, system_id64)            WHERE flexible_score >= 60
 (derived_generation_id, weighted_potential DESC)
+
+for every <key> in ARCHETYPE_KEYS:
+  (derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60   -- tier B floor
+  (derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 76   -- tier A floor
+  (derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 88   -- tier S floor
 ```
 
-The first eight are **partial, unique-entry** indexes over the tier-B-and-above
-rows (`>= 60`). They serve two things: the `min_development_score` / tier-floor
-range path for a picked archetype, and — decisively — the F4 slice 1c **bounded
-candidate probe**, which must read the first 10,001 rows of a selected key in
-exact `<key>_score DESC, system_id64 ASC` order and stop. Integer scores tie
-heavily, so an index without `system_id64` cannot deliver that order without
-sorting the boundary score group, whose size depends on the production score
-distribution. Measured on the disposable PostgreSQL 18.4 at 1,000,000 rows with
-a bell-shaped score distribution (16.9 % of rows ≥ 60), for
-`WHERE score >= 60 ORDER BY score DESC, system_id64 LIMIT 10001`:
+Why this shape (each point came out of review):
 
-| Index form | Plan | Rows read | Warm | B/row |
-|---|---|---:|---:|---:|
-| `(gen, score DESC)` deduplicated (the earlier draft) | Index Scan → Incremental Sort → Limit | 10,109 | 8.9 ms | 7.2 |
-| `(gen, score DESC, system_id64)` | Index Only Scan → Limit | 10,001 | 2.3 ms | 49.8 |
-| **`(gen, score DESC, system_id64) WHERE score >= 60`** | Index Only Scan → Limit | 10,001 | 2.2 ms | **8.4** |
+- **Canonical order from the index.** A picked ranking is served by scanning the
+  matching partial index in `<key>_weighted_e4 DESC, system_id64` order and
+  stopping after the requested page (or after 10,001 rows for the bounded count,
+  section 6). No candidate window by raw score, no post-hoc sort: the first
+  10,000 rows of the index *are* the top 10,000 of the canonical ranking.
+- **Partial, per tier floor.** The F4 product exposes exactly the floors
+  B/A/S ⇒ 60/76/88, and nothing else may call below B (section 6). One index per
+  floor keeps every exposed query index-only and bounded; a single `>= 60` index
+  would make an S-floor query filter through the whole B population (measured:
+  the ≥ 60 index read 33,695 entries to return 4,095 ≥ 76 rows at 200k). The A
+  and S partials are tiny (measured 1.1 and 0.2 B/row).
+- **`system_id64` trailing**, so ties on the integer key are broken inside the
+  index without a sort.
+- **The floor must be a literal in the SQL** (section 6): PostgreSQL decides
+  partial-index applicability at planning time and a parameter cannot prove
+  `$n >= 60`; measured under `plan_cache_mode = force_generic_plan`, the
+  parameter-only form fell back to a parallel sequential scan while the form
+  with a redundant literal used the partial index
+  (`docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json`
+  method notes; PostgreSQL 18 docs, “Partial Indexes”).
 
-(Warm median statement wall time, planning + execution; committed script
-`scripts/dev/measure_wide_archetype_probe_indexes.py`, output
-`docs/operations/evidence/2026-10-10-wide-archetype-probe-index-experiment.json`.
-The sort cost of the deduplicated form is small here only because the synthetic
-top score groups are small — 64 rows at score 100 — which the real distribution
-need not reproduce.)
-
-The partial form is bounded and deterministic like the full one at roughly the
-deduplicated form's cost, because only the rows a selected query can ever ask
-for are indexed: every floor F4 exposes (S/A/B ⇒ 88/76/60) lies inside the
-predicate, and the picked ranking's final ordering (`score × confidence ×
-completeness`) is a computed product applied to the bounded window, not an
-index order. Its size is **distribution-dependent**: 49.8 B × (fraction of
-systems with that key's score ≥ 60) per row; the synthetic sample gives
-8.4 B/row (≈ 1.7 GB per key, ≈ 13 GB for eight), the ceiling is 49.8 B/row
-(≈ 95 GB) if every system scored ≥ 60 on every key. **The calibration probe (rollout step 6) reports the per-key tier histogram on the real
-`parallel_v1` vectors; PR1's final footprint re-measurement must use those
-fractions, and the production gate stops if the result does not fit.** The
-committed `scripts/dev/measure_wide_archetype_footprint.py` now measures this
-partial layout as its third built-in variant (`v3_partial_ge60_score_sysid`,
-same synthetic distribution as the probe experiment); PR1 extends it to apply
-the final `011` text itself (`--migration-sql`) so the receipt is for the real
-relation and indexes, not a stand-in. The
-wide row is joined through its primary key (one row per system — the old
-`archetype_key` lookup no longer exists). The last index retains the current
-indexable no-pick ordering over `weighted_potential`.
+Measured on the disposable PostgreSQL 18.4 (200,000 rows, bell-shaped scores
+with 16.9 % ≥ 60, 2.1 % ≥ 76, 0.19 % ≥ 88 per key; `v4_weighted_key_tier_partials`
+in the committed evidence): ≥ 60 partial 8.5 B/row, ≥ 76 1.1 B/row, ≥ 88 0.2 B/row
+per key — ≈ 79 B/row for all 24 — plus primary key 40.7 and weighted index 40.8;
+indexes total 160 B/row ≈ 32 GB. Each partial's size is 49.8 B × (fraction of
+systems at or above that floor), so **the step 6 calibration probe's per-key tier
+histogram sizes them for real** before PR1's final re-measurement; the design
+stops and is revisited if the histogram implies the ≥ 60 fraction above ≈ 40 %
+on several keys (that would put the indexes alone near 80 GB). The earlier
+score-ordered partial layout (`v3_partial_ge60_score_sysid`, ≈ 67 GB) and the
+deduplicated layout (≈ 65 GB) are kept in the evidence as rejected alternatives:
+the first cannot serve canonical order, the second cannot bound the probe.
 (`apps/api/src/ranking/ranking_sql.py:451-477`,
 `sql/v3/migrations/011_v3_system_archetype.sql:45-56`)
 
@@ -294,19 +314,21 @@ footprint measurement”, PR #805)
 
 | Object (198.5 M rows) | Measured B/row | Estimated size |
 |---|---:|---:|
-| table heap (`pg_table_size`; average tuple 180 B) | 186.4 | 37.0 GB |
+| table heap without the stored weighted keys (`pg_table_size`; average tuple 180 B) | 186.4 | 37.0 GB |
 | primary key `(derived_generation_id, system_id64)` | 40.7 | 8.1 GB |
 | `weighted_potential` index | 40.8 | 8.1 GB |
-| eight partial `(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes (bell-shaped synthetic distribution, ≈ 17 % ≥ 60 per key; 200k-row full wide table, `v3_partial_ge60_score_sysid` in the committed evidence) | 8 × 8.5 = 68 | 13.5 GB |
-| **total, section 3.3 layout** (synthetic distribution) | **336** | **≈ 67 GB** |
-| *(ceiling)* the same if every system scored ≥ 60 on every key (= full unique-entry indexes) | 8 × 49.8 + 81.5 = 480 index | ≈ 132 GB |
-| *(earlier draft)* eight deduplicated `(derived_generation_id, <key>_score DESC)` indexes | 8 × 7.5 = 60 | 11.9 GB (≈ 65 GB total) — rejected: cannot bound the slice 1c probe without a tie sort |
+| eight stored `<key>_weighted_e4` columns (heap grows from 186.4 to 221.7 B/row) | +35.3 | +7.0 GB (heap 44.0 GB) |
+| 24 partial `(derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes (bell-shaped synthetic distribution; `v4_weighted_key_tier_partials` in the committed evidence) | 8 × (8.5 + 1.1 + 0.2) ≈ 79 | 15.6 GB |
+| **total, section 3.3 layout** (synthetic distribution) | **382** | **≈ 76 GB** |
+| *(rejected)* score-ordered partial `>= 60` indexes without the stored key (`v3_partial_ge60_score_sysid`) | 336 | ≈ 67 GB — cannot serve canonical order |
+| *(rejected)* deduplicated `(derived_generation_id, <key>_score DESC)` indexes (`v2_score_only`) | 328 | ≈ 65 GB — cannot bound the probe without a tie sort |
+| *(reference)* full unique-entry score indexes (`v1_with_system_id64`) | 667 | ≈ 132 GB |
 
 The decision text's earlier “about 80 GB” and this design's first-draft
 “about 90 GB” were unmeasured guesses: the heap is wider than assumed (186 B,
 not 150 B) and a unique-entry score index is 49.8 B/row, not 30 B. The
-measured layout is **≈ 67 GB** of persistent product data on the synthetic
-distribution (the partial score indexes scale with the real ≥ 60 fractions —
+measured layout is **≈ 76 GB** of persistent product data on the synthetic
+distribution (the tier-partial indexes scale with the real per-floor fractions —
 see section 3.3); re-measuring with
 integer-ppm confidences gave the identical 186.4 B/row heap (same 4-byte width
 and alignment as `real`), while `double precision` confidences measured
@@ -441,7 +463,9 @@ already introduced solely because the stored summary shape gained
 
 `product_manifest` continues to hash the coefficients, anchors, key order,
 generation identity, source policy, and code identity. Add a canonical ordered
-`wide_columns` list, `storage_layout: "one-row-per-system-v1"`,
+`wide_columns` list (the eight `_weighted_e4` keys and their exact definition
+`round(score × confidence × completeness × 10000)` included),
+`storage_layout: "one-row-per-system-v1"`,
 `explanation_delivery: "on-demand"`, confidence storage/rounding policy, and
 the shared model file hash as `model_file_sha256` (the value section 4.3 compares against the deployed file). Remove the persisted-explanation field policy. The
 current manifest already hashes coefficients, anchors, key order, field policy,
@@ -486,6 +510,10 @@ the new shape makes the complete stored row the seal boundary.
 - `count(system_archetype) == count(system_rating_vector)` and every system has
   exactly one `v3-archetype-4` row;
 - every one of the eight score columns is 0–100;
+- every `<key>_weighted_e4` equals
+  `round(<key>_score × <key>_confidence_ppm / 1e6 × completeness × 10000)`
+  exactly, with `completeness` read from the same generation's `system_search`
+  row (the validator fails closed if that row is missing);
 - every tier equals `tier_of(its score)`;
 - each stored `_confidence_ppm` integer equals `round(model confidence × 10⁶)`
   exactly (no tolerance);
@@ -521,14 +549,14 @@ trusted wide-column expressions, for example:
 
 ```python
 ARCHETYPE_COLUMNS = {
-    "paradise": ("a.paradise_score", "a.paradise_tier", "(a.paradise_confidence_ppm / 1000000.0)"),
+    "paradise": ("a.paradise_score", "a.paradise_tier", "(a.paradise_confidence_ppm / 1000000.0)", "a.paradise_weighted_e4"),
     # ...seven more fixed entries...
 }
 ```
 
 The canonical mapping is **part of the hashed ranking identity**: it is declared
 in `profile.py`'s `PROFILE_SPEC` (as
-`archetype_columns: {key: {score, tier, confidence}}`, with the confidence
+`archetype_columns: {key: {score, tier, confidence, weighted_key}}`, with the confidence
 expression written out, e.g. `paradise_confidence_ppm / 1000000.0`) and therefore
 enters `_canonical_base()` and `ranking_sha256`; `ranking_sql.py` derives
 `ARCHETYPE_COLUMNS` from that spec rather than declaring its own copy, and the
@@ -546,30 +574,61 @@ changes. (`apps/api/src/routers/archetypes.py:294-316`,
 
 `build_ranked_query` and `build_count_query` continue sharing `_build_common`.
 For a picked archetype, join the one wide `v3_app.system_archetype` row by
-`system_id64` and select the mapped score/confidence columns. For no pick, keep
-the `v3_app.system_archetype_summary` join and
-`sum.weighted_potential DESC NULLS LAST` unchanged. Preserve distance then
-`system_id64` tie-breaks and all selected aliases.
+`system_id64`, select the mapped score/confidence columns, and **order by the
+stored key**: `a.<key>_weighted_e4 DESC, s.system_id64 ASC` (distance is not a
+term for a picked ranking — selected mode is galaxy-wide by the F4 design — and
+the response still reports `primary_score`, `ranking_confidence` and
+`uncertainty_factor` from the stored columns). The picked `WHERE` carries **two**
+floor predicates: a **literal** tier-floor predicate chosen server-side — the
+largest of `>= 60`, `>= 76`, `>= 88` not above the requested `min_score`, emitted
+as text so the planner can prove the matching partial index applies under a
+generic plan — and the parameterized `>= $n` for the exact requested value.
+Measured under `plan_cache_mode = force_generic_plan`: parameter-only ⇒ parallel
+sequential scan + sort; with the literal ⇒ index scan on the matching partial,
+10,001 rows read. For no pick, keep the `v3_app.system_archetype_summary` join
+and `sum.weighted_potential DESC NULLS LAST` unchanged. Preserve `system_id64`
+tie-breaks and all selected aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
 
-The partial score indexes (section 3.3) cover only rows scoring ≥ 60, so **PR1
+**The count is bounded too.** Today `/api/archetypes/rankings` awaits
+`build_count_query(..., cap=None)`, an exact count over every qualifying row —
+≈ 34 M rows at the synthetic 17 % B fraction, unbounded by any index. PR1
+changes the picked count to `SELECT count(*) FROM (SELECT 1 … LIMIT 10001) t`
+with the same literal + parameter floor: the response's `total` is
+`min(count, 10000)` and `is_truncated` is `count = 10001`, exactly the
+within-window contract the F4 design already specifies for selected mode, now
+honest for the count as well as the page. The galaxy-wide local-search path
+already caps its count the same way (`apps/api/src/local_search.py:248-254`).
+Tests execute the ranked and count SQL on the disposable PG18 fixture with
+`plan_cache_mode = force_generic_plan` and assert, from `EXPLAIN (FORMAT JSON)`,
+that the matching partial index is used for each floor and that no plan node
+reads more than 10,001 archetype rows.
+
+The partial indexes (section 3.3) cover only rows scoring ≥ 60, so **PR1
 changes the rankings route's `min_score` contract deliberately**: today it is
 `Query(40, ge=0, le=100)` (`apps/api/src/routers/archetypes.py:511`) and the SQL
 binds the requested floor directly (`apps/api/src/ranking/ranking_sql.py:355-357`);
 after PR1 it is `Query(60, ge=60, le=100)` — the default request and every
 accepted value fall inside the indexed range, and a value below 60 is a 422
 rather than a silently truncated or unbounded result. This is a real contract
-change and is treated as one: it is part of the hashed ranking identity (tier
-floors S/A/B ⇒ 88/76/60 remain; C/D were already excluded from the initial
-product by the F4 design), the OpenAPI parameter constraint changes so PR1
+change and is treated as one: the default, the bounds, the three literal tier
+floors, the stored-key definition (`round(score × confidence × completeness ×
+10000)`), the 10,000 window and the `is_truncated` rule are all declared in
+`PROFILE_SPEC` and therefore hashed into `ranking_sha256`; the route's
+`Query(...)` declaration is built from those spec constants rather than typed
+beside them, and the identity test mutates the default, a bound, a floor literal
+and the key definition in turn and asserts the digest changes each time. The
+OpenAPI parameter constraint changes so PR1
 regenerates all three typed clients (`apps/web/src/lib/api/generated/*` and
 `packages/api-client/src/generated/api.gen.ts`), and the tests cover the default
 request, `min_score=60`, `min_score=59` → 422 and `min_score=100`. Nothing in
 `apps/web` calls `/api/archetypes/rankings` yet (the F4 UI is unbuilt and the
 legacy frontend is retired), so no live caller loses a result. The alternative —
 indexing all scores so 0–59 stays bounded — costs ≈ 95 GB of indexes for rows
-no planned caller asks for. The F4 design's slice 1c then adds the bounded
-10,001-row probe over these indexes without a further contract change.
+no planned caller asks for. With the page and the count both served from the
+tier partials in canonical order, the F4 design's slice 1c no longer needs a
+separate raw-score candidate window: it inherits this contract and specifies
+the browser side of the 10,000 window.
 
 The outward ranking and Search response fields do not change: selected score,
 tier, confidence, primary, secondary, Best Colony Potential, archetype
@@ -577,9 +636,11 @@ confidence, completeness, uncertainty, and ranking identity remain present.
 Only `ranking_version`/`ranking_sha256` change. (`apps/api/src/routers/archetypes.py:389-406,422-494`,
 `apps/api/src/local_search.py:790-839,951-964`)
 
-Tests must cover all eight key-to-column mappings, that the SQL map is derived
-from the hashed spec and that mutating a mapping changes `ranking_sha256`,
-both ranked and count SQL,
+Tests must cover all eight key-to-column mappings (score, tier, confidence
+**and weighted key**), that the SQL map is derived from the hashed spec and that
+mutating a mapping, the floor default/bounds or a floor literal changes
+`ranking_sha256`, the literal-floor selection for `min_score` 60/70/76/88/100,
+the bounded count, both ranked and count SQL,
 unknown-key rejection, and adversarial strings that must never appear in SQL.
 Retain selected weighted ordering, no-pick indexable ordering, count/page filter
 parity, deterministic tie-breaks, and no-legacy-relation assertions.
@@ -818,14 +879,15 @@ replace either; the rollout below is authorized only once both say so:
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
-| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 66 GB** on the synthetic distribution (section 3.4); the partial score indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
+| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 7 | In one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
 | 8 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, READY+published timestamps, validation/publication audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
 | 9 | Build the immutable release, run preflight, and promote only after the revised gate passes. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
 
-Total new persistent Finder data is planned at about 153 GB (87 GB Search plus
-66 GB Archetype, both from PostgreSQL 18.4 samples; the archetype figure rises
-with the real ≥ 60 fractions, to a 132 GB ceiling), leaving about 139 GB from
+Total new persistent Finder data is planned at about 163 GB (87 GB Search plus
+76 GB Archetype, both from PostgreSQL 18.4 samples; the archetype figure moves
+with the real per-floor fractions, and the design stops if the histogram puts
+the ≥ 60 fraction above ≈ 40 % on several keys), leaving about 129 GB from
 the observed 292 GB before transient WAL/temp/vacuum use. The
 re-measurement of the final wide relation and all its indexes, not this
 arithmetic, decides whether step 6 may start.
@@ -1065,17 +1127,21 @@ operations. (`scripts/operator/actions/v3-system-search-f1.sh:15-24,76-113,175-1
 
 Each unresolved choice is phrased for an explicit yes/no disposition.
 
-1. **Yes/no: approve the section 3.3 layout — primary key, weighted index, and
-   eight partial unique-entry `(generation, <key>_score DESC, system_id64) WHERE
-   <key>_score >= 60` indexes (≈ 66 GB on the synthetic distribution; sized
-   from the calibration probe's real tier histogram and re-measured with the
-   final `011` text before the production build; ceiling ≈ 132 GB if every
-   system scored ≥ 60 everywhere)?** The deduplicating variant is ≈ 1 GB
-   cheaper on the sample but cannot bound the slice 1c probe without a
-   distribution-dependent tie sort; the full unique-entry variant costs ≈ 95 GB
-   of indexes for rows no selected query can ask for.
-   **Owner: yes (2026-10-10, recorded as question 6 of the capacity
-   decision).**
+1. **Yes/no: approve the section 3.3 layout — eight stored `<key>_weighted_e4`
+   ranking keys, primary key, weighted index, and 24 partial
+   `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 /
+   88` indexes (≈ 76 GB on the synthetic distribution; sized from the
+   calibration probe's real tier histogram and re-measured with the final `011`
+   text before the production build; the design stops if the ≥ 60 fraction
+   exceeds ≈ 40 % on several keys)?** This refines the partial layout the owner
+   approved on 2026-10-10 (question 6 of the capacity decision, ≈ 66 GB): review
+   round 5 showed a raw-score window sorted afterwards is an approximation of
+   the ranking profile, so the canonical key is stored and indexed instead
+   (+10 GB). The deduplicating and score-ordered variants are kept in the
+   evidence as rejected; the full unique-entry variant costs ≈ 95 GB of indexes
+   for rows no caller can ask for.
+   **Owner: yes to the partial principle on 2026-10-10; the stored-key
+   refinement is re-asked here.**
 2. **Yes/no: approve exact integer parts-per-million confidence storage
    (`<key>_confidence_ppm integer`, 0–1,000,000) with the ranking expression
    `ppm / 1000000.0` and API serialization `ppm / 1e6`?** Same 4 bytes as

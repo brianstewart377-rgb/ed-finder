@@ -216,6 +216,7 @@ sized by the real ≥ 60 fraction the step 6 calibration probe reports.
 | wide-row `system_archetype` (F2d design, one row per system, 42 columns, no explanation; PK + 8 `(generation, <key>_score DESC, system_id64)` indexes + weighted index — the spec's first draft) | 200,000 | 186 | 480 | 198.5 M | 37 | 95 | **132** |
 | wide-row `system_archetype` (same table; PK + 8 deduplicating `(generation, <key>_score DESC)` indexes + weighted index — the recommended layout) | 200,000 | 186 | 142 | 198.5 M | 37 | 28 | **65** |
 | wide-row `system_archetype` (same table; PK + 8 **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes + weighted index — the layout adopted after review, 1M-row probe experiment with 16.9 % of rows ≥ 60) | 1,000,000 | 186 | 149 | 198.5 M | 37 | 30 | **≈ 66** (ceiling 132 if every system scored ≥ 60) |
+| wide-row `system_archetype` with the eight stored ranking keys `<key>_weighted_e4` (PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes — the F2d design's final layout, `v4_weighted_key_tier_partials` in the committed evidence; bell-shaped synthetic scores, 16.9 % / 2.1 % / 0.19 %) | 200,000 | 222 | 160 | 198.5 M | 44 | 32 | **≈ 76** |
 
 Sum of the four system-level relations for one complete fresh generation: about
 **1,174 GB**, of which `system_archetype` alone is about
