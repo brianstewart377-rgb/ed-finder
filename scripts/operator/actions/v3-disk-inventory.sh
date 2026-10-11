@@ -61,6 +61,9 @@ RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
 # A drill-down step starting with barely any budget beyond the reserve would time out
 # and fail the section. Below this, stop and record the exhaustion instead.
 DRILL_DOWN_MIN_CALL_SECONDS = 30
+# The largest children kept from each drill-down listing. The walk follows the largest
+# and reports ten, so this bounds memory without changing any decision it makes.
+DRILL_DOWN_CHILD_LIMIT = 200
 # PGDATA children whose bytes are genuinely already inside accounted_bytes, and only
 # those. `base` is the per-database storage that pg_database_size sums, and pg_wal is
 # wal_bytes; the temp-directory query measures `base/pgsql_tmp`, which is inside `base`
@@ -94,8 +97,20 @@ def run(
     argv: list[str], *, timeout: int = PROCESS_TIMEOUT_SECONDS
 ) -> subprocess.CompletedProcess[str]:
     try:
+        # errors="surrogateescape", not the strict TextIOWrapper default: a path may
+        # contain any byte except NUL and /, so a sequence invalid in the host locale
+        # is legal on Unix and reachable in a user directory or an extracted archive.
+        # Strict decoding raises UnicodeDecodeError here, which nothing catches, and
+        # the privileged action exits with a traceback instead of its structured
+        # stopped receipt. Surrogate escapes round-trip, so such a path is still
+        # reported -- it is a directory someone may need to look at.
         return subprocess.run(
-            argv, text=True, capture_output=True, timeout=timeout, check=False
+            argv,
+            text=True,
+            errors="surrogateescape",
+            capture_output=True,
+            timeout=timeout,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return subprocess.CompletedProcess(argv, 125, "", type(exc).__name__)
@@ -528,8 +543,27 @@ def drill_down(
                 # reads as "nothing to find" rather than "never looked".
                 stopped_before_first_step = True
             break
+        # Bounded in OUTPUT as well as in steps and time. A high-fan-out directory --
+        # /var/lib/docker/overlay2 with thousands of layers, a backup tree -- emits one
+        # record per immediate child, and run() captures the whole thing before
+        # du_rows() parses and sorts it, so neither the step cap nor the timeout bounds
+        # memory. The pipeline keeps the largest DRILL_DOWN_CHILD_LIMIT children, which
+        # is all the walk uses: it follows the largest and reports ten. NUL-delimited
+        # throughout (`sort -z`, `head -z`), and the path is passed as an argument
+        # rather than interpolated, so no path can affect the command.
         rows = du_rows(
-            ["du", "--null", "-x", "-B1", "--max-depth=1", current],
+            [
+                "bash",
+                "-c",
+                'du --null -x -B1 --max-depth=1 "$1" '
+                # The size is field 1 under sort's default blank splitting, so no -t is
+                # needed and none is given -- a literal tab inside this nested quoting
+                # is easy to get wrong and buys nothing.
+                "| sort -z -k1,1rn "
+                f"| head -z -n {DRILL_DOWN_CHILD_LIMIT}",
+                "_",
+                current,
+            ],
             budget,
             "drill_down_failed",
         )
@@ -1277,6 +1311,32 @@ try:
         raise RuntimeError("postgres_data_directory_bracket_unavailable")
     scan_budget.release_reserve()
     pgdata_final = du_total(pgdata_host, scan_budget)
+    # Re-read the PGDATA breakdown too, and use the closing figures for the summary.
+    # Accepting drift within tolerance is right -- a live database always moves -- but
+    # it meant the inside-PGDATA candidates were computed from the OPENING total and
+    # children while the database, WAL and filesystem figures came from the closing
+    # state. On this cluster 0.5 % is several GiB, so the candidates could differ from
+    # unaccounted_bytes by the whole accepted drift in a receipt reporting success.
+    # Tolerating movement has to mean measuring every part of the arithmetic on the
+    # same side of it.
+    closing_usage = du_rows(
+        ["du", "--null", "-x", "-B1", "--max-depth=1", pgdata_host],
+        scan_budget,
+        "postgres_data_directory_usage_failed",
+        expect_path=pgdata_host,
+    )
+    postgres_data_directory_bytes = pgdata_final
+    pgdata_children_all = sorted(
+        (row for row in closing_usage if row["path"].rstrip("/") != pgdata_host),
+        key=lambda item: (-item["bytes"], item["path"]),
+    )
+    inventory["postgres_data_directory_usage"] = {
+        "path": pgdata_host,
+        "bytes": postgres_data_directory_bytes,
+        "child_count": len(pgdata_children_all),
+        "children": pgdata_children_all[:40],
+        "measured_at": "window_close",
+    }
     # Re-read the filesystem too. The PGDATA bracket closes over the database, but a
     # sibling consumer -- a backup, a Docker layer, a host log -- can change during the
     # drill-down and the SQL inventory, and only a fresh `df` can see that. Closing on

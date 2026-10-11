@@ -304,6 +304,9 @@ def _run_inventory_action(
         ),
         encoding="utf-8",
     )
+    # The drill-down bounds its child listing with a `du | sort -z | head -z` pipeline,
+    # so the stub needs a real shell. The fake `du` on PATH is picked up by it, and
+    # sort/head come from the system — which is what we want to exercise.
     psql = fake_bin / "psql"
     psql.write_text(
         textwrap.dedent(
@@ -1282,3 +1285,89 @@ def test_v3_disk_inventory_records_wal_inside_pgdata(tmp_path):
 
     assert wal["directory_inside_pgdata"] is True
     assert wal["container_directory"] == "/var/lib/postgresql/18/docker/pg_wal"
+
+
+def test_v3_disk_inventory_bounds_each_drill_down_child_listing():
+    """A high-fan-out directory must not make memory unbounded.
+
+    /var/lib/docker/overlay2 can hold thousands of layers; `du --max-depth=1` emits one
+    record per immediate child, and run() captures the whole output before du_rows()
+    parses and sorts it — so neither the step cap nor the timeout bounds memory. The cap
+    has to happen before Python sees the output.
+    """
+    source = _read(ACTION)
+
+    assert "DRILL_DOWN_CHILD_LIMIT = 200" in source
+    assert "| sort -z -k1,1rn " in source
+    assert "| head -z -n {DRILL_DOWN_CHILD_LIMIT}" in source
+    # The path is an argument, never interpolated into the command.
+    assert 'du --null -x -B1 --max-depth=1 "$1" ' in source
+    assert '"_",\n                current,' in source
+
+
+def test_v3_disk_inventory_keeps_the_root_total_under_the_child_limit(tmp_path):
+    """The cap must never drop the row the walk needs.
+
+    A directory's own total includes all its children, so it is always the largest
+    record and always survives `head`. Worth proving rather than assuming, since
+    losing it raises drill_down_total_missing.
+    """
+    root = tmp_path / "fan"
+    for index in range(50):
+        child = root / f"child-{index:03d}"
+        child.mkdir(parents=True)
+        (child / "f").write_bytes(b"x" * 1000)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'du --null -x -B1 --max-depth=1 "$1" | sort -z -k1,1rn | head -z -n 5',
+            "_",
+            str(root),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    records = [r for r in result.stdout.split("\0") if r.strip()]
+    assert len(records) == 5
+    paths = [r.split("\t", 1)[1] for r in records]
+    assert paths[0] == str(root)
+
+
+def test_v3_disk_inventory_decodes_undecodable_paths(tmp_path):
+    """A path byte sequence invalid in the host locale must not raise."""
+    source = _read(ACTION)
+
+    assert 'errors="surrogateescape"' in source
+    run_body = source[source.index("def run(") :]
+    run_body = run_body[: run_body.index("\ndef ")]
+    assert "text=True" in run_body
+    assert 'errors="surrogateescape"' in run_body
+
+
+def test_v3_disk_inventory_measures_pgdata_detail_at_window_close(tmp_path):
+    """Accepting drift must mean measuring every part of the arithmetic after it.
+
+    PGDATA movement inside the 0.5 % tolerance is several GiB on this cluster, so
+    computing the inside-PGDATA candidates from the opening total and children while
+    the database, WAL and filesystem figures come from the closing state could leave
+    them differing from unaccounted_bytes by the whole accepted drift.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+
+    assert inventory["postgres_data_directory_usage"]["measured_at"] == "window_close"
+    assert (
+        inventory["postgres_data_directory_usage"]["bytes"]
+        == inventory["postgres_data_directory_bracket"]["bytes_after_drill_down"]
+    )
+    # The partition still closes exactly against the figure it explains.
+    assert (
+        summary["non_database_directory_bytes"]
+        + summary["unaccounted_inside_data_directory_bytes"]
+        == summary["unaccounted_bytes"]
+    )
