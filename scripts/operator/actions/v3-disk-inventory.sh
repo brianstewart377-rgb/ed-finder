@@ -60,6 +60,10 @@ GENERATION_ATTRIBUTION_LIMIT = 50
 # for the receipt. The TOTALS that accounted_bytes depends on are computed in SQL across
 # every database, so the bound changes what is displayed and never what is accounted.
 DATABASE_INVENTORY_LIMIT = 50
+# Non-default tablespaces make this action refuse to present a partition at all, so
+# the refusal only needs a count. The enumeration is a bounded sample naming what was
+# found, because an operator has to know which assumption broke.
+TABLESPACE_INVENTORY_LIMIT = 50
 # Every directory scan shares one wall-clock budget. Individually bounded calls are not
 # enough: the operator workflow kills the job at 40 minutes, and four fixed scans plus
 # eight drill-down steps at the 300 s per-call limit would be 60 minutes, so a valid but
@@ -71,7 +75,13 @@ DIRECTORY_SCAN_BUDGET_SECONDS = 1_500
 # It is the full per-call allowance, not a smaller round number: reserving less would
 # leave the mandatory closing scan running against a shortened timeout, which is a
 # different way of failing it.
-RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
+# TWO full per-call allowances, because the closing phase makes two scans: the PGDATA
+# re-read and the depth-1 breakdown of `base` that keeps the base remainder in one
+# metric. Reserving one would leave the second running against whatever the first left
+# over, which is a different way of failing the scan the reserve exists to protect.
+# Worst case is the 1,500 s walk plus 600 s here -- 35 minutes, inside the operator
+# workflow's 40-minute kill.
+RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS
 # A drill-down step starting with barely any budget beyond the reserve would time out
 # and fail the section. Below this, stop and record the exhaustion instead.
 DRILL_DOWN_MIN_CALL_SECONDS = 30
@@ -891,6 +901,11 @@ tolerance: int = 0
 # yields its key strings and raises TypeError, escaping the section handler.
 operating_database_bytes: int | None = None
 other_databases_bytes: int | None = None
+# The live database OID directory names, read in the `databases` section and used by
+# the base breakdown in the reconciliation section. None means "not established",
+# which suppresses the breakdown rather than guessing from a partial set.
+live_database_oids: dict[str, str] | None = None
+base_breakdown: dict[str, Any] | None = None
 try:
     mount_source, mount_destination = postgres_mount()
     disk = df_values(
@@ -1128,22 +1143,61 @@ try:
         raise RuntimeError("database_total_output_invalid")
     # Bounded, deterministic, and ordered so the row that matters most is never the
     # one dropped. One extra row detects truncation.
+    #
+    # The OPERATING database sorts first, ahead of size. It is the subject of the whole
+    # receipt, and size order alone would drop its detailed row on a cluster with more
+    # than DATABASE_INVENTORY_LIMIT larger databases -- leaving a receipt that reports
+    # an operating-database total in the summary with no corresponding entry in the
+    # list it is supposed to be drawn from. Same reasoning as the published generation
+    # in generation_attribution: a bound may drop rows, but never the one row the
+    # reader came for.
     database_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT datname, pg_database_size(oid)::bigint AS size_bytes, "
-        "datistemplate, datallowconn FROM pg_database "
-        "ORDER BY pg_database_size(oid) DESC, datname "
+        "datistemplate, datallowconn, "
+        "(datname=current_database()) AS operating FROM pg_database "
+        "ORDER BY (datname=current_database()) DESC, "
+        "pg_database_size(oid) DESC, datname "
         f"LIMIT {DATABASE_INVENTORY_LIMIT + 1}) q",
         db_user,
         db_name,
     )
     inventory["databases"] = database_rows[:DATABASE_INVENTORY_LIMIT]
+    # The row list is what the summary's operating figure is read against, so its
+    # presence is asserted rather than assumed.
+    if not any(row.get("operating") is True for row in inventory["databases"]):
+        raise RuntimeError("operating_database_row_missing")
     inventory["database_count"] = database_count
     inventory["database_total_bytes"] = database_total_bytes
     inventory["database_inventory_limit"] = DATABASE_INVENTORY_LIMIT
     inventory["database_inventory_truncated"] = (
         len(database_rows) > DATABASE_INVENTORY_LIMIT
     )
+    # The live OID directory NAMES under base/. Needed to tell a live database
+    # directory from an orphaned one in the SAME metric `du` reports -- see the base
+    # breakdown in the reconciliation section. Bounded like everything else; when the
+    # set is incomplete the breakdown is skipped rather than computed from a partial
+    # set, because a live database missing from the set would be reported as orphaned
+    # storage, which is the worst possible error for this receipt to make.
+    oid_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT oid::text AS oid, datname FROM pg_database ORDER BY oid "
+        f"LIMIT {DATABASE_INVENTORY_LIMIT + 1}) q",
+        db_user,
+        db_name,
+    )
+    if len(oid_rows) > DATABASE_INVENTORY_LIMIT or len(oid_rows) != database_count:
+        live_database_oids = None
+    else:
+        live_database_oids = {}
+        for row in oid_rows:
+            oid = row.get("oid")
+            datname = row.get("datname")
+            if not isinstance(oid, str) or not oid.isdigit():
+                raise RuntimeError("database_oid_output_invalid")
+            if not isinstance(datname, str) or not datname:
+                raise RuntimeError("database_oid_output_invalid")
+            live_database_oids[oid] = datname
 except RuntimeError as exc:
     section_failed(failures, inventory, "databases", exc)
 
@@ -1552,18 +1606,50 @@ try:
     # and refuses to present a partition when any exists, naming what it found. The
     # enumeration is also the evidence that none exists, which is the expected case and
     # was previously only assumed.
-    tablespaces = psql_json(
+    # The DECISION needs only a count, so it is taken from an aggregate that cannot
+    # grow with the number of tablespaces, and the enumeration below is a bounded
+    # sample for the operator. Buffering a row per tablespace -- each costing a
+    # pg_tablespace_size walk -- would let the safety path itself be what fails to
+    # produce the structured stopped receipt, which is the one outcome a fail-closed
+    # guard must not have.
+    tablespace_count_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
-        "SELECT spcname, pg_tablespace_location(oid) AS location, "
-        "pg_tablespace_size(oid)::bigint AS size_bytes FROM pg_tablespace "
-        "WHERE spcname NOT IN ('pg_default','pg_global') "
-        "ORDER BY spcname) q",
+        "SELECT count(*)::bigint::text AS non_default_count FROM pg_tablespace "
+        "WHERE spcname NOT IN ('pg_default','pg_global')) q",
         db_user,
         db_name,
     )
+    if len(tablespace_count_rows) != 1:
+        raise RuntimeError("tablespace_count_output_invalid")
+    non_default_tablespace_count = required_int(
+        tablespace_count_rows[0].get("non_default_count"),
+        "tablespace_count_output_invalid",
+    )
+    tablespaces = (
+        psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT spcname, pg_tablespace_location(oid) AS location, "
+            "pg_tablespace_size(oid)::bigint AS size_bytes FROM pg_tablespace "
+            "WHERE spcname NOT IN ('pg_default','pg_global') "
+            "ORDER BY spcname "
+            f"LIMIT {TABLESPACE_INVENTORY_LIMIT}) q",
+            db_user,
+            db_name,
+        )
+        if non_default_tablespace_count > 0
+        else []
+    )
     inventory["tablespaces"] = {
         "non_default": tablespaces,
-        "single_filesystem_accounting_valid": not tablespaces,
+        "non_default_count": non_default_tablespace_count,
+        "non_default_limit": TABLESPACE_INVENTORY_LIMIT,
+        "non_default_truncated": (
+            non_default_tablespace_count > TABLESPACE_INVENTORY_LIMIT
+        ),
+        # From the COUNT, not from the bounded list: a truncated list is still a
+        # cluster with tablespaces, and reading validity off the sample would make a
+        # large enough cluster look single-filesystem.
+        "single_filesystem_accounting_valid": non_default_tablespace_count == 0,
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "tablespaces", exc)
@@ -1659,6 +1745,99 @@ try:
         "children": pgdata_children_all[:40],
         "measured_at": "window_close",
     }
+    # Break `base` down in `du`'s OWN metric. The base remainder was previously
+    # base's `du` bytes minus the `pg_database_size` totals, which compares two
+    # DIFFERENT measurements: GNU du reports allocated filesystem blocks, while
+    # pg_database_size sums each entry's st_size. On a cluster of this size the
+    # per-file block rounding and the directories' own allocation add up to a
+    # persistently positive difference, so a perfectly healthy base/ produced an
+    # "orphaned storage" candidate out of arithmetic noise -- in the one receipt whose
+    # entire purpose is to say what is reclaimable.
+    #
+    # One extra depth-1 scan of base costs a second traversal of the bulk of PGDATA,
+    # which is why the reserve covers two calls. It buys more than metric agreement:
+    # an unreferenced OID directory is reported BY PATH instead of disappearing into
+    # an anonymous remainder, which is the difference between a finding an operator
+    # can act on and a number they cannot explain.
+    base_row = next(
+        (
+            row
+            for row in pgdata_children_all
+            if row["path"].rstrip("/").rsplit("/", 1)[-1] == "base"
+        ),
+        None,
+    )
+    if base_row is None:
+        base_breakdown = {"available": False, "reason": "base_child_not_measured"}
+    elif live_database_oids is None:
+        # Deliberately not computed from an incomplete OID set: a live database whose
+        # OID was missing would be reported as orphaned storage.
+        base_breakdown = {"available": False, "reason": "live_database_oids_unbounded"}
+    elif scan_budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
+        base_breakdown = {"available": False, "reason": "scan_budget_exhausted"}
+    else:
+        base_path = base_row["path"].rstrip("/")
+        # Its own failure boundary. This scan refines ONE candidate; the PGDATA
+        # re-read, the WAL close and the df close around it are what the summary
+        # cannot do without. Letting a denied or timed-out base scan raise would take
+        # the whole reconciliation -- and so the whole summary -- down over an optional
+        # refinement, which is the opposite of what the unavailable path is for.
+        try:
+            base_usage, base_omitted, base_omitted_bytes = du_stream(
+                ["du", "--null", "-x", "-B1", "--max-depth=1", base_path],
+                scan_budget,
+                "base_directory_usage_failed",
+                keep=DU_DEFAULT_KEEP,
+                expect_path=base_path,
+            )
+        except RuntimeError as base_exc:
+            base_breakdown = {"available": False, "reason": str(base_exc)[:240]}
+        else:
+            live_bytes = 0
+            temp_dir_bytes = 0
+            unreferenced: list[dict[str, Any]] = []
+            for row in base_usage:
+                if row["path"].rstrip("/") == base_path:
+                    continue
+                name = row["path"].rstrip("/").rsplit("/", 1)[-1]
+                if name in live_database_oids:
+                    live_bytes += row["bytes"]
+                elif name == "pgsql_tmp":
+                    temp_dir_bytes += row["bytes"]
+                else:
+                    unreferenced.append(row)
+            # Whatever base's total exceeds its measured entries by: files sitting
+            # directly in base/, plus any entry the row cap dropped. Its own figure
+            # rather than folded into the unreferenced total, because "a stray file in
+            # base/" and "a directory that is not a live database" are different
+            # findings calling for different actions.
+            other_bytes = (
+                base_row["bytes"]
+                - live_bytes
+                - temp_dir_bytes
+                - sum(row["bytes"] for row in unreferenced)
+                - base_omitted_bytes
+            )
+            base_breakdown = {
+                "available": True,
+                "path": base_path,
+                "bytes": base_row["bytes"],
+                "live_database_directory_bytes": live_bytes,
+                "temporary_directory_bytes": temp_dir_bytes,
+                "unreferenced_directory_bytes": sum(
+                    row["bytes"] for row in unreferenced
+                ),
+                "unreferenced_entries": sorted(
+                    unreferenced, key=lambda item: (-item["bytes"], item["path"])
+                )[:40],
+                "unreferenced_entry_count": len(unreferenced),
+                "other_bytes": other_bytes,
+                "entries_omitted_by_cap": base_omitted,
+                "entries_omitted_bytes": base_omitted_bytes,
+                "metric": "du_allocated_blocks",
+                "live_database_count": len(live_database_oids),
+            }
+    inventory["postgres_base_directory_breakdown"] = base_breakdown
     # Re-read the filesystem too. The PGDATA bracket closes over the database, but a
     # sibling consumer -- a backup, a Docker layer, a host log -- can change during the
     # drill-down and the SQL inventory, and only a fresh `df` can see that. Closing on
@@ -1868,27 +2047,64 @@ try:
     # dropped database, a stray file -- is inside neither figure, so excluding the whole
     # child would remove it from every candidate while leaving it in unaccounted_bytes.
     # Orphaned storage under base is exactly the reclaimable space this action looks
-    # for, so the positive remainder is reported as its own candidate.
-    base_child = next(
-        (
-            row
-            for row in pgdata_children
-            if row["path"].rstrip("/").rsplit("/", 1)[-1] == "base"
-        ),
-        None,
+    # for, so it is reported as its own candidates.
+    #
+    # From the SAME-METRIC breakdown, never from base's `du` bytes minus the
+    # `pg_database_size` totals: du measures allocated blocks and pg_database_size sums
+    # st_size, so that subtraction turned ordinary block rounding across tens of
+    # thousands of relation files into a standing "orphaned storage" candidate. When
+    # the breakdown is unavailable, NO base candidate is emitted and the reason is
+    # recorded -- an unexplained gap in the partition is honest, a fabricated reclaim
+    # target is not.
+    base_breakdown_used = isinstance(base_breakdown, dict) and base_breakdown.get(
+        "available"
     )
-    if base_child is not None:
-        base_unlisted = base_child["bytes"] - (
-            operating_database_bytes + other_databases_bytes + temp_bytes
+    # Where the metric difference goes now that it is no longer a false candidate. The
+    # candidates measure base in `du`'s allocated blocks; accounted_bytes subtracts
+    # pg_database_size's and pg_ls_tmpdir's st_size sums for the same storage. The
+    # difference is real and is neither reclaimable nor unaccounted -- it is two tools
+    # measuring one thing differently -- so it is named as its own term and the
+    # partition closes against it explicitly. Left unnamed it would simply be a
+    # partition that does not add up in a receipt claiming that it does.
+    metric_difference = None
+    if base_breakdown_used:
+        assert isinstance(base_breakdown, dict)
+        metric_difference = (
+            base_breakdown["live_database_directory_bytes"]
+            + base_breakdown["temporary_directory_bytes"]
+        ) - (operating_database_bytes + other_databases_bytes + temp_bytes)
+        # Named individually: "base/16401 is not a live database" is actionable in a
+        # way that a lump remainder never is.
+        for row in base_breakdown["unreferenced_entries"]:
+            inside.append(
+                {
+                    "path": f"{row['path']} (not a live database directory)",
+                    "exclusive_bytes": row["bytes"],
+                    "inside_data_directory": True,
+                }
+            )
+        tail = base_breakdown["unreferenced_directory_bytes"] - sum(
+            row["bytes"] for row in base_breakdown["unreferenced_entries"]
         )
-        if base_unlisted > 0:
+        if tail > 0:
             inside.append(
                 {
                     "path": (
-                        f"{base_child['path']} (outside live database directories and "
-                        "the measured temporary files)"
+                        f"{base_breakdown['path']} (further entries that are not live "
+                        "database directories)"
                     ),
-                    "exclusive_bytes": base_unlisted,
+                    "exclusive_bytes": tail,
+                    "inside_data_directory": True,
+                }
+            )
+        if base_breakdown["other_bytes"] > 0:
+            inside.append(
+                {
+                    "path": (
+                        f"{base_breakdown['path']} (files directly in this directory, "
+                        "and entries the row cap dropped)"
+                    ),
+                    "exclusive_bytes": base_breakdown["other_bytes"],
                     "inside_data_directory": True,
                 }
             )
@@ -1948,6 +2164,31 @@ try:
     unaccounted_inside_data_directory_bytes = sum(
         item["exclusive_bytes"] for item in candidates if item["inside_data_directory"]
     )
+    # THE THREE TERMS THAT ARE NOT RECLAIMABLE SPACE.
+    #
+    # The candidates are `du` measurements from the scan window. unaccounted_bytes is a
+    # closing `df` reading minus accounted totals read during the SQL phase. Those are
+    # three different instants, and no amount of care makes them one: `df`, `du` and six
+    # SQL queries cannot be read atomically on a live multi-terabyte cluster. Within the
+    # accepted drift the receipt used to present the candidates as a partition of
+    # unaccounted_bytes anyway, so up to the whole tolerance -- several GiB here -- could
+    # be hidden inside a candidate, or quietly missing from one, in a receipt reporting
+    # success.
+    #
+    # So each difference is named instead, and the identity the summary asserts is
+    # stated with them included. All three are temporal or metrological artefacts, NOT
+    # storage anyone can free:
+    #   post_scan_volume_drift_bytes -- sibling consumers moving between the root scan
+    #     and the close; already bounded by the reconciliation tolerance, now visible
+    #     rather than absorbed.
+    #   database_size_metric_difference_bytes -- du's allocated blocks against
+    #     pg_database_size's and pg_ls_tmpdir's st_size for the same files.
+    #   filesystem_minus_directory_scan_bytes -- df against du, for the whole volume.
+    post_scan_volume_drift = volume_used - volume_used_at_scan
+    unaccounted_at_scan = volume_used_at_scan - accounted_bytes
+    candidate_total = (
+        non_database_directory_bytes + unaccounted_inside_data_directory_bytes
+    )
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
         "operating_database_bytes": operating_database_bytes,
@@ -1955,6 +2196,20 @@ try:
         "wal_bytes": wal_bytes,
         "accounted_bytes": accounted_bytes,
         "unaccounted_bytes": volume_used - accounted_bytes,
+        # The figure the candidates actually partition: same window as the scans they
+        # come from. unaccounted_bytes stays, because it is the one an operator asking
+        # "how much of this volume is not the database right now" wants.
+        "unaccounted_bytes_at_directory_scan": unaccounted_at_scan,
+        "post_scan_volume_drift_bytes": post_scan_volume_drift,
+        "database_size_metric_difference_bytes": metric_difference,
+        "candidate_total_bytes": candidate_total,
+        # Stated, not implied. When the breakdown is unavailable the metric difference
+        # is unknown, so the closure cannot be asserted -- and saying so is the point.
+        "candidates_partition_unaccounted_at_scan": (
+            None
+            if metric_difference is None
+            else candidate_total + metric_difference == unaccounted_at_scan
+        ),
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         "non_database_directory_bytes": non_database_directory_bytes,
         "unaccounted_inside_data_directory_bytes": unaccounted_inside_data_directory_bytes,
@@ -1986,7 +2241,7 @@ try:
             "excluded. Directories UNDER it are not all excluded: only the accounted "
             "ones are, so those an accounted figure does not cover (global, pg_xact, "
             "pg_multixact, pg_stat, pg_stat_tmp, pg_xlog, replication-slot state, "
-            "pg_wal's unlisted subdirectories, base/'s remainder beyond the live "
+            "pg_wal's unlisted subdirectories, base/ entries that are not live "
             "database directories, relative log files, and files at the data "
             "directory's own root) appear as rows flagged inside_data_directory. No "
             "row counts the database twice, and no row counts another row's bytes. "
@@ -1994,6 +2249,29 @@ try:
             "inside it sum to unaccounted_inside_data_directory_bytes. Some of the "
             "latter must never be deleted -- they are listed so the summary can locate "
             "every byte it reports as unaccounted, not as reclaim suggestions. "
+            "The base/ rows come from postgres_base_directory_breakdown, a depth-1 du "
+            "scan that identifies live database directories by OID, so each entry that "
+            "is NOT a live database is named by path. They are NOT base/'s du total "
+            "minus the pg_database_size totals: du measures allocated filesystem "
+            "blocks and pg_database_size sums each entry's st_size, so that subtraction "
+            "reported ordinary per-file block rounding as orphaned storage. That "
+            "difference is database_size_metric_difference_bytes, which is two tools "
+            "measuring the same files differently and is not reclaimable. When the "
+            "breakdown is unavailable (reason recorded there) no base/ row is emitted "
+            "and candidates_partition_unaccounted_at_scan is null, because the closure "
+            "cannot then be asserted. "
+            "THE CANDIDATES PARTITION unaccounted_bytes_at_directory_scan, NOT "
+            "unaccounted_bytes: they are du measurements from the scan window, while "
+            "unaccounted_bytes uses the closing df reading. df, du and the SQL queries "
+            "cannot be read atomically on a live cluster, so the difference is named "
+            "(post_scan_volume_drift_bytes) rather than absorbed into a candidate, "
+            "where up to the whole reconciliation tolerance could hide. The identity "
+            "the receipt asserts is candidate_total_bytes + "
+            "database_size_metric_difference_bytes == "
+            "unaccounted_bytes_at_directory_scan, reported as "
+            "candidates_partition_unaccounted_at_scan. Neither "
+            "post_scan_volume_drift_bytes nor database_size_metric_difference_bytes is "
+            "storage anyone can free. "
             "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is "

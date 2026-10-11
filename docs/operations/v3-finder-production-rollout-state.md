@@ -392,7 +392,7 @@ The directory scan is **fail-closed**: if it cannot run, the operation stops
 rather than returning a receipt that looks complete while missing the only
 host-level evidence that answers the question.
 
-Three bounding and windowing rules govern how the receipt may be read:
+Five bounding, metric and windowing rules govern how the receipt may be read:
 
 - **Bounded lists, unbounded totals.** `pg_database` and the generation
   attribution tables both grow without limit, so the receipt displays only the
@@ -401,7 +401,10 @@ Three bounding and windowing rules govern how the receipt may be read:
   computed **in SQL across all rows**, never by summing the displayed list:
   summing the bounded list would understate `accounted_bytes`, and
   `unaccounted_bytes` is `volume_used_bytes` minus `accounted_bytes`, so each
-  omitted database would surface as apparently reclaimable space.
+  omitted database would surface as apparently reclaimable space. The same rule keeps
+  the **operating database** inside its own bound (it sorts ahead of size) and bounds
+  the **tablespace refusal path** off a count rather than a row per tablespace — a
+  fail-closed guard must not be the thing that fails to emit the stopped receipt.
 - **The published generation is always retained.** Generation keys carry no
   chronology, so lexicographic order can place the live generation past the
   bound. Both the SQL ordering and the receipt assembly therefore keep the
@@ -419,6 +422,30 @@ Three bounding and windowing rules govern how the receipt may be read:
   residual — and the residual's whole meaning is filesystem metadata and blocks
   held by deleted-but-open files, so that contamination cannot be told apart
   from the signal. Both readings appear in the summary.
+- **`base/` is broken down in one metric, and orphans are named by path.** GNU `du`
+  reports allocated filesystem blocks; `pg_database_size` sums each entry's `st_size`.
+  Subtracting the latter from the former turned ordinary per-file block rounding,
+  across tens of thousands of relation files, into a standing "orphaned storage under
+  `base/`" candidate. `postgres_base_directory_breakdown` is instead a depth-1 `du`
+  scan of `base/` that identifies live database directories **by OID**, so every entry
+  that is not a live database is reported by its own path — actionable in a way a lump
+  remainder never is. The residual difference between the two metrics is
+  `database_size_metric_difference_bytes`, which is **not reclaimable**: it is two
+  tools measuring the same files differently. When the breakdown is unavailable (its
+  `reason` says why — an unbounded OID set, an unmeasured `base` child, or an exhausted
+  scan budget) **no `base/` candidate is emitted at all** and
+  `candidates_partition_unaccounted_at_scan` is `null`. An unexplained gap in the
+  partition is honest; a fabricated reclaim target is not.
+- **Three terms in the summary are artefacts, not reclaimable space.**
+  `post_scan_volume_drift_bytes` (sibling consumers moving between the root scan and
+  the close), `database_size_metric_difference_bytes` (above), and
+  `filesystem_minus_directory_scan_bytes` (`df` against `du`). The candidates partition
+  **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`, and the receipt
+  asserts that identity explicitly as
+  `candidates_partition_unaccounted_at_scan`. `df`, `du` and the SQL queries cannot be
+  read atomically on a live multi-terabyte cluster, so each difference is named rather
+  than absorbed into a candidate, where up to the whole reconciliation tolerance —
+  several GiB here — could hide in a receipt reporting success.
 
 The action is strictly read-only and reclaims nothing. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and

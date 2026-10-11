@@ -93,6 +93,7 @@ def _run_inventory_action(
     mount_point_failure: bool = False,
     wal_outside_pgdata: bool = False,
     df_used_drift: int = 0,
+    base_scan_denied: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -266,6 +267,23 @@ def _run_inventory_action(
             case "$*" in
               *"--max-depth=0 $data")
                 printf '1465000\\t%s\\0' "$data" ;;
+              *"--max-depth=1 $data/base")
+                if [ "$BASE_SCAN_DENIED" = '1' ]; then
+                  printf "du: cannot read directory '%s/base/16384': Permission denied\\n" "$data" >&2
+                  exit 1
+                fi
+                # base/ in du's own metric. 16384 and 5 are the live OIDs; 16999 is
+                # an orphaned directory from a dropped database, and 200 bytes sit
+                # directly in base/. The live figures deliberately exceed the
+                # pg_database_size totals (1,320,000 and 8,000) and pg_ls_tmpdir's 5,
+                # because du counts allocated blocks and PostgreSQL sums st_size --
+                # the metric difference this breakdown exists to stop reporting as
+                # orphaned storage.
+                printf '1321000\\t%s/base/16384\\0' "$data"
+                printf '8200\\t%s/base/5\\0' "$data"
+                printf '500\\t%s/base/16999\\0' "$data"
+                printf '100\\t%s/base/pgsql_tmp\\0' "$data"
+                printf '1330000\\t%s/base\\0' "$data" ;;
               *"--max-depth=1 $data")
                 printf '1330000\\t%s/base\\0' "$data"
                 printf '120000\\t%s/pg_wal\\0' "$data"
@@ -341,6 +359,12 @@ def _run_inventory_action(
             case "$sql" in
               *'data_directory'*)
                 printf '%s\\n' '/var/lib/postgresql/18/docker' ;;
+              *'AS non_default_count FROM pg_tablespace'*)
+                if [ "$TABLESPACE_PRESENT" = '1' ]; then
+                  printf '%s\\n' '{"non_default_count":"1"}'
+                else
+                  printf '%s\\n' '{"non_default_count":"0"}'
+                fi ;;
               *'pg_tablespace'*)
                 if [ "$TABLESPACE_PRESENT" = '1' ]; then
                   printf '%s\\n' '{"spcname":"fast_ssd","location":"/mnt/ssd/pgtbs","size_bytes":40000}'
@@ -367,11 +391,14 @@ def _run_inventory_action(
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","estimated_dead_fraction":0.2500}' ;;
               *'pg_total_relation_size'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"heap_bytes":500,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
+              *'SELECT oid::text AS oid, datname FROM pg_database'*)
+                printf '%s\\n' '{"oid":"16384","datname":"edfinder_v3_db"}'
+                printf '%s\\n' '{"oid":"5","datname":"postgres"}' ;;
               *'AS operating_bytes FROM pg_database'*)
                 printf '%s\\n' '{"database_count":"2","total_bytes":"1328000","operating_bytes":"1320000"}' ;;
               *'pg_database_size'*)
-                printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1320000,"datistemplate":false,"datallowconn":true}'
-                printf '%s\\n' '{"datname":"postgres","size_bytes":8000,"datistemplate":false,"datallowconn":true}' ;;
+                printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1320000,"datistemplate":false,"datallowconn":true,"operating":true}'
+                printf '%s\\n' '{"datname":"postgres","size_bytes":8000,"datistemplate":false,"datallowconn":true,"operating":false}' ;;
               *"to_regclass('v3_derived.search_build_chunk')"*)
                 printf 'v3_derived.search_build_chunk\\tv3_derived.archetype_build_chunk\\n' ;;
               *'FROM v3_derived.search_build_chunk'*)
@@ -406,6 +433,7 @@ def _run_inventory_action(
     env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
     env["MOUNT_POINT_FAILURE"] = "1" if mount_point_failure else "0"
     env["WAL_OUTSIDE_PGDATA"] = "1" if wal_outside_pgdata else "0"
+    env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
     env["DF_USED_DRIFT"] = str(df_used_drift)
     env["DF_USED_STAMP"] = str(tmp_path / "df-used-stamp")
     return subprocess.run(
@@ -723,19 +751,33 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     )
     assert by_path[wal_unlisted]["exclusive_bytes"] == 120000 - 118000
     assert by_path[wal_unlisted]["inside_data_directory"] is True
-    # base/ holds 1,995 bytes outside the live database directories and the temp files.
-    base_unlisted = (
-        f"{pgdata}/base (outside live database directories and the measured "
-        "temporary files)"
+    # base/: the orphaned OID directory by PATH, and the 200 bytes sitting directly in
+    # base/ as their own row. Not one lump remainder, and not inflated by the
+    # du-versus-pg_database_size metric difference, which is its own summary term.
+    orphan = f"{pgdata}/base/16999 (not a live database directory)"
+    assert by_path[orphan]["exclusive_bytes"] == 500
+    assert by_path[orphan]["inside_data_directory"] is True
+    base_other = (
+        f"{pgdata}/base (files directly in this directory, and entries the row cap "
+        "dropped)"
     )
-    assert by_path[base_unlisted]["exclusive_bytes"] == 1995
-    assert summary["unaccounted_inside_data_directory_bytes"] == 18995
-    # And the whole partition now reconciles against the figure it explains.
+    assert by_path[base_other]["exclusive_bytes"] == 200
+    # 18,995 under the old mixed-metric arithmetic; 1,295 of that was block rounding.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 17700
+    assert summary["database_size_metric_difference_bytes"] == 1295
+    # And the whole partition reconciles against the figure it explains, with the
+    # metrological term named rather than hidden inside a candidate.
     assert (
         summary["non_database_directory_bytes"]
         + summary["unaccounted_inside_data_directory_bytes"]
-        == summary["unaccounted_bytes"]
+        + summary["database_size_metric_difference_bytes"]
+        == summary["unaccounted_bytes_at_directory_scan"]
     )
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    # No drift in this fixture, so the two windows agree and the closing figure is the
+    # same value.
+    assert summary["post_scan_volume_drift_bytes"] == 0
+    assert summary["unaccounted_bytes"] == summary["unaccounted_bytes_at_directory_scan"]
     # base/ and pg_wal are already in accounted_bytes and must not be listed again.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
@@ -826,10 +868,14 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     """
     source = _read(ACTION)
 
-    # The reserve is the closing scan's FULL per-call allowance: reserving less would
-    # leave the mandatory scan running against a shortened timeout, which is just a
-    # different way of failing it.
-    assert "RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    # The reserve is the closing phase's FULL per-call allowance, once per scan it
+    # makes: reserving less would leave a mandatory scan running against a shortened
+    # timeout, which is just a different way of failing it. The closing phase makes
+    # TWO scans -- the PGDATA re-read and the depth-1 breakdown of base/ that keeps the
+    # base remainder in a single metric.
+    assert (
+        "RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    )
     # The budget OWNS the reserve. Passing it per call site meant forgetting it at four
     # of them, which unreserved the reserve without changing a line that mentioned it,
     # so there must be no per-call reserve argument left to forget.
@@ -884,7 +930,7 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
         "reconciled": True,
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
-    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 300
+    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 600
 
 
 def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
@@ -1008,8 +1054,10 @@ def test_v3_disk_inventory_keeps_statistics_directories_locatable(tmp_path):
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
     # global 8,000 + pg_stat 4,000 + root files 3,000 + pg_wal's unlisted 2,000
-    # + base/'s unlisted 1,995 = everything accounted_bytes does not cover.
-    assert summary["unaccounted_inside_data_directory_bytes"] == 18995
+    # + base/'s orphaned 16999 at 500 + base/'s own 200 = everything accounted_bytes
+    # does not cover, in du's metric. The remaining 1,295 of the old figure was the
+    # du-versus-pg_database_size difference and is now its own summary term.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 17700
 
 
 def test_v3_disk_inventory_records_that_no_tablespaces_break_the_accounting(tmp_path):
@@ -1020,6 +1068,9 @@ def test_v3_disk_inventory_records_that_no_tablespaces_break_the_accounting(tmp_
 
     assert inventory["tablespaces"] == {
         "non_default": [],
+        "non_default_count": 0,
+        "non_default_limit": 50,
+        "non_default_truncated": False,
         "single_filesystem_accounting_valid": True,
     }
 
@@ -1286,7 +1337,7 @@ def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
     assert 'for record in stdout.split("\\0"):' in source
     assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
     # Every du invocation asks for NUL-delimited output.
-    assert source.count('["du", "--null", "-x", "-B1"') == 5
+    assert source.count('["du", "--null", "-x", "-B1"') == 6
     assert '["du", "-x", "-B1"' not in source
 
 
@@ -1422,11 +1473,13 @@ def test_v3_disk_inventory_measures_pgdata_detail_at_window_close(tmp_path):
         inventory["postgres_data_directory_usage"]["bytes"]
         == inventory["postgres_data_directory_bracket"]["bytes_after_drill_down"]
     )
-    # The partition still closes exactly against the figure it explains.
+    # The partition still closes exactly against the figure it explains, with the
+    # du-versus-pg_database_size difference named rather than absorbed.
     assert (
         summary["non_database_directory_bytes"]
         + summary["unaccounted_inside_data_directory_bytes"]
-        == summary["unaccounted_bytes"]
+        + summary["database_size_metric_difference_bytes"]
+        == summary["unaccounted_bytes_at_directory_scan"]
     )
 
 
@@ -1445,6 +1498,172 @@ def test_v3_disk_inventory_bounds_generation_attribution(tmp_path):
     inventory = json.loads(result.stdout)["inventory"]
     assert inventory["generation_attribution_limit"] == 50
     assert inventory["generation_attribution_truncated"] is False
+
+
+def test_v3_disk_inventory_names_the_post_scan_drift_instead_of_hiding_it(tmp_path):
+    """The candidates partition the SCAN window, and the receipt must say so.
+
+    The candidates are du measurements from the scan window; unaccounted_bytes is a
+    closing df reading minus SQL-phase totals. Presenting the first as a partition of
+    the second let up to the whole reconciliation tolerance -- several GiB on this
+    volume -- hide inside a candidate or go quietly missing from one, in a receipt
+    reporting success. df, du and six SQL queries cannot be read atomically on a live
+    multi-terabyte cluster, so the difference is named rather than pretended away.
+    """
+    result = _run_inventory_action(tmp_path, df_used_drift=9000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+
+    assert summary["post_scan_volume_drift_bytes"] == 9000
+    # The closing figure includes the drift; the scan-window figure does not.
+    assert summary["unaccounted_bytes"] == 1566000 - 1446005
+    assert summary["unaccounted_bytes_at_directory_scan"] == 1557000 - 1446005
+    assert (
+        summary["unaccounted_bytes"]
+        == summary["unaccounted_bytes_at_directory_scan"]
+        + summary["post_scan_volume_drift_bytes"]
+    )
+    # The asserted identity is against the scan-window figure, and it holds even with
+    # 9,000 bytes of drift -- which is the whole point: the drift is outside the
+    # partition rather than inside a candidate.
+    assert (
+        summary["candidate_total_bytes"]
+        + summary["database_size_metric_difference_bytes"]
+        == summary["unaccounted_bytes_at_directory_scan"]
+    )
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+    assert "cannot be read atomically" in summary["method"]
+
+
+def test_v3_disk_inventory_bounds_the_tablespace_refusal_path(tmp_path):
+    """The fail-closed guard must not be the thing that fails.
+
+    Non-default tablespaces make this action refuse to present a partition at all, so
+    the refusal needs only a count. Returning a row per tablespace -- each costing a
+    pg_tablespace_size walk -- let the safety path itself exhaust the client and
+    produce no structured stopped receipt, which is the one outcome a fail-closed
+    guard cannot have.
+    """
+    source = _read(ACTION)
+    assert "TABLESPACE_INVENTORY_LIMIT = 50" in source
+    assert "LIMIT {TABLESPACE_INVENTORY_LIMIT}" in source
+    # Validity comes from the COUNT, never from the bounded sample: a truncated list
+    # is still a cluster with tablespaces.
+    assert '"single_filesystem_accounting_valid": non_default_tablespace_count == 0' in (
+        source
+    )
+
+    result = _run_inventory_action(tmp_path, tablespace_present=True)
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["tablespaces"]["non_default_count"] == 1
+    assert inventory["tablespaces"]["non_default_truncated"] is False
+    assert inventory["tablespaces"]["single_filesystem_accounting_valid"] is False
+    # And the partition is still refused, naming what was found.
+    assert (
+        inventory["summary"]["summary_failed"]
+        == "tablespaces_present_single_filesystem_accounting_invalid"
+    )
+
+
+def test_v3_disk_inventory_keeps_the_operating_database_inside_its_bound(tmp_path):
+    """The bound may drop rows, but never the one row the reader came for.
+
+    Size-only ordering drops the operating database's detailed entry on a cluster with
+    more than 50 larger databases, leaving a summary that reports an
+    operating_database_bytes figure with no corresponding row in the list it is drawn
+    from. Same failure as bounding the published generation out of the attribution
+    table.
+    """
+    source = _read(ACTION)
+    assert "ORDER BY (datname=current_database()) DESC, " in source
+    assert "operating_database_row_missing" in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    databases = json.loads(result.stdout)["inventory"]["databases"]
+    operating = [row for row in databases if row["operating"]]
+    assert [row["datname"] for row in operating] == ["edfinder_v3_db"]
+
+
+def test_v3_disk_inventory_breaks_base_down_in_one_metric(tmp_path):
+    """base/'s remainder must not be two different measurements subtracted.
+
+    GNU du reports allocated filesystem blocks; pg_database_size sums each entry's
+    st_size. Subtracting the latter from the former made ordinary per-file block
+    rounding -- across tens of thousands of relation files -- into a standing
+    "orphaned storage under base/" candidate, in the one receipt whose entire purpose
+    is to say what can be reclaimed. The fixture's live directories deliberately
+    exceed the pg_database_size totals for exactly that reason.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    breakdown = inventory["postgres_base_directory_breakdown"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+
+    assert breakdown["available"] is True
+    assert breakdown["metric"] == "du_allocated_blocks"
+    assert breakdown["bytes"] == 1330000
+    # Live OIDs 16384 and 5, measured by du: 1,321,000 + 8,200.
+    assert breakdown["live_database_directory_bytes"] == 1329200
+    assert breakdown["temporary_directory_bytes"] == 100
+    assert breakdown["unreferenced_directory_bytes"] == 500
+    assert [row["path"] for row in breakdown["unreferenced_entries"]] == [
+        f"{pgdata}/base/16999"
+    ]
+    assert breakdown["other_bytes"] == 200
+
+    # The metric difference is its own figure, explicitly not reclaimable:
+    # (1,329,200 + 100) du against (1,320,000 + 8,000 + 5) st_size.
+    summary = inventory["summary"]
+    assert summary["database_size_metric_difference_bytes"] == 1295
+    method = summary["method"]
+    assert "allocated filesystem blocks" in method
+    assert "is not reclaimable" in method
+
+
+def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_path):
+    """An unexplained gap is honest; a fabricated reclaim target is not.
+
+    The breakdown needs the complete set of live database OIDs. With a partial set a
+    live database's directory would be reported as orphaned storage -- the worst
+    error this receipt can make -- so the base/ rows are omitted entirely, the reason
+    is recorded, and the partition closure is reported as unknown rather than
+    asserted against a figure that cannot be computed.
+    """
+    source = _read(ACTION)
+    assert '"reason": "live_database_oids_unbounded"' in source
+    assert '"reason": "base_child_not_measured"' in source
+    assert '"reason": "scan_budget_exhausted"' in source
+    # Unavailable means no claim, not a claim of zero.
+    assert "metric_difference = None" in source
+    assert "None\n            if metric_difference is None" in source
+    # And the OID set is only accepted when it is provably complete: bounded by the
+    # same limit as the row list, and cross-checked against the SQL count.
+    assert (
+        "len(oid_rows) > DATABASE_INVENTORY_LIMIT or len(oid_rows) != database_count"
+        in source
+    )
+
+    # A failed base scan refines one candidate; it must not take the reconciliation --
+    # and so the whole summary -- down with it.
+    result = _run_inventory_action(tmp_path, base_scan_denied=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    breakdown = inventory["postgres_base_directory_breakdown"]
+    assert breakdown["available"] is False
+    assert "Permission denied" in breakdown["reason"]
+    # The receipt is still complete and still reconciled...
+    assert inventory["postgres_data_directory_reconciliation"]["reconciled"] is True
+    summary = inventory["summary"]
+    assert "summary_failed" not in summary
+    # ...but makes NO base claim, and says the closure is unknown rather than
+    # asserting it against a metric difference it could not compute.
+    assert summary["database_size_metric_difference_bytes"] is None
+    assert summary["candidates_partition_unaccounted_at_scan"] is None
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    paths = [row["path"] for row in summary["largest_unaccounted_directories"]]
+    assert not any(path.startswith(f"{pgdata}/base") for path in paths)
 
 
 def test_v3_disk_inventory_pairs_the_df_du_residual_with_its_own_window(tmp_path):
