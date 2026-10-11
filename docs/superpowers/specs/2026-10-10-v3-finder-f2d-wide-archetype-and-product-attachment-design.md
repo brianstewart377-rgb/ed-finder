@@ -177,7 +177,7 @@ CREATE TABLE v3_derived.system_archetype (
         CHECK (weighted_potential BETWEEN 0 AND 100),
     -- exact integer completeness input to every <key>_weighted_e4, stored so the
     -- builder, the validator and the explanation route read one value instead of
-    -- each re-deriving it: min(rating-vector evidence_completeness) x 100
+    -- each re-deriving it: min(system_rating_vector.completeness) x 100
     completeness_ppm integer NOT NULL
         CHECK (completeness_ppm BETWEEN 0 AND 1000000),
     computed_at timestamptz NOT NULL DEFAULT now(),
@@ -238,7 +238,7 @@ The definition is therefore closed in integers, with no floating-point value
 anywhere in it:
 
 ```
-completeness_ppm   = min(rating-vector evidence_completeness integers) × 100
+completeness_ppm   = min(system_rating_vector.completeness) × 100   -- smallint[], 1e-4 units
 numerator          = <key>_score × <key>_confidence_ppm × completeness_ppm
 <key>_weighted_e4  = (numerator + 50_000_000) // 100_000_000
 ```
@@ -268,11 +268,17 @@ equals the floor here because every operand is non-negative.
 so reading it would put a float back into a definition whose whole purpose is to
 have none, and the "exact `completeness_ppm`" the first draft of this section
 assumed did not exist. The exact source does exist and the builder already reads
-it: `evidence_completeness` is an integer array in 1e-4 units (`0..10000`), which
-the builder currently divides by `10000.0`
-(`scripts/v3_system_archetype.py:277`). Taking the minimum **before** any
-division and scaling by 100 gives `completeness_ppm` in `0..1_000_000` with no
-float in the path.
+it, but **the column is `system_rating_vector.completeness`, a `smallint[]` in
+1e-4 units (`003_ratings_v4_derived.sql:120`) — not `evidence_completeness`
+(review round 24).** That name exists only as a `double precision` alias in the
+unnested `system_economy_rating` view, where it is already
+`completeness[i] / 10000` (`003_ratings_v4_derived.sql:223`), so an instruction
+naming it would either raise an undefined-column error against
+`system_rating_vector`, preventing the immutable product from reaching READY, or
+reintroduce the float this rule exists to remove. The builder divides the raw array
+by `10000.0` at `scripts/v3_system_archetype.py:277`; taking `min()` of the raw
+`smallint[]` **before** that division and scaling by 100 gives `completeness_ppm`
+in `0..1_000_000` with no float in the path.
 
 `completeness_ppm integer` is **persisted on the wide row**, so the builder, the
 exact validator and the explanation route all read one stored integer and cannot
@@ -674,12 +680,27 @@ edit that changed nothing. Taking none of them was the opposite error, left over
 from round 32: the digest then rested entirely on declared constants, so a change
 to the model's *logic* that left its constants alone would not show up.
 
-Hashing the **model file only** is the division that matches the field's meaning.
-The model file owns scoring; the builder owns iteration, batching and storage; the
-migration owns layout. A change to how scores are computed therefore always moves
-the digest, and a change to how they are written never does. The broad
-`code_sha256` stays in `archetype_manifest_sha256`, where identifying one exact
-build is the whole point.
+**But the model file is not scoring-only either (review round 24).** It also
+defines `ARCHETYPE_VERSION` — which this very design bumps to `v3-archetype-4`
+**solely because the persisted storage shape changed** — and it contains the
+explanation construction. Hashing the whole file would therefore move
+`archetype_model_sha256` for a storage-only version bump, an explanation-only edit
+or a non-semantic refactor, while the weighted scores stayed comparable:
+suppressing the cross-generation comparison through a change that provably altered
+no score. The design would have broken its own field on its own next version bump.
+
+So the digest covers a **named set of members of the model file**, not the file:
+the coefficients, the anchors, the archetype key order, the tier thresholds, the
+`_weighted_e4` integer expression, the confidence rounding rule, **and the source
+text of the named scoring functions** (`fit_all` and what it calls). It explicitly
+excludes `ARCHETYPE_VERSION`, the explanation construction and every storage-shape
+constant.
+
+That keeps the property round 19 was after — a change to **how scores are
+computed** always moves the digest — while a change to how they are stored,
+versioned or explained never does, which is exactly what hashing the whole file
+could not give. `code_identity()`'s three whole files stay in
+`archetype_manifest_sha256`, where identifying one exact build is the point.
 
 The honest cost is that hashing declared values makes the digest a **declaration**
 that the semantics are unchanged, not a proof: two builds could agree on every
@@ -767,7 +788,7 @@ the new shape makes the complete stored row the seal boundary.
   no `round(...)` and no floating-point value anywhere in it — using the
   `completeness_ppm` **stored on the row**, and the validator additionally
   re-derives that stored `completeness_ppm` from
-  `min(evidence_completeness) × 100` on the same generation's rating vector and
+  `min(system_rating_vector.completeness) × 100` on the same generation's rating vector and
   fails closed if the row is missing or the two disagree;
 - every tier equals `tier_of(its score)`;
 - each stored `_confidence_ppm` integer equals the value returned by **the shared
@@ -1886,15 +1907,28 @@ Files:
   they cannot diverge; this read-only action remains the post-commit form for step
   10 and for ad-hoc checks.
 
-  **Both probes require an explicit `ANALYZE` first (review round 22).** Nothing in
+  **Both probes require an explicit `VACUUM (ANALYZE)` first — not `ANALYZE` alone
+  (review round 24).** Nothing in
   the rollout analyzes `v3_app.system_archetype` after its 198.5 million rows are
   inserted, and an `EXPLAIN` on default or stale statistics is not evidence about
   the production plan in either direction: it can reject a sound build on bad
   estimates, or — worse — pass, and then autovacuum analyzes **after** commit and
-  the planner moves off the bounded plan with users already being served. So the
-  Archetype build step runs and receipts `ANALYZE` on the completed table as its
-  last action, and each probe asserts that `pg_stat_user_tables.last_analyze` for
-  the relation is later than the final insert before it reads any plan)
+  the planner moves off the bounded plan with users already being served. `ANALYZE` alone is also not sufficient for the plan to be
+  *achievable*: it collects statistics but does **not** mark heap pages
+  all-visible, and after a bulk insert the visibility map is empty — so PostgreSQL
+  costs the required `Index Only Scan` as though every row needed a heap visit and
+  may plan something else, rejecting a sound rollout. Worse, an `Index Only Scan`
+  that *is* chosen still performs a heap fetch per row while the visibility map is
+  cold, and an assertion on node type and row count cannot tell the difference: the
+  gate would certify "index-only" over up to 10,001 random heap reads.
+
+  So the Archetype build step runs and receipts **`VACUUM (ANALYZE)`** on the
+  completed table as its last action — the vacuum for the visibility map, the
+  analyze for the statistics — and each probe asserts, before reading any plan,
+  that `pg_stat_user_tables.last_analyze` **and** `last_vacuum` postdate the final
+  insert. The plan assertions additionally require **`Heap Fetches: 0`** on the
+  window node, which is the only assertion that tests what "index-only" is
+  supposed to mean)
 - `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
@@ -2710,3 +2744,56 @@ does not bind, because the ROADMAP outranks it.
    strengthened would have refused the implementation the design specified. The
    count window takes the server-selected literal alone, for exactly the reason the
    page window does.
+
+### Review round 24 (2026-10-11)
+
+1. **P1 — Restore the unresolved atomic-publication decision** → correct, and the
+   cause is a numbering collision I walked straight into: the **capacity decision**
+   and this design number their owner questions independently. The owner answered
+   capacity-decision question 6 (the score-index layout) yes, and I carried that
+   "6 is answered" into the ROADMAP's list of design questions — where 6 is **atomic
+   publication**, which is open. The result was the worst possible pair of errors:
+   the one-transaction publication PR free to merge with no owner answer, while
+   question 8 (no purge), an **already accepted** decision, was listed as blocking.
+   The ROADMAP now lists 2, 3, 4, 6 and 7 as open, records 1, 5, 8 and 9 as answered,
+   and states explicitly that design question 6 is not the capacity decision's
+   question 6 — because the collision will otherwise be made again.
+2. **P1 — Vacuum the completed table before requiring index-only plans** → correct,
+   and round 22's `ANALYZE` was the wrong half of the fix. `ANALYZE` collects
+   statistics but does **not** mark heap pages all-visible, and after a bulk insert
+   the visibility map is empty. So two things follow, and I had seen neither: the
+   planner costs the required `Index Only Scan` as though every row needed a heap
+   visit and may plan something else, **rejecting a sound rollout**; and an `Index
+   Only Scan` that is chosen anyway still performs a heap fetch per row, which an
+   assertion on node type and row count cannot detect — the gate would have
+   certified "index-only" over up to 10,001 random heap reads.
+   The build step now receipts **`VACUUM (ANALYZE)`**, each probe asserts both
+   `last_vacuum` and `last_analyze` postdate the final insert, and the plan
+   assertions require **`Heap Fetches: 0`** — which is the only one of these
+   assertions that tests what "index-only" actually means.
+3. **P1 — Read completeness from the actual rating-vector column** → correct, and I
+   took the name from the builder's own vocabulary without checking the schema.
+   `system_rating_vector` has `completeness smallint[]`
+   (`003_ratings_v4_derived.sql:120`); `evidence_completeness` exists only as a
+   `double precision` alias in the unnested `system_economy_rating` view, where it
+   is already `completeness[i] / 10000`
+   (`003_ratings_v4_derived.sql:223`). So the instruction would either raise an
+   undefined-column error — preventing the immutable product from reaching READY —
+   or pull in the float the whole integer rule exists to remove. Both normative
+   sites and the DDL comment now name `min(system_rating_vector.completeness) × 100`.
+4. **P1 — Keep storage-only changes out of the model digest** → correct, and this is
+   the fourth iteration of this field's scope, each one narrowing it for a reason the
+   previous had missed. Your argument is the sharpest yet because it is
+   self-referential: the model file also defines `ARCHETYPE_VERSION`, and **this
+   design bumps it to `v3-archetype-4` solely because the persisted storage shape
+   changed**. So hashing the whole file would have broken the field on this design's
+   own version bump — plus any explanation-only edit or non-semantic refactor, while
+   the weighted scores stayed comparable.
+   The digest now covers a **named set of members** of the model file rather than the
+   file: coefficients, anchors, key order, tier thresholds, the `_weighted_e4`
+   integer expression, the confidence rounding rule, and the **source text of the
+   named scoring functions** (`fit_all` and what it calls). It excludes
+   `ARCHETYPE_VERSION`, the explanation construction and every storage-shape
+   constant. That preserves round 19's requirement — a change to how scores are
+   computed always moves the digest — while a change to how they are stored,
+   versioned or explained never does, which hashing the file could not deliver.

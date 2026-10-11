@@ -219,12 +219,18 @@ newer dated source wins).
      code PRs that encode either may not merge before the answer is recorded
      there. **Both were answered yes by the owner on 2026-10-10 and are
      recorded there**, so *that* prerequisite is satisfied. **It is not the only
-     one.** The F2d design still records owner questions 2, 3, 4, 7 and 8 as
+     one.** The F2d design still records owner questions **2, 3, 4, 6 and 7** as
      unresolved, and they govern the persisted confidence representation, model
-     ownership, the new explanation endpoint, PR sequencing and atomic
-     publication. Question 9 (hard filters in selected mode) is answered by the
-     design's 422 contract and the owner's stated wish for filtered archetypes as
-     a later increment, which the design records. So the code PRs encoding any
+     ownership, the new explanation endpoint, atomic publication and PR
+     sequencing. Questions 1 and 5 are answered, question 8 (no purge before Finder
+     promotion) is the recorded owner decision, and question 9 (hard filters in
+     selected mode) is answered by the design's 422 contract and the owner's
+     stated wish for filtered archetypes as a later increment. **Design question 6
+     is atomic publication and is open** — it is not the capacity decision's
+     question 6 (the score-index layout), which the owner answered yes; the two
+     documents number their questions independently and conflating them had left
+     the one-transaction publication PR free to merge unanswered while an already
+     accepted choice stayed blocked. So the code PRs encoding any
      still-unresolved choice **may not merge** until that question's answer is
      recorded in the capacity decision alongside 1, 5, 6 and 6b: declaring the
      prerequisite satisfied on the strength of two answers would let
