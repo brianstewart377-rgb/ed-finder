@@ -105,7 +105,7 @@ def _run_inventory_action(
     wal_recycled: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
-    body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
+    body = source.split("exec \"$PYTHON_BIN\" -I -B - <<'PY'\n", 1)[1].rsplit(
         "\nPY\n", 1
     )[0]
     program = tmp_path / "action.py"
@@ -1020,7 +1020,19 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     # so there must be no per-call reserve argument left to forget.
     assert "reserve_seconds" not in source.split("def du_rows(")[1].split("def du_total")[0]
     assert "def reserve(self) -> float:" in source
-    assert "return self._deadline - time.monotonic() - self.reserve()" in source
+    assert "own = self._deadline - time.monotonic() - self.reserve()" in source
+    # Bounded by the ACTION deadline too. Each phase was bounded but their SUM was
+    # not, and the sum is what the workflow kills: walk 1,200 s + closing 660 s + up
+    # to 31 queries at the 30 s subprocess cap is about 40 minutes against a 40-minute
+    # job that also does checkout, Python setup and SSH. So the action could be killed
+    # before emitting the receipt every one of these budgets exists to guarantee.
+    assert "ACTION_BUDGET_SECONDS = 1_800" in source
+    assert "POST_SCAN_SQL_RESERVE_SECONDS = 240" in source
+    assert "overall = action_remaining() - POST_SCAN_SQL_RESERVE_SECONDS" in source
+    assert "return min(own, overall)" in source
+    # And every subprocess is measured against it, so no single call can carry the
+    # action past the point where a receipt is still possible.
+    assert 'raise RuntimeError("action_deadline_exceeded")' in source
     # The reserve is opened once per closing scan, and there are exactly three: the
     # PGDATA re-read, the base/ breakdown, and the depth-0 re-measure of pg_wal beside
     # the pg_ls_waldir() read. Opening it once for the phase let a later scan start
@@ -1808,9 +1820,20 @@ def test_v3_disk_inventory_bounds_the_tablespace_refusal_path(tmp_path):
         source
     )
 
+    # Both observations must hold: the opening one proves none existed when the scans
+    # began, the closing one proves none appeared while they ran -- which is when
+    # pg_database_size would have started including bytes outside this filesystem,
+    # bytes then subtracted from volume_used, with the negative base metric difference
+    # able to keep the closure true. A successful receipt understating unaccounted
+    # space is the one error this section exists to rule out.
+    assert '"tablespaces_at_window_close"' in source
+    assert "closing_tablespaces_unavailable" in source
+    assert 'closing_tablespaces["single_filesystem_accounting_valid"]' in source
+
     result = _run_inventory_action(tmp_path, tablespace_present=True)
     inventory = json.loads(result.stdout)["inventory"]
     assert inventory["tablespaces"]["non_default_count"] == 1
+    assert inventory["tablespaces_at_window_close"]["non_default_count"] == 1
     assert inventory["tablespaces"]["non_default_truncated"] is False
     assert inventory["tablespaces"]["single_filesystem_accounting_valid"] is False
     # And the partition is still refused, naming what was found.
@@ -2074,8 +2097,14 @@ def test_v3_disk_inventory_writes_no_bytecode():
     claim has to be true to be worth making.
     """
     source = _read(ACTION)
-    assert '"$PYTHON_BIN" -B -c' in source
-    assert "exec \"$PYTHON_BIN\" -B - <<'PY'" in source
+    assert '"$PYTHON_BIN" -I -B -c' in source
+    assert "exec \"$PYTHON_BIN\" -I -B - <<'PY'" in source
+    # -I is the load-bearing flag, not -B. Without isolated mode CPython prepends the
+    # working directory to sys.path, and the workflow runs `cd /opt/ed-finder` then
+    # escalates with `sudo -n bash -s`, so a planted top-level platform.py in that
+    # checkout would execute AS ROOT during the version probe. -B only stops bytecode
+    # writes. Asserted as a pair so neither can be dropped while the other stays.
+    assert source.count('"$PYTHON_BIN" -I -B') == 2
     assert '"filesystem_writes_performed":false' in source
     # The one write that -B cannot prevent is the shell's own here-document spool, and
     # the receipt names it rather than leaving the claim unqualified. The two early
@@ -2185,6 +2214,71 @@ def test_v3_disk_inventory_detects_wal_mounted_at_its_canonical_path(tmp_path):
         "summary_failed": "wal_directory_outside_pgdata"
     }
     assert receipt["status"] == "stopped"
+
+
+def test_v3_disk_inventory_distinguishes_an_unknown_count_from_zero(tmp_path):
+    """"We did not look that far" and "there is nothing there" are different facts.
+
+    The products have different histories, so a generation retained by one
+    attribution query can fall beyond another product's row cap. Its absence from
+    that product then means the cap cut it off -- but a zero was emitted, which makes
+    a superseded generation look as though it holds none of that product's data. That
+    is exactly the judgement someone deciding what to reclaim would act on, and only
+    one of the two readings is a licence to do it.
+    """
+    source = _read(ACTION)
+    assert "product_truncated: dict[str, bool] = {}" in source
+    assert (
+        "product_truncated[product] = len(rows) > GENERATION_ATTRIBUTION_LIMIT"
+        in source
+    )
+    assert "unknown = values is None and product_truncated.get(product, False)" in source
+    # The ratings body counts take the same rule rather than being left behind.
+    assert 'ratings_unknown = ratings_counts is None and product_truncated.get(' in source
+
+    # The fixture is not truncated, so absence still means zero and the receipt is
+    # unchanged -- which is what makes null a signal rather than noise.
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    attribution = json.loads(result.stdout)["inventory"]["generation_attribution"]
+    assert attribution["aaa_superseded"]["search_chunks"] == 0
+    assert attribution["aaa_superseded"]["ratings_physical_bodies"] == 20
+
+
+def test_v3_disk_inventory_brackets_the_wal_directory_scan(tmp_path):
+    """One SQL read beside the scan only moved the asymmetry; it needs two.
+
+    WAL generated DURING the up-to-60-second directory scan makes the directory
+    figure exceed the earlier SQL total, and the difference was again emitted as
+    unlisted/reclaimable WAL when it is ordinary top-level WAL. With a read either
+    side, the listed figure at the scan's own instant is known to lie between them,
+    and the candidate uses the larger end -- understating unlisted content rather than
+    inventing a reclaim candidate, the same asymmetry as the PGDATA bracket.
+    """
+    source = _read(ACTION)
+    assert "reclosing_wal = psql_json(" in source
+    assert (
+        "wal_listed_for_candidate = max(wal_bytes_at_close, wal_bytes_after_scan)"
+        in source
+    )
+    # The candidate subtracts the bracketed figure; accounted_bytes keeps the closing
+    # one. Pairing the candidate with a figure from outside the bracket would
+    # reintroduce the invented candidate the bracket exists to prevent.
+    assert 'inventory["wal"].get("listed_bytes_for_candidate", wal_bytes)' in source
+    assert "wal_bytes_at_close = wal_bytes_after_scan" in source
+    # The scan sits between the two reads.
+    first = source.index("closing_wal = psql_json(")
+    scan = source.index("wal_dir_bytes_at_sql = du_total(", first)
+    second = source.index("reclosing_wal = psql_json(", scan)
+    assert first < scan < second
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    wal = json.loads(result.stdout)["inventory"]["wal"]
+    assert wal["listed_bytes_before_directory_scan"] == 118000
+    assert wal["listed_bytes_after_directory_scan"] == 118000
+    assert wal["listed_bytes_scan_bracket_width"] == 0
+    assert wal["listed_bytes_for_candidate"] == 118000
 
 
 def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
@@ -2478,7 +2572,17 @@ def test_v3_disk_inventory_requires_the_temp_directory_through_the_base_cap(tmp_
     directory, and a cluster that has never spilled to disk legitimately has none.
     """
     source = _read(ACTION)
-    assert 'temp_section.get("temp_directory_bytes") is not None' in source
+    # From an observation taken BESIDE the base scan, not the opening query: a
+    # pgsql_tmp created in between left the opening reading None, so the guard
+    # permitted a breakdown whose cap had dropped a directory accounted_bytes now
+    # subtracts, and the negative metric difference could offset it and leave the
+    # closure true. The existence test and the subtracted figure must come from
+    # observations that bracket the scan rather than precede the whole phase.
+    assert "temp_probe_rows = psql_json(" in source
+    assert "temp_directory_exists = temp_directory_exists_at_close" in source
+    probe = source.index("temp_probe_rows = psql_json(")
+    base_scan = source.index("base_usage, base_omitted, base_omitted_bytes = du_stream(")
+    assert probe < base_scan
     assert "temp_directory_observed = any(" in source
     assert "elif temp_directory_exists and not temp_directory_observed:" in source
     assert '"reason": "temporary_directory_not_observed"' in source

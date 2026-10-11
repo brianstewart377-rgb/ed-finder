@@ -10,16 +10,26 @@ else
     printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-disk-inventory","status":"stopped","failures":["python3_unavailable"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
     exit 1
 fi
-# -B on both interpreters. Every receipt states filesystem_writes_performed: false
-# unconditionally, and this action runs as root; without -B, importing `platform` or any
-# stdlib module whose bytecode cache is missing or stale writes .pyc files under the
-# runtime's directories. Small, but a read-only claim has to be true to be worth making.
-if ! "$PYTHON_BIN" -B -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+# -I -B on both interpreters, and -I is the load-bearing one.
+#
+# -I is ISOLATED mode (it implies -P -s -E). Without it CPython prepends the current
+# working directory to sys.path -- verified: sys.path[0] is '' for a program on stdin --
+# and the operator workflow runs `cd /opt/ed-finder && bash -s`, escalating to root via
+# `sudo -n bash -s` on the non-root path. So a top-level platform.py in that checkout
+# would be imported and EXECUTED AS ROOT during the version probe below, before any
+# host validation runs, and the main program has the same exposure for every import it
+# makes. -B does not address this at all; it only disables bytecode writes, which
+# matters for the receipt's read-only claim (importing a module whose cache is missing
+# or stale would otherwise write .pyc files as root).
+#
+# The program imports only the standard library and reads no PYTHON* environment
+# variables, so -I's -s and -E cost nothing here.
+if ! "$PYTHON_BIN" -I -B -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
     printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-disk-inventory","status":"stopped","failures":["python314_required"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
     exit 1
 fi
 
-exec "$PYTHON_BIN" -B - <<'PY'
+exec "$PYTHON_BIN" -I -B - <<'PY'
 from __future__ import annotations
 
 import contextlib
@@ -40,6 +50,28 @@ EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
 STATEMENT_TIMEOUT_MS = 20000
 PROCESS_TIMEOUT_SECONDS = 30
+# A hard wall clock for the WHOLE action, from process start.
+#
+# The per-phase budgets were each bounded but their SUM was not, and the sum is what
+# the operator workflow kills: the walk's 1,200 s plus the closing phase's 660 s plus
+# up to 31 read-only queries at the 30 s subprocess cap is about 40 minutes on its own,
+# against a 40-minute job that also does checkout, Python setup and SSH. So the action
+# could be killed before emitting the structured receipt -- the exact outcome every
+# budget in this file exists to prevent, reached by a route none of them measured.
+#
+# Raising the job timeout is not the fix: the `execute` job is shared by every
+# allowlisted operation and its 40 minutes is sized for the 35-minute calibration
+# probe. Instead this action promises to finish inside its own share, and every
+# subprocess and scan is measured against that one deadline, so the scans shorten when
+# the queries are slow instead of the two phases overrunning together.
+ACTION_BUDGET_SECONDS = 1_800
+# Held back from the SCAN budget for the queries and receipt that follow the scans --
+# the same principle as the closing reserve, one level up. Without it the scans would
+# consume the whole action budget and the closing SQL would have nothing left.
+POST_SCAN_SQL_RESERVE_SECONDS = 240
+# Fixed at import, so every later measurement shares one origin rather than each
+# phase starting its own clock -- which is how the sum escaped being bounded.
+ACTION_DEADLINE = time.monotonic() + ACTION_BUDGET_SECONDS
 DIRECTORY_USAGE_TIMEOUT_SECONDS = 300
 # The data directory is measured either side of the filesystem scan; a live database
 # writes while they run, so a small difference is expected and a large one means the
@@ -154,9 +186,22 @@ DF_DU_RESIDUAL_SIGNIFICANT_PPM = 20_000  # 2 % of used bytes
 MOUNT_INSPECT_FORMAT = "{{range .Mounts}}{{.Source}}\t{{.Destination}}\n{{end}}"
 
 
+def action_remaining() -> float:
+    """Seconds left of the action's own wall-clock promise."""
+    return ACTION_DEADLINE - time.monotonic()
+
+
 def run(
     argv: list[str], *, timeout: int = PROCESS_TIMEOUT_SECONDS
 ) -> subprocess.CompletedProcess[str]:
+    # Every subprocess is measured against the action deadline as well as its own
+    # timeout, so no single call can carry the action past the point where it can still
+    # emit a receipt. RuntimeError, not SystemExit: each section catches it, records the
+    # reason, and the structured receipt is still printed at the end.
+    left = action_remaining()
+    if left <= 0:
+        raise RuntimeError("action_deadline_exceeded")
+    timeout = max(1, min(timeout, math.ceil(left)))
     try:
         # errors="surrogateescape", not the strict TextIOWrapper default: a path may
         # contain any byte except NUL and /, so a sequence invalid in the host locale
@@ -581,8 +626,16 @@ class ScanBudget:
         return self.reserve_seconds if self._reserved else 0.0
 
     def remaining(self) -> float:
-        """Time left that the caller may actually use, reserve already deducted."""
-        return self._deadline - time.monotonic() - self.reserve()
+        """Time left that the caller may actually use, reserve already deducted.
+
+        Bounded by the ACTION deadline as well as this budget's own, minus the share
+        held back for the queries and receipt that follow the scans. Without that the
+        scans could spend the action's whole wall clock and the closing SQL would be
+        cut off by the workflow kill rather than by anything this file controls.
+        """
+        own = self._deadline - time.monotonic() - self.reserve()
+        overall = action_remaining() - POST_SCAN_SQL_RESERVE_SECONDS
+        return min(own, overall)
 
     def call_timeout(self) -> int:
         left = self.remaining()
@@ -1334,6 +1387,9 @@ try:
         "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
         "max_steps": DRILL_DOWN_MAX_STEPS,
         "scan_budget_seconds": scan_budget.total_seconds,
+        "action_budget_seconds": ACTION_BUDGET_SECONDS,
+        "post_scan_sql_reserve_seconds": POST_SCAN_SQL_RESERVE_SECONDS,
+        "action_seconds_remaining_after_walk": round(action_remaining(), 1),
         "reconcile_reserve_seconds": scan_budget.reserve_seconds,
         "chain": chain,
     }
@@ -1926,9 +1982,17 @@ try:
     ratings_body_counts: dict[str, tuple[int, int]] = {}
     generation_keys: set[str] = set()
     published_keys: set[str] = set()
+    # Per PRODUCT, because the products have different histories: a generation kept by
+    # one product's query can fall beyond another's row cap, and then its absence from
+    # that product means the cap cut it off, not that it is empty. Reporting zero made
+    # a superseded
+    # generation look as though it held none of a product's data -- which is exactly
+    # the judgement someone deciding what to reclaim would act on.
+    product_truncated: dict[str, bool] = {}
     for product, rows in attribution_rows.items():
         if rows is None:
             continue
+        product_truncated[product] = len(rows) > GENERATION_ATTRIBUTION_LIMIT
         product_rows: dict[str, tuple[int, int]] = {}
         for row in rows:
             generation_key = row.get("generation_key")
@@ -1961,18 +2025,43 @@ try:
         for product in ("ratings", "search", "archetype"):
             rows = attribution_rows[product]
             values = attribution.get(product, {}).get(generation_key)
+            # null, not 0, when this product's own query was truncated and did not
+            # mention this generation: "we did not look that far" and "there is
+            # nothing there" are different facts, and only one of them is a licence
+            # to reclaim.
+            unknown = values is None and product_truncated.get(product, False)
             generation_attribution[f"{product}_chunks"] = (
-                None if rows is None else values[0] if values is not None else 0
+                None
+                if rows is None or unknown
+                else values[0]
+                if values is not None
+                else 0
             )
             generation_attribution[f"{product}_systems"] = (
-                None if rows is None else values[1] if values is not None else 0
+                None
+                if rows is None or unknown
+                else values[1]
+                if values is not None
+                else 0
             )
         ratings_counts = ratings_body_counts.get(generation_key)
+        # Same rule for the ratings body counts.
+        ratings_unknown = ratings_counts is None and product_truncated.get(
+            "ratings", False
+        )
         generation_attribution["ratings_physical_bodies"] = (
-            ratings_counts[0] if ratings_counts is not None else 0
+            None
+            if ratings_unknown
+            else ratings_counts[0]
+            if ratings_counts is not None
+            else 0
         )
         generation_attribution["ratings_eligible_opportunities"] = (
-            ratings_counts[1] if ratings_counts is not None else 0
+            None
+            if ratings_unknown
+            else ratings_counts[1]
+            if ratings_counts is not None
+            else 0
         )
         rows_by_generation[generation_key] = generation_attribution
     truncated = len(rows_by_generation) > GENERATION_ATTRIBUTION_LIMIT
@@ -2158,59 +2247,37 @@ try:
     wal_host_dir = f"{pgdata_host.rstrip('/')}/pg_wal"
     scan_budget.begin_closing_scan(WAL_DIRECTORY_SCAN_SECONDS)
     wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)
+    # BRACKETED: a second pg_ls_waldir() read after the scan. One read before it was
+    # not enough -- that only moved the asymmetry, because WAL generated DURING the
+    # scan (up to 60 s) makes the directory figure exceed the earlier SQL total, and
+    # the difference was again emitted as unlisted/reclaimable WAL when it is ordinary
+    # top-level WAL. With a read either side, the listed figure at the scan's own
+    # instant is known to lie between them.
+    reclosing_wal = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT "
+        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
+        db_user,
+        db_name,
+    )
+    if not reclosing_wal or "bytes" not in reclosing_wal[0]:
+        raise RuntimeError("wal_bytes_not_reconciled")
+    wal_bytes_after_scan = reclosing_wal[0]["bytes"]
+    # The LARGER end for the candidate, by the same asymmetry as the PGDATA bracket:
+    # subtracting more understates unlisted content, subtracting less INVENTS a reclaim
+    # candidate out of ordinary WAL. Only one of those can send an operator to delete
+    # something that is not there to delete.
+    wal_listed_for_candidate = max(wal_bytes_at_close, wal_bytes_after_scan)
+    # accounted_bytes uses the figure taken after every scan, so it is genuinely the
+    # closing one.
+    wal_bytes_at_close = wal_bytes_after_scan
+    inventory["wal"]["bytes_at_window_close"] = wal_bytes_at_close
     inventory["wal"]["directory_bytes_beside_sql_read"] = wal_dir_bytes_at_sql
-    # Re-read the DATABASE and TEMP totals here too. accounted_bytes is described as a
-    # closing figure, and the WAL and PGDATA figures are, but these two came from the
-    # SQL phase -- so a database growing or shrinking in between (freely, within the
-    # multi-GiB PGDATA tolerance) landed in database_size_metric_difference_bytes,
-    # which is documented as a du-versus-st_size difference and nothing else. That put
-    # temporal drift inside a term labelled metrological, and left the headline
-    # unaccounted figure wrong by the database change while the closure still held.
-    #
-    # Cheap to fix properly: two aggregates, no row lists. The opening values are kept
-    # as a bracket so the movement is visible rather than merely corrected.
-    closing_database_rows = psql_json(
-        "SELECT row_to_json(q)::text FROM ("
-        "SELECT coalesce(sum(pg_database_size(oid)),0)::bigint::text AS total_bytes, "
-        "coalesce(sum(CASE WHEN datname=current_database() "
-        "THEN pg_database_size(oid) ELSE 0 END),0)::bigint::text "
-        "AS operating_bytes FROM pg_database) q",
-        db_user,
-        db_name,
+    inventory["wal"]["listed_bytes_before_directory_scan"] = closing_wal[0]["bytes"]
+    inventory["wal"]["listed_bytes_after_directory_scan"] = wal_bytes_after_scan
+    inventory["wal"]["listed_bytes_for_candidate"] = wal_listed_for_candidate
+    inventory["wal"]["listed_bytes_scan_bracket_width"] = abs(
+        wal_bytes_after_scan - closing_wal[0]["bytes"]
     )
-    if len(closing_database_rows) != 1:
-        raise RuntimeError("closing_database_total_output_invalid")
-    operating_database_bytes_at_close = required_int(
-        closing_database_rows[0].get("operating_bytes"),
-        "closing_database_total_output_invalid",
-    )
-    database_total_bytes_at_close = required_int(
-        closing_database_rows[0].get("total_bytes"),
-        "closing_database_total_output_invalid",
-    )
-    closing_temp_rows = psql_json(
-        "SELECT row_to_json(q)::text FROM (SELECT CASE WHEN "
-        "COALESCE((pg_stat_file('base/pgsql_tmp',true)).isdir,false) THEN "
-        "(SELECT sum(size)::bigint FROM pg_ls_tmpdir()) "
-        "ELSE NULL::bigint END AS temp_directory_bytes) q",
-        db_user,
-        db_name,
-    )
-    if len(closing_temp_rows) != 1:
-        raise RuntimeError("closing_temp_output_invalid")
-    temp_bytes_at_close = closing_temp_rows[0].get("temp_directory_bytes") or 0
-    inventory["databases_at_window_close"] = {
-        "operating_database_bytes": operating_database_bytes_at_close,
-        "database_total_bytes": database_total_bytes_at_close,
-        "temp_directory_bytes": temp_bytes_at_close,
-        "operating_database_drift_bytes": (
-            operating_database_bytes_at_close - (operating_database_bytes or 0)
-        ),
-        "database_total_drift_bytes": (
-            database_total_bytes_at_close - (database_total_bytes or 0)
-        ),
-        "measured_at": "window_close",
-    }
     pgdata_children_all = sorted(
         (row for row in closing_usage if row["path"].rstrip("/") != pgdata_host),
         key=lambda item: (-item["bytes"], item["path"]),
@@ -2238,6 +2305,30 @@ try:
     # an unreferenced OID directory is reported BY PATH instead of disappearing into
     # an anonymous remainder, which is the difference between a finding an operator
     # can act on and a number they cannot explain.
+    # A temp-directory probe taken BESIDE the base scan, because the base cap guard
+    # below has to decide existence from an observation adjacent to the scan it
+    # guards -- not from the opening query (base/pgsql_tmp created in between left it
+    # None and the guard permitted a breakdown whose cap had dropped a directory
+    # accounted_bytes now subtracts) and not from the final read either, which comes
+    # after this scan. The figure accounted_bytes uses is read separately at the very
+    # end; this one answers only "does it exist".
+    temp_probe_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT CASE WHEN "
+        "COALESCE((pg_stat_file('base/pgsql_tmp',true)).isdir,false) THEN "
+        "(SELECT sum(size)::bigint FROM pg_ls_tmpdir()) "
+        "ELSE NULL::bigint END AS temp_directory_bytes) q",
+        db_user,
+        db_name,
+    )
+    if len(temp_probe_rows) != 1:
+        raise RuntimeError("temp_probe_output_invalid")
+    temp_directory_exists_at_close = (
+        temp_probe_rows[0].get("temp_directory_bytes") is not None
+    )
+    inventory["temp_directory_beside_base_scan"] = {
+        "exists": temp_directory_exists_at_close,
+        "bytes": temp_probe_rows[0].get("temp_directory_bytes"),
+    }
     base_row = next(
         (
             row
@@ -2381,11 +2472,14 @@ try:
                 # the directory actually exists: pg_ls_tmpdir()'s wrapper returns NULL
                 # when base/pgsql_tmp is not a directory, and a cluster that has never
                 # spilled to disk legitimately has none.
-                temp_section = inventory.get("temp_and_logs")
-                temp_directory_exists = (
-                    isinstance(temp_section, dict)
-                    and temp_section.get("temp_directory_bytes") is not None
-                )
+                # The CLOSING observation, not the opening one. base/pgsql_tmp
+                # created after the opening temp query but before the closing one
+                # left this reading None, so the guard permitted a breakdown whose
+                # cap had dropped a directory whose bytes accounted_bytes now
+                # subtracts -- and the negative metric difference could offset them
+                # and leave the closure true. The existence test and the figure that
+                # is subtracted have to come from the same observation.
+                temp_directory_exists = temp_directory_exists_at_close
                 temp_directory_observed = any(
                     row["path"].rstrip("/").rsplit("/", 1)[-1] == "pgsql_tmp"
                     for row in base_usage
@@ -2443,6 +2537,86 @@ try:
     # drill-down and the SQL inventory, and only a fresh `df` can see that. Closing on
     # the reading taken right after the root scan would leave unaccounted_bytes and the
     # df/du residual stale while the receipt reported success.
+    # Re-read the DATABASE and TEMP totals here too. accounted_bytes is described as a
+    # closing figure, and the WAL and PGDATA figures are, but these two came from the
+    # SQL phase -- so a database growing or shrinking in between (freely, within the
+    # multi-GiB PGDATA tolerance) landed in database_size_metric_difference_bytes,
+    # which is documented as a du-versus-st_size difference and nothing else. That put
+    # temporal drift inside a term labelled metrological, and left the headline
+    # unaccounted figure wrong by the database change while the closure still held.
+    #
+    # Cheap to fix properly: two aggregates, no row lists. The opening values are kept
+    # as a bracket so the movement is visible rather than merely corrected.
+    closing_database_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT coalesce(sum(pg_database_size(oid)),0)::bigint::text AS total_bytes, "
+        "coalesce(sum(CASE WHEN datname=current_database() "
+        "THEN pg_database_size(oid) ELSE 0 END),0)::bigint::text "
+        "AS operating_bytes FROM pg_database) q",
+        db_user,
+        db_name,
+    )
+    if len(closing_database_rows) != 1:
+        raise RuntimeError("closing_database_total_output_invalid")
+    operating_database_bytes_at_close = required_int(
+        closing_database_rows[0].get("operating_bytes"),
+        "closing_database_total_output_invalid",
+    )
+    database_total_bytes_at_close = required_int(
+        closing_database_rows[0].get("total_bytes"),
+        "closing_database_total_output_invalid",
+    )
+    closing_temp_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT CASE WHEN "
+        "COALESCE((pg_stat_file('base/pgsql_tmp',true)).isdir,false) THEN "
+        "(SELECT sum(size)::bigint FROM pg_ls_tmpdir()) "
+        "ELSE NULL::bigint END AS temp_directory_bytes) q",
+        db_user,
+        db_name,
+    )
+    if len(closing_temp_rows) != 1:
+        raise RuntimeError("closing_temp_output_invalid")
+    temp_bytes_at_close = closing_temp_rows[0].get("temp_directory_bytes") or 0
+    # Recheck the TABLESPACE set here too, beside the closing database totals it
+    # qualifies. A non-default tablespace created after the opening count left
+    # single_filesystem_accounting_valid true while pg_database_size had begun
+    # including bytes outside the selected filesystem -- bytes then subtracted from
+    # volume_used, with the resulting negative base metric difference able to keep the
+    # closure true. A successful receipt that understates unaccounted space is the one
+    # shape of error this whole section exists to rule out, so the assumption is
+    # re-measured at the moment the figures that depend on it are taken.
+    closing_tablespace_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT count(*)::bigint::text AS non_default_count FROM pg_tablespace "
+        "WHERE spcname NOT IN ('pg_default','pg_global')) q",
+        db_user,
+        db_name,
+    )
+    if len(closing_tablespace_rows) != 1:
+        raise RuntimeError("closing_tablespace_count_output_invalid")
+    non_default_tablespace_count_at_close = required_int(
+        closing_tablespace_rows[0].get("non_default_count"),
+        "closing_tablespace_count_output_invalid",
+    )
+    inventory["tablespaces_at_window_close"] = {
+        "non_default_count": non_default_tablespace_count_at_close,
+        "single_filesystem_accounting_valid": (
+            non_default_tablespace_count_at_close == 0
+        ),
+        "measured_at": "window_close",
+    }
+    inventory["databases_at_window_close"] = {
+        "operating_database_bytes": operating_database_bytes_at_close,
+        "database_total_bytes": database_total_bytes_at_close,
+        "temp_directory_bytes": temp_bytes_at_close,
+        "operating_database_drift_bytes": (
+            operating_database_bytes_at_close - (operating_database_bytes or 0)
+        ),
+        "database_total_drift_bytes": (
+            database_total_bytes_at_close - (database_total_bytes or 0)
+        ),
+        "measured_at": "window_close",
+    }
     volume_used_final = df_used_bytes(mount_source)
     opening = inventory.get("volume_used_bracket")
     if not isinstance(opening, dict) or "bytes_before_filesystem_scan" not in opening:
@@ -2486,7 +2660,17 @@ try:
         tablespace_section.get("single_filesystem_accounting_valid"), bool
     ):
         raise RuntimeError("tablespaces_unavailable")
-    if not tablespace_section["single_filesystem_accounting_valid"]:
+    # BOTH observations have to hold. The opening one proves none existed when the
+    # scans began; the closing one proves none appeared while they ran, which is when
+    # pg_database_size would have started including bytes outside this filesystem.
+    closing_tablespaces = inventory.get("tablespaces_at_window_close")
+    if not isinstance(closing_tablespaces, dict) or not isinstance(
+        closing_tablespaces.get("single_filesystem_accounting_valid"), bool
+    ):
+        raise RuntimeError("closing_tablespaces_unavailable")
+    if not tablespace_section["single_filesystem_accounting_valid"] or not (
+        closing_tablespaces["single_filesystem_accounting_valid"]
+    ):
         # Named, not swallowed: the receipt lists the tablespaces so the operator knows
         # exactly which assumption broke and what would have to be measured.
         raise RuntimeError("tablespaces_present_single_filesystem_accounting_invalid")
@@ -2707,8 +2891,13 @@ try:
     # from the candidates entirely, larger and only its excess would show -- and an
     # unexpected directory full of old WAL is exactly the reclaimable space this action
     # is looking for. So pg_wal gets the subtraction and pg_xlog is reported whole.
+    # The BRACKETED figure for the candidate -- the larger end of the two reads either
+    # side of the pg_wal scan -- not the closing one. The candidate is a difference
+    # against a du measurement taken between those reads, so pairing it with a figure
+    # from outside the bracket reintroduces exactly the invented candidate the bracket
+    # exists to prevent. accounted_bytes still uses the closing figure.
     wal_for_subtraction = (
-        inventory["wal"].get("bytes_at_window_close", wal_bytes)
+        inventory["wal"].get("listed_bytes_for_candidate", wal_bytes)
         if isinstance(inventory.get("wal"), dict)
         else wal_bytes
     )

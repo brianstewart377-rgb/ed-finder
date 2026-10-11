@@ -462,6 +462,22 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
   `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
   All of its figures, including `base/`'s own total, come from the `base` scan.
+- **The action has a hard wall clock of its own.** Each phase was bounded but their
+  *sum* was not, and the sum is what the operator workflow kills: the walk's 1,200 s
+  plus the closing phase's 660 s plus up to 31 queries at the 30 s subprocess cap is
+  about 40 minutes against a 40-minute job that also does checkout, Python setup and
+  SSH. `ACTION_BUDGET_SECONDS` (1,800) is measured from process start and enforced at
+  **every** subprocess and scan, with `POST_SCAN_SQL_RESERVE_SECONDS` held back so the
+  scans cannot starve the closing queries. The scans shorten when the queries are slow
+  instead of the two phases overrunning together, and a receipt is always emitted.
+  (Raising the job timeout was not available: `execute` is shared by every allowlisted
+  operation and its 40 minutes is sized for the 35-minute calibration probe.)
+- **Both interpreters run in isolated mode (`-I -B`), and `-I` is the load-bearing
+  flag.** Without it CPython prepends the working directory to `sys.path`, and the
+  workflow runs `cd /opt/ed-finder` then escalates with `sudo -n bash -s` — so a
+  planted top-level `platform.py` in that checkout would be imported and **executed as
+  root** during the version probe, before any host validation. `-B` does not address
+  that; it only stops bytecode writes.
 - **Every operand of `accounted_bytes` is read at window close.** The database and
   temporary-file totals are re-read beside the closing PGDATA and `df` measurements, so
   a database moving during the SQL phase no longer lands in
@@ -469,6 +485,21 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   `du`-versus-`st_size` difference and nothing else. The opening values stay as a
   bracket in `databases_at_window_close`, so the movement is visible rather than merely
   corrected.
+- **`pg_wal`'s directory scan sits between two `pg_ls_waldir()` reads.** One read
+  beside the scan only moved the asymmetry — WAL generated *during* the scan makes the
+  directory figure exceed the earlier SQL total, and that difference was again emitted
+  as reclaimable WAL. With a read either side the listed figure at the scan's own
+  instant is known to lie between them, and the candidate uses the larger end:
+  understating unlisted content rather than inventing a reclaim candidate out of
+  ordinary WAL.
+- **A truncated product query reports `null`, not zero.** The products have different
+  histories, so a generation kept by one attribution query can fall beyond another's
+  row cap; emitting zero made a superseded generation look as though it held none of
+  that product's data, which is the judgement a reclaim decision turns on.
+- **The tablespace assumption is re-measured at window close.** A non-default
+  tablespace created while the scans ran would have left
+  `single_filesystem_accounting_valid` true while `pg_database_size` had begun
+  including bytes outside the selected filesystem. Both observations must now hold.
 - **`pg_wal` is measured again beside the `pg_ls_waldir()` read.** The closing walk
   visits it part-way through its own traversal, so WAL recycled in between left the walk
   holding the larger figure and the difference was emitted as an "unlisted
