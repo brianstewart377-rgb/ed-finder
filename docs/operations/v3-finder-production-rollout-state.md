@@ -366,7 +366,13 @@ so a recently reset counter must not be read as “never used”), dead-tuple
 estimates, and derived-generation attribution, followed by an explicit
 accounted-versus-unaccounted summary whose candidate directories exclude
 **only** what an accounted figure genuinely covers — `base/` (the per-database
-storage `pg_database_size` sums) and `pg_wal`/`pg_xlog` (`wal_bytes`). The
+storage `pg_database_size` sums) and `pg_wal` (`wal_bytes`). **`pg_xlog` is not
+WAL-accounted on PostgreSQL 18**, where the WAL directory is `pg_wal`:
+`pg_ls_waldir()` measures only the live directory, so a stale `pg_xlog` is
+unexpected storage and is reported whole as an inside-PGDATA candidate. It is one
+of the better things this receipt can surface — a leftover directory of old WAL
+segments is genuinely reclaimable — so it must not be dismissed as already
+counted. The
 temporary directory is `base/pgsql_tmp`, inside `base`, so it needs no entry of
 its own. The cluster-level statistics directories `pg_stat` and `pg_stat_tmp`,
 `global`, `pg_xact`, `pg_multixact`, `pg_tblspc`, logs and replication-slot state

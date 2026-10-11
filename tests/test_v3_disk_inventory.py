@@ -90,6 +90,7 @@ def _run_inventory_action(
     du_permission_denied: bool = False,
     tablespace_present: bool = False,
     mount_point_failure: bool = False,
+    wal_outside_pgdata: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -116,6 +117,28 @@ def _run_inventory_action(
     )
     pwd = fake_bin / "pwd"
     pwd.write_text("#!/bin/sh\nprintf '%s\\n' '/opt/ed-finder'\n", encoding="utf-8")
+    readlink = fake_bin / "readlink"
+    readlink.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            # -f <path>; the fixture's pg_wal is a real directory inside PGDATA unless
+            # WAL_OUTSIDE_PGDATA asks for the relocated case.
+            target="$2"
+            case "$target" in
+              */pg_wal)
+                if [ "$WAL_OUTSIDE_PGDATA" = '1' ]; then
+                  printf '%s\\n' '/mnt/wal/pg_wal'
+                else
+                  printf '%s\\n' "$target"
+                fi ;;
+              *)
+                printf '%s\\n' "$target" ;;
+            esac
+            """
+        ),
+        encoding="utf-8",
+    )
     docker = fake_bin / "docker"
     docker.write_text(
         textwrap.dedent(
@@ -225,53 +248,53 @@ def _run_inventory_action(
             # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
             case "$*" in
               *"--max-depth=0 $data")
-                printf '1465000\\t%s\\n' "$data" ;;
+                printf '1465000\\t%s\\0' "$data" ;;
               *"--max-depth=1 $data")
-                printf '1330000\\t%s/base\\n' "$data"
-                printf '120000\\t%s/pg_wal\\n' "$data"
-                printf '8000\\t%s/global\\n' "$data"
-                printf '4000\\t%s/pg_stat\\n' "$data"
-                printf '1465000\\t%s\\n' "$data" ;;
+                printf '1330000\\t%s/base\\0' "$data"
+                printf '120000\\t%s/pg_wal\\0' "$data"
+                printf '8000\\t%s/global\\0' "$data"
+                printf '4000\\t%s/pg_stat\\0' "$data"
+                printf '1465000\\t%s\\0' "$data" ;;
               *'--max-depth=1 /var/lib/docker/volumes')
-                printf '1465000\\t%s\\n' "$vol"
-                printf '1470000\\t/var/lib/docker/volumes\\n' ;;
+                printf '1465000\\t%s\\0' "$vol"
+                printf '1470000\\t/var/lib/docker/volumes\\0' ;;
               *'--max-depth=1 /var/lib/docker/overlay2')
-                printf '1000\\t/var/lib/docker/overlay2/aaaa\\n'
-                printf '1000\\t/var/lib/docker/overlay2/bbbb\\n'
-                printf '38000\\t/var/lib/docker/overlay2\\n' ;;
+                printf '1000\\t/var/lib/docker/overlay2/aaaa\\0'
+                printf '1000\\t/var/lib/docker/overlay2/bbbb\\0'
+                printf '38000\\t/var/lib/docker/overlay2\\0' ;;
               *'--max-depth=1 /var/lib/docker')
-                printf '1470000\\t/var/lib/docker/volumes\\n'
-                printf '38000\\t/var/lib/docker/overlay2\\n'
-                printf '1510000\\t/var/lib/docker\\n' ;;
+                printf '1470000\\t/var/lib/docker/volumes\\0'
+                printf '38000\\t/var/lib/docker/overlay2\\0'
+                printf '1510000\\t/var/lib/docker\\0' ;;
               *'--max-depth=1 /var/lib')
-                printf '1510000\\t/var/lib/docker\\n'
-                printf '5000\\t/var/lib/apt\\n'
-                printf '1515000\\t/var/lib\\n' ;;
+                printf '1510000\\t/var/lib/docker\\0'
+                printf '5000\\t/var/lib/apt\\0'
+                printf '1515000\\t/var/lib\\0' ;;
               *'--max-depth=1 /var')
                 if [ "$DU_LAYOUT" = 'direct_files' ]; then
-                  printf '1465000\\t/var/lib\\n'
-                  printf '80000\\t/var/log\\n'
-                  printf '1545000\\t/var\\n'
+                  printf '1465000\\t/var/lib\\0'
+                  printf '80000\\t/var/log\\0'
+                  printf '1545000\\t/var\\0'
                 else
-                  printf '1515000\\t/var/lib\\n'
-                  printf '30000\\t/var/log\\n'
-                  printf '1545000\\t/var\\n'
+                  printf '1515000\\t/var/lib\\0'
+                  printf '30000\\t/var/log\\0'
+                  printf '1545000\\t/var\\0'
                 fi ;;
               *'--max-depth=1 /var/log')
                 # 70,000 bytes sit directly in /var/log; the largest child is 10,000.
-                printf '10000\\t/var/log/journal\\n'
-                printf '80000\\t/var/log\\n' ;;
+                printf '10000\\t/var/log/journal\\0'
+                printf '80000\\t/var/log\\0' ;;
               *'--max-depth=1 /')
-                printf '1545000\\t/var\\n'
-                printf '12000\\t/home\\n'
-                printf '1557000\\t/\\n' ;;
+                printf '1545000\\t/var\\0'
+                printf '12000\\t/home\\0'
+                printf '1557000\\t/\\0' ;;
               *'--max-depth=2'*)
-                printf '1515000\\t/var/lib\\n'
-                printf '30000\\t/var/log\\n'
-                printf '1545000\\t/var\\n'
-                printf '12000\\t/home/claude\\n'
-                printf '12000\\t/home\\n'
-                printf '1557000\\t/\\n' ;;
+                printf '1515000\\t/var/lib\\0'
+                printf '30000\\t/var/log\\0'
+                printf '1545000\\t/var\\0'
+                printf '12000\\t/home/claude\\0'
+                printf '12000\\t/home\\0'
+                printf '1557000\\t/\\0' ;;
               *)
                 printf '%s\\n' "unexpected du: $*" >&2
                 exit 9 ;;
@@ -343,7 +366,7 @@ def _run_inventory_action(
         ),
         encoding="utf-8",
     )
-    for executable in (hostname, pwd, docker, df, du, psql):
+    for executable in (hostname, pwd, readlink, docker, df, du, psql):
         executable.chmod(0o755)
 
     env = os.environ.copy()
@@ -359,6 +382,7 @@ def _run_inventory_action(
     env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
     env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
     env["MOUNT_POINT_FAILURE"] = "1" if mount_point_failure else "0"
+    env["WAL_OUTSIDE_PGDATA"] = "1" if wal_outside_pgdata else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -447,7 +471,7 @@ def test_v3_disk_inventory_scans_the_whole_filesystem_not_only_the_pg_volume():
     source = _read(ACTION)
 
     assert '["df", "--output=target", mount_source]' in source
-    assert '["du", "-x", "-B1", "--max-depth=2", usage_root]' in source
+    assert '["du", "--null", "-x", "-B1", "--max-depth=2", usage_root]' in source
     assert '"volume_directory_usage_root"' in source
 
 
@@ -570,7 +594,7 @@ def test_v3_disk_inventory_fails_closed_without_the_data_directory_measurement()
     """
     source = _read(ACTION)
 
-    assert '["du", "-x", "-B1", "--max-depth=1", pgdata_host]' in source
+    assert '["du", "--null", "-x", "-B1", "--max-depth=1", pgdata_host]' in source
     assert "def host_pgdata(" in source
     assert "current_setting('data_directory')" in source
     assert "postgres_data_directory_outside_mount" in source
@@ -1097,7 +1121,11 @@ def test_v3_disk_inventory_closes_the_measurement_window_last():
     summary = source.index('inventory["summary"] = {')
     assert databases < reconcile < summary
     # And the summary uses the reconciled reading, not the opening df.
-    assert 'volume_used = used_bracket["bytes_after_filesystem_scan"]' in source
+    # The CLOSING reading, validated across the whole window — not the post-root-scan
+    # one, which is only validated against the opening value.
+    assert 'volume_used = used_bracket["bytes_after_window"]' in source
+    assert 'used_bracket["bytes_after_filesystem_scan"]' not in source
+    assert "volume_used_window_not_closed" in source
     assert "volume_used_not_reconciled" in source
     assert 'volume_used = inventory["volume"]["used_bytes"]' not in source
 
@@ -1195,3 +1223,62 @@ def test_v3_disk_inventory_workflow_elevates_the_whole_filesystem_scan():
     step = step[: step.index("v3-disk-inventory.sh") + 40]
     assert "sudo -n bash -s" in step
     assert 'if [ \\"\\$(id -u)\\" -eq 0 ]' in step
+
+
+def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
+    """A directory whose NAME contains a newline must not stop the inventory.
+
+    `splitlines()` fragments that `du` record, the fragment without a tab raises
+    directory_usage_output_invalid, and the governed scan stops even though it
+    succeeded. The whole-filesystem scan covers operator-uncontrolled paths, so this is
+    reachable without anything being wrong.
+    """
+    source = _read(ACTION)
+
+    assert 'for record in stdout.split("\\0"):' in source
+    assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
+    # Every du invocation asks for NUL-delimited output.
+    assert source.count('["du", "--null", "-x", "-B1"') == 4
+    assert '["du", "-x", "-B1"' not in source
+
+
+def test_v3_disk_inventory_reports_candidates_hidden_by_the_display_limit(tmp_path):
+    """The totals sum the complete list, so the hidden tail must be disclosed."""
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+
+    assert summary["candidate_count"] >= len(summary["largest_unaccounted_directories"])
+    assert summary["candidates_omitted"] == max(0, summary["candidate_count"] - 10)
+    # With the fixture's candidates all shown, nothing is omitted — but the fields are
+    # present so an operator never has to infer whether the list is complete.
+    assert summary["candidates_omitted_bytes"] == 0
+
+
+def test_v3_disk_inventory_refuses_when_wal_lives_outside_pgdata(tmp_path):
+    """pg_wal can be relocated with initdb --waldir or a symlink.
+
+    `du` does not dereference symlinks, so a same-filesystem target appears as an
+    outside candidate while its bytes are also subtracted, and an external-filesystem
+    target is subtracted from a volume it does not occupy. The arithmetic assumes the
+    WAL directory is inside PGDATA, so it verifies that rather than assuming it.
+    """
+    result = _run_inventory_action(tmp_path, wal_outside_pgdata=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["wal"]["resolved_host_directory"] == "/mnt/wal/pg_wal"
+    assert inventory["wal"]["directory_inside_pgdata"] is False
+    assert inventory["summary"]["summary_failed"] == "wal_directory_outside_pgdata"
+    # The evidence above the summary survives, as with the tablespace refusal.
+    assert isinstance(inventory["volume_directory_usage"], list)
+
+
+def test_v3_disk_inventory_records_wal_inside_pgdata(tmp_path):
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    wal = json.loads(result.stdout)["inventory"]["wal"]
+
+    assert wal["directory_inside_pgdata"] is True
+    assert wal["container_directory"] == "/var/lib/postgresql/18/docker/pg_wal"

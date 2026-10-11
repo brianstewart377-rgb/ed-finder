@@ -218,11 +218,20 @@ def df_used_bytes(path: str) -> int:
 
 
 def parse_du(stdout: str) -> list[dict[str, Any]]:
+    """Parse NUL-delimited `du --null` records.
+
+    Splitting on newlines breaks on a directory whose NAME contains one: the record
+    fragments, the fragment without a tab raises directory_usage_output_invalid, and the
+    governed inventory stops even though the scan succeeded. The whole-filesystem scan
+    covers operator-uncontrolled paths -- a user's home directory, an extracted
+    archive -- so this is reachable without anything being wrong. GNU du provides
+    --null for exactly this, and a path cannot contain NUL.
+    """
     rows: list[dict[str, Any]] = []
-    for line in stdout.splitlines():
-        if not line.strip():
+    for record in stdout.split("\0"):
+        if not record.strip():
             continue
-        parts = line.split("\t", 1)
+        parts = record.split("\t", 1)
         if len(parts) != 2:
             raise RuntimeError("directory_usage_output_invalid")
         rows.append(
@@ -465,7 +474,7 @@ def du_rows(
 
 def du_total(path: str, budget: ScanBudget) -> int:
     rows = du_rows(
-        ["du", "-x", "-B1", "--max-depth=0", path],
+        ["du", "--null", "-x", "-B1", "--max-depth=0", path],
         budget,
         "directory_total_failed",
         expect_path=path,
@@ -520,7 +529,7 @@ def drill_down(
                 stopped_before_first_step = True
             break
         rows = du_rows(
-            ["du", "-x", "-B1", "--max-depth=1", current],
+            ["du", "--null", "-x", "-B1", "--max-depth=1", current],
             budget,
             "drill_down_failed",
         )
@@ -673,6 +682,10 @@ mount_destination: str | None = None
 # section handler and the action dies with a traceback where the structured fail-closed
 # receipt belongs.
 usage_root: str | None = None
+# Same reason as usage_root: assigned in the directory-usage section and read by the
+# WAL section, so it must exist even when that section fails. A NameError here is not
+# RuntimeError and would escape the section handler as a traceback.
+pgdata_container: str | None = None
 usage_full: list[dict[str, Any]] | None = None
 postgres_data_directory_bytes: int | None = None
 pgdata_children_all: list[dict[str, Any]] | None = None
@@ -748,7 +761,7 @@ try:
     # Fail closed on a failed scan: without this evidence the receipt cannot answer
     # its own question, so it must not be presented as a complete inventory.
     usage_full = du_rows(
-        ["du", "-x", "-B1", "--max-depth=2", usage_root],
+        ["du", "--null", "-x", "-B1", "--max-depth=2", usage_root],
         scan_budget,
         "directory_usage_failed",
         expect_path=usage_root,
@@ -803,7 +816,7 @@ try:
     if pgdata_host is None or postgres_data_directory_bytes is None:
         raise RuntimeError("postgres_data_directory_unresolved")
     data_usage = du_rows(
-        ["du", "-x", "-B1", "--max-depth=1", pgdata_host],
+        ["du", "--null", "-x", "-B1", "--max-depth=1", pgdata_host],
         scan_budget,
         "postgres_data_directory_usage_failed",
         expect_path=pgdata_host,
@@ -919,11 +932,27 @@ try:
     )
     if len(wal_rows) != 1 or len(settings_rows) != 1 or len(prepared_rows) != 1:
         raise RuntimeError("wal_query_output_invalid")
+    # Resolve where the WAL directory actually is. `pg_wal` is commonly a real
+    # directory inside PGDATA, but initdb --waldir or a later symlink can put it
+    # elsewhere, and `du` does not dereference symlinks -- so the accounting has to know
+    # rather than assume. Resolved on the host through the same read-only path.
+    wal_container = f"{pgdata_container.rstrip('/')}/pg_wal" if pgdata_container else None
+    wal_inside = None
+    wal_resolved = None
+    if pgdata_host is not None:
+        probe = run(["readlink", "-f", f"{pgdata_host.rstrip('/')}/pg_wal"])
+        if probe.returncode == 0:
+            wal_resolved = probe.stdout.strip() or None
+        if wal_resolved:
+            wal_inside = wal_resolved == f"{pgdata_host.rstrip('/')}/pg_wal"
     inventory["wal"] = {
         **wal_rows[0],
         "settings": settings_rows[0],
         "replication_slots": slots,
         "prepared_transactions": prepared_rows[0]["prepared_transactions"],
+        "container_directory": wal_container,
+        "resolved_host_directory": wal_resolved,
+        "directory_inside_pgdata": wal_inside,
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "wal", exc)
@@ -1308,7 +1337,15 @@ try:
     used_bracket = inventory.get("volume_used_bracket")
     if not isinstance(used_bracket, dict) or used_bracket.get("reconciled") is not True:
         raise RuntimeError("volume_used_not_reconciled")
-    volume_used = used_bracket["bytes_after_filesystem_scan"]
+    # The CLOSING reading, validated across the whole window. The post-root-scan value
+    # is only validated against the opening one, so a sibling growing or shrinking by
+    # up to the tolerance during the drill-down or the SQL phase would leave every
+    # figure derived from it stale in a receipt that reported success. Collecting the
+    # closing reading and then not using it would be the same mistake as recording a
+    # bracket and ignoring it.
+    if "bytes_after_window" not in used_bracket:
+        raise RuntimeError("volume_used_window_not_closed")
+    volume_used = used_bracket["bytes_after_window"]
     database_rows = inventory["databases"]
     operating_database_bytes = next(
         row["size_bytes"] for row in database_rows if row["datname"] == db_name
@@ -1325,6 +1362,17 @@ try:
         raise RuntimeError("volume_directory_usage_unavailable")
     if postgres_data_directory_bytes is None:
         raise RuntimeError("postgres_data_directory_usage_unavailable")
+    # `pg_wal` can live elsewhere (initdb --waldir, or a symlink), and `du` does not
+    # dereference symlinks, so a same-filesystem target would appear as an OUTSIDE
+    # candidate while its bytes were also subtracted here, and an external-filesystem
+    # target would be subtracted from a volume it does not occupy. This action's
+    # arithmetic assumes the WAL directory is inside PGDATA, so -- as with
+    # tablespaces -- it verifies that rather than assuming it, and refuses to present a
+    # partition when it is not, naming what it found instead of shipping untested
+    # multi-location accounting.
+    wal_location = inventory.get("wal", {})
+    if isinstance(wal_location, dict) and wal_location.get("directory_inside_pgdata") is not True:
+        raise RuntimeError("wal_directory_outside_pgdata")
     reconciliation = inventory.get("postgres_data_directory_reconciliation")
     if not isinstance(reconciliation, dict) or reconciliation.get("reconciled") is not True:
         # Unreconciled measurements must not be presented as a partition.
@@ -1503,6 +1551,15 @@ try:
             abs(residual) > volume_used * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
         ),
         "largest_unaccounted_directories": candidates[:10],
+        # The totals above sum the COMPLETE candidate list, so hiding the tail without
+        # saying so leaves an operator unable to reconcile the figure the method claims
+        # to partition -- and a normal PGDATA has enough unaccounted cluster
+        # directories to make that likely rather than exceptional.
+        "candidate_count": len(candidates),
+        "candidates_omitted": max(0, len(candidates) - 10),
+        "candidates_omitted_bytes": sum(
+            item["exclusive_bytes"] for item in candidates[10:]
+        ),
         "method": (
             "accounted_bytes = operating_database_bytes + other_databases_bytes + "
             "wal_bytes + current PostgreSQL temporary-directory bytes; "
