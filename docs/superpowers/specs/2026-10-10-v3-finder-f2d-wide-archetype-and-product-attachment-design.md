@@ -655,7 +655,12 @@ the page:
    genuine `Index Only Scan` with no heap access.
 2. **Filter.** Join `v3_app.system_search` to those ≤ 10,001 rows and apply
    every hard filter (region, distance, body counts, …).
-3. **Page.** `OFFSET`/`LIMIT` over the filtered survivors in the inner order.
+3. **Page.** Restate the order explicitly on the ≤ 10,000 survivors —
+   `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC` — then `OFFSET`/`LIMIT`.
+   The outer `ORDER BY` is required, not decorative: an ordered index scan
+   inside a subquery or CTE says nothing about the final result order and the
+   planner may choose a hash join for stage 2. Sorting ≤ 10,000 rows is cheap
+   and bounded; the plan tests assert the sort node's input rows are ≤ 10,000.
 4. **Fetch (bounded, by primary key).** Join `v3_app.system_archetype` again on
    `(derived_generation_id, system_id64)` for the ≤ `page_size` paged rows only,
    to read the selected `<key>_score`, `<key>_tier`, `<key>_confidence_ppm` and
@@ -1169,7 +1174,11 @@ Files:
 - `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`,
   additive; `archetype_version` and `archetype_manifest_sha256` on the shared
   ranking-identity model both envelopes use)
-- `apps/api/src/local_search.py` (**PR1, not PR2**: the local-search envelope's
+- `apps/api/src/local_search.py` (**PR1, not PR2**: the request model bounds
+  `from` to `0–10_000` so a direct caller cannot post `from: 2000000000` and
+  force an unbounded `OFFSET` against the ranking index — no mode navigates past
+  10,000 by contract and the galaxy-wide count is capped there, so nothing
+  reachable is lost; tests pin 10,000 (ok) and 10,001 (422). Also: the local-search envelope's
   ranking identity gains `archetype_version` and `archetype_manifest_sha256`;
   `_current_derived_generation()` returns the published archetype product's
   code/version/manifest hash alongside the generation id and sequence, and
@@ -1472,3 +1481,15 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    verifies from the live app. The reasoning — the deployed build gates only on
    READY, and post-`015` views hide unpublished rows — is written out under the
    table.
+
+### Review round 10 (2026-10-11, from the F4 design's review)
+
+1. **Outer `ORDER BY` is mandatory.** Stage 3 of the picked query restates
+   `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC` on the ≤ 10,000 survivors
+   before pagination: an ordered index scan inside a subquery does not fix the
+   final order and the planner may hash-join stage 2. The plan tests assert the
+   sort node's input is ≤ 10,000 rows.
+2. **The 10,000 offset ceiling is enforced at the API boundary.** PR1 bounds
+   `POST /api/local/search`'s `from` to 0–10,000 as well as the rankings route's
+   `offset`, so a direct caller cannot force `OFFSET 2000000000` against the
+   ranking index once the products are published.
