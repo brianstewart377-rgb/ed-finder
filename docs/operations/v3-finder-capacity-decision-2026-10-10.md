@@ -26,9 +26,9 @@ disposable-sample measurement in
 | `system_search` after migration `010` (198.5 M rows) | 273 B table + 164 B index | **≈ 87 GB** |
 | `system_archetype` as migration `011` defines it (8 rows per system = 1,588 M rows; ≈ 410 B of each row is the `explanation` JSON) | 422 B table + 194 B index | **≈ 978 GB** |
 | `system_archetype_summary` (198.5 M rows) | 96 B + 79 B | **≈ 35 GB** |
-| wide-row `system_archetype` (F2d design after review: one row per system with the eight stored ranking keys `<key>_weighted_e4`, no stored explanation; PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes; synthetic distribution 16.9 % / 2.1 % / 0.19 %) | 222 B table + 160 B index | **≈ 76 GB** (moves with the real per-floor fractions; stop rule at ≈ 40 % ≥ 60) |
+| wide-row `system_archetype` (F2d design after review: one row per system with the eight stored ranking keys `<key>_weighted_e4`, no stored explanation; PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes; synthetic distribution 16.9 % / 2.1 % / 0.19 %) | 222 B table + 160 B index | **≈ 76 GB** (moves with the real per-floor fractions; the three predicates are nested, so the gate is on the **sum of all 24 fractions** Σ_all: archetype ≈ 44 + 16 + 9.9 × Σ_all GB, ≈ 76 GB at the synthetic Σ_all of 1.54, gate stops above Σ_all 4.0, and ≈ 297 GB only if every fraction were 1) |
 | the same without the stored keys, 8 partial score-ordered indexes (the 23:00 draft — rejected: cannot serve the ranking's canonical order) | 186 B table + 150 B index | ≈ 67 GB |
-| the same wide row with full `(generation, <key>_score DESC, system_id64)` indexes (= the ceiling) | 186 B table + 480 B index | ≈ 132 GB |
+| *(reference)* the same wide row with full `(generation, <key>_score DESC, system_id64)` score indexes — the rejected pre-stored-key layout, **not** this design's ceiling | 186 B table + 480 B index | ≈ 132 GB |
 | the same wide row with deduplicating `(generation, <key>_score DESC)` indexes (the 2026-10-10 evening draft — rejected after review: it cannot bound the F4 slice 1c probe without a tie sort) | 186 B table + 142 B index | ≈ 65 GB |
 
 ## 2. Why the plan as written cannot run
@@ -227,7 +227,7 @@ applied anywhere.
 6. Adopt the wide-row index layout of primary key + weighted index + eight
    **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score
    >= 60` indexes (≈ 66 GB on the synthetic sample, sized for real from the
-   calibration probe's tier histogram, ceiling ≈ 132 GB)? This replaces the
+   calibration probe's tier histogram)? This replaces the
    deduplicating variant proposed earlier the same evening, which review showed
    cannot bound the F4 slice 1c probe without a distribution-dependent tie
    sort.
@@ -236,7 +236,11 @@ applied anywhere.
    store the picked ranking's canonical key per archetype
    (`<key>_weighted_e4`) and index it under each exposed tier floor (24 partial
    indexes), ≈ 76 GB on the synthetic sample (+10 GB), so the ranking is served
-   in its own order rather than approximated from a raw-score window?
+   in its own order rather than approximated from a raw-score window? The
+   partials are nested, so the capacity gate is on Σ_all (the sum of all 24
+   per-key tier fractions): ≈ 76 GB at the synthetic Σ_all of 1.54, the gate
+   stops above Σ_all 4.0 (≈ 100 GB), and ≈ 297 GB only in the absurd case where
+   every fraction is 1.
    **Owner: yes (2026-10-11, in chat).**
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder

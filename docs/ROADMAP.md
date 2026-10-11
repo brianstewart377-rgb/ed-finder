@@ -187,8 +187,9 @@ newer dated source wins).
   `docs/operations/v3-finder-capacity-decision-2026-10-10.md`): rewrite the
   unapplied migration `011` as one wide archetype row per system with
   explanations computed on demand (≈76 GB measured on a synthetic score
-  distribution with the stored ranking keys and tier-partial indexes, instead
-  of ≈1 TB), attach
+  distribution with the stored ranking keys and tier-partial indexes, sized for
+  real at the capacity gate from the calibration histogram, instead of ≈1 TB),
+  attach
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
@@ -218,34 +219,51 @@ newer dated source wins).
      code PRs that encode either may not merge before the answer is recorded
      there. **Both were answered yes by the owner on 2026-10-10 and are
      recorded there**, so this prerequisite is satisfied. The rewritten `011`
-     also changes the rankings route's `min_score` contract deliberately
-     (default 60, minimum 60; the partial indexes hold only tier-B-and-above
-     rows and nothing live calls the route yet).
+     also changes the rankings route's `min_score` contract deliberately:
+     it accepts **exactly the three indexed tier floors**
+     `Literal[60, 76, 88]` with default 60 — not the continuous range 60–100 —
+     because each accepted value must have its own partial index; 70 or 100 are
+     422s, and a continuous range would reintroduce an unbounded residual scan.
+     A picked request carrying a hard filter (`galaxy_region`,
+     `max_distance_ly`, `has_elw`, `min_slots`, `max_contamination`) is also a
+     422 in the initial product: filters cannot be applied inside the bounded
+     window without changing what they mean, so archetype ranking is unfiltered
+     and Any mode keeps every filter. Nothing live calls the route yet.
   2–3. Only then: governed migration `plan` → review → `apply` of
      `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
      validation.
-  5′. Register, build and validate post-`010` `system_search` on
-     `ratings_v4_prod_p4_parallel_v1` (≈87 GB).
+  5′. **Deploy the release before any product reaches READY.** Revise the
+     application-release gate to require the applied migration set and its exact
+     ledger hashes, the new ranking identity, the bounded ranking route and the
+     publication check in the built image — and **no product rows**, because
+     none exist yet — then build the immutable release carrying the F2d code and
+     promote it. Verify from the live app that the Finder answers 503 and
+     advertises the new ranking identity. This ordering is required: the
+     currently deployed API gates only on both products being READY, so if the
+     products reached READY under that build it would stop answering 503 and
+     start reading the post-`015` views, which hide unpublished rows — a
+     valid-looking empty search and a broken picked ranking. Deploying first
+     removes that interval.
   6. Unchanged: run the read-only calibration probe and record the coefficient
-     decision before the archetype product is registered.
-  7′. Register, build and validate the wide-row `system_archetype` on the same
-     generation (≈76 GB measured on the synthetic distribution, sized for real
-     from the step 6 calibration histogram, ceiling ≈132 GB; the gate
-     re-measures with the final `011` text and stops if search +
-     archetype + working room exceed the free space in a fresh step 0 receipt).
-  8′. Both products reach `READY` through the receipted governed validation
-     routes.
-  10′–11′. Revise the application-release gate to require both products READY
-     (publication not yet required) plus the new ranking identity, build the
-     immutable release carrying the F2d code, and promote it. With the products
-     READY but unpublished the deployed API answers the Finder with 503 "not
-     ready", so the bounded ranking route is in production **before** anything
-     is visible.
+     decision before the archetype product is registered. Its per-key tier
+     histogram also sizes the archetype indexes for the capacity gate.
+  7′. Register, build and validate post-`010` `system_search` on
+     `ratings_v4_prod_p4_parallel_v1` (≈87 GB). The deployed app stays 503
+     because the products are not published.
+  8′. Register, build and validate the wide-row `system_archetype` on the same
+     generation (≈76 GB measured on the synthetic distribution). The partial
+     indexes are nested, so the capacity gate is on the **sum of all 24 per-key
+     tier fractions** (Σ_all): archetype ≈ 44 GB heap + 16 GB primary/weighted +
+     9.9 GB × Σ_all, which is ≈ 76 GB at the synthetic Σ_all of 1.54 and
+     ≈ 297 GB only in the absurd case where every fraction is 1. The gate
+     computes Σ_all from the step 6 histogram, may proceed only while Σ_all ≤ 4.0,
+     and re-measures with the final `011` text, stopping if search + archetype +
+     working room exceed the free space in a fresh step 0 receipt.
   9′ (last — go-live). Publish both **products** with
      `v3_meta.publish_derived_product` in one governed transaction; the
-     generation pointer does not move (no `publish_derived_generation`). This
-     runs only after 11′ is the running application: publishing against the
-     previous image would expose the old unbounded selected-ranking route.
+     generation pointer does not move (no `publish_derived_generation`). Then
+     verify from the live app that results are served and the envelopes carry
+     the expected generation, ranking identity and product identity.
 
   Until 4′ has
   merged, **no production step beyond step 0 may be dispatched** (not even the

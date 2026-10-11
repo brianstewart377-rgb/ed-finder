@@ -290,12 +290,30 @@ with 16.9 % ≥ 60, 2.1 % ≥ 76, 0.19 % ≥ 88 per key; `v4_weighted_key_tier_p
 in the committed evidence): ≥ 60 partial 8.5 B/row, ≥ 76 1.1 B/row, ≥ 88 0.2 B/row
 per key — ≈ 79 B/row for all 24 — plus primary key 40.7 and weighted index 40.8;
 indexes total 160 B/row ≈ 32 GB. Each partial's size is 49.8 B × (fraction of
-systems at or above that floor), so **the calibration probe's per-key tier
-histogram sizes them for real** — at the pre-build capacity gate, after the
-governed probe has run, not in PR1 (whose receipt uses the declared synthetic
-distribution, section 10); the gate stops and the design is revisited if the
-histogram implies the ≥ 60 fraction above ≈ 40 % on several keys (that would
-put the indexes alone near 80 GB). The earlier
+systems at or above that floor). The three predicates are **nested**, not
+disjoint — a system scoring ≥ 88 on a key is indexed in that key's ≥ 60, ≥ 76
+**and** ≥ 88 partials — so the cost is driven by the sum of all 24 fractions:
+
+```text
+partial-index GB  ≈  49.8 B × 198.5 M × Σ(f60 + f76 + f88 over the 8 keys) / 1e9
+                  ≈  9.9 GB × Σ_all
+archetype total   ≈  44 GB heap + 16 GB (primary key + weighted index) + 9.9 × Σ_all
+```
+
+The synthetic sample's Σ_all is 8 × (0.169 + 0.021 + 0.0019) = **1.54** ⇒ 15.2 GB
+of partials (measured 15.6) ⇒ ≈ 76 GB. The absolute ceiling, if every fraction
+were 1 (every system at tier S on every archetype), is 24 × 9.9 = 237 GB of
+partials ⇒ **≈ 297 GB** — not the ≈ 132 GB of the rejected full-score-index
+layout, which this design no longer uses. So **the capacity gate is on Σ_all,
+not on the ≥ 60 fraction alone**: the pre-build gate computes Σ_all from the
+calibration probe's per-key tier histogram and may proceed only while
+`Σ_all ≤ 4.0` (≈ 40 GB of partials, archetype ≈ 100 GB, new data ≈ 187 GB,
+≈ 105 GB left of the 292 GB observed free) **and** the re-measured total plus
+Search plus WAL/temp/vacuum room fits the free space in a fresh step 0 receipt.
+Above that the design is revisited — the fallback is to index fewer floors (only
+≥ 60, accepting a residual filter for the A and S floors) or fewer archetypes.
+The histogram is read at that gate, after the governed probe has run, never in
+PR1 (whose receipt uses the declared synthetic distribution, section 10). The earlier
 score-ordered partial layout (`v3_partial_ge60_score_sysid`, ≈ 67 GB) and the
 deduplicated layout (≈ 65 GB) are kept in the evidence as rejected alternatives:
 the first cannot serve canonical order, the second cannot bound the probe.
@@ -648,22 +666,44 @@ the page:
 
 Carrying those columns as INCLUDE payload on the 24 partial indexes was
 rejected: it would add payload to every indexed row to save ≤ 50 key lookups
-per request. The count query needs stages 1 and 2 only. Hard filters therefore apply **inside** the
-window, never before it: a filter in the inner `WHERE` would let the index scan
-run past 10,001 entries looking for matches (unbounded again, and the very
-reason the F4 design's slice 1c existed). `total` is the number of survivors
-(0–10,000) and `is_truncated` is whether a 10,001st qualifying row existed
-before filtering. This is what keeps selective filters bounded: the inner
-`LIMIT 10001` caps index entries examined (it runs over the archetype relation
-alone, with no filter that could make the scan run on), and a filter that
-matches nothing yields `total = 0, is_truncated = true` after inspecting at most
-10,001 archetype rows and 10,001 joined Search rows — never a walk of the whole
-tier partial. The disposable-PG18 tests include a selective filter (`has_elw`, a
-sparse region) and a no-match filter and assert, from the plan, that the inner
-scan reads ≤ 10,001 entries in each case. Because the route is live in
-production the moment the
-products are published, this bounded form must be deployed **before**
-publication (section 8), not left to a later F4 slice.
+per request. The count query needs stages 1 and 2 only.
+
+**Hard filters are rejected on a picked archetype, not redefined (review round
+9).** A filter inside the inner `WHERE` would let the index scan run past 10,001
+entries looking for matches — unbounded again — so the only bounded placement is
+*after* the window. But filtering after the window silently changes what a
+filter means: a selective `galaxy_region`, `max_distance_ly` or `has_elw`
+request would discard every qualifying system ranked below the global first
+10,000 and could return an empty page while millions of matching systems exist,
+and `is_truncated` would describe the unfiltered population. The product
+contract says Finder filters select the results
+(`docs/colonisation-redesign/spatial-platform-product-contract.md:102-110`), so
+this design does not quietly weaken them. PR1 therefore makes
+`/api/archetypes/rankings` **reject** a picked request that carries any hard
+filter — `galaxy_region`, `max_distance_ly`, `has_elw`, `min_slots`,
+`max_contamination` — with HTTP 422 naming the unsupported parameters and the
+reason (“archetype ranking is unfiltered in the initial product; filter in Any
+mode or drop the filter”). Consequences, all honest and bounded:
+
+- stage 2 becomes a plain join for the response columns, with no filter
+  predicates, so `total = min(qualifying, 10000)` and `is_truncated =
+  qualifying > 10000` mean exactly what they say — the Finder never shows an
+  empty page while matches exist;
+- Any mode keeps every filter, unchanged: it runs through local search, which
+  has its own indexes and its own (already capped) count;
+- the F4 UI disables — not hides — the hard filters while an archetype is
+  picked, with the same reason as the 422, so the combination is never offered
+  (F4 design, picker anatomy);
+- filtered archetype ranking stays the documented deferred work: it needs a
+  filter-first bounded access path (a denormalized projection co-locating the
+  stored ranking key with hot search predicates, or per-filter composite
+  indexes), which no cheap index can provide on the wide row.
+
+The disposable-PG18 tests assert the 422 for each hard filter on a picked
+request, that Any mode with the same filters is unaffected, and — from the plan —
+that the inner scan reads ≤ 10,001 entries. Because the route is live in
+production from the moment the release deploys, this bounded form ships in that
+release (section 8 step 5), not in a later F4 slice.
 
 **Tie-break.** The current profile breaks ties by Sol distance, then
 `system_id64` (`PROFILE_SPEC` `("distance", "system_id64")`), and the route
@@ -1009,11 +1049,25 @@ replace either; the rollout below is authorized only once both say so:
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
-| 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
-| 7 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, both products **READY (publication not yet required)**, validation audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
-| 8 | Build the immutable release containing PR1–PR4, run preflight, and promote only after the revised gate passes. With the products READY but unpublished, the deployed API answers the Finder with 503 “not ready” (section 7.3) — the bounded ranking code is in production **before** any product is visible. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
-| 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
+| 5 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify from the live app that the Finder answers 503 and that the advertised ranking identity is the new one. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
+| 6 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
+| 7 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
+| 8 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
+| 9 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded (the governed read-only status action reports the product rows, publication timestamps and audit rows). | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+
+**Why the release must be deployed before any product reaches READY (review
+round 9).** The currently deployed API's `_current_derived_generation()` gates
+only on both products being READY (`apps/api/src/local_search.py:620-643`). If
+the products reached READY while that build was still live, it would stop
+answering 503 and start querying the `v3_app` views — which after `015` hide
+every unpublished row — so the default local search would return a
+valid-looking **empty** result and a picked ranking would error against the
+removed `archetype_key` column. Deploying first removes that interval entirely:
+from migration apply until step 8 the Finder is 503 for a *verified* reason
+(step 5's post-promotion check), first because no products exist and then
+because the deployed code requires `published_at`. The release gate therefore
+cannot require product rows — they do not exist when it runs — and publication
+is verified after the fact by the publish action's receipt and step 9.
 
 Total new persistent Finder data is planned at about 163 GB (87 GB Search plus
 76 GB Archetype, both from PostgreSQL 18.4 samples; the archetype figure moves
@@ -1326,6 +1380,14 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
    publication gate + recut) each carry their own registration so every head is
    green?** The alternative — a separate registration PR — cannot pass the
    manifest-integrity and authority-identity tests at intermediate heads.
+9. **Yes/no: accept that the initial archetype ranking takes no hard filters —
+   a picked request carrying `galaxy_region`, `max_distance_ly`, `has_elw`,
+   `min_slots` or `max_contamination` is a 422, and the F4 UI disables those
+   controls while an archetype is picked (section 6)?** The alternative is to
+   apply them after the top-10,000 window, which would let a selective filter
+   return an empty page while millions of matching systems exist — a quiet
+   change in what “filter” means, which the product contract does not allow.
+   Filtered archetype ranking needs a filter-first access path and is deferred.
 8. **Yes/no: accept no purge before Finder promotion?** This is the recorded
    owner decision; changing it would require a separate destructive-data design
    and authority. (`docs/operations/v3-finder-production-rollout-state.md` (PR #805))
@@ -1378,3 +1440,35 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    `Query(None, min_length=1, max_length=128)` and `expected_manifest_sha256` is
    `Query(None, pattern=r'^[0-9a-f]{64}$')`; malformed or oversized values are
    422s from validation, with tests for each case.
+
+### Review round 9 (2026-10-11)
+
+1. **P1 — Apply hard filters before selecting the ranking window** → neither
+   placement is acceptable, so the combination is rejected: PR1 makes a picked
+   request carrying `galaxy_region`, `max_distance_ly`, `has_elw`, `min_slots` or
+   `max_contamination` a 422 naming the parameters and the reason, Any mode keeps
+   every filter, the F4 UI disables those controls while an archetype is picked,
+   and `total`/`is_truncated` then mean exactly what they say. Filtered archetype
+   ranking needs a filter-first access path and stays deferred. Recorded as owner
+   question 9.
+2. **P1 — Record the discrete `min_score` contract in the ROADMAP** → the
+   ROADMAP now states `Literal[60, 76, 88]` with default 60 (not the continuous
+   60–100 range), says why — each accepted value needs its own partial index, and
+   70 or 100 are 422s — and records the hard-filter rejection in the same place.
+3. **P1 — Account for all 24 indexes in the capacity ceiling** → the three
+   predicates per key are nested, so section 3.3 now gives the cost as
+   `44 GB heap + 16 GB (PK + weighted) + 9.9 GB × Σ_all`, where Σ_all is the sum
+   of all 24 per-key tier fractions (1.54 synthetically ⇒ ≈ 76 GB), states the
+   true absolute ceiling of ≈ 297 GB (not the rejected layout's 132 GB), and moves
+   the capacity gate onto Σ_all with a stop above 4.0 and a named fallback (index
+   fewer floors or fewer archetypes). The ROADMAP, capacity decision and
+   rollout-state table carry the same arithmetic.
+4. **P1 — Keep the old API fail-closed until the new release is deployed** →
+   the rollout is reordered: the release deploys at step 5, **before** any product
+   reaches READY, gated on the applied migration set, the ranking identity, the
+   bounded route and the publication check — and on no product rows, because none
+   exist. Steps 6–7 build Search then Archetype (the deployed build keeps
+   answering 503 because they are unpublished), step 8 publishes both, step 9
+   verifies from the live app. The reasoning — the deployed build gates only on
+   READY, and post-`015` views hide unpublished rows — is written out under the
+   table.
