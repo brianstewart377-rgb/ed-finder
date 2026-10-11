@@ -405,6 +405,16 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   the **operating database** inside its own bound (it sorts ahead of size) and bounds
   the **tablespace refusal path** off a count rather than a row per tablespace — a
   fail-closed guard must not be the thing that fails to emit the stopped receipt.
+  **Replication slots** follow it too, ordered by WAL held (`lost`, then `unreserved`,
+  then furthest behind by `restart_lsn`) rather than by name: the bound must never drop
+  the slot that explains the WAL the receipt is accounting for.
+- **Row caps emit an aggregate candidate, never a silent gap.** Where a `du` row cap
+  drops entries — PGDATA's children or `base/`'s — their bytes are subtracted from the
+  "files directly in this directory" remainder (so they are not mislabelled) **and**
+  reported as their own candidate saying how many entries it covers and that the paths
+  were not retained. Subtracting without adding back removed those bytes from the
+  partition altogether, and a directory with thousands of entries is overwhelmingly
+  the unexpected storage this inventory exists to find.
 - **The published generation is always retained.** Generation keys carry no
   chronology, so lexicographic order can place the live generation past the
   bound. Both the SQL ordering and the receipt assembly therefore keep the
@@ -432,20 +442,40 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   remainder never is. The residual difference between the two metrics is
   `database_size_metric_difference_bytes`, which is **not reclaimable**: it is two
   tools measuring the same files differently. When the breakdown is unavailable (its
-  `reason` says why — an unbounded OID set, an unmeasured `base` child, or an exhausted
-  scan budget) **no `base/` candidate is emitted at all** and
+  `reason` says why) **no `base/` candidate is emitted at all** and
   `candidates_partition_unaccounted_at_scan` is `null`. An unexplained gap in the
-  partition is honest; a fabricated reclaim target is not.
+  partition is honest; a fabricated reclaim target is not. The breakdown is refused
+  when its inputs cannot be trusted to describe one state: an unbounded or **changed**
+  OID set (a database created between the OID query and the scan would have its live
+  directory reported as orphaned — the most dangerous output this receipt could
+  produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
+  `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
+  All of its figures, including `base/`'s own total, come from the `base` scan.
 - **Three terms in the summary are artefacts, not reclaimable space.**
   `post_scan_volume_drift_bytes` (sibling consumers moving between the root scan and
   the close), `database_size_metric_difference_bytes` (above), and
   `filesystem_minus_directory_scan_bytes` (`df` against `du`). The candidates partition
   **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`, and the receipt
-  asserts that identity explicitly as
-  `candidates_partition_unaccounted_at_scan`. `df`, `du` and the SQL queries cannot be
-  read atomically on a live multi-terabyte cluster, so each difference is named rather
-  than absorbed into a candidate, where up to the whole reconciliation tolerance —
-  several GiB here — could hide in a receipt reporting success.
+  asserts the identity explicitly as `candidates_partition_unaccounted_at_scan`:
+
+  ```
+  candidate_total_bytes
+    + database_size_metric_difference_bytes
+    + filesystem_minus_directory_scan_bytes
+    == unaccounted_bytes_at_directory_scan
+  ```
+
+  All three artefact terms belong in it. Every candidate is a `du` measurement, so the
+  candidates sum towards `directory_scan_root_bytes` while the figure they explain
+  starts from a `df` reading — and the gap between those two *is* the residual. (An
+  identity asserted without it would be false on any real filesystem, since `df` and
+  `du` always differ; it would only hold in a fixture where they agree.) `df`, `du` and
+  the SQL queries cannot be read atomically on a live multi-terabyte cluster, so each
+  difference is named rather than absorbed into a candidate, where up to the whole
+  reconciliation tolerance — several GiB here — could hide in a receipt reporting
+  success. The paired `df` reading is taken **immediately** after the root scan, before
+  the second full data-directory walk, so the pairing holds in time and not merely in
+  name.
 
 The action is strictly read-only and reclaims nothing. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and
