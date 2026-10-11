@@ -50,7 +50,13 @@ DRILL_DOWN_MAX_STEPS = 8
 DIRECTORY_SCAN_BUDGET_SECONDS = 1_500
 # Held back from the budget for the closing reconciliation scan, so the walk can never
 # consume the budget the reconciliation needs and take the whole section down with it.
-RECONCILE_RESERVE_SECONDS = 120
+# It is the full per-call allowance, not a smaller round number: reserving less would
+# leave the mandatory closing scan running against a shortened timeout, which is a
+# different way of failing it.
+RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
+# A drill-down step starting with barely any budget beyond the reserve would time out
+# and fail the section. Below this, stop and record the exhaustion instead.
+DRILL_DOWN_MIN_CALL_SECONDS = 30
 # PGDATA children whose bytes are already inside accounted_bytes. Everything else under
 # PGDATA (global, pg_xact, pg_multixact, log, replication-slot state) is unaccounted and
 # must stay visible as a candidate, or the summary cannot reconcile its own figure.
@@ -315,15 +321,19 @@ class ScanBudget:
     def remaining(self) -> float:
         return self._deadline - time.monotonic()
 
-    def call_timeout(self) -> int:
-        left = self.remaining()
+    def call_timeout(self, reserve_seconds: float = 0.0) -> int:
+        # The reserve is subtracted from what this call may use. Returning the whole
+        # remaining budget would let one scan spend the reserve it was meant to protect.
+        left = self.remaining() - reserve_seconds
         if left <= 0:
             raise RuntimeError("directory_scan_budget_exhausted")
         return max(1, min(DIRECTORY_USAGE_TIMEOUT_SECONDS, math.ceil(left)))
 
 
-def du_rows(argv: list[str], budget: ScanBudget, error: str) -> list[dict[str, Any]]:
-    result = run(argv, timeout=budget.call_timeout())
+def du_rows(
+    argv: list[str], budget: ScanBudget, error: str, *, reserve_seconds: float = 0.0
+) -> list[dict[str, Any]]:
+    result = run(argv, timeout=budget.call_timeout(reserve_seconds))
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
         reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
@@ -375,12 +385,15 @@ def drill_down(
     chain: list[dict[str, Any]] = []
     current = root.rstrip("/") or "/"
     for _ in range(max_steps):
-        if budget.remaining() <= reserve_seconds:
+        if budget.remaining() - reserve_seconds < DRILL_DOWN_MIN_CALL_SECONDS:
             if chain:
                 chain[-1]["stop_reason"] = "scan_budget_exhausted"
             break
         rows = du_rows(
-            ["du", "-x", "-B1", "--max-depth=1", current], budget, "drill_down_failed"
+            ["du", "-x", "-B1", "--max-depth=1", current],
+            budget,
+            "drill_down_failed",
+            reserve_seconds=reserve_seconds,
         )
         here = current
         here_total = next(

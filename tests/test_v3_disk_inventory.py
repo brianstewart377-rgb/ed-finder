@@ -690,9 +690,22 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     """
     source = _read(ACTION)
 
-    assert "RECONCILE_RESERVE_SECONDS = 120" in source
+    # The reserve is the closing scan's FULL per-call allowance: reserving less would
+    # leave the mandatory scan running against a shortened timeout, which is just a
+    # different way of failing it.
+    assert "RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
     assert "reserve_seconds=RECONCILE_RESERVE_SECONDS" in source
-    assert "if budget.remaining() <= reserve_seconds:" in source
+    # The reserve must be subtracted from what a call may use, or it is not reserved:
+    # call_timeout() returning the whole remaining budget lets one scan spend it.
+    assert "def call_timeout(self, reserve_seconds: float = 0.0) -> int:" in source
+    assert "left = self.remaining() - reserve_seconds" in source
+    assert "budget.call_timeout(reserve_seconds)" in source
+    # And a step that cannot finish within what is left must not be started at all.
+    assert "DRILL_DOWN_MIN_CALL_SECONDS = 30" in source
+    assert (
+        "if budget.remaining() - reserve_seconds < DRILL_DOWN_MIN_CALL_SECONDS:"
+        in source
+    )
     # Its own section name, so section_failed cannot clobber the scans above it.
     assert source.count('"postgres_data_directory_reconciliation"') >= 2
     assert "postgres_data_directory_not_reconciled" in source
@@ -713,6 +726,4 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
         "reconciled": True,
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
-    assert (
-        inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 120
-    )
+    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 300
