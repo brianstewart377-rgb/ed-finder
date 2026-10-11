@@ -237,7 +237,7 @@ applied anywhere.
    (`<key>_weighted_e4`) and index it under each exposed tier floor (24 partial
    indexes), ≈ 76 GB on the synthetic sample (+10 GB), so the ranking is served
    in its own order rather than approximated from a raw-score window?
-   **Awaiting the owner (asked 2026-10-11).**
+   **Owner: yes (2026-10-11, 01:05 BST, in chat).**
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder
 adaptation (code), the `015` migration + API gate (code), and the amended

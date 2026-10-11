@@ -1140,8 +1140,9 @@ Each unresolved choice is phrased for an explicit yes/no disposition.
    (+10 GB). The deduplicating and score-ordered variants are kept in the
    evidence as rejected; the full unique-entry variant costs ≈ 95 GB of indexes
    for rows no caller can ask for.
-   **Owner: yes to the partial principle on 2026-10-10; the stored-key
-   refinement is re-asked here.**
+   **Owner: yes to the partial principle on 2026-10-10 and yes to the
+   stored-key refinement on 2026-10-11 (recorded as question 6b of the capacity
+   decision).**
 2. **Yes/no: approve exact integer parts-per-million confidence storage
    (`<key>_confidence_ppm integer`, 0–1,000,000) with the ranking expression
    `ppm / 1000000.0` and API serialization `ppm / 1e6`?** Same 4 bytes as
