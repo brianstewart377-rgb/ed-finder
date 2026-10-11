@@ -1045,8 +1045,14 @@ and the Cypress/integration test that reads it):
 |---|---:|---:|
 | first page (`offset=0`, `page_size=50`) | ≤ 300 ms | ≤ 1,500 ms |
 | near-ceiling page (`offset=9950`, `page_size=50`) | ≤ 600 ms | ≤ 2,500 ms |
-| post-filter within-window count | ≤ 600 ms | ≤ 2,500 ms |
-| the same three with a selective region/distance/body-count filter | same budgets | same budgets |
+| bounded count (`SELECT count(*) FROM (… LIMIT 10001)`) | ≤ 600 ms | ≤ 2,500 ms |
+| the same three at the A (76) and S (88) floors, each on its own partial index | same budgets | same budgets |
+
+There is deliberately no filtered variant: a picked request carrying a hard
+filter is rejected with 422, so a filtered benchmark would measure SQL the
+endpoint never builds. Hard filters are covered by rejection tests, not by this
+receipt. Varying the floor instead exercises all three partial indexes, which is
+what actually differs between production requests.
 
 “Cold” here is honest only about PostgreSQL's shared buffers: a `pg_ctl restart`
 empties them but not the host filesystem cache, and a 1M-row fixture fits in
@@ -1075,7 +1081,10 @@ builder-produced page and count queries at S/A/B floors, including a sparse
 qualifying set. The plan must show the chosen `best_colony_potential` index,
 candidate window or explicit work cap prevents a scan across most of the seeded
 generation, and the response must expose truthful count/truncation semantics.
-Reuse the production-shaped three-relation/view/index fixture above; a unit test
+Reuse the production-shaped fixture above — the final F2d shape, exactly two
+underlying relations (`system_search` and the wide `system_archetype`) with the
+summary expanded as a view and the real indexes, never the superseded summary
+table; a unit test
 that merely finds `LIMIT 10000`, or a flattened-table EXPLAIN, is not evidence of
 an inspected-row bound. This proof gates only future Any-tier filtering, not the
 selected-only F4b surface.
@@ -1333,8 +1342,13 @@ promotion. Three API dependencies remain explicit:
 
 - **Slice 1b — summary best tier:** project `sum.best_tier`, add `best_tier` to
   both rankings and local-search response models/builders, regenerate clients,
-  and test that it is summary-owned. F4a may land first and represents the
-  headline as a number without a tier; the browser never derives it.
+  **and carry it through the application facade** — `apps/web/src/lib/api/client.ts`
+  adds `best_tier` to the `ExploreSystem` type and both normalizers copy it when
+  present (components read the facade, not the generated modules, so a backend
+  field that stops at the generated client never reaches the headline) — and
+  test that it is summary-owned plus a present-value normalization test and an
+  absent-value test. F4a may land first and represents the headline as a number
+  without a tier; the browser never derives it.
 - **Slice 1c — bounded selected ranking:** this is a hard prerequisite for every
   selected-archetype mode, including B/60. Read the window from the F2d
   stored-key tier-partial index in canonical order, restate that order on the
@@ -1366,19 +1380,26 @@ promotion. Three API dependencies remain explicit:
 
 ### PR slice 1c — bounded selected ranking API (hard prerequisite for F4b)
 
-Exact files:
+Exact files — **the residual work only.** F2d PR1 lands the bounded route
+itself (the window, the literal floors, the `Literal[60, 76, 88]` contract, the
+bounded count, the hard-filter rejection, the hashed rules and the regenerated
+clients), so slice 1c must not rewrite an already-deployed contract or touch
+the ranking identity. What remains is the representative-scale proof and the
+tests that prove the deployed behaviour:
 
-- modify `apps/api/src/ranking/ranking_sql.py`
-- modify `apps/api/src/ranking/profile.py`
-- modify `apps/api/src/routers/archetypes.py`
-- modify `apps/api/src/models.py`
-- modify `tests/test_ranking_sql.py`
-- modify `tests/test_ranking_profile_identity.py`
-- modify `tests/test_ranking_identity_and_no_legacy.py`
-- modify `tests/test_archetype_rankings_v3.py`
-- create `tests/test_archetype_rankings_scale_postgres.py`
-- regenerate `apps/web/src/lib/api/generated/types.gen.ts`
-- regenerate `packages/api-client/src/generated/api.gen.ts`
+- create `tests/test_archetype_rankings_scale_postgres.py` (the ≥ 1,000,000-row
+  fixture, the plan assertions under `force_generic_plan`, the latency receipt)
+- modify `tests/test_archetype_rankings_v3.py` (the 422 rejection cases per hard
+  filter, `total = min(qualifying, 10000)`, `is_truncated` at the sentinel, and
+  the floor-specific index per request)
+- modify `tests/test_ranking_sql.py` **only if** a plan assertion needs a new
+  builder hook; no change to the emitted SQL
+- add the receipt itself under `docs/operations/` (or the agreed evidence path)
+
+If the proof uncovers a genuine behavioural gap in the deployed route, that is a
+**new, explicitly scoped API delta** with its own ranking-identity decision —
+not an implicit licence for this slice to edit `ranking_sql.py`, `profile.py`,
+`archetypes.py` or `models.py`.
 
 **Slice 1c is built on the F2d wide-row schema, not on the current keyed
 `011`.** The owner's 2026-10-10 capacity decision rewrites migration `011` from
@@ -2648,3 +2669,24 @@ that describe post-window filtering are superseded by this one.
    now says so explicitly, attributes its figures to #806, and states that **#806
    must merge before this prerequisite counts as satisfied**, with PR1's own
    receipt re-measuring the final `011` text.
+
+#### Round 27 — 2026-10-11 (PR #801)
+
+1. **P2 — Benchmark only the filter-free selected-ranking path** → the latency
+   table's filtered rows are replaced by the bounded count and the same three
+   queries at the A and S floors (exercising all three partial indexes), with a
+   note that a filtered benchmark would measure SQL the endpoint never builds
+   since such requests are 422s.
+2. **P2 — Reuse the final two-relation fixture for slice 1d** → the Any-tier
+   proof names the same two-relation, view-expanded fixture and forbids
+   materializing the superseded summary table.
+3. **P2 — Align slice 1c's file list with its post-F2d scope** → the list is cut
+   to residual work (the scale fixture, the rejection/semantics tests, the
+   receipt); `ranking_sql.py`, `profile.py`, `archetypes.py` and `models.py` are
+   removed, with a note that a genuine gap found by the proof is a new, explicitly
+   scoped API delta with its own identity decision rather than an implicit licence
+   to edit the deployed contract.
+4. **P2 — Carry `best_tier` through the application facade** → slice 1b also adds
+   `best_tier` to the `ExploreSystem` facade type and both normalizers, with
+   present- and absent-value tests, since components read the facade rather than
+   the generated modules.
