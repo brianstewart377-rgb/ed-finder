@@ -425,12 +425,21 @@ tree. (`apps/api/Dockerfile:12-24`,
 For the current generation and requested `id64`, one parameterized SQL round
 trip reads:
 
-- the one matching `system_rating_vector` row; and
-- the matching `economy_opportunity` rows grouped by economy ordinal.
+- the one matching `system_rating_vector` row;
+- the matching `economy_opportunity` rows grouped by economy ordinal; **and**
+- the one matching generation-pinned `v3_app.system_archetype` wide row — the
+  eight score/tier/confidence-ppm triples and the summary columns — because the
+  response contract requires the recomputed values to be compared against the
+  stored ones and to fail closed on a mismatch. Reading it in the same round
+  trip is what makes that comparison possible and keeps it on one consistent
+  snapshot; a later second read could see a different row. If the wide row is
+  absent the route is a 404 for that system, not a computed explanation.
 
 The query must use the leading `(derived_generation_id, system_id64)` keys and
 return the same `SystemVectors` fields as `_read_chunk_vectors`, then call the
-shared `fit_all` and `summarise`. The existing source relations have primary
+shared `fit_all` and `summarise` and compare every recomputed value with the
+stored row (a test seeds a deliberately divergent stored row and asserts the
+fail-closed response rather than a plausible-looking explanation). The existing source relations have primary
 keys beginning with those two columns, and the builder currently reads exactly
 those vector and opportunity inputs. (`sql/v3/migrations/003_ratings_v4_derived.sql:109-126,165-185`,
 `scripts/v3_system_archetype.py:249-281`,
@@ -636,8 +645,8 @@ request (an arbitrary value such as 100 would have been served from the `>= 88`
 partial with a heap filter that could read that whole partial — review round 6 —
 which is why non-tier values are not accepted). Measured under
 `plan_cache_mode = force_generic_plan`: parameter-only ⇒ parallel sequential
-scan + sort; with the literal ⇒ index scan on the matching partial, 10,001 rows
-read. For no pick, keep the `v3_app.system_archetype_summary` join
+scan + sort; with the literal ⇒ index scan on the matching partial, reading at
+most the query's own limit (10,000 for a page, 10,001 for the count). For no pick, keep the `v3_app.system_archetype_summary` join
 and `sum.weighted_potential DESC NULLS LAST` unchanged. Preserve all selected
 aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
@@ -649,8 +658,13 @@ the page:
 
 1. **Window (index-only).** An inner query over `v3_app.system_archetype`
    alone selecting only `system_id64` and `<key>_weighted_e4` — generation,
-   literal floor, `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC`,
-   `LIMIT 10001`. Those are exactly the partial index's own columns
+   literal floor, `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC`. The limit
+   differs by query and that difference matters: the **page** query uses
+   `LIMIT 10000`, because its stage-3 sort must receive at most 10,000 rows (the
+   plan assertion and the production probe both require that); the **count**
+   query uses `LIMIT 10001`, because the 10,001st row is precisely the sentinel
+   that sets `is_truncated`. A single 10,001-row window for both would push an
+   11th-thousand row into the page sort and fail the assertion. Those are exactly the partial index's own columns
    `(derived_generation_id, <key>_weighted_e4, system_id64)`, so this stage is a
    genuine `Index Only Scan` with no heap access.
 2. **Join (no filtering).** Join `v3_app.system_search` to those ≤ 10,001 rows
@@ -670,7 +684,7 @@ the page:
    the summary columns the response reports — at most 50 primary-key lookups per
    request. The plan assertions therefore require: the window node is an
    `Index Only Scan` on the expected partial index with ≤ 10,001 actual rows,
-   and the fetch node's actual rows are ≤ `page_size`.
+   and the fetch node's actual rows are ≤ `page_size`; for the count query the window node may read exactly 10,001.
 
 Carrying those columns as INCLUDE payload on the 24 partial indexes was
 rejected: it would add payload to every indexed row to save ≤ 50 key lookups
@@ -1361,10 +1375,14 @@ Files:
   and view counts — **and fails closed on the deployed application before it
   publishes anything**, because publication is what makes the route live: it
   reads the running API container's image digest and compares it with the
-  accepted-release attestation for the F2d release, and reads the live
-  `/api/local/search` (or the health/identity surface) to confirm the advertised
-  `ranking_version`/`ranking_sha256` are the expected new values, refusing with
-  distinct exit codes if either differs. Without that check the SQL function
+  accepted-release attestation for the F2d release, and confirms the expected
+  `ranking_version`/`ranking_sha256` **from that attestation and the served
+  `/openapi.json`** — deliberately **not** from a Finder response envelope,
+  because `_current_derived_generation()` answers 503 until the products are
+  published, so no envelope exists at this point and a check that required one
+  could never pass. Both comparisons refuse with distinct exit codes. The live
+  envelope's identity is verified immediately afterwards, at step 10, when it
+  exists. Without that check the SQL function
   would happily publish READY products while an out-of-order dispatch or an
   application rollback left the old keyed-schema image running. Tests cover the
   out-of-order case — products READY, old image digest — and the identity
@@ -1647,3 +1665,23 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    now, in both documents: 4 deploy the release, 5 calibration probe (its
    histogram is the gate's input), 6 combined capacity gate, 7 Search build,
    8 Archetype build, 9 publish, 10 post-go-live verification.
+
+### Review round 13 (2026-10-11)
+
+1. **P1 — Verify identity without calling the unpublished Finder** → correct:
+   the Finder answers 503 until publication, so the publish action's identity
+   check comes from the accepted-release attestation and the served
+   `/openapi.json` plus the running image digest, never from a response envelope.
+   The live envelope is checked at step 10, once it exists.
+2. **P1 — Align the capacity decision with the pre-Search gate** →
+   `v3-finder-capacity-decision-2026-10-10.md` section 4 is updated to put the
+   combined gate before the Search build, matching the controlling sequence.
+3. **P2 — Separate the page and count window sizes** → the page query's window
+   is `LIMIT 10000` (so the stage-3 sort receives at most 10,000 rows, as the plan
+   assertion and the production probe require) and the count query's is
+   `LIMIT 10001` (the sentinel). The plan assertions distinguish the two.
+4. **P2 — Read the stored row in the explanation query** → the single round trip
+   also reads the generation-pinned wide `system_archetype` row, so the mandated
+   recomputed-vs-stored comparison happens on one consistent snapshot; a missing
+   row is a 404, and a test seeds a divergent stored row and asserts the
+   fail-closed response.

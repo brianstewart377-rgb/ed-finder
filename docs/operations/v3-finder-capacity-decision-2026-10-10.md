@@ -186,18 +186,26 @@ window, backup/PITR implications). Kept as the fallback if A/B are rejected.
 
 **A + B**, in that order: rewrite `011` as the wide-row archetype product, add
 `015` to attach and explicitly publish products on the published generation,
-then register and apply `[014, 010, 011', 013, 015]`, build `system_search`
-(post-`010`) and the new `system_archetype` on `parallel_v1`, validate, publish
-the products, revise the release gate, promote.
+then register and apply `[014, 010, 011', 013, 015]`, **revise the release gate
+and deploy the release** (before any product exists), run the calibration probe,
+**pass the combined Search + Archetype capacity gate**, and only then build
+`system_search` (post-`010`) and the new `system_archetype` on `parallel_v1`,
+validate, and publish the products. The gate comes **before the Search build**,
+not between the two builds: `system_search` is itself an irreversible
+insert-only 198.5 M-row write, so building it first and failing the gate on the
+archetype measurement afterwards would strand an unpublishable, non-purgeable
+87 GB product. The controlling order is in
+`docs/ROADMAP.md` and in the F2d design's section 8.
 
 ```text
 new data written:  search 87 GB + archetype ≈ 76 GB (measured, synthetic distribution)  ≈ 163 GB
 free today:        292 GB   →  ≈ 129 GB headroom for WAL/temp/vacuum
 ```
 
-The production gate before the archetype build repeats the measurement with
-the final migration text and stops if search + archetype + working room do not
-fit the free space reported by the step 0 receipt at that time.
+The production gate — before the **Search** build, not just the archetype one —
+repeats the measurement with the final migration text and stops if search +
+archetype + working room do not fit the free space in a fresh disk reading at
+that time.
 
 Design **C** afterwards as hygiene, knowing that it reclaims filesystem space
 only through a table rewrite or partition drop (see C); a plain delete would
