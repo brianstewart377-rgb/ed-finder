@@ -29,6 +29,21 @@ POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
 STATEMENT_TIMEOUT_MS = 20000
 PROCESS_TIMEOUT_SECONDS = 30
 DIRECTORY_USAGE_TIMEOUT_SECONDS = 300
+# The data directory is measured either side of the filesystem scan; a live database
+# writes while they run, so a small difference is expected and a large one means the
+# two scans describe different states and cannot be subtracted from one another.
+DIRECTORY_DRIFT_FLOOR_BYTES = 1 << 30  # 1 GiB
+DIRECTORY_DRIFT_FRACTION_PPM = 5_000  # 0.5 %
+# Stop drilling once the largest child is under this fraction of the volume's used
+# bytes: below it the usage is spread rather than owned, and naming one directory would
+# mislead. Expressed as a fraction so it scales with the volume instead of being a
+# magic size, and so the floor is a stated property of the volume in the receipt.
+DRILL_DOWN_FLOOR_PPM = 2_500  # 0.25 % of used bytes
+DRILL_DOWN_MAX_STEPS = 8
+# `df` reports filesystem space; `du` estimates space used by files. The difference is
+# real (ext4 metadata, reserved blocks, blocks held by deleted-but-open files) and is
+# reported rather than hidden, with a flag when it is too large to ignore.
+DF_DU_RESIDUAL_SIGNIFICANT_PPM = 20_000  # 2 % of used bytes
 MOUNT_INSPECT_FORMAT = "{{range .Mounts}}{{.Source}}\t{{.Destination}}\n{{end}}"
 
 
@@ -236,6 +251,125 @@ def postgres_mount() -> tuple[str, str]:
     return mount
 
 
+def host_pgdata(
+    mount_source: str, mount_destination: str, db_user: str, db_name: str
+) -> tuple[str, str]:
+    """Translate the server's own `data_directory` into a host path.
+
+    The mount destination is not PGDATA. The official PostgreSQL 18 image places
+    PGDATA at /var/lib/postgresql/18/docker while the volume is commonly mounted at
+    /var/lib/postgresql, so scanning the mount root at depth 1 reports only the `18`
+    parent and never the base/pg_wal/log breakdown this action is supposed to show.
+    Ask the server where its data directory actually is and map it through the mount.
+    """
+    rows = psql("SELECT current_setting('data_directory')", db_user, db_name)
+    if len(rows) != 1 or len(rows[0]) != 1 or not rows[0][0].startswith("/"):
+        raise RuntimeError("postgres_data_directory_unresolved")
+    container_pgdata = rows[0][0].rstrip("/")
+    destination = mount_destination.rstrip("/")
+    source = mount_source.rstrip("/")
+    if container_pgdata == destination:
+        relative = ""
+    elif container_pgdata.startswith(f"{destination}/"):
+        relative = container_pgdata[len(destination) + 1 :]
+    else:
+        # PGDATA is not inside the mount we selected, so nothing on this volume is
+        # the data directory and the subtraction below would be wrong. Fail closed
+        # rather than subtract a size from the wrong subtree.
+        raise RuntimeError("postgres_data_directory_outside_mount")
+    return (f"{source}/{relative}" if relative else source), container_pgdata
+
+
+def du_total(path: str) -> int:
+    result = run(["du", "-x", "-B1", "--max-depth=0", path], timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
+        raise RuntimeError(f"directory_total_failed:{reason}")
+    rows = parse_du(result.stdout)
+    total = next((row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")), None)
+    if total is None:
+        raise RuntimeError("directory_total_missing")
+    return total
+
+
+def drill_down(
+    root: str, pgdata: str, pgdata_bytes: int, *, floor_bytes: int, max_steps: int
+) -> list[dict[str, Any]]:
+    """Walk from `root` towards the directory that actually owns the non-database bytes.
+
+    A single `du --max-depth=N` cannot do this. GNU `du` shows directories at most N
+    levels below the scanned root, so a depth-2 scan from / can emit /var/lib but never
+    /var/lib/docker -- every deeper consumer stays collapsed into one aggregate and the
+    owning directory is never named. Scanning deep enough to name it from the root would
+    emit a row per Docker layer, which is unbounded in output.
+
+    So descend one level at a time instead: list a directory's children, subtract the
+    measured data-directory size from whichever child contains it, and step into the
+    largest remaining child. Each step is one bounded `du --max-depth=1`, the number of
+    steps is capped, and the walk stops as soon as the largest child falls under the
+    floor -- at which point the usage is spread, not owned, and naming one directory
+    would be misleading. The returned chain is the evidence: each entry records where it
+    looked, the children it saw and the child it followed.
+    """
+    chain: list[dict[str, Any]] = []
+    current = root.rstrip("/") or "/"
+    for _ in range(max_steps):
+        result = run(
+            ["du", "-x", "-B1", "--max-depth=1", current],
+            timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip().splitlines()
+            reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
+            raise RuntimeError(f"drill_down_failed:{reason}")
+        rows = parse_du(result.stdout)
+        here = current
+        children = []
+        for row in rows:
+            path = row["path"].rstrip("/") or "/"
+            if path == here:
+                continue
+            size = row["bytes"]
+            contains_pgdata = path == pgdata or pgdata.startswith(f"{path}/")
+            if contains_pgdata:
+                size -= pgdata_bytes
+            children.append(
+                {
+                    "path": path,
+                    "bytes_excluding_database": size,
+                    "contains_database": contains_pgdata,
+                }
+            )
+        children.sort(key=lambda item: (-item["bytes_excluding_database"], item["path"]))
+        step: dict[str, Any] = {
+            "directory": here,
+            "children": children[:10],
+            "followed": None,
+            "stop_reason": None,
+        }
+        candidate = next(
+            (
+                child
+                for child in children
+                if child["path"] != pgdata
+                and not child["path"].startswith(f"{pgdata}/")
+                and child["bytes_excluding_database"] >= floor_bytes
+            ),
+            None,
+        )
+        if candidate is None:
+            step["stop_reason"] = "no_child_above_floor"
+            chain.append(step)
+            break
+        step["followed"] = candidate["path"]
+        chain.append(step)
+        current = candidate["path"]
+    else:
+        chain[-1]["stop_reason"] = "step_limit_reached"
+    return chain
+
+
 def section_failed(
     failures: list[str], inventory: dict[str, Any], section: str, exc: RuntimeError
 ) -> None:
@@ -307,8 +441,10 @@ receipt["postgres"] = {
 }
 
 mount_source: str | None = None
+mount_destination: str | None = None
 usage_full: list[dict[str, Any]] | None = None
 postgres_data_directory_bytes: int | None = None
+pgdata_host: str | None = None
 try:
     mount_source, mount_destination = postgres_mount()
     disk = df_values(
@@ -351,6 +487,24 @@ try:
         raise RuntimeError("directory_usage_mount_point_unresolved")
     usage_root = target_lines[1]
     inventory["volume_directory_usage_root"] = usage_root
+
+    pgdata_host, pgdata_container = host_pgdata(
+        mount_source, mount_destination, db_user, db_name
+    )
+    inventory["postgres_data_directory"] = {
+        "container_path": pgdata_container,
+        "host_path": pgdata_host,
+        "mount_destination": mount_destination,
+    }
+
+    # Bracket the data-directory measurement around the filesystem scan. The database
+    # is live: it extends relations, recycles WAL and writes logs while these commands
+    # run. Subtracting a size measured after the scan from a total measured before it
+    # would understate the non-database remainder when the database grew (and the
+    # `> 0` filter would then silently drop the row) or invent usage when it shrank --
+    # in both cases while the receipt still said `success`. Measuring either side of
+    # the scan turns that into a detectable, and refusable, inconsistency.
+    pgdata_before = du_total(pgdata_host)
     usage_result = run(
         ["du", "-x", "-B1", "--max-depth=2", usage_root],
         timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
@@ -361,24 +515,32 @@ try:
         # Fail closed: without this evidence the receipt cannot answer its own
         # question, so it must not be presented as a complete inventory.
         raise RuntimeError(f"directory_usage_failed:{reason}")
-    else:
-        usage_full = parse_du(usage_result.stdout)
-        inventory["volume_directory_usage"] = sorted(
-            usage_full, key=lambda item: (-item["bytes"], item["path"])
-        )[:40]
-except RuntimeError as exc:
-    section_failed(failures, inventory, "volume_directory_usage", exc)
+    usage_full = parse_du(usage_result.stdout)
+    pgdata_after = du_total(pgdata_host)
+    drift = abs(pgdata_after - pgdata_before)
+    tolerance = max(
+        DIRECTORY_DRIFT_FLOOR_BYTES, pgdata_before * DIRECTORY_DRIFT_FRACTION_PPM // 1_000_000
+    )
+    inventory["postgres_data_directory_bracket"] = {
+        "bytes_before_filesystem_scan": pgdata_before,
+        "bytes_after_filesystem_scan": pgdata_after,
+        "drift_bytes": pgdata_after - pgdata_before,
+        "tolerance_bytes": tolerance,
+    }
+    if drift > tolerance:
+        # The two scans cannot be reconciled, so the partition below would be fiction.
+        raise RuntimeError(f"directory_usage_inconsistent:drift_{drift}_over_{tolerance}")
+    # Use the larger reading for the subtraction. If the database grew during the scan,
+    # the filesystem total already contains part of that growth; subtracting the larger
+    # figure understates the non-database remainder rather than inventing usage that
+    # does not exist, which is the safe direction for a reclaim decision.
+    postgres_data_directory_bytes = max(pgdata_before, pgdata_after)
+    inventory["volume_directory_usage"] = sorted(
+        usage_full, key=lambda item: (-item["bytes"], item["path"])
+    )[:40]
 
-try:
-    if mount_source is None:
-        raise RuntimeError("postgres_data_mount_unresolved")
-    # The accounted PostgreSQL bytes have to be subtracted from the filesystem scan
-    # above, and the only figure that is consistent with that scan is the data
-    # directory's own on-disk size — not the sum of `pg_database_size`, which counts
-    # logical relation bytes and would leave a residue in the partition. Depth 1 also
-    # answers the operator's question directly by splitting base/ from pg_wal and logs.
     data_usage_result = run(
-        ["du", "-x", "-B1", "--max-depth=1", mount_source.rstrip("/")],
+        ["du", "-x", "-B1", "--max-depth=1", pgdata_host],
         timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
     )
     if data_usage_result.returncode != 0:
@@ -386,21 +548,34 @@ try:
         reason = detail[-1][:240] if detail else f"exit_{data_usage_result.returncode}"
         raise RuntimeError(f"postgres_data_directory_usage_failed:{reason}")
     data_usage = parse_du(data_usage_result.stdout)
-    data_dir_key = mount_source.rstrip("/")
-    total_row = next((row for row in data_usage if row["path"] == data_dir_key), None)
-    if total_row is None:
-        raise RuntimeError("postgres_data_directory_usage_total_missing")
-    postgres_data_directory_bytes = total_row["bytes"]
     inventory["postgres_data_directory_usage"] = {
-        "path": data_dir_key,
+        "path": pgdata_host,
         "bytes": postgres_data_directory_bytes,
         "children": sorted(
-            (row for row in data_usage if row["path"] != data_dir_key),
+            (row for row in data_usage if row["path"].rstrip("/") != pgdata_host),
             key=lambda item: (-item["bytes"], item["path"]),
         )[:40],
     }
+
+    # Name the directory that owns the non-database usage, which a single bounded-depth
+    # scan from the root cannot do (see drill_down).
+    drill_floor = max(
+        1, inventory["volume"]["used_bytes"] * DRILL_DOWN_FLOOR_PPM // 1_000_000
+    )
+    inventory["non_database_drill_down"] = {
+        "floor_bytes": drill_floor,
+        "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
+        "max_steps": DRILL_DOWN_MAX_STEPS,
+        "chain": drill_down(
+            usage_root,
+            pgdata_host,
+            postgres_data_directory_bytes,
+            floor_bytes=drill_floor,
+            max_steps=DRILL_DOWN_MAX_STEPS,
+        ),
+    }
 except RuntimeError as exc:
-    section_failed(failures, inventory, "postgres_data_directory_usage", exc)
+    section_failed(failures, inventory, "volume_directory_usage", exc)
 
 try:
     inventory["databases"] = psql_json(
@@ -714,7 +889,9 @@ try:
         raise RuntimeError("volume_directory_usage_unavailable")
     if postgres_data_directory_bytes is None:
         raise RuntimeError("postgres_data_directory_usage_unavailable")
-    data_dir = mount_source.rstrip("/")
+    if pgdata_host is None:
+        raise RuntimeError("postgres_data_directory_unresolved")
+    data_dir = pgdata_host
     exclusive = exclusive_usage(usage_full)
     # The PostgreSQL data directory is deeper than the filesystem scan's depth on this
     # layout, so its bytes sit inside the exclusive remainder of its deepest reported
@@ -741,6 +918,26 @@ try:
         ),
         key=lambda item: (-item["exclusive_bytes"], item["path"]),
     )
+    # `du` and `df` measure different things, so the partition closes against the du
+    # root total, not against df's used bytes. The gap between them is real on ext4 --
+    # filesystem metadata, reserved blocks, and blocks still held by deleted-but-open
+    # files (a dropped relation or unlinked WAL segment a backend has open) -- and it
+    # can be large enough to matter for a reclaim decision. Report it as its own figure
+    # so it cannot be mistaken for directory usage, and flag it when it is significant,
+    # because space held by deleted-but-open files is reclaimed by ending the holder,
+    # not by deleting anything.
+    du_root_bytes = next(
+        (
+            row["bytes"]
+            for row in usage_full
+            if (row["path"].rstrip("/") or "/") == (usage_root.rstrip("/") or "/")
+        ),
+        None,
+    )
+    if du_root_bytes is None:
+        raise RuntimeError("directory_usage_root_total_missing")
+    residual = volume_used - du_root_bytes
+    non_database_directory_bytes = sum(item["exclusive_bytes"] for item in candidates)
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
         "operating_database_bytes": operating_database_bytes,
@@ -749,8 +946,11 @@ try:
         "accounted_bytes": accounted_bytes,
         "unaccounted_bytes": volume_used - accounted_bytes,
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
-        "non_database_directory_bytes": sum(
-            item["exclusive_bytes"] for item in candidates
+        "non_database_directory_bytes": non_database_directory_bytes,
+        "directory_scan_root_bytes": du_root_bytes,
+        "filesystem_minus_directory_scan_bytes": residual,
+        "filesystem_minus_directory_scan_is_significant": (
+            abs(residual) > volume_used * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
         ),
         "largest_unaccounted_directories": candidates[:10],
         "method": (
@@ -762,8 +962,18 @@ try:
             "measured PostgreSQL data-directory size is subtracted from the deepest "
             "scanned directory that contains it, and the data directory and everything "
             "under it are excluded. No row therefore counts the database, and no row "
-            "counts another row's bytes. The du scan covers the whole filesystem that "
-            "holds the data directory, not only the PostgreSQL volume subdirectory"
+            "counts another row's bytes, and they sum to directory_scan_root_bytes "
+            "minus postgres_data_directory_bytes. The du scan covers the whole "
+            "filesystem that holds the data directory, not only the PostgreSQL volume "
+            "subdirectory. filesystem_minus_directory_scan_bytes is volume_used_bytes "
+            "minus directory_scan_root_bytes: df reports filesystem space and du "
+            "estimates space used by files, so this gap is filesystem metadata, "
+            "reserved blocks and blocks held by deleted-but-open files. It is not "
+            "directory usage and cannot be reclaimed by deleting a directory. "
+            "non_database_drill_down names the directory that owns the non-database "
+            "usage, which a single bounded-depth scan from the root cannot do: GNU du "
+            "shows directories at most N levels below the scanned root, so a depth-2 "
+            "scan from / emits /var/lib but never /var/lib/docker"
         ),
     }
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:

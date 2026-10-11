@@ -116,7 +116,7 @@ def _run_inventory_action(
               if [ "$format" = '{{.State.Running}}' ]; then
                 printf '%s\\n' 'true'
               else
-                printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql/data\\n'
+                printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql\\n'
               fi
               exit 0
             fi
@@ -169,24 +169,51 @@ def _run_inventory_action(
               printf '%s\\n' 'directory scan denied' >&2
               exit 7
             fi
-            data='/var/lib/docker/volumes/edfinder-pgdata/_data'
+            vol='/var/lib/docker/volumes/edfinder-pgdata/_data'
+            data="$vol/18/docker"
+            # Real `du` semantics: --max-depth=N shows directories at most N levels
+            # below the scanned root, so the depth-2 scan from / emits /var/lib but
+            # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
             case "$*" in
-              *'--max-depth=1'*)
-                # The data directory's own breakdown.
+              *"--max-depth=0 $data")
+                printf '1465000\\t%s\\n' "$data" ;;
+              *"--max-depth=1 $data")
                 printf '1345000\\t%s/base\\n' "$data"
                 printf '120000\\t%s/pg_wal\\n' "$data"
                 printf '1465000\\t%s\\n' "$data" ;;
-              *)
-                # The production shape: a depth-2 scan from the mount point, where the
-                # data directory is deeper than the scan and so is reported only inside
-                # the cumulative totals of its ancestors.
+              *'--max-depth=1 /var/lib/docker/volumes')
+                printf '1465000\\t%s\\n' "$vol"
+                printf '1470000\\t/var/lib/docker/volumes\\n' ;;
+              *'--max-depth=1 /var/lib/docker/overlay2')
+                printf '1000\\t/var/lib/docker/overlay2/aaaa\\n'
+                printf '1000\\t/var/lib/docker/overlay2/bbbb\\n'
+                printf '38000\\t/var/lib/docker/overlay2\\n' ;;
+              *'--max-depth=1 /var/lib/docker')
+                printf '1470000\\t/var/lib/docker/volumes\\n'
+                printf '38000\\t/var/lib/docker/overlay2\\n'
+                printf '1510000\\t/var/lib/docker\\n' ;;
+              *'--max-depth=1 /var/lib')
                 printf '1510000\\t/var/lib/docker\\n'
+                printf '5000\\t/var/lib/apt\\n'
+                printf '1515000\\t/var/lib\\n' ;;
+              *'--max-depth=1 /var')
+                printf '1515000\\t/var/lib\\n'
+                printf '30000\\t/var/log\\n'
+                printf '1545000\\t/var\\n' ;;
+              *'--max-depth=1 /')
+                printf '1545000\\t/var\\n'
+                printf '12000\\t/home\\n'
+                printf '1557000\\t/\\n' ;;
+              *'--max-depth=2'*)
                 printf '1515000\\t/var/lib\\n'
                 printf '30000\\t/var/log\\n'
                 printf '1545000\\t/var\\n'
                 printf '12000\\t/home/claude\\n'
                 printf '12000\\t/home\\n'
                 printf '1557000\\t/\\n' ;;
+              *)
+                printf '%s\\n' "unexpected du: $*" >&2
+                exit 9 ;;
             esac
             """
         ),
@@ -207,6 +234,8 @@ def _run_inventory_action(
               previous="$argument"
             done
             case "$sql" in
+              *'data_directory'*)
+                printf '%s\\n' '/var/lib/postgresql/18/docker' ;;
               *'pg_replication_slots'*)
                 exit 0 ;;
               *'pg_prepared_xacts'*)
@@ -296,9 +325,16 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert inventory["summary"]["accounted_bytes"] == 1382
     assert inventory["summary"]["unaccounted_bytes"] == 1557000 - 1382
     assert inventory["postgres_data_directory_usage"]["bytes"] == 1465000
-    assert {"path": "/var/lib/docker/volumes/edfinder-pgdata/_data/base", "bytes": 1345000} in (
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    assert inventory["postgres_data_directory"] == {
+        "container_path": "/var/lib/postgresql/18/docker",
+        "host_path": pgdata,
+        "mount_destination": "/var/lib/postgresql",
+    }
+    assert {"path": f"{pgdata}/base", "bytes": 1345000} in (
         inventory["postgres_data_directory_usage"]["children"]
     )
+    assert inventory["postgres_data_directory_bracket"]["drift_bytes"] == 0
 
 
 def test_v3_disk_inventory_fails_closed_when_the_directory_scan_fails(tmp_path):
@@ -314,7 +350,13 @@ def test_v3_disk_inventory_fails_closed_when_the_directory_scan_fails(tmp_path):
     assert receipt["status"] == "stopped"
     assert receipt["failures"] == ["read_only_query_failed"]
     usage = receipt["inventory"]["volume_directory_usage"]
-    assert "directory_usage_failed" in usage["volume_directory_usage_failed"]
+    reason = usage["volume_directory_usage_failed"]
+    assert reason.split(":", 1)[0] in {
+        "directory_total_failed",
+        "directory_usage_failed",
+        "drill_down_failed",
+    }, reason
+    assert "directory scan denied" in reason
 
 
 def test_v3_disk_inventory_scans_the_whole_filesystem_not_only_the_pg_volume():
@@ -370,13 +412,13 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
     # The database is 1,465,000 of the volume's 1,557,000 used bytes. Every candidate
     # must be smaller than the remaining 92,000, which no cumulative ancestor total is.
     assert max(by_path.values()) <= 1557000 - 1465000
-    # /var/lib/docker holds the database; only its 45,000 of non-database bytes survive.
-    assert by_path["/var/lib/docker"] == 45000
-    assert by_path["/var/lib"] == 5000
+    # /var/lib is the deepest row a depth-2 scan from / can emit, and it holds the
+    # database; only its 50,000 of non-database bytes survive the subtraction.
+    assert by_path["/var/lib"] == 50000
     assert by_path["/var/log"] == 30000
     assert by_path["/home/claude"] == 12000
     # No candidate is the data directory or inside it.
-    data_dir = "/var/lib/docker/volumes/edfinder-pgdata/_data"
+    data_dir = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     assert not any(p == data_dir or p.startswith(f"{data_dir}/") for p in paths)
     # The partition is exact: the candidates plus the database are the used bytes.
     assert summary["non_database_directory_bytes"] == 1557000 - 1465000
@@ -384,6 +426,52 @@ def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
         summary["non_database_directory_bytes"] + summary["postgres_data_directory_bytes"]
         == summary["volume_used_bytes"]
     )
+    # df and du measure different things; the gap is reported, not folded into a row.
+    assert summary["directory_scan_root_bytes"] == 1557000
+    assert summary["filesystem_minus_directory_scan_bytes"] == 0
+    assert summary["filesystem_minus_directory_scan_is_significant"] is False
+
+
+def test_v3_disk_inventory_drill_down_names_the_owning_directory(tmp_path):
+    """The partition alone cannot name the consumer; the drill-down must.
+
+    GNU `du --max-depth=N` shows directories at most N levels below the scanned root,
+    so a depth-2 scan from `/` stops at `/var/lib` and can never emit `/var/lib/docker`,
+    let alone the layer store beneath it. The partition is therefore correct but
+    uninformative: it says 50,000 bytes are somewhere under /var/lib. Descending one
+    bounded level at a time, subtracting the database wherever it appears, is what turns
+    that into an actionable answer.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    section = json.loads(result.stdout)["inventory"]["non_database_drill_down"]
+    chain = section["chain"]
+    followed = [step["directory"] for step in chain]
+
+    # 0.25 % of the 1,557,000 used bytes.
+    assert section["floor_bytes"] == 3892
+    # The walk reaches the layer store, which the flat scan could not name at all.
+    assert followed == [
+        "/",
+        "/var",
+        "/var/lib",
+        "/var/lib/docker",
+        "/var/lib/docker/overlay2",
+    ]
+    assert chain[-1]["followed"] is None
+    assert chain[-1]["stop_reason"] == "no_child_above_floor"
+    assert section["max_steps"] == 8
+    assert len(chain) <= section["max_steps"]
+
+    # At each step the database is subtracted from whichever child contains it, so the
+    # walk follows the non-database bytes rather than being dragged into the database.
+    docker = next(step for step in chain if step["directory"] == "/var/lib/docker")
+    volumes = next(
+        child for child in docker["children"] if child["path"].endswith("/volumes")
+    )
+    assert volumes["contains_database"] is True
+    assert volumes["bytes_excluding_database"] == 1470000 - 1465000
+    assert docker["followed"] == "/var/lib/docker/overlay2"
 
 
 def test_v3_disk_inventory_fails_closed_without_the_data_directory_measurement():
@@ -395,7 +483,10 @@ def test_v3_disk_inventory_fails_closed_without_the_data_directory_measurement()
     """
     source = _read(ACTION)
 
-    assert '["du", "-x", "-B1", "--max-depth=1", mount_source.rstrip("/")]' in source
+    assert '["du", "-x", "-B1", "--max-depth=1", pgdata_host]' in source
+    assert "def host_pgdata(" in source
+    assert "current_setting('data_directory')" in source
+    assert "postgres_data_directory_outside_mount" in source
     assert "postgres_data_directory_usage_failed" in source
     assert "postgres_data_directory_usage_unavailable" in source
     assert "volume_directory_usage_unavailable" in source
