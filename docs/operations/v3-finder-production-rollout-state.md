@@ -509,7 +509,16 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   the second full data-directory walk, so the pairing holds in time and not merely in
   name.
 
-The action is strictly read-only and reclaims nothing. Any purge, index removal,
+The action is read-only and reclaims nothing: it creates, modifies and deletes
+nothing, and both interpreter invocations take `-B` so no bytecode is written. One
+write it cannot avoid is reported rather than covered. The control plane pipes one
+self-contained script to `bash -s` over SSH, and bash uses a pipe for a here-document
+only while it fits the pipe buffer; this program is larger, so the shell spools it to
+an unlinked temporary file before the interpreter starts (measured under bash 5.2.21:
+a 126 KB here-document resolves stdin to `/tmp/sh-thd.* (deleted)` where a 62-byte one
+resolves to a pipe). That file holds the program's own text, no host data, and does not
+outlive the shell. `filesystem_writes_scope` in every receipt says so, because an
+unqualified `filesystem_writes_performed: false` overclaimed. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and
 operator action.
 

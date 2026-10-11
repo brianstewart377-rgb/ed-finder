@@ -471,6 +471,15 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert receipt["read_only"] is True
     assert receipt["db_writes_performed"] is False
     assert receipt["filesystem_writes_performed"] is False
+    # And the claim says what it covers. The shell spools a here-document above the
+    # pipe-buffer size to an unlinked temporary file before the interpreter starts, so
+    # an unqualified `false` overclaimed. Measured under bash 5.2.21: a 126 KB
+    # here-document gives `stdin -> /tmp/sh-thd.* (deleted)` where a 62-byte one gives
+    # `pipe:[...]`. The write holds this program's own text and no host data, and it
+    # cannot be removed while the control plane pipes one script over SSH, so the
+    # receipt reports it rather than covering it.
+    assert "unlinked temporary file" in receipt["filesystem_writes_scope"]
+    assert "creates, modifies and deletes nothing" in receipt["filesystem_writes_scope"]
     assert inventory["volume"]["avail_bytes"] == 292000
     assert {"path": "/var/log", "bytes": 30000} in inventory["volume_directory_usage"]
     assert inventory["databases"][0]["datname"] == "edfinder_v3_db"
@@ -1803,6 +1812,40 @@ def test_v3_disk_inventory_writes_no_bytecode():
     assert '"$PYTHON_BIN" -B -c' in source
     assert "exec \"$PYTHON_BIN\" -B - <<'PY'" in source
     assert '"filesystem_writes_performed":false' in source
+    # The one write that -B cannot prevent is the shell's own here-document spool, and
+    # the receipt names it rather than leaving the claim unqualified. The two early
+    # stopped receipts need no such note: bash spools a here-document when it reaches
+    # that command, and both of them exit before the exec.
+    assert '"filesystem_writes_scope": (' in source
+
+
+def test_v3_disk_inventory_requires_the_wal_directory_in_the_retained_children():
+    """pg_wal must survive the child cap; pg_xlog legitimately may not exist.
+
+    The subtraction of wal_bytes happens at exactly one place, so a pg_wal dropped by
+    the size-based child cap would skip it while the omitted-children aggregate still
+    reported those bytes as an unaccounted candidate -- live, already-accounted WAL
+    presented as a reclaim candidate, with the closure flag false and the receipt still
+    reporting success. A data directory always has a WAL directory, so its absence from
+    the retained children means the cap took it.
+    """
+    source = _read(ACTION)
+    assert 'if name == "pg_wal":' in source
+    assert "wal_directory_not_observed_in_data_directory" in source
+
+
+def test_v3_disk_inventory_tolerates_only_terminal_vanished_diagnostics():
+    """A path containing the marker text must not make a real error look like churn.
+
+    GNU du writes "du: cannot access 'PATH': REASON", the reason is the terminal text,
+    and this scan covers the whole filesystem including operator-uncontrolled names. A
+    file literally named "No such file or directory" would have made a Permission
+    denied line on it match as harmless churn, after which the action accepts an
+    incomplete scan and reports success.
+    """
+    source = _read(ACTION)
+    assert "line.rstrip().endswith(marker)" in source
+    assert "any(marker in line for marker in DU_VANISHED_MARKERS)" not in source
 
 
 def test_v3_disk_inventory_bounds_replication_slots_by_wal_actually_retained(tmp_path):

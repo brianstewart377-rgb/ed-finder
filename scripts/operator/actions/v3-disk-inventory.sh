@@ -643,11 +643,21 @@ def du_stream(
         # the part not captured could hold a permission error. Fail closed instead of
         # concluding tolerance from a partial read -- bounding stderr must not become a
         # way to lose the evidence that decides whether tolerating is safe.
+        # ENDSWITH, not `in`. GNU du writes "du: cannot access 'PATH': REASON", so the
+        # reason is the terminal text and the PATH is operator-uncontrolled -- this scan
+        # covers the whole filesystem, including /tmp and home directories. A file
+        # literally named "No such file or directory" would make a `Permission denied`
+        # line on it match as harmless churn, and the action would then accept an
+        # incomplete scan and report success. The tolerance has to key on the error
+        # du reported, not on text appearing anywhere in the line.
         vanished_only = (
             bool(stderr_lines)
             and not stderr_truncated
             and all(
-                any(marker in line for marker in DU_VANISHED_MARKERS)
+                any(
+                    line.rstrip().endswith(marker)
+                    for marker in DU_VANISHED_MARKERS
+                )
                 for line in stderr_lines
             )
         )
@@ -852,6 +862,30 @@ receipt: dict[str, Any] = {
     "private_keys_read": False,
     "service_changes_performed": False,
     "filesystem_writes_performed": False,
+    # What that claim covers, stated rather than left to be assumed. The action itself
+    # creates, modifies and deletes nothing -- but the shell that runs it spools the
+    # embedded program to an unlinked temporary file before the interpreter starts:
+    # bash uses a pipe for a here-document only while it fits the pipe buffer, and this
+    # program is larger, so stdin resolves to /tmp/sh-thd.* (deleted). Measured, not
+    # assumed: a 126 KB here-document under bash 5.2.21 gives
+    # `stdin -> /tmp/sh-thd.XXXXXX (deleted)` where a 62-byte one gives `pipe:[...]`.
+    #
+    # It cannot be removed in this delivery model. The operator control plane pipes one
+    # self-contained script to `bash -s` over SSH, so there is no file on the host to
+    # exec and no second file to read the program from. Splitting the program across
+    # several sub-pipe-buffer here-documents would avoid the spool, at the cost of
+    # arbitrary chunk boundaries through the middle of a program that operators have to
+    # read and reviewers have to audit -- a worse trade for a deleted file that holds
+    # this program's own text, no host data, and nothing after the interpreter starts.
+    #
+    # So it is reported instead of being quietly covered by an unqualified false.
+    "filesystem_writes_scope": (
+        "This action creates, modifies and deletes nothing. The shell spools the "
+        "embedded program to an unlinked temporary file before the interpreter starts, "
+        "because the control plane pipes one self-contained script over SSH and a "
+        "here-document above the pipe-buffer size is spooled rather than piped. That "
+        "file holds the program text, not host data, and does not outlive the shell."
+    ),
     "database_identity_source": "running_container_role_and_database_names_only",
     "query_policy": {
         "transaction": "READ ONLY",
@@ -2274,6 +2308,19 @@ try:
             None,
         )
         if wal_child is None:
+            # pg_wal is REQUIRED, pg_xlog is not. The subtraction of wal_bytes happens
+            # only here, so a pg_wal that the size-based child cap dropped would skip
+            # it while the omitted-children aggregate still reports those bytes as an
+            # unaccounted candidate -- live, already-accounted WAL presented as a
+            # reclaim candidate, with the closure flag false and the receipt still
+            # reporting success. The data directory always has a WAL directory, so its
+            # absence from the retained children means the cap took it, which is a
+            # partition this action cannot honestly present.
+            #
+            # pg_xlog genuinely does not exist on a PostgreSQL 18 cluster, and its
+            # absence means only that there is no stale pre-10 directory to report.
+            if name == "pg_wal":
+                raise RuntimeError("wal_directory_not_observed_in_data_directory")
             continue
         wal_unlisted = wal_child["bytes"] - subtract
         label = (
