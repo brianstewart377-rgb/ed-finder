@@ -48,6 +48,9 @@ DRILL_DOWN_MAX_STEPS = 8
 # slow production inventory could be killed before it emitted any receipt at all. With a
 # shared budget the walk stops early and records why, which is a usable receipt.
 DIRECTORY_SCAN_BUDGET_SECONDS = 1_500
+# Held back from the budget for the closing reconciliation scan, so the walk can never
+# consume the budget the reconciliation needs and take the whole section down with it.
+RECONCILE_RESERVE_SECONDS = 120
 # PGDATA children whose bytes are already inside accounted_bytes. Everything else under
 # PGDATA (global, pg_xact, pg_multixact, log, replication-slot state) is unaccounted and
 # must stay visible as a candidate, or the summary cannot reconcile its own figure.
@@ -348,6 +351,7 @@ def drill_down(
     floor_bytes: int,
     max_steps: int,
     budget: ScanBudget,
+    reserve_seconds: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Walk from `root` towards the directory that actually owns the non-database bytes.
 
@@ -371,7 +375,7 @@ def drill_down(
     chain: list[dict[str, Any]] = []
     current = root.rstrip("/") or "/"
     for _ in range(max_steps):
-        if budget.remaining() <= 0:
+        if budget.remaining() <= reserve_seconds:
             if chain:
                 chain[-1]["stop_reason"] = "scan_budget_exhausted"
             break
@@ -514,6 +518,8 @@ mount_destination: str | None = None
 usage_full: list[dict[str, Any]] | None = None
 postgres_data_directory_bytes: int | None = None
 pgdata_host: str | None = None
+pgdata_before: int | None = None
+tolerance: int = 0
 try:
     mount_source, mount_destination = postgres_mount()
     disk = df_values(
@@ -630,6 +636,11 @@ try:
     drill_floor = max(
         1, volume_section["used_bytes"] * DRILL_DOWN_FLOOR_PPM // 1_000_000
     )
+    # The walk stops with the reconciliation scan's budget still unspent, so the
+    # closing measurement can always run. Without that reserve, a walk that consumed
+    # the whole budget would take the reconciliation down with it and lose both the
+    # successful filesystem scan and the chain that recorded why it stopped -- which is
+    # precisely the partial evidence the budget exists to preserve.
     chain = drill_down(
         usage_root,
         pgdata_host,
@@ -637,33 +648,53 @@ try:
         floor_bytes=drill_floor,
         max_steps=DRILL_DOWN_MAX_STEPS,
         budget=scan_budget,
+        reserve_seconds=RECONCILE_RESERVE_SECONDS,
     )
-    # Close the bracket around the drill-down as well. The earlier bracket proved the
-    # data directory was stable across the filesystem scan, but the walk runs up to
-    # eight further scans afterwards and compares current ancestor totals against the
-    # one fixed data-directory size. If the database grew in between -- a concurrent
-    # derived build, say -- that growth is mislabelled as non-database usage and can
-    # send the walk down into the PostgreSQL volume; if it shrank, real sibling usage
-    # is hidden. Either way the receipt would still have said `success`.
-    pgdata_final = du_total(pgdata_host, scan_budget)
-    span_drift = abs(pgdata_final - pgdata_before)
-    inventory["postgres_data_directory_bracket"]["bytes_after_drill_down"] = pgdata_final
-    inventory["postgres_data_directory_bracket"]["span_drift_bytes"] = (
-        pgdata_final - pgdata_before
-    )
-    if span_drift > tolerance:
-        raise RuntimeError(
-            f"directory_usage_inconsistent:span_drift_{span_drift}_over_{tolerance}"
-        )
+    # Record the evidence before anything that can fail. A later failure must not erase
+    # a scan that succeeded.
     inventory["non_database_drill_down"] = {
         "floor_bytes": drill_floor,
         "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
         "max_steps": DRILL_DOWN_MAX_STEPS,
         "scan_budget_seconds": scan_budget.total_seconds,
+        "reconcile_reserve_seconds": RECONCILE_RESERVE_SECONDS,
         "chain": chain,
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "volume_directory_usage", exc)
+
+try:
+    # Close the bracket around the drill-down as well, in a section of its own so that
+    # failing to reconcile cannot overwrite the scans above. The earlier bracket proved
+    # the data directory was stable across the filesystem scan, but the walk runs up to
+    # eight further scans afterwards and compares current ancestor totals against the
+    # one fixed data-directory size. If the database grew in between -- a concurrent
+    # derived build, say -- that growth is mislabelled as non-database usage and can
+    # send the walk down into the PostgreSQL volume; if it shrank, real sibling usage
+    # is hidden. Either way the receipt would still have said `success`.
+    if pgdata_host is None or pgdata_before is None:
+        raise RuntimeError("postgres_data_directory_unresolved")
+    bracket = inventory.get("postgres_data_directory_bracket")
+    if not isinstance(bracket, dict):
+        raise RuntimeError("postgres_data_directory_bracket_unavailable")
+    pgdata_final = du_total(pgdata_host, scan_budget)
+    span_drift = abs(pgdata_final - pgdata_before)
+    bracket["bytes_after_drill_down"] = pgdata_final
+    bracket["span_drift_bytes"] = pgdata_final - pgdata_before
+    bracket["span_reconciled"] = span_drift <= tolerance
+    inventory["postgres_data_directory_reconciliation"] = {
+        "span_drift_bytes": pgdata_final - pgdata_before,
+        "tolerance_bytes": tolerance,
+        "reconciled": span_drift <= tolerance,
+    }
+    if span_drift > tolerance:
+        raise RuntimeError(
+            f"directory_usage_inconsistent:span_drift_{span_drift}_over_{tolerance}"
+        )
+except RuntimeError as exc:
+    section_failed(
+        failures, inventory, "postgres_data_directory_reconciliation", exc
+    )
 
 try:
     inventory["databases"] = psql_json(
@@ -997,6 +1028,10 @@ try:
         raise RuntimeError("volume_directory_usage_unavailable")
     if postgres_data_directory_bytes is None:
         raise RuntimeError("postgres_data_directory_usage_unavailable")
+    reconciliation = inventory.get("postgres_data_directory_reconciliation")
+    if not isinstance(reconciliation, dict) or reconciliation.get("reconciled") is not True:
+        # Unreconciled measurements must not be presented as a partition.
+        raise RuntimeError("postgres_data_directory_not_reconciled")
     if pgdata_host is None:
         raise RuntimeError("postgres_data_directory_unresolved")
     data_dir = pgdata_host

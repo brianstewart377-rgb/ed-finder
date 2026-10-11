@@ -676,3 +676,43 @@ def test_v3_disk_inventory_reconciles_pgdata_after_the_drill_down(tmp_path):
     assert bracket["drift_bytes"] == 0
     assert bracket["span_drift_bytes"] == 0
     assert bracket["tolerance_bytes"] == 1 << 30
+
+
+def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_path):
+    """A walk that spent the whole budget must not take the reconciliation with it.
+
+    The reconciliation scan is mandatory, so if the drill-down could consume the entire
+    budget the closing `du_total` would raise and the section handler would overwrite
+    `volume_directory_usage` -- losing both the successful filesystem scan and the
+    chain's `scan_budget_exhausted` stop reason. That is exactly the partial evidence
+    the budget exists to preserve, so the walk stops with the reserve unspent, and the
+    reconciliation lives in its own section where a failure cannot erase the scans.
+    """
+    source = _read(ACTION)
+
+    assert "RECONCILE_RESERVE_SECONDS = 120" in source
+    assert "reserve_seconds=RECONCILE_RESERVE_SECONDS" in source
+    assert "if budget.remaining() <= reserve_seconds:" in source
+    # Its own section name, so section_failed cannot clobber the scans above it.
+    assert source.count('"postgres_data_directory_reconciliation"') >= 2
+    assert "postgres_data_directory_not_reconciled" in source
+    # The chain is recorded before anything that can fail.
+    drill_assign = source.index('inventory["non_database_drill_down"] = {')
+    reconcile = source.index('inventory["postgres_data_directory_reconciliation"] = {')
+    assert drill_assign < reconcile
+
+
+def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+
+    assert inventory["postgres_data_directory_reconciliation"] == {
+        "span_drift_bytes": 0,
+        "tolerance_bytes": 1 << 30,
+        "reconciled": True,
+    }
+    assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
+    assert (
+        inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 120
+    )
