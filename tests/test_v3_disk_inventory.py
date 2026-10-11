@@ -97,6 +97,7 @@ def _run_inventory_action(
     du_below_df: bool = False,
     wal_separate_filesystem: bool = False,
     pgdata_grew: int = 0,
+    pgdata_after_grew: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
@@ -293,7 +294,21 @@ def _run_inventory_action(
             # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
             case "$*" in
               *"--max-depth=0 $data")
-                printf '1465000\\t%s\\0' "$data" ;;
+                # Called twice, bracketing the root walk. PGDATA_AFTER_GREW drifts only
+                # the SECOND reading, which is the one the outside candidates subtract
+                # from the ancestor holding the data directory -- large enough and that
+                # ancestor's exclusive size goes negative.
+                calls=0
+                if [ -f "$PGDATA_DEPTH0_STAMP" ]; then
+                  calls="$(cat "$PGDATA_DEPTH0_STAMP")"
+                fi
+                calls="$(( calls + 1 ))"
+                printf '%s' "$calls" > "$PGDATA_DEPTH0_STAMP"
+                if [ "$calls" -ge 2 ]; then
+                  printf '%s\\t%s\\0' "$(( 1465000 + PGDATA_AFTER_GREW ))" "$data"
+                else
+                  printf '1465000\\t%s\\0' "$data"
+                fi ;;
               *"--max-depth=1 $data/base")
                 if [ "$BASE_SCAN_DENIED" = '1' ]; then
                   printf "du: cannot read directory '%s/base/16384': Permission denied\\n" "$data" >&2
@@ -430,7 +445,7 @@ def _run_inventory_action(
               *'pg_stat_user_indexes'*)
                 printf '%s\\n' '{"schema":"v3_derived","table":"system_rating_vector","index_name":"system_rating_vector_key","index_bytes":300,"is_unique":false,"is_primary":false,"idx_scan":0,"definition":"index definition"}' ;;
               *'pg_stat_user_tables'*)
-                printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","estimated_dead_fraction":0.2500}' ;;
+                printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","total_bytes":1000,"estimated_dead_fraction":0.2500,"estimated_dead_bytes":150}' ;;
               *'pg_total_relation_size'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"heap_bytes":500,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
               *'SELECT oid::text AS oid, datname FROM pg_database'*)
@@ -477,6 +492,8 @@ def _run_inventory_action(
     env["WAL_OUTSIDE_PGDATA"] = "1" if wal_outside_pgdata else "0"
     env["WAL_SEPARATE_FILESYSTEM"] = "1" if wal_separate_filesystem else "0"
     env["PGDATA_GREW"] = str(pgdata_grew)
+    env["PGDATA_AFTER_GREW"] = str(pgdata_after_grew)
+    env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
     env["DU_BELOW_DF"] = "1" if du_below_df else "0"
     env["DF_USED_DRIFT"] = str(df_used_drift)
@@ -1813,6 +1830,84 @@ def test_v3_disk_inventory_partitions_across_a_row_cap_ancestor_gap():
     # sizes still sum to the scanned root's total exactly once.
     assert result == {"/": 100, "/var": 100, "/var/lib/docker": 800}
     assert sum(result.values()) == 1000
+
+
+def test_v3_disk_inventory_carries_a_negative_outside_remainder(tmp_path):
+    """The ancestor holding the data directory can go negative, and must not vanish.
+
+    `pgdata_after` is subtracted from that ancestor's exclusive size, and it is
+    measured at a different instant than `usage_full`, so PGDATA growing in between can
+    drive the ancestor negative -- by up to the bracket tolerance, which is 1 GiB.
+    Dropping it with a positive-only filter put that much outside the partition in a
+    receipt whose closure flag would then be false. Same hazard as the inside
+    remainders; this was the fifth site of the same `if x > 0`.
+    """
+    source = _read(ACTION)
+    assert '"term": "outside_directory_negative_remainder"' in source
+    # The comprehension that could only drop a negative is gone.
+    assert (
+        'if path != data_dir and not path.startswith(f"{data_dir}/") and size > 0'
+        not in source
+    )
+
+    # /var/lib totals 1,515,000 and PGDATA reads 1,520,000 on the second bracket
+    # reading, so that ancestor's exclusive size is -5,000. Drift of 55,000 is well
+    # inside the 1 GiB tolerance, so the run still reconciles and succeeds.
+    result = _run_inventory_action(tmp_path, pgdata_after_grew=55000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+
+    paths = [row["path"] for row in summary["largest_unaccounted_directories"]]
+    assert "/var/lib" not in paths
+    assert {
+        "term": "outside_directory_negative_remainder",
+        "bytes": -5000,
+        "path": "/var/lib",
+    } in summary["closure_adjustments"]
+    # Carried, so the identity still closes exactly rather than being 5,000 out.
+    assert summary["candidate_closure_gap_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_ranks_dead_tuples_by_reclaimable_bytes(tmp_path):
+    """The table holding the most reclaimable dead space need not be the largest.
+
+    Dead tuples ARE reclaimable space, so drawing them from the top 20 relations by
+    total size hid the moderate table that is mostly dead behind huge tables that are
+    almost all live -- and with no truncation flag to say anything had been left out.
+    Exactly the defect found for the index inventory, in a section where the omission
+    costs more, because this is the one that says what vacuuming would return.
+
+    Ranked by estimated dead BYTES rather than dead tuple count: the count says nothing
+    about row width, so a million tiny dead rows would outrank a thousand wide ones.
+    """
+    source = _read(ACTION)
+    assert "DEAD_TUPLE_INVENTORY_LIMIT = 100" in source
+    dead_query = source.split("dead_tuple_rows = psql_json(")[1].split(
+        'inventory["dead_tuples"]'
+    )[0]
+    # Every user table, not the largest relations, and ordered by dead bytes.
+    assert "WITH largest AS" not in dead_query
+    assert "FROM pg_stat_user_tables s " in dead_query
+    assert "pg_table_size(s.relid)::numeric * s.n_dead_tup" in dead_query
+    assert "DESC NULLS LAST" in dead_query
+    assert "LIMIT {DEAD_TUPLE_INVENTORY_LIMIT + 1}" in dead_query
+    # numeric throughout, so no intermediate can overflow the way a bigint product
+    # would on a large table.
+    assert "::numeric" in dead_query
+    # The now-unused relations CTE is gone rather than left as dead code in a
+    # production action.
+    assert "largest_relations_sql" not in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["dead_tuple_inventory_limit"] == 100
+    assert inventory["dead_tuple_inventory_truncated"] is False
+    assert inventory["dead_tuple_inventory_scope"] == (
+        "all_user_tables_ranked_by_estimated_dead_bytes"
+    )
+    assert inventory["dead_tuples"][0]["estimated_dead_bytes"] == 150
 
 
 def test_v3_disk_inventory_ranks_indexes_globally_before_capping(tmp_path):

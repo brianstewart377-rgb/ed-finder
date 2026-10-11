@@ -462,6 +462,12 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
   `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
   All of its figures, including `base/`'s own total, come from the `base` scan.
+- **The dead-tuple inventory is ranked by estimated reclaimable bytes, then capped.**
+  Not drawn from the largest relations: dead tuples *are* reclaimable space, and the
+  table holding the most of it need not be among the largest by total size — a moderate
+  table that is mostly dead outranks a huge one that is almost all live. Ranked by
+  estimated dead bytes rather than dead tuple count, because the count says nothing
+  about row width. `dead_tuple_inventory_scope` and `_truncated` record the scope.
 - **The index inventory is ranked globally, then capped.** It is not drawn from the
   largest relations: the 21st relation can be mostly one very large index while the
   first 20 are larger only because of heap data, so that index was absent while

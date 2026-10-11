@@ -56,6 +56,11 @@ DRILL_DOWN_MAX_STEPS = 8
 # indexes per table, so without this one relation could make the receipt, and the memory
 # used to parse it, arbitrarily large.
 INDEX_INVENTORY_LIMIT = 200
+# pg_stat_user_tables has one row per user table, so the dead-tuple inventory needs its
+# own bound. Ranked by ESTIMATED DEAD BYTES across every table rather than drawn from
+# the largest relations: the table holding the most reclaimable dead space need not be
+# among the largest by total size.
+DEAD_TUPLE_INVENTORY_LIMIT = 100
 # Derived generation manifests cannot be deleted, so the attribution queries return one
 # row per historical generation and grow without bound as generations accumulate. The
 # statement timeout caps execution, not rows or the serialized receipt.
@@ -553,7 +558,6 @@ def du_stream(
         stderr_chunks: list[str] = []
         kept: list[tuple[int, str]] = []
         omitted = [0, 0]
-        pending = ""
         timed_out = False
         try:
             # BINARY pipes. The deadline has to be enforced between reads, and a text
@@ -1478,15 +1482,6 @@ try:
 except RuntimeError as exc:
     section_failed(failures, inventory, "temp_and_logs", exc)
 
-largest_relations_sql = (
-    "SELECT c.oid, n.nspname, c.relname FROM pg_class c "
-    "JOIN pg_namespace n ON n.oid=c.relnamespace "
-    "WHERE c.relkind IN ('r','p','m') "
-    "AND n.nspname NOT IN ('pg_catalog','information_schema') "
-    "AND n.nspname NOT LIKE 'pg_toast%' "
-    "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname LIMIT 20"
-)
-
 try:
     inventory["relations"] = psql_json(
         "SELECT row_to_json(q)::text FROM ("
@@ -1593,21 +1588,46 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "index_statistics_window", exc)
 
 try:
-    inventory["dead_tuples"] = psql_json(
-        "SELECT row_to_json(q)::text FROM (WITH largest AS ("
-        + largest_relations_sql
-        + ") SELECT largest.nspname AS schema, largest.relname AS name, "
+    # Ranked over EVERY user table by ESTIMATED DEAD BYTES, then capped. Not drawn from
+    # the largest relations, and not ordered by relation size: dead tuples are
+    # reclaimable space, and the table holding the most of it need not be among the
+    # largest by total size -- a moderate table that is mostly dead outranks a huge one
+    # that is almost all live. Drawing from the top 20 by size made that table
+    # invisible, with no truncation flag to say anything had been left out, which is
+    # the same defect as ranking indexes within the largest relations.
+    #
+    # Dead BYTES rather than dead tuple count, because the count says nothing about
+    # width: a million tiny dead rows reclaim less than a thousand wide ones. It is an
+    # estimate -- planner statistics times a size, named as such in the output -- and
+    # numeric throughout, so no intermediate can overflow.
+    dead_tuple_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT s.schemaname AS schema, s.relname AS name, "
         "s.n_live_tup::bigint AS n_live_tup, s.n_dead_tup::bigint AS n_dead_tup, "
         "s.last_vacuum::text AS last_vacuum, "
         "s.last_autovacuum::text AS last_autovacuum, "
         "s.last_analyze::text AS last_analyze, "
+        "pg_total_relation_size(s.relid)::bigint AS total_bytes, "
         "round(s.n_dead_tup::numeric / "
-        "NULLIF(s.n_live_tup + s.n_dead_tup,0),4) AS estimated_dead_fraction "
-        "FROM largest JOIN pg_stat_user_tables s ON s.relid=largest.oid "
-        "ORDER BY pg_total_relation_size(largest.oid) DESC, "
-        "largest.nspname, largest.relname) q",
+        "NULLIF(s.n_live_tup + s.n_dead_tup,0),4) AS estimated_dead_fraction, "
+        "(pg_table_size(s.relid)::numeric * s.n_dead_tup "
+        "/ NULLIF(s.n_live_tup + s.n_dead_tup,0))::bigint "
+        "AS estimated_dead_bytes "
+        "FROM pg_stat_user_tables s "
+        "ORDER BY (pg_table_size(s.relid)::numeric * s.n_dead_tup "
+        "/ NULLIF(s.n_live_tup + s.n_dead_tup,0)) DESC NULLS LAST, "
+        "s.schemaname, s.relname "
+        f"LIMIT {DEAD_TUPLE_INVENTORY_LIMIT + 1}) q",
         db_user,
         db_name,
+    )
+    inventory["dead_tuples"] = dead_tuple_rows[:DEAD_TUPLE_INVENTORY_LIMIT]
+    inventory["dead_tuple_inventory_limit"] = DEAD_TUPLE_INVENTORY_LIMIT
+    inventory["dead_tuple_inventory_truncated"] = (
+        len(dead_tuple_rows) > DEAD_TUPLE_INVENTORY_LIMIT
+    )
+    inventory["dead_tuple_inventory_scope"] = (
+        "all_user_tables_ranked_by_estimated_dead_bytes"
     )
 except RuntimeError as exc:
     section_failed(failures, inventory, "dead_tuples", exc)
@@ -2300,11 +2320,36 @@ try:
     if data_dir not in exclusive and strict_ancestors:
         container = max(strict_ancestors, key=len)
         exclusive[container] -= pgdata_after
-    outside = [
-        {"path": path, "exclusive_bytes": size, "inside_data_directory": False}
-        for path, size in exclusive.items()
-        if path != data_dir and not path.startswith(f"{data_dir}/") and size > 0
-    ]
+    closure_adjustments: list[dict[str, Any]] = []
+    # The last positive-only drop on a computed difference, and the same hazard as the
+    # remainders: the ancestor holding the data directory has `pgdata_after` subtracted
+    # from it, and that figure is measured at a different instant than `usage_full`, so
+    # PGDATA growing in between can drive the ancestor's exclusive size negative -- by
+    # up to the bracket tolerance, which is 1 GiB. Silently dropping it put that much
+    # outside the partition in a receipt whose closure flag would then be false.
+    #
+    # A negative cannot be a candidate, so it is carried as a named signed term. Zero
+    # is still dropped: a directory of no bytes is not a finding.
+    outside = []
+    for path, size in exclusive.items():
+        if path == data_dir or path.startswith(f"{data_dir}/"):
+            continue
+        if size > 0:
+            outside.append(
+                {
+                    "path": path,
+                    "exclusive_bytes": size,
+                    "inside_data_directory": False,
+                }
+            )
+        elif size < 0:
+            closure_adjustments.append(
+                {
+                    "term": "outside_directory_negative_remainder",
+                    "bytes": size,
+                    "path": path,
+                }
+            )
     # Subtracting the whole data directory removes more than accounted_bytes covers.
     # accounted_bytes is the databases (base/), WAL (pg_wal) and the temp directories;
     # PGDATA also holds `global`, `pg_xact`, `pg_multixact`, replication-slot state and
@@ -2334,9 +2379,10 @@ try:
     # there is no negative storage to reclaim -- but silently dropping it is what broke
     # the closure, repeatedly and in a receipt reporting success. So it becomes a NAMED
     # SIGNED TERM in the identity instead. This is one helper rather than a filter at
-    # each site because the same `if x > 0` mistake has now been found at four of them;
-    # a shared route makes the next remainder correct by construction.
-    closure_adjustments: list[dict[str, Any]] = []
+    # each site because the same `if x > 0` mistake has now been found at five of
+    # them; a shared route makes the next remainder correct by construction. The
+    # outside rows above take the same route inline, because they append to `outside`
+    # rather than `inside` and so cannot share the helper's body.
 
     def remainder(path: str, value: int, *, term: str) -> None:
         if value > 0:
