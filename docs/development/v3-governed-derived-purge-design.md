@@ -370,3 +370,23 @@ Every numbered item below is an independent **EXECUTION GATE**. No destructive p
 9. **EXECUTION GATE 9 — current PostgreSQL extension availability.** Nothing in current production authority proves `pg_repack` is installed/usable on PostgreSQL 18. **Owner question:** confirm that the recommended built-in path is required and no online rewrite is mandatory; if online rewrite is required, authorize a read-only extension inventory and a separate design rather than relying on historical PostgreSQL records (`docs/operations/infrastructure-status.md:36-40`).
 
 10. **EXECUTION GATE 10 — shared-table rewrite authorization.** The owner has already accepted that no executable restore/PITR route exists; this design does not reopen that decision (`docs/operations/infrastructure-status.md:73-79`). What remains unverified is whether the selected purge authorizes an `ACCESS EXCLUSIVE` rewrite of shared tables after disposable crash rehearsal, or instead requires isolated copy/partitioning/additional capacity. **Owner question:** which mechanism is authorized, with what outage and risk acceptance? That choice and its outage belong to the owner; no operator should infer it merely from the decision to purge.
+
+### Owner answers to the execution gates (recorded 2026-10-11)
+
+Given by the owner in the planning session on 2026-10-11 and recorded here as the
+gates require. An answer authorizes nothing by itself: every phase still needs its
+own fresh evidence, and every stop condition above still applies.
+
+| Gate | Owner answer |
+|---|---|
+| 1 — current state | A **fresh** governed status receipt is required immediately before any purge phase; the pending 2026-10-10 stopped-worker receipt does not substitute for it. |
+| 2 — free-space floor | **100 GB** (about 5% of the 1,948 GB volume), including WAL and temporary files. A phase does not start if its projected peak would leave less, and stops if measured free space falls below it mid-phase. |
+| 3 — maintenance outage | **Any per-relation outage is acceptable; no scheduled window is required**, because the product has no users at present. This answer lapses if the product gains users before execution, and must then be asked again. |
+| 4 — rehearsal scale | A disposable PostgreSQL 18 rehearsal at **about 1% of production scale** (≈2 million systems). Measured disk peaks are multiplied by **1.5** before they are compared with the gate-2 floor. Measured durations are informational only (see gate 3). |
+| 4 (storage) | If a phase's margin-adjusted peak would breach the floor, the owner **can attach temporary storage** to the production host. The phase stops and asks first; it never proceeds below the floor. |
+| 5 — minimum reclaim | **No minimum.** The purge proceeds with whatever the fresh measurement shows; the Finder builds keep their own capacity gate (step 7′). |
+| 6 — retention | The retention rule covers **previously published** compatible generations only. The never-published `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1` payloads may be removed; their manifests, products and receipts are retained. |
+| 7 — terminal state | **`FAILED` plus the append-only purge request/event ledger.** No new lifecycle state. |
+| 8 — registration packaging | **Default, owner may override:** the purge code ships as its own PR (step 4″) after the Finder schema PRs (4′), as the ROADMAP amendment states. Step 2 stays blocked until both have merged. |
+| 9 — extension | **No online rewrite is required** (gate 3), so the built-in `VACUUM FULL` path applies and no `pg_repack` inventory is needed. |
+| 10 — shared-table rewrite | **Authorized after the disposable crash rehearsal passes**: `ACCESS EXCLUSIVE` rewrites of tables that also hold the published generation may run once the rehearsal shows a crash mid-rewrite leaves the old or the new relation intact, never a half-swapped one. |
