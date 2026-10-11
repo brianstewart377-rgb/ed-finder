@@ -593,9 +593,36 @@ which is why non-tier values are not accepted). Measured under
 `plan_cache_mode = force_generic_plan`: parameter-only ⇒ parallel sequential
 scan + sort; with the literal ⇒ index scan on the matching partial, 10,001 rows
 read. For no pick, keep the `v3_app.system_archetype_summary` join
-and `sum.weighted_potential DESC NULLS LAST` unchanged. Preserve `system_id64`
-tie-breaks and all selected aliases.
+and `sum.weighted_potential DESC NULLS LAST` unchanged. Preserve all selected
+aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
+
+**The whole bounded structure is PR1's, including the window-then-filter
+order.** The picked query is built as: (1) an inner query over
+`v3_app.system_archetype` alone — generation, literal floor, `ORDER BY
+<key>_weighted_e4 DESC, system_id64 ASC`, `LIMIT 10001` — which is the only part
+that touches the archetype relation and is index-only; (2) the join to
+`v3_app.system_search` and every hard filter (region, distance, body counts, …)
+applied to those ≤ 10,001 rows; (3) the page (`OFFSET`/`LIMIT`) over the filtered
+survivors in the inner order. Hard filters therefore apply **inside** the
+window, never before it: a filter in the inner `WHERE` would let the index scan
+run past 10,001 entries looking for matches (unbounded again, and the very
+reason the F4 design's slice 1c existed). `total` is the number of survivors
+(0–10,000) and `is_truncated` is whether a 10,001st qualifying row existed
+before filtering. Because the route is live in production the moment the
+products are published, this bounded form must be deployed **before**
+publication (section 8), not left to a later F4 slice.
+
+**Tie-break.** The current profile breaks ties by Sol distance, then
+`system_id64` (`PROFILE_SPEC` `("distance", "system_id64")`), and the route
+passes Sol coordinates for that purpose. The stored key's ties are broken inside
+the index by `system_id64` alone; honouring a distance tie-break would require
+sorting the whole window by distance for equal keys and would defeat the
+index-order guarantee. The new identity therefore **changes the picked-mode
+tie-break to `system_id64` only** — declared in `PROFILE_SPEC`, hashed, and
+asserted by the response-order tests, which replace the Sol-distance tie cases.
+The no-pick path keeps its existing tie-breaks. Distance from Sol remains a
+displayed fact, not an ordering term.
 
 **The count is bounded too.** Today `/api/archetypes/rankings` awaits
 `build_count_query(..., cap=None)`, an exact count over every qualifying row —
@@ -867,7 +894,16 @@ build Archetype, validate both, and publish the generation. Steps 4–9 are
 replaced below; steps 0–3 remain prerequisites. (`docs/ROADMAP.md:154-179`)
 
 All production work remains owner-dispatched through governed actions; this
-design authorizes no deployment or production access.
+design authorizes no deployment or production access. **Order matters at the
+end:** the application carrying the bounded ranking route (PR1–PR4) is released
+and promoted *before* the products are published, because publication is what
+makes `/api/archetypes/rankings` live — publishing against the current
+production image would expose the old unbounded selected-ranking sort and
+`COUNT(*)` (review finding on the F4 design, round 17), or, against the wide
+schema, fail outright on the removed `archetype_key` column. The deployed API
+returns 503 for the Finder until both products carry `published_at`, so the
+interval between promotion and publication is a clean, reviewable "not ready"
+state rather than a half-live one.
 
 **Authority updates are part of the sequence, not implied by this spec.** This
 document is lower in the authority chain than `docs/ROADMAP.md` and
@@ -901,9 +937,9 @@ replace either; the rollout below is authorized only once both say so:
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 5 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 6 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
-| 7 | In one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
-| 8 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, READY+published timestamps, validation/publication audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
-| 9 | Build the immutable release, run preflight, and promote only after the revised gate passes. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
+| 7 | Revise the F3 application-release gate to require exact current generation key/UUID/sequence, both product versions/manifests, both products **READY (publication not yet required)**, validation audits, row counts, and the new ranking version/SHA. | Amend the existing release authority; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`) | 0 GB |
+| 8 | Build the immutable release containing PR1–PR4, run preflight, and promote only after the revised gate passes. With the products READY but unpublished, the deployed API answers the Finder with 503 “not ready” (section 7.3) — the bounded ranking code is in production **before** any product is visible. | Reuse the existing governed application release and deployment workflows; no new Finder data action. (`CLAUDE.md:31-37,82-91`) | 0 GB of Finder product data |
+| 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
 
 Total new persistent Finder data is planned at about 163 GB (87 GB Search plus
 76 GB Archetype, both from PostgreSQL 18.4 samples; the archetype figure moves

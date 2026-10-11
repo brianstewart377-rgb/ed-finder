@@ -235,11 +235,19 @@ newer dated source wins).
      archetype + working room exceed the free space in a fresh step 0 receipt).
   8′. Both products reach `READY` through the receipted governed validation
      routes.
-  9′. Publish both **products** with `v3_meta.publish_derived_product` in one
-     governed transaction; the generation pointer does not move (no
-     `publish_derived_generation`).
+  10′–11′. Revise the application-release gate to require both products READY
+     (publication not yet required) plus the new ranking identity, build the
+     immutable release carrying the F2d code, and promote it. With the products
+     READY but unpublished the deployed API answers the Finder with 503 "not
+     ready", so the bounded ranking route is in production **before** anything
+     is visible.
+  9′ (last — go-live). Publish both **products** with
+     `v3_meta.publish_derived_product` in one governed transaction; the
+     generation pointer does not move (no `publish_derived_generation`). This
+     runs only after 11′ is the running application: publishing against the
+     previous image would expose the old unbounded selected-ranking route.
 
-  Steps 10–11 keep their shape against the published generation. Until 4′ has
+  Until 4′ has
   merged, **no production step beyond step 0 may be dispatched** (not even the
   migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
   every detached worker stopped (the paused `opt1` worker was killed by the
