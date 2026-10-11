@@ -1671,11 +1671,22 @@ typed clients for the changed parameter constraints and response schema. Slice
 
 For one pinned generation and selected archetype, the API first reads through
 that key's tier-partial index in `<key>_weighted_e4 DESC, system_id64 ASC`
-order. The `WHERE` carries the server-chosen **literal** tier floor (the largest
-of `>= 60/76/88` not above the requested `min_score` — a parameter alone cannot
-make PostgreSQL use a partial index under a generic plan, F2d section 6) plus the
-parameterized `>= $n` for the exact requested value; no joined `system_search`
-predicate participates in selecting the window. Probe at most 10,001 qualifying
+order. The `WHERE` carries the server-chosen **literal** tier floor — and **only**
+that literal (review round 37).
+
+Two things were conflated here. A parameter alone cannot make PostgreSQL use a
+partial index under a generic plan, which is why the literal is required (F2d
+section 6). But keeping the parameterized `>= $n` **beside** it defeats the
+index-only window: the partial carries only `(generation, <key>_weighted_e4,
+system_id64)`, so evaluating a parameterized `<key>_score` predicate forces a heap
+fetch for every candidate row — and the index-only window is the acceptance
+criterion the whole bounded-plan proof rests on. The parameter was added for "the
+exact requested value", but validation restricts `min_score` to exactly `60`, `76`
+or `88`, so the server-chosen literal **is** the requested value in every accepted
+case and the parameter can only ever be redundant. It is dropped: the route
+branches on the validated floor and emits the matching literal alone.
+
+No joined `system_search` predicate participates in selecting the window either. Probe at most 10,001 qualifying
 rows: the first 10,000 form the immutable candidate window and the sentinel
 sets `is_truncated`.
 
@@ -3290,3 +3301,20 @@ had written in the preceding round, which is worth noting rather than hiding.
    anatomy), which is what happens when a change of behaviour is recorded as a
    requirement in one section instead of being traced to every section that
    describes the thing changed.
+
+### Review round 37 (2026-10-11)
+
+1. **P2 — Drop the redundant parameter from the index-only window** → correct, and I
+   had conflated two separate facts into one `WHERE` clause. A parameter alone cannot
+   make PostgreSQL use a partial index under a generic plan, which is why the literal
+   floor is required — I verified that directly earlier in this design's history. But
+   keeping the parameterized `<key>_score >= $n` **beside** the literal defeats the
+   index-only window, because the partial carries only
+   `(generation, <key>_weighted_e4, system_id64)`: evaluating a parameterized
+   `<key>_score` predicate forces a heap fetch for every candidate row. The
+   acceptance criterion the whole bounded-plan proof rests on could not have been
+   met, and the first `EXPLAIN` against the real schema would have shown it.
+   The parameter was there for "the exact requested value", which is the part that
+   turns out to be empty: validation restricts `min_score` to exactly 60, 76 or 88,
+   so the server-chosen literal **is** the requested value in every accepted case.
+   The route now branches on the validated floor and emits that literal alone.
