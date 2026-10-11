@@ -1005,11 +1005,31 @@ generation ("a data refresh changes freshness, not semantics") would be
 contradicted by the very field used to enforce it.
 
 F2d therefore persists and exposes a second, **generation-free** digest,
-`archetype_model_sha256`, over the model semantics only: coefficients, anchors,
-archetype key order, the `_weighted_e4` integer definition and rounding rule, the
-tier thresholds, `model_file_sha256` and `code_sha256`. It deliberately excludes
-generation identity, publication sequence and `expected_rows` — everything that
-describes *which data* was scored rather than *how*. `archetype_manifest_sha256`
+`archetype_model_sha256`, over a **canonical semantic manifest**: the
+coefficients, the anchors, the archetype key order, the `_weighted_e4` integer
+expression carried as a literal string, the confidence rounding rule and the tier
+thresholds. It deliberately excludes generation identity, publication sequence
+and `expected_rows` — everything describing *which data* was scored rather than
+*how*.
+
+**It also excludes `model_file_sha256` and `code_sha256` (review round 32).**
+Including them looked conservative and was in fact self-defeating:
+`code_identity()` hashes the complete builder, model and migration **files**
+(`scripts/v3_system_archetype.py:64-73`), so a comment, a batching refactor or an
+index-only DDL change would alter the digest while every score stayed
+bit-identical — and the cross-generation comparison this field exists to enable
+would be silently suppressed by an edit that changed nothing. That is the same
+failure as using the manifest digest, reached by a different route.
+
+The honest cost of hashing declared values instead of source is that the digest
+becomes a **declaration** that the semantics are unchanged, not a proof. Two
+builds could in principle agree on every declared constant and compute different
+scores through a code change the manifest does not describe. So F2d's validator
+converts the declaration into a checked claim: **two builds whose
+`archetype_model_sha256` agree must produce identical `<key>_weighted_e4` values
+for a shared sample of systems**, asserted as part of validation rather than left
+to trust. `archetype_manifest_sha256` — which does cover the source files —
+remains available and displayed for anyone who needs exact-build identity. `archetype_manifest_sha256`
 keeps its existing job of identifying one build exactly, and is still shown with
 the generation line; it is simply not the field a semantic comparison may hinge
 on. Comparison is then possible exactly when it is meaningful: same model, any
@@ -1507,8 +1527,10 @@ re-measures the final `011` text; until then this section's figures are
 attributed to #806, not to `main`. Slice 1c reads, for the selected
 key and floor, the per-archetype **tier-partial stored-key** index
 `(derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 | 76 | 88`
-that F2d defines (section 3.3 there; `<key>_weighted_e4` is the stored
-`round(score × confidence × completeness × 10000)`). Reading it in index order
+that F2d defines (section 3.3 there; `<key>_weighted_e4` is the stored key,
+defined by the exact integer expression `(score × confidence_ppm ×
+completeness_ppm + 50_000_000) // 100_000_000` — not a `round(...)` form, whose
+half-tie behaviour differs between Python and PostgreSQL). Reading it in index order
 **is** the canonical ranking: the first 10,000 rows are the top 10,000 of the
 profile's `score × confidence × completeness` order with `system_id64` ties
 broken inside the index, so there is no raw-score window and no post-hoc sort.
@@ -1516,8 +1538,36 @@ broken inside the index, so there is no raw-score window and no post-hoc sort.
 product afterwards; the F2d review showed that is an approximation — a
 near-certain score-99 system could be dropped behind 10,001 uncertain
 score-100 systems — which is why F2d stores the key.) Every selected floor F4
-exposes (S/A/B ⇒ `>= 88/76/60`) has its own partial, so the probe is always
-index-only. The scale proof seeds and tears down production-shaped
+exposes (S/A/B ⇒ `>= 88/76/60`) has its own partial, so **the candidate-window
+probe** is always index-only.
+
+**"Index-only" describes that probe, not the whole query (review round 32).** The
+partial indexes carry only `(generation, <key>_weighted_e4, system_id64)`, and a
+ranking row also needs the selected score, confidence and the summary fields — so
+an index-only *query* was never possible, and the claim as written contradicted
+the join described below. F2d's four-stage structure is what actually happens,
+and F4's acceptance criteria must assert that shape rather than an index-only
+query:
+
+1. **Window** — index-only scan of the chosen partial, selecting only
+   `system_id64` and `<key>_weighted_e4`, with the literal floor and `LIMIT`
+   10,001. This is the stage that is index-only, and it is the only stage whose
+   row count depends on the size of the generation.
+2. **Join** — `system_search` for the response columns, over the ≤ 10,000
+   survivors, filtering nothing.
+3. **Page** — restate `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC`, then
+   `OFFSET`/`LIMIT`.
+4. **Fetch** — a bounded primary-key lookup of the wide `system_archetype` row for
+   the ≤ `page_size` paged systems only, for the selected score, tier,
+   confidence and summary columns, with the order restated once more because a
+   join does not preserve it.
+
+Adding `INCLUDE` columns to all 24 partials to make the query genuinely index-only
+was rejected in F2d: it would put payload on every indexed row to save at most
+`page_size` (≤ 500) key lookups per request, and it would invalidate the measured
+capacity layout the gate depends on. So the acceptance claim is index-only
+**window** plus a bounded fetch, which is both achievable and what the measured
+footprint describes. The scale proof seeds and tears down production-shaped
 relations/views only inside the disposable PostgreSQL 18 fixture, using the
 **final F2d DDL and indexes** (not a flattened or keyed stand-in).
 
@@ -1768,8 +1818,17 @@ Exact files:
   400 and neither browser flow ever reaches Explore) and its contract tests
 - modify `scripts/dev/review_lab/scenarios.py` (the two new scenario
   definitions and browser flow keys)
-- modify `scripts/dev/review_lab/browser_runner.py` (`VITE_FINDER_F4_ENABLED: '1'`
-  in the Review Lab bundle build overrides)
+- modify `scripts/dev/review_lab/browser_runner.py` (**required**, two changes):
+  `VITE_FINDER_F4_ENABLED: '1'` in the Review Lab bundle build overrides, **and
+  `REQUIRED_CHECKS_BY_FLOW` entries for both new flow keys**. That map is closed
+  and `evaluate_browser_synthetic()` indexes it directly for every selected flow
+  (`scripts/dev/review_lab/browser_runner.py:28-33,50-55`), so once
+  `scenarios.py` starts returning `rankingsApiFailure` and
+  `rankingsEmptyResults` an ordinary `all` run raises `KeyError` **before
+  producing any result** — the whole Review Lab run fails, not just the new
+  flows. Define the required check set for each new flow, and update the
+  synthetic-failure summary so a ranking-failure-only run is recorded truthfully
+  rather than being attributed to the existing `apiFailure` flow
 - modify `apps/web/cypress/e2e/review-lab.cy.ts` (`rankingsApiFailure` and
   `rankingsEmptyResults` flows, **and the console collector's expected-failure
   classification**: it matches the `x-edfinder-review-failure` header against the
@@ -2924,3 +2983,52 @@ that describe post-window filtering are superseded by this one.
    the manifest digest deliberately — a per-build cache key is correct there.
    This is a dependency on F2d rather than an F4 change, so it is also recorded as
    a PR1 requirement in the F2d design.
+
+### Review round 32 (2026-10-11)
+
+1. **P1 — Hash only canonical model semantics** → correct, and it is the same
+   failure as round 31's reached by a different route. Including
+   `model_file_sha256` and `code_sha256` looked conservative and was
+   self-defeating: `code_identity()` hashes the complete builder, model and
+   migration **files** (`scripts/v3_system_archetype.py:64-73`), so a comment, a
+   batching refactor or an index-only DDL change would alter the digest while every
+   score stayed bit-identical — and the comparison the field exists to enable would
+   be suppressed by an edit that changed nothing. I had replaced a digest that
+   always changes with one that changes more often than it should.
+   Took the first option: the digest now covers a **canonical semantic manifest** —
+   coefficients, anchors, key order, the `_weighted_e4` integer expression as a
+   literal string, the confidence rounding rule, the tier thresholds — and nothing
+   else. The honest cost, stated in the design rather than glossed, is that this
+   becomes a **declaration** that the semantics are unchanged rather than a proof:
+   two builds could agree on every declared constant and still differ through a code
+   change the manifest does not describe. So F2d's validator now converts it into a
+   checked claim — two builds whose model digests agree must produce identical
+   `<key>_weighted_e4` values for a shared sample of systems.
+   `archetype_manifest_sha256`, which does cover the source files, stays available
+   and displayed for exact-build identity; the two digests answer different
+   questions and both are needed.
+2. **P1 — Reconcile the index-only claim with the required payload** → correct. The
+   partials carry only `(generation, <key>_weighted_e4, system_id64)`, so an
+   index-only *query* was never possible — a ranking row needs the selected score,
+   confidence and summary fields — and the claim contradicted the join described a
+   few lines below it. "Index-only" was true of one stage and I had attached it to
+   the whole query.
+   The acceptance criteria now state F2d's actual four-stage shape: an index-only
+   **window** probe selecting only `system_id64` and the key, a `system_search`
+   join for response columns that filters nothing, a restated `ORDER BY` plus
+   `OFFSET`/`LIMIT`, and a bounded primary-key fetch of the wide row for the
+   ≤ `page_size` paged systems with the order restated once more. Your alternative —
+   `INCLUDE` columns across all 24 partials — was already rejected in F2d for the
+   reason you give: it would add payload to every indexed row to save at most 500
+   key lookups per request, and it would invalidate the measured capacity layout the
+   gate depends on. So the claim is index-only *window* plus bounded fetch, which is
+   both achievable and what the measured footprint actually describes.
+3. **P2 — Register the new flows in the browser-runner checks** → correct, and the
+   blast radius is larger than the new flows: `REQUIRED_CHECKS_BY_FLOW` is closed
+   and `evaluate_browser_synthetic()` indexes it directly for every selected flow
+   (`browser_runner.py:28-33,50-55`), so an ordinary `all` run would raise
+   `KeyError` **before producing any result** — the whole Review Lab run fails, not
+   just the two additions. F4b now owns both changes to that module, with the
+   required check sets for each new flow key, and the synthetic-failure summary
+   updated so a ranking-failure-only run is recorded truthfully instead of being
+   attributed to the existing `apiFailure` flow.
