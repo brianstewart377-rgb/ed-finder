@@ -243,6 +243,25 @@ numerator          = <key>_score × <key>_confidence_ppm × completeness_ppm
 <key>_weighted_e4  = (numerator + 50_000_000) // 100_000_000
 ```
 
+**In SQL the numerator must be cast to `bigint` before the first multiplication
+(review round 19).** The declared operands are `smallint` and `integer`, so
+PostgreSQL evaluates `smallint × integer × integer` as **`integer`** and
+overflows at entirely ordinary values — `100 × 1_000_000 × 1_000_000` is 1e14
+against an `integer` ceiling of 2.1e9. The bigint range quoted below is the range
+of the *result*, which the expression never reaches: validation would raise
+`integer out of range` and no correct product row could pass, so the immutable
+build could never reach READY. The exact expression the validator and the
+boundary tests use is therefore:
+
+```sql
+((<key>_score::bigint * <key>_confidence_ppm * completeness_ppm) + 50000000)
+    / 100000000
+```
+
+The first cast is enough — PostgreSQL promotes the rest of the chain once one
+operand is `bigint` — and integer division in SQL truncates towards zero, which
+equals the floor here because every operand is non-negative.
+
 **The completeness input is the rating-vector integers, not
 `system_search.completeness` (review round 17).** That column is
 `double precision` (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:41`),
@@ -631,14 +650,24 @@ expression carried as a literal string, the confidence rounding rule and the tie
 thresholds. It excludes generation identity, publication sequence and
 `expected_rows` — everything describing *which data* was scored rather than *how*.
 
-**It also excludes `model_file_sha256` and `code_sha256` (F4 review round 32).**
-Including them looked conservative and was self-defeating: `code_identity()`
-hashes the complete builder, model and migration **files**
-(`scripts/v3_system_archetype.py:64-73`), so a comment, a batching refactor or an
-index-only DDL change would alter the digest while every score stayed
-bit-identical — suppressing the comparison this field exists to enable through an
-edit that changed nothing. That is the manifest-digest failure reached by a
-different route.
+**It includes `model_file_sha256` — the shared model file alone — and excludes the
+broad `code_sha256` (review round 19).** `code_identity()` hashes three files:
+the builder `scripts/v3_system_archetype.py`, the model
+`scripts/v3_system_archetype_model.py`, and the migration
+`011_v3_system_archetype.sql` (`scripts/v3_system_archetype.py:64-73`). Taking all
+three was self-defeating — a comment, a batching fix in the builder or a
+storage-only migration change would alter the digest while every score stayed
+bit-identical, suppressing the comparison this field exists to enable through an
+edit that changed nothing. Taking none of them was the opposite error, left over
+from round 32: the digest then rested entirely on declared constants, so a change
+to the model's *logic* that left its constants alone would not show up.
+
+Hashing the **model file only** is the division that matches the field's meaning.
+The model file owns scoring; the builder owns iteration, batching and storage; the
+migration owns layout. A change to how scores are computed therefore always moves
+the digest, and a change to how they are written never does. The broad
+`code_sha256` stays in `archetype_manifest_sha256`, where identifying one exact
+build is the whole point.
 
 The honest cost is that hashing declared values makes the digest a **declaration**
 that the semantics are unchanged, not a proof: two builds could agree on every
@@ -1793,8 +1822,12 @@ Files:
 - `.github/workflows/chatgpt-ed-new-ops.yml` (allowlist entries)
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
-  gate, matching rollout step 5 — the release deploys **before any product
-  exists**, so the gate requires **no product rows at all**: the exact current
+  gate, matching rollout step 5 — the release deploys **before any Finder product
+  exists on the target generation**, so the gate requires **no Finder product rows
+  on the pinned `parallel_v1` generation** — *not* a globally empty
+  `v3_meta.derived_product`, because a READY `system_search` is deliberately
+  retained on `opt1` with its purge deferred (ROADMAP lines 140-143), so a global
+  emptiness check would block this deployment permanently: the exact current
   PUBLISHED generation key/UUID/sequence; the applied migration set
   `[014, 010, 011-rewritten, 013, 015]` with its exact ledger hashes; the new
   `ranking_version`/`ranking_sha256`; and built-image contracts — the bounded
@@ -1962,8 +1995,9 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
 4. **P1 — Keep the old API fail-closed until the new release is deployed** →
    the rollout is reordered: the release deploys at step 5, **before** any product
    reaches READY, gated on the applied migration set, the ranking identity, the
-   bounded route and the publication check — and on no product rows, because none
-   exist. Steps 6–7 build Search then Archetype (the deployed build keeps
+   bounded route and the publication check — and on no Finder product rows **on
+   the pinned target generation**, because none exist there (the retained `opt1`
+   `system_search` must not block it). Steps 6–7 build Search then Archetype (the deployed build keeps
    answering 503 because they are unpublished), step 8 publishes both, step 9
    verifies from the live app. The reasoning — the deployed build gates only on
    READY, and post-`015` views hide unpublished rows — is written out under the
@@ -2371,3 +2405,44 @@ Swept rather than reviewed:
    constant must be re-measured", which finding 2 had just made meaningless. It
    now says what actually has to happen: the receipt must be produced against the
    final migration text including the new column.
+
+### Review round 19 (2026-10-11)
+
+1. **P1 — Cast the weighted-key numerator to bigint** → correct, and it is a hard
+   failure rather than a nuance. The declared operands are `smallint` and
+   `integer`, so PostgreSQL evaluates `smallint × integer × integer` as
+   **`integer`** and overflows at entirely ordinary values: `100 × 1_000_000 ×
+   1_000_000` is 1e14 against an `integer` ceiling of 2.1e9. The "exact in
+   `bigint`" range I had verified is the range of the *result*, which the
+   expression would never reach — validation would raise `integer out of range`,
+   no correct product row could pass, and the immutable build could never reach
+   READY. I had checked the arithmetic in Python, where integers are unbounded,
+   and carried the conclusion into SQL where it does not hold.
+   The spec now carries the exact casted expression
+   (`(<key>_score::bigint * <key>_confidence_ppm * completeness_ppm + 50000000) /
+   100000000`) for the validator and the boundary tests to use verbatim, notes
+   that one cast promotes the whole chain, and records that SQL's truncating
+   division equals the floor here because every operand is non-negative.
+2. **P2 — Exclude build code from the model-only digest** → correct, and your
+   suggested division is better than either of my two attempts. Round 31 included
+   the broad `code_sha256`, which made a builder fix or a storage-only migration
+   change suppress the comparison. Round 32 then removed **all** source hashes,
+   which was the opposite error: the digest rested entirely on declared constants,
+   so a change to the model's *logic* that left its constants alone would not show
+   up at all.
+   Hashing the **shared model file only** is the division that matches the field's
+   meaning. `code_identity()` covers three files — builder, model, migration — and
+   the model file owns scoring while the builder owns iteration, batching and
+   storage and the migration owns layout. So a change to how scores are computed
+   always moves the digest, and a change to how they are written never does. The
+   broad `code_sha256` stays in `archetype_manifest_sha256`, where identifying one
+   exact build is the point. This also retires most of the "declaration, not proof"
+   caveat round 32 had to add.
+3. **P1 — Scope the release gate to the target generation** → correct, and this is
+   the third place the same scoping had to reach. Round 17 fixed the step-4 table
+   row and the ROADMAP; the PR4 implementation list and the rollout-reordering
+   paragraph still said "no product rows at all", and the implementation list is
+   what someone writing the gate would read. Both now require zero Finder product
+   rows **on the pinned `parallel_v1` generation**, each with the reason attached
+   (the retained `opt1` `system_search`, purge deferred), because the bare scoping
+   without its reason is what keeps getting simplified back to a global check.
