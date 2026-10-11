@@ -290,10 +290,15 @@ archetypes (`scripts/v3_system_archetype_model.py:148-152`). **Flexible at
 minimum tier B (`min_score=60`) is the only B-floor journey that admits all
 three systems:** V3 Lossless Reach scores 100/S, Achenar 100/S and HD 38179
 75/B. After the within-window confidence/completeness modifier, their endpoint
-order is **V3 Lossless Reach → Achenar → HD 38179**. The raw candidate-window
-order is separately **Achenar → V3 Lossless Reach → HD 38179** because the two
-100 scores tie and `system_id64 ASC` breaks that tie. The current modifier and
-tie-break implementation are at `apps/api/src/ranking/ranking_sql.py:451-477`.
+order is **V3 Lossless Reach → Achenar → HD 38179**, and that is also the
+**candidate-window order**: the window is read from `<key>_weighted_e4` in
+canonical weighted order (F2d), so one order governs the window, the page and
+the assertions — there is no separate raw-score ordering stage to assert, and
+none may be implemented or tested. (A superseded revision of this design took
+the window by raw score, which would have ordered these three
+**Achenar → V3 Lossless Reach → HD 38179** on the `system_id64` tie-break; that
+stage no longer exists.) The current modifier and tie-break implementation are
+at `apps/api/src/ranking/ranking_sql.py:451-477`.
 
 Manufacturing Hub cannot be the B-floor pagination fixture. It requires Refinery
 and Industrial (`scripts/v3_system_archetype_model.py:22-30`), while HD 38179's
@@ -434,8 +439,29 @@ switches the result heading to **Galaxy-wide [Archetype] ranking**, keeps the
 committed anchor separately from the mutable combobox draft, and displays:
 “Archetype ranking is galaxy-wide today; choose Any to search around [star].”
 Typing changes only the draft text and suggestions; it does not clear or replace
-the committed anchor. Only choosing a suggestion or using an explicit anchor
-reset changes the committed anchor and resets the offset. Returning to Any
+the committed anchor. Only choosing a suggestion or using the clear-anchor
+control changes the committed anchor and resets the offset.
+
+**The clear-anchor control (F4b).** Because typing no longer clears the anchor,
+F4b must add the explicit control the live UI does not have, or an anchored
+search could not be returned to galaxy-wide Any without reloading the page.
+It is a `<button type="button">` rendered beside the committed-anchor text
+whenever a committed anchor exists (in both Any and selected mode), with the
+accessible name **“Clear anchor [star]”** and the visible label **Clear**; it is
+in the normal tab order, activates on Enter and Space as a button does, and is
+not a decorative icon-only affordance. Activating it, in one navigation through
+the shared anchor-state-preserving helper: clears the committed anchor and the
+combobox draft, writes `state: { ...page.state, anchor: null }` so Back/Forward
+and reload cannot resurrect it, removes `offset` (reset to the first page),
+leaves `archetype`, `min-tier`, `page_size`, `selected` and `system` untouched,
+moves focus to the combobox input, and announces **“Anchor cleared; searching
+galaxy-wide.”** in the existing `role="status"` region. Tests: the control
+appears only with a committed anchor; clearing from an anchored Any search
+re-issues the galaxy-wide request; clearing while a selected archetype is active
+keeps the archetype and floor; `page.state.anchor` is `null` afterwards and a
+Back navigation does not restore the cleared anchor; the offset resets to the
+first page; axe passes on the control. Its files are
+`ExploreWorkspace.svelte`/`.test.ts` in the F4b list. Returning to Any
 therefore restores the committed anchored query even if the draft was edited
 while archetype mode was active. This separation is required because the current
 single `anchor` is cleared on every input edit
@@ -2422,3 +2448,18 @@ tier partials.
    Round 7/18 disposition text) now names the shared anchor-state-preserving
    helper and carries `state: page.state`, so a stale-offset correction during an
    anchored Any search cannot drop `page.state.anchor` and refetch galaxy-wide.
+
+#### Round 22 — 2026-10-11 (PR #801)
+
+1. **P2 — Remove the obsolete raw-score candidate order** → the fixture section
+   now states one order for the window, the page and the assertions (canonical
+   weighted order from `<key>_weighted_e4`), says no raw-score ordering stage may
+   be implemented or tested, and keeps the old `Achenar →` order only inside an
+   explicitly superseded parenthesis.
+2. **P2 — Add a concrete control for clearing the committed anchor** → F4b adds
+   an explicit **Clear** button beside the committed anchor (accessible name
+   “Clear anchor [star]”, real `<button>`, in tab order) that in one helper
+   navigation clears the anchor and draft, sets `state.anchor` to `null` so Back
+   cannot resurrect it, resets the offset, keeps archetype/floor/page-size/
+   selection, moves focus to the combobox and announces the change; tests and
+   files are specified.
