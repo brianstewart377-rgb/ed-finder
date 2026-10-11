@@ -18,7 +18,9 @@ The flag is only one of the production safeguards, and not the first one: the
 published, flag or no flag, so the F2d sequence **deploys the bounded ranking
 route (F2d PR1 — stored-key tier-partial index, literal floors, bounded count,
 combined offset bound, no hard filters) before the products are published**; publication is the
-last governed step (F2d design section 8, ROADMAP steps 10′–11′ then 9′), and
+last governed step (F2d design section 8; **ROADMAP step 5′ deploys the release
+before any product reaches READY and step 9′ publishes last — there are no steps
+10′–11′, which an earlier revision of this line invented, review round 40**), and
 the publish action verifies the deployed ranking identity first. Slice 1c here
 is therefore the browser-side contract and the scale receipt; its API-side
 bounding lives in F2d PR1 and is a prerequisite of publication, not only of F4b.
@@ -950,7 +952,12 @@ The URL is the source of truth for shareable ranking state:
 | Any archetype      | omit `archetype`                                         | Default. `archetype=any` canonicalizes to omission.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Selected archetype | `archetype=manufacturing_hub`                            | Accept only the eight current keys. Unknown values fail closed to Any and show a non-blocking “unsupported link option” status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Minimum tier       | `min-tier=A`                                             | Selected-archetype-only. Omit B, the selected-mode default, and map S/A/B to 88/76/60. When `archetype` is absent/Any, ignore and remove `min-tier`, normalize `minimumTier` to null and send no `min_development_score`. Treat C/D as unsupported initial-product options; do not accept or emit either value. Every selected value still depends on slice 1c; Any tier filtering depends on slice 1d.                                                                                                                                                                                                                                                                                                                                                                              |
-| Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit` (default 50, range 1–500, `apps/api/src/routers/archetypes.py:517-518`) **and, in Any mode, to local search's `size`**, with `offset` mapped to local search's `from` — the live Any request is hard-coded to `size: 24, from: 0` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-139`), so in an F4-enabled build it is no longer “unchanged”: its body takes `size`/`from` from the codec and request-level tests assert both fields for several pages. F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes.                                                                                                                                                                                                                                                                                                                                                                                           |
+| Page size          | `page_size=1`                                            | Omit 50, the facade default. Accept exactly one integer from 1 through 50; reject duplicates, fractions and out-of-range values. Map this facade/URL field to the rankings endpoint's existing wire `limit` (default 50, range 1–500, `apps/api/src/routers/archetypes.py:517-518`) **and, in Any mode, to local search's `size`**, with `offset` mapped to local search's `from` — the live Any request is hard-coded to `size: 24, from: 0` (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-139`), so in an F4-enabled build it is no longer “unchanged”: its body takes `size`/`from` from the codec and request-level tests assert both fields for several pages. F4 intentionally exposes the narrower bound. Include it in the query key and reset offset when it changes. **`query.ts` and
+`query.test.ts` also take the anchor-identity partition here (review round 40):** the
+key must cover the committed anchor's `{ id64, name }` as well as the wire request
+and page size, or two anchors at identical coordinates with different identities
+share the live 30-second-fresh Any-results entry and the normalized rows — and the
+snapshots saved from them — carry the first anchor's reference.                                                                                                                                                                                                                                                                                                                                                                                           |
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
@@ -2841,7 +2848,7 @@ tier partials.
 3. **P1 — Gate product publication on slice 1c** → the bounded route is a
    prerequisite of publication, not only of F4b: the F2d sequence promotes the
    release carrying PR1's bounded ranking route first and publishes the products
-   last (ROADMAP steps 10′–11′ then 9′; the publish action verifies the deployed
+   last (ROADMAP step 5′ deploys the release, step 9′ publishes last; the publish action verifies the deployed
    ranking identity), and the opening gate here says so. Slice 1c is scoped to
    the browser contract and the scale receipt.
 4. **P1 — Reconcile the stored index with the Sol distance tie-break** → the new
@@ -3431,3 +3438,26 @@ had written in the preceding round, which is worth noting rather than hiding.
    reason, which I should have followed. The fixture now runs `VACUUM (ANALYZE)`, and
    the plan assertions require **`Heap Fetches: 0`** on the window node — the only
    assertion that tests what index-only means rather than what the node is called.
+
+### Review round 40 (2026-10-11)
+
+1. **P2 — Add anchor identity to the F4a query-key task** → correct, and round 39's
+   fix did not reach the task list — the same half-application as rounds 34 and 35.
+   The F4a inventory assigned `query.ts` only the page-size key change and left
+   `query.test.ts` without the anchor-identity partition, so an implementer following
+   the task list produces exactly the collision round 39 identified: two anchors at
+   identical coordinates with different `{ id64, name }` share the 30-second-fresh
+   Any-results entry, and the normalized rows and the snapshots saved from them carry
+   the first anchor's reference. Both files now carry the requirement with the reason.
+2. **P1 — Reconcile route deployment with the roadmap sequence** → correct that the
+   two documents disagree, though the error is **mine and in this document**, not the
+   ROADMAP's. There are no ROADMAP steps 10′ or 11′: its sequence runs 4′–9′, with
+   **5′ deploying the release before any product reaches READY** and **9′ publishing
+   last, labelled "(last — go-live)"**. So the authoritative order is already the one
+   this design requires — the bounded route is deployed well before publication — and
+   the "steps 10′–11′ then 9′" I wrote referred to a numbering that no longer exists.
+   Checked against the ROADMAP rather than assumed, because the consequence you
+   describe is real if the order were wrong: publishing first would expose the new
+   products through the currently deployed unbounded rankings route, or deadlock
+   against the publish action's identity check. Both cross-references now name the
+   actual steps.
