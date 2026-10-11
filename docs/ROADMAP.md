@@ -235,8 +235,12 @@ newer dated source wins).
   5′. **Deploy the release before any product reaches READY.** Revise the
      application-release gate to require the applied migration set and its exact
      ledger hashes, the new ranking identity, the bounded ranking route and the
-     publication check in the built image — and **no product rows**, because
-     none exist yet — then build the immutable release carrying the F2d code and
+     publication check in the built image — and **no Finder product rows on the
+     pinned `parallel_v1` target generation** (not an empty
+     `v3_meta.derived_product`: the READY `system_search` retained on `opt1` at
+     lines 140-143 is deliberately unpurged, so a global emptiness check would
+     fail permanently and block this very deployment) — then build the immutable
+     release carrying the F2d code and
      promote it. Verify the two things separately — a 503 has no response
      envelope, so it cannot advertise an identity: the live request proves the
      Finder answers 503, while the **ranking identity** is proved from the
