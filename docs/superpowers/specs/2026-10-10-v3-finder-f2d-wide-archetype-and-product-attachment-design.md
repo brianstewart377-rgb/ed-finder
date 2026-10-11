@@ -366,7 +366,17 @@ renames no externally used guard unless needed for clarity.
 `GET /api/archetypes/system/{id64}/explanation` with the path parameter declared
 `Path(ge=0, le=9223372036854775807)` as the active Ratings V4 routes do, so a
 negative or over-`bigint` value is a 422 validation response rather than an
-asyncpg encoding failure (tests cover both bounds); leave the existing legacy
+asyncpg encoding failure (tests cover both bounds), and with three **optional
+identity query parameters** — `expected_generation_id` (uuid),
+`expected_archetype_version` (text) and `expected_manifest_sha256` (hex) — that
+a client copies from the ranking envelope of the card it is explaining. When any
+is supplied and differs from the current published product, the route answers
+HTTP 409 with the same detail string as the version rule in section 4.3, so a
+product republished between a card's ranking response and the user expanding
+its explanation can never be explained against a different product than the one
+that produced the displayed score; the 200 response always echoes the identity
+it computed against so the client can re-check it (F4 design review, round 18).
+Leave the existing legacy
 `GET /api/archetypes/system/{id64}` unchanged until its topology/pair/trait
 contract has a complete V3 replacement. The existing endpoint still reads
 legacy `systems`, `system_archetype_scores`, topology, pair, trait, and body
@@ -673,8 +683,10 @@ hashed window constant — so no request can read rows beyond the advertised top
 10,000 (today `offset=Query(0, ge=0)` is passed straight to `OFFSET`; review
 round 6). This is a real contract change and is treated as one: the default, the
 three accepted floors, the stored-key definition (`round(score × confidence ×
-completeness × 10000)`), the 10,000 window and its offset/limit bound, and the
-`is_truncated` rule are all declared in `PROFILE_SPEC` and therefore hashed into
+completeness × 10000)`), the 10,000 window and its offset/limit bound, the
+`is_truncated` rule, the **post-window filter rule** (hard filters apply only
+inside the window; which rows may enter) and the **within-window `total`
+rule** are all declared in `PROFILE_SPEC` and therefore hashed into
 `ranking_sha256`; the route's `Query(...)` declarations are built from those
 spec constants rather than typed beside them, and the identity test mutates the
 default, the accepted-floor set, the window size and the key definition in turn
