@@ -356,7 +356,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Selected-score tier badge          | Any: `results[].archetype_tier`; selected: `results[].tier` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:880-892`).                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Slice 1 code. The value is carried with `score_kind`; it is not automatically the tier for the overall headline.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Best Colony Potential** tier     | `system_archetype_summary.best_tier` exists, but is omitted from ranking SQL and both payloads (`sql/v3/migrations/011_v3_system_archetype.sql:22-39`, `apps/api/src/ranking/ranking_sql.py:485-501`).                                                                                                                                                                                                                                                                                                                                                                                         | **Slice 1b API prerequisite:** expose summary `best_tier` in rankings and local-search payloads/generated types. Until then show the headline number without a tier. Never compute an API-owned tier in the browser.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Minimum tier                       | Selected mode accepts `min_score` (`apps/api/src/routers/archetypes.py:508-518`). Any has an optional `min_development_score`, but it is deliberately omitted in F4 (`apps/api/src/models.py:551-555`).                                                                                                                                                                                                                                                                                                                                                                                            | Selected-archetype-only in the first F4 surface, defaulting to B (`60`) rather than the selected endpoint's non-tier default `40` (`apps/api/src/ranking/profile.py:52-54`). B/A/S are the initial selected-mode scope; the control is hidden in Any and `min-tier` is ignored/removed there.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Selected-ranking bounds            | Picked mode orders by a cross-table score/confidence/completeness product and its count is uncapped (`apps/api/src/ranking/ranking_sql.py:451-462`, `apps/api/src/routers/archetypes.py:348-373`). The existing selected index is `(derived_generation_id, archetype_key, archetype_score DESC, system_id64)` (`sql/v3/migrations/011_v3_system_archetype.sql:45-50`).                                                                                                                                                                                                                         | **Slice 1c hard prerequisite for all selected modes, built on the F2d wide row (that keyed index will not exist after F2d):** probe at most 10,001 rows through the selected key's tier-partial stored-key index `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60/76/88` — already the canonical `score × confidence × completeness` order — constrained by generation, a server-chosen literal tier floor and the parameterized `min_score`; the first 10,000 are the immutable candidate window and the sentinel sets `is_truncated`; the count is bounded at 10,001 so `total = min(qualifying, 10000)`. Hard filters are **not accepted** on a picked request (422; F2d owner question 9) — the join only fetches response columns — so no filter can redefine the window. Rows outside the window cannot re-enter. This bounds every selected request regardless of filter selectivity. The left column is current-state context only. |
+| Selected-ranking bounds            | Picked mode orders by a cross-table score/confidence/completeness product and its count is uncapped (`apps/api/src/ranking/ranking_sql.py:451-462`, `apps/api/src/routers/archetypes.py:348-373`). The existing selected index is `(derived_generation_id, archetype_key, archetype_score DESC, system_id64)` (`sql/v3/migrations/011_v3_system_archetype.sql:45-50`).                                                                                                                                                                                                                         | **Slice 1c hard prerequisite for all selected modes, built on the F2d wide row (that keyed index will not exist after F2d):** probe at most 10,001 rows through the selected key's tier-partial stored-key index `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60/76/88` — already the canonical `score × confidence × completeness` order — constrained by generation and a server-chosen **literal** tier floor — the literal alone, with no parameterized `min_score` beside it (review round 38): `<key>_score` is not in the partial index, so a parameterized predicate forces a heap fetch per candidate row and the window cannot be index-only. Validation restricts `min_score` to exactly 60, 76 or 88, so the route branches to one of three literal-only forms and the literal *is* the requested value; the first 10,000 are the immutable candidate window and the sentinel sets `is_truncated`; the count is bounded at 10,001 so `total = min(qualifying, 10000)`. Hard filters are **not accepted** on a picked request (422; F2d owner question 9) — the join only fetches response columns — so no filter can redefine the window. Rows outside the window cannot re-enter. This bounds every selected request regardless of filter selectivity. The left column is current-state context only. |
 | Any-mode tier bound                | In Any, the floor is `sum.best_colony_potential >= $n`, but the page orders by `sum.weighted_potential DESC` (`apps/api/src/ranking/ranking_sql.py:315-327`, `apps/api/src/ranking/ranking_sql.py:333-357`, `apps/api/src/ranking/ranking_sql.py:451-462`). The only summary ordering index is `(derived_generation_id, weighted_potential DESC)` (`sql/v3/migrations/011_v3_system_archetype.sql:52-56`). The capped count stops after 10,000 **qualifying** rows (`apps/api/src/ranking/ranking_sql.py:512-565`, `apps/api/src/local_search.py:912-923`), not after inspecting 10,000 candidates. | **Slice 1d API prerequisite before Any can expose Minimum tier:** add a measured index or candidate bound keyed to `best_colony_potential`, or an explicit count/candidate-scan cap that prevents a sparse floor from inspecting most of roughly 198.5 million joined rows (`docs/ROADMAP.md:197-214`). Until then Any sends no floor and retains the existing default behavior. The `weighted_potential` ordering index alone does not bound a `best_colony_potential` predicate. |
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -809,7 +809,13 @@ missing coordinates to the origin and a finite-only test would plant the marker
 on Sol for any such system after a shared-URL reload. The facade normalizes that
 triple to absent coordinates so every consumer inherits the rule, and a test
 covers a non-Sol system returning `(0, 0, 0)` (no point, selection retained) and
-Sol itself (point emitted). Deduplicate against the
+Sol itself (point emitted). **`apps/web/src/lib/api/client.ts` and
+`client.test.ts` are therefore in F4b's exact file set for this guard (review
+round 38):** `getSystem` currently returns the legacy triple unchanged, F4a
+assigns those files only ranking and page-envelope work, and the F4b inventory
+omitted them — so following the per-PR inventories would have left the guard
+unimplemented while this normative line promised it, and a non-Sol system would
+plant its marker on Sol after a shared-URL reload. Deduplicate against the
 current page and ignore or cancel a stale response when selection changes.
 While resolution is pending, or on 404/error/non-finite/origin coordinates,
 retain the selection and Inspect hand-off but emit no guessed point.
@@ -905,7 +911,16 @@ Selected rankings carry their `score` as `ranking_score` with
 (`id64=10477373803`) as distance reference
 (`apps/api/src/helpers.py:16`); anchored Any rows
 carry their overall score as `ranking_score` with
-`score_kind: 'overall_potential'` and the chosen star reference. A
+`score_kind: 'overall_potential'` and the chosen star reference. **The facade
+cannot derive that reference from what it currently receives (review round 38):**
+`LocalSearchRequest`'s wire shape carries the reference *coordinates* but no
+anchor id or name, and the response does not echo them, so the normalizer has
+nothing to build a `DistanceReference` from. Leaving it null would make every
+anchored save ineligible for the reference-aware comparisons; attaching it after
+normalization would contradict the normalized `ExploreSystem` shape this section
+defines. So the facade's normalization call takes the committed anchor's
+`{ id64, name }` — which the caller already holds, since it is the same value the
+history state carries — as an explicit argument alongside the request. A
 galaxy-wide Any row with no measured distance has a null reference. These fields,
 plus `overall_development_potential`, are retained in pin/compare snapshots.
 Never store a selected fit in generic `archetype_score`. Current code otherwise
@@ -1006,12 +1021,18 @@ manifest embeds generation identity and so never agrees across generations —
 see the comparison rule below. A
 selected-fit row is
 shown or ranked only when every compared entry has `score_kind: 'selected_fit'`
-for the same `selected_archetype` **and** an equal `ranking_provenance`
-(`ranking_version`, `ranking_sha256`, `archetype_version` and
-`archetype_model_sha256` must match; the generation id and publication sequence
-are shown as “ranked on generation …” but do not block the comparison, because a
+for the same `selected_archetype` **and** equal values in the **four semantic
+provenance fields only** — `ranking_version`, `ranking_sha256`,
+`archetype_version` and `archetype_model_sha256`. **Not an equal
+`ranking_provenance` object (review round 38):** that object also carries
+`derived_generation_id`, `publication_sequence` and `archetype_manifest_sha256`,
+and the manifest digest changes on every rebuild, so a straightforward object
+equality — the obvious implementation of "an equal `ranking_provenance`" — would
+suppress exactly the cross-generation comparison this section exists to permit.
+The comparison is over a named four-field projection, and the three excluded
+fields are **shown** (“ranked on generation …”) without blocking it, because a
 data refresh under identical ranking and model identities changes freshness, not
-semantics);
+semantics;
 
 **That last field cannot be `archetype_manifest_sha256` (review round 31).**
 `product_manifest()` hashes `derived_generation_id`, `generation_key`,
@@ -3318,3 +3339,40 @@ had written in the preceding round, which is worth noting rather than hiding.
    turns out to be empty: validation restricts `min_score` to exactly 60, 76 or 88,
    so the server-chosen literal **is** the requested value in every accepted case.
    The route now branches on the validated floor and emits that literal alone.
+
+### Review round 38 (2026-10-11)
+
+1. **P2 — Remove the stale parameterized floor from the dependency map** → correct.
+   Round 37 fixed the query section and left the **dependency map** — the normative
+   summary near the top that someone reads first — still requiring the literal floor
+   *and* the parameterized `min_score`. An implementation following it cannot produce
+   the index-only window the design later demands. Corrected there too, with the
+   reason, and the sweep now returns no other site.
+2. **P1 — Compare only the semantic provenance fields** → correct, and the wording
+   was the whole problem: I wrote "an equal `ranking_provenance`" and then explained
+   in a parenthetical that only four fields matter. The obvious implementation of the
+   requirement is object equality, and the object carries
+   `derived_generation_id`, `publication_sequence` and `archetype_manifest_sha256` —
+   the last of which changes on **every** rebuild. So the straightforward reading
+   suppresses exactly the cross-generation comparison this section exists to permit,
+   and the parenthetical that would have saved it reads as commentary rather than as
+   the rule. The requirement is now stated as a named **four-field projection**, with
+   the three excluded fields called out as shown-but-not-compared.
+3. **P2 — Assign the origin guard to an exact PR file set** → correct. The guard is
+   promised in the normative text — `getSystem` must normalize a legacy `(0, 0, 0)`
+   to absent coordinates so every consumer inherits it — and
+   `apps/web/src/lib/api/client.ts` appears in **no** PR's set for that work: F4b's
+   inventory omitted it and F4a assigns those files only ranking and page-envelope
+   work. Following the per-PR inventories leaves the guard unimplemented, and the
+   symptom is specific and bad: a non-Sol system plants its marker on Sol after a
+   shared-URL reload. Added to F4b with its test.
+4. **P2 — Pass anchor identity into Any-mode normalization** → correct, and it is an
+   impossibility rather than an omission: `LocalSearchRequest`'s wire shape carries
+   the reference *coordinates* but no anchor id or name, and the response does not
+   echo them, so the normalizer had nothing to build a `DistanceReference` from. Both
+   ways out were bad — null references make every anchored save ineligible for the
+   reference-aware comparisons, and attaching the reference after normalization
+   contradicts the normalized `ExploreSystem` shape this section defines. The
+   facade's normalization call now takes the committed anchor's `{ id64, name }` as an
+   explicit argument, which costs nothing because the caller already holds it: it is
+   the same value the history state carries.
