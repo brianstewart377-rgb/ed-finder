@@ -421,8 +421,8 @@ class ScanBudget:
     site. Passing it per call meant forgetting it at four of them, which silently
     unreserved the reserve: the closing reconciliation scan is mandatory, so any earlier
     scan allowed to spend its time takes the whole section down. Here every call is
-    held back from the reserve by default and only `release_reserve()` opens it, for the
-    one scan the reserve exists for.
+    held back from the reserve by default, and only `begin_closing_scan()` opens it --
+    once before each of the two closing scans the reserve exists for.
     """
 
     def __init__(self, seconds: int, reserve_seconds: int) -> None:
@@ -431,19 +431,30 @@ class ScanBudget:
         self._reserved = True
         self._deadline = time.monotonic() + seconds
 
-    def release_reserve(self) -> None:
-        """Open the reserve, for the closing reconciliation scan only.
+    def begin_closing_scan(self) -> None:
+        """Give the next closing scan its own full per-call allowance.
 
-        This also RESTARTS the reserve's clock. The reserve has to be an allowance
-        rather than a slice of an advancing deadline: between the scans and this call,
-        the database, WAL, relation, index, attribution and tablespace queries run
-        without touching the budget at all, while the wall clock keeps moving. Those
-        sections could therefore consume the supposedly protected 300 s and the closing
-        scan would raise directory_scan_budget_exhausted immediately -- the one scan the
-        reserve exists for, denied by time it never asked for.
+        Called once before EACH closing scan, not once for the phase. The reserve has
+        to be an allowance rather than a slice of an advancing deadline: between the
+        walk and the closing phase, the database, WAL, relation, index, attribution and
+        tablespace queries run without touching the budget at all, while the wall clock
+        keeps moving, so a single deadline set at the start of the phase could be
+        consumed by time the scan never asked for.
+
+        The same argument applies BETWEEN the two closing scans. The PGDATA re-read can
+        take nearly its whole allowance, and the closing WAL query and the base
+        classification run after it; against one phase deadline the `base` scan would
+        then start with less than a per-call allowance and could time out on a walk it
+        would have finished. Its failure is treated as an optional unavailable
+        breakdown, so the action would still report success while silently dropping the
+        base attribution it exists to produce -- the quietest possible way to lose a
+        finding.
+
+        The reserve stays two full allowances, so the pre-closing walk is still held
+        back by everything the closing phase can need.
         """
         self._reserved = False
-        self._deadline = time.monotonic() + self.reserve_seconds
+        self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS
 
     def reserve(self) -> float:
         return self.reserve_seconds if self._reserved else 0.0
@@ -956,6 +967,11 @@ postgres_data_directory_bytes: int | None = None
 pgdata_children_all: list[dict[str, Any]] | None = None
 pgdata_host: str | None = None
 pgdata_before: int | None = None
+# The data-directory size measured immediately AFTER the root walk, so it describes the
+# same state as `usage_full`. Read by the summary, which subtracts it from the ancestor
+# that contains the data directory; module scope for the same reason as the others --
+# a NameError here is not RuntimeError and would escape the section handler.
+pgdata_after: int | None = None
 tolerance: int = 0
 # Same reason again: the database totals are computed in the `databases` section and
 # read by the summary. Previously the summary re-derived them by iterating
@@ -1363,12 +1379,44 @@ try:
     wal_container = f"{pgdata_container.rstrip('/')}/pg_wal" if pgdata_container else None
     wal_inside = None
     wal_resolved = None
+    wal_device = None
+    pgdata_device = None
+    wal_same_filesystem = None
     if pgdata_host is not None:
         probe = run(["readlink", "-f", f"{pgdata_host.rstrip('/')}/pg_wal"])
         if probe.returncode == 0:
             wal_resolved = probe.stdout.strip() or None
+        # Path identity is NOT enough. A separate Docker volume or bind mount attached
+        # directly at pg_wal's canonical destination is not a symlink, so `readlink -f`
+        # returns exactly the expected pathname and the path test says "inside". But
+        # the PGDATA walk uses `du -x`, which does not cross filesystem boundaries, so
+        # that WAL's bytes are not in the PGDATA total -- while the summary still
+        # subtracts pg_ls_waldir()'s figure from this volume. The result is a
+        # successful receipt whose partition is invalid, and nothing in the path check
+        # can see it.
+        #
+        # Device identity can. `stat -c %d` is the same st_dev the kernel gives `du
+        # -x` to decide whether to descend, so this tests exactly the property the
+        # arithmetic depends on -- rather than enumerating mount kinds and hoping the
+        # list is complete.
+        for target, slot in (
+            (f"{pgdata_host.rstrip('/')}/pg_wal", "wal"),
+            (pgdata_host.rstrip("/"), "pgdata"),
+        ):
+            stat_probe = run(["stat", "-c", "%d", target])
+            if stat_probe.returncode == 0:
+                value = as_int(stat_probe.stdout.strip())
+                if slot == "wal":
+                    wal_device = value
+                else:
+                    pgdata_device = value
+        if wal_device is not None and pgdata_device is not None:
+            wal_same_filesystem = wal_device == pgdata_device
         if wal_resolved:
-            wal_inside = wal_resolved == f"{pgdata_host.rstrip('/')}/pg_wal"
+            wal_inside = (
+                wal_resolved == f"{pgdata_host.rstrip('/')}/pg_wal"
+                and wal_same_filesystem is True
+            )
     inventory["wal"] = {
         **wal_rows[0],
         "settings": settings_rows[0],
@@ -1391,6 +1439,11 @@ try:
         "prepared_transactions": prepared_rows[0]["prepared_transactions"],
         "container_directory": wal_container,
         "resolved_host_directory": wal_resolved,
+        # Reported so an operator can see WHICH test decided it. A path that matches
+        # with a different device is the case a path test alone calls "inside".
+        "host_device": wal_device,
+        "data_directory_device": pgdata_device,
+        "same_filesystem_as_data_directory": wal_same_filesystem,
         "directory_inside_pgdata": wal_inside,
     }
 except RuntimeError as exc:
@@ -1827,7 +1880,7 @@ try:
     bracket = inventory.get("postgres_data_directory_bracket")
     if not isinstance(bracket, dict):
         raise RuntimeError("postgres_data_directory_bracket_unavailable")
-    scan_budget.release_reserve()
+    scan_budget.begin_closing_scan()
     # ONE scan for both the closing total and the breakdown. Two consecutive full
     # PGDATA walks can observe different states on a live cluster, which made
     # postgres_data_directory_bytes and pgdata_children_all mutually inconsistent --
@@ -1923,9 +1976,14 @@ try:
         # Deliberately not computed from an incomplete OID set: a live database whose
         # OID was missing would be reported as orphaned storage.
         base_breakdown = {"available": False, "reason": "live_database_oids_unbounded"}
-    elif scan_budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
-        base_breakdown = {"available": False, "reason": "scan_budget_exhausted"}
     else:
+        # Its OWN full allowance. The PGDATA re-read above can take nearly all of one,
+        # and the closing WAL query and this classification run after it, so against a
+        # single phase deadline this scan could start with almost nothing left and time
+        # out on a walk it would have finished -- and because its failure is an
+        # optional unavailable breakdown, the action would still report success while
+        # silently dropping the base attribution it exists to produce.
+        scan_budget.begin_closing_scan()
         base_path = base_row["path"].rstrip("/")
         # Its own failure boundary. This scan refines ONE candidate; the PGDATA
         # re-read, the WAL close and the df close around it are what the summary
@@ -2222,9 +2280,26 @@ try:
         for path in exclusive
         if path != data_dir and data_dir.startswith("/" if path == "/" else f"{path}/")
     ]
+    # The SCAN-SIDE data-directory size, not the closing one. `usage_full` contains the
+    # data directory's footprint as it was during the root walk, so subtracting the
+    # closing figure from that ancestor charges the intervening database churn to a
+    # SIBLING path: a shrink inflated an outside candidate such as /var/lib by the
+    # removed database bytes, and growth suppressed it and could drive it negative.
+    # post_scan_volume_drift_bytes does not undo that -- it is a volume-level term and
+    # says nothing about which path the bytes were attributed to -- so the receipt could
+    # report success, and a true closure, while presenting database churn as reclaimable
+    # outside storage. That is the single most misleading row this action could emit.
+    #
+    # pgdata_after is the measurement taken immediately after the root walk, so it is
+    # the one that describes the same state as `usage_full`. The difference against the
+    # closing figure the inside candidates use is carried as a signed closure term,
+    # because the two sides of the partition are now deliberately measured at different
+    # moments and the identity has to say so.
+    if pgdata_after is None:
+        raise RuntimeError("postgres_data_directory_scan_side_size_unavailable")
     if data_dir not in exclusive and strict_ancestors:
         container = max(strict_ancestors, key=len)
-        exclusive[container] -= postgres_data_directory_bytes
+        exclusive[container] -= pgdata_after
     outside = [
         {"path": path, "exclusive_bytes": size, "inside_data_directory": False}
         for path, size in exclusive.items()
@@ -2524,10 +2599,35 @@ try:
     #   filesystem_minus_directory_scan_bytes -- df against du, for the whole volume.
     post_scan_volume_drift = volume_used - volume_used_at_scan
     unaccounted_at_scan = volume_used_at_scan - accounted_bytes
+    # The two sides of the partition are now deliberately measured at different moments:
+    # the outside candidates subtract the data directory as it was during the root walk,
+    # and the inside candidates partition its size at window close. The difference is a
+    # signed term, like every other difference between two measurements of the same
+    # storage -- and naming it here is what lets the outside rows stay attributed to the
+    # right paths instead of absorbing database churn.
+    pgdata_span = postgres_data_directory_bytes - pgdata_after
+    if pgdata_span:
+        closure_adjustments.append(
+            {
+                "term": "postgres_data_directory_scan_to_close_drift",
+                "bytes": -pgdata_span,
+                "path": data_dir,
+            }
+        )
     closure_adjustment_bytes = sum(item["bytes"] for item in closure_adjustments)
     candidate_total = (
         non_database_directory_bytes + unaccounted_inside_data_directory_bytes
     )
+    # The self-check, and the gap when it fails. `None` only where the optional base
+    # breakdown is unavailable, which is a deliberate "cannot be asserted" rather than
+    # a failure.
+    closure_gap = (
+        None
+        if metric_difference is None
+        else unaccounted_at_scan
+        - (candidate_total + metric_difference + residual + closure_adjustment_bytes)
+    )
+    partition_closes = None if closure_gap is None else closure_gap == 0
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
         "operating_database_bytes": operating_database_bytes,
@@ -2559,15 +2659,8 @@ try:
         # have reported that its own candidates did not partition the figure they
         # explain. It passed only in a fixture where df and du agree, which is the one
         # place the error could not be seen.
-        "candidates_partition_unaccounted_at_scan": (
-            None
-            if metric_difference is None
-            else candidate_total
-            + metric_difference
-            + residual
-            + closure_adjustment_bytes
-            == unaccounted_at_scan
-        ),
+        "candidates_partition_unaccounted_at_scan": partition_closes,
+        "candidate_closure_gap_bytes": closure_gap,
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
         "non_database_directory_bytes": non_database_directory_bytes,
         "unaccounted_inside_data_directory_bytes": unaccounted_inside_data_directory_bytes,
@@ -2664,6 +2757,22 @@ try:
             "scan from / emits /var/lib but never /var/lib/docker"
         ),
     }
+    # A FALSE closure is a failure, not a field. The whole point of computing the
+    # identity is that the receipt's own method claims the candidates partition
+    # unaccounted_bytes_at_directory_scan; when they provably do not -- a race, or a
+    # measurement discrepancy this action does not model -- recording the verdict and
+    # still reporting `success` hands an operator a complete-looking inventory whose
+    # arithmetic it has already disproved. That is the one receipt that must not look
+    # authoritative, because the next step taken from it deletes something.
+    #
+    # Recorded directly rather than raised, because section_failed replaces the
+    # section's whole value with an error object -- which would delete the summary
+    # that is the only evidence of what failed to close. The gap, the candidates and
+    # every term of the identity stay in the receipt for diagnosis; only the status
+    # changes. `None` is left alone: it means the optional base breakdown was
+    # unavailable, which is "cannot be asserted", not "disproved".
+    if partition_closes is False:
+        failures.append(f"candidate_partition_does_not_close:gap_{closure_gap}")
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:
     section_failed(failures, inventory, "summary", RuntimeError(str(exc)))
 

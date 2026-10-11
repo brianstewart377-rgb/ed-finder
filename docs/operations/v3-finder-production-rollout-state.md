@@ -477,6 +477,25 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   add-backs come from the `base` walk while the outer partition removed `base` as
   measured by the PGDATA walk, so any drift inside the tolerance shifts the candidate
   total by exactly that amount.
+- **Database churn is never attributed to a sibling path.** The outside candidates
+  subtract the data-directory size measured **beside the root walk**, not the closing
+  one: `usage_full` holds the data directory as it was during that walk, so subtracting
+  the closing figure charged the intervening database churn to an ancestor such as
+  `/var/lib` — a shrink inflated that candidate by the removed database bytes and growth
+  could drive it negative, pointing an operator at a sibling directory as reclaimable
+  space that is actually the live database moving. The deliberate difference between the
+  two sides is carried as a signed closure term.
+- **`pg_wal`'s location is tested by device, not by path.** A separate volume or bind
+  mount attached at `pg_wal`'s canonical destination is not a symlink, so `readlink -f`
+  returns the expected pathname while `du -x` does not descend into it — the bytes are
+  absent from the PGDATA total while `pg_ls_waldir()` is still subtracted from the
+  volume. `stat -c %d` reads the same `st_dev` the kernel gives `du -x`, so it tests
+  exactly the property the arithmetic depends on.
+- **Each closing scan gets its own full allowance.** The reserve is opened once per
+  closing scan rather than once for the phase, so the `base/` walk cannot start with
+  whatever the PGDATA re-read and the intervening SQL left over — its failure is an
+  optional unavailable breakdown, which would have dropped the base attribution
+  silently.
 - **The directory partition is exact across row-cap ancestor gaps.** The retained set is
   a bounded top-k and so is not ancestor-closed — the cap can keep a child while
   dropping its parent. Each row's exclusive size subtracts its reported descendants that
@@ -487,7 +506,10 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   the close), `database_size_metric_difference_bytes` (above), and
   `filesystem_minus_directory_scan_bytes` (`df` against `du`). The candidates partition
   **`unaccounted_bytes_at_directory_scan`**, not `unaccounted_bytes`, and the receipt
-  asserts the identity explicitly as `candidates_partition_unaccounted_at_scan`:
+  asserts the identity explicitly as `candidates_partition_unaccounted_at_scan`, and
+  **a `false` verdict fails the operation** (`candidate_partition_does_not_close:gap_N`,
+  with the summary preserved for diagnosis). `null` is the separate "cannot be
+  asserted" case where the optional `base/` breakdown is unavailable:
 
   ```
   candidate_total_bytes

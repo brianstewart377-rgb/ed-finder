@@ -95,6 +95,8 @@ def _run_inventory_action(
     df_used_drift: int = 0,
     base_scan_denied: bool = False,
     du_below_df: bool = False,
+    wal_separate_filesystem: bool = False,
+    pgdata_grew: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
@@ -138,6 +140,30 @@ def _run_inventory_action(
                 fi ;;
               *)
                 printf '%s\\n' "$target" ;;
+            esac
+            """
+        ),
+        encoding="utf-8",
+    )
+    stat_bin = fake_bin / "stat"
+    stat_bin.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            # -c %d <path>: the st_dev the kernel gives `du -x` to decide whether to
+            # descend. Same device for PGDATA and pg_wal unless
+            # WAL_SEPARATE_FILESYSTEM asks for the mounted-at-the-canonical-path case,
+            # which `readlink -f` cannot distinguish from an ordinary subdirectory.
+            target="$3"
+            case "$target" in
+              */pg_wal)
+                if [ "$WAL_SEPARATE_FILESYSTEM" = '1' ]; then
+                  printf '%s\\n' '2049'
+                else
+                  printf '%s\\n' '2048'
+                fi ;;
+              *)
+                printf '%s\\n' '2048' ;;
             esac
             """
         ),
@@ -286,11 +312,14 @@ def _run_inventory_action(
                 printf '100\\t%s/base/pgsql_tmp\\0' "$data"
                 printf '1330000\\t%s/base\\0' "$data" ;;
               *"--max-depth=1 $data")
+                # PGDATA_GREW drifts ONLY this closing root total, not the depth-0
+                # calls that bracket the root walk, so the scan-side and closing
+                # data-directory figures differ by exactly that much.
                 printf '1330000\\t%s/base\\0' "$data"
                 printf '120000\\t%s/pg_wal\\0' "$data"
                 printf '8000\\t%s/global\\0' "$data"
                 printf '4000\\t%s/pg_stat\\0' "$data"
-                printf '1465000\\t%s\\0' "$data" ;;
+                printf '%s\\t%s\\0' "$(( 1465000 + PGDATA_GREW ))" "$data" ;;
               *'--max-depth=1 /var/lib/docker/volumes')
                 printf '1465000\\t%s\\0' "$vol"
                 printf '1470000\\t/var/lib/docker/volumes\\0' ;;
@@ -429,7 +458,7 @@ def _run_inventory_action(
         ),
         encoding="utf-8",
     )
-    for executable in (hostname, pwd, readlink, docker, df, du, psql):
+    for executable in (hostname, pwd, readlink, stat_bin, docker, df, du, psql):
         executable.chmod(0o755)
 
     env = os.environ.copy()
@@ -446,6 +475,8 @@ def _run_inventory_action(
     env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
     env["MOUNT_POINT_FAILURE"] = "1" if mount_point_failure else "0"
     env["WAL_OUTSIDE_PGDATA"] = "1" if wal_outside_pgdata else "0"
+    env["WAL_SEPARATE_FILESYSTEM"] = "1" if wal_separate_filesystem else "0"
+    env["PGDATA_GREW"] = str(pgdata_grew)
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
     env["DU_BELOW_DF"] = "1" if du_below_df else "0"
     env["DF_USED_DRIFT"] = str(df_used_drift)
@@ -911,11 +942,16 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     assert "reserve_seconds" not in source.split("def du_rows(")[1].split("def du_total")[0]
     assert "def reserve(self) -> float:" in source
     assert "return self._deadline - time.monotonic() - self.reserve()" in source
-    # Exactly one place may open the reserve, and it is the closing scan.
-    assert source.count("def release_reserve(self)") == 1
-    assert source.count("scan_budget.release_reserve()") == 1
-    release = source.index("scan_budget.release_reserve()")
-    # The closing scan is the FIRST du after release_reserve(), so search from there
+    # The reserve is opened once per closing scan, and there are exactly two: the
+    # PGDATA re-read and the base/ breakdown. Opening it once for the phase let the
+    # second scan start with whatever the first and the intervening SQL left over.
+    assert source.count("def begin_closing_scan(self)") == 1
+    assert source.count("scan_budget.begin_closing_scan()") == 2
+    assert (
+        "self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    )
+    release = source.index("scan_budget.begin_closing_scan()")
+    # The closing scan is the FIRST du after begin_closing_scan(), so search from there
     # rather than from the top of the file -- the same call shape appears earlier, in
     # the opening PGDATA section.
     closing = source.index("closing_usage, pgdata_children_omitted", release)
@@ -1297,10 +1333,12 @@ def test_v3_disk_inventory_reserve_survives_the_sql_phase():
     # more than half the single reserve or observe different states.
     assert "postgres_data_directory_usage_total_missing" in source
     assert source.count("pgdata_final = du_total(") == 0
-    release = source[source.index("def release_reserve(self)") :]
+    release = source[source.index("def begin_closing_scan(self)") :]
     release = release[: release.index("\n    def ")]
     assert "self._reserved = False" in release
-    assert "self._deadline = time.monotonic() + self.reserve_seconds" in release
+    assert (
+        "self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS" in release
+    )
 
 
 def test_v3_disk_inventory_rechecks_the_filesystem_when_closing(tmp_path):
@@ -1819,6 +1857,102 @@ def test_v3_disk_inventory_writes_no_bytecode():
     assert '"filesystem_writes_scope": (' in source
 
 
+def test_v3_disk_inventory_keeps_pgdata_drift_out_of_outside_candidates(tmp_path):
+    """Database churn must never be presented as reclaimable storage on a sibling path.
+
+    `usage_full` holds the data directory's footprint as it was during the root walk,
+    so subtracting the CLOSING size from its ancestor charged the intervening database
+    churn to a sibling path: a shrink inflated an outside candidate such as /var/lib by
+    the removed database bytes, growth suppressed it and could drive it negative.
+    post_scan_volume_drift_bytes does not undo that -- it is a volume-level term and
+    says nothing about which path the bytes were attributed to -- so the receipt could
+    report success, and a true closure, while pointing an operator at a sibling
+    directory as reclaimable space that is actually the live database moving.
+    """
+    source = _read(ACTION)
+    assert "exclusive[container] -= pgdata_after" in source
+    assert "postgres_data_directory_scan_side_size_unavailable" in source
+    assert '"term": "postgres_data_directory_scan_to_close_drift"' in source
+
+    # PGDATA grows by 7,000 between the root walk and the closing scan.
+    result = _run_inventory_action(tmp_path, pgdata_grew=7000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+    by_path = {
+        row["path"]: row for row in summary["largest_unaccounted_directories"]
+    }
+
+    # /var/lib is the ancestor holding the data directory. Its exclusive size is
+    # unchanged by the growth -- 1,515,000 less the 1,465,000 measured beside the walk.
+    # Under the closing figure it would have been 43,000, and the receipt would have
+    # shown 7,000 bytes of live database as sibling storage.
+    assert by_path["/var/lib"]["exclusive_bytes"] == 50000
+    assert summary["non_database_directory_bytes"] == 92000
+    # The growth lands inside the data directory, where it belongs: 3,000 of root files
+    # plus the 7,000 the closing scan now sees.
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    assert by_path[f"{pgdata} (files directly in this directory)"][
+        "exclusive_bytes"
+    ] == 10000
+    # And the deliberate difference between the two sides is a named signed term, so
+    # the identity still closes exactly.
+    assert {
+        "term": "postgres_data_directory_scan_to_close_drift",
+        "bytes": -7000,
+        "path": pgdata,
+    } in summary["closure_adjustments"]
+    assert summary["candidate_closure_gap_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_detects_wal_mounted_at_its_canonical_path(tmp_path):
+    """A path test cannot see a separate filesystem mounted where pg_wal belongs.
+
+    A Docker volume or bind mount attached directly at pg_wal's canonical destination
+    is not a symlink, so `readlink -f` returns exactly the expected pathname and the
+    path test says "inside". But the PGDATA walk uses `du -x`, which does not cross
+    filesystem boundaries, so that WAL's bytes are not in the PGDATA total -- while
+    the summary still subtracts pg_ls_waldir()'s figure from this volume. The result
+    is a successful receipt whose partition is invalid, invisible to the path check.
+
+    Device identity is the right test because `stat -c %d` reads the same st_dev the
+    kernel gives `du -x` to decide whether to descend, so it tests exactly the property
+    the arithmetic depends on rather than enumerating mount kinds and hoping the list
+    is complete.
+    """
+    source = _read(ACTION)
+    assert '"stat", "-c", "%d"' in source
+    assert "wal_same_filesystem is True" in source
+
+    # Normal layout: same device, so the partition is presented.
+    same = tmp_path / "same-device"
+    same.mkdir()
+    result = _run_inventory_action(same)
+    assert result.returncode == 0, result.stderr or result.stdout
+    wal = json.loads(result.stdout)["inventory"]["wal"]
+    assert wal["same_filesystem_as_data_directory"] is True
+    assert wal["directory_inside_pgdata"] is True
+
+    # Mounted at the canonical path: readlink agrees, the device does not.
+    mounted = tmp_path / "mounted-at-canonical-path"
+    mounted.mkdir()
+    result = _run_inventory_action(mounted, wal_separate_filesystem=True)
+    receipt = json.loads(result.stdout)
+    wal = receipt["inventory"]["wal"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    assert wal["resolved_host_directory"] == f"{pgdata}/pg_wal"
+    assert wal["host_device"] == 2049
+    assert wal["data_directory_device"] == 2048
+    assert wal["same_filesystem_as_data_directory"] is False
+    assert wal["directory_inside_pgdata"] is False
+    # And the partition is refused rather than presented, as for a relocated pg_wal.
+    assert receipt["inventory"]["summary"] == {
+        "summary_failed": "wal_directory_outside_pgdata"
+    }
+    assert receipt["status"] == "stopped"
+
+
 def test_v3_disk_inventory_requires_the_wal_directory_in_the_retained_children():
     """pg_wal must survive the child cap; pg_xlog legitimately may not exist.
 
@@ -1975,10 +2109,16 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     source = _read(ACTION)
     assert '"reason": "live_database_oids_unbounded"' in source
     assert '"reason": "base_child_not_measured"' in source
-    assert '"reason": "scan_budget_exhausted"' in source
+    # The budget is no longer a reason of its own here: each closing scan is given its
+    # own full allowance, so an exhausted budget surfaces as the scan's own failure
+    # rather than as a pre-emptive skip against a deadline the scan never had.
+    assert "scan_budget.begin_closing_scan()" in source
     # Unavailable means no claim, not a claim of zero.
     assert "metric_difference = None" in source
-    assert "None\n            if metric_difference is None" in source
+    assert "None\n        if metric_difference is None" in source
+    assert "partition_closes = None if closure_gap is None else closure_gap == 0" in (
+        source
+    )
     # And the OID set is only accepted when it is provably complete: bounded by the
     # same limit as the row list, and cross-checked against the SQL count.
     assert (
