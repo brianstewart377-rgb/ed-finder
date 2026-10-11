@@ -16,8 +16,8 @@ paragraph and steps 4′–9′), and passed the separate application-release ga
 The flag is only one of the production safeguards, and not the first one: the
 `/api/archetypes/rankings` route becomes live the moment both products are
 published, flag or no flag, so the F2d sequence **deploys the bounded ranking
-route (F2d PR1 — stored-key index, literal floors, window-then-filter, bounded
-count, offset bound) before the products are published**; publication is the
+route (F2d PR1 — stored-key tier-partial index, literal floors, bounded count,
+combined offset bound, no hard filters) before the products are published**; publication is the
 last governed step (F2d design section 8, ROADMAP steps 10′–11′ then 9′), and
 the publish action verifies the deployed ranking identity first. Slice 1c here
 is therefore the browser-side contract and the scale receipt; its API-side
@@ -1445,12 +1445,14 @@ eight keyed rows per system to one wide row with per-archetype score columns
 `system_archetype_key_score (generation, archetype_key, archetype_score,
 system_id64)` access path this slice was first written against will not exist.
 What remains in slice 1c after the F2d review: the API-side bounding (stored-key
-index order, literal floors, window-then-filter structure, bounded count,
-`is_truncated`, offset bound, `min_score ∈ {60, 76, 88}`) is **F2d PR1** and
-ships before publication. Slice 1c owns the browser-side envelope contract, the
-within-window `total` and post-window filter semantics as hashed profile rules
-if PR1 has not already declared them, the response-order tests for the new
-tie-break, and the representative-scale timing receipt that unblocks F4b.
+index order, literal floors, bounded count, `is_truncated`, combined offset
+bound, `min_score ∈ {60, 76, 88}`) is **F2d PR1**, which also commits the
+regenerated clients, and ships before publication. There is no window-then-filter
+structure to own: a picked request carrying a hard filter is rejected with 422
+before any SQL is built, so the only envelope is the filter-free one, with
+`total = min(qualifying, 10000)`. Slice 1c owns the browser-side consumption of
+that landed contract, the response-order tests for the new tie-break, and the
+representative-scale timing receipt that unblocks F4b.
 Slice 1c therefore lands **after** F2d PR1 — and only once the owner's answer
 to capacity-decision question 6 (the score-index layout) is recorded in
 `docs/operations/v3-finder-capacity-decision-2026-10-10.md`, which is the
@@ -1687,8 +1689,10 @@ from: 0 }`, and finds no ranking UI. Preserve independent `selected`, `system`
 and unrelated parameters.
 F4a may land without slice 1b and must then omit the headline tier. Extend the
 isolated-PostgreSQL seed test to pin all three Product systems' ranking fields
-before Cypress relies on exact values. The slice 1c PR owns generated changes;
-F4a consumes them without hand-editing generated files. Required proof: focused
+before Cypress relies on exact values. **F2d PR1 owns the generated client
+changes**, because it is the PR that changes the response shape and must pass the
+`openapi-types` drift gate on its own head; F4a and slice 1c consume the landed
+contract and never hand-edit generated files. Required proof: focused
 Vitest and the seed integration test; Svelte web
 check/lint/format/test/build (the protected job runs these at
 `.github/workflows/ci.yml:381-417`); API facade boundary tests; and OpenAPI types
@@ -1887,9 +1891,13 @@ fields are V2-backed.
 
 Exact files:
 
-- regenerate `apps/web/src/lib/api/generated/types.gen.ts`,
+- consume (do **not** regenerate) `apps/web/src/lib/api/generated/types.gen.ts`,
   `apps/web/src/lib/api/generated/sdk.gen.ts` and
-  `packages/api-client/src/generated/api.gen.ts` (from the F2d PR3 OpenAPI)
+  `packages/api-client/src/generated/api.gen.ts`: **F2d PR3 owns these**, because
+  it adds the explanation endpoint and the `openapi-types` job regenerates and
+  diffs these same three files on PR3's own head. F4e begins only after PR3 has
+  landed, so regenerating here would either leave PR3 unmergeable or produce no
+  diff at all
 - modify `apps/web/src/lib/api/client.ts`, `client.test.ts` (facade
   `getArchetypeExplanation(id64, expected)` where `expected` is the card's
   `ranking_provenance` generation id plus the product's `archetype_version` and
