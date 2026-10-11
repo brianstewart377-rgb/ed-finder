@@ -625,11 +625,29 @@ same model?", which is what the F4 snapshot comparison needs. Requiring the
 manifest digest to match there would make cross-generation comparison impossible
 rather than merely strict: the feature would silently never fire.
 
-`archetype_model_sha256` therefore covers **model semantics only**: the
-coefficients, anchors, archetype key order, the `_weighted_e4` integer definition
-and rounding rule, the tier thresholds, `model_file_sha256` and `code_sha256`. It
-excludes generation identity, publication sequence and `expected_rows` —
-everything describing *which data* was scored rather than *how*. It is persisted
+`archetype_model_sha256` therefore covers a **canonical semantic manifest**: the
+coefficients, the anchors, the archetype key order, the `_weighted_e4` integer
+expression carried as a literal string, the confidence rounding rule and the tier
+thresholds. It excludes generation identity, publication sequence and
+`expected_rows` — everything describing *which data* was scored rather than *how*.
+
+**It also excludes `model_file_sha256` and `code_sha256` (F4 review round 32).**
+Including them looked conservative and was self-defeating: `code_identity()`
+hashes the complete builder, model and migration **files**
+(`scripts/v3_system_archetype.py:64-73`), so a comment, a batching refactor or an
+index-only DDL change would alter the digest while every score stayed
+bit-identical — suppressing the comparison this field exists to enable through an
+edit that changed nothing. That is the manifest-digest failure reached by a
+different route.
+
+The honest cost is that hashing declared values makes the digest a **declaration**
+that the semantics are unchanged, not a proof: two builds could agree on every
+declared constant and still compute different scores through a code change the
+manifest does not describe. The validator therefore converts the declaration into
+a checked claim — **two builds whose `archetype_model_sha256` agree must produce
+identical `<key>_weighted_e4` values for a shared sample of systems** — asserted
+during validation rather than left to trust. `archetype_manifest_sha256`, which
+does cover the source files, remains the field for exact-build identity. It is persisted
 on the product row and exposed in `ranking_provenance` beside
 `archetype_manifest_sha256`, which keeps its own job and its own meaning. PR1
 owns both the column and the envelope field; the validator asserts the digest is
