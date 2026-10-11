@@ -500,7 +500,14 @@ order; keep item 6 after the button as it is today:
    archetype chosen; “fit” implies one.
 5. Evidence badge, followed by existing distance/star/catalogue facts that are
    available on that response shape.
-6. Existing Inspect and shortlist actions, unchanged.
+6. Existing shortlist action, unchanged. The **Inspect action is not unchanged**
+   (review round 36): it takes the state-carrying form required below — href
+   `/inspect?system=<id64>&from=<URL-encoded originating Explore query>` plus an
+   outbound navigation passing `state: page.state`. Saying "unchanged" here while
+   the checklist requires the new form is the contradiction that matters most on
+   this card, because this list is the card's anatomy and is what someone builds
+   from; following it would lose the ranking URL and any anchored 500-LY search on
+   the Inspect round trip.
 
 If an optional value is `null` or absent, omit that datum or say “Unknown”.
 A finite zero is a measured fact and is rendered as such — the anchor system's
@@ -3267,3 +3274,19 @@ had written in the preceding round, which is worth noting rather than hiding.
    holds ≥ 10,001 rows at the S floor for **every** archetype so no pair measures an
    empty index, and timings are reported per pair rather than averaged — otherwise
    one slow key could hide inside an aggregate that passes.
+
+### Review round 36 (2026-10-11)
+
+1. **P2 — Require the state-carrying Inspect action here** → correct, and it is the
+   same class as rounds 34 and 35 in the one remaining place: the **card anatomy
+   list**, which said "existing Inspect and shortlist actions, unchanged". Of the
+   places left stale this was the most load-bearing, because that list is what
+   someone builds the card from — a checklist two hundred lines away requiring the
+   new form does not win against an explicit "unchanged" in the anatomy.
+   Item 6 now says the **shortlist** action is unchanged and states that the Inspect
+   action is **not**, carrying the state-carrying href and the outbound
+   `page.state`. Three rounds have now each found one more place this had to reach
+   (the component-test checklist, the seven entry points, the F4b file list, and the
+   anatomy), which is what happens when a change of behaviour is recorded as a
+   requirement in one section instead of being traced to every section that
+   describes the thing changed.
