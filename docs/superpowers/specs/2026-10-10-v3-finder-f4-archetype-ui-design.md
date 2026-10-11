@@ -575,8 +575,14 @@ change updates them together, as required by the spatial product contract
 - Out-of-range page: when a response has `total > 0` and `offset >= total`, or a
   saturated unanchored Any page would cross 10,000, do not render the empty
   state. Clamp to the last valid page, derive the destination from reactive
-  `page.url`, then call `goto(destination, { replaceState: true })` from
-  `$app/navigation`; never call native `history.replaceState`. Request that page
+  `page.url`, then call `goto(destination, { replaceState: true, state:
+  page.state })` from `$app/navigation` through the same anchor-state-preserving
+  helper every `/explore` navigation uses — the replacement must carry the
+  current `page.state.anchor`, or hydration would fall back to no anchor and
+  reissue the corrected page as a galaxy-wide search instead of around the
+  committed star; never call native `history.replaceState`. A test covers an
+  anchored stale-offset response and asserts the corrected request still
+  carries the anchor's coordinates. Request that page
   and show a one-line polite `role="status"` notice: **Page reset to the last
   available results.** This keeps `page.url` hydration and Back/Forward aligned
   (`apps/web/src/lib/components/AppShell.svelte:2-3`,
@@ -2395,3 +2401,11 @@ tier partials.
    `RankingProvenance` gains `archetype_version` and `archetype_manifest_sha256`
    (F2d PR1 adds them to the envelope; F4a requires that), and both overall and
    selected-fit comparisons require ranking **and** product identities to match.
+
+#### Round 20 — 2026-10-11 (PR #801)
+
+1. **P2 — Preserve anchor state during page-reset navigation** → the
+   out-of-range correction goes through the shared anchor-state-preserving
+   helper (`goto(..., { replaceState: true, state: page.state })`), and a test
+   covers an anchored stale-offset response asserting the corrected request
+   keeps the anchor's coordinates.
