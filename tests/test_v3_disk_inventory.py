@@ -98,6 +98,7 @@ def _run_inventory_action(
     wal_separate_filesystem: bool = False,
     pgdata_grew: int = 0,
     pgdata_after_grew: int = 0,
+    wal_nested_mount: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
@@ -182,6 +183,13 @@ def _run_inventory_action(
                 printf '%s\\n' 'true'
               else
                 printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql\\n'
+                if [ "$WAL_NESTED_MOUNT" = '1' ]; then
+                  # A second mount attached at pg_wal's canonical destination inside
+                  # the container. From the host, that path is an ordinary (empty)
+                  # directory in the PGDATA volume on PGDATA's own device, so neither
+                  # readlink nor stat can tell it apart from a real subdirectory.
+                  printf '/mnt/fast-wal\\t/var/lib/postgresql/18/docker/pg_wal\\n'
+                fi
               fi
               exit 0
             fi
@@ -493,6 +501,7 @@ def _run_inventory_action(
     env["WAL_SEPARATE_FILESYSTEM"] = "1" if wal_separate_filesystem else "0"
     env["PGDATA_GREW"] = str(pgdata_grew)
     env["PGDATA_AFTER_GREW"] = str(pgdata_after_grew)
+    env["WAL_NESTED_MOUNT"] = "1" if wal_nested_mount else "0"
     env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
     env["DU_BELOW_DF"] = "1" if du_below_df else "0"
@@ -1832,6 +1841,72 @@ def test_v3_disk_inventory_partitions_across_a_row_cap_ancestor_gap():
     assert sum(result.values()) == 1000
 
 
+def test_v3_disk_inventory_uses_the_conservative_end_of_the_pgdata_bracket(tmp_path):
+    """The root walk visits PGDATA at an unknown instant inside itself.
+
+    `pgdata_after` is a separate full traversal started only once the whole walk had
+    finished, so the footprint actually inside `usage_full` is known only to lie within
+    the bracket. The two errors are not symmetric: subtracting too little inflates the
+    ancestor with database bytes, so the receipt points at a sibling directory as
+    reclaimable space that is really the live database; subtracting too much merely
+    understates genuine sibling space. Only the first can tell an operator to reclaim
+    the database from somewhere else, so the maximum is the conservative choice.
+    """
+    # PGDATA reads 1,465,000 before the walk and 1,440,000 after -- it shrank by 25,000
+    # while the walk was running, so `usage_full` holds the larger earlier footprint.
+    result = _run_inventory_action(tmp_path, pgdata_after_grew=-25000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    by_path = {
+        row["path"]: row for row in summary["largest_unaccounted_directories"]
+    }
+
+    # The larger end is used, so /var/lib keeps its 50,000 rather than being inflated
+    # to 75,000 by 25,000 bytes of removed database.
+    assert summary["postgres_data_directory_bytes_used_for_outside_rows"] == 1465000
+    assert by_path["/var/lib"]["exclusive_bytes"] == 50000
+    # And the width of what cannot be resolved is stated rather than implied.
+    assert summary["postgres_data_directory_within_walk_uncertainty_bytes"] == 25000
+    assert summary["candidate_closure_gap_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_rejects_a_mount_nested_inside_pgdata(tmp_path):
+    """Neither a path test nor a device test can see a mount nested inside PGDATA.
+
+    A volume or bind attached at pg_wal's canonical destination hides a directory that
+    still exists in the PGDATA volume, and from the host `stat` and `du` inspect THAT
+    underlying directory -- typically empty and on PGDATA's own device. So the device
+    check reports "same filesystem", `du -x` walks the empty placeholder, and
+    pg_ls_waldir()'s bytes are subtracted from a footprint that never contained them.
+    The container's own mount list is the only place the nesting is visible.
+    """
+    source = _read(ACTION)
+    assert "def postgres_mounts() -> list[tuple[str, str]]:" in source
+    assert "and not nested_mounts" in source
+    # The mount PROVIDING PGDATA must not count as nested inside it.
+    assert "if target == mount_destination.rstrip(\"/\"):" in source
+
+    result = _run_inventory_action(tmp_path, wal_nested_mount=True)
+    receipt = json.loads(result.stdout)
+    wal = receipt["inventory"]["wal"]
+    assert wal["nested_container_mounts"] == [
+        {
+            "source": "/mnt/fast-wal",
+            "destination": "/var/lib/postgresql/18/docker/pg_wal",
+        }
+    ]
+    # readlink agrees and the device agrees -- only the mount list disagrees.
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    assert wal["resolved_host_directory"] == f"{pgdata}/pg_wal"
+    assert wal["same_filesystem_as_data_directory"] is True
+    assert wal["directory_inside_pgdata"] is False
+    assert receipt["inventory"]["summary"] == {
+        "summary_failed": "wal_directory_outside_pgdata"
+    }
+    assert receipt["status"] == "stopped"
+
+
 def test_v3_disk_inventory_carries_a_negative_outside_remainder(tmp_path):
     """The ancestor holding the data directory can go negative, and must not vanish.
 
@@ -1965,7 +2040,14 @@ def test_v3_disk_inventory_keeps_pgdata_drift_out_of_outside_candidates(tmp_path
     directory as reclaimable space that is actually the live database moving.
     """
     source = _read(ACTION)
-    assert "exclusive[container] -= pgdata_after" in source
+    # The CONSERVATIVE end of the bracket. pgdata_after is a separate traversal
+    # started after the whole root walk, not a measurement of PGDATA at the moment the
+    # walk visited it, so the footprint in usage_full is only known to lie within the
+    # bracket. Subtracting too little inflates the ancestor with database bytes;
+    # subtracting too much merely understates sibling space. Only the first can tell
+    # an operator to reclaim the database from somewhere else.
+    assert "pgdata_scan_side = max(pgdata_before, pgdata_after)" in source
+    assert "exclusive[container] -= pgdata_scan_side" in source
     assert "postgres_data_directory_scan_side_size_unavailable" in source
     assert '"term": "postgres_data_directory_scan_to_close_drift"' in source
 
@@ -2203,7 +2285,10 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     """
     source = _read(ACTION)
     assert '"reason": "live_database_oids_unbounded"' in source
-    assert '"reason": "base_child_not_measured"' in source
+    # base/ is no longer an "unavailable" reason: like pg_wal it is REQUIRED, because
+    # the omitted-children aggregate would otherwise report all live database storage
+    # as an unaccounted candidate while the null closure flag let the run succeed.
+    assert "base_directory_not_observed_in_data_directory" in source
     # The budget is no longer a reason of its own here: each closing scan is given its
     # own full allowance, so an exhausted budget surfaces as the scan's own failure
     # rather than as a pre-emptive skip against a deadline the scan never had.

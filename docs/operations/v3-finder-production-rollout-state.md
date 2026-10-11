@@ -491,7 +491,23 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   could drive it negative, pointing an operator at a sibling directory as reclaimable
   space that is actually the live database moving. The deliberate difference between the
   two sides is carried as a signed closure term.
-- **`pg_wal`'s location is tested by device, not by path.** A separate volume or bind
+- **`pg_wal`'s location is tested by path, by device, AND against the container's
+  mount list.** A volume or bind attached at `pg_wal`'s canonical destination hides a
+  directory that still exists in the PGDATA volume, and from the host `stat` and `du`
+  inspect *that* underlying directory — typically empty and on PGDATA's own device — so
+  neither a path test nor a device test can see it. `docker inspect .Mounts` is the only
+  place the nesting is visible; any mount at or below PGDATA (other than the one
+  providing PGDATA) refuses the partition and is listed in `nested_container_mounts`.
+- **The outside rows subtract the conservative end of the PGDATA bracket.** The root
+  walk visits the data directory at an unknown instant inside itself, and `pgdata_after`
+  is a separate traversal started only once the walk finished, so the footprint in
+  `usage_full` is known only to lie within the bracket. The two errors are not
+  symmetric: subtracting too little inflates an ancestor with database bytes (the
+  receipt then points at a sibling directory as reclaimable space that is really the
+  live database); subtracting too much merely understates sibling space. The maximum is
+  used, and `postgres_data_directory_within_walk_uncertainty_bytes` states the width of
+  what cannot be resolved.
+- **The older device test, retained:** A separate volume or bind
   mount attached at `pg_wal`'s canonical destination is not a symlink, so `readlink -f`
   returns the expected pathname while `du -x` does not descend into it — the bytes are
   absent from the PGDATA total while `pg_ls_waldir()` is still subtracted from the

@@ -360,19 +360,33 @@ def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
     return parsed
 
 
-def postgres_mount() -> tuple[str, str]:
+def postgres_mounts() -> list[tuple[str, str]]:
+    """Every mount the container has, as (source, destination).
+
+    All of them, not just the data one. A second mount at or below PGDATA -- a
+    separate volume or bind for pg_wal, say -- is invisible from the host side:
+    `stat` and `du` on the host see the mount point's UNDERLYING directory inside the
+    PGDATA volume, which is typically empty and on PGDATA's own device, so neither a
+    path test nor a device test can detect it. Only the container's mount list can.
+    """
     result = run(["docker", "inspect", "-f", MOUNT_INSPECT_FORMAT, POSTGRES_CONTAINER])
     if result.returncode != 0:
         raise RuntimeError("postgres_mount_inspection_failed")
-    exact: tuple[str, str] | None = None
-    fallback: tuple[str, str] | None = None
+    mounts: list[tuple[str, str]] = []
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise RuntimeError("postgres_mount_output_invalid")
-        source, destination = parts
+        mounts.append((parts[0], parts[1]))
+    return mounts
+
+
+def postgres_mount(mounts: list[tuple[str, str]]) -> tuple[str, str]:
+    exact: tuple[str, str] | None = None
+    fallback: tuple[str, str] | None = None
+    for source, destination in mounts:
         if destination == "/var/lib/postgresql/data":
             exact = (source, destination)
             break
@@ -955,6 +969,11 @@ receipt["postgres"] = {
 
 scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)
 mount_source: str | None = None
+# The container's full mount list, read in the volume section and used by the WAL
+# section to detect a mount nested at or below PGDATA. Module scope for the same reason
+# as the others: a failed volume section must not reach a later one as a NameError,
+# which is not RuntimeError and would escape the section handler.
+container_mounts: list[tuple[str, str]] = []
 mount_destination: str | None = None
 # Assigned inside the directory-usage section, but read by the drill-down section that
 # follows it. Without this, a failed `df --output=target` leaves the name undefined and
@@ -989,7 +1008,8 @@ other_databases_bytes: int | None = None
 live_database_oids: dict[str, str] | None = None
 base_breakdown: dict[str, Any] | None = None
 try:
-    mount_source, mount_destination = postgres_mount()
+    container_mounts = postgres_mounts()
+    mount_source, mount_destination = postgres_mount(container_mounts)
     disk = df_values(
         ["df", "-B1", "--output=source,fstype,size,used,avail", mount_source],
         ("filesystem", "filesystem_type", "size_bytes", "used_bytes", "avail_bytes"),
@@ -1386,6 +1406,26 @@ try:
     wal_device = None
     pgdata_device = None
     wal_same_filesystem = None
+    # Mounts NESTED at or below PGDATA, from the container's own mount list. Neither
+    # the path test nor the device test can see these: a volume or bind attached at
+    # pg_wal's canonical destination hides a directory that still exists in the PGDATA
+    # volume, and from the host `stat` and `du` inspect THAT underlying directory --
+    # typically empty and on PGDATA's own device. So the device check I added for this
+    # reports "same filesystem", `du -x` walks the empty placeholder, and
+    # pg_ls_waldir()'s bytes are subtracted from a footprint that never contained them.
+    # The mount list is the only place the nesting is visible.
+    #
+    # The mount PROVIDING PGDATA is excluded: that one is the footprint being measured,
+    # not something hidden inside it.
+    nested_mounts = []
+    if pgdata_container is not None:
+        pgdata_prefix = pgdata_container.rstrip("/")
+        for source, destination in container_mounts:
+            target = destination.rstrip("/")
+            if target == mount_destination.rstrip("/"):
+                continue
+            if target == pgdata_prefix or target.startswith(f"{pgdata_prefix}/"):
+                nested_mounts.append({"source": source, "destination": destination})
     if pgdata_host is not None:
         probe = run(["readlink", "-f", f"{pgdata_host.rstrip('/')}/pg_wal"])
         if probe.returncode == 0:
@@ -1420,6 +1460,7 @@ try:
             wal_inside = (
                 wal_resolved == f"{pgdata_host.rstrip('/')}/pg_wal"
                 and wal_same_filesystem is True
+                and not nested_mounts
             )
     inventory["wal"] = {
         **wal_rows[0],
@@ -1448,6 +1489,10 @@ try:
         "host_device": wal_device,
         "data_directory_device": pgdata_device,
         "same_filesystem_as_data_directory": wal_same_filesystem,
+        # Named, so an operator can see WHAT is nested rather than only that the
+        # partition was refused. Listed whether or not it is pg_wal: any mount inside
+        # PGDATA breaks the single-footprint assumption this arithmetic rests on.
+        "nested_container_mounts": nested_mounts,
         "directory_inside_pgdata": wal_inside,
     }
 except RuntimeError as exc:
@@ -1991,7 +2036,15 @@ try:
         None,
     )
     if base_row is None:
-        base_breakdown = {"available": False, "reason": "base_child_not_measured"}
+        # REQUIRED, exactly as pg_wal is. A data directory always has a base/, so its
+        # absence from the retained children means the size-based cap took it -- and
+        # then the omitted-children aggregate reports ALL live database storage as an
+        # unaccounted candidate while accounted_bytes already subtracts those
+        # databases. Marking the optional breakdown unavailable made the closure flag
+        # null, so the operation would still report success with the entire database
+        # sitting in the candidate list as reclaimable space. That is the largest
+        # possible version of this error, so it fails closed instead.
+        raise RuntimeError("base_directory_not_observed_in_data_directory")
     elif live_database_oids is None:
         # Deliberately not computed from an incomplete OID set: a live database whose
         # OID was missing would be reported as orphaned storage.
@@ -2315,11 +2368,26 @@ try:
     # closing figure the inside candidates use is carried as a signed closure term,
     # because the two sides of the partition are now deliberately measured at different
     # moments and the identity has to say so.
-    if pgdata_after is None:
+    if pgdata_after is None or pgdata_before is None:
         raise RuntimeError("postgres_data_directory_scan_side_size_unavailable")
+    # The LARGER of the bracket, because `pgdata_after` is not a measurement of PGDATA
+    # at the moment the root walk visited it -- it is a separate full traversal started
+    # only once the whole walk had finished. The footprint actually inside `usage_full`
+    # lies somewhere in the bracket, and the two errors are not symmetric:
+    #
+    #   subtract too LITTLE -> the ancestor is inflated by database bytes, and the
+    #                          receipt points at a sibling directory as reclaimable
+    #                          space that is really the live database;
+    #   subtract too MUCH   -> the ancestor is understated, under-reporting genuine
+    #                          sibling space.
+    #
+    # Only the first can tell an operator to delete the database's bytes from
+    # somewhere else, so the conservative choice is the maximum. The bracket's width is
+    # reported as the honest size of what cannot be resolved.
+    pgdata_scan_side = max(pgdata_before, pgdata_after)
     if data_dir not in exclusive and strict_ancestors:
         container = max(strict_ancestors, key=len)
-        exclusive[container] -= pgdata_after
+        exclusive[container] -= pgdata_scan_side
     closure_adjustments: list[dict[str, Any]] = []
     # The last positive-only drop on a computed difference, and the same hazard as the
     # remainders: the ancestor holding the data directory has `pgdata_after` subtracted
@@ -2651,7 +2719,7 @@ try:
     # signed term, like every other difference between two measurements of the same
     # storage -- and naming it here is what lets the outside rows stay attributed to the
     # right paths instead of absorbing database churn.
-    pgdata_span = postgres_data_directory_bytes - pgdata_after
+    pgdata_span = postgres_data_directory_bytes - pgdata_scan_side
     if pgdata_span:
         closure_adjustments.append(
             {
@@ -2708,6 +2776,16 @@ try:
         "candidates_partition_unaccounted_at_scan": partition_closes,
         "candidate_closure_gap_bytes": closure_gap,
         "postgres_data_directory_bytes": postgres_data_directory_bytes,
+        # Which figure the outside candidates were actually built against, and how wide
+        # the unresolvable part is. The root walk visits the data directory at an
+        # unknown instant inside itself, so the footprint in usage_full is only known
+        # to lie within the bracket; this is its width, and the conservative end is
+        # what was used. Reported because an operator comparing an outside candidate
+        # against a reclaim decision needs to know its error bar, not just its value.
+        "postgres_data_directory_bytes_used_for_outside_rows": pgdata_scan_side,
+        "postgres_data_directory_within_walk_uncertainty_bytes": abs(
+            pgdata_after - pgdata_before
+        ),
         "non_database_directory_bytes": non_database_directory_bytes,
         "unaccounted_inside_data_directory_bytes": unaccounted_inside_data_directory_bytes,
         "directory_scan_root_bytes": du_root_bytes,
