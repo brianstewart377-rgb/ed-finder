@@ -1,5 +1,11 @@
 # Finder rollout — capacity decision (2026-10-10)
 
+**Status amendment (2026-10-11):** the owner retained A + B but superseded the
+purge deferral by selecting the governed pre-build purge sequence in
+[`docs/development/v3-governed-derived-purge-design.md`](../development/v3-governed-derived-purge-design.md)
+and the controlling [`docs/ROADMAP.md`](../ROADMAP.md) amendment. The analysis
+below remains the dated 2026-10-10 evidence and is not execution authority.
+
 **Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
 ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added

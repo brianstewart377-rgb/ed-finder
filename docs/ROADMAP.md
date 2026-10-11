@@ -180,22 +180,19 @@ newer dated source wins).
 
   **Capacity decision (owner, 2026-10-10) — steps 4–9 above are superseded.**
   Step 0 ran on 2026-10-10 (receipt in
-  `docs/operations/v3-finder-production-rollout-state.md`): the data volume has
+  `docs/operations/v3-finder-production-rollout-state.md`): the data volume had
   about 292 GB free, and a complete fresh generation plus the Finder products as
-  `011` defines them measures about 1.4 TB, so the fresh-generation plan cannot
-  run. The owner chose **A + B** (recorded in
+  `011` then defined them measured about 1.4 TB, so the fresh-generation plan
+  could not run. The owner chose **A + B** (recorded in
   `docs/operations/v3-finder-capacity-decision-2026-10-10.md`): rewrite the
   unapplied migration `011` as one wide archetype row per system with
   explanations computed on demand (≈65 GB measured instead of ≈1 TB), attach
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
-  (new migration `015`), defer any purge, and accept the new ranking identity.
-  The replacement for steps 4–9 is therefore — and **4′ comes before step 2**,
-  because the governed migration runner applies *every* pending entry: running
-  step 2 today would apply the current eight-row `011`, record its hash in the
-  production ledger and make the rewrite impossible without a corrective
-  migration. Step 2 (and therefore step 3, which needs `010` applied) is
-  **blocked until 4′'s amended registration has merged**:
+  (new migration `015`), and accept the new ranking identity. That decision
+  originally deferred purge; the 2026-10-11 amendment below supersedes only that
+  part and retains A + B. **4′ comes before step 2** because the governed
+  migration runner applies *every* pending entry:
 
   4′. Land the F2d design (PR #806) and its code PRs (rewritten `011` + wide-row
      model/builder/validator; `015` + API publication gate; ranking SQL and
@@ -211,62 +208,25 @@ newer dated source wins).
      exact-version rule for on-demand explanations; the deduplicating
      score-index layout) — the code PRs that encode either may not merge
      before the answer is recorded there.
-  2–3. Only then: governed migration `plan` → review → `apply` of
-     `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
-     validation.
-  5′. Register, build and validate post-`010` `system_search` on
-     `ratings_v4_prod_p4_parallel_v1` (≈87 GB).
-  6. Unchanged: run the read-only calibration probe and record the coefficient
-     decision before the archetype product is registered.
-  7′. Register, build and validate the wide-row `system_archetype` on the same
-     generation (≈65 GB measured; the gate re-measures and stops if search +
-     archetype + working room exceed the free space in a fresh step 0 receipt).
-  8′. Both products reach `READY` through the receipted governed validation
-     routes.
-  9′. Publish both **products** with `v3_meta.publish_derived_product` in one
-     governed transaction; the generation pointer does not move (no
-     `publish_derived_generation`).
 
-  Steps 10–11 keep their shape against the published generation. Until 4′ has
-  merged, **no production step beyond step 0 may be dispatched** (not even the
-  migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
-  every detached worker stopped (the paused `opt1` worker was killed by the
-  owner on 2026-10-10; the confirming receipt is pending). The step 0 action
-  `v3-derived-lifecycle-status` is merged (#798);
-  `scripts/operator/actions/v3-derived-data-status.sh` remains the
-  legacy-relation pattern it was modelled on.
-  Step 3 must run before 5′ so its full-table scan covers about 198.5M retained
-  `opt1` rows instead of about 397M rows after the second product; the
-  `NOT VALID` checks still enforce every subsequent builder insert
-  automatically. The step 3 action `v3-system-search-validate-constraints` is
-  merged (#799) and may only start once migration `010` is applied.
-  For step 6, the read-only action `v3-archetype-calibration-probe` is merged
-  (#800); the probe reads the already-published `parallel_v1` ratings vectors and
-  may run once step 0 is closed.
-  For step 8, **NO governed action — must be built:** the step 5 and step 7 build
-  actions must expose and receipt the validation path (search: inline in `run()`;
-  archetype: `--validate`) so READY is reached through a reviewed route.
+  **Capacity decision amendment (owner, 2026-10-11) — governed purge selected.** The 2026-10-10 instruction above to defer purge is superseded. Retain decisions A and B: migration `011` remains the one-wide-row-per-system archetype design, both Finder products attach to the already-published `ratings_v4_prod_p4_parallel_v1` behind migration `015`'s explicit product-publication gate, and the generation pointer does not move. In addition, before either Finder product build, run a reviewed governed purge of only the incomplete `ratings_v4_prod_p4` generation and the superseded, unpublished `ratings_v4_prod_p4_opt1` generation. The current published `ratings_v4_prod_p4_parallel_v1` generation, every payload row it owns, the current canonical/derived/spatial pointers, all schema/publication audit rows, generation/product manifests, and build/product receipts are out of scope and retained.
 
-  Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
-  **only executable path**: migration `006_v3_derived_product_lifecycle.sql`
-  installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
-  with `system_search rows and receipts are insert-only`, and no reviewed governed
-  purge migration/action exists. Purge is therefore not an available branch.
-  Before step 4, the owner must either accept retention after measuring the
-  complete candidate footprint of `system_rating_vector`, `body_mechanics`, and
-  `economy_opportunity`, including their primary-key indexes, on a disposable
-  PostgreSQL 18 sample and extrapolating those relations and indexes to full scale,
-  and confirm disk headroom for the complete fresh Ratings V4 generation: roughly
-  198.5 million `system_rating_vector` rows plus `body_mechanics` (one row per
-  physical body) and `economy_opportunity` (one row per eligible body/economy
-  pair), which can be far larger than the system-level rows, and their primary-key
-  indexes (step 4), roughly 198.5 million fresh `system_search` rows with 18 new
-  count columns (step 5), roughly 1.59 billion fresh `system_archetype` rows plus
-  roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
-  associated ratings, search, archetype, and summary indexes, including
-  `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
-  **design and review a governed purge path** as a prerequisite before step 4. The
-  [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
+  The accepted absence of an executable PostgreSQL 18 recovery runbook is not a recovery mechanism. Every destructive phase must independently prove the two exact target UUIDs/keys/manifests, stopped writers, unchanged current pointers, preserved published row counts, FK-safe order, sufficient free/WAL/temp headroom, and a successful durable phase receipt. Any mismatch stops before mutation.
+
+  **4″. Before step 2:** land the governed-purge schema/action PR after 4′: register `016_v3_governed_derived_purge.sql` after `015`; add immutable purge request/event records, payload-only delete authorization that leaves UPDATE/TRUNCATE and all metadata/receipt retention fail-closed, the protected plan/authorize/delete/rewrite/status workflow, and disposable PostgreSQL 18 crash/lock/WAL tests. This is code only and performs no production purge. Step 2 remains blocked until 4′ and 4″ have merged because the migration runner applies every pending entry.
+
+  **2.** Run the governed migration `plan`, review it, and apply the complete pending prefix including rewritten `011`, `015`, and the purge migration.
+
+  **P. Before step 3 and before 5′:** record a fresh successful lifecycle/disk/WAL/quiescence plan receipt; authorize both exact purge targets into `FAILED`; delete target payload rows in FK-safe bounded batches; and reclaim filesystem space one relation at a time in this order: empty target cluster/archetype payload checks, `system_search`, `economy_opportunity`, `body_mechanics`, then `system_rating_vector`. `system_search` is rewritten first to create headroom. Each relation delete and each physical rewrite is a separate reviewed dispatch with before/after pointer, target-row, published-row, relation-size, free-space, WAL, lock, and outcome evidence. Finish only when every target payload count is zero, every retained manifest/receipt/audit row remains, all published counts match, and the completion receipt is reviewed.
+
+  **3.** Validate all 18 deferred `system_search` constraints after the old `opt1` Search payload has been physically reclaimed and before 5′ builds the new Search product.
+
+  **5′–9′, then 10–11.** Continue the published-generation Search/archetype build, READY validation, atomic product publication, release-gate revision, and governed application release only after the post-purge capacity gate passes. Purge does not authorize the superseded eight-row archetype schema or a fresh ratings-generation build.
+
+  The former retention-only instruction is superseded. The controlling path is
+  now 4′ → 4″ → 2 → P → 3 → 5′–9′ → 10–11, subject to every execution gate in
+  the [governed derived-generation purge design](development/v3-governed-derived-purge-design.md).
+  The [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
