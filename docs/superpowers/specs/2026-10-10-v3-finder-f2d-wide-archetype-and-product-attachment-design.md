@@ -605,8 +605,31 @@ already introduced solely because the stored summary shape gained
 (`scripts/v3_system_archetype_model.py:10-20`)
 
 `product_manifest` continues to hash the coefficients, anchors, key order,
-generation identity, source policy, and code identity. Add a canonical ordered
-`wide_columns` list (the eight `_weighted_e4` keys and their exact definition
+generation identity, source policy, and code identity.
+
+**Add a second, generation-free digest `archetype_model_sha256` (F4 review round
+31).** `product_manifest()` hashes `derived_generation_id`, `generation_key`,
+`canonical_generation_id`, `canonical_publication_sequence` and `expected_rows`
+alongside the coefficients (`scripts/v3_system_archetype.py:128-138`), so
+`archetype_manifest_sha256` changes on **every** rebuild even when the model is
+byte-identical. That is correct for its job — identifying one build exactly — but
+it makes the digest useless for answering "were these two scores produced by the
+same model?", which is what the F4 snapshot comparison needs. Requiring the
+manifest digest to match there would make cross-generation comparison impossible
+rather than merely strict: the feature would silently never fire.
+
+`archetype_model_sha256` therefore covers **model semantics only**: the
+coefficients, anchors, archetype key order, the `_weighted_e4` integer definition
+and rounding rule, the tier thresholds, `model_file_sha256` and `code_sha256`. It
+excludes generation identity, publication sequence and `expected_rows` —
+everything describing *which data* was scored rather than *how*. It is persisted
+on the product row and exposed in `ranking_provenance` beside
+`archetype_manifest_sha256`, which keeps its own job and its own meaning. PR1
+owns both the column and the envelope field; the validator asserts the digest is
+stable across two builds of the same model on different generations, and changes
+when any covered component does.
+
+Add a canonical ordered `wide_columns` list (the eight `_weighted_e4` keys and their exact definition
 the integer definition `(score × confidence_ppm × completeness_ppm + 50_000_000) // 100_000_000` included verbatim, not a `round(...)` form),
 `storage_layout: "one-row-per-system-v1"`,
 `explanation_delivery: "on-demand"`, confidence storage/rounding policy, and
