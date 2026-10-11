@@ -493,7 +493,11 @@ order; keep item 6 after the button as it is today:
    never reuse the selected-fit tier or calculate an API-owned tier locally.
 3. In selected mode only: **[Selected archetype] fit: _N_ · _tier_ tier** so a
    user can see when the chosen fit differs from the system’s overall best.
-4. **Primary:** label; **Secondary:** label or “No clear secondary fit”.
+4. **Primary:** label; **Secondary:** label or “No clear secondary” — mode-neutral
+   wording, because items 1, 2, 4 and 5 render in **both** modes and only item 3 is
+   selected-only, so “No clear secondary fit” would put “fit” on an Any-mode card.
+   Primary and secondary are classifications, which are meaningful with no
+   archetype chosen; “fit” implies one.
 5. Evidence badge, followed by existing distance/star/catalogue facts that are
    available on that response shape.
 6. Existing Inspect and shortlist actions, unchanged.
@@ -550,7 +554,12 @@ presentation decision and must be unit tested; they do not alter ranking.
 `archetype_confidence` has a
 different meaning—the separation between the primary and secondary
 classification—and may be shown separately as **Clear primary fit** or **Close
-alternative**, but must not be folded into the evidence badge
+alternative** in selected-archetype mode. In **Any** mode the label must be
+mode-neutral — **Clear primary classification** — because no archetype was
+selected and the preceding rule forbids the word "fit" in Any-mode visible and
+accessible text; a classification confidence is about which archetype a system
+resembles most, which is meaningful without a chosen archetype, whereas "fit"
+implies one. It must not be folded into the evidence badge
 (`apps/api/src/routers/archetypes.py:433-459`).
 
 ### Loading, empty and error states
@@ -849,9 +858,12 @@ type RankingProvenance = Readonly<{
   // identifies one build exactly; includes generation identity, so it changes on
   // every rebuild and must never gate a cross-generation comparison
   archetype_manifest_sha256: string;
-  // model semantics only (coefficients, anchors, key order, weighted-key integer
-  // definition, tier thresholds, model file and code hashes) and deliberately no
-  // generation identity, so two generations built from the same model agree
+  // the canonical semantic manifest ONLY: coefficients, anchors, key order, the
+  // weighted-key integer expression, the confidence rounding rule, tier thresholds.
+  // Deliberately excludes generation identity AND the model-file and code hashes --
+  // code_identity() hashes whole files, so a comment or a refactor would change this
+  // digest without changing a single score and suppress the comparison it exists for.
+  // Two generations built from the same model therefore agree.
   archetype_model_sha256: string;
 }>;
 
@@ -1110,9 +1122,14 @@ page SQL and companion count SQL returned, with bound parameters, by
 `apps/api/src/ranking/ranking_sql.py:512-574`). Record
 `EXPLAIN (ANALYZE, BUFFERS)` plus wall-clock timings for the first page, a
 near-ceiling page and the bounded count, **at each of the B/A/S floors** so all
-three partial indexes are exercised. The plan must demonstrate that the page
-query's window reads at most 10,000 rows and the count query's at most 10,001,
-and that the join, sort and count touch no more. There are deliberately **no**
+three partial indexes are exercised. The plan must demonstrate that **both** the page query's and the count query's
+window read at most **10,001** rows — the 10,001st is the sentinel that sets
+`is_truncated`, so a correct saturated plan reads it and a receipt demanding at
+most 10,000 would fail the right implementation (or push someone towards one that
+cannot derive truncation at all) — while the **join** is bounded at the first
+10,000 survivors and the sort and fetch touch no more than that. The distinction
+is the point: the window probes one row beyond the ceiling to learn that the
+ranking is longer; nothing downstream of it ever sees that row. There are deliberately **no**
 selective region/distance/body-count cases: a picked request carrying a hard
 filter is rejected with 422, so a filtered benchmark would measure SQL the
 endpoint never builds; filter selectivity cannot reopen a population scan
@@ -2103,7 +2120,9 @@ considered for a governed release build.
   validation, generic temporary-unavailability copy for 503, and enablement only
   in the governed release after publication receipts, F4c **and the accessible
   explanation path** (the F2d explanation endpoint plus the F4 increment that
-  renders the breakdown — see PR F4c); only after slice 1c
+  renders the breakdown — see PR **F4e**, not F4c: F4c only makes saved surfaces
+  reference-safe, so tracking this gate against F4c would mark it satisfied while
+  the explanation the gate requires is still unimplemented); only after slice 1c
   and its scale proof land does the protected Product E2E build opt in at its
   bundle step, with distance comparison suppressed until F4c, while
   production/release builds retain default `0`. This design authorizes no
@@ -3032,3 +3051,45 @@ that describe post-window filtering are superseded by this one.
    required check sets for each new flow key, and the synthetic-failure summary
    updated so a ranking-failure-only run is recorded truthfully instead of being
    attributed to the existing `apiFailure` flow.
+
+### Review round 33 (2026-10-11)
+
+Four findings, all accepted, all consistency slips — and two of them in text I
+had written in the preceding round, which is worth noting rather than hiding.
+
+1. **P1 — Exclude source-file hashes from the provenance type** → correct. Round
+   32 removed `model_file_sha256` and `code_sha256` from the digest's definition
+   and I left the public `RankingProvenance` type's own comment still listing
+   them. An implementer typing the field from the type would have rebuilt the bug
+   round 32 removed, and the type comment is the more likely source of truth for
+   whoever writes the client. The comment now describes the canonical semantic
+   manifest only, and states *why* the source hashes are excluded, so it cannot be
+   "tidied" back by someone who thinks a code hash sounds more rigorous.
+2. **P2 — Allow the page probe to read its sentinel row** → correct, and the
+   consequence is the awkward kind: the receipt would have **failed a correct
+   implementation**. The four-stage contract requires `LIMIT 10001` so the
+   10,001st row can set `is_truncated`, and the receipt demanded the page window
+   read at most 10,000 — so either a right plan fails validation, or someone
+   satisfies the receipt with an implementation that cannot derive truncation at
+   all, which is the worse outcome because it would pass. Both windows are now
+   bounded at 10,001 and the **join** at the first 10,000, with the distinction
+   stated: the window probes one row past the ceiling to learn the ranking is
+   longer, and nothing downstream ever sees that row.
+3. **P2 — Use fit-free classification wording in Any mode** → correct. **Clear
+   primary fit** on an Any-mode card contradicts the rule two paragraphs above it
+   forbidding "fit" in Any-mode visible and accessible text. The label is now
+   mode-dependent: **Clear primary fit** in selected mode, **Clear primary
+   classification** in Any. The reason is recorded because it is the useful part —
+   a classification confidence says which archetype a system most resembles, which
+   is meaningful with nothing selected, whereas "fit" presupposes a choice.
+   Sweeping the normative body for the same class then found a second instance the
+   review had not reached: the ranked card's item 4 fallback, **"No clear secondary
+   fit"**, which renders in *both* modes (only item 3 is selected-only). Now "No
+   clear secondary".
+4. **P2 — Point the explanation gate to F4e** → correct. F4c only makes saved
+   surfaces reference-safe; F4e renders the breakdown. A release gate tracked
+   against F4c would have been marked **satisfied** while the thing it requires
+   was unimplemented — a gate that passes early is worse than one that is simply
+   wrong. Corrected, with the distinction spelled out so the reference cannot drift
+   back. The other four F4c mentions were checked and are all correct as they
+   stand (distance reference-safety, and the "F4c **and** F4e" pairings).
