@@ -343,7 +343,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 raw/index-eligible rows. `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st raw-score candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is the exact post-filter count within the first-10,000 candidate window, so it may be far below 10,000 even when `is_truncated=true`; the flag says a 10,001st qualifying candidate existed, not that the filtered population overflowed. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **filters applied within the top 10,000 by [Archetype] score**; URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The V3 product stores explanation data (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs slice 2. Do not show legacy rationale as V3 explanation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -507,14 +507,16 @@ alternative**, but must not be folded into the evidence badge
 
 Above the selected-ranking list, show **Showing _COUNT_ of _TOTAL_ within
 candidate window (results _START_–_END_)** from the same response page. Slice 1c
-first takes the raw-score candidate window, then applies non-indexed filters and
+first takes the candidate window — the first 10,000 systems of the key's
+**canonical** ranking (`score × confidence × completeness`, served in that order
+by the F2d stored-key index) — then applies non-indexed filters and
 counts their survivors inside it. Its normalized envelope carries
 `navigation_limit: 10000`, `navigable_total`, `page_size`, `count`, `total`,
 `offset` and API-owned `is_truncated`. Selected-mode `navigable_total` equals the
 exact post-filter `total` within the candidate window and ranges from 0 through
 10,000. `is_truncated=true` independently means that the index probe found a
-10,001st row before non-indexed filters were applied. In that case also show
-**filters applied within the top 10,000 by _[Archetype]_ score**. A response such
+10,001st qualifying row before non-indexed filters were applied. In that case
+also show **filters applied within the top 10,000 for _[Archetype]_**. A response such
 as `total=3, is_truncated=true` is valid. Provide Previous/Next only across the
 filtered rows inside that window; never imply that they cover a broader filtered
 search outside it.
@@ -571,8 +573,8 @@ change updates them together, as required by the spatial product contract
   meet minimum tier B for Manufacturing Hub.” With `is_truncated=true` the
   bounded window had candidates and every one was removed by a non-indexed
   filter, while lower-scoring systems outside the window might match, so the
-  copy is window-qualified: “None of the top 10,000 systems by Manufacturing Hub
-  score match these filters.” — never “no systems meet the criteria”. Both
+  copy is window-qualified: “None of the top 10,000 systems for Manufacturing Hub
+  match these filters.” — never “no systems meet the criteria”. Both
   include **Reset to tier B** (when the active floor is A/S) and **Choose Any**
   actions; the truncated form also offers **Clear filters**. Empty is not an
   error; do not offer gated C/D as an escape hatch.
@@ -800,7 +802,7 @@ Native `history.replaceState` is forbidden. The facade returns
 `page_size`, page `count`, raw response `total`, `navigable_total`, request
 `offset`, a conditional `navigation_limit`, and source-owned truncation
 metadata rather than a bare result array. For selected rankings,
-`is_truncated=true` means the bounded raw-score probe observed a 10,001st row;
+`is_truncated=true` means the bounded canonical-order probe observed a 10,001st row;
 `total` and `navigable_total` both count only filtered survivors among the first
 10,000. For Any, `navigable_total` is `min(total, 10000)` and
 `total_is_capped` remains the distinct truncation flag; an anchored exact total
@@ -882,10 +884,12 @@ positive-only sentinel is at
 ### Slice 1c API and representative-scale proof
 
 Unit and disposable-PostgreSQL integration tests must prove that selected mode
-uses the index-first raw-score candidate window, reranks only inside it, applies
-every non-indexed filter only after the window is fixed, counts filtered
-survivors only within that window, and derives `is_truncated` only from the
-10,001st raw/index-eligible sentinel. Tests must include a selective-filter case
+reads the candidate window from the key's tier-partial stored-key index in
+canonical order (no re-sort), applies every non-indexed filter only after the
+window is fixed, counts filtered survivors only within that window, and derives
+`is_truncated` only from the 10,001st qualifying-row sentinel — under
+`plan_cache_mode = force_generic_plan`, asserting the partial index from
+`EXPLAIN (FORMAT JSON)` for each floor. Tests must include a selective-filter case
 where `total < 10,000` while `is_truncated=true`. The ordinary integration vehicle
 is the disposable PostgreSQL 18 `database` fixture in
 `tests/test_archetype_rankings_v3.py`, built through
@@ -902,7 +906,7 @@ non-local validation target (`tests/ratings_v4_pg_fixture.py:10-44`).
 Seed at least 1,000,000 systems into production-shaped scratch relations for
 `system_search` and the **wide-row** `system_archetype` (F2d; the summary is a
 view over it), expose them through the generation-pinned `v3_app` views, and
-retain the real primary, spatial/region, per-key partial raw-score and
+retain the real primary, spatial/region, per-key tier-partial stored-key and
 weighted-potential indexes exactly as the final `011` text defines them
 (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:22-54`,
 `sql/v3/migrations/010_v3_system_search_body_type_counts.sql:17-35`,
@@ -924,7 +928,7 @@ page SQL and companion count SQL returned, with bound parameters, by
 `apps/api/src/ranking/ranking_sql.py:512-574`). Record
 `EXPLAIN (ANALYZE, BUFFERS)` plus wall-clock timings for the first page, a
 near-ceiling page and the post-filter within-window count. The plan must
-demonstrate that the raw-score index probe stops after at most 10,001 rows before
+demonstrate that the canonical-order index probe stops after at most 10,001 rows before
 any non-indexed predicate, and that the real joins, filtering, modifier sorting
 and counting touch at most the first 10,000. Include selective
 region/distance/body-count cases so stable latency under warm and cold fixture
@@ -1220,10 +1224,11 @@ promotion. Three API dependencies remain explicit:
   and test that it is summary-owned. F4a may land first and represents the
   headline as a number without a tier; the browser never derives it.
 - **Slice 1c — bounded selected ranking:** this is a hard prerequisite for every
-  selected-archetype mode, including B/60. Use the existing raw-score index to
-  take the raw-score window before every non-indexed filter, apply those filters
-  and the modifier only inside it, and make `is_truncated` report the raw-window
-  10,001st sentinel independently of the post-filter within-window `total`.
+  selected-archetype mode, including B/60. Take the window from the F2d
+  stored-key tier-partial index in canonical order before every non-indexed
+  filter, apply those filters only inside it, and make `is_truncated` report the
+  10,001st-qualifying-row sentinel independently of the post-filter
+  within-window `total`.
   Validate its plan and timing at representative scale. The present raw-score
   index cannot satisfy the current cross-table ordering, and the endpoint calls
   an uncapped `COUNT(*)`
@@ -1275,22 +1280,21 @@ to capacity-decision question 6 (the score-index layout) is recorded in
 ROADMAP's stated prerequisite for the F2d code; the owner answered **yes** to
 the partial layout on 2026-10-10 and the F2d design PR (#806) records it, so
 that PR merges before this slice may start. Slice 1c reads, for the selected
-key, the per-archetype **partial** index
-`(derived_generation_id, <key>_score DESC, system_id64) WHERE <key>_score >= 60`
-that F2d defines (section 3.3 there). That index keeps the deterministic
-`score DESC, system_id64 ASC` order the bounded probe needs without a tie sort:
-the capacity decision's first deduplicating `(generation, <key>_score DESC)`
-variant would have forced an incremental sort of the boundary score group,
-whose size depends on the production score distribution (integer scores tie
-heavily). Measured on the disposable PG18 at 1M rows with a bell-shaped
-distribution: unique-entry index — index-only scan, 10,001 rows read, 2.4 ms
-warm; partial `>= 60` variant — same plan, 3.5 ms warm, 8.4 B/row;
-deduplicated variant — incremental sort, 10,184 rows read, 13 ms warm but
-distribution-dependent. Every selected floor F4 exposes (S/A/B ⇒ `>= 88/76/60`)
-is inside the partial index's predicate, so the probe is always index-only.
-The scale proof seeds and tears down production-shaped relations/views only
-inside the disposable PostgreSQL 18 fixture, using the **final F2d DDL and
-indexes** (not a flattened or keyed stand-in).
+key and floor, the per-archetype **tier-partial stored-key** index
+`(derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 | 76 | 88`
+that F2d defines (section 3.3 there; `<key>_weighted_e4` is the stored
+`round(score × confidence × completeness × 10000)`). Reading it in index order
+**is** the canonical ranking: the first 10,000 rows are the top 10,000 of the
+profile's `score × confidence × completeness` order with `system_id64` ties
+broken inside the index, so there is no raw-score window and no post-hoc sort.
+(An earlier revision took the window by raw score and sorted it by the weighted
+product afterwards; the F2d review showed that is an approximation — a
+near-certain score-99 system could be dropped behind 10,001 uncertain
+score-100 systems — which is why F2d stores the key.) Every selected floor F4
+exposes (S/A/B ⇒ `>= 88/76/60`) has its own partial, so the probe is always
+index-only. The scale proof seeds and tears down production-shaped
+relations/views only inside the disposable PostgreSQL 18 fixture, using the
+**final F2d DDL and indexes** (not a flattened or keyed stand-in).
 
 Because the partial index holds only rows scoring ≥ 60, the **API boundary
 changes with it** — and that change lands in **F2d PR1, together with the
@@ -1305,40 +1309,43 @@ clients for the changed parameter constraint. Slice 1c inherits that contract
 and adds no further parameter change.
 
 For one pinned generation and selected archetype, the API first reads through
-that key's partial index in `<key>_score DESC, system_id64 ASC` order. Apart
-from generation, only `min_score` (≥ 60) may constrain this index scan because
-it is a range on the indexed score column; no joined `system_search` predicate
-participates in selecting the window. Probe at most
-10,001 raw/index-eligible rows: the first 10,000 form the immutable candidate
-window and the sentinel sets `is_truncated`.
+that key's tier-partial index in `<key>_weighted_e4 DESC, system_id64 ASC`
+order. The `WHERE` carries the server-chosen **literal** tier floor (the largest
+of `>= 60/76/88` not above the requested `min_score` — a parameter alone cannot
+make PostgreSQL use a partial index under a generic plan, F2d section 6) plus the
+parameterized `>= $n` for the exact requested value; no joined `system_search`
+predicate participates in selecting the window. Probe at most 10,001 qualifying
+rows: the first 10,000 form the immutable candidate window and the sentinel
+sets `is_truncated`.
 
 Only inside those first 10,000 does the query join and apply region, distance,
-ELW/body counts and every other supported non-indexed filter. It then orders
-survivors by `<key>_score × (<key>_confidence_ppm / 1000000.0) × completeness
-DESC`, distance from Sol and system id. A row outside the raw-score window cannot outrank or
-re-enter it, even if its non-indexed facts or confidence/completeness modifier
-would otherwise change its global position. This order of operations guarantees
-a bounded scan for every selected request regardless of filter selectivity: the
-index probe touches at most 10,001 selected-score rows, while joins, non-indexed
-filters, modifier sorting and counting touch at most 10,000. The API rejects
+ELW/body counts and every other supported non-indexed filter. Survivors keep
+the index order — it already is the canonical `score × confidence ×
+completeness DESC, system_id64 ASC` order, so no re-sort happens (selected mode
+is galaxy-wide, so distance is not an ordering term). A row outside the window
+cannot outrank or re-enter it, even if its non-indexed facts would otherwise
+change its global position. This order of operations guarantees a bounded scan
+for every selected request regardless of filter selectivity: the index probe
+touches at most 10,001 rows, while joins, non-indexed filters and counting touch
+at most 10,000. The count is bounded the same way (`SELECT count(*) FROM
+(… LIMIT 10001)`, F2d section 6). The API rejects
 `offset >= 10,000` and any request whose `offset + limit` would cross the window;
 the facade's final-page clamp prevents ordinary F4 requests from reaching that
 error.
 
 The companion `total` is the exact count after filtering inside the first-10,000
 window, from 0 through 10,000; `count` remains the returned page length.
-`is_truncated` independently records whether a 10,001st raw/index-eligible row
+`is_truncated` independently records whether a 10,001st qualifying row
 existed, so a selective request may return `total=3, is_truncated=true`. Clients
-then render **filters applied within the top 10,000 by [Archetype] score** rather
+then render **filters applied within the top 10,000 for [Archetype]** rather
 than claiming 10,000 filtered matches. Preserve the repeatable-read generation
-pin across raw-window probe, candidate page and within-window count.
+pin across window probe, candidate page and within-window count.
 
 These two-stage semantics are part of ranking identity, not an implementation
-detail. Add the candidate-window rule to `PROFILE_SPEC`: window size 10,000;
-raw `archetype_score DESC, system_id64 ASC` order; the indexed `min_score`
-exception; post-window non-indexed filters; the within-window
-confidence/completeness modifier and tie-breaks; the capped-count rule (`total`
-is the post-filter count within the window); and raw-window `is_truncated`.
+detail. F2d PR1 already hashes the stored-key definition, the floor default and
+bounds, the literal tier floors, the 10,000 window and the `is_truncated` rule
+into `PROFILE_SPEC`; slice 1c adds the **post-window non-indexed filter rule**
+(filters apply inside the window only) and the within-window `total` rule.
 Bump `RANKING_VERSION` **from the identity F2d PR1 lands** (planned
 `v3-colony-potential-2`, because the wide-row change is itself a new ranking
 identity per the capacity decision) to the next one — **`v3-colony-potential-3`**
@@ -1357,14 +1364,14 @@ fail-closed binding tests so execution cannot drift from those hashed rules
 (`tests/test_ranking_sql.py:686-762`). Responses then advertise an identity that
 reproduces the results they return (`apps/api/src/routers/archetypes.py:392-405`).
 
-Broader filtered selected searches outside the raw-score window are deferred.
+Broader filtered selected searches outside the canonical window are deferred.
 They require a new access path, such as a denormalized
-`system_archetype_search` projection that co-locates raw archetype score with
+`system_archetype_search` projection that co-locates the stored ranking key with
 hot search predicates, workload-specific composite B-tree indexes (for example,
-generation + archetype + region + raw score) and an archetype-scoped spatial
+generation + archetype + region + ranking key) and an archetype-scoped spatial
 GiST candidate path for radius queries. The current separate region B-tree and
-position GiST indexes cannot promise both arbitrary filter breadth and selected
-raw-score order (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:50-54`).
+position GiST indexes cannot promise both arbitrary filter breadth and canonical
+ranking order (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:50-54`).
 
 Required proof: focused SQL-builder and router tests; the ordinary disposable
 PostgreSQL integration suite; OpenAPI regeneration/drift; and the production-
@@ -2220,3 +2227,20 @@ product/implementation choices are:
    mount, Product E2E, accessibility proof) and forbids wiring the legacy
    `/system/{id64}` route; F4d no longer defers explanations, and owner
    question 3 may be answered only after F4c and F4e have merged.
+
+#### Round 15 — 2026-10-11 (alignment with F2d review round 5, PR #806)
+
+The F2d design's fifth review round changed the picked-ranking access path:
+the wide row stores the canonical key `<key>_weighted_e4 = round(score ×
+confidence × completeness × 10000)` and indexes it under each exposed tier
+floor (24 partial indexes), the picked SQL carries a server-chosen literal tier
+floor beside the parameter so the partial index is usable under generic plans,
+and the count is bounded at 10,001. Slice 1c here is rewritten accordingly:
+the candidate window is the first 10,000 rows of the **canonical** order read
+straight from that index (no raw-score window, no post-hoc sort), non-indexed
+filters still apply inside the window only, `is_truncated` is the
+10,001st-qualifying-row sentinel, the "within the top 10,000 by score" copy
+becomes "within the top 10,000 for [Archetype]", and the `PROFILE_SPEC`
+additions shrink to the post-window filter and within-window `total` rules
+(F2d PR1 hashes the rest). The scale fixture uses the F2d stored-key DDL and
+tier partials.
