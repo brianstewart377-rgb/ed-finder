@@ -319,9 +319,25 @@ newer dated source wins).
      vacuous and would pass against the wrong image). The attestation must carry
      both concrete values; the publish action refuses when it carries no identity
      rather than treating a missing value as a match — then publishes both **products**
-     with
-     `v3_meta.publish_derived_product` in one governed transaction; the
-     generation pointer does not move (no `publish_derived_generation`). Then
+     with `v3_meta.publish_derived_product` in one governed transaction; the
+     generation pointer does not move (no `publish_derived_generation`).
+
+     **Before that transaction commits, the publish action must prove the
+     production plan.** `published_at` is a one-way transition with no governed
+     path to clear it, so the image and identity checks alone are not enough: on
+     the publisher's **own** connection, inside the same transaction, after both
+     updates and before commit — where the transaction can see its own newly
+     visible rows — it runs the real page and count `EXPLAIN` for **all eight
+     archetypes at all three floors** and rolls back on any plan that is not the
+     expected bounded shape. All 24 pairs, because planner choices depend on each
+     key's own statistics and partial-index selectivity, so one tested key proves
+     nothing about the other seven, each of which is user-selectable. The
+     Archetype build step must have run and receipted `ANALYZE` on the completed
+     table, and the probe asserts `last_analyze` postdates the final insert: an
+     `EXPLAIN` on stale statistics can reject a sound build, or pass and then have
+     autovacuum move the planner off the bounded plan after users are exposed.
+     Without this, the one-way publication can commit without the production plan
+     ever having been validated. Then
      verify from the live app that results are served and the envelopes carry
      the expected generation, ranking identity and product identity — this is
      where the response identity is checked, once it exists.

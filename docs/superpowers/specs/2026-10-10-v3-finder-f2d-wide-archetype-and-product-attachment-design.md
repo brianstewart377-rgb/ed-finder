@@ -979,7 +979,11 @@ term, for picked results.
 `build_count_query(..., cap=None)`, an exact count over every qualifying row —
 ≈ 34 M rows at the synthetic 17 % B fraction, unbounded by any index. PR1
 changes the picked count to `SELECT count(*) FROM (SELECT 1 … LIMIT 10001) t`
-with the same literal + parameter floor: the response's `total` is
+with the **server-selected literal floor alone** — not literal plus parameter
+(review round 23): `<key>_score` is not in the partial index, so a parameterized
+`<key>_score >= $n` would force a heap fetch for each of up to 10,001 candidate
+rows and break the `Index Only Scan` the publication gate asserts. The count
+window needs the same literal-only form as the page window for the same reason: the response's `total` is
 `min(count, 10000)` and `is_truncated` is `count = 10001`, exactly the
 within-window contract the F4 design already specifies for selected mode, now
 honest for the count as well as the page. The galaxy-wide local-search path is
@@ -2682,3 +2686,27 @@ does not bind, because the ROADMAP outranks it.
    Archetype build now runs and receipts `ANALYZE` on the completed table as its last
    action, and both probes assert `last_analyze` is later than the final insert before
    reading any plan.
+
+### Review round 23 (2026-10-11)
+
+1. **P1 — Require the plan probe before publication commits** → correct, and the
+   same design-only mistake for the fourth time on this PR: rounds 21 and 22 built
+   the pre-commit probe into the design and left the controlling ROADMAP directing
+   the action to publish straight after the image and identity checks. Following the
+   higher authority literally, the one-way `published_at` transition commits with
+   the production plan never validated — and an archetype whose statistics select a
+   sequential scan over 198.5 million rows goes live with no way back.
+   ROADMAP step 9′ now carries the whole requirement: the publisher's **own**
+   connection, inside the transaction, after both updates and before commit, **all
+   eight archetypes at all three floors**, with `ANALYZE` receipted by the build
+   step and `last_analyze` asserted to postdate the final insert. I put the reasons
+   in alongside, because a bare instruction to run a probe is what gets simplified
+   back to "publish after the identity checks".
+2. **P2 — Drop the parameterized floor from the count query** → correct, and round
+   22's fix reached the page window and not the count window. `<key>_score` is not
+   in the partial index, so a parameterized `<key>_score >= $n` forces a heap fetch
+   for each of up to **10,001** candidate rows — and it would fail the `Index Only
+   Scan` assertion the publication gate now makes, so the gate I have just
+   strengthened would have refused the implementation the design specified. The
+   count window takes the server-selected literal alone, for exactly the reason the
+   page window does.
