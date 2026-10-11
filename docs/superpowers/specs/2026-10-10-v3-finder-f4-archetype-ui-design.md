@@ -13,6 +13,15 @@ published `ratings_v4_prod_p4_parallel_v1`, **published both products** with
 generation pointer does not move — the owner's 2026-10-10 capacity decision
 replaced the fresh-generation route, `docs/ROADMAP.md` “Capacity decision”
 paragraph and steps 4′–9′), and passed the separate application-release gate.
+The flag is only one of the production safeguards, and not the first one: the
+`/api/archetypes/rankings` route becomes live the moment both products are
+published, flag or no flag, so the F2d sequence **deploys the bounded ranking
+route (F2d PR1 — stored-key index, literal floors, window-then-filter, bounded
+count, offset bound) before the products are published**; publication is the
+last governed step (F2d design section 8, ROADMAP steps 10′–11′ then 9′), and
+the publish action verifies the deployed ranking identity first. Slice 1c here
+is therefore the browser-side contract and the scale receipt; its API-side
+bounding lives in F2d PR1 and is a prerequisite of publication, not only of F4b.
 In addition, F4b must not
 be enabled anywhere—not even behind that gate in Product E2E—until slice 1c has
 landed with its representative-scale timing proof. F4b suppresses distance from
@@ -1274,6 +1283,13 @@ eight keyed rows per system to one wide row with per-archetype score columns
 (`docs/ROADMAP.md` step 4′; design PR #806), so the generic
 `system_archetype_key_score (generation, archetype_key, archetype_score,
 system_id64)` access path this slice was first written against will not exist.
+What remains in slice 1c after the F2d review: the API-side bounding (stored-key
+index order, literal floors, window-then-filter structure, bounded count,
+`is_truncated`, offset bound, `min_score ∈ {60, 76, 88}`) is **F2d PR1** and
+ships before publication. Slice 1c owns the browser-side envelope contract, the
+within-window `total` and post-window filter semantics as hashed profile rules
+if PR1 has not already declared them, the response-order tests for the new
+tie-break, and the representative-scale timing receipt that unblocks F4b.
 Slice 1c therefore lands **after** F2d PR1 — and only once the owner's answer
 to capacity-decision question 6 (the score-index layout) is recorded in
 `docs/operations/v3-finder-capacity-decision-2026-10-10.md`, which is the
@@ -1324,8 +1340,13 @@ sets `is_truncated`.
 Only inside those first 10,000 does the query join and apply region, distance,
 ELW/body counts and every other supported non-indexed filter. Survivors keep
 the index order — it already is the canonical `score × confidence ×
-completeness DESC, system_id64 ASC` order, so no re-sort happens (selected mode
-is galaxy-wide, so distance is not an ordering term). A row outside the window
+completeness DESC, system_id64 ASC` order, so no re-sort happens. The profile's
+former picked-mode tie-break `(distance, system_id64)` is **changed to
+`system_id64` only** in the new identity (F2d design section 6): ties on the
+stored integer key are broken inside the index, a distance tie-break would
+require sorting the window and defeat the index-order guarantee, and Sol
+distance stays a displayed fact rather than an ordering term; the response-order
+tests that pinned the Sol tie cases are replaced. A row outside the window
 cannot outrank or re-enter it, even if its non-indexed facts would otherwise
 change its global position. This order of operations guarantees a bounded scan
 for every selected request regardless of filter selectivity: the index probe
@@ -1700,11 +1721,13 @@ considered for a governed release build.
 - **Unbounded selected query:** every floor, including B/60, may make the picked
   path sort and count a large portion of roughly 198.5 million systems without a
   precomputed cross-table ordering key (`docs/ROADMAP.md:197-214`). Mitigation:
-  slice 1c is mandatory for all selected modes and takes the top-10,000
-  raw-score window before any non-indexed filter, with a 10,001st raw-window
-  sentinel; all joins, non-indexed filtering, modifier sorting and counting are
-  bounded inside it. F4b remains disabled until its 1M-row PostgreSQL 18 timing
-  proof lands.
+  the F2d wide row stores the canonical key `<key>_weighted_e4` and indexes it
+  under each exposed tier floor; F2d PR1 reads the top-10,000 window straight
+  from that index in canonical order (literal floor, `LIMIT 10001`, bounded
+  count, offset bound) **before** any non-indexed filter, and applies joins and
+  filters only inside the window — deployed before the products are published.
+  Slice 1c adds the browser contract and the 1M-row PostgreSQL 18 timing proof;
+  F4b remains disabled until that proof lands.
 - **Unbounded Any tier floor:** Any orders through the indexed
   `weighted_potential` path but a tier floor predicates unindexed
   `best_colony_potential`; the 10,000 qualifying-row count cap does not bound
@@ -2258,3 +2281,22 @@ tier partials.
    now states that the wide row stores no explanation, names the F2d on-demand
    endpoint (PR3) and PR F4e as the pre-enablement dependency, and drops the
    "needs slice 2" framing.
+
+#### Round 17 — 2026-10-11 (PR #801)
+
+1. **P1 — Restrict `min_score` to the indexed tier floors** → done in f23ddec:
+   `min_score` accepts exactly 60/76/88 (default 60), every other value 422, so
+   the server-chosen literal is the exact floor and no residual heap filter
+   exists; F2d PR1 carries the contract.
+2. **P2 — Remove the stale raw-score window mitigation** → the risk-summary
+   bullet now describes the stored-key canonical window read in index order
+   before any non-indexed filter.
+3. **P1 — Gate product publication on slice 1c** → the bounded route is a
+   prerequisite of publication, not only of F4b: the F2d sequence promotes the
+   release carrying PR1's bounded ranking route first and publishes the products
+   last (ROADMAP steps 10′–11′ then 9′; the publish action verifies the deployed
+   ranking identity), and the opening gate here says so. Slice 1c is scoped to
+   the browser contract and the scale receipt.
+4. **P1 — Reconcile the stored index with the Sol distance tie-break** → the new
+   identity changes the picked-mode tie-break to `system_id64` only (hashed,
+   response-order tests replaced); Sol distance stays a displayed fact.
