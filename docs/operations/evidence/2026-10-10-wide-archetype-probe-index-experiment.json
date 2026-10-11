@@ -1,0 +1,53 @@
+{
+  "dedup_score_only": {
+    "first_run_ms": {
+      "execution": 36.36,
+      "planning": 0.15
+    },
+    "index_bytes": 7168000,
+    "index_bytes_per_row": 7.2,
+    "plan_nodes": [
+      "Limit rows=10001.0",
+      "Incremental Sort rows=10001.0",
+      "Index Scan probe_ix rows=10109.0"
+    ],
+    "warm_median_wall_ms": 8.87
+  },
+  "distribution": {
+    "fraction_ge60": 0.1688,
+    "ge60": 168849,
+    "ge76": 20472,
+    "ge88": 1811,
+    "max_score": 100,
+    "rows_at_max_score": 64
+  },
+  "full_score_sysid": {
+    "first_run_ms": {
+      "execution": 2.37,
+      "planning": 0.12
+    },
+    "index_bytes": 49758208,
+    "index_bytes_per_row": 49.8,
+    "plan_nodes": [
+      "Limit rows=10001.0",
+      "Index Only Scan probe_ix rows=10001.0"
+    ],
+    "warm_median_wall_ms": 2.33
+  },
+  "partial_ge60_score_sysid": {
+    "first_run_ms": {
+      "execution": 2.96,
+      "planning": 0.18
+    },
+    "index_bytes": 8421376,
+    "index_bytes_per_row": 8.4,
+    "plan_nodes": [
+      "Limit rows=10001.0",
+      "Index Only Scan probe_ix rows=10001.0"
+    ],
+    "warm_median_wall_ms": 2.15
+  },
+  "probe_sql": "SELECT system_id64, score FROM scratch.probe WHERE gen = %s AND score >= 60 ORDER BY score DESC, system_id64 LIMIT 10001",
+  "rows": 1000000,
+  "server_version_num": 180004
+}

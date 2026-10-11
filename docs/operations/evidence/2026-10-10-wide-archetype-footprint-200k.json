@@ -11,51 +11,82 @@
       "table_gb": 37.0,
       "total_gb": 132.3
     },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.2475,
+      "manufacturing_hub": 0.2475,
+      "megacomplex": 0.2475,
+      "mining_hub": 0.2475,
+      "paradise": 0.2475,
+      "population_capital": 0.2475,
+      "research_hub": 0.2475,
+      "stronghold": 0.2475
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.1287,
+      "manufacturing_hub": 0.1287,
+      "megacomplex": 0.1287,
+      "mining_hub": 0.1287,
+      "paradise": 0.1287,
+      "population_capital": 0.1287,
+      "research_hub": 0.1287,
+      "stronghold": 0.1287
+    },
     "index_bytes": 96051200,
     "index_bytes_per_row": 480.3,
     "indexes": {
-      "wide_archetype_v1_with_system_id64_flexible": {
+      "wa_v1_with_system_id64_flexible_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_manufacturing_hub": {
+      "wa_v1_with_system_id64_manufacturing_hub_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_megacomplex": {
+      "wa_v1_with_system_id64_megacomplex_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_mining_hub": {
+      "wa_v1_with_system_id64_mining_hub_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_paradise": {
+      "wa_v1_with_system_id64_paradise_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_population_capital_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_research_hub_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_stronghold_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
       },
       "wide_archetype_v1_with_system_id64_pkey": {
         "bytes": 8142848,
         "bytes_per_row": 40.7
-      },
-      "wide_archetype_v1_with_system_id64_population_capital": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_research_hub": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_stronghold": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_weighted": {
-        "bytes": 8151040,
-        "bytes_per_row": 40.8
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 133341184,
@@ -69,54 +100,327 @@
       "table_gb": 37.0,
       "total_gb": 65.2
     },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.2475,
+      "manufacturing_hub": 0.2475,
+      "megacomplex": 0.2475,
+      "mining_hub": 0.2475,
+      "paradise": 0.2475,
+      "population_capital": 0.2475,
+      "research_hub": 0.2475,
+      "stronghold": 0.2475
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.1287,
+      "manufacturing_hub": 0.1287,
+      "megacomplex": 0.1287,
+      "mining_hub": 0.1287,
+      "paradise": 0.1287,
+      "population_capital": 0.1287,
+      "research_hub": 0.1287,
+      "stronghold": 0.1287
+    },
     "index_bytes": 28352512,
     "index_bytes_per_row": 141.8,
     "indexes": {
-      "wide_archetype_v2_score_only_flexible": {
+      "wa_v2_score_only_flexible_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_manufacturing_hub": {
+      "wa_v2_score_only_manufacturing_hub_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_megacomplex": {
+      "wa_v2_score_only_megacomplex_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_mining_hub": {
+      "wa_v2_score_only_mining_hub_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_paradise": {
+      "wa_v2_score_only_paradise_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_population_capital_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_research_hub_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_stronghold_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
       },
       "wide_archetype_v2_score_only_pkey": {
         "bytes": 8142848,
         "bytes_per_row": 40.7
-      },
-      "wide_archetype_v2_score_only_population_capital": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_research_hub": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_stronghold": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_weighted": {
-        "bytes": 8151040,
-        "bytes_per_row": 40.8
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 65642496,
     "total_bytes_per_row": 328.2
+  },
+  "v3_partial_ge60_score_sysid": {
+    "avg_tuple_bytes": 179.81816,
+    "extrapolated_prod": {
+      "index_gb": 29.7,
+      "systems": 198500000,
+      "table_gb": 37.0,
+      "total_gb": 66.7
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.1705,
+      "manufacturing_hub": 0.169,
+      "megacomplex": 0.1692,
+      "mining_hub": 0.1688,
+      "paradise": 0.1689,
+      "population_capital": 0.1696,
+      "research_hub": 0.1699,
+      "stronghold": 0.1684
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.0208,
+      "manufacturing_hub": 0.0205,
+      "megacomplex": 0.0204,
+      "mining_hub": 0.0202,
+      "paradise": 0.0203,
+      "population_capital": 0.0209,
+      "research_hub": 0.0208,
+      "stronghold": 0.0206
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.0019,
+      "manufacturing_hub": 0.0019,
+      "megacomplex": 0.0019,
+      "mining_hub": 0.0018,
+      "paradise": 0.0019,
+      "population_capital": 0.0019,
+      "research_hub": 0.002,
+      "stronghold": 0.0018
+    },
+    "index_bytes": 29949952,
+    "index_bytes_per_row": 149.7,
+    "indexes": {
+      "wa_v3_partial_ge60_score_sysid_flexible_0": {
+        "bytes": 1720320,
+        "bytes_per_row": 8.6
+      },
+      "wa_v3_partial_ge60_score_sysid_manufacturing_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_megacomplex_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_mining_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_paradise_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_population_capital_0": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wa_v3_partial_ge60_score_sysid_research_hub_0": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wa_v3_partial_ge60_score_sysid_stronghold_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      }
+    },
+    "rows": 200000,
+    "score_distribution": "bell",
+    "table_bytes": 37289984,
+    "table_bytes_per_row": 186.4,
+    "total_bytes": 67239936,
+    "total_bytes_per_row": 336.2
+  },
+  "v4_weighted_key_tier_partials": {
+    "avg_tuple_bytes": 211.81816,
+    "extrapolated_prod": {
+      "index_gb": 31.8,
+      "systems": 198500000,
+      "table_gb": 44.0,
+      "total_gb": 75.8
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.1706,
+      "manufacturing_hub": 0.1697,
+      "megacomplex": 0.1681,
+      "mining_hub": 0.1684,
+      "paradise": 0.1685,
+      "population_capital": 0.1692,
+      "research_hub": 0.1681,
+      "stronghold": 0.1672
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.0202,
+      "manufacturing_hub": 0.0208,
+      "megacomplex": 0.0207,
+      "mining_hub": 0.0208,
+      "paradise": 0.0205,
+      "population_capital": 0.0205,
+      "research_hub": 0.0202,
+      "stronghold": 0.0204
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.002,
+      "manufacturing_hub": 0.002,
+      "megacomplex": 0.0019,
+      "mining_hub": 0.0018,
+      "paradise": 0.0019,
+      "population_capital": 0.0018,
+      "research_hub": 0.0018,
+      "stronghold": 0.0019
+    },
+    "index_bytes": 32014336,
+    "index_bytes_per_row": 160.1,
+    "indexes": {
+      "wa_v4_weighted_key_tier_partials_flexible_0": {
+        "bytes": 1720320,
+        "bytes_per_row": 8.6
+      },
+      "wa_v4_weighted_key_tier_partials_flexible_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_flexible_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_0": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_1": {
+        "bytes": 229376,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_1": {
+        "bytes": 229376,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_0": {
+        "bytes": 1687552,
+        "bytes_per_row": 8.4
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      },
+      "wide_archetype_v4_weighted_key_tier_partials_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      }
+    },
+    "rows": 200000,
+    "score_distribution": "bell",
+    "table_bytes": 44335104,
+    "table_bytes_per_row": 221.7,
+    "total_bytes": 76349440,
+    "total_bytes_per_row": 381.7
   }
 }

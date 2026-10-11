@@ -3,9 +3,10 @@
 **Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
 ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added
-after review and await the owner; the ROADMAP lists their recorded answers as
-a prerequisite of step 4′, so the F2d code PRs that encode them cannot merge
-first. Numbers come
+after review and **answered yes by the owner on 2026-10-10 (23:12 BST, in
+chat: “yes yes”, after the index layout had been revised to the partial
+form)** — recorded below; the ROADMAP lists these recorded answers as the
+prerequisite of step 4′, which is therefore satisfied. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
@@ -25,8 +26,10 @@ disposable-sample measurement in
 | `system_search` after migration `010` (198.5 M rows) | 273 B table + 164 B index | **≈ 87 GB** |
 | `system_archetype` as migration `011` defines it (8 rows per system = 1,588 M rows; ≈ 410 B of each row is the `explanation` JSON) | 422 B table + 194 B index | **≈ 978 GB** |
 | `system_archetype_summary` (198.5 M rows) | 96 B + 79 B | **≈ 35 GB** |
-| wide-row `system_archetype` (F2d design: one row per system, no stored explanation; PK + weighted index + 8 deduplicating `(generation, <key>_score DESC)` indexes) | 186 B table + 142 B index | **≈ 65 GB** |
-| the same wide row with `system_id64` trailing in each score index (the design's first draft — rejected, see A) | 186 B table + 480 B index | ≈ 132 GB |
+| wide-row `system_archetype` (F2d design after review: one row per system with the eight stored ranking keys `<key>_weighted_e4`, no stored explanation; PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes; synthetic distribution 16.9 % / 2.1 % / 0.19 %) | 222 B table + 160 B index | **≈ 76 GB** (moves with the real per-floor fractions; stop rule at ≈ 40 % ≥ 60) |
+| the same without the stored keys, 8 partial score-ordered indexes (the 23:00 draft — rejected: cannot serve the ranking's canonical order) | 186 B table + 150 B index | ≈ 67 GB |
+| the same wide row with full `(generation, <key>_score DESC, system_id64)` indexes (= the ceiling) | 186 B table + 480 B index | ≈ 132 GB |
+| the same wide row with deduplicating `(generation, <key>_score DESC)` indexes (the 2026-10-10 evening draft — rejected after review: it cannot bound the F4 slice 1c probe without a tie sort) | 186 B table + 142 B index | ≈ 65 GB |
 
 ## 2. Why the plan as written cannot run
 
@@ -61,12 +64,26 @@ alignment), with the summary columns (`primary_archetype`,
 summary table replaced by a view. Indexes: the primary key
 `(generation, system_id64)` (the picked-archetype join now uses it — one row per
 system, no key lookup), the `weighted_potential` index for the default no-pick
-ordering, and one small `(generation, <key>_score DESC)` index per archetype for
-the `min_development_score` / tier-floor range path. The picked ordering is the
-computed product `score × confidence × completeness`, which no score index can
-serve, so the score indexes must **not** carry a trailing `system_id64`: with it
-every entry is unique (49.8 B/row each, 8 × 9.9 GB); without it B-tree
-deduplication collapses the 101 distinct score values (7.5 B/row, 8 × 1.5 GB).
+ordering, and — the F2d design's final form after review — the picked
+ranking's **canonical key stored per archetype** (`<key>_weighted_e4 =
+round(score × fit confidence × completeness × 10,000)`, exact integer) with
+three **partial** indexes per archetype,
+`(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 /
+88`, one per tier floor the Finder exposes. A picked ranking is then served in
+its own order straight from the matching index and stops after the page or the
+10,001-row bound: no raw-score window sorted afterwards (review showed that is
+an approximation — a near-certain score-99 system could be dropped behind
+10,001 uncertain score-100 systems), and the count is bounded the same way.
+Index cost: 49.8 B per indexed row times the fraction of systems at or above
+each floor: measured 8.5 + 1.1 + 0.2 B/row per key on a bell-shaped synthetic
+sample (≈ 16 GB for all 24), plus ≈ 7 GB of heap for the stored keys. The
+step 6 calibration probe's per-key tier histogram sizes the partials for real
+before the build; the design stops if the ≥ 60 fraction is above ≈ 40 % on
+several keys. (Probe experiment with the earlier score-ordered form:
+`scripts/dev/measure_wide_archetype_probe_indexes.py`, output
+`evidence/2026-10-10-wide-archetype-probe-index-experiment.json`; layouts:
+`scripts/dev/measure_wide_archetype_footprint.py`,
+`evidence/2026-10-10-wide-archetype-footprint-200k.json`.)
 The per-archetype `explanation` is **not stored**: the fit model
 (`scripts/v3_system_archetype_model.py`) is pure and deterministic, so the API
 recomputes one system's explanations on demand from its rating vector and
@@ -82,11 +99,12 @@ keeping a versioned replay registry (owner question 5).
 *Disk (measured on the disposable PostgreSQL 18.4 sample with the design's
 DDL, 200,000 rows, extrapolated to 198.5 M; script
 `scripts/dev/measure_wide_archetype_footprint.py`, output
-`evidence/2026-10-10-wide-archetype-footprint-200k.json`).* 37 GB table + 8 GB primary key +
-8 GB weighted index + 12 GB score indexes ≈ **65 GB** instead of 978 + 35 GB.
-(With the trailing `system_id64` the same table would be ≈ 132 GB; the first
-draft's 80–90 GB guess undercounted the primary key and weighted index and
-overcounted nothing — the measurement replaces it.)
+`evidence/2026-10-10-wide-archetype-footprint-200k.json`).* 44 GB table (with
+the stored keys) + 8 GB primary key + 8 GB weighted index + ≈ 16 GB tier-partial
+indexes (synthetic distribution) ≈ **76 GB** instead of 978 + 35 GB. (The first
+draft's 80–90 GB guess undercounted the primary key and weighted index; the
+measurement replaces it, and the calibration probe's histogram fixes the
+partial-index term before the build.)
 
 *Effort.* A new `011` (migration text), the F2b model/builder/validator and their
 tests adapted to the wide row, the F2c/F3 ranking SQL re-pointed at the new
@@ -98,7 +116,7 @@ The Review Lab and Cypress fixtures apply `011` too and follow the rewrite.
 changes shape, so it is a new ranking identity. Behaviour is preserved (same
 scores, same tiers).
 
-*Alone it still does not fit:* a fresh generation would be 313 + 87 + 65 = **465 GB**
+*Alone it still does not fit:* a fresh generation would be 313 + 87 + 76 = **476 GB**
 against 292 GB free — so A needs B or C as well.
 
 ### B. Attach the Finder products to the already-published generation (no ratings rebuild)
@@ -124,7 +142,7 @@ small governed "publish product" action — the moment Finder goes live stays a
 reviewed decision, not a side effect of validation.
 
 *Disk.* Removes the 313 GB ratings rebuild entirely. New data = search 87 GB +
-archetype (978 GB as-is, or ≈ 65 GB with A).
+archetype (978 GB as-is, or ≈ 76 GB with A).
 
 *Effort.* One migration, API/view changes with tests, a publish action, and the
 steps 4/5/7/8/9 tooling becomes simpler (no new generation key — everything
@@ -173,8 +191,8 @@ then register and apply `[014, 010, 011', 013, 015]`, build `system_search`
 the products, revise the release gate, promote.
 
 ```text
-new data written:  search 87 GB + archetype ≈ 65 GB (measured)  ≈ 152 GB
-free today:        292 GB   →  ≈ 140 GB headroom for WAL/temp/vacuum
+new data written:  search 87 GB + archetype ≈ 76 GB (measured, synthetic distribution)  ≈ 163 GB
+free today:        292 GB   →  ≈ 129 GB headroom for WAL/temp/vacuum
 ```
 
 The production gate before the archetype build repeats the measurement with
@@ -205,10 +223,21 @@ applied anywhere.
 5. Accept the exact-version rule for on-demand explanations (served only when
    the deployed model version equals the product's pinned `archetype_version`;
    HTTP 409 otherwise; no versioned replay registry)?
-6. Adopt the measured index layout for the wide row (primary key + weighted
-   index + eight deduplicating `(generation, <key>_score DESC)` indexes,
-   ≈ 65 GB) rather than the first draft's trailing-`system_id64` indexes
-   (≈ 132 GB)?
+   **Owner: yes (2026-10-10).**
+6. Adopt the wide-row index layout of primary key + weighted index + eight
+   **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score
+   >= 60` indexes (≈ 66 GB on the synthetic sample, sized for real from the
+   calibration probe's tier histogram, ceiling ≈ 132 GB)? This replaces the
+   deduplicating variant proposed earlier the same evening, which review showed
+   cannot bound the F4 slice 1c probe without a distribution-dependent tie
+   sort.
+   **Owner: yes (2026-10-10), given with the partial-index form in view.**
+6b. Accept the F2d design's refinement of that layout after its review round 5:
+   store the picked ranking's canonical key per archetype
+   (`<key>_weighted_e4`) and index it under each exposed tier floor (24 partial
+   indexes), ≈ 76 GB on the synthetic sample (+10 GB), so the ranking is served
+   in its own order rather than approximated from a raw-score window?
+   **Owner: yes (2026-10-11, 01:05 BST, in chat).**
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder
 adaptation (code), the `015` migration + API gate (code), and the amended
