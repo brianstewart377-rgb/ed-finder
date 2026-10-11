@@ -84,6 +84,8 @@ def _run_inventory_action(
     root_df_failure: bool = False,
     volume_df_failure: bool = False,
     du_layout: str = "default",
+    du_churn: bool = False,
+    du_permission_denied: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -183,6 +185,18 @@ def _run_inventory_action(
             fi
             vol='/var/lib/docker/volumes/edfinder-pgdata/_data'
             data="$vol/18/docker"
+            # Ordinary PostgreSQL churn: a WAL segment recycled mid-scan. du still
+            # totals everything else and exits nonzero.
+            if [ "$DU_CHURN" = '1' ]; then
+              printf "du: cannot access '%s/pg_wal/0000000100000ABC': No such file or directory\\n" "$data" >&2
+              CHURN_EXIT=1
+            else
+              CHURN_EXIT=0
+            fi
+            if [ "$DU_PERMISSION_DENIED" = '1' ]; then
+              printf "du: cannot read directory '/var/lib/private': Permission denied\\n" >&2
+              CHURN_EXIT=1
+            fi
             # Real `du` semantics: --max-depth=N shows directories at most N levels
             # below the scanned root, so the depth-2 scan from / emits /var/lib but
             # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
@@ -238,6 +252,7 @@ def _run_inventory_action(
                 printf '%s\\n' "unexpected du: $*" >&2
                 exit 9 ;;
             esac
+            exit "$CHURN_EXIT"
             """
         ),
         encoding="utf-8",
@@ -309,6 +324,8 @@ def _run_inventory_action(
     env["ROOT_DF_FAILURE"] = "1" if root_df_failure else "0"
     env["VOLUME_DF_FAILURE"] = "1" if volume_df_failure else "0"
     env["DU_LAYOUT"] = du_layout
+    env["DU_CHURN"] = "1" if du_churn else "0"
+    env["DU_PERMISSION_DENIED"] = "1" if du_permission_denied else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -651,7 +668,13 @@ def test_v3_disk_inventory_shares_one_scan_budget_within_the_job_timeout(tmp_pat
     assert "scan_budget_exhausted" in source
     assert "directory_scan_budget_exhausted" in source
     # The budget is created once and threaded through every scan.
-    assert source.count("scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS)") == 1
+    assert (
+        source.count(
+            "scan_budget = ScanBudget("
+            "DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)"
+        )
+        == 1
+    )
     assert "budget=scan_budget" in source
     # The bracket closes around the drill-down, not only the filesystem scan.
     assert "bytes_after_drill_down" in source
@@ -694,18 +717,29 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     # leave the mandatory scan running against a shortened timeout, which is just a
     # different way of failing it.
     assert "RECONCILE_RESERVE_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
-    assert "reserve_seconds=RECONCILE_RESERVE_SECONDS" in source
-    # The reserve must be subtracted from what a call may use, or it is not reserved:
-    # call_timeout() returning the whole remaining budget lets one scan spend it.
-    assert "def call_timeout(self, reserve_seconds: float = 0.0) -> int:" in source
-    assert "left = self.remaining() - reserve_seconds" in source
-    assert "budget.call_timeout(reserve_seconds)" in source
+    # The budget OWNS the reserve. Passing it per call site meant forgetting it at four
+    # of them, which unreserved the reserve without changing a line that mentioned it,
+    # so there must be no per-call reserve argument left to forget.
+    assert "reserve_seconds" not in source.split("def du_rows(")[1].split("def du_total")[0]
+    assert "def reserve(self) -> float:" in source
+    assert "return self._deadline - time.monotonic() - self.reserve()" in source
+    # Exactly one place may open the reserve, and it is the closing scan.
+    assert source.count("def release_reserve(self)") == 1
+    assert source.count("scan_budget.release_reserve()") == 1
+    release = source.index("scan_budget.release_reserve()")
+    closing = source.index("pgdata_final = du_total(pgdata_host, scan_budget)")
+    assert release < closing
     # And a step that cannot finish within what is left must not be started at all.
     assert "DRILL_DOWN_MIN_CALL_SECONDS = 30" in source
-    assert (
-        "if budget.remaining() - reserve_seconds < DRILL_DOWN_MIN_CALL_SECONDS:"
-        in source
-    )
+    assert "if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:" in source
+    # An exhaustion before any step completed must still be recorded.
+    assert "scan_budget_exhausted_before_first_step" in source
+    assert "stopped_before_first_step" in source
+    # Ordinary PostgreSQL file churn must not fail the inventory.
+    assert "DU_VANISHED_MARKERS" in source
+    assert "DU_ATTEMPTS = 3" in source
+    assert "vanished_only" in source
+    assert "tolerated_file_churn" in source
     # Its own section name, so section_failed cannot clobber the scans above it.
     assert source.count('"postgres_data_directory_reconciliation"') >= 2
     assert "postgres_data_directory_not_reconciled" in source
@@ -727,3 +761,45 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
     assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 300
+
+
+def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
+    """A recycled WAL segment must not fail the whole inventory.
+
+    `du` exits nonzero when any file it enumerated is gone before it is examined, and on
+    a live 1.3 TB cluster that is ordinary behaviour, not a fault: PostgreSQL recycles
+    WAL segments and removes temporary files continuously, and these scans run for
+    minutes. Failing closed on it would make the inventory fail from normal database
+    activity — the most likely way this action would fail in production. A vanished file
+    is also, by definition, no longer using space, so the remaining totals are correct.
+    """
+    result = _run_inventory_action(tmp_path, du_churn=True)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "success"
+    inventory = receipt["inventory"]
+    # The scan's figures are still produced and still reconcile.
+    assert inventory["summary"]["non_database_directory_bytes"] == 92000
+    assert inventory["postgres_data_directory_reconciliation"]["reconciled"] is True
+    # And the churn is disclosed rather than hidden, so a reviewer can see it happened.
+    churn = inventory["non_database_drill_down"]["tolerated_file_churn"]
+    assert churn, churn
+    assert all(entry["vanished_paths"] >= 1 for entry in churn)
+    assert any("No such file or directory" in entry["first_diagnostic"] for entry in churn)
+
+
+def test_v3_disk_inventory_still_fails_closed_on_an_unreadable_directory(tmp_path):
+    """Tolerating churn must not tolerate a scan that did not measure what it claims.
+
+    A permission error means part of the tree was never counted, so the totals are
+    wrong rather than merely smaller. Only a vanished-file diagnostic is tolerable.
+    """
+    result = _run_inventory_action(tmp_path, du_permission_denied=True)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "stopped"
+    reason = receipt["inventory"]["volume_directory_usage"]["volume_directory_usage_failed"]
+    assert "Permission denied" in reason

@@ -309,41 +309,97 @@ class ScanBudget:
     Bounding each `du` call individually is not enough. The operator workflow kills the
     job at 40 minutes, and four fixed scans plus eight drill-down steps at the 300 s
     per-call limit is 60 minutes, so a valid but slow production inventory could be
-    killed before emitting any receipt. Each call is given whichever is smaller, the
-    per-call limit or what is left, and the walk stops and records why when the budget
-    runs out -- a partial receipt that says where it stopped beats no receipt at all.
+    killed before emitting any receipt. A partial receipt that says where it stopped
+    beats no receipt at all.
+
+    The budget **owns its reserve** rather than taking it as an argument at each call
+    site. Passing it per call meant forgetting it at four of them, which silently
+    unreserved the reserve: the closing reconciliation scan is mandatory, so any earlier
+    scan allowed to spend its time takes the whole section down. Here every call is
+    held back from the reserve by default and only `release_reserve()` opens it, for the
+    one scan the reserve exists for.
     """
 
-    def __init__(self, seconds: int) -> None:
+    def __init__(self, seconds: int, reserve_seconds: int) -> None:
         self.total_seconds = seconds
+        self.reserve_seconds = reserve_seconds
+        self._reserved = True
         self._deadline = time.monotonic() + seconds
 
-    def remaining(self) -> float:
-        return self._deadline - time.monotonic()
+    def release_reserve(self) -> None:
+        """Open the reserve, for the closing reconciliation scan only."""
+        self._reserved = False
 
-    def call_timeout(self, reserve_seconds: float = 0.0) -> int:
-        # The reserve is subtracted from what this call may use. Returning the whole
-        # remaining budget would let one scan spend the reserve it was meant to protect.
-        left = self.remaining() - reserve_seconds
+    def reserve(self) -> float:
+        return self.reserve_seconds if self._reserved else 0.0
+
+    def remaining(self) -> float:
+        """Time left that the caller may actually use, reserve already deducted."""
+        return self._deadline - time.monotonic() - self.reserve()
+
+    def call_timeout(self) -> int:
+        left = self.remaining()
         if left <= 0:
             raise RuntimeError("directory_scan_budget_exhausted")
         return max(1, min(DIRECTORY_USAGE_TIMEOUT_SECONDS, math.ceil(left)))
 
 
+# `du` exits nonzero when any file it enumerated has gone before it could be examined.
+# On a live 1.3 TB cluster that is ordinary behaviour, not a fault: PostgreSQL recycles
+# WAL segments and removes temporary files and relations continuously, and these scans
+# run for minutes. Treating it as a hard failure would make the inventory fail from
+# normal database activity. A vanished file is also, by definition, no longer using
+# space, so the totals for everything else remain correct and usable.
+DU_VANISHED_MARKERS = ("No such file or directory",)
+DU_ATTEMPTS = 3
+tolerated_churn: list[dict[str, Any]] = []
+
+
 def du_rows(
-    argv: list[str], budget: ScanBudget, error: str, *, reserve_seconds: float = 0.0
+    argv: list[str], budget: ScanBudget, error: str, *, expect_path: str | None = None
 ) -> list[dict[str, Any]]:
-    result = run(argv, timeout=budget.call_timeout(reserve_seconds))
-    if result.returncode != 0:
+    reason = f"exit_unknown"
+    for attempt in range(1, DU_ATTEMPTS + 1):
+        result = run(argv, timeout=budget.call_timeout())
+        if result.returncode == 0:
+            return parse_du(result.stdout)
+        stderr_lines = [line for line in result.stderr.splitlines() if line.strip()]
         detail = (result.stderr or result.stdout).strip().splitlines()
         reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
-        raise RuntimeError(f"{error}:{reason}")
-    return parse_du(result.stdout)
+        # Tolerate only when EVERY diagnostic is a vanished file. A permission error or
+        # an unreadable device produces a different message and must still fail closed,
+        # because those mean the scan did not measure what it claims to have measured.
+        vanished_only = bool(stderr_lines) and all(
+            any(marker in line for marker in DU_VANISHED_MARKERS) for line in stderr_lines
+        )
+        if vanished_only:
+            rows = parse_du(result.stdout)
+            target = expect_path.rstrip("/") if expect_path else None
+            # The root total must still be present, or the scan is not usable whatever
+            # the cause.
+            if target is None or any(
+                (row["path"].rstrip("/") or "/") == (target or "/") for row in rows
+            ):
+                tolerated_churn.append(
+                    {
+                        "scan": error,
+                        "attempt": attempt,
+                        "vanished_paths": len(stderr_lines),
+                        "first_diagnostic": stderr_lines[0][:240],
+                    }
+                )
+                return rows
+        if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
+            break
+    raise RuntimeError(f"{error}:{reason}")
 
 
 def du_total(path: str, budget: ScanBudget) -> int:
     rows = du_rows(
-        ["du", "-x", "-B1", "--max-depth=0", path], budget, "directory_total_failed"
+        ["du", "-x", "-B1", "--max-depth=0", path],
+        budget,
+        "directory_total_failed",
+        expect_path=path,
     )
     total = next(
         (row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")), None
@@ -361,7 +417,6 @@ def drill_down(
     floor_bytes: int,
     max_steps: int,
     budget: ScanBudget,
-    reserve_seconds: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Walk from `root` towards the directory that actually owns the non-database bytes.
 
@@ -383,17 +438,22 @@ def drill_down(
     reason, and the chain is the evidence: where it looked, what it saw, what it chose.
     """
     chain: list[dict[str, Any]] = []
+    stopped_before_first_step = False
     current = root.rstrip("/") or "/"
     for _ in range(max_steps):
-        if budget.remaining() - reserve_seconds < DRILL_DOWN_MIN_CALL_SECONDS:
+        if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
             if chain:
                 chain[-1]["stop_reason"] = "scan_budget_exhausted"
+            else:
+                # Nothing was inspected at all. Without a section-level reason the
+                # receipt would report success with an unexplained empty chain, which
+                # reads as "nothing to find" rather than "never looked".
+                stopped_before_first_step = True
             break
         rows = du_rows(
             ["du", "-x", "-B1", "--max-depth=1", current],
             budget,
             "drill_down_failed",
-            reserve_seconds=reserve_seconds,
         )
         here = current
         here_total = next(
@@ -453,6 +513,16 @@ def drill_down(
     else:
         if chain:
             chain[-1]["stop_reason"] = "step_limit_reached"
+    if stopped_before_first_step:
+        chain.append(
+            {
+                "directory": current,
+                "own_file_bytes": None,
+                "children": [],
+                "followed": None,
+                "stop_reason": "scan_budget_exhausted_before_first_step",
+            }
+        )
     return chain
 
 def section_failed(
@@ -525,7 +595,7 @@ receipt["postgres"] = {
     "database_name": db_name,
 }
 
-scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS)
+scan_budget = ScanBudget(DIRECTORY_SCAN_BUDGET_SECONDS, RECONCILE_RESERVE_SECONDS)
 mount_source: str | None = None
 mount_destination: str | None = None
 usage_full: list[dict[str, Any]] | None = None
@@ -599,6 +669,7 @@ try:
         ["du", "-x", "-B1", "--max-depth=2", usage_root],
         scan_budget,
         "directory_usage_failed",
+        expect_path=usage_root,
     )
     pgdata_after = du_total(pgdata_host, scan_budget)
     drift = abs(pgdata_after - pgdata_before)
@@ -627,6 +698,7 @@ try:
         ["du", "-x", "-B1", "--max-depth=1", pgdata_host],
         scan_budget,
         "postgres_data_directory_usage_failed",
+        expect_path=pgdata_host,
     )
     inventory["postgres_data_directory_usage"] = {
         "path": pgdata_host,
@@ -661,7 +733,6 @@ try:
         floor_bytes=drill_floor,
         max_steps=DRILL_DOWN_MAX_STEPS,
         budget=scan_budget,
-        reserve_seconds=RECONCILE_RESERVE_SECONDS,
     )
     # Record the evidence before anything that can fail. A later failure must not erase
     # a scan that succeeded.
@@ -670,7 +741,8 @@ try:
         "floor_ppm_of_used": DRILL_DOWN_FLOOR_PPM,
         "max_steps": DRILL_DOWN_MAX_STEPS,
         "scan_budget_seconds": scan_budget.total_seconds,
-        "reconcile_reserve_seconds": RECONCILE_RESERVE_SECONDS,
+        "reconcile_reserve_seconds": scan_budget.reserve_seconds,
+        "tolerated_file_churn": list(tolerated_churn),
         "chain": chain,
     }
 except RuntimeError as exc:
@@ -690,6 +762,7 @@ try:
     bracket = inventory.get("postgres_data_directory_bracket")
     if not isinstance(bracket, dict):
         raise RuntimeError("postgres_data_directory_bracket_unavailable")
+    scan_budget.release_reserve()
     pgdata_final = du_total(pgdata_host, scan_budget)
     span_drift = abs(pgdata_final - pgdata_before)
     bracket["bytes_after_drill_down"] = pgdata_final
