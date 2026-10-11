@@ -87,6 +87,10 @@ DRILL_DOWN_MAX_STEPS = 8
 # The relation cap does not bound the index inventory: PostgreSQL documents no limit on
 # indexes per table, so without this one relation could make the receipt, and the memory
 # used to parse it, arbitrarily large.
+# The largest relations by total size. One extra row is fetched so truncation is
+# reported rather than silent -- every other bounded list in this action does
+# that, and this was the one that did not.
+RELATION_INVENTORY_LIMIT = 80
 INDEX_INVENTORY_LIMIT = 200
 # Characters kept from each pg_get_indexdef(). The row cap bounds rows, not bytes, and
 # an expression or partial index can hold an arbitrarily large literal or predicate.
@@ -120,12 +124,15 @@ REPLICATION_SLOT_INVENTORY_LIMIT = 50
 # slow production inventory could be killed before it emitted any receipt at all. With a
 # shared budget the walk stops early and records why, which is a usable receipt.
 #
-# A depth-0 scan of pg_wal, which is bounded by max_wal_size plus wal_keep_size (both
-# reported in this receipt) rather than by how much data exists. Unlike base/ it cannot
-# be arbitrarily large, so it gets a right-sized allowance instead of a full one --
-# which keeps the worst-case wall clock comfortably inside the workflow's 40-minute
-# kill rather than three minutes short of it.
-WAL_DIRECTORY_SCAN_SECONDS = 60
+# The depth-0 scan of pg_wal gets the NORMAL per-call allowance.
+#
+# It had 60 s on the reasoning that max_wal_size bounds the directory. That premise is
+# false: PostgreSQL documents max_wal_size as a SOFT limit, and max_slot_wal_keep_size
+# defaults to -1, which lets a replication slot retain WAL without limit. A lagging
+# slot or a failing archive_command is exactly the condition that makes pg_wal huge --
+# and exactly when this inventory is wanted -- so a short timeout would stop the
+# mandatory reconciliation in the one case it needs to report on.
+WAL_DIRECTORY_SCAN_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS
 # Held back from the budget for the closing reconciliation, so the walk can never consume
 # the budget the reconciliation needs and take the whole section down with it. One
 # allowance per closing scan, and the closing phase makes THREE: the PGDATA re-read, the
@@ -136,6 +143,12 @@ WAL_DIRECTORY_SCAN_SECONDS = 60
 RECONCILE_RESERVE_SECONDS = (
     2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS
 )
+# Note on the arithmetic: three full allowances is 900 s, which exceeds what the
+# action deadline leaves for scans (1,800 - 240 = 1,560 against a 1,200 s walk). That
+# is handled rather than hoped about -- ScanBudget.remaining() takes the minimum of
+# this budget and the action deadline, so the WALK shortens to fit instead of the
+# closing phase being cut off. Adding the overall deadline first is what made raising
+# this reserve safe.
 # The budget is the WALK's allowance PLUS the reserve, not a total the reserve is carved
 # out of. ScanBudget.remaining() subtracts the reserve from this number for every
 # pre-closing caller, so defining it as a fixed total meant that raising the reserve
@@ -1568,8 +1581,15 @@ try:
         "SELECT row_to_json(q)::text FROM ("
         "SELECT slot_name, active, wal_status, safe_wal_size, "
         "restart_lsn::text AS restart_lsn FROM pg_replication_slots "
+        # QUALIFIED, because an unqualified name in ORDER BY resolves to the OUTPUT
+        # column first -- and `restart_lsn::text AS restart_lsn` makes that output a
+        # text column. The sort was therefore lexicographic over hex LSNs, where
+        # '10/...' precedes the OLDER 'F/...', so the bounded sample could fill with
+        # newer slots and omit the one retaining the most WAL: the exact row the
+        # ordering exists to keep. A qualified reference is unambiguously the input
+        # column, so it sorts as pg_lsn.
         "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
-        "restart_lsn ASC NULLS LAST, slot_name "
+        "pg_replication_slots.restart_lsn ASC NULLS LAST, slot_name "
         f"LIMIT {REPLICATION_SLOT_INVENTORY_LIMIT}) q",
         db_user,
         db_name,
@@ -1714,7 +1734,12 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "temp_and_logs", exc)
 
 try:
-    inventory["relations"] = psql_json(
+    # The one inventory left without a truncation flag. Unlike the index and
+    # dead-tuple lists an operator could not tell an exhaustive result from a
+    # partial one, so a database whose space is spread across many medium
+    # relations looked as though it had no further relation-level consumers --
+    # a silent omission in the section that answers "what is big".
+    relation_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT n.nspname AS schema, c.relname AS name, c.relkind::text AS relkind, "
         "GREATEST(c.reltuples,0)::bigint AS estimated_rows, "
@@ -1731,9 +1756,15 @@ try:
         "WHERE c.relkind IN ('r','p','m') "
         "AND n.nspname NOT IN ('pg_catalog','information_schema') "
         "AND n.nspname NOT LIKE 'pg_toast%' "
-        "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname LIMIT 80) q",
+        "ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname "
+        f"LIMIT {RELATION_INVENTORY_LIMIT + 1}) q",
         db_user,
         db_name,
+    )
+    inventory["relations"] = relation_rows[:RELATION_INVENTORY_LIMIT]
+    inventory["relation_inventory_limit"] = RELATION_INVENTORY_LIMIT
+    inventory["relation_inventory_truncated"] = (
+        len(relation_rows) > RELATION_INVENTORY_LIMIT
     )
 except RuntimeError as exc:
     section_failed(failures, inventory, "relations", exc)

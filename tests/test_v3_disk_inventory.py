@@ -1040,10 +1040,14 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     assert source.count("def begin_closing_scan(") == 1
     assert source.count("scan_budget.begin_closing_scan(") == 3
     assert "self._deadline = time.monotonic() + seconds" in source
-    # pg_wal is bounded by max_wal_size plus wal_keep_size, so it takes a right-sized
-    # allowance rather than a full one -- which is what keeps the worst-case wall
-    # clock comfortably inside the workflow's 40-minute kill.
-    assert "WAL_DIRECTORY_SCAN_SECONDS = 60" in source
+    # pg_wal gets the NORMAL allowance. It had a short one on the reasoning that
+    # max_wal_size bounds the directory, and that premise is false: max_wal_size is a
+    # soft limit and max_slot_wal_keep_size defaults to -1, so a lagging slot can
+    # retain WAL without limit -- which is exactly the condition that makes pg_wal
+    # huge and exactly when this inventory is wanted.
+    assert (
+        "WAL_DIRECTORY_SCAN_SECONDS = DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+    )
     assert (
         "2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS" in source
     )
@@ -1092,7 +1096,7 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
         "reconciled": True,
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
-    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 660
+    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 900
 
 
 def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
@@ -2540,6 +2544,12 @@ def test_v3_disk_inventory_bounds_replication_slots_by_wal_actually_retained(tmp
     # ('unreserved','lost') and reported it as the WAL-pinning count.
     assert "wal_status IN ('reserved','extended')" in source
     assert "AS wal_pinning_slots" not in source
+    # QUALIFIED in ORDER BY. An unqualified name resolves to the OUTPUT column first,
+    # and `restart_lsn::text AS restart_lsn` makes that output text -- so the sort was
+    # lexicographic over hex LSNs, where '10/...' precedes the OLDER 'F/...'. The
+    # bounded sample could therefore fill with newer slots and omit the one retaining
+    # the most WAL: exactly the row this ordering exists to keep.
+    assert "pg_replication_slots.restart_lsn ASC NULLS LAST" in source
     # extended first, then reserved, then furthest behind by restart_lsn.
     assert (
         "ORDER BY (wal_status = 'extended') DESC, (wal_status = 'reserved') DESC, "
@@ -2854,3 +2864,22 @@ def test_v3_disk_inventory_documents_the_unlisted_base_remainder():
     assert "scans `base/<database OID>`, not the whole directory" in doc
     assert "Any remaining\n`base/` bytes are reported separately" in doc
     assert "must not be dismissed as already counted" in doc
+
+
+def test_v3_disk_inventory_reports_relation_inventory_truncation(tmp_path):
+    """The relations list was the only bounded list without a truncation flag.
+
+    Unlike the index and dead-tuple inventories an operator could not tell an
+    exhaustive result from a partial one, so a database whose space is spread across
+    many medium-sized relations looked as though it had no further relation-level
+    consumers -- a silent omission in the section that answers "what is big".
+    """
+    source = _read(ACTION)
+    assert "RELATION_INVENTORY_LIMIT = 80" in source
+    assert "LIMIT {RELATION_INVENTORY_LIMIT + 1}" in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["relation_inventory_limit"] == 80
+    assert inventory["relation_inventory_truncated"] is False
