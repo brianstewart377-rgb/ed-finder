@@ -1029,7 +1029,10 @@ weighted-potential indexes exactly as the final `011` text defines them
 `sql/v3/migrations/011_v3_system_archetype.sql:7-56`,
 `sql/v3/migrations/011_v3_system_archetype.sql:132-139`). The seed must
 **saturate the candidate window**: for the archetype and B floor under test, at
-least 10,001 index-eligible rows (assert the count), so the offset-9950 page is
+least 10,001 index-eligible rows **at every floor the receipt measures** —
+B (≥ 60), A (≥ 76) and S (≥ 88), asserted independently per floor, which in
+practice means ≥ 10,001 rows scoring ≥ 88 for the archetype under test — so the
+offset-9950 page is
 populated and the 10,001st-row sentinel is actually observed; a corpus of
 mostly ineligible rows would pass every latency budget without exercising the
 bounded path that motivated slice 1c. After loading and index creation and
@@ -1131,9 +1134,9 @@ for:
   mode-independent exclusive 10,000 offset ceiling and request-size clamp
   applied before dispatch (including `offset=2000000000` on a fresh load),
   anchored Any exact totals above 10,000 displayed exactly but not navigable,
-  `total_is_capped` → truncation copy only, URL correction, the raw-window
-  10,001 sentinel, post-filter within-window total and independent truncation
-  rules, offset/reset rules, last-valid-page calculation, Any-mode removal of
+  `total_is_capped` → truncation copy only, URL correction, the 10,001st-row
+  sentinel, `total = min(qualifying, 10000)` and the independent truncation
+  rule, offset/reset rules, last-valid-page calculation, Any-mode removal of
   `min-tier`, and preservation of independent `selected`/`system` plus unrelated
   parameters;
 - request selection: Any → local search with no tier field and `size`/`from`
@@ -1188,7 +1191,12 @@ Use Testing Library Svelte, which is installed in the current stack
   choosing a suggestion, then return to Any and prove the original committed
   coordinates are restored; only a suggestion commit or explicit reset may
   replace/clear the committed anchor and reset offset;
-- selected row and Inspect href remain unchanged;
+- the selected row is unchanged, and the Inspect affordance is the
+  **state-carrying** form: href
+  `/inspect?system=<id64>&from=<URL-encoded originating Explore query>` and an
+  outbound navigation that passes `state: page.state` so the anchor survives the
+  round trip (the pre-F4 bare `?system=` href would lose the ranking state and
+  the anchor);
 - rerank omission retains the selected system point and Babylon marker;
 - hydration resolves a selected id64 omitted from the current page through
   `GET /api/system/{id64}`, emits one point only after validated coordinates,
@@ -1350,9 +1358,12 @@ mobile states for Any, a selected archetype, long names, limited evidence,
 loading, empty and error; verify focus, zoom and contrast manually in addition to
 axe.
 
-Slice 1c adds selected-ranking `is_truncated`, so its API-contract PR runs
-`pnpm generate:api` (`apps/web/package.json:28`) and commits both generated-client
-changes. F4a/F4b then consume that landed contract. Every PR still requires the
+Selected-ranking `is_truncated`, the `Literal[60, 76, 88]` floor and the bounded
+`from`/`offset` are **F2d PR1's** response/request contract, so **PR1** runs
+`pnpm generate:api` (`apps/web/package.json:28`) and commits all three
+generated clients; deferring that to slice 1c would make PR1 fail the OpenAPI
+drift gate at its own head, and regenerating again in slice 1c should produce no
+diff. Slice 1c, F4a and F4b consume that landed contract. Every PR still requires the
 **OpenAPI types drift check**, which regenerates both checked-in clients from a
 running disposable API and fails on a diff (`.github/workflows/ci.yml:437-528`).
 Any later slice-2 model change follows the same API-contract-PR rule.
@@ -1658,9 +1669,10 @@ exclude all of them from comparison. The facade constrains `page_size` to 1–50
 10,000 offset/window limit to every mode before dispatch, clamping request size
 at its boundary and correcting the URL with SvelteKit `goto` — because page
 `LIMIT`/`OFFSET` is otherwise independent of the capped count, and because the
-anchor is not URL state. The envelope preserves slice 1c's post-filter
-within-window total and
-independent API-owned `is_truncated`; for Any it exposes
+anchor is not URL state. The envelope preserves the selected path's
+`total = min(qualifying, 10000)` (there is no post-filter total — a picked
+request carrying a hard filter is a 422) and the independent API-owned
+`is_truncated`; for Any it exposes
 `navigable_total = min(total, 10000)` alongside the exact `total` and the
 existing `total_is_capped` state from the local-search response, so an exact
 anchored total is shown truthfully while no mode promises unreachable numbered
@@ -1706,6 +1718,11 @@ Exact files:
 - modify `apps/web/src/lib/features/explore/ComparePanel.test.ts`
 - modify `apps/api/src/review_main.py` (review-only `rankings_api_failure` and
   `rankings_empty_results` modes for `GET /api/archetypes/rankings`)
+- modify `apps/api/src/review_support_routes.py` (**required**: the scenario
+  control route allows only `normal`, `api_failure` and `empty_results` today
+  (`apps/api/src/review_support_routes.py:16-23`), so without the two new modes
+  in that allowlist a `POST /api/review/scenario/rankings_api_failure` returns
+  400 and neither browser flow ever reaches Explore) and its contract tests
 - modify `scripts/dev/review_lab/scenarios.py` (the two new scenario
   definitions and browser flow keys)
 - modify `scripts/dev/review_lab/browser_runner.py` (`VITE_FINDER_F4_ENABLED: '1'`
@@ -1987,7 +2004,9 @@ considered for a governed release build.
   history traversal.
 - **False scale proof:** a flattened scratch table can hide view expansion, join
   order and real-index costs. Mitigation: slice 1c executes builder-produced page
-  and count SQL against the production-shaped three-relation/view/index layout;
+  and count SQL against the final F2d shape — exactly two underlying relations
+  (`system_search` and the wide `system_archetype`), summary expanded as a view,
+  real tier-partial indexes, never the superseded summary table;
   a flattened EXPLAIN never unblocks F4b.
 - **Fixture drift:** current fixture archetype outputs are generated but not
   pinned, and three rows cannot page at the default 50. Mitigation: add the
@@ -2111,7 +2130,7 @@ product/implementation choices are:
     counts filtered survivors there, and uses the 10,001st raw candidate only
     for `is_truncated`. F4b cannot be enabled even in
     Product E2E until the disposable PostgreSQL 18 fixture and production-shaped
-    1M-system three-relation/view/index timing proof have landed.
+    1M-system two-relation/view-expanded timing proof have landed.
 15. **Seed enough systems to exercise pagination** → the Product fixture
     deliberately publishes exactly three systems
     (`tests/test_seed_cypress_v3_generation.py:167-191`), while current Explore
@@ -2364,7 +2383,8 @@ product/implementation choices are:
    recipe requires `ANALYZE` on all three relations after load/index creation
    and before the warm and cold runs, per the derived-data decision.
 5. **P2-D — Saturate the candidate window in the scale fixture** → the seed must
-   provide and assert at least 10,001 index-eligible rows for the archetype and B
+   provide and assert at least 10,001 index-eligible rows for the archetype at
+   every measured floor (B, A and S)
    floor under test, a populated offset-9950 page, and an observed 10,001st-row
    sentinel before the receipt is accepted.
 
@@ -2738,3 +2758,27 @@ that describe post-window filtering are superseded by this one.
    reconstruction applies the repository's canonical origin guard: an all-zero
    triple is unknown unless the id is Sol, normalized in the facade so every
    consumer inherits it, with tests for a non-Sol `(0,0,0)` and for Sol.
+
+#### Round 29 — 2026-10-11 (PR #801)
+
+1. **P2 — Remove the remaining post-filter envelope contract** → the F4a
+   deliverable and its test list now carry `total = min(qualifying, 10000)` and
+   the independent `is_truncated`, with no post-filter total anywhere normative.
+2. **P2 — Update the component test for the state-carrying Inspect link** → the
+   checklist requires the `from`-carrying href and the outbound `state: page.state`
+   transfer instead of the unchanged pre-F4 href.
+3. **P2 — Register the new Review Lab scenario modes** → `review_support_routes.py`
+   joins the F4b file list: its control allowlist is `normal`, `api_failure`,
+   `empty_results` today, so without the two new modes the control route would 400
+   and neither flow would reach Explore. Its contract tests are included.
+4. **P2 — Saturate every tier floor used by the scale receipt** → the fixture
+   must provide and assert ≥ 10,001 eligible rows at **each** measured floor
+   (B, A and S), which means ≥ 10,001 rows scoring ≥ 88 for the archetype under
+   test; otherwise the A/S partials could be empty and their timings meaningless.
+5. **P2 — Correct the remaining three-relation scale-proof instruction** → the
+   risk mitigation and the F4b blocking note name the two-relation, view-expanded
+   F2d shape.
+6. **P2 — Assign generated-client changes to F2d PR1** → the response/request
+   contract and all three regenerated clients belong to F2d PR1 (deferring them
+   would fail PR1's own OpenAPI drift gate); slice 1c, F4a and F4b consume the
+   landed contract.
