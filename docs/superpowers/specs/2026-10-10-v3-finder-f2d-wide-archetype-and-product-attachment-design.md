@@ -213,6 +213,51 @@ ordering by it equals ordering by the double product except for ties within
 of the new ranking identity, not a hidden difference. Measured heap: 221.7 B/row
 (≈ 44 GB), 35 B more than without the eight keys.
 
+**The rounding rule is integer arithmetic, not `round()` (review round 16).**
+`round()` is not a cross-language contract: Python's built-in is ties-to-even,
+so `round(2.5) == 2`, while PostgreSQL `numeric` rounds ties away from zero, so
+`round(2.5::numeric) == 3`. This integer is both persisted and used as **the
+canonical ordering key**, so a half-integer disagreement between the builder and
+the exact validator — or between two implementations claiming the same manifest —
+would silently order tied systems differently while every version string matched.
+The definition is therefore closed in integers, with no floating-point value
+anywhere in it:
+
+```
+completeness_ppm   = the generation's system_search completeness, in exact ppm
+numerator          = <key>_score × <key>_confidence_ppm × completeness_ppm
+<key>_weighted_e4  = (numerator + 50_000_000) // 100_000_000
+```
+
+The divisor follows from the units and is not a tuning constant:
+`score × (conf_ppm / 1e6) × (comp_ppm / 1e6) × 1e4 = score × conf_ppm ×
+comp_ppm / 1e8`. The `(n + divisor/2) // divisor` form is round-half-up on
+non-negative integers, which every language and PostgreSQL compute identically
+because no rounding mode is involved. Both ppm inputs are already stored as
+exact integers, so nothing becomes a float on the way in.
+
+Range, checked rather than assumed: `<key>_score` is `0..100` and both ppm
+values are `0..1_000_000`, so the numerator is at most 1e14 — exact in
+`bigint` (max 9.2e18) — and the key is `0..1_000_000`, comfortably inside
+`integer`. Verified against the floating-point product over 500,000 random
+`(score, confidence_ppm, completeness_ppm)` triples: **zero disagreements** at
+any non-tie input, so this rule changes nothing except making the ties
+decidable.
+
+A worked tie, to show the rule bites: `score = 1`, `confidence_ppm = 50`,
+`completeness_ppm = 1_000_000` gives a numerator of exactly `50_000_000`, a
+true half. The integer rule yields **1**. Python's `round(0.5)` yields **0**
+(ties-to-even) and PostgreSQL `round(0.5::numeric)` yields **1** (half away
+from zero) — the two would have disagreed on a persisted ordering key while
+every version string matched.
+
+The builder, the exact validator and the ranking-identity tests all carry
+half-boundary vectors — a numerator landing exactly on `50_000_000`, two keys
+landing on the same `_weighted_e4` so `system_id64` must break the tie, and the
+`0` and maximum ends — and assert the same integer from all three.
+`RANKING_VERSION` covers this rule, so changing it is a ranking change and not
+an optimisation.
+
 ### 3.2 Summary projection
 
 **Decision:** do not keep a physical
@@ -493,7 +538,30 @@ separately, one whose versions all match but whose manifest `model_file_sha256`
 differs from the deployed file's hash — assert HTTP 409 and the exact detail
 string for both, and assert `fit_all` was not called. Matching
 versions must return all eight explanations and values identical to the stored
-wide row. The current product manifest and model version already form the
+wide row.
+
+**The identity check and the data read share one snapshot (review round 16).**
+Checking the identity first and reading the data afterwards leaves a window: if
+`current_derived_generation` changes between the two statements, the request
+validates the card's expected identity against the **old** product and then
+computes the explanation from the **newly published** generation. Making the
+data query internally consistent does not close that window, because the window
+is between the check and the query, not inside the query. The result would be an
+explanation stamped with an identity it was not computed under — the exact
+confusion the 409 exists to prevent, arriving with a 200.
+
+So the identity lookup, the expected-value comparison and the
+generation-pinned data read all run inside **one read-only `REPEATABLE READ`
+transaction**, as the rankings path already does. A publication committing
+mid-request is then invisible to that request: it either serves entirely from
+the pre-publication snapshot or, on the next request, entirely from the new one,
+and in the case that matters it returns 409 rather than a mixed answer.
+
+A test publishes a new generation **between** the identity statement and the
+data statement — by committing from a second connection while the request is
+suspended between them — and asserts the response is consistent with exactly one
+snapshot: either the pre-publication explanation, or a 409, never an explanation
+computed from the new generation under the old identity. The current product manifest and model version already form the
 reproducibility identity this rule extends to API delivery.
 (`scripts/v3_system_archetype.py:128-168,181-212`)
 
@@ -1008,11 +1076,40 @@ can distinguish unavailable product state from zero matches.
 
 ### 7.4 Relationship to generation publication and existing data
 
-Do not change `publish_derived_generation` to publish products. It still
-requires every registered product to be READY/VERIFIED before flipping the
-generation pointer, but `published_at` is independent and may remain NULL.
-This preserves the existing atomic generation completeness gate while allowing
-a later explicit product launch. (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:245-284`)
+`publish_derived_generation` still requires every registered product to be
+READY/VERIFIED before flipping the generation pointer. For **this** rollout,
+`published_at` is independent and remains NULL until the explicit product
+launch, because the pointer already points at `ratings_v4_prod_p4_parallel_v1`
+and no Finder products exist on it yet — flipping nothing, so there is nothing
+to make invisible. (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:245-284`)
+
+**That independence must not outlive this rollout (review round 16).** Once
+these products are registered and published, a *later* generation promotion is a
+different situation. The pointer flip retires the currently visible generation
+at commit; if the incoming generation's Finder products are still
+`published_at = NULL`, the post-`015` views hide their rows and the Finder
+answers 503 until a separate product-publication action succeeds. Between those
+two commits the Finder is **down**, having been up a moment earlier — and the
+authoritative derived-data contract's atomic publication guarantee
+(`docs/development/v3-search-spatial-derived-data-decision.md:345-348`) exists
+precisely to forbid that. It would also be an avoidable outage: the ordering is
+a choice, not a constraint.
+
+So `publish_derived_generation` **refuses the pointer flip** when the incoming
+generation has registered Finder products that are not all published, unless it
+publishes them in the same transaction. The rule, stated so it covers both
+cases without a special case for the first launch:
+
+> A generation pointer flip may commit only if, at commit, every registered
+> Finder product on the incoming generation is either published, or had no
+> published counterpart on the outgoing generation.
+
+The first launch passes the second clause (no counterpart existed, so nothing
+becomes invisible); every later promotion must satisfy the first. The guard
+lives in the function, next to the READY/VERIFIED check, so no caller can skip
+it. Tests cover a later promotion with unpublished products (refused), the same
+promotion publishing in one transaction (commits, with the Finder answering
+throughout), and this rollout's first launch (permitted).
 
 The pre-`010` READY `system_search` on `ratings_v4_prod_p4_opt1` receives a NULL
 `published_at` when `015` is applied and remains invisible because `opt1` is not
@@ -1102,8 +1199,8 @@ replace either; the rollout below is authorized only once both say so:
 | 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`, recompute every migration-set/transition identity, and re-attest reachable prefixes. | Reuse the V3 manifest/schema-identity mechanism; PR1 (rewritten `011`) and PR2 (`015`) each recut the authority and the hard-coded lineage tests, so this step is complete when PR2 merges. Current registered tail is `[014,010,011,013]`. (`sql/v3/migration-manifest.txt:52-55`, `docs/ROADMAP.md:121-127`) | negligible catalog/empty-DDL space |
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
-| 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape**, where the values are concrete: the `Literal[60, 76, 88]` floor as an enum and the combined `from`/`offset` bound as a maximum. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
-| 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
+| 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape** only where the schema carries a concrete value: the `Literal[60, 76, 88]` floor as an enum, and the individual `offset`/`from`/`limit`/`size` maxima. It **cannot** prove the combined bounds `offset + limit <= 10000` and `from + size <= 10000` (review round 16): JSON Schema has no way to relate two fields, so an image whose route or request model omitted that validator would publish an identical schema and pass a gate that claimed to check it. The combined bounds are therefore proved by a **behavioural probe against the deployed image**, which the 503 does not prevent because a 422 is raised by request validation before the generation is ever consulted: `offset=9999&limit=1` and `from=9999&size=1` are accepted (503, not 422), while `offset=9999&limit=2` and `from=9999&size=2` are rejected with 422. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
+| 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. **The recorded decision must be an explicit affirmative (review round 16):** a complete histogram with `Σ_all <= 4.0` is evidence that the build would *fit*, not that its scoring logic was *approved*. A review that concluded the coefficients must change would still leave a complete, in-bounds histogram behind, and the old precondition would have passed on it — launching the immutable, non-purgeable build with rejected logic. The committed evidence therefore carries an explicit `coefficient_decision: accepted` (anything else, including absent, refuses), and the probe's recorded `code_identity` and coefficient digest **must equal the manifest the Archetype builder registers**. Without that second half the first is still bypassable: an approved probe could authorize a build whose real tier fractions were never capacity-tested at all. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
@@ -1449,12 +1546,48 @@ Files:
   the gate uses the formula, because the formula is what the live `sigma_all` and
   `system_count` feed.
 
-  PR4 pins this formula in two tests that differ only in the `df` fixture: one
+  **Resuming an interrupted build charges only the remainder (review round 16).**
+  Both builds are chunked and resumable over 198.5 M rows, and the formula above
+  is written for a build that starts from nothing. On a restart it is wrong in a
+  way that fails the *safe* operation: the fresh `df` reading already reflects
+  every row written so far, so charging the full product again double-counts
+  that progress. Near the `Σ_all = 4.0` ceiling the arithmetic actually inverts —
+  a build interrupted at 90 % needs ~21 GB to finish but would be asked for
+  214.8 GB of free space it has already spent, and the gate would refuse the
+  restart, stranding insert-only rows that cannot be purged. The gate would then
+  be the direct cause of the stranding it exists to prevent.
+
+  So each projected term is scaled by what remains, from the build's own sealed
+  chunk receipts — the same records the build uses to resume, so there is no
+  second source of truth to drift:
+
+  ```
+  written_fraction   = sealed chunk rows for this product and generation / system_count
+  remaining_fraction = 1 − written_fraction            # clamped to [0, 1]
+  projected_archetype_bytes ×= remaining_fraction      # when resuming Archetype
+  projected_search_bytes    ×= remaining_fraction      # when resuming Search
+  ```
+
+  The reserve is still 15 % of what is actually projected, so it shrinks with the
+  remaining work rather than being charged in full on every restart. A resume is
+  only recognised as a resume when the sealed receipts belong to **the same
+  product, generation and manifest identity** as the build now starting; anything
+  else is a fresh build and pays the full projection. `written_fraction` and
+  `remaining_fraction` go in the receipt beside the other inputs, so a resume's
+  smaller requirement is visible as a deliberate scaling rather than looking like
+  a weaker gate.
+
+  PR4 pins this formula in four tests. Two differ only in the `df` fixture: one
   with `available_bytes == required_bytes` (passes, proving the boundary is
   inclusive) and one with `available_bytes == required_bytes − 1` (refuses). A
   third asserts the receipt reports `projected_new_bytes`, `reserve_bytes`,
-  `required_bytes`, `available_bytes`, `sigma_all` and `system_count`, so a
-  reviewer can recompute the decision without rerunning the gate.
+  `required_bytes`, `available_bytes`, `sigma_all`, `system_count`,
+  `written_fraction` and `remaining_fraction`, so a reviewer can recompute the
+  decision without rerunning the gate. The fourth is the resume case: sealed
+  receipts for 90 % of the rows at `Σ_all = 4.0`, with free space far below the
+  full requirement, must **pass** — and the same free space with receipts from a
+  different manifest identity must **refuse**, because that is a fresh build
+  wearing a resume's clothes.
 - `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
   in one transaction via `publish_derived_product`; receipts timestamps, audits
   and view counts — **and fails closed on the deployed application before it
@@ -1866,3 +1999,84 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    ties, plus that two adjacent pages concatenate into one correctly ordered
    sequence with nothing repeated or skipped. Bounding the sort node's input
    proves the query is cheap; only the row order proves it is right.
+
+### Review round 16 (2026-10-11)
+
+Seven findings, all accepted. Three of them (1, 4, 6) are the same class of
+error on my part: treating a check that *can* be written as a check that *proves*
+the thing it names.
+
+1. **P1 — Account for partial rows when re-running the capacity gate** → correct,
+   and the arithmetic inverts near the ceiling: a build interrupted at 90 % needs
+   ~21 GB to finish but the full-cost formula would demand 214.8 GB of space it
+   has already spent, so the gate would refuse the restart and strand the very
+   insert-only rows it exists to protect. Each projected term is now scaled by
+   `remaining_fraction`, computed from the build's **own sealed chunk receipts** —
+   the same records the resume uses, so there is no second source of truth — and
+   a resume counts as a resume only when those receipts carry the same product,
+   generation and manifest identity. Both fractions go in the receipt so a
+   smaller requirement reads as deliberate scaling, not a weakened gate. A fourth
+   PR4 test pins it: 90 % sealed at `Σ_all = 4.0` with low free space passes, and
+   the same free space with receipts from a different manifest identity refuses.
+2. **P1 — Keep future generation publication atomic with Finder visibility** →
+   correct, and the contract reference is the right one. This rollout is safe
+   because the pointer already names `parallel_v1` and no Finder products exist
+   on it, so nothing becomes invisible. A **later** promotion is a different
+   thing: the flip retires the visible generation at commit, and unpublished
+   incoming products mean the views hide their rows and the Finder answers 503
+   until a second action lands — down, having been up a moment earlier, and
+   avoidably, since the ordering was only a choice. `publish_derived_generation`
+   now refuses the flip unless, at commit, every registered Finder product on
+   the incoming generation is published **or** had no published counterpart on
+   the outgoing one. That single rule covers the first launch (second clause) and
+   every later promotion (first clause) with no special case, and it lives in the
+   function beside the READY/VERIFIED check so no caller can skip it.
+3. **P1 — Remove OpenAPI from the ranking-identity check** → correct, and this is
+   the finding I should have anticipated when fixing round 15.2: I corrected the
+   design and left the controlling ROADMAP saying the superseded thing, which is
+   worse than not having fixed it, because the higher authority would have won.
+   ROADMAP steps 4′ and 9′ now take the identity from the digest-bound
+   accepted-release attestation alone.
+4. **P2 — Verify the combined pagination bound outside OpenAPI** → correct, and
+   the same mistake as 3 in a different place: JSON Schema cannot relate two
+   fields, so `offset + limit <= 10000` is not expressible and an image that
+   dropped the validator would publish a byte-identical schema and pass. The
+   combined bounds are now proved by a behavioural probe against the deployed
+   image — which the 503 does not obstruct, because request validation raises 422
+   before the generation is consulted: `offset=9999&limit=1` accepted,
+   `offset=9999&limit=2` rejected. OpenAPI keeps the individual maxima and the
+   floor enum, which its schema does state concretely. Fixed in the design and
+   the ROADMAP together this time.
+5. **P1 — Pin the identity check and explanation read to one snapshot** → correct;
+   making the data query internally consistent closed the wrong window. The
+   window is *between* the check and the query, so a publication landing there
+   would return an explanation computed from the new generation under the old
+   identity — a 200 carrying exactly the confusion the 409 exists to prevent. The
+   identity lookup, the comparison and the generation-pinned read now share one
+   read-only `REPEATABLE READ` transaction, as the rankings path already does. A
+   test commits a publication from a second connection while the request is
+   suspended between the two statements and asserts the answer comes from exactly
+   one snapshot: the old explanation or a 409, never a mixture.
+6. **P1 — Gate builds on an approved, matching coefficient decision** → correct
+   on both halves, and the second half is what makes the first worth anything. A
+   complete in-bounds histogram proves the build would *fit*, not that its logic
+   was *approved*: a review that rejected the coefficients leaves exactly that
+   evidence behind. The committed evidence now carries an explicit
+   `coefficient_decision: accepted` (anything else, absent included, refuses),
+   **and** the probe's `code_identity` and coefficient digest must equal the
+   manifest the builder registers — without which an approved probe could still
+   authorize a build whose real tier fractions were never capacity-tested.
+7. **P2 — Specify one exact weighted-key rounding rule** → correct, and this one
+   would have been very hard to find later: Python's `round` is ties-to-even and
+   PostgreSQL `numeric` rounds ties away from zero, so the builder and the exact
+   validator could order tied systems differently while every version string
+   matched. The definition is now closed in integers with no float anywhere:
+   `(score × confidence_ppm × completeness_ppm + 50_000_000) // 100_000_000`. The
+   divisor follows from the units rather than being chosen. Checked rather than
+   asserted: the numerator peaks at 1e14 (exact in `bigint`), the key at 1e6
+   (inside `integer`), and over 500,000 random triples the integer rule agrees
+   with the floating-point product at **every** non-tie input — so it changes
+   nothing except making ties decidable. The worked tie in the spec
+   (`score=1, confidence_ppm=50, completeness_ppm=1_000_000`) is a true half where
+   Python yields 0 and PostgreSQL yields 1; the rule yields 1. Half-boundary
+   vectors are added to the builder, validator and ranking-identity tests.

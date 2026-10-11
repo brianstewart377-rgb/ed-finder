@@ -239,11 +239,20 @@ newer dated source wins).
      none exist yet — then build the immutable release carrying the F2d code and
      promote it. Verify the two things separately — a 503 has no response
      envelope, so it cannot advertise an identity: the live request proves the
-     Finder answers 503, while the ranking identity and the bounded-route
-     contracts are proved from the release evidence (the gate's recorded
-     `ranking_version`/`ranking_sha256`, the deployed image digest and the
-     served `/openapi.json`); the identity is re-verified from a real envelope
-     at step 9. This ordering is required: the
+     Finder answers 503, while the **ranking identity** is proved from the
+     deployed image digest matching the accepted-release attestation, which must
+     record both concrete `ranking_version`/`ranking_sha256` values — **not**
+     from the served `/openapi.json`, where both response fields are
+     unconstrained `str` (`apps/api/src/models.py:378-379`) and a comparison
+     would pass against any image, including the old keyed-schema one. OpenAPI
+     proves only the parameter shape its schema states concretely (the
+     `Literal[60, 76, 88]` enum and the individual `offset`/`from`/`limit`/`size`
+     maxima); the **combined** `offset + limit <= 10000` and `from + size <=
+     10000` bounds are not expressible in JSON Schema and are proved by a
+     behavioural probe against the deployed image, which a 503 does not prevent
+     because request validation raises 422 before the generation is consulted:
+     `offset=9999&limit=1` accepted, `offset=9999&limit=2` rejected with 422.
+     The identity is re-verified from a real envelope at step 9. This ordering is required: the
      currently deployed API gates only on both products being READY, so if the
      products reached READY under that build it would stop answering 503 and
      start reading the post-`015` views, which hide unpublished rows — a
@@ -272,9 +281,13 @@ newer dated source wins).
   9′ (last — go-live). The publish action first fails closed on the deployed
      application — the running API image digest must match the accepted F2d
      release, and the expected ranking identity is confirmed from that
-     accepted-release attestation and the served `/openapi.json`, **not** from a
-     Finder response envelope, because the API answers 503 until the products
-     are published so no envelope exists yet — then publishes both **products**
+     accepted-release attestation **alone**, **not** from a Finder response
+     envelope (the API answers 503 until the products are published, so no
+     envelope exists yet) and **not** from the served `/openapi.json` (both
+     identity fields are unconstrained `str`, so a schema comparison would be
+     vacuous and would pass against the wrong image). The attestation must carry
+     both concrete values; the publish action refuses when it carries no identity
+     rather than treating a missing value as a match — then publishes both **products**
      with
      `v3_meta.publish_derived_product` in one governed transaction; the
      generation pointer does not move (no `publish_derived_generation`). Then
