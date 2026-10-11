@@ -116,7 +116,7 @@ def _run_inventory_action(
               if [ "$format" = '{{.State.Running}}' ]; then
                 printf '%s\\n' 'true'
               else
-                printf '/srv/postgres-data\\t/var/lib/postgresql/data\\n'
+                printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql/data\\n'
               fi
               exit 0
             fi
@@ -169,10 +169,25 @@ def _run_inventory_action(
               printf '%s\\n' 'directory scan denied' >&2
               exit 7
             fi
-            printf '1345000\\t/srv/postgres-data/base\\n'
-            printf '120000\\t/srv/postgres-data/pg_wal\\n'
-            printf '50000\\t/srv/postgres-data/old-copy\\n'
-            printf '1557000\\t/srv/postgres-data\\n'
+            data='/var/lib/docker/volumes/edfinder-pgdata/_data'
+            case "$*" in
+              *'--max-depth=1'*)
+                # The data directory's own breakdown.
+                printf '1345000\\t%s/base\\n' "$data"
+                printf '120000\\t%s/pg_wal\\n' "$data"
+                printf '1465000\\t%s\\n' "$data" ;;
+              *)
+                # The production shape: a depth-2 scan from the mount point, where the
+                # data directory is deeper than the scan and so is reported only inside
+                # the cumulative totals of its ancestors.
+                printf '1510000\\t/var/lib/docker\\n'
+                printf '1515000\\t/var/lib\\n'
+                printf '30000\\t/var/log\\n'
+                printf '1545000\\t/var\\n'
+                printf '12000\\t/home/claude\\n'
+                printf '12000\\t/home\\n'
+                printf '1557000\\t/\\n' ;;
+            esac
             """
         ),
         encoding="utf-8",
@@ -262,9 +277,7 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert receipt["db_writes_performed"] is False
     assert receipt["filesystem_writes_performed"] is False
     assert inventory["volume"]["avail_bytes"] == 292000
-    assert {"path": "/srv/postgres-data/pg_wal", "bytes": 120000} in inventory[
-        "volume_directory_usage"
-    ]
+    assert {"path": "/var/log", "bytes": 30000} in inventory["volume_directory_usage"]
     assert inventory["databases"][0]["datname"] == "edfinder_v3_db"
     assert inventory["wal"]["bytes"] == 12
     assert inventory["relations"][0]["name"] == "system_rating_vector"
@@ -282,6 +295,10 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     }
     assert inventory["summary"]["accounted_bytes"] == 1382
     assert inventory["summary"]["unaccounted_bytes"] == 1557000 - 1382
+    assert inventory["postgres_data_directory_usage"]["bytes"] == 1465000
+    assert {"path": "/var/lib/docker/volumes/edfinder-pgdata/_data/base", "bytes": 1345000} in (
+        inventory["postgres_data_directory_usage"]["children"]
+    )
 
 
 def test_v3_disk_inventory_fails_closed_when_the_directory_scan_fails(tmp_path):
@@ -332,13 +349,59 @@ def test_v3_disk_inventory_reads_toast_from_the_toast_relation():
     assert "pg_relation_size(c.oid)::bigint AS heap_bytes" in source
 
 
-def test_v3_disk_inventory_excludes_accounted_directories_from_candidates():
-    """A candidate list that includes pg_wal contradicts the accounting above it."""
+def test_v3_disk_inventory_candidates_are_a_non_overlapping_partition(tmp_path):
+    """Ancestors of the database must not be offered as unaccounted usage.
+
+    `du --max-depth=2` reports a cumulative total for every directory at depth <= 2, so
+    on the production layout `/var/lib` and `/var/lib/docker` both contain the whole
+    ~1.3 TB database. Ranking those rows directly makes the database's own ancestors the
+    largest "unaccounted" directories, which tells the operator nothing about where the
+    remaining usage is -- the single question this action exists to answer. Each row must
+    therefore report only the bytes no other row reports, with the measured
+    data-directory size removed from whichever row contains it.
+    """
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    candidates = summary["largest_unaccounted_directories"]
+    paths = [row["path"] for row in candidates]
+    by_path = {row["path"]: row["exclusive_bytes"] for row in candidates}
+
+    # The database is 1,465,000 of the volume's 1,557,000 used bytes. Every candidate
+    # must be smaller than the remaining 92,000, which no cumulative ancestor total is.
+    assert max(by_path.values()) <= 1557000 - 1465000
+    # /var/lib/docker holds the database; only its 45,000 of non-database bytes survive.
+    assert by_path["/var/lib/docker"] == 45000
+    assert by_path["/var/lib"] == 5000
+    assert by_path["/var/log"] == 30000
+    assert by_path["/home/claude"] == 12000
+    # No candidate is the data directory or inside it.
+    data_dir = "/var/lib/docker/volumes/edfinder-pgdata/_data"
+    assert not any(p == data_dir or p.startswith(f"{data_dir}/") for p in paths)
+    # The partition is exact: the candidates plus the database are the used bytes.
+    assert summary["non_database_directory_bytes"] == 1557000 - 1465000
+    assert (
+        summary["non_database_directory_bytes"] + summary["postgres_data_directory_bytes"]
+        == summary["volume_used_bytes"]
+    )
+
+
+def test_v3_disk_inventory_fails_closed_without_the_data_directory_measurement():
+    """The subtraction needs a measured size, not an assumed one.
+
+    `pg_database_size` counts logical relation bytes, so using it to subtract the
+    database from a `du` partition would leave a residue that reappears as phantom
+    unaccounted usage. The data directory is measured with the same tool as the volume.
+    """
     source = _read(ACTION)
 
-    assert "accounted_prefixes" in source
-    for name in ("base", "pg_wal", "pg_tblspc", "pg_stat_tmp"):
-        assert f'"{name}"' in source
+    assert '["du", "-x", "-B1", "--max-depth=1", mount_source.rstrip("/")]' in source
+    assert "postgres_data_directory_usage_failed" in source
+    assert "postgres_data_directory_usage_unavailable" in source
+    assert "volume_directory_usage_unavailable" in source
+    # The partition, not a prefix blocklist, is what keeps accounted bytes out.
+    assert "def exclusive_usage(" in source
+    assert "accounted_prefixes" not in source
 
 
 def test_v3_disk_inventory_preserves_volume_when_root_df_fails(tmp_path):

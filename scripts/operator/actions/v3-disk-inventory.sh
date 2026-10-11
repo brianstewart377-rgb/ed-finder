@@ -154,6 +154,45 @@ def required_int(value: str | None, error: str) -> int:
     return number
 
 
+def parse_du(stdout: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            raise RuntimeError("directory_usage_output_invalid")
+        rows.append(
+            {
+                "path": parts[1],
+                "bytes": required_int(parts[0], "directory_usage_output_invalid"),
+            }
+        )
+    return rows
+
+
+def exclusive_usage(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Turn nested `du` totals into a non-overlapping partition.
+
+    `du --max-depth=N` reports a cumulative total for every directory at depth <= N,
+    so `/var`, `/var/lib` and `/var/lib/docker` all count the same bytes. Ranking those
+    rows directly makes the ancestors of the largest subtree the top answers, which says
+    nothing about where the bytes are. Each reported directory's exclusive size is its
+    own total minus the totals of its reported children; the deepest reported rows keep
+    their full total because nothing below them was measured separately. The exclusive
+    sizes sum to the scanned root's total exactly once.
+    """
+    totals = {row["path"].rstrip("/") or "/": row["bytes"] for row in rows}
+    child_bytes: dict[str, int] = {}
+    for path, size in totals.items():
+        if path == "/":
+            continue
+        parent = path.rsplit("/", 1)[0] or "/"
+        if parent in totals:
+            child_bytes[parent] = child_bytes.get(parent, 0) + size
+    return {path: size - child_bytes.get(path, 0) for path, size in totals.items()}
+
+
 def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
     result = run(argv)
     if result.returncode != 0:
@@ -268,6 +307,8 @@ receipt["postgres"] = {
 }
 
 mount_source: str | None = None
+usage_full: list[dict[str, Any]] | None = None
+postgres_data_directory_bytes: int | None = None
 try:
     mount_source, mount_destination = postgres_mount()
     disk = df_values(
@@ -321,24 +362,45 @@ try:
         # question, so it must not be presented as a complete inventory.
         raise RuntimeError(f"directory_usage_failed:{reason}")
     else:
-        usage: list[dict[str, Any]] = []
-        for line in usage_result.stdout.splitlines():
-            if not line.strip():
-                continue
-            parts = line.split("\t", 1)
-            if len(parts) != 2:
-                raise RuntimeError("directory_usage_output_invalid")
-            usage.append(
-                {
-                    "path": parts[1],
-                    "bytes": required_int(parts[0], "directory_usage_output_invalid"),
-                }
-            )
+        usage_full = parse_du(usage_result.stdout)
         inventory["volume_directory_usage"] = sorted(
-            usage, key=lambda item: (-item["bytes"], item["path"])
+            usage_full, key=lambda item: (-item["bytes"], item["path"])
         )[:40]
 except RuntimeError as exc:
     section_failed(failures, inventory, "volume_directory_usage", exc)
+
+try:
+    if mount_source is None:
+        raise RuntimeError("postgres_data_mount_unresolved")
+    # The accounted PostgreSQL bytes have to be subtracted from the filesystem scan
+    # above, and the only figure that is consistent with that scan is the data
+    # directory's own on-disk size — not the sum of `pg_database_size`, which counts
+    # logical relation bytes and would leave a residue in the partition. Depth 1 also
+    # answers the operator's question directly by splitting base/ from pg_wal and logs.
+    data_usage_result = run(
+        ["du", "-x", "-B1", "--max-depth=1", mount_source.rstrip("/")],
+        timeout=DIRECTORY_USAGE_TIMEOUT_SECONDS,
+    )
+    if data_usage_result.returncode != 0:
+        detail = (data_usage_result.stderr or data_usage_result.stdout).strip().splitlines()
+        reason = detail[-1][:240] if detail else f"exit_{data_usage_result.returncode}"
+        raise RuntimeError(f"postgres_data_directory_usage_failed:{reason}")
+    data_usage = parse_du(data_usage_result.stdout)
+    data_dir_key = mount_source.rstrip("/")
+    total_row = next((row for row in data_usage if row["path"] == data_dir_key), None)
+    if total_row is None:
+        raise RuntimeError("postgres_data_directory_usage_total_missing")
+    postgres_data_directory_bytes = total_row["bytes"]
+    inventory["postgres_data_directory_usage"] = {
+        "path": data_dir_key,
+        "bytes": postgres_data_directory_bytes,
+        "children": sorted(
+            (row for row in data_usage if row["path"] != data_dir_key),
+            key=lambda item: (-item["bytes"], item["path"]),
+        )[:40],
+    }
+except RuntimeError as exc:
+    section_failed(failures, inventory, "postgres_data_directory_usage", exc)
 
 try:
     inventory["databases"] = psql_json(
@@ -648,28 +710,36 @@ try:
     accounted_bytes = (
         operating_database_bytes + other_databases_bytes + wal_bytes + temp_bytes
     )
-    usage_rows = inventory["volume_directory_usage"]
-    usage_root = inventory.get("volume_directory_usage_root")
+    if usage_full is None:
+        raise RuntimeError("volume_directory_usage_unavailable")
+    if postgres_data_directory_bytes is None:
+        raise RuntimeError("postgres_data_directory_usage_unavailable")
     data_dir = mount_source.rstrip("/")
-    # Everything already in accounted_bytes must be excluded, or the "unaccounted"
-    # list contradicts the arithmetic above it: base/ is the databases, pg_wal is
-    # wal_bytes, and the temp/stat directories are temp_bytes.
-    accounted_prefixes = tuple(
-        f"{data_dir}/{name}"
-        for name in ("base", "pg_wal", "pg_xlog", "pg_tblspc", "pg_stat_tmp", "pg_stat", "pgsql_tmp")
-    )
-    candidates = (
-        [
-            row
-            for row in usage_rows
-            if row["path"] not in (mount_source, data_dir, usage_root)
-            and not any(
-                row["path"] == prefix or row["path"].startswith(f"{prefix}/")
-                for prefix in accounted_prefixes
-            )
-        ]
-        if isinstance(usage_rows, list)
-        else []
+    exclusive = exclusive_usage(usage_full)
+    # The PostgreSQL data directory is deeper than the filesystem scan's depth on this
+    # layout, so its bytes sit inside the exclusive remainder of its deepest reported
+    # ancestor (for example /var/lib when the volume is under /var/lib/docker). Subtract
+    # the measured data-directory size there, so the database is counted once — as the
+    # database — and never again as an ancestor directory. If the data directory is
+    # itself a reported row, the exclusive arithmetic has already removed it from its
+    # parent and the row is dropped below, so no subtraction is needed.
+    strict_ancestors = [
+        path
+        for path in exclusive
+        if path != data_dir and data_dir.startswith("/" if path == "/" else f"{path}/")
+    ]
+    if data_dir not in exclusive and strict_ancestors:
+        container = max(strict_ancestors, key=len)
+        exclusive[container] -= postgres_data_directory_bytes
+    candidates = sorted(
+        (
+            {"path": path, "exclusive_bytes": size}
+            for path, size in exclusive.items()
+            if path != data_dir
+            and not path.startswith(f"{data_dir}/")
+            and size > 0
+        ),
+        key=lambda item: (-item["exclusive_bytes"], item["path"]),
     )
     inventory["summary"] = {
         "volume_used_bytes": volume_used,
@@ -678,15 +748,22 @@ try:
         "wal_bytes": wal_bytes,
         "accounted_bytes": accounted_bytes,
         "unaccounted_bytes": volume_used - accounted_bytes,
-        "largest_unaccounted_directories": candidates[:5],
+        "postgres_data_directory_bytes": postgres_data_directory_bytes,
+        "non_database_directory_bytes": sum(
+            item["exclusive_bytes"] for item in candidates
+        ),
+        "largest_unaccounted_directories": candidates[:10],
         "method": (
             "accounted_bytes = operating_database_bytes + other_databases_bytes + "
             "wal_bytes + current PostgreSQL temporary-directory bytes; "
-            "unaccounted_bytes = volume_used_bytes - accounted_bytes; "
-            "largest_unaccounted_directories excludes base/, pg_wal, pg_tblspc and the "
-            "temp/stat directories because those are already in accounted_bytes; "
-            "the du scan covers the whole filesystem that holds the data directory, "
-            "not only the PostgreSQL volume subdirectory"
+            "unaccounted_bytes = volume_used_bytes - accounted_bytes. "
+            "largest_unaccounted_directories is a non-overlapping partition: each row "
+            "reports its own total minus the totals of its scanned children, the "
+            "measured PostgreSQL data-directory size is subtracted from the deepest "
+            "scanned directory that contains it, and the data directory and everything "
+            "under it are excluded. No row therefore counts the database, and no row "
+            "counts another row's bytes. The du scan covers the whole filesystem that "
+            "holds the data directory, not only the PostgreSQL volume subdirectory"
         ),
     }
 except (KeyError, StopIteration, TypeError, RuntimeError) as exc:
