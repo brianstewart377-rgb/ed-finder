@@ -237,8 +237,13 @@ newer dated source wins).
      ledger hashes, the new ranking identity, the bounded ranking route and the
      publication check in the built image — and **no product rows**, because
      none exist yet — then build the immutable release carrying the F2d code and
-     promote it. Verify from the live app that the Finder answers 503 and
-     advertises the new ranking identity. This ordering is required: the
+     promote it. Verify the two things separately — a 503 has no response
+     envelope, so it cannot advertise an identity: the live request proves the
+     Finder answers 503, while the ranking identity and the bounded-route
+     contracts are proved from the release evidence (the gate's recorded
+     `ranking_version`/`ranking_sha256`, the deployed image digest and the
+     served `/openapi.json`); the identity is re-verified from a real envelope
+     at step 9. This ordering is required: the
      currently deployed API gates only on both products being READY, so if the
      products reached READY under that build it would stop answering 503 and
      start reading the post-`015` views, which hide unpublished rows — a

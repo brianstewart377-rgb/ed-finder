@@ -756,13 +756,16 @@ hashed window constant — so no request can read rows beyond the advertised top
 round 6). This is a real contract change and is treated as one: the default, the
 three accepted floors, the stored-key definition (`round(score × confidence ×
 completeness × 10000)`), the 10,000 window and its offset/limit bound, the
-`is_truncated` rule, the **post-window filter rule** (hard filters apply only
-inside the window; which rows may enter) and the **within-window `total`
-rule** are all declared in `PROFILE_SPEC` and therefore hashed into
-`ranking_sha256`; the route's `Query(...)` declarations are built from those
-spec constants rather than typed beside them, and the identity test mutates the
-default, the accepted-floor set, the window size and the key definition in turn
-and asserts the digest changes each time. The response models gain
+`is_truncated` rule, the **hard-filter rejection rule** (the exact set of
+parameters a picked request may not carry, and that carrying one is a 422 — not
+a post-window filter rule, which the route cannot execute and which would make
+`ranking_sha256` describe behaviour that does not exist) and the
+**`total = min(qualifying, 10000)` rule** are all declared in `PROFILE_SPEC`
+and therefore hashed into `ranking_sha256`; the route's `Query(...)`
+declarations are built from those spec constants rather than typed beside them,
+and the identity test mutates the default, the accepted-floor set, the window
+size, the rejected-parameter set and the key definition in turn and asserts the
+digest changes each time. The response models gain
 **additive fields**: `is_truncated: bool` on `ArchetypeRankingsResponse`
 (`apps/api/src/models.py:911-924` has `extra='forbid'`, so returning the key
 without the field would be a 500, and omitting it would make a saturated
@@ -1054,7 +1057,7 @@ replace either; the rollout below is authorized only once both say so:
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1` and record the decision before Archetype registration. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 5 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify from the live app that the Finder answers 503 and that the advertised ranking identity is the new one. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
+| 5 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no product rows at all** — none exist yet. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity and the built-image contracts** are proved from the release evidence — the gate's own record of `ranking_version`/`ranking_sha256`, the deployed image digest, and the served `/openapi.json` showing the `Literal[60, 76, 88]` floor and the bounded `from`/`offset`. The identity is re-verified from a real envelope at step 9, once products are published. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
 | 6 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 7 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 8 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
@@ -1174,11 +1177,15 @@ Files:
 - `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`,
   additive; `archetype_version` and `archetype_manifest_sha256` on the shared
   ranking-identity model both envelopes use)
-- `apps/api/src/local_search.py` (**PR1, not PR2**: the request model bounds
-  `from` to `0–10_000` so a direct caller cannot post `from: 2000000000` and
-  force an unbounded `OFFSET` against the ranking index — no mode navigates past
-  10,000 by contract and the galaxy-wide count is capped there, so nothing
-  reachable is lost; tests pin 10,000 (ok) and 10,001 (422). Also: the local-search envelope's
+- `apps/api/src/local_search.py` (**PR1, not PR2**: the request model enforces
+  the same **combined** window bound as the rankings route —
+  `from >= 0`, `size >= 1` and `from + size <= 10_000` — so a direct caller can
+  neither post `from: 2000000000` and force an unbounded `OFFSET` against the
+  ranking index nor slip past the window with `from=10000&size=500` while the
+  capped total says 10,000. Nothing reachable is lost: no mode navigates past
+  10,000 by contract and a galaxy-wide count is capped there. Tests pin
+  `from=9_950,size=50` (ok), `from=10_000,size=1` (422) and
+  `from=10_001` (422). Also: the local-search envelope's
   ranking identity gains `archetype_version` and `archetype_manifest_sha256`;
   `_current_derived_generation()` returns the published archetype product's
   code/version/manifest hash alongside the generation id and sequence, and
@@ -1308,7 +1315,22 @@ Files:
   ledger hashes)
 - `scripts/operator/actions/v3-system-archetype.sh` (new start/status: build
   then `--validate`, pin rewritten `011` and `015`, receipt READY/VERIFIED plus
-  row/chunk counts)
+  row/chunk counts — **and the capacity gate as a fail-closed precondition of
+  `start`**, because this is the irreversible 198.5-million-row write. Before it
+  launches anything the action must, in this order, and abort with a distinct
+  non-zero exit code and a receipt on any failure: (a) read the recorded
+  calibration-probe histogram from the committed decision evidence and refuse if
+  it is absent or does not cover all eight keys and three floors; (b) compute
+  `Σ_all` = the sum of all 24 per-key tier fractions and refuse if `Σ_all > 4.0`;
+  (c) require a footprint receipt produced by
+  `scripts/dev/measure_wide_archetype_footprint.py --migration-sql <the applied
+  011> --fractions-json <that histogram>`, whose `score_distribution_source` is
+  `measured-histogram` and whose `011` file hash matches the applied ledger
+  entry; (d) take a fresh `df` reading of the data volume through the same
+  read-only path the step 0 action uses, and refuse unless
+  `free − (measured archetype total + 15 % working room)` is positive, counting
+  Search's rows as already written. The receipt records every input and the
+  arithmetic, so the decision is reproducible from the log)
 - `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
   in one transaction via `publish_derived_product`; receipts timestamps, audits
   and view counts)
@@ -1337,7 +1359,11 @@ Files:
   `tests/test_v3_product_publication_operator.py` (new),
   `tests/test_v3_production_application_deployment.py`
 
-Focused checks: shell/action contract tests; exact generation UUID/key/sequence,
+Focused checks: shell/action contract tests, including the capacity gate's four
+refusals (missing or incomplete histogram, `Σ_all > 4.0`, a footprint receipt
+that is synthetic or built from a different `011`, and insufficient free space)
+each with its own exit code, and a passing case that records the arithmetic;
+exact generation UUID/key/sequence,
 current-pointer, migration-hash, worker-name, resource-bound, receipt and
 start/status tests; repeat/concurrent publication failures; allowlist/workflow
 schema; revised release-preflight tests; operator, canonical-safety, migration,
@@ -1505,3 +1531,34 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    and explicitly not product READY, validation receipts, row counts,
    `published_at` or publication audits, any of which would force the products to
    be built under the old deployed build and recreate the unsafe interval.
+
+### Review round 11 (2026-10-11)
+
+1. **P1 — Separate the identity check from the 503 probe** → a 503 carries no
+   response envelope, so step 5 now verifies the two separately: the live request
+   proves only the 503, while the ranking identity and the bounded-route
+   contracts are proved from the release evidence (the gate's recorded
+   `ranking_version`/`ranking_sha256`, the deployed image digest, the served
+   `/openapi.json`), with the identity re-verified from a real envelope at
+   step 9. The ROADMAP says the same.
+2. **P2 — Enforce the result window on `from` plus `size`** → the local-search
+   request model enforces the combined bound `from + size <= 10_000` (and
+   `size >= 1`), like the rankings route, so `from=10000&size=500` cannot return
+   rows beyond the window a capped total of 10,000 describes; tests pin
+   `9_950+50` (ok), `10_000+1` (422) and `10_001` (422).
+3. **P2 — Remove the post-window filter rule from the profile** →
+   `PROFILE_SPEC` hashes the **hard-filter rejection rule** (the exact rejected
+   parameter set, and that carrying one is a 422) and the
+   `total = min(qualifying, 10000)` rule; the post-window filter rule is gone,
+   since the route cannot execute it and hashing it would make `ranking_sha256`
+   describe behaviour that does not exist. The identity test mutates the
+   rejected-parameter set too.
+4. **P1 — Wire the capacity gate into the Archetype action** → the gate is a
+   fail-closed precondition of `v3-system-archetype.sh start`, with its own exit
+   codes and receipt: it requires the recorded calibration histogram covering all
+   eight keys and three floors, refuses `Σ_all > 4.0`, requires a footprint
+   receipt whose `score_distribution_source` is `measured-histogram` and whose
+   `011` hash matches the applied ledger entry, and takes a fresh read-only `df`
+   of the data volume, refusing unless the measured archetype total plus 15 %
+   working room fits. Four refusal tests plus a passing case that records the
+   arithmetic.
