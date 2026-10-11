@@ -858,12 +858,13 @@ type RankingProvenance = Readonly<{
   // identifies one build exactly; includes generation identity, so it changes on
   // every rebuild and must never gate a cross-generation comparison
   archetype_manifest_sha256: string;
-  // the canonical semantic manifest ONLY: coefficients, anchors, key order, the
-  // weighted-key integer expression, the confidence rounding rule, tier thresholds.
-  // Deliberately excludes generation identity AND the model-file and code hashes --
-  // code_identity() hashes whole files, so a comment or a refactor would change this
-  // digest without changing a single score and suppress the comparison it exists for.
-  // Two generations built from the same model therefore agree.
+  // the canonical semantic manifest -- coefficients, anchors, key order, the
+  // weighted-key integer expression, the confidence rounding rule, tier thresholds --
+  // PLUS the shared model file's hash. Excludes generation identity, and excludes the
+  // builder and migration hashes: the model file owns scoring, the builder owns
+  // iteration and storage. Two generations built from the same model therefore agree,
+  // and a change to how scores are computed always moves this digest. It errs towards
+  // suppressing a comparison rather than allowing a wrong one -- see the rule below.
   archetype_model_sha256: string;
 }>;
 
@@ -1024,20 +1025,32 @@ thresholds. It deliberately excludes generation identity, publication sequence
 and `expected_rows` — everything describing *which data* was scored rather than
 *how*.
 
-**It also excludes `model_file_sha256` and `code_sha256` (review round 32).**
-Including them looked conservative and was in fact self-defeating:
-`code_identity()` hashes the complete builder, model and migration **files**
-(`scripts/v3_system_archetype.py:64-73`), so a comment, a batching refactor or an
-index-only DDL change would alter the digest while every score stayed
-bit-identical — and the cross-generation comparison this field exists to enable
-would be silently suppressed by an edit that changed nothing. That is the same
-failure as using the manifest digest, reached by a different route.
+**It includes the shared model file's hash and excludes the builder's and the
+migration's (settled, review round 35).** This has been argued both ways across
+rounds — round 31 included all three source hashes, round 32 removed all of them,
+F2d round 19 settled on the model file alone — so the decision and its cost are
+recorded here rather than left to the next reviewer, and the paragraph that said
+the opposite is gone rather than sitting beside this one.
 
-F2d's digest covers the enumerated semantic fields **plus the shared model
-file's hash** — the file that owns scoring — and not the builder or the migration,
-whose changes concern how rows are iterated and stored rather than how scores are
-computed (F2d review round 19). So a change to the scoring logic always moves the
-digest, and a batching fix or a storage-only DDL change never does.
+`code_identity()` hashes three files (`scripts/v3_system_archetype.py:64-73`) and
+they own different things: the model `scripts/v3_system_archetype_model.py` owns
+**scoring**; the builder `scripts/v3_system_archetype.py` owns iteration, batching
+and storage; the migration `011_v3_system_archetype.sql` owns layout. Hashing the
+model file alone therefore means a change to **how scores are computed** always
+moves the digest, and a change to **how they are written** never does.
+
+The known cost, stated plainly: a **comment-only edit** to the model file also
+moves the digest, suppressing otherwise valid cross-generation comparisons until
+the next rebuild. Hashing only the enumerated constants has the opposite cost: a
+change to the model's *logic* that left its constants alone would not move the
+digest, and scores computed differently would be compared as equivalent.
+
+Those costs are not symmetric, which is what settles it. This field gates
+**whether two numbers may be compared at all**, so a false "not comparable" is a
+temporary, visible loss of a feature, while a false "comparable" is a silently
+wrong comparison presented to the user as fact. Erring towards suppression is
+therefore correct, and the frozen-input validation below is what keeps that
+suppression honest rather than permanent.
 
 The validator then checks the digest means what it claims — but it must **not** do
 so by comparing values two generations stored (review round 34). A new generation
@@ -1136,8 +1149,19 @@ page SQL and companion count SQL returned, with bound parameters, by
 (`apps/api/src/ranking/ranking_sql.py:392-509`,
 `apps/api/src/ranking/ranking_sql.py:512-574`). Record
 `EXPLAIN (ANALYZE, BUFFERS)` plus wall-clock timings for the first page, a
-near-ceiling page and the bounded count, **at each of the B/A/S floors** so all
-three partial indexes are exercised. The plan must demonstrate that **both** the page query's and the count query's
+near-ceiling page and the bounded count, **for every one of the eight archetypes
+at each of the B/A/S floors — all 24 partial indexes (review round 35)**. Running
+one "archetype under test" across three floors exercises 3 of the 24, and index
+selection is **key-specific**: the SQL names `<key>_weighted_e4` and the partial it
+must use, so another key could map to the wrong index or fall back to scanning the
+wide relation while the receipt passed. A proof covering an eighth of the indexes
+it certifies is not a proof of the thing F4b is gated on.
+
+The plan assertions and the saturation requirement are therefore parameterized over
+`(archetype, floor)`: every pair names its own expected partial index, and the
+fixture holds ≥ 10,001 rows at the S floor **for every archetype**, so no pair
+measures an empty index. Timings are reported per pair against the same budgets, so
+one slow key cannot hide inside an average. The plan must demonstrate that **both** the page query's and the count query's
 window read at most **10,001** rows — the 10,001st is the sentinel that sets
 `is_truncated`, so a correct saturated plan reads it and a receipt demanding at
 most 10,000 would fail the right implementation (or push someone towards one that
@@ -1877,6 +1901,13 @@ Exact files:
   400 and neither browser flow ever reaches Explore) and its contract tests
 - modify `scripts/dev/review_lab/scenarios.py` (the two new scenario
   definitions and browser flow keys)
+- modify `apps/web/src/lib/features/explore/WatchlistPanel.svelte` and
+  `WatchlistPanel.test.ts` (**required**: it carries two live `/inspect?system=`
+  links (`:220`, `:366`) that the checklist above requires to carry `from` and the
+  outbound `page.state`. Omitting the panel from this inventory, which is labelled
+  exact, would leave both bare — so Inspect's return would lose the ranking query
+  and the anchored search for anyone who reached it from the watchlist, which is a
+  normal way to get there. Focused round-trip tests for both links)
 - modify `tests/test_v3_web_release_image.py` (**required**: that module owns the
   deployable web image contract and currently pins the Svelte build command, so
   without release-image assertions a Dockerfile could ignore the new build
@@ -3191,3 +3222,48 @@ had written in the preceding round, which is worth noting rather than hiding.
    exists to prevent, so the gate was missing an assertion about its own premise.
    Added as **required**, asserting the argument defaults fail-closed to `0` and is
    passed into the Svelte build.
+
+### Review round 35 (2026-10-11)
+
+1. **P1 — Keep source-file hashes out of the semantic digest** → the contradiction
+   is real and is fixed, though not in the direction asked, and the reason is worth
+   setting out because this field has now been argued three ways across four rounds.
+   The document genuinely held **both** paragraphs side by side: round 32's saying
+   the digest excludes the model-file hash, and the next one saying it includes it
+   (F2d round 19). That is unimplementable whichever is right, so the stale paragraph
+   is deleted rather than left to be reconciled by a reader.
+   On the substance I kept the **model file's hash**. Your objection is correct on
+   its own terms — a comment-only edit to that file does move the digest and
+   suppresses otherwise valid comparisons until the next rebuild — but the
+   alternative's cost is worse and not symmetric with it. Hashing only the
+   enumerated constants means a change to the model's *logic* that leaves its
+   constants alone does **not** move the digest, so scores computed differently are
+   compared as equivalent. This field gates whether two numbers may be compared at
+   all: a false "not comparable" is a temporary, visible loss of a feature, while a
+   false "comparable" is a silently wrong comparison presented to the user as fact.
+   Erring towards suppression is the right direction, and round 34's frozen-input
+   validation keeps that suppression honest.
+   The decision, both costs, and why they are asymmetric are now written in the
+   design, and the `RankingProvenance` type comment says the same thing — so the next
+   round has a recorded decision to disagree with rather than two contradictory
+   paragraphs to pick between.
+2. **P2 — Add WatchlistPanel to the F4b change set** → correct, and it is the
+   round-34 fix only half applied: I put all seven Inspect entry points in the
+   checklist and did not add the file that holds two of them to the inventory
+   labelled exact. Following the file list would have left both watchlist links bare
+   while the checklist said otherwise — and reaching Inspect from the watchlist is a
+   normal path, so the ranking query and anchored search would have been lost for a
+   whole class of users while the result row worked. Added as **required** with
+   focused round-trip tests for both links.
+3. **P2 — Exercise every archetype's partial indexes** → correct, and the arithmetic
+   is the argument: one "archetype under test" across three floors exercises **3 of
+   24** partial indexes. Index selection is key-specific — the SQL names
+   `<key>_weighted_e4` and the partial it must use — so another key could map to the
+   wrong index, or fall back to scanning the wide relation, while the receipt passed.
+   A proof covering an eighth of what it certifies is not a proof of the thing F4b is
+   gated on.
+   The plan assertions and the saturation requirement are now parameterized over
+   `(archetype, floor)`: every pair names its own expected partial index, the fixture
+   holds ≥ 10,001 rows at the S floor for **every** archetype so no pair measures an
+   empty index, and timings are reported per pair rather than averaged — otherwise
+   one slow key could hide inside an aggregate that passes.
