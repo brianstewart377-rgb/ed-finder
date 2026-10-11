@@ -1359,7 +1359,7 @@ replace either; the rollout below is authorized only once both say so:
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
-| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and **all three** archetype identity values — `archetype_version`, `archetype_manifest_sha256` **and `archetype_model_sha256`** (review round 20: F4 decides whether scores from different generations are comparable from the model digest alone, so a response that omits or mis-populates precisely that field would pass a two-field check and silently disable the comparison, with no error anywhere) — and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch (exercised at `page_size` 50 and 500) from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and **all three** archetype identity values — `archetype_version`, `archetype_manifest_sha256` **and `archetype_model_sha256`** (review round 20: F4 decides whether scores from different generations are comparable from the model digest alone, so a response that omits or mis-populates precisely that field would pass a two-field check and silently disable the comparison, with no error anywhere) — and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch (exercised at `page_size` 50 and 500) from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. **The bounded-plan probe also runs *inside* the publication transaction (review round 21):** after both `published_at` updates and **before commit**, because the transaction can see its own newly visible rows, so the picked query is planned against production statistics and the expanded views while the change is still reversible. Any plan mismatch — a scan or sort that is not the expected bounded shape — rolls the publication back. Running it only after commit, as this step originally did, exposed users the moment production statistics or view expansion chose an unbounded plan despite the disposable tests passing — and `published_at` is a one-way transition with no governed path to clear it, so the first assertion against production would have been made at the one point where failing it could not be undone. This post-commit run is kept as confirmation that the committed state still plans correctly. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
 
 **Rollback is constrained from the moment `011`/`015` are applied (review round
 12).** Deploying first removes the forward hazard but not the backward one: the
@@ -2523,3 +2523,52 @@ Swept rather than reviewed:
    absence of a governed purge path — are kept and marked as no longer being
    prerequisites, with disk reclamation tracked against the read-only inventory
    instead.
+
+### Review round 21 (2026-10-11)
+
+1. **P1 — Compare model outputs only when source vectors match** → correct, and it
+   is the same defect the F4 design had in its round 34, on this side of the
+   contract: I fixed it there and left it here. A later generation may be rebuilt
+   from a different canonical generation, so a system present in both can
+   legitimately carry different rating vectors or completeness and therefore a
+   different `<key>_weighted_e4` under an identical model. Requiring equal keys
+   because the digests match would reject that valid build and **block
+   publication** — failing on exactly the data refresh the generation-free digest
+   exists to permit.
+   The assertion is now against a committed **frozen input fixture** of
+   `(score, confidence_ppm, completeness_ppm)` vectors including the half
+   boundaries, which isolates the model from the data it is applied to. Of your two
+   options I took the fixture rather than restricting comparison to
+   byte-identical source vectors, because the fixture is deterministic and
+   reviewable while "systems whose complete source vectors are byte-identical" is a
+   set that could be empty on any given pair of generations — a check that silently
+   verifies nothing.
+2. **P2 — Regenerate the evidence with the checked-in script** → correct, and I
+   could not do the first half: the disposable PostgreSQL 18 instance this was
+   measured on no longer exists, so I cannot rerun it, and I would rather say that
+   than commit a figure I did not produce.
+   I took the second option and made the provenance verifiable rather than merely
+   asserted. The artifact's fields are exactly those emitted by the script at
+   **`6f9f79e`**; `fractions_canonical`, `fractions_sha256` and `sigma_all` were
+   added at `c0e49fa` (round 12), which is why the current revision could not have
+   produced it. That commit is now recorded in the artifact itself along with the
+   reason.
+   Recording it surfaced something worth stating outright, which is now also in the
+   artifact: this file is **not** a capacity-gate input and must never be
+   substituted for one. Its `score_distribution_source` is
+   `declared-synthetic-bell` with no fractions digest, so the gate would refuse it.
+   It is layout-comparison evidence for section 3.4, and the gate's input is the
+   pre-build receipt measured against the final `011` with the real histogram.
+3. **P1 — Gate publication on the production plan before commit** → correct, and
+   this is the best finding on this PR. The step as written made its **first
+   assertion against production statistics at the one moment where failing it could
+   not be undone**: after `published_at` had committed, a one-way transition with no
+   governed path to clear it. Disposable-fixture plans passing is not evidence about
+   production statistics or view expansion, so users would have been exposed
+   immediately on any divergence, with no way back.
+   Your mechanism is what makes the fix available: the transaction **can see its own
+   newly visible rows**, so the picked query can be planned against the real
+   statistics and the expanded views after both updates and before commit, while the
+   change is still reversible. Any plan mismatch now rolls the publication back. The
+   post-commit probe at step 10 is kept, but as confirmation that the committed
+   state still plans correctly rather than as the first check.

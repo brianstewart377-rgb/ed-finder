@@ -424,5 +424,12 @@
     "table_bytes_per_row": 221.7,
     "total_bytes": 76292096,
     "total_bytes_per_row": 381.5
+  },
+  "provenance": {
+    "producing_script": "scripts/dev/measure_wide_archetype_footprint.py",
+    "producing_commit": "6f9f79e",
+    "note": "Recorded after review (F2d round 21) because this artifact predates the fractions_canonical / fractions_sha256 / sigma_all fields the current script always emits (added in c0e49fa), so it could not have been produced by the checked-in revision and its provenance was unreproducible. It was produced by the script at 6f9f79e, which emits exactly the fields present here.",
+    "is_capacity_gate_input": false,
+    "why_not": "score_distribution_source is declared-synthetic-bell with no fractions digest. The combined capacity gate requires a measured-histogram receipt whose fractions digest matches the committed calibration histogram, so it would refuse this artifact. This is layout-comparison evidence for the design's section 3.4, not a gate input, and it must not be substituted for the pre-build receipt."
   }
 }
