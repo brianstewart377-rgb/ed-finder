@@ -319,26 +319,30 @@ newer dated source wins).
   actions must expose and receipt the validation path (search: inline in `run()`;
   archetype: `--validate`) so READY is reached through a reviewed route.
 
-  Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
-  **only executable path**: migration `006_v3_derived_product_lifecycle.sql`
-  installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
-  with `system_search rows and receipts are insert-only`, and no reviewed governed
-  purge migration/action exists. Purge is therefore not an available branch.
-  Before step 4, the owner must either accept retention after measuring the
-  complete candidate footprint of `system_rating_vector`, `body_mechanics`, and
-  `economy_opportunity`, including their primary-key indexes, on a disposable
-  PostgreSQL 18 sample and extrapolating those relations and indexes to full scale,
-  and confirm disk headroom for the complete fresh Ratings V4 generation: roughly
-  198.5 million `system_rating_vector` rows plus `body_mechanics` (one row per
-  physical body) and `economy_opportunity` (one row per eligible body/economy
-  pair), which can be far larger than the system-level rows, and their primary-key
-  indexes (step 4), roughly 198.5 million fresh `system_search` rows with 18 new
-  count columns (step 5), roughly 1.59 billion fresh `system_archetype` rows plus
-  roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
-  associated ratings, search, archetype, and summary indexes, including
-  `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
-  **design and review a governed purge path** as a prerequisite before step 4. The
-  [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
+  **Superseded (kept for history, not for execution).** The paragraph that used to
+  follow here described the pre-wide-row route: it called retaining `opt1`'s
+  `system_search` rows "the only executable path", referred to build actions in the
+  old steps 5 and 7, and required the owner to choose before step 4 between
+  accepting retention after measuring a fresh Ratings V4 generation — roughly
+  1.59 billion keyed `system_archetype` rows plus a separate
+  `system_archetype_summary` — or designing a governed purge path first. **None of
+  that is current.** The replacement sequence above attaches both Finder products
+  to the already-published `parallel_v1` generation, so no fresh Ratings V4
+  generation is built and no purge decision gates step 4; the wide row stores one
+  row per system with the summary expanded as a view, so the 1.59-billion-row and
+  separate-summary figures no longer describe anything that will be written; and
+  the capacity question is settled by the fail-closed combined gate
+  (`docs/superpowers/specs/2026-10-10-v3-finder-f2d-wide-archetype-and-product-attachment-design.md`
+  section 10, PR4) rather than by an owner choice before step 4.
+
+  The insert-only `DELETE`/`TRUNCATE` triggers in
+  `006_v3_derived_product_lifecycle.sql` remain in force and no governed purge path
+  exists, which is still true and still means purge is not an available branch — it
+  is simply no longer a prerequisite, because nothing in the current sequence needs
+  one. Disk reclamation is tracked separately against the read-only inventory
+  receipt, not as a gate on this rollout.
+
+  The [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and

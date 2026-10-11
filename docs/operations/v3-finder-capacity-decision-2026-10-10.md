@@ -66,7 +66,12 @@ summary table replaced by a view. Indexes: the primary key
 system, no key lookup), the `weighted_potential` index for the default no-pick
 ordering, and — the F2d design's final form after review — the picked
 ranking's **canonical key stored per archetype** (`<key>_weighted_e4 =
-round(score × fit confidence × completeness × 10,000)`, exact integer) with
+(score × confidence_ppm × completeness_ppm + 50_000_000) // 100_000_000`, an
+exact integer — **not** `round(score × confidence × completeness × 10,000)`, whose
+half-tie behaviour differs between Python (ties-to-even) and PostgreSQL `numeric`
+(ties away from zero), so two implementations could order boundary rows
+differently under one ranking identity; in SQL the first operand is cast to
+`bigint` or the multiplication overflows `integer` at ordinary values) with
 three **partial** indexes per archetype,
 `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 /
 88`, one per tier floor the Finder exposes. A picked ranking is then served in

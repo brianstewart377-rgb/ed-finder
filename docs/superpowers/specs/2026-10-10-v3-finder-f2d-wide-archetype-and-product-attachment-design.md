@@ -1355,11 +1355,11 @@ replace either; the rollout below is authorized only once both say so:
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no Finder product rows on the pinned `parallel_v1` target generation** — not an empty `v3_meta.derived_product` (review round 17): a READY `system_search` is deliberately retained on `opt1` and its purge is deferred (ROADMAP lines 140-143), so a global emptiness check would fail permanently and block the deployment it is supposed to authorize. Retained products on other generations must not block it. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape** only where the schema carries a concrete value: the `Literal[60, 76, 88]` floor as an enum, and the individual `offset`/`from`/`limit`/`size` maxima. It **cannot** prove the combined bounds `offset + limit <= 10000` and `from + size <= 10000` (review round 16): JSON Schema has no way to relate two fields, so an image whose route or request model omitted that validator would publish an identical schema and pass a gate that claimed to check it. The combined bounds are therefore proved by a **behavioural probe against the deployed image**, which the 503 does not prevent because a 422 is raised by request validation before the generation is ever consulted: `offset=9999&limit=1` and `from=9999&size=1` are accepted (503, not 422), while `offset=9999&limit=2` and `from=9999&size=2` are rejected with 422. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
 | 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. **The recorded decision must be an explicit affirmative (review round 16):** a complete histogram with `Σ_all <= 4.0` is evidence that the build would *fit*, not that its scoring logic was *approved*. A review that concluded the coefficients must change would still leave a complete, in-bounds histogram behind, and the old precondition would have passed on it — launching the immutable, non-purgeable build with rejected logic. The committed evidence therefore carries an explicit `coefficient_decision: accepted` (anything else, including absent, refuses), and the probe's recorded `code_identity` and coefficient digest **must equal the manifest the Archetype builder registers**. Without that second half the first is still bypassable: an approved probe could authorize a build whose real tier fractions were never capacity-tested at all. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
+| 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram — **produced through the defined conversion below, because the probe's output is not the measurement script's input format (review round 20)**, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
-| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch (exercised at `page_size` 50 and 500) from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and **all three** archetype identity values — `archetype_version`, `archetype_manifest_sha256` **and `archetype_model_sha256`** (review round 20: F4 decides whether scores from different generations are comparable from the model digest alone, so a response that omits or mis-populates precisely that field would pass a two-field check and silently disable the comparison, with no error anywhere) — and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch (exercised at `page_size` 50 and 500) from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
 
 **Rollback is constrained from the moment `011`/`015` are applied (review round
 12).** Deploying first removes the forward hazard but not the backward one: the
@@ -1664,6 +1664,32 @@ Files:
   arithmetic below. The receipt records every input and every intermediate, so
   the decision is reproducible from the log. **The same gate runs before the
   Search build** (rollout step 6), because Search is equally irreversible)
+
+  **Histogram conversion (exact; the probe's output is not this script's input).**
+  The calibration probe emits counts per archetype under
+  `per_archetype.<key>.tier_histogram` keyed `S`/`A`/`B`/`C`/`D`, while
+  `--fractions-json` takes `{<key>: {"60": f, "76": f, "88": f}}`. Handing the probe
+  artifact straight to the script reports **every archetype missing** and exits, so
+  the rollout's mandatory measured-histogram receipt could never be produced and
+  step 6 would block indefinitely. The conversion is cumulative, because each floor
+  admits its own tier and every higher one:
+
+  ```
+  total      = S + A + B + C + D                      # per archetype
+  f["88"]    = S / total
+  f["76"]    = (S + A) / total
+  f["60"]    = (S + A + B) / total
+  ```
+
+  So `f["60"] >= f["76"] >= f["88"]` by construction, and a conversion that produced
+  anything else would be wrong on its face. PR4 owns a small committed converter
+  (`scripts/dev/convert_calibration_histogram.py`) rather than a documented manual
+  step: the fractions digest is a fail-closed gate input, so the transformation that
+  produces it has to be reproducible and reviewable, and a by-hand JSON edit is
+  neither. The converter asserts the cumulative ordering, that every exposed
+  archetype key is present, and that each `total` matches the probe's recorded row
+  count for that key; the capacity gate refuses a histogram whose digest does not
+  match the converter's canonical output.
 
   **Capacity arithmetic (exact; PR4 implements this formula and nothing else).**
   All byte figures are integers; every division rounds up. `system_count` is the
@@ -2446,3 +2472,54 @@ Swept rather than reviewed:
    rows **on the pinned `parallel_v1` generation**, each with the reason attached
    (the retained `opt1` `system_search`, purge deferred), because the bare scoping
    without its reason is what keeps getting simplified back to a global check.
+
+### Review round 20 (2026-10-11)
+
+1. **P2 — Replace the ambiguous weighted-key rounding rule** → correct, in a third
+   document. Round 16 fixed the design, round 19 the DDL comment and the manifest,
+   and `docs/operations/v3-finder-capacity-decision-2026-10-10.md` still defined the
+   key with `round(...)`. That document is the owner-facing decision record, so an
+   implementer reading it would have built rows the exact validator rejects. It now
+   carries the integer expression, the Python-versus-PostgreSQL tie difference, and
+   the `bigint` cast — all three, because the short form is what keeps coming back.
+2. **P2 — Verify the model digest after go-live** → correct. Step 10 checked two of
+   the three archetype identity values, and the omitted one is the only one F4 uses
+   to decide whether scores from different generations may be compared. A response
+   that omitted or mis-populated exactly that field would have passed live
+   verification and silently disabled the comparison — no error, just a feature that
+   never fires. Step 10 now compares all three.
+3. **P1 — Convert the probe histogram before measurement** → correct, and this one
+   **blocks the rollout** as written. The probe emits counts under
+   `per_archetype.<key>.tier_histogram` keyed `S`/`A`/`B`/`C`/`D`;
+   `--fractions-json` takes `{<key>: {"60": f, "76": f, "88": f}}`. Handing the probe
+   artifact to the script reports every archetype missing and exits, so the mandatory
+   measured-histogram receipt could never be produced and step 6 would block
+   indefinitely — a prescribed command that cannot run, sitting on the critical path.
+   The conversion is now specified exactly, and it is **cumulative** because each
+   floor admits its own tier and every higher one: `f["88"] = S/total`,
+   `f["76"] = (S+A)/total`, `f["60"] = (S+A+B)/total`, so
+   `f["60"] >= f["76"] >= f["88"]` by construction. PR4 owns a committed converter
+   rather than a documented manual step, deliberately: the fractions digest is a
+   fail-closed gate input, so the transformation producing it must be reproducible
+   and reviewable, and a by-hand JSON edit is neither. The converter asserts the
+   cumulative ordering, that every exposed key is present, and that each total
+   matches the probe's recorded row count.
+4. **P1 — Remove the superseded fresh-generation instructions** → correct, and this
+   is the most serious of the four because of **where** it is: the highest-authority
+   programme document continued, immediately after the replacement sequence, with
+   the pre-wide-row route — "the only executable path", build actions in the old
+   steps 5 and 7, and an owner choice before step 4 between accepting a fresh
+   Ratings V4 generation (1.59 billion keyed archetype rows plus a separate summary
+   table) or designing a purge path first. An operator following the authority chain
+   in order would have hit the current sequence and then been told to do something
+   incompatible with it, by the same document.
+   That block is now explicitly marked superseded, with each stale instruction named
+   and corrected rather than silently deleted: both products attach to the published
+   `parallel_v1` generation, so no fresh generation is built and no purge decision
+   gates step 4; the wide row is one row per system with the summary as a view, so
+   the 1.59-billion and separate-summary figures describe nothing that will be
+   written; and capacity is settled by the fail-closed combined gate rather than by
+   an owner choice. The parts that remain true — the insert-only triggers, the
+   absence of a governed purge path — are kept and marked as no longer being
+   prerequisites, with disk reclamation tracked against the read-only inventory
+   instead.
