@@ -1553,7 +1553,11 @@ def test_v3_disk_inventory_reserve_survives_the_sql_phase():
     )[0]
     definitions = body.split("receipt: dict[str, Any] = {", 1)[0]
     namespace: dict[str, object] = {}
-    exec(compile(definitions, "budget-test.py", "exec"), namespace)
+    # An angle-bracketed filename, like exec()'s own "<string>": coverage.py skips
+    # such code objects. A plain "budget-test.py" was recorded as a source file that
+    # does not exist, so every `coverage report/xml/json` failed with "No source for
+    # code" and the Backend Code Coverage job wrote no report at all.
+    exec(compile(definitions, "<v3-disk-inventory-definitions>", "exec"), namespace)
 
     class FakeTime:
         now = 0.0
