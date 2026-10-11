@@ -106,3 +106,23 @@ def test_script_connects_only_through_the_validated_keywords():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "psycopg.connect(**_disposable_conninfo_from_env()" in source
     assert "psycopg.connect(dsn" not in source
+
+
+def test_fractions_json_drives_the_v4_score_distribution_and_is_validated(tmp_path):
+    """The real calibration histogram may replace the declared synthetic distribution."""
+    module = _load()
+    floors = {key: {"60": 0.3, "76": 0.08, "88": 0.01} for key in module.ARCHETYPE_KEYS}
+    expr = module._score_expr(0, "fractions", floors[module.ARCHETYPE_KEYS[0]])
+    assert "0.01" in expr and "CASE" in expr
+    with pytest.raises(ValueError, match="needs per-floor probabilities"):
+        module._score_expr(0, "fractions", None)
+    with pytest.raises(ValueError, match="unknown distribution"):
+        module._score_expr(0, "triangular")
+
+
+def test_receipt_declares_its_score_distribution_source():
+    source = SCRIPT.read_text(encoding="utf-8")
+    # A receipt must say whether its fractions are the declared synthetic distribution
+    # or a measured calibration histogram, so a capacity gate cannot mistake one for the other.
+    assert '"score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell"' in source
+    assert "--fractions-json" in source

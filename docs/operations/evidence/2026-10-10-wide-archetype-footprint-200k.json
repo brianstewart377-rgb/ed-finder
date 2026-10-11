@@ -1,7 +1,9 @@
 {
+  "fractions_json": null,
   "method": "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems",
   "postgres": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
   "rows": 200000,
+  "score_distribution_source": "declared-synthetic-bell",
   "server_version_num": 180004,
   "v1_with_system_id64": {
     "avg_tuple_bytes": 179.81816,
@@ -190,48 +192,48 @@
       "total_gb": 66.7
     },
     "fraction_ge60_by_key": {
-      "flexible": 0.1705,
-      "manufacturing_hub": 0.169,
-      "megacomplex": 0.1692,
-      "mining_hub": 0.1688,
-      "paradise": 0.1689,
-      "population_capital": 0.1696,
-      "research_hub": 0.1699,
-      "stronghold": 0.1684
+      "flexible": 0.1691,
+      "manufacturing_hub": 0.1686,
+      "megacomplex": 0.1678,
+      "mining_hub": 0.1689,
+      "paradise": 0.1677,
+      "population_capital": 0.1683,
+      "research_hub": 0.1693,
+      "stronghold": 0.1696
     },
     "fraction_ge76_by_key": {
-      "flexible": 0.0208,
-      "manufacturing_hub": 0.0205,
-      "megacomplex": 0.0204,
-      "mining_hub": 0.0202,
-      "paradise": 0.0203,
-      "population_capital": 0.0209,
-      "research_hub": 0.0208,
-      "stronghold": 0.0206
+      "flexible": 0.0207,
+      "manufacturing_hub": 0.021,
+      "megacomplex": 0.0206,
+      "mining_hub": 0.0201,
+      "paradise": 0.0198,
+      "population_capital": 0.0201,
+      "research_hub": 0.0215,
+      "stronghold": 0.0208
     },
     "fraction_ge88_by_key": {
       "flexible": 0.0019,
-      "manufacturing_hub": 0.0019,
+      "manufacturing_hub": 0.0018,
       "megacomplex": 0.0019,
       "mining_hub": 0.0018,
       "paradise": 0.0019,
-      "population_capital": 0.0019,
-      "research_hub": 0.002,
-      "stronghold": 0.0018
+      "population_capital": 0.002,
+      "research_hub": 0.0019,
+      "stronghold": 0.0019
     },
-    "index_bytes": 29949952,
-    "index_bytes_per_row": 149.7,
+    "index_bytes": 29908992,
+    "index_bytes_per_row": 149.5,
     "indexes": {
       "wa_v3_partial_ge60_score_sysid_flexible_0": {
-        "bytes": 1720320,
-        "bytes_per_row": 8.6
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
       },
       "wa_v3_partial_ge60_score_sysid_manufacturing_hub_0": {
         "bytes": 1703936,
         "bytes_per_row": 8.5
       },
       "wa_v3_partial_ge60_score_sysid_megacomplex_0": {
-        "bytes": 1703936,
+        "bytes": 1695744,
         "bytes_per_row": 8.5
       },
       "wa_v3_partial_ge60_score_sysid_mining_hub_0": {
@@ -239,20 +241,20 @@
         "bytes_per_row": 8.5
       },
       "wa_v3_partial_ge60_score_sysid_paradise_0": {
-        "bytes": 1703936,
+        "bytes": 1695744,
         "bytes_per_row": 8.5
       },
       "wa_v3_partial_ge60_score_sysid_population_capital_0": {
-        "bytes": 1712128,
-        "bytes_per_row": 8.6
-      },
-      "wa_v3_partial_ge60_score_sysid_research_hub_0": {
-        "bytes": 1712128,
-        "bytes_per_row": 8.6
-      },
-      "wa_v3_partial_ge60_score_sysid_stronghold_0": {
         "bytes": 1695744,
         "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_research_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_stronghold_0": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
       },
       "wa_v3_partial_ge60_score_sysid_weighted": {
         "bytes": 8151040,
@@ -267,56 +269,56 @@
     "score_distribution": "bell",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
-    "total_bytes": 67239936,
-    "total_bytes_per_row": 336.2
+    "total_bytes": 67198976,
+    "total_bytes_per_row": 336.0
   },
   "v4_weighted_key_tier_partials": {
     "avg_tuple_bytes": 211.81816,
     "extrapolated_prod": {
-      "index_gb": 31.8,
+      "index_gb": 31.7,
       "systems": 198500000,
       "table_gb": 44.0,
-      "total_gb": 75.8
+      "total_gb": 75.7
     },
     "fraction_ge60_by_key": {
-      "flexible": 0.1706,
-      "manufacturing_hub": 0.1697,
-      "megacomplex": 0.1681,
-      "mining_hub": 0.1684,
-      "paradise": 0.1685,
-      "population_capital": 0.1692,
-      "research_hub": 0.1681,
-      "stronghold": 0.1672
+      "flexible": 0.1683,
+      "manufacturing_hub": 0.167,
+      "megacomplex": 0.1682,
+      "mining_hub": 0.1686,
+      "paradise": 0.1683,
+      "population_capital": 0.1677,
+      "research_hub": 0.1693,
+      "stronghold": 0.1689
     },
     "fraction_ge76_by_key": {
-      "flexible": 0.0202,
-      "manufacturing_hub": 0.0208,
+      "flexible": 0.0199,
+      "manufacturing_hub": 0.0205,
       "megacomplex": 0.0207,
-      "mining_hub": 0.0208,
-      "paradise": 0.0205,
-      "population_capital": 0.0205,
-      "research_hub": 0.0202,
-      "stronghold": 0.0204
+      "mining_hub": 0.0204,
+      "paradise": 0.0199,
+      "population_capital": 0.0204,
+      "research_hub": 0.0204,
+      "stronghold": 0.0205
     },
     "fraction_ge88_by_key": {
-      "flexible": 0.002,
-      "manufacturing_hub": 0.002,
-      "megacomplex": 0.0019,
+      "flexible": 0.0019,
+      "manufacturing_hub": 0.0018,
+      "megacomplex": 0.0018,
       "mining_hub": 0.0018,
-      "paradise": 0.0019,
-      "population_capital": 0.0018,
-      "research_hub": 0.0018,
-      "stronghold": 0.0019
+      "paradise": 0.002,
+      "population_capital": 0.0019,
+      "research_hub": 0.0019,
+      "stronghold": 0.0018
     },
-    "index_bytes": 32014336,
-    "index_bytes_per_row": 160.1,
+    "index_bytes": 31956992,
+    "index_bytes_per_row": 159.8,
     "indexes": {
       "wa_v4_weighted_key_tier_partials_flexible_0": {
-        "bytes": 1720320,
-        "bytes_per_row": 8.6
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_flexible_1": {
-        "bytes": 221184,
+        "bytes": 212992,
         "bytes_per_row": 1.1
       },
       "wa_v4_weighted_key_tier_partials_flexible_2": {
@@ -324,11 +326,11 @@
         "bytes_per_row": 0.2
       },
       "wa_v4_weighted_key_tier_partials_manufacturing_hub_0": {
-        "bytes": 1712128,
-        "bytes_per_row": 8.6
+        "bytes": 1687552,
+        "bytes_per_row": 8.4
       },
       "wa_v4_weighted_key_tier_partials_manufacturing_hub_1": {
-        "bytes": 229376,
+        "bytes": 221184,
         "bytes_per_row": 1.1
       },
       "wa_v4_weighted_key_tier_partials_manufacturing_hub_2": {
@@ -348,11 +350,11 @@
         "bytes_per_row": 0.2
       },
       "wa_v4_weighted_key_tier_partials_mining_hub_0": {
-        "bytes": 1695744,
+        "bytes": 1703936,
         "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_mining_hub_1": {
-        "bytes": 229376,
+        "bytes": 221184,
         "bytes_per_row": 1.1
       },
       "wa_v4_weighted_key_tier_partials_mining_hub_2": {
@@ -364,7 +366,7 @@
         "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_paradise_1": {
-        "bytes": 221184,
+        "bytes": 212992,
         "bytes_per_row": 1.1
       },
       "wa_v4_weighted_key_tier_partials_paradise_2": {
@@ -372,7 +374,7 @@
         "bytes_per_row": 0.2
       },
       "wa_v4_weighted_key_tier_partials_population_capital_0": {
-        "bytes": 1703936,
+        "bytes": 1695744,
         "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_population_capital_1": {
@@ -384,7 +386,7 @@
         "bytes_per_row": 0.2
       },
       "wa_v4_weighted_key_tier_partials_research_hub_0": {
-        "bytes": 1695744,
+        "bytes": 1703936,
         "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_research_hub_1": {
@@ -396,8 +398,8 @@
         "bytes_per_row": 0.2
       },
       "wa_v4_weighted_key_tier_partials_stronghold_0": {
-        "bytes": 1687552,
-        "bytes_per_row": 8.4
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
       },
       "wa_v4_weighted_key_tier_partials_stronghold_1": {
         "bytes": 221184,
@@ -420,7 +422,7 @@
     "score_distribution": "bell",
     "table_bytes": 44335104,
     "table_bytes_per_row": 221.7,
-    "total_bytes": 76349440,
-    "total_bytes_per_row": 381.7
+    "total_bytes": 76292096,
+    "total_bytes_per_row": 381.5
   }
 }

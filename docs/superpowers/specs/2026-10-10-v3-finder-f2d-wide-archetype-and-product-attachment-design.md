@@ -290,10 +290,12 @@ with 16.9 % ≥ 60, 2.1 % ≥ 76, 0.19 % ≥ 88 per key; `v4_weighted_key_tier_p
 in the committed evidence): ≥ 60 partial 8.5 B/row, ≥ 76 1.1 B/row, ≥ 88 0.2 B/row
 per key — ≈ 79 B/row for all 24 — plus primary key 40.7 and weighted index 40.8;
 indexes total 160 B/row ≈ 32 GB. Each partial's size is 49.8 B × (fraction of
-systems at or above that floor), so **the step 6 calibration probe's per-key tier
-histogram sizes them for real** before PR1's final re-measurement; the design
-stops and is revisited if the histogram implies the ≥ 60 fraction above ≈ 40 %
-on several keys (that would put the indexes alone near 80 GB). The earlier
+systems at or above that floor), so **the calibration probe's per-key tier
+histogram sizes them for real** — at the pre-build capacity gate, after the
+governed probe has run, not in PR1 (whose receipt uses the declared synthetic
+distribution, section 10); the gate stops and the design is revisited if the
+histogram implies the ≥ 60 fraction above ≈ 40 % on several keys (that would
+put the indexes alone near 80 GB). The earlier
 score-ordered partial layout (`v3_partial_ge60_score_sysid`, ≈ 67 GB) and the
 deduplicated layout (≈ 65 GB) are kept in the evidence as rejected alternatives:
 the first cannot serve canonical order, the second cannot bound the probe.
@@ -367,9 +369,17 @@ renames no externally used guard unless needed for clarity.
 `Path(ge=0, le=9223372036854775807)` as the active Ratings V4 routes do, so a
 negative or over-`bigint` value is a 422 validation response rather than an
 asyncpg encoding failure (tests cover both bounds), and with three **optional
-identity query parameters** — `expected_generation_id` (uuid),
-`expected_archetype_version` (text) and `expected_manifest_sha256` (hex) — that
-a client copies from the ranking envelope of the card it is explaining. When any
+identity query parameters**, each bounded by request validation rather than
+reaching the database as free text — `expected_generation_id` typed
+`uuid.UUID`, `expected_archetype_version`
+`Query(None, min_length=1, max_length=128)` (the bound the column's own CHECK
+uses) and `expected_manifest_sha256`
+`Query(None, pattern=r'^[0-9a-f]{64}$')` (exactly 64 lower-case hex
+characters) — that a client copies from the ranking envelope of the card it is
+explaining. A malformed or oversized value is a 422 from validation, never a
+409 identity conflict and never a database parameter; tests cover an over-128
+version, an empty version, 63- and 65-character hashes, upper-case hex and a
+non-hex string. When any
 is supplied and differs from the current published product, the route answers
 HTTP 409 with the same detail string as the version rule in section 4.3, so a
 product republished between a card's ranking response and the user expanding
@@ -615,13 +625,30 @@ aliases.
 (`apps/api/src/ranking/ranking_sql.py:246-263,294-329,451-506,512-546`)
 
 **The whole bounded structure is PR1's, including the window-then-filter
-order.** The picked query is built as: (1) an inner query over
-`v3_app.system_archetype` alone — generation, literal floor, `ORDER BY
-<key>_weighted_e4 DESC, system_id64 ASC`, `LIMIT 10001` — which is the only part
-that touches the archetype relation and is index-only; (2) the join to
-`v3_app.system_search` and every hard filter (region, distance, body counts, …)
-applied to those ≤ 10,001 rows; (3) the page (`OFFSET`/`LIMIT`) over the filtered
-survivors in the inner order. Hard filters therefore apply **inside** the
+order.** The picked query is built in four stages, and the archetype relation is
+touched exactly twice — once index-only for the window, once by primary key for
+the page:
+
+1. **Window (index-only).** An inner query over `v3_app.system_archetype`
+   alone selecting only `system_id64` and `<key>_weighted_e4` — generation,
+   literal floor, `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC`,
+   `LIMIT 10001`. Those are exactly the partial index's own columns
+   `(derived_generation_id, <key>_weighted_e4, system_id64)`, so this stage is a
+   genuine `Index Only Scan` with no heap access.
+2. **Filter.** Join `v3_app.system_search` to those ≤ 10,001 rows and apply
+   every hard filter (region, distance, body counts, …).
+3. **Page.** `OFFSET`/`LIMIT` over the filtered survivors in the inner order.
+4. **Fetch (bounded, by primary key).** Join `v3_app.system_archetype` again on
+   `(derived_generation_id, system_id64)` for the ≤ `page_size` paged rows only,
+   to read the selected `<key>_score`, `<key>_tier`, `<key>_confidence_ppm` and
+   the summary columns the response reports — at most 50 primary-key lookups per
+   request. The plan assertions therefore require: the window node is an
+   `Index Only Scan` on the expected partial index with ≤ 10,001 actual rows,
+   and the fetch node's actual rows are ≤ `page_size`.
+
+Carrying those columns as INCLUDE payload on the 24 partial indexes was
+rejected: it would add payload to every indexed row to save ≤ 50 key lookups
+per request. The count query needs stages 1 and 2 only. Hard filters therefore apply **inside** the
 window, never before it: a filter in the inner `WHERE` would let the index scan
 run past 10,001 entries looking for matches (unbounded again, and the very
 reason the F4 design's slice 1c existed). `total` is the number of survivors
@@ -702,7 +729,13 @@ envelope and the local-search envelope beside the existing `ranking_version` /
 modifiers, filters and ordering but not the model coefficients, so clients that
 persist or compare scores (the F4 design's saved surfaces) need the product
 identity as well; the explanation route's expected-identity parameters
-(section 4.1) take the same values. The OpenAPI parameter
+(section 4.1) take the same values. Both envelopes are PR1's work and PR1's
+file list names every part of it — the shared identity model, the product-row
+lookup in `_current_derived_generation()`, the rankings and local-search
+response construction, and assertions on both envelopes in
+`tests/test_local_search_v3.py` and `tests/test_archetype_rankings_v3.py`; the
+local-search envelope is not deferred to PR2, which touches `local_search.py`
+again only for the publication gate. The OpenAPI parameter
 constraints and response schema change so PR1
 regenerates all three typed clients (`apps/web/src/lib/api/generated/*` and
 `packages/api-client/src/generated/api.gen.ts`), and the tests cover the default
@@ -1079,18 +1112,30 @@ Files:
   path unchanged through the `v3_app.system_archetype_summary` view)
 - `apps/api/src/routers/archetypes.py` (`min_score: Literal[60, 76, 88] = Query(60)`;
   `offset` bounded to the window; `is_truncated` returned)
-- `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`, additive)
+- `apps/api/src/models.py` (`ArchetypeRankingsResponse.is_truncated: bool`,
+  additive; `archetype_version` and `archetype_manifest_sha256` on the shared
+  ranking-identity model both envelopes use)
+- `apps/api/src/local_search.py` (**PR1, not PR2**: the local-search envelope's
+  ranking identity gains `archetype_version` and `archetype_manifest_sha256`;
+  `_current_derived_generation()` returns the published archetype product's
+  code/version/manifest hash alongside the generation id and sequence, and
+  `local_db_search_v3()` builds the envelope from it. It fails closed exactly as
+  today when that product is missing or not READY — 503, never an envelope
+  without identity. PR2 touches this file again only for the publication gate)
 - `apps/web/src/lib/api/generated/types.gen.ts`,
   `apps/web/src/lib/api/generated/sdk.gen.ts`,
   `packages/api-client/src/generated/api.gen.ts` (regenerated for the changed
-  parameter constraint)
+  parameter constraint and the two new identity fields on both envelopes)
 - `scripts/dev/measure_wide_archetype_footprint.py` (gains `--migration-sql
   sql/v3/migrations/011_v3_system_archetype.sql`: applies the final migration
   text to the disposable database instead of its built-in DDL, fills the real
-  `v3_derived.system_archetype` with synthetic rows whose per-key ≥ 60 fractions
-  come from the calibration-probe histogram, and sizes the heap and all 26
-  physical indexes; the committed built-in layouts stay as the pre-migration
-  reference)
+  `v3_derived.system_archetype`, and sizes the heap and all 26 physical indexes.
+  PR1's receipt uses the **declared synthetic** bell-shaped distribution already
+  committed and labels it as such: the calibration probe has not run — the
+  rollout schedules it as a governed step after these PRs merge — so its
+  histogram cannot be a PR1 input. The script also takes `--fractions-json`,
+  which the pre-build capacity gate uses with the probe's real per-key tier
+  fractions; the committed built-in layouts stay as the pre-migration reference)
 - `tests/test_measure_wide_archetype_footprint.py`
 - `scripts/dev/seed_v3_fixture_generation.py`,
   `scripts/dev/seed_cypress_v3_generation.py` (wide rows; generation publication
@@ -1208,8 +1253,15 @@ Files:
 - `docs/operations/v3-finder-production-rollout-state.md`,
   `docs/operations/v3-production-application-release.md` (revised F3 release
   gate: exact generation key/UUID/sequence, both product versions/manifests,
-  READY + `published_at`, validation/publication audits, row counts, new ranking
-  version/SHA)
+  both products **READY with VERIFIED validation receipts**, validation audits,
+  row counts, and the new ranking version/SHA. It must **not** require
+  `published_at` or a publication audit: rollout step 8 promotes the release
+  while both products are still unpublished — that is the point, the bounded
+  ranking code reaches production before anything is visible — and step 9's
+  publication is the go-live switch afterwards. A gate that demanded publication
+  would make step 8 impossible and step 9 unreachable. Publication is verified
+  by the publish action's own receipt (timestamps, audit rows, view counts) and
+  by a post-go-live check, both specified in this PR)
 - `deploy/v3-production/target-authority.json` (release-gate fields only; the
   migration identities were recut in PR1/PR2)
 - tests: `tests/test_v3_system_search_production_operator.py`,
@@ -1301,3 +1353,28 @@ Planned implementation commit message:
 ```text
 docs(finder): F2d design — wide-row archetype product and product attachment/publication on a published generation
 ```
+
+### Review round 8 (2026-10-11)
+
+1. **P1 — Add local-search identity wiring to PR1** → the shared identity model,
+   the product-row lookup in `_current_derived_generation()`, the local-search
+   envelope construction and assertions on both envelopes are named in PR1's file
+   list (`apps/api/src/local_search.py` is PR1 work, not deferred to PR2).
+2. **P1 — Keep publication out of the pre-go-live release gate** → PR4's gate
+   requires READY + VERIFIED validation receipts, identities and row counts, and
+   explicitly must not require `published_at` or a publication audit; publication
+   is verified by the publish action's receipt and a post-go-live check.
+3. **P2 — Make the claimed index-only ranked query executable** → the picked
+   query is specified in four stages: index-only window (only the partial index's
+   own columns), filter, page, then a bounded primary-key fetch of ≤ `page_size`
+   rows for the response columns; plan assertions cover both nodes. INCLUDE
+   payload on 24 partial indexes was considered and rejected.
+4. **P1 — Run calibration before making its histogram a PR1 input** → PR1's
+   footprint receipt uses the declared synthetic bell-shaped distribution and says
+   so; the histogram-driven measurement moves to the pre-build capacity gate,
+   after the governed probe runs, via a new `--fractions-json` input.
+5. **P2 — Bound the explanation identity parameters** → `expected_generation_id`
+   is a `uuid.UUID`, `expected_archetype_version` is
+   `Query(None, min_length=1, max_length=128)` and `expected_manifest_sha256` is
+   `Query(None, pattern=r'^[0-9a-f]{64}$')`; malformed or oversized values are
+   422s from validation, with tests for each case.

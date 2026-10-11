@@ -58,6 +58,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import psycopg
@@ -122,23 +123,40 @@ CREATE TABLE scratch.{table} (
 )"""
 
 
-def _score_expr(index: int, distribution: str) -> str:
+def _score_expr(index: int, distribution: str, floors: dict[str, float] | None = None) -> str:
     if distribution == "uniform":
         return f"((g.n * {97 + index * 13}) %% 101)"
     if distribution == "bell":
         uniforms = "+".join(["random()"] * 12)
         return f"LEAST(100, GREATEST(0, round(45 + 15 * (({uniforms}) - 6))))::int"
+    if distribution == "fractions":
+        if floors is None:
+            raise ValueError("the 'fractions' distribution needs per-floor probabilities")
+        f60, f76, f88 = (float(floors[str(floor)]) for floor in (60, 76, 88))
+        # Draw one uniform and place the row in the band its probability selects, so the
+        # measured index sizes follow the supplied per-key tier fractions exactly.
+        return (
+            "(CASE"
+            f" WHEN random() < {f88} THEN 88 + floor(random() * 13)"
+            f" WHEN random() < {(f76 - f88) / (1 - f88) if f88 < 1 else 0}"
+            " THEN 76 + floor(random() * 12)"
+            f" WHEN random() < {(f60 - f76) / (1 - f76) if f76 < 1 else 0}"
+            " THEN 60 + floor(random() * 16)"
+            " ELSE floor(random() * 60) END)::int"
+        )
     raise ValueError(f"unknown distribution {distribution!r}")
 
 
 def _fill(conn: psycopg.Connection, table: str, rows: int, distribution: str = "uniform",
-          weighted_keys: bool = False) -> None:
+          weighted_keys: bool = False, fractions: dict[str, dict[str, float]] | None = None) -> None:
     key_array = "ARRAY[" + ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS) + "]"
     # Inner query draws every score once (the bell distribution uses random()), so the
     # derived tier and weighted key of a row always agree with its score.
     inner_cols = ["g.n AS n"]
     for index, key in enumerate(ARCHETYPE_KEYS):
-        inner_cols.append(f"{_score_expr(index, distribution)} AS s_{key}")
+        inner_cols.append(
+            f"{_score_expr(index, distribution, fractions.get(key) if fractions else None)} AS s_{key}"
+        )
         inner_cols.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6) AS c_{key}")
     inner_cols.append("0.5 + ((g.n * 53) %% 1000) / 2000.0 AS completeness")
     inner = f"SELECT {', '.join(inner_cols)} FROM generate_series(1, %s) AS g(n)"
@@ -270,10 +288,33 @@ def _disposable_conninfo_from_env() -> dict[str, str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     parser.add_argument("--rows", type=int, default=200_000, help="synthetic rows to build (default 200000)")
+    parser.add_argument(
+        "--fractions-json",
+        help=(
+            "Path to a JSON object {archetype_key: {'60': f, '76': f, '88': f}} of REAL per-key "
+            "tier fractions (from the governed calibration probe's histogram). When given, the "
+            "v4 layout's scores are drawn to match those fractions instead of the declared "
+            "synthetic bell distribution, and the receipt records the source as 'measured-histogram'."
+        ),
+    )
     args = parser.parse_args()
     if args.rows < 1000 or args.rows > 5_000_000:
         sys.exit("--rows must be between 1000 and 5000000")
-    out: dict[str, object] = {"rows": args.rows, "method": (
+    fractions: dict[str, dict[str, float]] | None = None
+    if args.fractions_json:
+        fractions = json.loads(Path(args.fractions_json).read_text(encoding="utf-8"))
+        missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
+        if missing:
+            sys.exit(f"--fractions-json is missing archetype keys: {', '.join(missing)}")
+        for key in ARCHETYPE_KEYS:
+            floors = fractions[key]
+            values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
+            if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
+                sys.exit(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
+    out: dict[str, object] = {
+        "score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell",
+        "fractions_json": args.fractions_json,
+        "rows": args.rows, "method": (
         "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, "
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"
     )}
@@ -299,7 +340,12 @@ def main() -> None:
             table = f"wide_archetype_{layout}"
             conn.execute(f"DROP TABLE IF EXISTS scratch.{table}")
             conn.execute(_ddl(table, weighted_keys))
-            _fill(conn, table, args.rows, distribution, weighted_keys)
+            layout_fractions = fractions if (weighted_keys and fractions) else None
+            _fill(
+                conn, table, args.rows,
+                "fractions" if layout_fractions else distribution,
+                weighted_keys, layout_fractions,
+            )
             for key in ARCHETYPE_KEYS:
                 for ordinal, predicate in enumerate(predicates):
                     # Keep names under PostgreSQL's 63-character identifier limit.
@@ -312,7 +358,7 @@ def main() -> None:
             )
             conn.execute(f"VACUUM ANALYZE scratch.{table}")
             report = _sizes(conn, table)
-            report["score_distribution"] = distribution
+            report["score_distribution"] = "fractions" if layout_fractions else distribution
             for floor in (60, 76, 88):
                 report[f"fraction_ge{floor}_by_key"] = {
                     key: round(count / args.rows, 4)
