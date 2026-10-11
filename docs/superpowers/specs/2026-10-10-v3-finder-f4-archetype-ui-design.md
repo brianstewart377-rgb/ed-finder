@@ -451,17 +451,28 @@ accessible name **“Clear anchor [star]”** and the visible label **Clear**; i
 in the normal tab order, activates on Enter and Space as a button does, and is
 not a decorative icon-only affordance. Activating it, in one navigation through
 the shared anchor-state-preserving helper: clears the committed anchor and the
-combobox draft, writes `state: { ...page.state, anchor: null }` so Back/Forward
-and reload cannot resurrect it, removes `offset` (reset to the first page),
+combobox draft, writes `state: { ...page.state, anchor: null }` into the new
+entry, removes `offset` (reset to the first page),
 leaves `archetype`, `min-tier`, `page_size`, `selected` and `system` untouched,
 moves focus to the combobox input, and announces **“Anchor cleared; searching
 galaxy-wide.”** in the existing `role="status"` region. Tests: the control
 appears only with a committed anchor; clearing from an anchored Any search
 re-issues the galaxy-wide request; clearing while a selected archetype is active
-keeps the archetype and floor; `page.state.anchor` is `null` afterwards and a
-Back navigation does not restore the cleared anchor; the offset resets to the
+keeps the archetype and floor; `page.state.anchor` is `null` on the resulting
+entry; the offset resets to the
 first page; axe passes on the control. Its files are
-`ExploreWorkspace.svelte`/`.test.ts` in the F4b list. Returning to Any
+`ExploreWorkspace.svelte`/`.test.ts` in the F4b list.
+
+**Clearing is history-reversible, by design.** Writing `anchor: null` into the
+new entry cannot rewrite the entries already behind it, and it should not try:
+pressing Back after clearing returns to the anchored page the user was on, which
+is what Back means everywhere else in the app. So the contract is “the current
+entry has no anchor”, not “the anchor is gone from history”. A test asserts both
+halves: after clearing, the request is galaxy-wide and `page.state.anchor` is
+`null`; after Back, the anchored 500-LY request is re-issued for the previous
+entry's anchor and the Clear control is present again. (No invalidation model is
+introduced — a scheme that made older entries ignore their own stored state
+would break Back for every other parameter too.) Returning to Any
 therefore restores the committed anchored query even if the draft was edited
 while archetype mode was active. This separation is required because the current
 single `anchor` is cleared on every input edit
@@ -576,7 +587,19 @@ the request model accepts `from` up to 2,147,483,647 and `local_db_search_v3`
 forwards page `LIMIT`/`OFFSET` to SQL independently of its capped count, so a
 response-driven clamp would let the first request scan the ranking index
 (`apps/api/src/local_search.py:902-923`,
-`apps/api/src/ranking/ranking_sql.py:479-506`). Normalize Any responses
+`apps/api/src/ranking/ranking_sql.py:479-506`).
+
+The browser clamp is not the only defence: a caller can post to
+`/api/local/search` directly. **The same ceiling is enforced at the API
+boundary**, in the release that deploys before publication (F2d PR1, which
+already bounds the rankings route's `offset`): the local-search request model
+bounds `from` to `0–10_000`, so a larger offset is a 422 rather than an
+`OFFSET 2000000000` against the ranking index. This costs nothing real — no mode
+navigates past 10,000 by contract, and a galaxy-wide count is capped at 10,000
+anyway, so offsets beyond it cannot address rows a client could legitimately
+reach. Tests assert the 422 at `from = 10_001` and success at `from = 10_000`.
+
+Normalize Any responses
 separately: `navigable_total` is `min(total, 10000)`, and the Any truncation
 state is the existing `total_is_capped === true` rather than selected mode's
 differently defined `is_truncated`. An anchored exact `total` above 10,000 is
@@ -843,7 +866,7 @@ The URL is the source of truth for shareable ranking state:
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
 | Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
-| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits `/explore?selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`), so the round trip Explore → Inspect → Explore keeps the selection and marker and closing the overlay leaves the inspected system selected; an enabled-build return-flow test covers it. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
+| Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it with the two selection parameters appended, so `archetype`, `min-tier`, `page_size`, `offset` and any filters come back exactly as they were. The anchor, which is not URL state, travels in SvelteKit history state on the forward navigation and is restored by the return link's `goto` through the shared anchor-state-preserving helper; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
 Serialize keys in the table's order and weights lexicographically so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
@@ -1400,8 +1423,14 @@ rows: the first 10,000 form the immutable candidate window and the sentinel
 sets `is_truncated`.
 
 The query then joins `system_search` for the response columns only — **no hard
-filter participates at any stage** (see below). Rows keep
-the index order — it already is the canonical `score × confidence ×
+filter participates at any stage** (see below). The join does not guarantee row
+order: an ordered index scan inside a subquery or CTE says nothing about the
+final result, and the planner is free to choose a hash join. The outer query
+therefore **restates the order explicitly** —
+`ORDER BY <key>_weighted_e4 DESC, system_id64 ASC` on the at-most-10,000
+survivors, before `OFFSET`/`LIMIT` — which is a sort of ≤ 10,000 rows, not of
+the relation, and is asserted in the plan tests. That order is
+the canonical `score × confidence ×
 completeness DESC, system_id64 ASC` order, so no re-sort happens. The profile's
 former picked-mode tie-break `(distance, system_id64)` is **changed to
 `system_id64` only** in the new identity (F2d design section 6): ties on the
@@ -1769,9 +1798,14 @@ Exact files:
   score shown; 200 → eight explanations with their score/tier/confidence, 409 →
   a typed `explanation_unavailable` result, 404/503 → the existing bounded error
   states; never throws into the UI)
-- modify `apps/web/src/lib/api/query.ts`, `query.test.ts` (query key includes
-  the generation id and `archetype_version` from the ranking envelope so a
-  product republish invalidates cached explanations)
+- modify `apps/web/src/lib/api/query.ts`, `query.test.ts` (the query key
+  includes **every expected identity field the request sends** — generation id,
+  `archetype_version` **and** `archetype_manifest_sha256` — plus the `id64`. A
+  key partitioned only by generation and version would alias the previous
+  explanation when a rebuild changes only the manifest hash, and the shared
+  client treats cached data as fresh for 30 s, so neither the request nor its
+  echoed-identity check would run. A test changes only the manifest hash and
+  asserts a new fetch)
 - create `apps/web/src/lib/features/explore/ArchetypeExplanation.svelte`,
   `ArchetypeExplanation.test.ts` (a disclosure region under the result card's
   tier/confidence row and in the Inspect hand-off: per-archetype contribution
@@ -2493,3 +2527,31 @@ F4b disables (never hides) those controls while an archetype is picked, with one
 shared `aria-describedby` explanation, clears them from the URL with a polite
 announcement, and restores them on returning to Any. Earlier rounds' dispositions
 that describe post-window filtering are superseded by this one.
+
+#### Round 24 — 2026-10-11 (PR #801)
+
+1. **P1 — Reapply canonical order after joining the window** → the outer query
+   restates `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC` on the
+   at-most-10,000 survivors before `OFFSET`/`LIMIT` (a ≤ 10,000-row sort, not a
+   relation sort), because an ordered index scan inside a subquery does not fix
+   the final order and the planner may hash-join. Asserted in the plan tests.
+2. **P2 — Make clear-anchor history behavior achievable** → the over-claim is
+   withdrawn: clearing writes `anchor: null` into the **new** entry only, and
+   Back legitimately returns to the anchored page, as Back does for every other
+   parameter. The contract is “the current entry has no anchor”, and the test
+   asserts both halves (galaxy-wide after clearing, anchored again after Back).
+   No invalidation model is introduced.
+3. **P2 — Include the manifest hash in the explanation cache key** → the key
+   carries every expected identity field the request sends, the manifest hash
+   included, with a test that changing only the hash forces a new fetch.
+4. **P1 — Enforce the Any offset ceiling in the API** → the local-search request
+   model bounds `from` to 0–10,000 in the release that deploys before
+   publication (F2d PR1), so a direct caller gets a 422 instead of an
+   `OFFSET 2000000000`; tests pin 10,000 (ok) and 10,001 (422). The browser clamp
+   stays as the user-facing behaviour.
+5. **P2 — Preserve Finder state across the Inspect return link** → Explore passes
+   its query string to Inspect and **Open in Explore** replays it with
+   `selected`/`system` appended, with the anchor carried in history state and
+   restored through the shared helper; a bare-link arrival falls back to default
+   Any, which its URL honestly describes. The round-trip test covers a
+   selected-archetype page and an anchored Any page.
