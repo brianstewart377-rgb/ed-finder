@@ -352,8 +352,18 @@ class ScanBudget:
         self._deadline = time.monotonic() + seconds
 
     def release_reserve(self) -> None:
-        """Open the reserve, for the closing reconciliation scan only."""
+        """Open the reserve, for the closing reconciliation scan only.
+
+        This also RESTARTS the reserve's clock. The reserve has to be an allowance
+        rather than a slice of an advancing deadline: between the scans and this call,
+        the database, WAL, relation, index, attribution and tablespace queries run
+        without touching the budget at all, while the wall clock keeps moving. Those
+        sections could therefore consume the supposedly protected 300 s and the closing
+        scan would raise directory_scan_budget_exhausted immediately -- the one scan the
+        reserve exists for, denied by time it never asked for.
+        """
         self._reserved = False
+        self._deadline = time.monotonic() + self.reserve_seconds
 
     def reserve(self) -> float:
         return self.reserve_seconds if self._reserved else 0.0
@@ -1238,6 +1248,26 @@ try:
         raise RuntimeError("postgres_data_directory_bracket_unavailable")
     scan_budget.release_reserve()
     pgdata_final = du_total(pgdata_host, scan_budget)
+    # Re-read the filesystem too. The PGDATA bracket closes over the database, but a
+    # sibling consumer -- a backup, a Docker layer, a host log -- can change during the
+    # drill-down and the SQL inventory, and only a fresh `df` can see that. Closing on
+    # the reading taken right after the root scan would leave unaccounted_bytes and the
+    # df/du residual stale while the receipt reported success.
+    volume_used_final = df_used_bytes(mount_source)
+    opening = inventory.get("volume_used_bracket")
+    if not isinstance(opening, dict) or "bytes_before_filesystem_scan" not in opening:
+        raise RuntimeError("volume_used_bracket_unavailable")
+    window_drift = abs(volume_used_final - opening["bytes_before_filesystem_scan"])
+    window_tolerance = opening["tolerance_bytes"]
+    opening["bytes_after_window"] = volume_used_final
+    opening["window_drift_bytes"] = (
+        volume_used_final - opening["bytes_before_filesystem_scan"]
+    )
+    opening["reconciled"] = window_drift <= window_tolerance
+    if window_drift > window_tolerance:
+        raise RuntimeError(
+            f"volume_changed_during_window:drift_{window_drift}_over_{window_tolerance}"
+        )
     span_drift = abs(pgdata_final - pgdata_before)
     bracket["bytes_after_drill_down"] = pgdata_final
     bracket["span_drift_bytes"] = pgdata_final - pgdata_before
@@ -1356,7 +1386,13 @@ try:
     # lists only pg_wal's top-level ordinary files and documents that it excludes
     # directories. pg_wal/archive_status and PostgreSQL 18's pg_wal/summaries are
     # therefore inside neither figure, so the difference becomes its own candidate.
-    for name in WAL_CHILD_NAMES:
+    # wal_bytes is pg_ls_waldir()'s figure for the LIVE WAL directory, which on
+    # PostgreSQL 18 is pg_wal. Subtracting it from pg_xlog as well would treat a stale
+    # pg_xlog as though it had been measured: smaller than the live WAL it would vanish
+    # from the candidates entirely, larger and only its excess would show -- and an
+    # unexpected directory full of old WAL is exactly the reclaimable space this action
+    # is looking for. So pg_wal gets the subtraction and pg_xlog is reported whole.
+    for name, subtract in (("pg_wal", wal_bytes), ("pg_xlog", 0)):
         wal_child = next(
             (
                 row
@@ -1367,12 +1403,47 @@ try:
         )
         if wal_child is None:
             continue
-        wal_unlisted = wal_child["bytes"] - wal_bytes
+        wal_unlisted = wal_child["bytes"] - subtract
         if wal_unlisted > 0:
+            label = (
+                "subdirectories and files pg_ls_waldir does not list"
+                if subtract
+                else "not the live WAL directory on PostgreSQL 18; unexpected storage"
+            )
             inside.append(
                 {
-                    "path": f"{wal_child['path']} (subdirectories and files pg_ls_waldir does not list)",
+                    "path": f"{wal_child['path']} ({label})",
                     "exclusive_bytes": wal_unlisted,
+                    "inside_data_directory": True,
+                }
+            )
+    # `base` is excluded as accounted, but pg_database_size scans base/<database OID>
+    # rather than the whole directory, and the temp figure covers base/pgsql_tmp's
+    # ordinary files. Anything else under base -- an orphaned OID directory from a
+    # dropped database, a stray file -- is inside neither figure, so excluding the whole
+    # child would remove it from every candidate while leaving it in unaccounted_bytes.
+    # Orphaned storage under base is exactly the reclaimable space this action looks
+    # for, so the positive remainder is reported as its own candidate.
+    base_child = next(
+        (
+            row
+            for row in pgdata_children
+            if row["path"].rstrip("/").rsplit("/", 1)[-1] == "base"
+        ),
+        None,
+    )
+    if base_child is not None:
+        base_unlisted = base_child["bytes"] - (
+            operating_database_bytes + other_databases_bytes + temp_bytes
+        )
+        if base_unlisted > 0:
+            inside.append(
+                {
+                    "path": (
+                        f"{base_child['path']} (outside live database directories and "
+                        "the measured temporary files)"
+                    ),
+                    "exclusive_bytes": base_unlisted,
                     "inside_data_directory": True,
                 }
             )

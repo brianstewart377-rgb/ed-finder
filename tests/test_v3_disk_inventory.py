@@ -307,7 +307,7 @@ def _run_inventory_action(
               *'pg_prepared_xacts'*)
                 printf '%s\\n' '{"prepared_transactions":0}' ;;
               *'pg_ls_waldir'*)
-                printf '%s\\n' '{"segments":3,"bytes":12}' ;;
+                printf '%s\\n' '{"segments":3,"bytes":118000}' ;;
               *"current_setting('max_wal_size')"*)
                 printf '%s\\n' '{"max_wal_size":"1GB","min_wal_size":"80MB","wal_keep_size":"0","archive_mode":"off"}' ;;
               *'pg_ls_tmpdir'*)
@@ -325,8 +325,8 @@ def _run_inventory_action(
               *'pg_total_relation_size'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"heap_bytes":500,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
               *'pg_database_size'*)
-                printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1345,"datistemplate":false,"datallowconn":true}'
-                printf '%s\\n' '{"datname":"postgres","size_bytes":20,"datistemplate":false,"datallowconn":true}' ;;
+                printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1320000,"datistemplate":false,"datallowconn":true}'
+                printf '%s\\n' '{"datname":"postgres","size_bytes":8000,"datistemplate":false,"datallowconn":true}' ;;
               *"to_regclass('v3_derived.search_build_chunk')"*)
                 printf 'v3_derived.search_build_chunk\\tv3_derived.archetype_build_chunk\\n' ;;
               *'FROM v3_derived.search_build_chunk'*)
@@ -383,7 +383,7 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert inventory["volume"]["avail_bytes"] == 292000
     assert {"path": "/var/log", "bytes": 30000} in inventory["volume_directory_usage"]
     assert inventory["databases"][0]["datname"] == "edfinder_v3_db"
-    assert inventory["wal"]["bytes"] == 12
+    assert inventory["wal"]["bytes"] == 118000
     assert inventory["relations"][0]["name"] == "system_rating_vector"
     assert inventory["indexes"][0]["idx_scan"] == 0
     assert inventory["dead_tuples"][0]["estimated_dead_fraction"] == 0.25
@@ -397,8 +397,10 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "search_chunks": 8,
         "search_systems": 100,
     }
-    assert inventory["summary"]["accounted_bytes"] == 1382
-    assert inventory["summary"]["unaccounted_bytes"] == 1557000 - 1382
+    # The fixture is internally coherent: 1,320,000 + 8,000 databases, 118,000 WAL,
+    # 5 temp, against a 1,330,000 base/ and a 120,000 pg_wal.
+    assert inventory["summary"]["accounted_bytes"] == 1446005
+    assert inventory["summary"]["unaccounted_bytes"] == 1557000 - 1446005
     assert inventory["postgres_data_directory_usage"]["bytes"] == 1465000
     pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
     assert inventory["postgres_data_directory"] == {
@@ -591,7 +593,7 @@ def test_v3_disk_inventory_preserves_volume_when_root_df_fails(tmp_path):
     assert receipt["inventory"]["root_filesystem"] == {
         "root_filesystem_failed": "disk_usage_command_failed"
     }
-    assert receipt["inventory"]["summary"]["unaccounted_bytes"] == 1557000 - 1382
+    assert receipt["inventory"]["summary"]["unaccounted_bytes"] == 1557000 - 1446005
 
 
 def test_v3_disk_inventory_stops_cleanly_when_the_volume_measurement_failed(tmp_path):
@@ -670,10 +672,20 @@ def test_v3_disk_inventory_keeps_unaccounted_pgdata_directories_as_candidates(tm
     wal_unlisted = (
         f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
     )
-    assert by_path[wal_unlisted]["exclusive_bytes"] == 120000 - 12
+    assert by_path[wal_unlisted]["exclusive_bytes"] == 120000 - 118000
     assert by_path[wal_unlisted]["inside_data_directory"] is True
-    assert summary["unaccounted_inside_data_directory_bytes"] == (
-        8000 + 4000 + 3000 + (120000 - 12)
+    # base/ holds 1,995 bytes outside the live database directories and the temp files.
+    base_unlisted = (
+        f"{pgdata}/base (outside live database directories and the measured "
+        "temporary files)"
+    )
+    assert by_path[base_unlisted]["exclusive_bytes"] == 1995
+    assert summary["unaccounted_inside_data_directory_bytes"] == 18995
+    # And the whole partition now reconciles against the figure it explains.
+    assert (
+        summary["non_database_directory_bytes"]
+        + summary["unaccounted_inside_data_directory_bytes"]
+        == summary["unaccounted_bytes"]
     )
     # base/ and pg_wal are already in accounted_bytes and must not be listed again.
     assert f"{pgdata}/base" not in by_path
@@ -935,11 +947,9 @@ def test_v3_disk_inventory_keeps_statistics_directories_locatable(tmp_path):
     # Only base and the WAL directories are genuinely accounted for elsewhere.
     assert f"{pgdata}/base" not in by_path
     assert f"{pgdata}/pg_wal" not in by_path
-    # global 8,000 + pg_stat 4,000 + root files 3,000 + pg_wal's unlisted 119,988
-    # = the whole PGDATA remainder, i.e. everything accounted_bytes does not cover.
-    assert summary["unaccounted_inside_data_directory_bytes"] == (
-        8000 + 4000 + 3000 + (120000 - 12)
-    )
+    # global 8,000 + pg_stat 4,000 + root files 3,000 + pg_wal's unlisted 2,000
+    # + base/'s unlisted 1,995 = everything accounted_bytes does not cover.
+    assert summary["unaccounted_inside_data_directory_bytes"] == 18995
 
 
 def test_v3_disk_inventory_records_that_no_tablespaces_break_the_accounting(tmp_path):
@@ -1127,3 +1137,61 @@ def test_v3_disk_inventory_distinguishes_failed_tablespace_inspection(tmp_path):
     assert 'tablespace_section["single_filesystem_accounting_valid"]' in source
     # The truthiness test that conflated the two cases is gone.
     assert 'if not tablespace_section.get("single_filesystem_accounting_valid")' not in source
+
+
+def test_v3_disk_inventory_reserve_survives_the_sql_phase():
+    """The reserve must be an allowance, not a slice of an advancing deadline.
+
+    Between the scans and the closing measurement, the database, WAL, relation, index,
+    attribution and tablespace queries run without touching the budget while the wall
+    clock keeps moving — so they could consume the protected 300 s and the closing scan
+    would be denied by time it never asked for.
+    """
+    source = _read(ACTION)
+
+    release = source[source.index("def release_reserve(self)") :]
+    release = release[: release.index("\n    def ")]
+    assert "self._reserved = False" in release
+    assert "self._deadline = time.monotonic() + self.reserve_seconds" in release
+
+
+def test_v3_disk_inventory_rechecks_the_filesystem_when_closing(tmp_path):
+    """A sibling consumer can change during the drill-down and the SQL inventory."""
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    bracket = json.loads(result.stdout)["inventory"]["volume_used_bracket"]
+
+    assert bracket["bytes_before_filesystem_scan"] == 1557000
+    assert bracket["bytes_after_window"] == 1557000
+    assert bracket["window_drift_bytes"] == 0
+    assert bracket["reconciled"] is True
+    assert "volume_changed_during_window" in _read(ACTION)
+
+
+def test_v3_disk_inventory_treats_pg_xlog_as_unexpected_storage():
+    """pg_ls_waldir() measures the live WAL directory, which on PostgreSQL 18 is pg_wal.
+
+    Subtracting wal_bytes from a stale pg_xlog would treat it as measured: smaller than
+    the live WAL it vanishes from the candidates, larger and only its excess shows — and
+    a directory full of old WAL is exactly the reclaimable space this action looks for.
+    """
+    source = _read(ACTION)
+
+    assert 'for name, subtract in (("pg_wal", wal_bytes), ("pg_xlog", 0)):' in source
+    assert "not the live WAL directory on PostgreSQL 18; unexpected storage" in source
+
+
+def test_v3_disk_inventory_workflow_elevates_the_whole_filesystem_scan():
+    """As the non-root operator account, `du` cannot read root-owned mode-0700 paths.
+
+    The action fails closed on permission errors by design, so without the same
+    root/passwordless-sudo handoff the other privileged steps use, the governed
+    inventory could never produce a receipt at all.
+    """
+    workflow = _read(Path(".github/workflows/chatgpt-ed-new-ops.yml"))
+
+    assert "V3 disk inventory requires root or passwordless sudo" in workflow
+    step = workflow[workflow.index("v3-disk-inventory.sh") - 1500 :]
+    step = step[: step.index("v3-disk-inventory.sh") + 40]
+    assert "sudo -n bash -s" in step
+    assert 'if [ \\"\\$(id -u)\\" -eq 0 ]' in step
