@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import heapq
 import json
+import selectors
 import math
 import os
 import signal
@@ -55,6 +56,10 @@ INDEX_INVENTORY_LIMIT = 200
 # row per historical generation and grow without bound as generations accumulate. The
 # statement timeout caps execution, not rows or the serialized receipt.
 GENERATION_ATTRIBUTION_LIMIT = 50
+# pg_database has one row per database and nothing caps it, so the row list is bounded
+# for the receipt. The TOTALS that accounted_bytes depends on are computed in SQL across
+# every database, so the bound changes what is displayed and never what is accounted.
+DATABASE_INVENTORY_LIMIT = 50
 # Every directory scan shares one wall-clock budget. Individually bounded calls are not
 # enough: the operator workflow kills the job at 40 minutes, and four fixed scans plus
 # eight drill-down steps at the 300 s per-call limit would be 60 minutes, so a valid but
@@ -428,6 +433,12 @@ tolerated_churn: list[dict[str, Any]] = []
 
 
 DU_READ_CHUNK = 65536
+# How long a single poll waits before re-checking the deadline. Short enough that a
+# quiet `du` cannot push past its timeout, long enough not to spin.
+DU_POLL_SECONDS = 1.0
+# `du` can emit one diagnostic per vanished or unreadable path, so stderr needs the
+# same bound stdout has. Only the first diagnostic and the count are reported.
+DU_STDERR_LIMIT = 1 << 20
 
 
 def du_stream(
@@ -496,41 +507,74 @@ def du_stream(
         pending = ""
         timed_out = False
         try:
+            # BINARY pipes. The deadline has to be enforced between reads, and a text
+            # wrapper's read() blocks until its request is satisfied or EOF -- so a `du`
+            # that goes quiet traversing a large subtree, or emits less than one chunk
+            # and stalls, would never return control to the deadline check and both the
+            # per-call and the shared budget would be decoration. Raw descriptors can be
+            # polled with a timeout; the bytes are decoded per chunk instead.
             process = subprocess.Popen(
                 argv,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                errors="surrogateescape",
                 start_new_session=True,
             )
         except OSError as exc:
             raise RuntimeError(f"{error}:{type(exc).__name__}") from exc
 
+        stderr_bytes = 0
+
         def drain(stream: Any = process.stderr) -> None:
+            # Bounded. `du` can emit one diagnostic per vanished or unreadable path, so
+            # on a churn-heavy PostgreSQL or Docker tree stderr is as unbounded as
+            # stdout was; only the first DU_STDERR_LIMIT bytes are needed, because the
+            # decision is "are all of these vanished-file messages" and the receipt
+            # records the first diagnostic and a count.
+            nonlocal stderr_bytes
             with contextlib.suppress(Exception):
-                stderr_chunks.append(stream.read() or "")
+                while True:
+                    block = stream.read(DU_READ_CHUNK)
+                    if not block:
+                        break
+                    if stderr_bytes < DU_STDERR_LIMIT:
+                        stderr_chunks.append(
+                            block[: DU_STDERR_LIMIT - stderr_bytes].decode(
+                                "utf-8", "surrogateescape"
+                            )
+                        )
+                    stderr_bytes += len(block)
 
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
         deadline = time.monotonic() + timeout
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        carry = b""
         try:
             while True:
-                if time.monotonic() > deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     timed_out = True
                     break
-                chunk = process.stdout.read(DU_READ_CHUNK)
-                if not chunk:
+                if not selector.select(timeout=min(remaining, DU_POLL_SECONDS)):
+                    continue
+                block = process.stdout.read1(DU_READ_CHUNK)
+                if not block:
                     break
-                pending += chunk
-                records = pending.split("\0")
-                pending = records.pop()
-                for record in records:
+                carry += block
+                # Split on NUL in BYTES, so a multi-byte character spanning a chunk
+                # boundary is never decoded in halves.
+                parts = carry.split(b"\0")
+                carry = parts.pop()
+                for raw in parts:
+                    record = raw.decode("utf-8", "surrogateescape")
                     if record.strip():
                         absorb(record, kept, omitted)
-            if not timed_out and pending.strip():
-                absorb(pending, kept, omitted)
+            if not timed_out and carry.strip():
+                absorb(carry.decode("utf-8", "surrogateescape"), kept, omitted)
         finally:
+            with contextlib.suppress(Exception):
+                selector.close()
             if timed_out:
                 with contextlib.suppress(OSError, ProcessLookupError):
                     os.killpg(os.getpgid(process.pid), signal.SIGKILL)
@@ -554,11 +598,20 @@ def du_stream(
             return rows, omitted[0], omitted[1]
         stderr_text = "".join(stderr_chunks)
         stderr_lines = [line for line in stderr_text.splitlines() if line.strip()]
+        stderr_truncated = stderr_bytes > DU_STDERR_LIMIT
         detail = stderr_text.strip().splitlines()
         reason = detail[-1][:240] if detail else f"exit_{returncode}"
-        vanished_only = bool(stderr_lines) and all(
-            any(marker in line for marker in DU_VANISHED_MARKERS)
-            for line in stderr_lines
+        # Truncated diagnostics cannot establish "every message is a vanished file":
+        # the part not captured could hold a permission error. Fail closed instead of
+        # concluding tolerance from a partial read -- bounding stderr must not become a
+        # way to lose the evidence that decides whether tolerating is safe.
+        vanished_only = (
+            bool(stderr_lines)
+            and not stderr_truncated
+            and all(
+                any(marker in line for marker in DU_VANISHED_MARKERS)
+                for line in stderr_lines
+            )
         )
         if not vanished_only:
             churned = None
@@ -574,6 +627,7 @@ def du_stream(
                 "scan": error,
                 "attempts": attempt,
                 "vanished_paths": len(stderr_lines),
+                "diagnostics_truncated": stderr_truncated,
                 "first_diagnostic": stderr_lines[0][:240],
             },
         )
@@ -831,6 +885,12 @@ pgdata_children_all: list[dict[str, Any]] | None = None
 pgdata_host: str | None = None
 pgdata_before: int | None = None
 tolerance: int = 0
+# Same reason again: the database totals are computed in the `databases` section and
+# read by the summary. Previously the summary re-derived them by iterating
+# inventory["databases"], which on a failed section is a failure DICT -- iterating it
+# yields its key strings and raises TypeError, escaping the section handler.
+operating_database_bytes: int | None = None
+other_databases_bytes: int | None = None
 try:
     mount_source, mount_destination = postgres_mount()
     disk = df_values(
@@ -1027,13 +1087,62 @@ except RuntimeError as exc:
     section_failed(failures, inventory, "non_database_drill_down", exc)
 
 try:
-    inventory["databases"] = psql_json(
+    # The totals are computed in SQL over EVERY database, so accounted_bytes stays
+    # correct no matter how many exist, and the row list below is a bounded display
+    # of the largest. Summing a bounded list in Python would instead understate
+    # accounted_bytes, which inflates unaccounted_bytes -- the figure an operator
+    # reads as reclaimable.
+    #
+    # `current_database()` rather than an interpolated name: psql is already
+    # connected to the operating database, so this cannot disagree with the
+    # connection, and it needs no quoting or case handling. `next(... == db_name)`
+    # previously raised StopIteration -- not RuntimeError -- on any mismatch, which
+    # escaped the section's own fail-closed handler.
+    database_total_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
-        "SELECT datname, pg_database_size(datname)::bigint AS size_bytes, "
-        "datistemplate, datallowconn FROM pg_database "
-        "ORDER BY pg_database_size(datname) DESC, datname) q",
+        "SELECT count(*)::bigint::text AS database_count, "
+        "coalesce(sum(pg_database_size(oid)),0)::bigint::text AS total_bytes, "
+        "coalesce(sum(CASE WHEN datname=current_database() "
+        "THEN pg_database_size(oid) ELSE 0 END),0)::bigint::text "
+        "AS operating_bytes FROM pg_database) q",
         db_user,
         db_name,
+    )
+    if len(database_total_rows) != 1:
+        raise RuntimeError("database_total_output_invalid")
+    database_count = required_int(
+        database_total_rows[0].get("database_count"), "database_total_output_invalid"
+    )
+    database_total_bytes = required_int(
+        database_total_rows[0].get("total_bytes"), "database_total_output_invalid"
+    )
+    operating_database_bytes = required_int(
+        database_total_rows[0].get("operating_bytes"), "database_total_output_invalid"
+    )
+    # An operating database of zero bytes is not a small database; it means the
+    # totals row describes something other than what this code believes it does.
+    if operating_database_bytes <= 0:
+        raise RuntimeError("operating_database_size_invalid")
+    other_databases_bytes = database_total_bytes - operating_database_bytes
+    if other_databases_bytes < 0:
+        raise RuntimeError("database_total_output_invalid")
+    # Bounded, deterministic, and ordered so the row that matters most is never the
+    # one dropped. One extra row detects truncation.
+    database_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT datname, pg_database_size(oid)::bigint AS size_bytes, "
+        "datistemplate, datallowconn FROM pg_database "
+        "ORDER BY pg_database_size(oid) DESC, datname "
+        f"LIMIT {DATABASE_INVENTORY_LIMIT + 1}) q",
+        db_user,
+        db_name,
+    )
+    inventory["databases"] = database_rows[:DATABASE_INVENTORY_LIMIT]
+    inventory["database_count"] = database_count
+    inventory["database_total_bytes"] = database_total_bytes
+    inventory["database_inventory_limit"] = DATABASE_INVENTORY_LIMIT
+    inventory["database_inventory_truncated"] = (
+        len(database_rows) > DATABASE_INVENTORY_LIMIT
     )
 except RuntimeError as exc:
     section_failed(failures, inventory, "databases", exc)
@@ -1249,14 +1358,22 @@ except RuntimeError as exc:
 try:
     ratings_attribution_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
-        "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+        "SELECT g.generation_key, (p.derived_generation_id IS NOT NULL) AS published, "
+        "count(*)::bigint::text AS chunks, "
         "sum(c.systems)::bigint::text AS systems, "
         "sum(c.physical_bodies)::bigint::text AS physical_bodies, "
         "sum(c.eligible_opportunities)::bigint::text AS eligible_opportunities "
         "FROM v3_derived.build_chunk c "
         "JOIN v3_meta.derived_generation g "
         "ON g.derived_generation_id=c.derived_generation_id "
-        "GROUP BY g.generation_key ORDER BY g.generation_key "
+        "LEFT JOIN v3_meta.current_derived_generation p "
+        "ON p.singleton AND p.derived_generation_id=g.derived_generation_id "
+        "GROUP BY g.generation_key, (p.derived_generation_id IS NOT NULL) "
+        # The published generation sorts FIRST, so the bound can never drop the
+        # one generation whose bytes an operator must not reclaim. Lexicographic
+        # order alone would: generation keys carry no chronology, so the live
+        # generation can sort anywhere, including past the limit.
+        "ORDER BY (p.derived_generation_id IS NOT NULL) DESC, g.generation_key "
         # Bounded: generation manifests are never deleted, so this grows
         # without limit as generations accumulate. One extra row detects
         # truncation, and the ordering is deterministic so the same rows are
@@ -1286,12 +1403,18 @@ try:
     search_attribution_rows = (
         psql_json(
             "SELECT row_to_json(q)::text FROM ("
-            "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+            "SELECT g.generation_key, "
+            "(p.derived_generation_id IS NOT NULL) AS published, "
+            "count(*)::bigint::text AS chunks, "
             "sum(c.systems)::bigint::text AS systems "
             "FROM v3_derived.search_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key "
+            "LEFT JOIN v3_meta.current_derived_generation p "
+            "ON p.singleton AND p.derived_generation_id=g.derived_generation_id "
+            "GROUP BY g.generation_key, (p.derived_generation_id IS NOT NULL) "
+            # The published generation sorts first; see the ratings query above.
+            "ORDER BY (p.derived_generation_id IS NOT NULL) DESC, g.generation_key "
         # Bounded: generation manifests are never deleted, so this grows
         # without limit as generations accumulate. One extra row detects
         # truncation, and the ordering is deterministic so the same rows are
@@ -1306,12 +1429,18 @@ try:
     archetype_attribution_rows = (
         psql_json(
             "SELECT row_to_json(q)::text FROM ("
-            "SELECT g.generation_key, count(*)::bigint::text AS chunks, "
+            "SELECT g.generation_key, "
+            "(p.derived_generation_id IS NOT NULL) AS published, "
+            "count(*)::bigint::text AS chunks, "
             "sum(c.systems)::bigint::text AS systems "
             "FROM v3_derived.archetype_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key "
+            "LEFT JOIN v3_meta.current_derived_generation p "
+            "ON p.singleton AND p.derived_generation_id=g.derived_generation_id "
+            "GROUP BY g.generation_key, (p.derived_generation_id IS NOT NULL) "
+            # The published generation sorts first; see the ratings query above.
+            "ORDER BY (p.derived_generation_id IS NOT NULL) DESC, g.generation_key "
         # Bounded: generation manifests are never deleted, so this grows
         # without limit as generations accumulate. One extra row detects
         # truncation, and the ordering is deterministic so the same rows are
@@ -1331,6 +1460,7 @@ try:
     attribution: dict[str, dict[str, tuple[int, int]]] = {}
     ratings_body_counts: dict[str, tuple[int, int]] = {}
     generation_keys: set[str] = set()
+    published_keys: set[str] = set()
     for product, rows in attribution_rows.items():
         if rows is None:
             continue
@@ -1339,6 +1469,11 @@ try:
             generation_key = row.get("generation_key")
             if not isinstance(generation_key, str) or not generation_key:
                 raise RuntimeError("chunk_receipt_output_invalid")
+            published = row.get("published")
+            if not isinstance(published, bool):
+                raise RuntimeError("chunk_receipt_output_invalid")
+            if published:
+                published_keys.add(generation_key)
             product_rows[generation_key] = (
                 required_int(row.get("chunks"), "chunk_receipt_output_invalid"),
                 required_int(row.get("systems"), "chunk_receipt_output_invalid"),
@@ -1376,11 +1511,33 @@ try:
         )
         rows_by_generation[generation_key] = generation_attribution
     truncated = len(rows_by_generation) > GENERATION_ATTRIBUTION_LIMIT
-    inventory["generation_attribution"] = dict(
-        sorted(rows_by_generation.items())[:GENERATION_ATTRIBUTION_LIMIT]
-    )
+    if len(published_keys) > 1:
+        # v3_meta.current_derived_generation is a singleton, so two published keys
+        # means the join or the output is not what this code believes it is.
+        raise RuntimeError("chunk_receipt_published_generation_ambiguous")
+    published_key = next(iter(published_keys), None)
+    # Keep the published generation even when the bound would cut it. The SQL
+    # already sorts it first, but the per-product queries are unioned here and
+    # re-sorted into a stable key order for the receipt, which would reintroduce
+    # exactly the lexicographic drop the SQL ordering prevents.
+    ordered = sorted(rows_by_generation.items())
+    kept = ordered[:GENERATION_ATTRIBUTION_LIMIT]
+    if published_key is not None and published_key not in dict(kept):
+        kept = sorted(
+            kept[: GENERATION_ATTRIBUTION_LIMIT - 1]
+            + [(published_key, rows_by_generation[published_key])]
+        )
+    inventory["generation_attribution"] = dict(kept)
     inventory["generation_attribution_limit"] = GENERATION_ATTRIBUTION_LIMIT
     inventory["generation_attribution_truncated"] = truncated
+    inventory["generation_attribution_published_generation"] = published_key
+    # A published generation with no chunk receipts at all cannot be retained,
+    # and an operator reading this receipt must be able to tell that case from a
+    # retention failure.
+    inventory["generation_attribution_published_generation_retained"] = (
+        published_key is not None
+        and published_key in inventory["generation_attribution"]
+    )
 except RuntimeError as exc:
     section_failed(failures, inventory, "generation_attribution", exc)
 
@@ -1451,10 +1608,16 @@ try:
     # unaccounted_bytes by the whole accepted drift in a receipt reporting success.
     # Tolerating movement has to mean measuring every part of the arithmetic on the
     # same side of it.
-    closing_usage = du_rows(
+    # du_stream, not du_rows: the omitted count and bytes are needed here for exactly
+    # the reason the drill-down needs them. PGDATA with more than DU_DEFAULT_KEEP
+    # immediate children -- many orphaned directories, which is precisely what this
+    # inventory exists to find -- would otherwise have the dropped children's bytes
+    # land in the root-file remainder and be reported as files directly in PGDATA.
+    closing_usage, pgdata_children_omitted, pgdata_children_omitted_bytes = du_stream(
         ["du", "--null", "-x", "-B1", "--max-depth=1", pgdata_host],
         scan_budget,
         "postgres_data_directory_usage_failed",
+        keep=DU_DEFAULT_KEEP,
         expect_path=pgdata_host,
     )
     pgdata_final = next(
@@ -1490,7 +1653,9 @@ try:
     inventory["postgres_data_directory_usage"] = {
         "path": pgdata_host,
         "bytes": postgres_data_directory_bytes,
-        "child_count": len(pgdata_children_all),
+        "child_count": len(pgdata_children_all) + pgdata_children_omitted,
+        "children_omitted_by_cap": pgdata_children_omitted,
+        "children_omitted_bytes": pgdata_children_omitted_bytes,
         "children": pgdata_children_all[:40],
         "measured_at": "window_close",
     }
@@ -1546,11 +1711,15 @@ try:
         # Named, not swallowed: the receipt lists the tablespaces so the operator knows
         # exactly which assumption broke and what would have to be measured.
         raise RuntimeError("tablespaces_present_single_filesystem_accounting_invalid")
-    # The RECONCILED reading, not the opening `df` from the volume section: that one is
-    # taken before the scans and is never validated against anything, so every summary
-    # figure derived from it -- unaccounted_bytes, the df/du residual -- could be stale
-    # while the receipt reported success. Recording a bracket and then not using it
-    # would have been the appearance of rigour without the substance.
+    # The RECONCILED readings, not the opening `df` from the volume section: that one is
+    # taken before the scans and is never validated against anything, so a summary
+    # figure derived from it could be stale while the receipt reported success.
+    # Recording a bracket and then not using it would have been the appearance of
+    # rigour without the substance. Which reconciled reading depends on the figure:
+    # unaccounted_bytes uses the CLOSING one below, because the database and WAL totals
+    # it subtracts are closing totals; the df/du residual uses
+    # bytes_after_filesystem_scan, because it is paired with a du scan from that moment.
+    # Both are reported, so a reader can see which window each figure describes.
     used_bracket = inventory.get("volume_used_bracket")
     if not isinstance(used_bracket, dict) or used_bracket.get("reconciled") is not True:
         raise RuntimeError("volume_used_not_reconciled")
@@ -1563,14 +1732,20 @@ try:
     if "bytes_after_window" not in used_bracket:
         raise RuntimeError("volume_used_window_not_closed")
     volume_used = used_bracket["bytes_after_window"]
-    database_rows = inventory["databases"]
-    operating_database_bytes = next(
-        row["size_bytes"] for row in database_rows if row["datname"] == db_name
+    if operating_database_bytes is None or other_databases_bytes is None:
+        raise RuntimeError("database_sizes_unavailable")
+    # The CLOSING WAL figure, for the same reason the PGDATA total is the closing one:
+    # every input to this arithmetic has to describe one state. Collecting
+    # bytes_at_window_close and then leaving accounted_bytes on the opening value put
+    # the candidate partition and the figure it explains on different sides of the
+    # accepted drift.
+    wal_bytes = (
+        inventory["wal"].get("bytes_at_window_close")
+        if isinstance(inventory.get("wal"), dict)
+        else None
     )
-    other_databases_bytes = sum(
-        row["size_bytes"] for row in database_rows if row["datname"] != db_name
-    )
-    wal_bytes = inventory["wal"]["bytes"] or 0
+    if wal_bytes is None:
+        raise RuntimeError("wal_bytes_not_reconciled")
     temp_bytes = inventory["temp_and_logs"]["temp_directory_bytes"] or 0
     accounted_bytes = (
         operating_database_bytes + other_databases_bytes + wal_bytes + temp_bytes
@@ -1717,8 +1892,10 @@ try:
                     "inside_data_directory": True,
                 }
             )
-    pgdata_root_files = postgres_data_directory_bytes - sum(
-        row["bytes"] for row in pgdata_children
+    pgdata_root_files = (
+        postgres_data_directory_bytes
+        - sum(row["bytes"] for row in pgdata_children)
+        - pgdata_children_omitted_bytes
     )
     if pgdata_root_files > 0:
         inside.append(
@@ -1750,7 +1927,21 @@ try:
     )
     if du_root_bytes is None:
         raise RuntimeError("directory_usage_root_total_missing")
-    residual = volume_used - du_root_bytes
+    # Pair du with the df reading taken IMMEDIATELY AFTER the same scan, not with the
+    # closing one. Subtracting a scan total from a df reading minutes of SQL later makes
+    # every byte written or freed in between look like filesystem metadata or a
+    # deleted-but-open file -- which is precisely the category this figure exists to
+    # measure, so the contamination is indistinguishable from the signal. The drift
+    # between the two df readings is already reconciled against a tolerance, so it is
+    # small; but "small" is measured against the volume, while this residual can be
+    # smaller still, so a tolerable drift can be a large fraction of it. Both readings
+    # are reported so an operator can see which window each figure describes;
+    # unaccounted_bytes keeps the closing reading, because the database and WAL figures
+    # it subtracts are themselves closing figures.
+    volume_used_at_scan = used_bracket.get("bytes_after_filesystem_scan")
+    if not isinstance(volume_used_at_scan, int):
+        raise RuntimeError("volume_used_at_scan_unavailable")
+    residual = volume_used_at_scan - du_root_bytes
     non_database_directory_bytes = sum(
         item["exclusive_bytes"] for item in candidates if not item["inside_data_directory"]
     )
@@ -1768,9 +1959,11 @@ try:
         "non_database_directory_bytes": non_database_directory_bytes,
         "unaccounted_inside_data_directory_bytes": unaccounted_inside_data_directory_bytes,
         "directory_scan_root_bytes": du_root_bytes,
+        "volume_used_bytes_at_directory_scan": volume_used_at_scan,
         "filesystem_minus_directory_scan_bytes": residual,
         "filesystem_minus_directory_scan_is_significant": (
-            abs(residual) > volume_used * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
+            abs(residual)
+            > volume_used_at_scan * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
         ),
         "largest_unaccounted_directories": candidates[:10],
         # The totals above sum the COMPLETE candidate list, so hiding the tail without
@@ -1789,18 +1982,29 @@ try:
             "largest_unaccounted_directories is a non-overlapping partition: each row "
             "reports its own total minus the totals of its scanned children, the "
             "measured PostgreSQL data-directory size is subtracted from the deepest "
-            "scanned directory that contains it, and the data directory and everything "
-            "under it are excluded. No row therefore counts the database, and no row "
-            "counts another row's bytes. Rows outside the data directory sum to "
-            "non_database_directory_bytes; rows inside it are the PostgreSQL "
-            "directories that accounted_bytes does not cover (global, pg_xact, "
-            "pg_multixact, replication-slot state, relative log files) and are flagged "
-            "inside_data_directory, because some of them must never be deleted -- they "
-            "are listed so the summary can locate every byte it reports as "
-            "unaccounted, not as reclaim suggestions. The du scan covers the whole "
+            "scanned directory that contains it, and the data directory itself is "
+            "excluded. Directories UNDER it are not all excluded: only the accounted "
+            "ones are, so those an accounted figure does not cover (global, pg_xact, "
+            "pg_multixact, pg_stat, pg_stat_tmp, pg_xlog, replication-slot state, "
+            "pg_wal's unlisted subdirectories, base/'s remainder beyond the live "
+            "database directories, relative log files, and files at the data "
+            "directory's own root) appear as rows flagged inside_data_directory. No "
+            "row counts the database twice, and no row counts another row's bytes. "
+            "Rows outside the data directory sum to non_database_directory_bytes; rows "
+            "inside it sum to unaccounted_inside_data_directory_bytes. Some of the "
+            "latter must never be deleted -- they are listed so the summary can locate "
+            "every byte it reports as unaccounted, not as reclaim suggestions. "
+            "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
-            "subdirectory. filesystem_minus_directory_scan_bytes is volume_used_bytes "
-            "minus directory_scan_root_bytes: df reports filesystem space and du "
+            "subdirectory. filesystem_minus_directory_scan_bytes is "
+            "volume_used_bytes_at_directory_scan minus directory_scan_root_bytes -- the "
+            "df reading taken immediately after that same scan, NOT volume_used_bytes, "
+            "which is the closing reading that unaccounted_bytes uses because the "
+            "database and WAL figures it subtracts are also closing figures. Pairing "
+            "the scan with the closing reading would charge every byte written or freed "
+            "by the intervening SQL to this residual, which is the same category the "
+            "residual measures and so could not be told apart from it. "
+            "df reports filesystem space and du "
             "estimates space used by files, so this gap is filesystem metadata and "
             "blocks held by deleted-but-open files. Reserved blocks are NOT a cause: "
             "they explain size minus (used + available) because they remain free while "

@@ -357,7 +357,7 @@ figures, **the largest directories on the whole filesystem that holds the data
 directory** (not only the PostgreSQL volume subdirectory — the data directory is
 a Docker-volume path on the same device as `/`, so a scan limited to it would
 hide every sibling consumer such as Docker layers, logs and backups, which is
-precisely the unaccounted usage being looked for), every database, WAL usage and
+precisely the unaccounted usage being looked for), the largest databases, WAL usage and
 retention signals (including replication slots and prepared transactions, which
 can pin WAL), temporary-file and logging figures, the largest non-system
 relations with heap/TOAST/index sizes, their indexes and scan counts **with the
@@ -391,6 +391,34 @@ deleted. pg_wal's own subdirectories are reported separately too, because
 The directory scan is **fail-closed**: if it cannot run, the operation stops
 rather than returning a receipt that looks complete while missing the only
 host-level evidence that answers the question.
+
+Three bounding and windowing rules govern how the receipt may be read:
+
+- **Bounded lists, unbounded totals.** `pg_database` and the generation
+  attribution tables both grow without limit, so the receipt displays only the
+  largest rows (`database_inventory_limit`, `generation_attribution_limit`, each
+  with a `_truncated` flag). Every total that `accounted_bytes` depends on is
+  computed **in SQL across all rows**, never by summing the displayed list:
+  summing the bounded list would understate `accounted_bytes`, and
+  `unaccounted_bytes` is `volume_used_bytes` minus `accounted_bytes`, so each
+  omitted database would surface as apparently reclaimable space.
+- **The published generation is always retained.** Generation keys carry no
+  chronology, so lexicographic order can place the live generation past the
+  bound. Both the SQL ordering and the receipt assembly therefore keep the
+  generation named by `v3_meta.current_derived_generation`, and
+  `generation_attribution_published_generation_retained` records that it was. A
+  table in which every listed generation is superseded would otherwise read as
+  a licence to reclaim all of them.
+- **Two `df` windows, each paired with its own measurement.**
+  `unaccounted_bytes` uses `volume_used_bytes`, the **closing** reading, because
+  the database and WAL figures it subtracts are also closing figures.
+  `filesystem_minus_directory_scan_bytes` uses
+  `volume_used_bytes_at_directory_scan`, the reading taken immediately after the
+  `du` scan it is subtracted from. Pairing the scan with the closing reading
+  would charge every byte written or freed by the intervening SQL to the
+  residual — and the residual's whole meaning is filesystem metadata and blocks
+  held by deleted-but-open files, so that contamination cannot be told apart
+  from the signal. Both readings appear in the summary.
 
 The action is strictly read-only and reclaims nothing. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and

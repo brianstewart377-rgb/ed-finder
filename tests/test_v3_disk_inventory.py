@@ -92,6 +92,7 @@ def _run_inventory_action(
     tablespace_present: bool = False,
     mount_point_failure: bool = False,
     wal_outside_pgdata: bool = False,
+    df_used_drift: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -200,7 +201,22 @@ def _run_inventory_action(
                 printf '/\\n' ;;
               *'--output=used'*)
                 printf 'Used\\n'
-                printf '1557000\\n' ;;
+                # The action reads --output=used three times: before the root scan,
+                # immediately after it, and once more to close the window.
+                # DF_USED_DRIFT makes only the THIRD -- the closing -- reading differ,
+                # which is the only way a test can tell which reading a summary figure
+                # was derived from.
+                calls=0
+                if [ -f "$DF_USED_STAMP" ]; then
+                  calls="$(cat "$DF_USED_STAMP")"
+                fi
+                calls="$(( calls + 1 ))"
+                printf '%s' "$calls" > "$DF_USED_STAMP"
+                if [ "$calls" -ge 3 ]; then
+                  printf '%s\\n' "$(( 1557000 + DF_USED_DRIFT ))"
+                else
+                  printf '1557000\\n'
+                fi ;;
               *)
                 printf '1B-blocks Used Available\\n'
                 printf '500000 200000 300000\\n' ;;
@@ -351,17 +367,20 @@ def _run_inventory_action(
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","estimated_dead_fraction":0.2500}' ;;
               *'pg_total_relation_size'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","relkind":"r","estimated_rows":100,"table_bytes":600,"heap_bytes":500,"index_bytes":300,"toast_bytes":100,"total_bytes":1000}' ;;
+              *'AS operating_bytes FROM pg_database'*)
+                printf '%s\\n' '{"database_count":"2","total_bytes":"1328000","operating_bytes":"1320000"}' ;;
               *'pg_database_size'*)
                 printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1320000,"datistemplate":false,"datallowconn":true}'
                 printf '%s\\n' '{"datname":"postgres","size_bytes":8000,"datistemplate":false,"datallowconn":true}' ;;
               *"to_regclass('v3_derived.search_build_chunk')"*)
                 printf 'v3_derived.search_build_chunk\\tv3_derived.archetype_build_chunk\\n' ;;
               *'FROM v3_derived.search_build_chunk'*)
-                printf '%s\\n' '{"generation_key":"ratings_v4_live","chunks":"8","systems":"100"}' ;;
+                printf '%s\\n' '{"generation_key":"ratings_v4_live","published":true,"chunks":"8","systems":"100"}' ;;
               *'FROM v3_derived.archetype_build_chunk'*)
-                printf '%s\\n' '{"generation_key":"ratings_v4_live","chunks":"4","systems":"100"}' ;;
+                printf '%s\\n' '{"generation_key":"ratings_v4_live","published":true,"chunks":"4","systems":"100"}' ;;
               *'FROM v3_derived.build_chunk'*)
-                printf '%s\\n' '{"generation_key":"ratings_v4_live","chunks":"16","systems":"100","physical_bodies":"500","eligible_opportunities":"250"}' ;;
+                printf '%s\\n' '{"generation_key":"ratings_v4_live","published":true,"chunks":"16","systems":"100","physical_bodies":"500","eligible_opportunities":"250"}'
+                printf '%s\\n' '{"generation_key":"aaa_superseded","published":false,"chunks":"2","systems":"10","physical_bodies":"20","eligible_opportunities":"5"}' ;;
               *)
                 printf '%s\\n' "unexpected query: $sql" >&2
                 exit 2 ;;
@@ -387,6 +406,8 @@ def _run_inventory_action(
     env["TABLESPACE_PRESENT"] = "1" if tablespace_present else "0"
     env["MOUNT_POINT_FAILURE"] = "1" if mount_point_failure else "0"
     env["WAL_OUTSIDE_PGDATA"] = "1" if wal_outside_pgdata else "0"
+    env["DF_USED_DRIFT"] = str(df_used_drift)
+    env["DF_USED_STAMP"] = str(tmp_path / "df-used-stamp")
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -822,8 +843,16 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     # The closing scan is the FIRST du after release_reserve(), so search from there
     # rather than from the top of the file -- the same call shape appears earlier, in
     # the opening PGDATA section.
-    closing = source.index("closing_usage = du_rows(", release)
+    closing = source.index("closing_usage, pgdata_children_omitted", release)
     assert release < closing
+    # The closing scan streams, so its omitted-child aggregate is available; the root
+    # files figure must be reduced by it rather than silently absorbing dropped
+    # children into the data directory's own files.
+    assert "pgdata_children_omitted_bytes" in source
+    assert (
+        "- pgdata_children_omitted_bytes"
+        in source.split("pgdata_root_files = (")[1].split("if pgdata_root_files")[0]
+    )
     # And a step that cannot finish within what is left must not be started at all.
     assert "DRILL_DOWN_MIN_CALL_SECONDS = 30" in source
     assert "if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:" in source
@@ -1123,7 +1152,7 @@ def test_v3_disk_inventory_closes_the_measurement_window_last():
     source = _read(ACTION)
 
     # The reconciliation now runs after the database figures and before the summary.
-    databases = source.index('inventory["databases"] = psql_json(')
+    databases = source.index("    database_total_rows = psql_json(")
     reconcile = source.index('inventory["postgres_data_directory_reconciliation"] = {')
     summary = source.index('inventory["summary"] = {')
     assert databases < reconcile < summary
@@ -1416,6 +1445,130 @@ def test_v3_disk_inventory_bounds_generation_attribution(tmp_path):
     inventory = json.loads(result.stdout)["inventory"]
     assert inventory["generation_attribution_limit"] == 50
     assert inventory["generation_attribution_truncated"] is False
+
+
+def test_v3_disk_inventory_pairs_the_df_du_residual_with_its_own_window(tmp_path):
+    """The df/du residual must use the df reading taken beside its du scan.
+
+    du runs once, near the start; df is read again at the close, after the drill-down
+    and the whole SQL inventory. Subtracting the early du total from the late df
+    reading charges everything written or freed in between to the residual -- and the
+    residual's entire meaning is "filesystem metadata and blocks held by
+    deleted-but-open files", so the contamination is indistinguishable from the
+    signal it is supposed to measure. An operator reading a flagged residual would go
+    looking for a backend holding a dropped relation open that does not exist.
+
+    unaccounted_bytes legitimately uses the CLOSING reading, because the database and
+    WAL totals it subtracts are themselves closing figures. So the two must differ,
+    and the receipt must report both.
+    """
+    source = _read(ACTION)
+    assert "residual = volume_used_at_scan - du_root_bytes" in source
+    assert "volume_used_at_scan_unavailable" in source
+
+    # 9,000 of drift between the post-scan reading and the closing one, well inside the
+    # 1 GiB floor tolerance, so the window still reconciles and the action succeeds.
+    result = _run_inventory_action(tmp_path, df_used_drift=9000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+
+    assert inventory["volume_used_bracket"]["bytes_after_filesystem_scan"] == 1557000
+    assert inventory["volume_used_bracket"]["bytes_after_window"] == 1566000
+    # unaccounted_bytes: the closing reading.
+    assert summary["volume_used_bytes"] == 1566000
+    assert summary["unaccounted_bytes"] == 1566000 - 1446005
+    # The residual: the reading from the du scan's own moment, so it stays 0 rather
+    # than inventing 9,000 bytes of deleted-but-open storage.
+    assert summary["volume_used_bytes_at_directory_scan"] == 1557000
+    assert summary["directory_scan_root_bytes"] == 1557000
+    assert summary["filesystem_minus_directory_scan_bytes"] == 0
+    assert summary["filesystem_minus_directory_scan_is_significant"] is False
+    # The method must say which window each figure came from, or the two readings in
+    # one summary are just a contradiction.
+    assert (
+        "volume_used_bytes_at_directory_scan minus directory_scan_root_bytes"
+        in (summary["method"])
+    )
+
+
+def test_v3_disk_inventory_bounds_the_database_list_without_bounding_the_total(
+    tmp_path,
+):
+    """pg_database is unbounded, but accounted_bytes must not be.
+
+    Bounding the row list and then summing THAT list in Python would understate
+    accounted_bytes, and unaccounted_bytes is volume_used minus accounted -- so every
+    database dropped by the bound would appear as reclaimable space. The totals are
+    therefore computed in SQL across every row, and the bound applies only to what
+    the receipt displays.
+    """
+    source = _read(ACTION)
+    assert "DATABASE_INVENTORY_LIMIT = 50" in source
+    assert "LIMIT {DATABASE_INVENTORY_LIMIT + 1}" in source
+    # Totals in SQL, over all of pg_database, with no LIMIT on that query.
+    totals = source.split("database_total_rows = psql_json(")[1].split(
+        "if len(database_total_rows)"
+    )[0]
+    assert "coalesce(sum(pg_database_size(oid)),0)" in totals
+    assert "LIMIT" not in totals
+    # Identified by the connection rather than an interpolated name.
+    assert "datname=current_database()" in source
+    # And no Python-side sum over the bounded list may survive.
+    assert 'for row in database_rows if row["datname"] != db_name' not in source
+    assert (
+        "other_databases_bytes = database_total_bytes - operating_database_bytes"
+        in source
+    )
+    # A failed section must reach the summary as a RuntimeError, not a TypeError from
+    # iterating the failure dict.
+    assert "database_sizes_unavailable" in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["database_count"] == 2
+    assert inventory["database_total_bytes"] == 1328000
+    assert inventory["database_inventory_limit"] == 50
+    assert inventory["database_inventory_truncated"] is False
+    assert inventory["summary"]["operating_database_bytes"] == 1320000
+    assert inventory["summary"]["other_databases_bytes"] == 8000
+
+
+def test_v3_disk_inventory_always_retains_the_published_generation(tmp_path):
+    """The bound must never drop the one generation whose bytes are live.
+
+    Generation keys carry no chronology, so lexicographic order puts the published
+    generation anywhere -- including past the limit. A receipt that bounded it away
+    would show an operator a complete-looking attribution table in which every
+    listed generation is superseded, which reads as a licence to reclaim all of
+    them. Both the SQL ordering and the union performed here must retain it.
+    """
+    source = _read(ACTION)
+    # The SQL sorts the published generation first, in all three product queries.
+    assert (
+        source.count(
+            "ORDER BY (p.derived_generation_id IS NOT NULL) DESC, g.generation_key "
+        )
+        == 3
+    )
+    assert source.count("LEFT JOIN v3_meta.current_derived_generation p ") == 3
+    # And the union re-sorts for the receipt, so it must re-add it explicitly.
+    assert "if published_key is not None and published_key not in dict(kept):" in source
+    # A singleton that yields two published keys is a broken assumption, not a
+    # row to pick between.
+    assert "chunk_receipt_published_generation_ambiguous" in source
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    # The fixture's superseded generation sorts BEFORE the published one.
+    assert list(inventory["generation_attribution"]) == [
+        "aaa_superseded",
+        "ratings_v4_live",
+    ]
+    assert inventory["generation_attribution_published_generation"] == "ratings_v4_live"
+    assert inventory["generation_attribution_published_generation_retained"] is True
 
 
 def test_v3_disk_inventory_reconciles_wal_bytes_at_window_close(tmp_path):
