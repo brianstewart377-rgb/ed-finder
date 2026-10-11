@@ -681,14 +681,18 @@ the page:
 4. **Fetch (bounded, by primary key).** Join `v3_app.system_archetype` again on
    `(derived_generation_id, system_id64)` for the ≤ `page_size` paged rows only,
    to read the selected `<key>_score`, `<key>_tier`, `<key>_confidence_ppm` and
-   the summary columns the response reports — at most 50 primary-key lookups per
-   request. The plan assertions therefore require: the window node is an
+   the summary columns the response reports — at most `page_size` primary-key
+   lookups per request, which the route bounds at **500**
+   (`apps/api/src/routers/archetypes.py:517`), not 50: the F4 facade exposes
+   1–50, but the API contract is the limit that matters here and the plan probe
+   must exercise a 500-row page so a legal large page is never truncated or
+   left unverified. The plan assertions therefore require: the window node is an
    `Index Only Scan` on the expected partial index with ≤ 10,001 actual rows,
-   and the fetch node's actual rows are ≤ `page_size`; for the count query the window node may read exactly 10,001.
+   and the fetch node's actual rows are ≤ `page_size` (tested at both 50 and the route's maximum 500); for the count query the window node may read exactly 10,001.
 
 Carrying those columns as INCLUDE payload on the 24 partial indexes was
-rejected: it would add payload to every indexed row to save ≤ 50 key lookups
-per request. The count query needs stages 1 and 2 only (and stage 2 only for its join shape — it filters nothing).
+rejected: it would add payload to every indexed row to save at most `page_size`
+(≤ 500) key lookups per request. The count query needs stages 1 and 2 only (and stage 2 only for its join shape — it filters nothing).
 
 **Hard filters are rejected on a picked archetype, not redefined (review round
 9).** A filter inside the inner `WHERE` would let the index scan run past 10,001
@@ -751,8 +755,14 @@ changes the picked count to `SELECT count(*) FROM (SELECT 1 … LIMIT 10001) t`
 with the same literal + parameter floor: the response's `total` is
 `min(count, 10000)` and `is_truncated` is `count = 10001`, exactly the
 within-window contract the F4 design already specifies for selected mode, now
-honest for the count as well as the page. The galaxy-wide local-search path
-already caps its count the same way (`apps/api/src/local_search.py:248-254`).
+honest for the count as well as the page. The galaxy-wide local-search path is
+**bounded but not sentinel-based** today: it passes `cap=10000` and sets
+`total_is_capped` when the returned count is `>= 10000`
+(`apps/api/src/local_search.py:922,965-970`), so exactly 10,000 matches is
+indistinguishable from a million. **PR1 changes that path too**, to
+`LIMIT cap + 1` with `total = min(count, cap)` and
+`total_is_capped = count > cap` (see PR1's `local_search.py` entry); Any mode is
+not left unchanged.
 Tests execute the ranked and count SQL on the disposable PG18 fixture with
 `plan_cache_mode = force_generic_plan` and assert, from `EXPLAIN (FORMAT JSON)`,
 that the matching partial index is used for each floor and that no plan node
@@ -1079,7 +1089,7 @@ replace either; the rollout below is authorized only once both say so:
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-4 calibration histogram and re-measured with the final migration text before the build |
 | 9 | **Go-live:** in one governed transaction, call `publish_derived_product` for `system_search` and `system_archetype`; verify both timestamps/audits and view counts. This is deliberately the last step: publication is the reviewed switch that makes the Finder visible, and it may only run once the release from step 8 is the running application (the action verifies the deployed ranking identity against the gate before publishing). | Build a new product-publish action, modeled on the pinned, separately receipted spatial publish pattern; no derived-generation publication occurs. The current workflow allowlist has no Archetype-build or product-publish operation. (`.github/workflows/chatgpt-ed-new-ops.yml:10-24,81-84`) | negligible metadata/audit rows |
-| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
+| 10 | **Post-go-live verification:** confirm from the live application that the Finder serves results, that the response envelopes carry the expected generation, `ranking_version`/`ranking_sha256` and `archetype_version`/`archetype_manifest_sha256`, and that a picked-archetype request's plan is still bounded — the latter through the new read-only `v3-archetype-plan-probe` action, which asserts the index, the ≤ 10,001-row window and the ≤ `page_size` fetch (exercised at `page_size` 50 and 500) from a real `EXPLAIN (ANALYZE, BUFFERS)`; `v3-derived-lifecycle-status` separately reports the product rows, publication timestamps and audit rows. | Reuse the read-only `v3-derived-lifecycle-status` action plus the publish action's own receipt; no new mutation. | 0 GB |
 
 **Rollback is constrained from the moment `011`/`015` are applied (review round
 12).** Deploying first removes the forward hazard but not the backward one: the
@@ -1662,7 +1672,7 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    `v3-archetype-plan-probe.sh` runs the real page and count SQL under
    `force_generic_plan` with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` and asserts
    the index-only window (≤ 10,001 rows), the ≤ 10,000-row sort input and the
-   ≤ `page_size` fetch; step 10 names it instead of the lifecycle-status action,
+   ≤ `page_size` fetch at both 50 and the route's maximum 500; step 10 names it instead of the lifecycle-status action,
    which contains no `EXPLAIN`.
 6. **P1 — Gate publication on the deployed F2d release** → the publish action
    fails closed before publishing anything: it compares the running API
@@ -1700,3 +1710,20 @@ docs(finder): F2d design — wide-row archetype product and product attachment/p
    than “at least 10,000 were counted”. Without it a search with exactly 10,000
    matches raises the same flag as one with a million, and the F4 UI cannot
    honestly write “10,000+”. Tests pin exactly 10,000 (false) and 10,001 (true).
+
+### Review round 14 (2026-10-11)
+
+1. **P2 — Correct the stale Any-mode count claim** → the ranking section no
+   longer says the galaxy-wide count is “capped the same way”: it states that the
+   live path is bounded but **not** sentinel-based (`cap=10000` with
+   `total_is_capped` on `>= 10000`) and that PR1 changes it to `LIMIT cap + 1`
+   with `total_is_capped = count > cap`, so Any mode is not left unchanged.
+2. **P2 — Keep the fetch bound consistent with the 500-row API limit** → the
+   stage-4 bound is `page_size` up to the route's **500**, not 50; the plan
+   assertions and the production probe exercise both 50 and 500 so a legal large
+   page is neither truncated nor left unverified, and the INCLUDE-payload
+   rejection is restated against the real bound.
+3. **P1 — Remove the pre-publication live-identity requirement** → the ROADMAP's
+   step 9′ now requires the pre-publication check to use the accepted-release
+   attestation, the running image digest and the served OpenAPI contract, with the
+   **response** identity verified only after publication, matching the design.

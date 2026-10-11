@@ -271,12 +271,16 @@ newer dated source wins).
      throughout, because the products are not published.
   9′ (last — go-live). The publish action first fails closed on the deployed
      application — the running API image digest must match the accepted F2d
-     release and the live advertised ranking identity must be the expected new
-     one — then publishes both **products** with
+     release, and the expected ranking identity is confirmed from that
+     accepted-release attestation and the served `/openapi.json`, **not** from a
+     Finder response envelope, because the API answers 503 until the products
+     are published so no envelope exists yet — then publishes both **products**
+     with
      `v3_meta.publish_derived_product` in one governed transaction; the
      generation pointer does not move (no `publish_derived_generation`). Then
      verify from the live app that results are served and the envelopes carry
-     the expected generation, ranking identity and product identity.
+     the expected generation, ranking identity and product identity — this is
+     where the response identity is checked, once it exists.
 
   Until 4′ has
   merged, **no production step beyond step 0 may be dispatched** (not even the
