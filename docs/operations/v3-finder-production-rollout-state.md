@@ -462,6 +462,31 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   produce), an unmeasured `base` child, an exhausted scan budget, a failed scan, or
   `base/` itself drifting beyond tolerance between the PGDATA walk and the `base` walk.
   All of its figures, including `base/`'s own total, come from the `base` scan.
+- **Every operand of `accounted_bytes` is read at window close.** The database and
+  temporary-file totals are re-read beside the closing PGDATA and `df` measurements, so
+  a database moving during the SQL phase no longer lands in
+  `database_size_metric_difference_bytes` — a term that is documented as a
+  `du`-versus-`st_size` difference and nothing else. The opening values stay as a
+  bracket in `databases_at_window_close`, so the movement is visible rather than merely
+  corrected.
+- **`pg_wal` is measured again beside the `pg_ls_waldir()` read.** The closing walk
+  visits it part-way through its own traversal, so WAL recycled in between left the walk
+  holding the larger figure and the difference was emitted as an "unlisted
+  subdirectories" candidate — already-removed WAL presented as reclaimable space, with
+  the closure still true because the smaller SQL value also fed `accounted_bytes`. The
+  candidate now comes from the two figures taken at the same instant, and the
+  walk-to-SQL movement is a signed term.
+- **The `df`/`du` residual carries its own error bar.** `df` is one instant and `du` is
+  a traversal, so a sibling changing during the walk leaves its earlier or
+  partly-observed size in `directory_scan_root_bytes`.
+  `filesystem_minus_directory_scan_uncertainty_bytes` reports how much the volume moved
+  across that window, and a residual no larger than it is not flagged. (At production
+  scale the extra condition is inert — the bracket permits at most 0.5% of used while
+  significance needs 2% — so the figure is the part that carries the value.)
+- **Index definitions are bounded, not just index rows.** `pg_get_indexdef()` can return
+  arbitrarily large text for an expression or partial index, so a row cap alone does not
+  bound the output that `run()` buffers, `psql_json()` materializes and the receipt
+  serializes. A bounded prefix is kept with the original length and a truncation flag.
 - **The dead-tuple inventory is ranked by estimated reclaimable bytes, then capped.**
   Not drawn from the largest relations: dead tuples *are* reclaimable space, and the
   table holding the most of it need not be among the largest by total size — a moderate
@@ -554,8 +579,15 @@ Five bounding, metric and windowing rules govern how the receipt may be read:
   name.
 
 The action is read-only and reclaims nothing: it creates, modifies and deletes
-nothing, and both interpreter invocations take `-B` so no bytecode is written. One
-write it cannot avoid is reported rather than covered. The control plane pipes one
+no file and no file content, and both interpreter invocations take `-B` so no bytecode
+is written. **Two** side effects it cannot avoid are reported rather than covered. The
+second is that `du` reads every directory it traverses, and under the kernel's default
+`relatime` — or `strictatime` — the kernel updates those directories' access times as a
+result. That is a metadata write caused by reading, so it cannot be avoided while
+measuring at all, and whether it happens is a property of the host's mount options:
+`inventory.volume.atime` reports the measured policy, read from `/proc/mounts`, and
+`directory_atime_writes_suppressed` is true only under `noatime` or `nodiratime`. The
+first is the here-document spool. The control plane pipes one
 self-contained script to `bash -s` over SSH, and bash uses a pipe for a here-document
 only while it fits the pipe buffer; this program is larger, so the shell spools it to
 an unlinked temporary file before the interpreter starts (measured under bash 5.2.21:

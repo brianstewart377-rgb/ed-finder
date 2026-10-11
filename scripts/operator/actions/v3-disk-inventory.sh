@@ -56,6 +56,10 @@ DRILL_DOWN_MAX_STEPS = 8
 # indexes per table, so without this one relation could make the receipt, and the memory
 # used to parse it, arbitrarily large.
 INDEX_INVENTORY_LIMIT = 200
+# Characters kept from each pg_get_indexdef(). The row cap bounds rows, not bytes, and
+# an expression or partial index can hold an arbitrarily large literal or predicate.
+# Enough to read a normal definition whole; the full length is reported alongside.
+INDEX_DEFINITION_LIMIT = 2_000
 # pg_stat_user_tables has one row per user table, so the dead-tuple inventory needs its
 # own bound. Ranked by ESTIMATED DEAD BYTES across every table rather than drawn from
 # the largest relations: the table holding the most reclaimable dead space need not be
@@ -84,13 +88,22 @@ REPLICATION_SLOT_INVENTORY_LIMIT = 50
 # slow production inventory could be killed before it emitted any receipt at all. With a
 # shared budget the walk stops early and records why, which is a usable receipt.
 #
+# A depth-0 scan of pg_wal, which is bounded by max_wal_size plus wal_keep_size (both
+# reported in this receipt) rather than by how much data exists. Unlike base/ it cannot
+# be arbitrarily large, so it gets a right-sized allowance instead of a full one --
+# which keeps the worst-case wall clock comfortably inside the workflow's 40-minute
+# kill rather than three minutes short of it.
+WAL_DIRECTORY_SCAN_SECONDS = 60
 # Held back from the budget for the closing reconciliation, so the walk can never consume
-# the budget the reconciliation needs and take the whole section down with it. TWO full
-# per-call allowances, because the closing phase makes two scans: the PGDATA re-read and
-# the depth-1 breakdown of `base` that keeps the base remainder in one metric. Reserving
-# one would leave the second running against whatever the first left over, which is a
+# the budget the reconciliation needs and take the whole section down with it. One
+# allowance per closing scan, and the closing phase makes THREE: the PGDATA re-read, the
+# depth-1 breakdown of `base` that keeps the base remainder in one metric, and the
+# depth-0 re-measure of pg_wal beside the pg_ls_waldir() read. Reserving fewer would
+# leave a later scan running against whatever the earlier ones left over, which is a
 # different way of failing the scan the reserve exists to protect.
-RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS
+RECONCILE_RESERVE_SECONDS = (
+    2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS
+)
 # The budget is the WALK's allowance PLUS the reserve, not a total the reserve is carved
 # out of. ScanBudget.remaining() subtracts the reserve from this number for every
 # pre-closing caller, so defining it as a fixed total meant that raising the reserve
@@ -341,6 +354,68 @@ def exclusive_usage(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {path: size - child_bytes.get(path, 0) for path, size in totals.items()}
 
 
+def mount_atime_policy(path: str) -> dict[str, Any]:
+    """The access-time policy of the filesystem holding `path`.
+
+    `du` reads every directory it traverses, and under the kernel's DEFAULT
+    `relatime` that read updates the directory's access time whenever the stored
+    atime predates mtime/ctime or is over 24 hours old; under `strictatime` it
+    updates on every access. So a receipt claiming the action modifies nothing is
+    only true when the filesystem is mounted `noatime` or `nodiratime`. That is a
+    property of the host, not of this code, so it is MEASURED and reported rather
+    than assumed in either direction.
+
+    Read straight from /proc/mounts: reading a virtual file writes nothing, and it
+    avoids depending on findmnt being installed. Longest matching mount point wins,
+    because a nested mount governs the paths below it.
+    """
+    try:
+        with open("/proc/mounts", encoding="utf-8", errors="surrogateescape") as handle:
+            lines = handle.read().splitlines()
+    except OSError as exc:
+        return {"available": False, "reason": f"proc_mounts_unreadable:{exc.errno}"}
+    target = path.rstrip("/") or "/"
+    best: tuple[int, str, str] | None = None
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        # /proc/mounts octal-escapes spaces, tabs, newlines and backslashes.
+        point = (
+            fields[1]
+            .replace("\\040", " ")
+            .replace("\\011", "\t")
+            .replace("\\012", "\n")
+            .replace("\\134", "\\")
+        )
+        stripped = point.rstrip("/") or "/"
+        if stripped == "/" or target == stripped or target.startswith(f"{stripped}/"):
+            if best is None or len(stripped) > best[0]:
+                best = (len(stripped), point, fields[3])
+    if best is None:
+        return {"available": False, "reason": "mount_point_not_found"}
+    options = [item for item in best[2].split(",") if item]
+    # nodiratime is sufficient on its own here: du's writes would be to DIRECTORY
+    # atimes, and that option suppresses exactly those.
+    suppressed = "noatime" in options or "nodiratime" in options
+    if "strictatime" in options:
+        policy = "strictatime"
+    elif "noatime" in options:
+        policy = "noatime"
+    elif "nodiratime" in options:
+        policy = "nodiratime"
+    else:
+        # The kernel default when none is specified.
+        policy = "relatime"
+    return {
+        "available": True,
+        "mount_point": best[1],
+        "options": options,
+        "atime_policy": policy,
+        "directory_atime_writes_suppressed": suppressed,
+    }
+
+
 def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
     result = run(argv)
     if result.returncode != 0:
@@ -383,23 +458,49 @@ def postgres_mounts() -> list[tuple[str, str]]:
     return mounts
 
 
-def postgres_mount(mounts: list[tuple[str, str]]) -> tuple[str, str]:
-    exact: tuple[str, str] | None = None
-    fallback: tuple[str, str] | None = None
+def postgres_mount(
+    mounts: list[tuple[str, str]], container_pgdata: str
+) -> tuple[str, str]:
+    """The DEEPEST mount whose destination contains the server's data directory.
+
+    Deepest, not a name heuristic. Choosing by destination name
+    (`/var/lib/postgresql/data`, else anything under `/var/lib/postgresql`) could
+    select an OUTER mount while another mount covered an ancestor of PGDATA beneath
+    it -- `/var/lib/postgresql/18` when PGDATA is `/var/lib/postgresql/18/docker`,
+    say. host_pgdata() would then map PGDATA into the outer source's hidden
+    underlying tree, and if a stale directory happened to exist there, the path and
+    device checks would both pass while every scan measured the wrong filesystem.
+    The deepest covering mount is the one that actually provides those bytes, so
+    selecting it makes an intervening mount impossible rather than merely detectable.
+    """
+    best: tuple[int, str, str] | None = None
     for source, destination in mounts:
-        if destination == "/var/lib/postgresql/data":
-            exact = (source, destination)
-            break
-        if destination.startswith("/var/lib/postgresql") and fallback is None:
-            fallback = (source, destination)
-    mount = exact or fallback
-    if mount is None:
+        target = destination.rstrip("/") or "/"
+        if container_pgdata == target or container_pgdata.startswith(f"{target}/"):
+            if best is None or len(target) > best[0]:
+                best = (len(target), source, destination)
+    if best is None:
+        # No mount provides PGDATA, so its bytes live in the container's own writable
+        # layer rather than on a volume. Nothing on the inspected volume is the data
+        # directory, and every subtraction below would be wrong.
         raise RuntimeError("postgres_data_mount_unresolved")
-    return mount
+    return best[1], best[2]
+
+
+def container_data_directory(db_user: str, db_name: str) -> str:
+    """Ask the server where its data directory is.
+
+    Read BEFORE the mount is chosen, because the mount has to be selected by which
+    one contains this path.
+    """
+    rows = psql("SELECT current_setting('data_directory')", db_user, db_name)
+    if len(rows) != 1 or len(rows[0]) != 1 or not rows[0][0].startswith("/"):
+        raise RuntimeError("postgres_data_directory_unresolved")
+    return rows[0][0].rstrip("/")
 
 
 def host_pgdata(
-    mount_source: str, mount_destination: str, db_user: str, db_name: str
+    mount_source: str, mount_destination: str, container_pgdata: str
 ) -> tuple[str, str]:
     """Translate the server's own `data_directory` into a host path.
 
@@ -407,12 +508,11 @@ def host_pgdata(
     PGDATA at /var/lib/postgresql/18/docker while the volume is commonly mounted at
     /var/lib/postgresql, so scanning the mount root at depth 1 reports only the `18`
     parent and never the base/pg_wal/log breakdown this action is supposed to show.
-    Ask the server where its data directory actually is and map it through the mount.
+
+    Pure mapping: the data directory is read by container_data_directory() and the
+    mount is chosen by postgres_mount() as the deepest one containing it, so by the
+    time this runs the only remaining work is the prefix substitution.
     """
-    rows = psql("SELECT current_setting('data_directory')", db_user, db_name)
-    if len(rows) != 1 or len(rows[0]) != 1 or not rows[0][0].startswith("/"):
-        raise RuntimeError("postgres_data_directory_unresolved")
-    container_pgdata = rows[0][0].rstrip("/")
     destination = mount_destination.rstrip("/")
     source = mount_source.rstrip("/")
     if container_pgdata == destination:
@@ -450,8 +550,10 @@ class ScanBudget:
         self._reserved = True
         self._deadline = time.monotonic() + seconds
 
-    def begin_closing_scan(self) -> None:
-        """Give the next closing scan its own full per-call allowance.
+    def begin_closing_scan(
+        self, seconds: int = DIRECTORY_USAGE_TIMEOUT_SECONDS
+    ) -> None:
+        """Give the next closing scan its own allowance.
 
         Called once before EACH closing scan, not once for the phase. The reserve has
         to be an allowance rather than a slice of an advancing deadline: between the
@@ -473,7 +575,7 @@ class ScanBudget:
         back by everything the closing phase can need.
         """
         self._reserved = False
-        self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS
+        self._deadline = time.monotonic() + seconds
 
     def reserve(self) -> float:
         return self.reserve_seconds if self._reserved else 0.0
@@ -909,11 +1011,20 @@ receipt: dict[str, Any] = {
     #
     # So it is reported instead of being quietly covered by an unqualified false.
     "filesystem_writes_scope": (
-        "This action creates, modifies and deletes nothing. The shell spools the "
-        "embedded program to an unlinked temporary file before the interpreter starts, "
-        "because the control plane pipes one self-contained script over SSH and a "
-        "here-document above the pipe-buffer size is spooled rather than piped. That "
-        "file holds the program text, not host data, and does not outlive the shell."
+        "This action creates, modifies and deletes no file and no file content. Two "
+        "side effects it cannot avoid are reported rather than covered by that claim. "
+        "(1) The shell spools the embedded program to an unlinked temporary file "
+        "before the interpreter starts, because the control plane pipes one "
+        "self-contained script over SSH and a here-document above the pipe-buffer "
+        "size is spooled rather than piped; that file holds the program text, not "
+        "host data, and does not outlive the shell. (2) `du` reads every directory it "
+        "traverses, and under the kernel's default `relatime` -- or `strictatime` -- "
+        "the kernel updates those directories' ACCESS TIMES as a result. That is a "
+        "metadata write caused by reading, so it cannot be avoided while measuring at "
+        "all, and whether it happens is a property of the host's mount options rather "
+        "than of this action: inventory.volume.atime reports the measured policy and "
+        "directory_atime_writes_suppressed is true only under noatime or nodiratime. "
+        "No file content, size, name or ownership is changed either way."
     ),
     "database_identity_source": "running_container_role_and_database_names_only",
     "query_policy": {
@@ -1002,6 +1113,15 @@ tolerance: int = 0
 # yields its key strings and raises TypeError, escaping the section handler.
 operating_database_bytes: int | None = None
 other_databases_bytes: int | None = None
+# The opening database total, kept so the closing re-read can be reported as a bracket
+# rather than silently replacing it.
+database_total_bytes: int | None = None
+# The CLOSING database and temp totals, read in the reconciliation section and used by
+# the summary so accounted_bytes is genuinely a closing figure. Module scope for the
+# same reason as the others.
+operating_database_bytes_at_close: int | None = None
+database_total_bytes_at_close: int | None = None
+temp_bytes_at_close: int | None = None
 # The live database OID directory names, read in the `databases` section and used by
 # the base breakdown in the reconciliation section. None means "not established",
 # which suppresses the breakdown rather than guessing from a partial set.
@@ -1009,7 +1129,12 @@ live_database_oids: dict[str, str] | None = None
 base_breakdown: dict[str, Any] | None = None
 try:
     container_mounts = postgres_mounts()
-    mount_source, mount_destination = postgres_mount(container_mounts)
+    # Data directory first, then the mount that contains it. The reverse order let a
+    # name heuristic pick an outer mount while a deeper one actually provided PGDATA.
+    container_pgdata_path = container_data_directory(db_user, db_name)
+    mount_source, mount_destination = postgres_mount(
+        container_mounts, container_pgdata_path
+    )
     disk = df_values(
         ["df", "-B1", "--output=source,fstype,size,used,avail", mount_source],
         ("filesystem", "filesystem_type", "size_bytes", "used_bytes", "avail_bytes"),
@@ -1021,6 +1146,11 @@ try:
         "size_bytes": disk["size_bytes"],
         "used_bytes": disk["used_bytes"],
         "avail_bytes": disk["avail_bytes"],
+        # Measured, because it decides whether this action's own reads write anything.
+        # See mount_atime_policy(): under the kernel default `relatime` a du traversal
+        # updates directory access times, so "modifies nothing" is a claim about the
+        # host's mount options and not about this code.
+        "atime": mount_atime_policy(mount_source),
     }
 except RuntimeError as exc:
     section_failed(failures, inventory, "volume", exc)
@@ -1052,7 +1182,7 @@ try:
     inventory["volume_directory_usage_root"] = usage_root
 
     pgdata_host, pgdata_container = host_pgdata(
-        mount_source, mount_destination, db_user, db_name
+        mount_source, mount_destination, container_pgdata_path
     )
     inventory["postgres_data_directory"] = {
         "container_path": pgdata_container,
@@ -1566,7 +1696,20 @@ try:
         "SELECT n.nspname AS schema, c.relname AS \"table\", "
         "i.relname AS index_name, pg_relation_size(i.oid)::bigint AS index_bytes, "
         "x.indisunique AS is_unique, x.indisprimary AS is_primary, "
-        "s.idx_scan::bigint AS idx_scan, pg_get_indexdef(i.oid) AS definition "
+        "s.idx_scan::bigint AS idx_scan, "
+        # BOUNDED. The row cap bounds rows, not bytes: an expression or partial index
+        # can carry an arbitrarily large literal or predicate, and pg_get_indexdef()
+        # returns the whole thing. That text is then buffered by run(), materialized
+        # again by psql_json(), and serialized once more into the receipt, so a single
+        # large definition can exhaust the client or the workflow log before any
+        # structured receipt is emitted -- the same failure the row caps exist to
+        # prevent, reached through column width instead of row count. Kept rather than
+        # dropped, because the definition is how an operator tells a redundant index
+        # from a needed one, and the original length says when it was cut.
+        f"left(pg_get_indexdef(i.oid), {INDEX_DEFINITION_LIMIT}) AS definition, "
+        "length(pg_get_indexdef(i.oid))::bigint AS definition_length, "
+        f"(length(pg_get_indexdef(i.oid)) > {INDEX_DEFINITION_LIMIT}) "
+        "AS definition_truncated "
         "FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid "
         "JOIN pg_class c ON c.oid=x.indrelid "
         "JOIN pg_namespace n ON n.oid=c.relnamespace "
@@ -2000,6 +2143,74 @@ try:
         raise RuntimeError("wal_bytes_not_reconciled")
     wal_bytes_at_close = closing_wal[0]["bytes"]
     inventory["wal"]["bytes_at_window_close"] = wal_bytes_at_close
+    # Measure pg_wal AGAIN, beside the SQL read. The closing walk visited pg_wal at
+    # some earlier point in its own traversal, so WAL recycled in between makes the
+    # walk's figure the LARGER one -- and the difference then came out positive and was
+    # emitted as an "unlisted subdirectories and files" candidate. That is
+    # already-removed ordinary WAL presented as reclaimable storage, and because the
+    # smaller SQL value also feeds accounted_bytes the closure stayed true while it
+    # happened. Only the negative sign took the drift path, so the shrink case the
+    # adjacent comment acknowledged was the one still landing in candidates.
+    #
+    # pg_wal is bounded by max_wal_size plus wal_keep_size, so a depth-0 scan of it is
+    # cheap -- it needs its own allowance rather than a share of another scan's, for
+    # the same reason every other closing scan does.
+    wal_host_dir = f"{pgdata_host.rstrip('/')}/pg_wal"
+    scan_budget.begin_closing_scan(WAL_DIRECTORY_SCAN_SECONDS)
+    wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)
+    inventory["wal"]["directory_bytes_beside_sql_read"] = wal_dir_bytes_at_sql
+    # Re-read the DATABASE and TEMP totals here too. accounted_bytes is described as a
+    # closing figure, and the WAL and PGDATA figures are, but these two came from the
+    # SQL phase -- so a database growing or shrinking in between (freely, within the
+    # multi-GiB PGDATA tolerance) landed in database_size_metric_difference_bytes,
+    # which is documented as a du-versus-st_size difference and nothing else. That put
+    # temporal drift inside a term labelled metrological, and left the headline
+    # unaccounted figure wrong by the database change while the closure still held.
+    #
+    # Cheap to fix properly: two aggregates, no row lists. The opening values are kept
+    # as a bracket so the movement is visible rather than merely corrected.
+    closing_database_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT coalesce(sum(pg_database_size(oid)),0)::bigint::text AS total_bytes, "
+        "coalesce(sum(CASE WHEN datname=current_database() "
+        "THEN pg_database_size(oid) ELSE 0 END),0)::bigint::text "
+        "AS operating_bytes FROM pg_database) q",
+        db_user,
+        db_name,
+    )
+    if len(closing_database_rows) != 1:
+        raise RuntimeError("closing_database_total_output_invalid")
+    operating_database_bytes_at_close = required_int(
+        closing_database_rows[0].get("operating_bytes"),
+        "closing_database_total_output_invalid",
+    )
+    database_total_bytes_at_close = required_int(
+        closing_database_rows[0].get("total_bytes"),
+        "closing_database_total_output_invalid",
+    )
+    closing_temp_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT CASE WHEN "
+        "COALESCE((pg_stat_file('base/pgsql_tmp',true)).isdir,false) THEN "
+        "(SELECT sum(size)::bigint FROM pg_ls_tmpdir()) "
+        "ELSE NULL::bigint END AS temp_directory_bytes) q",
+        db_user,
+        db_name,
+    )
+    if len(closing_temp_rows) != 1:
+        raise RuntimeError("closing_temp_output_invalid")
+    temp_bytes_at_close = closing_temp_rows[0].get("temp_directory_bytes") or 0
+    inventory["databases_at_window_close"] = {
+        "operating_database_bytes": operating_database_bytes_at_close,
+        "database_total_bytes": database_total_bytes_at_close,
+        "temp_directory_bytes": temp_bytes_at_close,
+        "operating_database_drift_bytes": (
+            operating_database_bytes_at_close - (operating_database_bytes or 0)
+        ),
+        "database_total_drift_bytes": (
+            database_total_bytes_at_close - (database_total_bytes or 0)
+        ),
+        "measured_at": "window_close",
+    }
     pgdata_children_all = sorted(
         (row for row in closing_usage if row["path"].rstrip("/") != pgdata_host),
         key=lambda item: (-item["bytes"], item["path"]),
@@ -2300,8 +2511,22 @@ try:
     if "bytes_after_window" not in used_bracket:
         raise RuntimeError("volume_used_window_not_closed")
     volume_used = used_bracket["bytes_after_window"]
-    if operating_database_bytes is None or other_databases_bytes is None:
-        raise RuntimeError("database_sizes_unavailable")
+    # The CLOSING database totals, for the same reason the PGDATA and WAL figures are
+    # the closing ones: accounted_bytes claims to describe one state. Taken from the
+    # SQL phase, any database movement in between was absorbed by
+    # database_size_metric_difference_bytes -- a term documented as a du-versus-st_size
+    # difference and nothing else -- so temporal drift hid inside a metrological term
+    # and the headline unaccounted figure was wrong by the database change.
+    if (
+        operating_database_bytes_at_close is None
+        or database_total_bytes_at_close is None
+        or temp_bytes_at_close is None
+    ):
+        raise RuntimeError("closing_database_sizes_unavailable")
+    operating_database_bytes = operating_database_bytes_at_close
+    other_databases_bytes = database_total_bytes_at_close - operating_database_bytes
+    if other_databases_bytes < 0:
+        raise RuntimeError("closing_database_total_output_invalid")
     # The CLOSING WAL figure, for the same reason the PGDATA total is the closing one:
     # every input to this arithmetic has to describe one state. Collecting
     # bytes_at_window_close and then leaving accounted_bytes on the opening value put
@@ -2314,7 +2539,7 @@ try:
     )
     if wal_bytes is None:
         raise RuntimeError("wal_bytes_not_reconciled")
-    temp_bytes = inventory["temp_and_logs"]["temp_directory_bytes"] or 0
+    temp_bytes = temp_bytes_at_close
     accounted_bytes = (
         operating_database_bytes + other_databases_bytes + wal_bytes + temp_bytes
     )
@@ -2496,6 +2721,14 @@ try:
             ),
             None,
         )
+        # For pg_wal, the candidate is computed from the measurement taken BESIDE the
+        # SQL read, and the walk-to-SQL movement becomes a signed term. Both figures
+        # are du measurements of the same directory at two instants, so their
+        # difference is temporal by construction and belongs nowhere near a reclaim
+        # candidate -- in either direction.
+        walk_figure = wal_child["bytes"] if wal_child is not None else None
+        if name == "pg_wal" and wal_child is not None:
+            wal_child = dict(wal_child, bytes=wal_dir_bytes_at_sql)
         if wal_child is None:
             # pg_wal is REQUIRED, pg_xlog is not. The subtraction of wal_bytes happens
             # only here, so a pg_wal that the size-based child cap dropped would skip
@@ -2517,17 +2750,27 @@ try:
             if subtract
             else "not the live WAL directory on PostgreSQL 18; unexpected storage"
         )
-        # Signed. `du` visits pg_wal during the closing PGDATA walk and
-        # pg_ls_waldir() runs after it, so WAL written in between makes this
-        # negative. Dropping it then left the closure false; worse, a shrink turned
-        # ordinary WAL that had already been recycled into an "unlisted storage"
-        # candidate. Neither is reclaimable space, and the signed term says which
-        # way the WAL moved.
+        # Still signed, for the residue: pg_wal's du figure and pg_ls_waldir()'s sum
+        # are now taken at essentially the same instant, but they remain two different
+        # instruments, so a small difference either way is possible and is temporal
+        # rather than storage.
         remainder(
             f"{wal_child['path']} ({label})",
             wal_unlisted,
             term=f"{name}_measurement_drift",
         )
+        # The walk-to-SQL movement, as its own signed term. The inside candidates now
+        # describe pg_wal as it was beside the SQL read, while the PGDATA total they
+        # partition came from the walk, so the difference has to be named or the
+        # closure is out by it.
+        if walk_figure is not None and walk_figure != wal_child["bytes"]:
+            closure_adjustments.append(
+                {
+                    "term": f"{name}_walk_to_sql_drift",
+                    "bytes": walk_figure - wal_child["bytes"],
+                    "path": wal_child["path"],
+                }
+            )
     # `base` is excluded as accounted, but pg_database_size scans base/<database OID>
     # rather than the whole directory, and the temp figure covers base/pgsql_tmp's
     # ordinary files. Anything else under base -- an orphaned OID directory from a
@@ -2685,6 +2928,14 @@ try:
     if not isinstance(volume_used_at_scan, int):
         raise RuntimeError("volume_used_at_scan_unavailable")
     residual = volume_used_at_scan - du_root_bytes
+    # How much the volume moved WHILE the root walk was running: the width of the
+    # window `du_root_bytes` was measured across, and therefore the residual's error
+    # bar. Both ends come from the volume bracket, which already reconciled them
+    # against the tolerance.
+    opening_used = used_bracket.get("bytes_before_filesystem_scan")
+    if not isinstance(opening_used, int):
+        raise RuntimeError("volume_used_opening_unavailable")
+    intra_scan_drift = abs(volume_used_at_scan - opening_used)
     non_database_directory_bytes = sum(
         item["exclusive_bytes"] for item in candidates if not item["inside_data_directory"]
     )
@@ -2791,9 +3042,24 @@ try:
         "directory_scan_root_bytes": du_root_bytes,
         "volume_used_bytes_at_directory_scan": volume_used_at_scan,
         "filesystem_minus_directory_scan_bytes": residual,
+        # The residual's own error bar. `df` is a single instant but `du` is a
+        # traversal, so a sibling consumer changing WHILE the root walk runs leaves
+        # du_root_bytes holding that directory's earlier or partly-observed size. The
+        # before/after volume bracket permits that drift (deliberately -- refusing on
+        # any movement would fail every run on a live host) but does not remove it
+        # from the residual, so ordinary directory growth could be labelled filesystem
+        # metadata or blocks held by deleted-but-open files. Those are the two things
+        # an operator chases when this figure is flagged, and neither would be there.
+        #
+        # So the bracket width is reported as the residual's uncertainty, and
+        # significance now requires the residual to exceed BOTH the proportional
+        # threshold and the amount the filesystem is known to have moved. A residual
+        # smaller than its own error bar is not evidence of anything.
+        "filesystem_minus_directory_scan_uncertainty_bytes": intra_scan_drift,
         "filesystem_minus_directory_scan_is_significant": (
             abs(residual)
             > volume_used_at_scan * DF_DU_RESIDUAL_SIGNIFICANT_PPM // 1_000_000
+            and abs(residual) > intra_scan_drift
         ),
         "largest_unaccounted_directories": candidates[:10],
         # The totals above sum the COMPLETE candidate list, so hiding the tail without
@@ -2870,7 +3136,14 @@ try:
             "residual measures and so could not be told apart from it. "
             "df reports filesystem space and du "
             "estimates space used by files, so this gap is filesystem metadata and "
-            "blocks held by deleted-but-open files. Reserved blocks are NOT a cause: "
+            "blocks held by deleted-but-open files -- but only beyond "
+            "filesystem_minus_directory_scan_uncertainty_bytes, which is how much the "
+            "volume moved while the root walk was running. df is one instant and du "
+            "is a traversal, so a sibling changing during the walk leaves its earlier "
+            "or partly-observed size in directory_scan_root_bytes; a residual no "
+            "larger than that width is ordinary movement rather than metadata or a "
+            "deleted-but-open file, and is not flagged. "
+            "Reserved blocks are NOT a cause: "
             "they explain size minus (used + available) because they remain free while "
             "being unavailable to ordinary users, so they never enter `used`; changing "
             "the reserved-block percentage cannot close this residual. The gap is not "

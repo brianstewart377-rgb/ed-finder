@@ -99,6 +99,10 @@ def _run_inventory_action(
     pgdata_grew: int = 0,
     pgdata_after_grew: int = 0,
     wal_nested_mount: bool = False,
+    pgdata_inner_mount: bool = False,
+    database_grew: int = 0,
+    volume_used_drift: int = 0,
+    wal_recycled: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -B - <<'PY'\n", 1)[1].rsplit(
@@ -183,6 +187,12 @@ def _run_inventory_action(
                 printf '%s\\n' 'true'
               else
                 printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql\\n'
+                if [ "$PGDATA_INNER_MOUNT" = '1' ]; then
+                  # A mount covering an ANCESTOR of PGDATA, beneath the outer
+                  # /var/lib/postgresql mount. The old name heuristic selected the
+                  # outer mount and mapped PGDATA into its hidden underlying tree.
+                  printf '/mnt/pg18\\t/var/lib/postgresql/18\\n'
+                fi
                 if [ "$WAL_NESTED_MOUNT" = '1' ]; then
                   # A second mount attached at pg_wal's canonical destination inside
                   # the container. From the host, that path is an ordinary (empty)
@@ -251,6 +261,11 @@ def _run_inventory_action(
                 printf '%s' "$calls" > "$DF_USED_STAMP"
                 if [ "$calls" -ge 3 ]; then
                   printf '%s\\n' "$(( 1557000 + DF_USED_DRIFT ))"
+                elif [ "$calls" -eq 1 ]; then
+                  # VOLUME_USED_DRIFT moves only the reading taken BEFORE the root
+                  # walk, so before and after differ by it -- the width of the window
+                  # the du total was measured across.
+                  printf '%s\\n' "$(( 1557000 + VOLUME_USED_DRIFT ))"
                 else
                   printf '1557000\\n'
                 fi ;;
@@ -301,6 +316,11 @@ def _run_inventory_action(
             # below the scanned root, so the depth-2 scan from / emits /var/lib but
             # never /var/lib/docker. Only the drill-down's depth-1 calls reach it.
             case "$*" in
+              *"--max-depth=0 $data/pg_wal")
+                # pg_wal measured beside the pg_ls_waldir() read. WAL_RECYCLED makes
+                # it SMALLER than the closing walk's 120,000, which is the case where
+                # already-removed WAL was being emitted as a reclaim candidate.
+                printf '%s\\t%s/pg_wal\\0' "$(( 120000 - WAL_RECYCLED ))" "$data" ;;
               *"--max-depth=0 $data")
                 # Called twice, bracketing the root walk. PGDATA_AFTER_GREW drifts only
                 # the SECOND reading, which is the one the outside candidates subtract
@@ -451,7 +471,7 @@ def _run_inventory_action(
               *"current_setting('log_directory')"*)
                 printf '%s\\n' '{"log_directory":"log","logging_collector":"off"}' ;;
               *'pg_stat_user_indexes'*)
-                printf '%s\\n' '{"schema":"v3_derived","table":"system_rating_vector","index_name":"system_rating_vector_key","index_bytes":300,"is_unique":false,"is_primary":false,"idx_scan":0,"definition":"index definition"}' ;;
+                printf '%s\\n' '{"schema":"v3_derived","table":"system_rating_vector","index_name":"system_rating_vector_key","index_bytes":300,"is_unique":false,"is_primary":false,"idx_scan":0,"definition":"index definition","definition_length":16,"definition_truncated":false}' ;;
               *'pg_stat_user_tables'*)
                 printf '%s\\n' '{"schema":"v3_derived","name":"system_rating_vector","n_live_tup":75,"n_dead_tup":25,"last_vacuum":null,"last_autovacuum":"2026-10-10 00:00:00+00","last_analyze":"2026-10-10 00:00:00+00","total_bytes":1000,"estimated_dead_fraction":0.2500,"estimated_dead_bytes":150}' ;;
               *'pg_total_relation_size'*)
@@ -460,7 +480,20 @@ def _run_inventory_action(
                 printf '%s\\n' '{"oid":"16384","datname":"edfinder_v3_db"}'
                 printf '%s\\n' '{"oid":"5","datname":"postgres"}' ;;
               *'AS operating_bytes FROM pg_database'*)
-                printf '%s\\n' '{"database_count":"2","total_bytes":"1328000","operating_bytes":"1320000"}' ;;
+                # Asked twice: once in the SQL phase and once at window close. Only
+                # the CLOSING read drifts, so a test can tell which one the summary
+                # used.
+                dbcalls=0
+                if [ -f "$DB_TOTAL_STAMP" ]; then
+                  dbcalls="$(cat "$DB_TOTAL_STAMP")"
+                fi
+                dbcalls="$(( dbcalls + 1 ))"
+                printf '%s' "$dbcalls" > "$DB_TOTAL_STAMP"
+                if [ "$dbcalls" -ge 2 ]; then
+                  printf '{"database_count":"2","total_bytes":"%s","operating_bytes":"%s"}\\n' "$(( 1328000 + DATABASE_GREW ))" "$(( 1320000 + DATABASE_GREW ))"
+                else
+                  printf '%s\\n' '{"database_count":"2","total_bytes":"1328000","operating_bytes":"1320000"}'
+                fi ;;
               *'pg_database_size'*)
                 printf '%s\\n' '{"datname":"edfinder_v3_db","size_bytes":1320000,"datistemplate":false,"datallowconn":true,"operating":true}'
                 printf '%s\\n' '{"datname":"postgres","size_bytes":8000,"datistemplate":false,"datallowconn":true,"operating":false}' ;;
@@ -502,6 +535,11 @@ def _run_inventory_action(
     env["PGDATA_GREW"] = str(pgdata_grew)
     env["PGDATA_AFTER_GREW"] = str(pgdata_after_grew)
     env["WAL_NESTED_MOUNT"] = "1" if wal_nested_mount else "0"
+    env["PGDATA_INNER_MOUNT"] = "1" if pgdata_inner_mount else "0"
+    env["VOLUME_USED_DRIFT"] = str(volume_used_drift)
+    env["WAL_RECYCLED"] = str(wal_recycled)
+    env["DATABASE_GREW"] = str(database_grew)
+    env["DB_TOTAL_STAMP"] = str(tmp_path / "db-total-stamp")
     env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
     env["DU_BELOW_DF"] = "1" if du_below_df else "0"
@@ -536,7 +574,22 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     # cannot be removed while the control plane pipes one script over SSH, so the
     # receipt reports it rather than covering it.
     assert "unlinked temporary file" in receipt["filesystem_writes_scope"]
-    assert "creates, modifies and deletes nothing" in receipt["filesystem_writes_scope"]
+    assert (
+        "creates, modifies and deletes no file and no file content"
+        in receipt["filesystem_writes_scope"]
+    )
+    # The second unavoidable side effect: du's reads update directory access times
+    # under the kernel default. Measured from the host's mount options, not assumed.
+    assert "ACCESS TIMES" in receipt["filesystem_writes_scope"]
+    atime = inventory["volume"]["atime"]
+    assert atime["available"] is True
+    assert atime["atime_policy"] in {
+        "noatime",
+        "nodiratime",
+        "relatime",
+        "strictatime",
+    }
+    assert isinstance(atime["directory_atime_writes_suppressed"], bool)
     assert inventory["volume"]["avail_bytes"] == 292000
     assert {"path": "/var/log", "bytes": 30000} in inventory["volume_directory_usage"]
     assert inventory["databases"][0]["datname"] == "edfinder_v3_db"
@@ -960,7 +1013,7 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     # TWO scans -- the PGDATA re-read and the depth-1 breakdown of base/ that keeps the
     # base remainder in a single metric.
     assert (
-        "RECONCILE_RESERVE_SECONDS = 2 * DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+        "2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS" in source
     )
     # The budget OWNS the reserve. Passing it per call site meant forgetting it at four
     # of them, which unreserved the reserve without changing a line that mentioned it,
@@ -968,13 +1021,19 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     assert "reserve_seconds" not in source.split("def du_rows(")[1].split("def du_total")[0]
     assert "def reserve(self) -> float:" in source
     assert "return self._deadline - time.monotonic() - self.reserve()" in source
-    # The reserve is opened once per closing scan, and there are exactly two: the
-    # PGDATA re-read and the base/ breakdown. Opening it once for the phase let the
-    # second scan start with whatever the first and the intervening SQL left over.
-    assert source.count("def begin_closing_scan(self)") == 1
-    assert source.count("scan_budget.begin_closing_scan()") == 2
+    # The reserve is opened once per closing scan, and there are exactly three: the
+    # PGDATA re-read, the base/ breakdown, and the depth-0 re-measure of pg_wal beside
+    # the pg_ls_waldir() read. Opening it once for the phase let a later scan start
+    # with whatever the earlier ones and the intervening SQL left over.
+    assert source.count("def begin_closing_scan(") == 1
+    assert source.count("scan_budget.begin_closing_scan(") == 3
+    assert "self._deadline = time.monotonic() + seconds" in source
+    # pg_wal is bounded by max_wal_size plus wal_keep_size, so it takes a right-sized
+    # allowance rather than a full one -- which is what keeps the worst-case wall
+    # clock comfortably inside the workflow's 40-minute kill.
+    assert "WAL_DIRECTORY_SCAN_SECONDS = 60" in source
     assert (
-        "self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS" in source
+        "2 * DIRECTORY_USAGE_TIMEOUT_SECONDS + WAL_DIRECTORY_SCAN_SECONDS" in source
     )
     release = source.index("scan_budget.begin_closing_scan()")
     # The closing scan is the FIRST du after begin_closing_scan(), so search from there
@@ -1021,7 +1080,7 @@ def test_v3_disk_inventory_reports_a_reconciled_span(tmp_path):
         "reconciled": True,
     }
     assert inventory["postgres_data_directory_bracket"]["span_reconciled"] is True
-    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 600
+    assert inventory["non_database_drill_down"]["reconcile_reserve_seconds"] == 660
 
 
 def test_v3_disk_inventory_tolerates_ordinary_postgres_file_churn(tmp_path):
@@ -1359,12 +1418,10 @@ def test_v3_disk_inventory_reserve_survives_the_sql_phase():
     # more than half the single reserve or observe different states.
     assert "postgres_data_directory_usage_total_missing" in source
     assert source.count("pgdata_final = du_total(") == 0
-    release = source[source.index("def begin_closing_scan(self)") :]
+    release = source[source.index("def begin_closing_scan(") :]
     release = release[: release.index("\n    def ")]
     assert "self._reserved = False" in release
-    assert (
-        "self._deadline = time.monotonic() + DIRECTORY_USAGE_TIMEOUT_SECONDS" in release
-    )
+    assert "self._deadline = time.monotonic() + seconds" in release
 
 
 def test_v3_disk_inventory_rechecks_the_filesystem_when_closing(tmp_path):
@@ -2128,6 +2185,216 @@ def test_v3_disk_inventory_detects_wal_mounted_at_its_canonical_path(tmp_path):
         "summary_failed": "wal_directory_outside_pgdata"
     }
     assert receipt["status"] == "stopped"
+
+
+def test_v3_disk_inventory_keeps_recycled_wal_out_of_candidates(tmp_path):
+    """Already-removed WAL must not be reported as reclaimable storage.
+
+    The closing walk visits `pg_wal` at some point inside its own traversal, and
+    `pg_ls_waldir()` runs after the walk finishes. WAL recycled in between leaves the
+    walk holding the LARGER figure, so `wal_unlisted` came out positive and was
+    emitted as an "unlisted subdirectories and files" candidate -- WAL that had
+    already been removed, presented as space to reclaim. And because the smaller SQL
+    value also feeds `accounted_bytes`, the closure stayed true while it happened, so
+    nothing caught it. Only the negative sign took the drift path, which meant the
+    shrink case the adjacent comment acknowledged was the one still landing in
+    candidates.
+
+    `pg_wal` is therefore measured again beside the SQL read, and the candidate is
+    computed from that pairing while the walk-to-SQL movement becomes a signed term.
+    """
+    source = _read(ACTION)
+    assert "wal_dir_bytes_at_sql = du_total(wal_host_dir, scan_budget)" in source
+    assert 'wal_child = dict(wal_child, bytes=wal_dir_bytes_at_sql)' in source
+    assert '"term": f"{name}_walk_to_sql_drift"' in source
+
+    # 2,000 bytes of WAL recycled between the walk and the SQL read: the walk saw
+    # 120,000, the re-measure sees 118,000, and pg_ls_waldir() reports 118,000.
+    result = _run_inventory_action(tmp_path, wal_recycled=2000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+
+    assert inventory["wal"]["directory_bytes_beside_sql_read"] == 118000
+    # No pg_wal candidate at all now: 118,000 measured against 118,000 listed means
+    # there is genuinely no unlisted content, where the walk's figure invented 2,000.
+    unlisted = f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
+    assert unlisted not in {
+        row["path"] for row in summary["largest_unaccounted_directories"]
+    }
+    # The movement is named instead, and the identity still closes.
+    assert {
+        "term": "pg_wal_walk_to_sql_drift",
+        "bytes": 2000,
+        "path": f"{pgdata}/pg_wal",
+    } in summary["closure_adjustments"]
+    assert summary["candidate_closure_gap_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_gives_the_df_du_residual_an_error_bar(tmp_path):
+    """`df` is one instant; `du` is a traversal. The residual needs its own width.
+
+    A sibling consumer changing WHILE the root walk runs leaves its earlier or
+    partly-observed size in `directory_scan_root_bytes`. The before/after volume
+    bracket deliberately permits that drift -- refusing on any movement would fail
+    every run on a live host -- but it was not removed from the residual, so ordinary
+    directory growth could be reported as filesystem metadata or blocks held by
+    deleted-but-open files. Those are the two things an operator chases when this
+    figure is flagged, and neither would have been there.
+
+    The substantive fix is the reported error bar. The extra significance condition is
+    correct in general but INERT at production scale, and saying so is part of being
+    honest about it: the bracket permits at most max(1 GiB, 0.5% of used) while
+    significance needs 2% of used, so the drift can only exceed the threshold on a
+    volume under about 50 GiB. Production is 1,815 GiB. The figure is what an operator
+    reads; the condition only earns its place on a small volume where the 1 GiB floor
+    dominates.
+    """
+    source = _read(ACTION)
+    assert "intra_scan_drift = abs(volume_used_at_scan - opening_used)" in source
+    assert "and abs(residual) > intra_scan_drift" in source
+    assert "volume_used_opening_unavailable" in source
+
+    # du totals 1,547,000 against df's 1,557,000 at the scan, so the residual is
+    # 10,000 -- and the volume moved 12,000 during the walk, so the residual is
+    # smaller than the window it was measured across and explains nothing on its own.
+    result = _run_inventory_action(tmp_path, du_below_df=True, volume_used_drift=-12000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    summary = json.loads(result.stdout)["inventory"]["summary"]
+    assert summary["filesystem_minus_directory_scan_bytes"] == 10000
+    assert summary["filesystem_minus_directory_scan_uncertainty_bytes"] == 12000
+    assert summary["filesystem_minus_directory_scan_is_significant"] is False
+    # The method says what the error bar means, so the figure is not left to be
+    # interpreted as metadata or deleted-but-open blocks on its own.
+    assert "filesystem_minus_directory_scan_uncertainty_bytes" in summary["method"]
+
+
+def test_v3_disk_inventory_reads_database_sizes_at_the_closing_window(tmp_path):
+    """accounted_bytes claims to describe one state, so every operand must be closing.
+
+    The PGDATA and WAL figures were, but the database and temp totals came from the
+    SQL phase -- so a database growing or shrinking in between, freely within the
+    multi-GiB PGDATA tolerance, landed in `database_size_metric_difference_bytes`.
+    That term is documented as a `du`-versus-`st_size` difference and nothing else, so
+    temporal drift hid inside a metrological one, and the headline unaccounted figure
+    was wrong by the database change while the closure still held.
+    """
+    source = _read(ACTION)
+    assert "closing_database_rows = psql_json(" in source
+    assert "operating_database_bytes = operating_database_bytes_at_close" in source
+    assert "temp_bytes = temp_bytes_at_close" in source
+    # Aggregates only, so re-reading costs no row lists.
+    closing = source.split("closing_database_rows = psql_json(")[1].split(
+        "if len(closing_database_rows)"
+    )[0]
+    assert "LIMIT" not in closing
+    assert "datname=current_database()" in closing
+
+    # The operating database grows 9,000 bytes between the SQL phase and the close.
+    result = _run_inventory_action(tmp_path, database_grew=9000)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    summary = inventory["summary"]
+
+    # The opening read is kept as a bracket, so the movement is visible...
+    assert inventory["databases"][0]["size_bytes"] == 1320000
+    assert inventory["databases_at_window_close"] == {
+        "operating_database_bytes": 1329000,
+        "database_total_bytes": 1337000,
+        "temp_directory_bytes": 5,
+        "operating_database_drift_bytes": 9000,
+        "database_total_drift_bytes": 9000,
+        "measured_at": "window_close",
+    }
+    # ...and the summary uses the CLOSING figure, so accounted_bytes rises by 9,000
+    # and the headline unaccounted figure falls by it, rather than the difference
+    # being absorbed into the metric-only term.
+    assert summary["operating_database_bytes"] == 1329000
+    assert summary["accounted_bytes"] == 1446005 + 9000
+    assert summary["unaccounted_bytes"] == 1557000 - (1446005 + 9000)
+    # The metric difference stays metrological: du's live total against the CLOSING
+    # st_size sum, so it drops by exactly the 9,000 that is no longer misattributed.
+    assert summary["database_size_metric_difference_bytes"] == 1295 - 9000
+    assert summary["candidate_closure_gap_bytes"] == 0
+    assert summary["candidates_partition_unaccounted_at_scan"] is True
+
+
+def test_v3_disk_inventory_resolves_pgdata_through_the_deepest_covering_mount(tmp_path):
+    """A name heuristic can select an outer mount while a deeper one provides PGDATA.
+
+    With `/var/lib/postgresql` mounted AND `/var/lib/postgresql/18` mounted beneath
+    it, PGDATA `/var/lib/postgresql/18/docker` is actually provided by the inner
+    mount. Selecting the outer one mapped PGDATA into that mount's hidden underlying
+    tree; if a stale directory happened to exist there, the path and device checks
+    would both pass while every scan measured the wrong filesystem. Choosing the
+    deepest covering mount makes an intervening mount impossible rather than merely
+    detectable, so there is nothing left to check for.
+    """
+    source = _read(ACTION)
+    # The data directory is read FIRST, so the mount can be chosen by containment.
+    assert "def container_data_directory(db_user: str, db_name: str) -> str:" in source
+    create = source.index("container_pgdata_path = container_data_directory(")
+    select = source.index("mount_source, mount_destination = postgres_mount(")
+    assert create < select
+    # Containment and depth, not a destination name.
+    assert 'container_pgdata == target or container_pgdata.startswith(f"{target}/")' in (
+        source
+    )
+    assert "if best is None or len(target) > best[0]:" in source
+    assert '"/var/lib/postgresql/data"' not in source
+
+    # The INNER mount is selected, so PGDATA maps through /mnt/pg18 rather than
+    # through the outer volume's hidden underlying tree. The run then stops because
+    # the fixture's df/du stubs only model the ordinary single-mount layout, which is
+    # the honest scope of this test: threading a whole alternate filesystem through
+    # the stubs would not test the selection any harder.
+    result = _run_inventory_action(tmp_path, pgdata_inner_mount=True)
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["postgres_data_directory"] == {
+        "container_path": "/var/lib/postgresql/18/docker",
+        "host_path": "/mnt/pg18/docker",
+        "mount_destination": "/var/lib/postgresql/18",
+    }
+    # And on the ordinary layout the outer mount is still selected, so the change is
+    # a refinement of the selection rather than a different answer for the real host.
+    (tmp_path / "ordinary").mkdir()
+    ordinary = _run_inventory_action(tmp_path / "ordinary")
+    assert json.loads(ordinary.stdout)["inventory"]["postgres_data_directory"] == {
+        "container_path": "/var/lib/postgresql/18/docker",
+        "host_path": "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker",
+        "mount_destination": "/var/lib/postgresql",
+    }
+
+
+def test_v3_disk_inventory_measures_the_atime_policy_rather_than_assuming_it():
+    """du's own reads can write, and whether they do is a property of the host.
+
+    `du` reads every directory it traverses, and under the kernel's DEFAULT
+    `relatime` that read updates the directory's access time whenever the stored
+    atime predates mtime/ctime or is over 24 hours old; `strictatime` updates on
+    every access. So "this action modifies nothing" is true only under `noatime` or
+    `nodiratime`, which is a mount option on the production host and not something
+    this code controls. It is therefore measured and reported, in both directions --
+    an unconditional disclaimer would be as wrong as the unconditional denial was.
+    """
+    source = _read(ACTION)
+    assert "def mount_atime_policy(path: str) -> dict[str, Any]:" in source
+    # Read from /proc/mounts: reading a virtual file writes nothing, and it does not
+    # depend on findmnt being installed on the host.
+    assert 'open("/proc/mounts"' in source
+    # Longest matching mount point wins, because a nested mount governs what is below
+    # it -- the same reasoning as the nearest-ancestor attribution in exclusive_usage.
+    assert "if best is None or len(stripped) > best[0]:" in source
+    # /proc/mounts octal-escapes separators; a mount point containing a space must not
+    # be mis-parsed into the options column.
+    assert '.replace("\\\\040", " ")' in source
+    # nodiratime alone is sufficient: du's writes would be to DIRECTORY atimes.
+    assert '"noatime" in options or "nodiratime" in options' in source
+    # relatime is the default when nothing is specified, so absence means relatime --
+    # not "no atime updates".
+    assert 'policy = "relatime"' in source
 
 
 def test_v3_disk_inventory_requires_the_wal_directory_in_the_retained_children():
