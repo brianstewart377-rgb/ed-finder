@@ -1984,8 +1984,10 @@ considered for a governed release build.
   regression proves a hand-authored archetype URL cannot reach rankings.
 - **Pagination drift:** a page may be mistaken for the full result set, diverge
   from the map, or be empty only because a shared offset outlived its result set.
-  Mitigation: expose the selected mode's exact filtered-within-window total
-  separately from raw-window `is_truncated`; derive Any `navigable_total`/cap
+  Mitigation: selected mode reports `total = min(qualifying, 10000)` with
+  `is_truncated` set by the 10,001st-row sentinel in the key's canonical
+  weighted order — a picked request accepts no hard filters (422), so there is
+  no separate filtered total to reconcile; derive Any `navigable_total`/cap
   state from local search; clamp offset plus page size to the uniform 10,000
   ceiling in every mode before dispatch (anchored exact totals are displayed,
   not navigated past 10,000); and update `page_size`,
