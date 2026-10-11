@@ -17,7 +17,8 @@ The flag is only one of the production safeguards, and not the first one: the
 `/api/archetypes/rankings` route becomes live the moment both products are
 published, flag or no flag, so the F2d sequence **deploys the bounded ranking
 route (F2d PR1 — stored-key tier-partial index, literal floors, bounded count,
-combined offset bound, no hard filters) before the products are published**; publication is the
+combined offset bound, no hard filters, and the exact Any-count sentinel) before
+the products are published**; publication is the
 last governed step (F2d design section 8; **ROADMAP step 5′ deploys the release
 before any product reaches READY and step 9′ publishes last — there are no steps
 10′–11′, which an earlier revision of this line invented, review round 40**), and
@@ -634,13 +635,17 @@ first 10,000 results”); only navigation is bounded.
 10,000 matches raises the same flag as one with a million — the inference is
 already baked into the source, and telling the UI “do not infer a cap from the
 number” cannot undo it. So F4 does **not** use “10,000+” on that flag alone.
-Until the count query carries a 10,001st-row sentinel (the same cheap
-`LIMIT cap + 1` the selected path uses for `is_truncated`, a small API change
-that can ride with F2d PR1), the copy claims nothing unseen:
-**“Showing the first 10,000 matches; there may be more.”** Once the sentinel
-exists, an exact 10,000 reads **“10,000 matches”** and a true overflow reads
-**“10,000+ matches; navigation is limited to the first 10,000 results.”** A
-component test pins all three states.
+F2d PR1 therefore owns a **mandatory API prerequisite** for F4a/F4b: the
+galaxy-wide Any count probes at most 10,001 rows, returns
+`total = min(observed, 10000)`, and sets `total_is_capped=true` if and only if
+the 10,001st row exists. Exact 10,000 is `total_is_capped=false`; anchored exact
+counts keep their existing uncapped semantics. PR1 updates the response-model
+description/OpenAPI contract, regenerates every checked-in client, and adds
+backend tests for below-cap, exact-10,000 and overflow responses. Before that
+prerequisite lands, the only truthful saturated copy remains **“Showing the
+first 10,000 matches; there may be more.”** After it lands, exact 10,000 reads
+**“10,000 matches”** and true overflow reads **“10,000+ matches; navigation is
+limited to the first 10,000 results.”** A component test pins all three states.
 
 The URL codec, facade request size, Next availability, visible range, DOM list
 and Finder contribution all derive from that one normalized envelope. A page
@@ -1310,9 +1315,10 @@ for:
   mode-independent exclusive 10,000 offset ceiling and request-size clamp
   applied before dispatch (including `offset=2000000000` on a fresh load),
   anchored Any exact totals above 10,000 displayed exactly but not navigable,
-  `total_is_capped` → truncation copy only, URL correction, the 10,001st-row
-  sentinel, `total = min(qualifying, 10000)` and the independent truncation
-  rule, offset/reset rules, last-valid-page calculation, Any-mode removal of
+  the mandatory Any-count sentinel (`total_is_capped=false` at exact 10,000 and
+  true only when the 10,001st row exists), URL correction,
+  `total = min(qualifying, 10000)` and the independent selected-ranking
+  truncation rule, offset/reset rules, last-valid-page calculation, Any-mode removal of
   `min-tier`, and preservation of independent `selected`/`system` plus unrelated
   parameters;
 - request selection: Any → local search with no tier field and `size`/`from`
@@ -1353,7 +1359,9 @@ Use Testing Library Svelte, which is installed in the current stack
   `is_truncated=false`; a three-row fixture envelope at `page_size=1` has three
   real pages and two enabled Next transitions; also cover anchored Any with an
   exact total above 10,000 (exact count shown, Next disabled at 10,000) and
-  galaxy-wide Any with `total_is_capped=true`;
+  galaxy-wide Any below 10,000, at exact 10,000 with
+  `total_is_capped=false`, and above 10,000 with `total_is_capped=true`, including
+  the distinct copy for all three states;
 - a stale/shared `offset=9950` response with `total=3` calls mocked SvelteKit
   `goto` with `replaceState: true` for the last valid page at `offset=0`, refetches
   exactly once without a hydration loop, shows the page-reset notice and never
@@ -1554,8 +1562,10 @@ mobile states for Any, a selected archetype, long names, limited evidence,
 loading, empty and error; verify focus, zoom and contrast manually in addition to
 axe.
 
-Selected-ranking `is_truncated`, the `Literal[60, 76, 88]` floor and the bounded
-`from`/`offset` are **F2d PR1's** response/request contract, so **PR1** runs
+Selected-ranking `is_truncated`, the `Literal[60, 76, 88]` floor, the bounded
+`from`/`offset`, and the galaxy-wide Any 10,001st-row count sentinel with exact
+`total_is_capped` semantics are **F2d PR1's** response/request contract. PR1
+updates the `SearchResponse` field description and OpenAPI schema, then runs
 `pnpm generate:api` (`apps/web/package.json:28`) and commits all three
 generated clients; deferring that to slice 1c would make PR1 fail the OpenAPI
 drift gate at its own head, and regenerating again in slice 1c should produce no
@@ -1571,7 +1581,7 @@ all substantive reviewer findings; green CI alone is insufficient
 (`docs/development/pull-request-acceptance-policy.md:1-45`).
 
 These PRs are code-only and fixture-validated. None authorizes production
-promotion. Three API dependencies remain explicit:
+promotion. Four API dependencies remain explicit:
 
 - **Slice 1b — summary best tier:** project `sum.best_tier`, add `best_tier` to
   both rankings and local-search response models/builders, regenerate clients,
@@ -1594,6 +1604,16 @@ promotion. Three API dependencies remain explicit:
   (`sql/v3/migrations/011_v3_system_archetype.sql:45-50`,
   `apps/api/src/ranking/ranking_sql.py:451-462`,
   `apps/api/src/routers/archetypes.py:348-363`).
+- **F2d PR1 — exact Any-count sentinel:** this is a mandatory API prerequisite
+  for F4a/F4b's three count states, not optional follow-up work. The galaxy-wide
+  local-search count probes at most 10,001 rows, returns
+  `total = min(observed, 10000)`, and sets `total_is_capped=true` only when the
+  sentinel exists; exact 10,000 is false and anchored exact totals are unchanged.
+  PR1 owns `apps/api/src/ranking/ranking_sql.py`,
+  `apps/api/src/local_search.py`, `apps/api/src/models.py`, the focused
+  `tests/test_ranking_sql.py` and `tests/test_local_search_v3.py` cases, the
+  OpenAPI update, and regeneration of `apps/web/src/lib/api/generated/` plus
+  `packages/api-client/src/generated/api.gen.ts`.
 - **Slice 1d — bounded Any tier floor:** not required for no-floor Any or the
   selected-only F4b control. It is a hard prerequisite before Minimum tier is
   offered in Any. Add a measured index/candidate access path on
@@ -1615,10 +1635,12 @@ promotion. Three API dependencies remain explicit:
 
 Exact files — **the residual work only.** F2d PR1 lands the bounded route
 itself (the window, the literal floors, the `Literal[60, 76, 88]` contract, the
-bounded count, the hard-filter rejection, the hashed rules and the regenerated
-clients), so slice 1c must not rewrite an already-deployed contract or touch
-the ranking identity. What remains is the representative-scale proof and the
-tests that prove the deployed behaviour:
+bounded count, the hard-filter rejection and the hashed rules), plus the
+mandatory local-search 10,001st-row count sentinel and its exact
+`total_is_capped` semantics, backend tests, OpenAPI update and regenerated
+clients. Slice 1c must not rewrite an already-deployed contract or touch the
+ranking identity. What remains is the representative-scale proof and the tests
+that prove the deployed selected-ranking behaviour:
 
 - create `tests/test_archetype_rankings_scale_postgres.py` (the ≥ 1,000,000-row
   fixture, the plan assertions under `force_generic_plan`, the latency receipt)
@@ -1876,8 +1898,10 @@ Exact files:
   1–50/default-50 coverage)
 - create `apps/web/src/lib/config.ts`
 - create `apps/web/src/lib/config.test.ts`
-- modify `apps/web/src/lib/api/client.ts` (`page_size` → existing wire `limit`)
-- modify `apps/web/src/lib/api/client.test.ts` (including `page_size=1` → `limit=1`)
+- modify `apps/web/src/lib/api/client.ts` (`page_size` → existing wire `limit`;
+  consume F2d PR1's exact Any `total_is_capped` semantics)
+- modify `apps/web/src/lib/api/client.test.ts` (including `page_size=1` →
+  `limit=1`, below-cap, exact-10,000 and sentinel-overflow Any envelopes)
 - modify `apps/web/src/lib/api/query.ts` (page size in the ranking query key)
 - modify `apps/web/src/lib/api/query.test.ts`
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.svelte` (complete
@@ -1920,7 +1944,7 @@ anchor is not URL state. The envelope preserves the selected path's
 request carrying a hard filter is a 422) and the independent API-owned
 `is_truncated`; for Any it exposes
 `navigable_total = min(total, 10000)` alongside the exact `total` and the
-existing `total_is_capped` state from the local-search response, so an exact
+sentinel-backed `total_is_capped` state from the local-search response, so an exact
 anchored total is shown truthfully while no mode promises unreachable numbered
 rows. A selected fit never enters generic
 `archetype_score`.
@@ -1950,6 +1974,7 @@ Exact files:
 - create `apps/web/src/lib/features/explore/ArchetypePicker.test.ts`
 - create `apps/web/src/lib/features/explore/FinderResultRanking.svelte`
 - create `apps/web/src/lib/features/explore/FinderResultRanking.test.ts`
+  (including below-cap, exact-10,000 and sentinel-overflow Any count copy)
 - modify `apps/web/src/lib/features/explore/ranking-state.ts` (last-valid-page
   normalization)
 - modify `apps/web/src/lib/features/explore/ranking-state.test.ts` (positive
@@ -2018,18 +2043,29 @@ Exact files:
   `support_route_matrix_complete` while the new synthetic route behaviour is
   absent from the contract it claims to have checked — the report would be
   accurate about itself and wrong about the system.) Add the rankings route with
-  both new scenarios, extend the control route's
-  `allowed_response_characteristics` and `scenario_coverage`, and add focused
-  matrix assertions
+  both new scenarios; extend the existing local-search row's closed
+  `scenario_coverage` with `rankings_empty_results`, because that flow switches
+  to Any and issues `POST /api/local/search`; extend the control route's
+  `allowed_response_characteristics` and `scenario_coverage`; and add focused
+  matrix assertions that pin all three route/scenario contracts without dropping
+  any existing local-search scenario
 - modify `tests/test_review_lab_v3.py` (the module that already covers the
-  review-only scenario modes and the scenario registry) for the new modes and
-  scenario entries
+  review-only scenario modes and the scenario registry) for the new modes,
+  scenario entries, and focused support-matrix assertions, including exact
+  preservation of the local-search row's existing four scenarios plus
+  `rankings_empty_results`
 - modify `apps/web/src/lib/components/AppShell.svelte` (reactive selection
   hydration, including independent `selected`/`system` semantics)
 - modify `apps/web/src/lib/components/SystemOverlay.svelte` (close path carries
   `page.state` — anchor payload — through the shared navigation helper)
-- modify `apps/web/src/routes/inspect/+page.svelte` and its test (Open in
-  Explore emits `selected=<id64>&system=<id64>` in enabled builds)
+- modify `apps/web/src/routes/inspect/+page.svelte` (Open in Explore emits
+  `selected=<id64>&system=<id64>` in enabled builds)
+- create `apps/web/src/routes/inspect/+page.test.ts` (default-off unchanged link;
+  enabled replay deletes prior/duplicate `selected` and `system`, sets each once
+  to the inspected id, preserves outbound `page.state`/anchor on return, and
+  covers the bare-link fallback)
+- create `apps/web/src/routes/inspect/InspectPageTestHost.svelte` (the
+  `QueryClientProvider` host required by the mounted `SystemDetail`)
 - modify `apps/web/src/lib/components/SystemOverlay.test.ts` (anchored
   open/close keeps anchor, coordinates and the 500-LY request)
 - create `apps/web/src/lib/components/AppShell.test.ts`
@@ -2863,7 +2899,8 @@ tier partials.
    identity on 200 before rendering (F2d section 4 carries the parameters).
 2. **P2 — Preserve selection on the Inspect return link** → Open in Explore
    emits `selected=<id64>&system=<id64>` in enabled builds; the Inspect route and
-   its test join the F4b file list with an enabled-build return-flow test.
+   newly created `+page.test.ts` and `InspectPageTestHost.svelte` join the F4b
+   file list with disabled-build and enabled state-carrying return-flow tests.
 3. **P2 — Map pagination state onto the Any request** → `page_size → size` and
    `offset → from` for Any mode (the live `size: 24, from: 0` body is codec-driven
    in an enabled build), with request-level pagination tests; "unchanged local
@@ -3062,8 +3099,8 @@ that describe post-window filtering are superseded by this one.
    because such requests are 422s and no filter reaches the query.
 3. **P2 — Distinguish an exact 10,000 total from a capped count** → correct, and
    the source flag makes the inference regardless of UI wording. Until the count
-   query carries a 10,001st-row sentinel (a small API change that can ride with
-   F2d PR1), the copy claims nothing unseen — **“Showing the first 10,000
+   query carries a 10,001st-row sentinel (now a mandatory F2d PR1 prerequisite,
+   as corrected in review round 41), the copy claims nothing unseen — **“Showing the first 10,000
    matches; there may be more.”** — and only afterwards does an exact 10,000 read
    “10,000 matches” and a true overflow “10,000+ matches”. A component test pins
    all three states.
@@ -3461,3 +3498,24 @@ had written in the preceding round, which is worth noting rather than hiding.
    products through the currently deployed unbounded rankings route, or deadlock
    against the publish action's identity check. Both cross-references now name the
    actual steps.
+
+### Review round 41 (2026-10-12)
+
+1. **P1 — Register the new empty flow on the local-search route** → correct.
+   `rankingsEmptyResults` switches back to Any and therefore exercises
+   `POST /api/local/search`, while the existing matrix row has a closed four-scenario
+   `scenario_coverage`. F4b now explicitly adds `rankings_empty_results` to that
+   row and pins the complete membership in focused matrix assertions without
+   dropping any negative or existing scenario coverage.
+2. **P1 — Assign the Any-count sentinel before testing exact totals** → correct.
+   The existing `total` plus `total_is_capped` response cannot distinguish exact
+   10,000 from overflow because the flag is currently set at the boundary. F2d
+   PR1 now mandatorily owns the 10,001st-row galaxy-wide count probe, exact flag
+   semantics, backend tests, response-model/OpenAPI update and regeneration of
+   every checked-in client. F4a consumes that landed envelope and F4b explicitly
+   tests below-cap, exact-10,000 and true-overflow copy.
+3. **P1 — Create the missing Inspect page test explicitly** → correct. The route
+   currently has only `+page.svelte` and `+page.ts`; there is no test to modify.
+   F4b now creates `apps/web/src/routes/inspect/+page.test.ts` and the
+   `InspectPageTestHost.svelte` QueryClient host, with disabled/enabled,
+   duplicate-replacement, bare-link and state-carrying return coverage.
