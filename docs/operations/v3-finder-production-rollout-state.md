@@ -365,8 +365,14 @@ statistics window** (`idx_scan` is cumulative since the last statistics reset,
 so a recently reset counter must not be read as “never used”), dead-tuple
 estimates, and derived-generation attribution, followed by an explicit
 accounted-versus-unaccounted summary whose candidate directories exclude
-**only** what an accounted figure genuinely covers — `base/` (the per-database
-storage `pg_database_size` sums) and `pg_wal` (`wal_bytes`). **`pg_xlog` is not
+**only** what an accounted figure genuinely covers — only what an accounted figure
+genuinely covers: the **live database directories** inside `base/` (which is what
+`pg_database_size` sums — it scans `base/<database OID>`, not the whole directory)
+plus the measured temporary files, and `pg_wal` (`wal_bytes`). **Any remaining
+`base/` bytes are reported separately** as an inside-PGDATA candidate — an
+orphaned OID directory from a dropped database, or a stray file, is inside no
+accounted figure and is among the most reclaimable things this receipt can find,
+so it must not be dismissed as already counted. **`pg_xlog` is not
 WAL-accounted on PostgreSQL 18**, where the WAL directory is `pg_wal`:
 `pg_ls_waldir()` measures only the live directory, so a stale `pg_xlog` is
 unexpected storage and is reported whole as an inside-PGDATA candidate. It is one

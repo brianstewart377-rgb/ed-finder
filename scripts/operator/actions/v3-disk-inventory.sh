@@ -18,10 +18,15 @@ fi
 exec "$PYTHON_BIN" - <<'PY'
 from __future__ import annotations
 
+import contextlib
+import heapq
 import json
 import math
+import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -46,6 +51,10 @@ DRILL_DOWN_MAX_STEPS = 8
 # indexes per table, so without this one relation could make the receipt, and the memory
 # used to parse it, arbitrarily large.
 INDEX_INVENTORY_LIMIT = 200
+# Derived generation manifests cannot be deleted, so the attribution queries return one
+# row per historical generation and grow without bound as generations accumulate. The
+# statement timeout caps execution, not rows or the serialized receipt.
+GENERATION_ATTRIBUTION_LIMIT = 50
 # Every directory scan shares one wall-clock budget. Individually bounded calls are not
 # enough: the operator workflow kills the job at 40 minutes, and four fixed scans plus
 # eight drill-down steps at the 300 s per-call limit would be 60 minutes, so a valid but
@@ -64,6 +73,10 @@ DRILL_DOWN_MIN_CALL_SECONDS = 30
 # The largest children kept from each drill-down listing. The walk follows the largest
 # and reports ten, so this bounds memory without changing any decision it makes.
 DRILL_DOWN_CHILD_LIMIT = 200
+# Records kept from any other scan. The whole-filesystem scan at depth 2 is also
+# unbounded in output -- /tmp or a home directory can have very high fan-out -- so it
+# is capped the same way rather than trusting the depth to keep it small.
+DU_DEFAULT_KEEP = 4000
 # PGDATA children whose bytes are genuinely already inside accounted_bytes, and only
 # those. `base` is the per-database storage that pg_database_size sums, and pg_wal is
 # wal_bytes; the temp-directory query measures `base/pgsql_tmp`, which is inside `base`
@@ -414,93 +427,190 @@ DU_ATTEMPTS = 3
 tolerated_churn: list[dict[str, Any]] = []
 
 
-def du_rows(
-    argv: list[str], budget: ScanBudget, error: str, *, expect_path: str | None = None
-) -> list[dict[str, Any]]:
-    """Run one `du`, retrying churn and preferring a clean attempt over a churned one.
+DU_READ_CHUNK = 65536
 
-    A churned total is not merely smaller, it can be *wrong*: PostgreSQL recycles WAL by
-    **renaming** a segment, so a path `du` enumerated and then could not stat may still
-    occupy the same space under its new name. Accepting that output undercounts storage,
-    which is the dangerous direction for a reclaim decision. So a churn failure is a
-    reason to retry, not to accept -- a clean rerun is both likely and cheap, because the
-    churn is a moment, not a condition. The churned output is used only when every
-    attempt churned, and then the result is flagged degraded rather than reported as
-    clean, because failing closed here would put us back to the inventory failing from
-    ordinary database activity.
+
+def du_stream(
+    argv: list[str],
+    budget: ScanBudget,
+    error: str,
+    *,
+    keep: int,
+    expect_path: str | None = None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Run one `du` and keep only its largest `keep` records.
+
+    The output is read INCREMENTALLY and reduced to a bounded top-k as it arrives,
+    rather than captured whole and sorted. That is not an optimisation; each
+    alternative fails in its own way:
+
+    * Capturing the whole stream leaves memory unbounded however tightly the step
+      count and timeout are drawn -- a high-fan-out directory (/tmp, a home
+      directory, a layer store) kills the production action without its receipt.
+    * A `du | sort | head` pipeline bounds memory but spills `sort`'s temporary files
+      to $TMPDIR, which this action promises it never does
+      (`filesystem_writes_performed: false`).
+    * A nested `bash -c` pipeline returns `head`'s status, not `du`'s, because the new
+      shell does not inherit `pipefail` -- so a vanished file, a permission error or
+      an I/O failure reads as success and bypasses both the churn handling and the
+      fail-closed error.
+    * `subprocess` kills only the immediate child on timeout, so a pipeline's `du`
+      keeps walking after the step gave up, spending the shared budget and loading
+      production.
+
+    One `du`, read in chunks, in a session of its own so a timeout kills the group.
+    The caller also receives the count and byte total of the records that did NOT
+    survive the cap, because the drill-down's arithmetic needs the complete sum even
+    when it only sees the largest few.
     """
+
+    def absorb(
+        record: str,
+        kept: list[tuple[int, str]],
+        omitted: list[int],
+    ) -> None:
+        parts = record.split("\t", 1)
+        if len(parts) != 2:
+            raise RuntimeError("directory_usage_output_invalid")
+        size = required_int(parts[0], "directory_usage_output_invalid")
+        item = (size, parts[1])
+        if len(kept) < keep:
+            heapq.heappush(kept, item)
+            return
+        if item > kept[0]:
+            dropped = heapq.heapreplace(kept, item)
+            omitted[0] += 1
+            omitted[1] += dropped[0]
+        else:
+            omitted[0] += 1
+            omitted[1] += size
+
     reason = "exit_unknown"
-    churned: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
+    churned: tuple[tuple[list[dict[str, Any]], int, int], dict[str, Any]] | None = None
     target = expect_path.rstrip("/") if expect_path else None
     for attempt in range(1, DU_ATTEMPTS + 1):
-        result = run(argv, timeout=budget.call_timeout())
-        if result.returncode == 0:
-            return parse_du(result.stdout)
-        stderr_lines = [line for line in result.stderr.splitlines() if line.strip()]
-        detail = (result.stderr or result.stdout).strip().splitlines()
-        reason = detail[-1][:240] if detail else f"exit_{result.returncode}"
-        # Tolerate only when EVERY diagnostic is a vanished file. A permission error or
-        # an unreadable device produces a different message and must still fail closed,
-        # because those mean the scan did not measure what it claims to have measured.
-        vanished_only = bool(stderr_lines) and all(
-            any(marker in line for marker in DU_VANISHED_MARKERS) for line in stderr_lines
-        )
-        if not vanished_only:
-            # Not churn: a permission error, an unreadable device, a timeout. Retrying
-            # cannot help, and -- the part that matters -- an earlier churned attempt
-            # must NOT be returned in its place. Doing so would report success after a
-            # real failure, using output from before the failure was even seen.
+        timeout = budget.call_timeout()
+        stderr_chunks: list[str] = []
+        kept: list[tuple[int, str]] = []
+        omitted = [0, 0]
+        pending = ""
+        timed_out = False
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="surrogateescape",
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise RuntimeError(f"{error}:{type(exc).__name__}") from exc
+
+        def drain(stream: Any = process.stderr) -> None:
+            with contextlib.suppress(Exception):
+                stderr_chunks.append(stream.read() or "")
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                if time.monotonic() > deadline:
+                    timed_out = True
+                    break
+                chunk = process.stdout.read(DU_READ_CHUNK)
+                if not chunk:
+                    break
+                pending += chunk
+                records = pending.split("\0")
+                pending = records.pop()
+                for record in records:
+                    if record.strip():
+                        absorb(record, kept, omitted)
+            if not timed_out and pending.strip():
+                absorb(pending, kept, omitted)
+        finally:
+            if timed_out:
+                with contextlib.suppress(OSError, ProcessLookupError):
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                process.stdout.close()
+            returncode = process.wait()
+            reader.join(timeout=5)
+            with contextlib.suppress(Exception):
+                process.stderr.close()
+
+        if timed_out:
+            reason = "timeout"
             churned = None
             break
-        rows = parse_du(result.stdout)
-        # The scanned root's own total must still be present, or the output is unusable
-        # whatever the cause.
+
+        rows = [
+            {"path": path, "bytes": size}
+            for size, path in sorted(kept, key=lambda item: (-item[0], item[1]))
+        ]
+        if returncode == 0:
+            return rows, omitted[0], omitted[1]
+        stderr_text = "".join(stderr_chunks)
+        stderr_lines = [line for line in stderr_text.splitlines() if line.strip()]
+        detail = stderr_text.strip().splitlines()
+        reason = detail[-1][:240] if detail else f"exit_{returncode}"
+        vanished_only = bool(stderr_lines) and all(
+            any(marker in line for marker in DU_VANISHED_MARKERS)
+            for line in stderr_lines
+        )
+        if not vanished_only:
+            churned = None
+            break
         if target is not None and not any(
             (row["path"].rstrip("/") or "/") == (target or "/") for row in rows
         ):
-            # Unusable output, for whatever reason. Same rule as above.
             churned = None
             break
-        if churned is None:
-            churned = (
-                rows,
-                {
-                    "scan": error,
-                    "attempts": attempt,
-                    "vanished_paths": len(stderr_lines),
-                    "first_diagnostic": stderr_lines[0][:240],
-                },
-            )
-        else:
-            churned[1]["attempts"] = attempt
-            churned[1]["vanished_paths"] = len(stderr_lines)
+        churned = (
+            (rows, omitted[0], omitted[1]),
+            {
+                "scan": error,
+                "attempts": attempt,
+                "vanished_paths": len(stderr_lines),
+                "first_diagnostic": stderr_lines[0][:240],
+            },
+        )
         if budget.remaining() < DRILL_DOWN_MIN_CALL_SECONDS:
             break
     if churned is not None:
-        rows, record = churned
-        # Every attempt churned. Use the output, but say so: a renamed WAL segment can
-        # still hold its space, so these totals may undercount, and the df-versus-du
-        # residual in the summary is where that difference surfaces.
+        payload, record = churned
         record["accepted_possibly_undercounting"] = True
         tolerated_churn.append(record)
-        return rows
+        return payload
     raise RuntimeError(f"{error}:{reason}")
 
 
+def du_rows(
+    argv: list[str], budget: ScanBudget, error: str, *, expect_path: str | None = None
+) -> list[dict[str, Any]]:
+    rows, _, _ = du_stream(
+        argv, budget, error, keep=DU_DEFAULT_KEEP, expect_path=expect_path
+    )
+    return rows
+
+
 def du_total(path: str, budget: ScanBudget) -> int:
-    rows = du_rows(
+    rows, _, _ = du_stream(
         ["du", "--null", "-x", "-B1", "--max-depth=0", path],
         budget,
         "directory_total_failed",
+        keep=1,
         expect_path=path,
     )
     total = next(
-        (row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")), None
+        (row["bytes"] for row in rows if row["path"].rstrip("/") == path.rstrip("/")),
+        None,
     )
     if total is None:
         raise RuntimeError("directory_total_missing")
     return total
-
 
 def drill_down(
     root: str,
@@ -544,28 +654,17 @@ def drill_down(
                 stopped_before_first_step = True
             break
         # Bounded in OUTPUT as well as in steps and time. A high-fan-out directory --
-        # /var/lib/docker/overlay2 with thousands of layers, a backup tree -- emits one
-        # record per immediate child, and run() captures the whole thing before
-        # du_rows() parses and sorts it, so neither the step cap nor the timeout bounds
-        # memory. The pipeline keeps the largest DRILL_DOWN_CHILD_LIMIT children, which
-        # is all the walk uses: it follows the largest and reports ten. NUL-delimited
-        # throughout (`sort -z`, `head -z`), and the path is passed as an argument
-        # rather than interpolated, so no path can affect the command.
-        rows = du_rows(
-            [
-                "bash",
-                "-c",
-                'du --null -x -B1 --max-depth=1 "$1" '
-                # The size is field 1 under sort's default blank splitting, so no -t is
-                # needed and none is given -- a literal tab inside this nested quoting
-                # is easy to get wrong and buys nothing.
-                "| sort -z -k1,1rn "
-                f"| head -z -n {DRILL_DOWN_CHILD_LIMIT}",
-                "_",
-                current,
-            ],
+        # overlay2 with thousands of layers, a backup tree -- emits one record per
+        # immediate child, and capturing the whole stream leaves memory unbounded
+        # however tightly the step cap and timeout are drawn. du_stream reduces it to
+        # the largest DRILL_DOWN_CHILD_LIMIT children as it arrives, which is all the
+        # walk uses (it follows the largest and reports ten), and returns the count and
+        # byte total of the rest so the arithmetic below stays correct.
+        rows, omitted_children, omitted_child_bytes = du_stream(
+            ["du", "--null", "-x", "-B1", "--max-depth=1", current],
             budget,
             "drill_down_failed",
+            keep=DRILL_DOWN_CHILD_LIMIT,
         )
         here = current
         here_total = next(
@@ -591,10 +690,16 @@ def drill_down(
             )
         children.sort(key=lambda item: (-item["bytes_excluding_database"], item["path"]))
         # What this directory holds directly in its own files, which no child reports.
-        own_file_bytes = here_total - child_total
+        # The cap's omitted children must be added back, or their bytes would be
+        # attributed to this directory's own files -- producing a false
+        # `directory_owns_more_directly_than_any_child` stop and preventing descent
+        # into a genuinely large child.
+        own_file_bytes = here_total - child_total - omitted_child_bytes
         step: dict[str, Any] = {
             "directory": here,
             "own_file_bytes": own_file_bytes,
+            "children_omitted_by_cap": omitted_children,
+            "children_omitted_bytes": omitted_child_bytes,
             "children": children[:10],
             "followed": None,
             "stop_reason": None,
@@ -1151,7 +1256,12 @@ try:
         "FROM v3_derived.build_chunk c "
         "JOIN v3_meta.derived_generation g "
         "ON g.derived_generation_id=c.derived_generation_id "
-        "GROUP BY g.generation_key ORDER BY g.generation_key) q",
+        "GROUP BY g.generation_key ORDER BY g.generation_key "
+        # Bounded: generation manifests are never deleted, so this grows
+        # without limit as generations accumulate. One extra row detects
+        # truncation, and the ordering is deterministic so the same rows are
+        # kept on every run.
+        f"LIMIT {GENERATION_ATTRIBUTION_LIMIT + 1}) q",
         db_user,
         db_name,
     )
@@ -1181,7 +1291,12 @@ try:
             "FROM v3_derived.search_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key) q",
+            "GROUP BY g.generation_key ORDER BY g.generation_key "
+        # Bounded: generation manifests are never deleted, so this grows
+        # without limit as generations accumulate. One extra row detects
+        # truncation, and the ordering is deterministic so the same rows are
+        # kept on every run.
+        f"LIMIT {GENERATION_ATTRIBUTION_LIMIT + 1}) q",
             db_user,
             db_name,
         )
@@ -1196,7 +1311,12 @@ try:
             "FROM v3_derived.archetype_build_chunk c "
             "JOIN v3_meta.derived_generation g "
             "ON g.derived_generation_id=c.derived_generation_id "
-            "GROUP BY g.generation_key ORDER BY g.generation_key) q",
+            "GROUP BY g.generation_key ORDER BY g.generation_key "
+        # Bounded: generation manifests are never deleted, so this grows
+        # without limit as generations accumulate. One extra row detects
+        # truncation, and the ordering is deterministic so the same rows are
+        # kept on every run.
+        f"LIMIT {GENERATION_ATTRIBUTION_LIMIT + 1}) q",
             db_user,
             db_name,
         )
@@ -1255,7 +1375,12 @@ try:
             ratings_counts[1] if ratings_counts is not None else 0
         )
         rows_by_generation[generation_key] = generation_attribution
-    inventory["generation_attribution"] = rows_by_generation
+    truncated = len(rows_by_generation) > GENERATION_ATTRIBUTION_LIMIT
+    inventory["generation_attribution"] = dict(
+        sorted(rows_by_generation.items())[:GENERATION_ATTRIBUTION_LIMIT]
+    )
+    inventory["generation_attribution_limit"] = GENERATION_ATTRIBUTION_LIMIT
+    inventory["generation_attribution_truncated"] = truncated
 except RuntimeError as exc:
     section_failed(failures, inventory, "generation_attribution", exc)
 
@@ -1310,8 +1435,15 @@ try:
     if not isinstance(bracket, dict):
         raise RuntimeError("postgres_data_directory_bracket_unavailable")
     scan_budget.release_reserve()
-    pgdata_final = du_total(pgdata_host, scan_budget)
-    # Re-read the PGDATA breakdown too, and use the closing figures for the summary.
+    # ONE scan for both the closing total and the breakdown. Two consecutive full
+    # PGDATA walks can observe different states on a live cluster, which made
+    # postgres_data_directory_bytes and pgdata_children_all mutually inconsistent --
+    # able to drive the root-file remainder negative or misattribute bytes, with the
+    # reconciliation validating only the earlier of the two. They also shared one
+    # 300 s reserve, so two otherwise-valid walks could each take more than half of it
+    # and the second would time out. The depth-1 scan reports the root's own total as a
+    # row, so one walk gives both figures from one state.
+    # Re-read the PGDATA breakdown and use the closing figures for the summary.
     # Accepting drift within tolerance is right -- a live database always moves -- but
     # it meant the inside-PGDATA candidates were computed from the OPENING total and
     # children while the database, WAL and filesystem figures came from the closing
@@ -1325,7 +1457,32 @@ try:
         "postgres_data_directory_usage_failed",
         expect_path=pgdata_host,
     )
+    pgdata_final = next(
+        (
+            row["bytes"]
+            for row in closing_usage
+            if row["path"].rstrip("/") == pgdata_host
+        ),
+        None,
+    )
+    if pgdata_final is None:
+        raise RuntimeError("postgres_data_directory_usage_total_missing")
     postgres_data_directory_bytes = pgdata_final
+    # The WAL figure has to come from the same state as the directory breakdown. It was
+    # the earlier SQL value, so ordinary top-level WAL growth between the two -- within
+    # the accepted drift -- was being labelled "subdirectories and files pg_ls_waldir
+    # does not list", which is both wrong and points at the opposite conclusion from
+    # the truth: normal WAL reported as unexpected storage.
+    closing_wal = psql_json(
+        "SELECT row_to_json(q)::text FROM (SELECT "
+        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
+        db_user,
+        db_name,
+    )
+    if not closing_wal or "bytes" not in closing_wal[0]:
+        raise RuntimeError("wal_bytes_not_reconciled")
+    wal_bytes_at_close = closing_wal[0]["bytes"]
+    inventory["wal"]["bytes_at_window_close"] = wal_bytes_at_close
     pgdata_children_all = sorted(
         (row for row in closing_usage if row["path"].rstrip("/") != pgdata_host),
         key=lambda item: (-item["bytes"], item["path"]),
@@ -1500,7 +1657,12 @@ try:
     # from the candidates entirely, larger and only its excess would show -- and an
     # unexpected directory full of old WAL is exactly the reclaimable space this action
     # is looking for. So pg_wal gets the subtraction and pg_xlog is reported whole.
-    for name, subtract in (("pg_wal", wal_bytes), ("pg_xlog", 0)):
+    wal_for_subtraction = (
+        inventory["wal"].get("bytes_at_window_close", wal_bytes)
+        if isinstance(inventory.get("wal"), dict)
+        else wal_bytes
+    )
+    for name, subtract in (("pg_wal", wal_for_subtraction), ("pg_xlog", 0)):
         wal_child = next(
             (
                 row

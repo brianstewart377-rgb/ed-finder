@@ -1,3 +1,4 @@
+import heapq
 import json
 import os
 from pathlib import Path
@@ -818,7 +819,10 @@ def test_v3_disk_inventory_reserves_budget_for_the_closing_reconciliation(tmp_pa
     assert source.count("def release_reserve(self)") == 1
     assert source.count("scan_budget.release_reserve()") == 1
     release = source.index("scan_budget.release_reserve()")
-    closing = source.index("pgdata_final = du_total(pgdata_host, scan_budget)")
+    # The closing scan is the FIRST du after release_reserve(), so search from there
+    # rather than from the top of the file -- the same call shape appears earlier, in
+    # the opening PGDATA section.
+    closing = source.index("closing_usage = du_rows(", release)
     assert release < closing
     # And a step that cannot finish within what is left must not be started at all.
     assert "DRILL_DOWN_MIN_CALL_SECONDS = 30" in source
@@ -1180,6 +1184,10 @@ def test_v3_disk_inventory_reserve_survives_the_sql_phase():
     """
     source = _read(ACTION)
 
+    # Both closing figures now come from ONE scan, so two walks cannot each consume
+    # more than half the single reserve or observe different states.
+    assert "postgres_data_directory_usage_total_missing" in source
+    assert source.count("pgdata_final = du_total(") == 0
     release = source[source.index("def release_reserve(self)") :]
     release = release[: release.index("\n    def ")]
     assert "self._reserved = False" in release
@@ -1208,7 +1216,15 @@ def test_v3_disk_inventory_treats_pg_xlog_as_unexpected_storage():
     """
     source = _read(ACTION)
 
-    assert 'for name, subtract in (("pg_wal", wal_bytes), ("pg_xlog", 0)):' in source
+    assert (
+        'for name, subtract in (("pg_wal", wal_for_subtraction), ("pg_xlog", 0)):'
+        in source
+    )
+    # The WAL figure comes from the same state as the directory breakdown: otherwise
+    # ordinary top-level WAL growth within the accepted drift is labelled
+    # "subdirectories pg_ls_waldir does not list" — normal WAL reported as unexpected.
+    assert 'inventory["wal"]["bytes_at_window_close"]' in source
+    assert "wal_bytes_not_reconciled" in source
     assert "not the live WAL directory on PostgreSQL 18; unexpected storage" in source
 
 
@@ -1241,7 +1257,7 @@ def test_v3_disk_inventory_parses_paths_containing_newlines(tmp_path):
     assert 'for record in stdout.split("\\0"):' in source
     assert "splitlines()" not in source.split("def parse_du(")[1].split("def ")[0]
     # Every du invocation asks for NUL-delimited output.
-    assert source.count('["du", "--null", "-x", "-B1"') == 4
+    assert source.count('["du", "--null", "-x", "-B1"') == 5
     assert '["du", "-x", "-B1"' not in source
 
 
@@ -1298,42 +1314,54 @@ def test_v3_disk_inventory_bounds_each_drill_down_child_listing():
     source = _read(ACTION)
 
     assert "DRILL_DOWN_CHILD_LIMIT = 200" in source
-    assert "| sort -z -k1,1rn " in source
-    assert "| head -z -n {DRILL_DOWN_CHILD_LIMIT}" in source
-    # The path is an argument, never interpolated into the command.
-    assert 'du --null -x -B1 --max-depth=1 "$1" ' in source
-    assert '"_",\n                current,' in source
+    assert "DU_DEFAULT_KEEP = 4000" in source
+    # Bounded by streaming top-k in Python, NOT by a shell pipeline. A `du | sort |
+    # head` pipeline bounds memory but spills sort's temporary files to $TMPDIR, which
+    # this action promises it never does; returns head's exit status rather than du's,
+    # because the nested shell does not inherit pipefail; and leaves du walking after a
+    # timeout, because subprocess kills only the immediate child.
+    assert "| sort -z" not in source
+    assert "head -z" not in source
+    assert '"bash",' not in source
+    assert "def du_stream(" in source
+    assert "heapq.heapreplace(kept, item)" in source
+    assert "start_new_session=True" in source
+    assert "os.killpg(os.getpgid(process.pid), signal.SIGKILL)" in source
+    # The omitted children's bytes are returned and used, not discarded.
+    assert "own_file_bytes = here_total - child_total - omitted_child_bytes" in source
+    assert '"children_omitted_by_cap": omitted_children,' in source
 
 
-def test_v3_disk_inventory_keeps_the_root_total_under_the_child_limit(tmp_path):
-    """The cap must never drop the row the walk needs.
+def test_v3_disk_inventory_top_k_keeps_the_largest_and_totals_the_rest():
+    """The cap must keep the largest records and account for the rest.
 
     A directory's own total includes all its children, so it is always the largest
-    record and always survives `head`. Worth proving rather than assuming, since
-    losing it raises drill_down_total_missing.
+    record and always survives -- losing it raises drill_down_total_missing. And the
+    bytes of the dropped children have to come back as an aggregate, or they would be
+    attributed to the directory's own files.
     """
-    root = tmp_path / "fan"
-    for index in range(50):
-        child = root / f"child-{index:03d}"
-        child.mkdir(parents=True)
-        (child / "f").write_bytes(b"x" * 1000)
+    keep = 3
+    kept: list[tuple[int, str]] = []
+    omitted = [0, 0]
+    records = [(10_000, "/root")] + [(100 - i, f"/root/child-{i:02d}") for i in range(20)]
+    for size, path in records:
+        item = (size, path)
+        if len(kept) < keep:
+            heapq.heappush(kept, item)
+        elif item > kept[0]:
+            dropped = heapq.heapreplace(kept, item)
+            omitted[0] += 1
+            omitted[1] += dropped[0]
+        else:
+            omitted[0] += 1
+            omitted[1] += size
 
-    result = subprocess.run(
-        [
-            "bash",
-            "-c",
-            'du --null -x -B1 --max-depth=1 "$1" | sort -z -k1,1rn | head -z -n 5',
-            "_",
-            str(root),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    records = [r for r in result.stdout.split("\0") if r.strip()]
-    assert len(records) == 5
-    paths = [r.split("\t", 1)[1] for r in records]
-    assert paths[0] == str(root)
+    survivors = sorted(kept, key=lambda item: (-item[0], item[1]))
+    assert survivors[0] == (10_000, "/root")
+    assert [s[0] for s in survivors] == [10_000, 100, 99]
+    assert omitted[0] == len(records) - keep
+    # Nothing is lost: the survivors plus the omitted aggregate are the whole input.
+    assert sum(s[0] for s in survivors) + omitted[1] == sum(size for size, _ in records)
 
 
 def test_v3_disk_inventory_decodes_undecodable_paths(tmp_path):
@@ -1371,3 +1399,54 @@ def test_v3_disk_inventory_measures_pgdata_detail_at_window_close(tmp_path):
         + summary["unaccounted_inside_data_directory_bytes"]
         == summary["unaccounted_bytes"]
     )
+
+
+def test_v3_disk_inventory_bounds_generation_attribution(tmp_path):
+    """Generation manifests are never deleted, so attribution grows without bound.
+
+    The statement timeout caps execution, not rows or the serialized receipt, so as
+    retained generations accumulate the result and the receipt grow indefinitely.
+    """
+    source = _read(ACTION)
+    assert "GENERATION_ATTRIBUTION_LIMIT = 50" in source
+    assert source.count("LIMIT {GENERATION_ATTRIBUTION_LIMIT + 1}") == 3
+
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+    assert inventory["generation_attribution_limit"] == 50
+    assert inventory["generation_attribution_truncated"] is False
+
+
+def test_v3_disk_inventory_reconciles_wal_bytes_at_window_close(tmp_path):
+    """The WAL figure must come from the same state as the directory breakdown."""
+    result = _run_inventory_action(tmp_path)
+    assert result.returncode == 0, result.stderr or result.stdout
+    inventory = json.loads(result.stdout)["inventory"]
+
+    assert inventory["wal"]["bytes_at_window_close"] == 118000
+    pgdata = "/var/lib/docker/volumes/edfinder-pgdata/_data/18/docker"
+    by_path = {
+        row["path"]: row
+        for row in inventory["summary"]["largest_unaccounted_directories"]
+    }
+    wal_unlisted = (
+        f"{pgdata}/pg_wal (subdirectories and files pg_ls_waldir does not list)"
+    )
+    # 120,000 measured at close minus 118,000 of listed WAL at close.
+    assert by_path[wal_unlisted]["exclusive_bytes"] == 2000
+
+
+def test_v3_disk_inventory_documents_the_unlisted_base_remainder():
+    """The description must not say base/ is covered in full.
+
+    pg_database_size scans base/<database OID>, so an orphaned directory from a
+    dropped database is inside no accounted figure — and is among the most reclaimable
+    things this receipt can find, so being told it is already counted is the worst
+    possible framing.
+    """
+    doc = _read(Path("docs/operations/v3-finder-production-rollout-state.md"))
+
+    assert "scans `base/<database OID>`, not the whole directory" in doc
+    assert "Any remaining\n`base/` bytes are reported separately" in doc
+    assert "must not be dismissed as already counted" in doc
