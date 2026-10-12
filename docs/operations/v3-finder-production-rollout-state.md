@@ -578,7 +578,21 @@ The following bounding, metric and windowing rules govern how the receipt may be
   write.
 - **Unnamed `base/` entries the row cap dropped are unclassified.** Their aggregate row
   carries `proven_unreferenced: false` and says it may include a database still being
-  created, the same marking as a retained numeric row.
+  created, the same marking as a retained numeric row. So does the numeric part of the
+  tail beyond the 40 displayed unreferenced entries: it is its own row, and only the
+  non-numeric remainder is labelled "not live database directories".
+- **A mount change undone before emission is still caught.** `/proc/mounts` is opened
+  before the opening mount check and held until emission; the kernel flags that
+  descriptor after any mount or unmount since it was opened, so a bind present only
+  while `du` walked stops the receipt (`mount_table_changed_during_scan`) even though
+  the two table readings match. If the flag cannot be read the receipt also stops
+  (`mount_table_events_unverified`).
+- **Small honesty fixes.** The container identity is read with `sh -c`, not a login
+  shell that would execute profile files; a never-reset statistics window reports a
+  null `window_age` rather than zero; and the full receipt is uploaded as the
+  `v3-disk-inventory-receipt` workflow artifact, with only its first 4 KB in the job
+  log, because a single line of hundreds of kilobytes can stall the runner past the
+  job timeout.
 - **Index definitions are bounded, not just index rows.** `pg_get_indexdef()` can return
   arbitrarily large text for an expression or partial index, so a row cap alone does not
   bound the output that `run()` buffers, `psql_json()` materializes and the receipt
@@ -709,7 +723,8 @@ The following bounding, metric and windowing rules govern how the receipt may be
 
 The action is read-only and reclaims nothing: it creates, modifies and deletes
 no file and no file content, and both interpreter invocations take `-B` so no bytecode
-is written. **Two** side effects it cannot avoid are reported rather than covered. The
+is written. **Two** side effects of its own that it cannot avoid are reported rather
+than covered, and a third, the database server's, is disclosed. The
 second is that `du` reads every directory it traverses, and under the kernel's default
 `relatime` — or `strictatime` — the kernel updates those directories' access times as a
 result. That is a metadata write caused by reading, so it cannot be avoided while
@@ -722,7 +737,10 @@ only while it fits the pipe buffer; this program is larger, so the shell spools 
 an unlinked temporary file before the interpreter starts (measured under bash 5.2.21:
 a 126 KB here-document resolves stdin to `/tmp/sh-thd.* (deleted)` where a 62-byte one
 resolves to a pipe). That file holds the program's own text, no host data, and does not
-outlive the shell. `filesystem_writes_scope` in every receipt says so, because an
+outlive the shell. The third is PostgreSQL's own server log, to which the server may
+append for this action's connections and read-only statements as its logging settings
+direct; it is not measured and is not part of `filesystem_writes_performed`.
+`filesystem_writes_scope` in every receipt says so, because an
 unqualified `filesystem_writes_performed: false` overclaimed. Any purge, index removal,
 relation rewrite, or other reclamation remains a separate reviewed design and
 operator action.

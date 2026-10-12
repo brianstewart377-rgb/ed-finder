@@ -181,6 +181,7 @@ jobs:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-disk-inventory-receipt.json
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -193,8 +194,26 @@ jobs:
           # than tolerating the errors: a scan that silently skips part of the tree
           # would report totals it had not measured.
           remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s; else echo 'V3 disk inventory requires root or passwordless sudo to scan the whole filesystem that holds PGDATA' >&2; exit 64; fi"
+          # The receipt is one JSON line that can run to hundreds of kilobytes (index
+          # definitions alone allow ~400 KB), and the runner can take minutes to process a
+          # line that long -- long enough to push the job past its timeout after the
+          # action's own deadline check. So the full receipt goes to a file that is
+          # uploaded below, and the log carries only its first 4 KB.
+          status=0
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
-            "cd /opt/ed-finder && $remote" < trusted-main/scripts/operator/actions/v3-disk-inventory.sh
+            "cd /opt/ed-finder && $remote" < trusted-main/scripts/operator/actions/v3-disk-inventory.sh > "$RECEIPT" || status=$?
+          head -c 4096 "$RECEIPT"
+          printf '\n[receipt: %s bytes in the v3-disk-inventory-receipt artifact]\n' "$(wc -c < "$RECEIPT")"
+          exit "$status"
+
+      - name: Upload V3 disk inventory receipt
+        if: always() && steps.request.outputs.operation == 'v3-disk-inventory'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-disk-inventory-receipt
+          path: ${{ runner.temp }}/v3-disk-inventory-receipt.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Launch V3 Search constraint validation
         if: steps.request.outputs.operation == 'v3-system-search-validate-constraints-start'

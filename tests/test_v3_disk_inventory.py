@@ -111,6 +111,8 @@ def _run_inventory_action(
     mounts_change_during_scan: bool = False,
     mount_change_at_close: str = "none",
     stacked_root_options: str | None = None,
+    mount_event_during_scan: bool = False,
+    base_numeric_tail: bool = False,
     tablespace_at_close_only: bool = False,
     base_over_cap: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -194,6 +196,14 @@ def _run_inventory_action(
     body = body.replace(
         'PROC_MOUNTS = "/proc/mounts"', f"PROC_MOUNTS = {str(mounts_file)!r}"
     )
+    if mount_event_during_scan:
+        # The fixture's mount table is a regular file, which polls readable and never
+        # raises the kernel's mount-event flag. Watching for "readable" instead makes
+        # the held descriptor report a change, exactly as /proc/mounts does after a
+        # mount that was undone again before the closing comparison.
+        old_mask = "MOUNT_TABLE_EVENT_MASK = select.POLLPRI | select.POLLERR"
+        assert body.count(old_mask) == 1
+        body = body.replace(old_mask, "MOUNT_TABLE_EVENT_MASK = select.POLLIN")
     program = tmp_path / "action.py"
     program.write_text(body, encoding="utf-8")
 
@@ -451,7 +461,23 @@ def _run_inventory_action(
                 printf '8200\\t%s/base/5\\0' "$data"
                 printf '500\\t%s/base/16999\\0' "$data"
                 printf '100\\t%s/base/pgsql_tmp\\0' "$data"
-                if [ "$BASE_OVER_CAP" = '1' ]; then
+                if [ "$BASE_NUMERIC_TAIL" = '1' ]; then
+                  # More unreferenced entries than the 40 displayed: 41 non-numeric
+                  # strays of 5,000 bytes fill the display and leave one in the tail,
+                  # while 50 numeric entries of 4,000 bytes -- and 16999 -- all fall
+                  # into the undisplayed tail.
+                  i=0
+                  while [ "$i" -lt 41 ]; do
+                    printf '5000\\t%s/base/stray-%s\\0' "$data" "$i"
+                    i=$((i + 1))
+                  done
+                  i=0
+                  while [ "$i" -lt 50 ]; do
+                    printf '4000\\t%s/base/%s\\0' "$data" "$((90000 + i))"
+                    i=$((i + 1))
+                  done
+                  printf '%s\\t%s/base\\0' "$((1330000 + 205000 + 200000))" "$data"
+                elif [ "$BASE_OVER_CAP" = '1' ]; then
                   # More entries than the 4,000-record cap keeps, so the smallest are
                   # dropped into the unnamed aggregate.
                   i=0
@@ -691,6 +717,7 @@ def _run_inventory_action(
     )
     env["TABLESPACE_AT_CLOSE_ONLY"] = "1" if tablespace_at_close_only else "0"
     env["BASE_OVER_CAP"] = "1" if base_over_cap else "0"
+    env["BASE_NUMERIC_TAIL"] = "1" if base_numeric_tail else "0"
     env["DB_TOTAL_STAMP"] = str(tmp_path / "db-total-stamp")
     env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
@@ -3602,3 +3629,102 @@ def test_v3_disk_inventory_refuses_a_remount_that_changed_only_options(tmp_path)
     assert result.returncode == 1, result.stderr or result.stdout
     receipt = json.loads(result.stdout)
     assert "mount_topology_changed_during_scan" in receipt["failures"]
+
+
+def test_v3_disk_inventory_detects_a_mount_change_undone_before_close(tmp_path):
+    """Equal opening and closing tables do not prove the table never changed.
+
+    A same-device bind added while du walked and removed before emission leaves the
+    two fingerprints equal while du counted its blocks twice. The descriptor held from
+    before the opening check carries the kernel's mount-event flag; here the fixture
+    makes that flag report a change while the table file itself never changes.
+    """
+    clean = _run_inventory_action(tmp_path)
+    assert clean.returncode == 0, clean.stderr or clean.stdout
+    clean_inventory = json.loads(clean.stdout)["inventory"]
+    assert clean_inventory["directory_scan_mount_table_changed_during_run"] is False
+
+    changed_dir = tmp_path / "changed"
+    changed_dir.mkdir()
+    result = _run_inventory_action(changed_dir, mount_event_during_scan=True)
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_table_changed_during_scan" in receipt["failures"]
+    inventory = receipt["inventory"]
+    assert inventory["directory_scan_mount_table_changed_during_run"] is True
+    # Nothing else noticed: the two readings of the table are identical.
+    assert (
+        inventory["directory_scan_same_device_mounts"]["mount_table_sha256"]
+        == inventory["directory_scan_same_device_mounts_at_close"]["mount_table_sha256"]
+    )
+    source = _read(ACTION)
+    # Opened before the opening check, so nothing between the two can be missed.
+    assert source.index('mount_events_handle = open(PROC_MOUNTS, "rb")') < source.index(
+        "nested_mount_report = same_device_nested_mounts(usage_root)"
+    )
+    assert "poller.poll(0)" in source
+    assert 'failures.append("mount_table_events_unverified")' in source
+
+
+def test_v3_disk_inventory_marks_numeric_base_tail_entries_unproven(tmp_path):
+    """A numeric base/ entry beyond the 40 displayed keeps its not-proven marking."""
+    result = _run_inventory_action(tmp_path, base_numeric_tail=True)
+    receipt = json.loads(result.stdout)
+    breakdown = receipt["inventory"]["postgres_base_directory_breakdown"]
+    assert len(breakdown["unreferenced_entries"]) == 40
+    # Every displayed entry is a 5,000-byte non-numeric stray; the tail holds the 50
+    # numeric 4,000-byte entries, 16999 (500 bytes) and one more stray.
+    assert all("stray-" in row["path"] for row in breakdown["unreferenced_entries"])
+    assert breakdown["unreferenced_numeric_tail_bytes"] == 50 * 4000 + 500
+    rows = {
+        row["path"]: row
+        for row in receipt["inventory"]["summary"]["largest_unaccounted_directories"]
+    }
+    numeric = [path for path in rows if "further entries with numeric names" in path]
+    assert len(numeric) == 1
+    assert rows[numeric[0]]["exclusive_bytes"] == 50 * 4000 + 500
+    assert rows[numeric[0]]["proven_unreferenced"] is False
+    assert "not proven reclaimable" in numeric[0]
+    # No candidate calls numeric entries "not live database directories".
+    assert not any(
+        "further entries that are not live database directories" in path
+        for path in rows
+    )
+
+
+def test_v3_disk_inventory_reads_container_identity_without_a_login_shell():
+    """A login shell executes profile files the receipt says are never read."""
+    source = _read(ACTION)
+    identity = source.split("def resolve_database_identity(")[1].split("\ndef ")[0]
+    assert '"-lc"' not in identity
+    assert '"-c",' in identity
+
+
+def test_v3_disk_inventory_leaves_a_never_reset_statistics_window_unknown():
+    """With stats_reset NULL the counters span the statistics' whole life, not zero."""
+    source = _read(ACTION)
+    assert "COALESCE(stats_reset, now())" not in source
+    assert '"(now() - stats_reset)::text AS window_age, "' in source
+
+
+def test_v3_disk_inventory_discloses_server_log_writes(tmp_path):
+    result = _run_inventory_action(tmp_path)
+    scope = json.loads(result.stdout)["filesystem_writes_scope"]
+    assert "(3) PostgreSQL itself may append to its server log" in scope
+    assert "not covered by the flag below" in scope
+
+
+def test_v3_disk_inventory_workflow_uploads_the_full_receipt():
+    """The full receipt goes to an uploaded file; the log carries a bounded excerpt."""
+    workflow = _read(WORKFLOW)
+    step = workflow.split("- name: Inspect V3 disk inventory")[1].split("- name: ")[0]
+    assert "RECEIPT: ${{ runner.temp }}/v3-disk-inventory-receipt.json" in step
+    assert '< trusted-main/scripts/operator/actions/v3-disk-inventory.sh > "$RECEIPT"' in step
+    assert 'head -c 4096 "$RECEIPT"' in step
+    assert '"$RECEIPT"' in step and "| tee" not in step
+    upload = workflow.split("- name: Upload V3 disk inventory receipt")[1].split(
+        "- name: "
+    )[0]
+    assert "if: always() && steps.request.outputs.operation == 'v3-disk-inventory'" in upload
+    assert "if-no-files-found: error" in upload
+    assert "path: ${{ runner.temp }}/v3-disk-inventory-receipt.json" in upload

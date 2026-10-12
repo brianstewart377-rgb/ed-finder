@@ -36,6 +36,7 @@ import contextlib
 import hashlib
 import heapq
 import json
+import select
 import selectors
 import os
 import signal
@@ -49,6 +50,11 @@ EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
 PROC_MOUNTS = "/proc/mounts"
+# The kernel marks an open /proc/mounts descriptor with a priority event (and
+# POLLERR) after ANY mount or unmount in the namespace since it was opened -- even one
+# undone again before anyone looked. Comparing two readings of the table cannot see
+# such a change; this can. proc_namespace(5)/proc_pid_mounts(5): "pollable".
+MOUNT_TABLE_EVENT_MASK = select.POLLPRI | select.POLLERR
 STATEMENT_TIMEOUT_MS = 20000
 PROCESS_TIMEOUT_SECONDS = 30
 # A hard wall clock for the WHOLE action, from process start.
@@ -235,7 +241,11 @@ def resolve_database_identity() -> tuple[str, str]:
             "exec",
             postgres_container_ref,
             "sh",
-            "-lc",
+            # Not a login shell: -l would execute /etc/profile and ~/.profile first,
+            # which is reading files this receipt says it does not read, and their
+            # output would corrupt the tab-separated reply. The variables are already
+            # in the container's environment.
+            "-c",
             'printf "%s\\t%s\\n" "$POSTGRES_USER" "${POSTGRES_DB:-$POSTGRES_USER}"',
         ]
     )
@@ -1202,6 +1212,9 @@ postgres_container_ref = POSTGRES_CONTAINER
 postgres_container_id: str | None = None
 opening_mount_root: str | None = None
 opening_mount_fingerprint: str | None = None
+# Opened before the opening mount check and kept open until emission, so the kernel
+# can report a mount change at any moment in between (MOUNT_TABLE_EVENT_MASK).
+mount_events_handle: Any = None
 
 receipt: dict[str, Any] = {
     "schema_version": "ed-finder/operator-operation-result/v1",
@@ -1246,6 +1259,11 @@ receipt: dict[str, Any] = {
         "than of this action: inventory.volume.atime reports the measured policy and "
         "directory_atime_writes_suppressed is true only under noatime or nodiratime. "
         "No file content, size, name or ownership is changed either way. "
+        "(3) PostgreSQL itself may append to its server log for this action's "
+        "connections and read-only statements, as its logging configuration directs "
+        "(log_connections, log_disconnections, log_statement, log_duration, "
+        "log_min_duration_statement, auto_explain); that is the database server's "
+        "write, not measured here and not covered by the flag below. "
         "filesystem_writes_performed reports that metadata write and nothing else: "
         "true once a du traversal has started on a filesystem mounted relatime or "
         "strictatime, false under noatime or nodiratime or when no traversal ran, and "
@@ -1260,6 +1278,20 @@ receipt: dict[str, Any] = {
 failures: list[str] = []
 inventory: dict[str, Any] = {}
 receipt["inventory"] = inventory
+
+
+def mount_table_changed_since_open(handle: Any) -> bool | None:
+    """Whether any mount or unmount happened since `handle` was opened.
+
+    A zero-timeout poll: it never blocks. None when it cannot be answered.
+    """
+    try:
+        poller = select.poll()
+        poller.register(handle.fileno(), MOUNT_TABLE_EVENT_MASK)
+        events = poller.poll(0)
+    except (OSError, ValueError):
+        return None
+    return any(mask & MOUNT_TABLE_EVENT_MASK for _, mask in events)
 
 
 def closing_identity_checks() -> None:
@@ -1291,6 +1323,20 @@ def closing_identity_checks() -> None:
         # opening table passed, whatever the fingerprint says.
         if closing.get("safe_to_scan") is not True:
             failures.append("mount_topology_unsafe_at_close")
+        # Two equal fingerprints still miss a mount added and removed between them --
+        # a same-device bind present only while du walked would be counted twice. The
+        # kernel's mount-event flag on the descriptor held since before the opening
+        # check catches that; unknown is not taken as unchanged.
+        changed = (
+            mount_table_changed_since_open(mount_events_handle)
+            if mount_events_handle is not None
+            else None
+        )
+        inventory["directory_scan_mount_table_changed_during_run"] = changed
+        if changed is None:
+            failures.append("mount_table_events_unverified")
+        elif changed:
+            failures.append("mount_table_changed_during_scan")
 
 
 def emit_receipt() -> None:
@@ -1488,6 +1534,12 @@ try:
     # same-device bind in addition to its ordinary source. /proc/mounts cannot reliably
     # identify that source, so deduplication cannot be proved and the safe action is to
     # refuse rather than invent an exclusion.
+    # Held from BEFORE the opening check, so a change between this open and the
+    # fingerprint read is reported too (conservatively) rather than missed.
+    try:
+        mount_events_handle = open(PROC_MOUNTS, "rb")
+    except OSError:
+        mount_events_handle = None
     nested_mount_report = same_device_nested_mounts(usage_root)
     inventory["directory_scan_same_device_mounts"] = nested_mount_report
     nested_mount_reason = nested_mount_report.get("reason")
@@ -2087,7 +2139,9 @@ try:
     stats_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("
         "SELECT stats_reset::text AS stats_reset, "
-        "(now() - COALESCE(stats_reset, now()))::text AS window_age, "
+        # NULL when the statistics were never reset: the counters then cover the
+        # whole life of the statistics, so an age of zero would be false evidence.
+        "(now() - stats_reset)::text AS window_age, "
         "(stats_reset IS NULL) AS stats_never_reset "
         "FROM pg_stat_database WHERE datname = current_database()) q",
         db_user,
@@ -2793,6 +2847,17 @@ try:
                         "unreferenced_entries": sorted(
                             unreferenced, key=lambda item: (-item["bytes"], item["path"])
                         )[:40],
+                        # Numeric entries beyond the displayed 40, kept apart from the
+                        # rest of the tail: like a displayed numeric row, they may be a
+                        # database still being created.
+                        "unreferenced_numeric_tail_bytes": sum(
+                            row["bytes"]
+                            for row in sorted(
+                                unreferenced,
+                                key=lambda item: (-item["bytes"], item["path"]),
+                            )[40:]
+                            if row["path"].rstrip("/").rsplit("/", 1)[-1].isdigit()
+                        ),
                         "unreferenced_entry_count": len(unreferenced),
                         "other_bytes": other_bytes,
                         "entries_omitted_by_cap": base_omitted,
@@ -3291,17 +3356,36 @@ try:
                     "proven_unreferenced": not numeric,
                 }
             )
-        tail = base_breakdown["unreferenced_directory_bytes"] - sum(
-            row["bytes"] for row in base_breakdown["unreferenced_entries"]
+        numeric_tail = base_breakdown["unreferenced_numeric_tail_bytes"]
+        tail = (
+            base_breakdown["unreferenced_directory_bytes"]
+            - sum(row["bytes"] for row in base_breakdown["unreferenced_entries"])
+            - numeric_tail
         )
         remainder(
             (
-                f"{base_breakdown['path']} (further entries that are not live "
-                "database directories)"
+                f"{base_breakdown['path']} (further non-numeric entries that are not "
+                "live database directories)"
             ),
             tail,
             term="base_unreferenced_tail",
         )
+        # The display tail's numeric entries get the same not-proven marking as a
+        # displayed numeric row: merged into the tail above, they would have been
+        # labelled "not live database directories" with no warning at all.
+        if numeric_tail > 0:
+            inside.append(
+                {
+                    "path": (
+                        f"{base_breakdown['path']} (further entries with numeric "
+                        "names not in the live database set; may be a database "
+                        "still being created -- not proven reclaimable)"
+                    ),
+                    "exclusive_bytes": numeric_tail,
+                    "inside_data_directory": True,
+                    "proven_unreferenced": False,
+                }
+            )
         remainder(
             f"{base_breakdown['path']} (files directly in this directory)",
             base_breakdown["other_bytes"],
