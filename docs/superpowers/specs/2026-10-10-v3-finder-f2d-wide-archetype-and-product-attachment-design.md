@@ -2041,8 +2041,14 @@ Files:
 
   `/openapi.json` keeps the job it can actually do — proving parameter **shape**,
   where the values are concrete in the schema: the `Literal[60, 76, 88]` floor
-  appears as an enum and the combined `from`/`offset` bound as a maximum. It is
-  checked for those and not consulted for identity.
+  appears as an enum, and the four **individual** `offset`/`limit`/`from`/`size`
+  maxima appear as maxima. It cannot prove the **combined** bounds
+  `offset + limit <= 10000` and `from + size <= 10000` (review round 31) — JSON
+  Schema cannot relate two fields, so an image missing either route-level validator
+  publishes the same schema. Those two are proved only by the behavioural probe
+  pairs of rollout step 4 (`offset=9999&limit=1` and `from=9999&size=1` accepted,
+  `offset=9999&limit=2` and `from=9999&size=2` rejected with 422), which this
+  action re-runs before publishing. The schema is not consulted for identity.
 
   All comparisons refuse with distinct exit codes. The live envelope's identity is
   verified immediately afterwards, at step 10, when it exists — and that check is
@@ -3123,3 +3129,12 @@ does not bind, because the ROADMAP outranks it.
    outgoing product is `BUILDING` or `VALIDATING`; the operator first brings it to
    `READY` or moves it to `FAILED` (still permitted while its base is PUBLISHED).
    Tests cover both states, the resolved case and the non-blocking terminal states.
+
+### Review round 31 (2026-10-12)
+
+1. **P2 — Keep combined pagination bounds out of the OpenAPI check** → correct.
+   PR4's checklist still said `/openapi.json` proves the combined `from`/`offset`
+   bound as a maximum, contradicting rollout step 4 and the ROADMAP. It now limits
+   the schema check to the floor enum and the four individual maxima and names the
+   behavioural accepted/rejected pairs as the only proof of the two combined
+   bounds, re-run by the publish action.
