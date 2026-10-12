@@ -587,6 +587,26 @@ The following bounding, metric and windowing rules govern how the receipt may be
   while `du` walked stops the receipt (`mount_table_changed_during_scan`) even though
   the two table readings match. If the flag cannot be read the receipt also stops
   (`mount_table_events_unverified`).
+- **PGDATA must be on the scanned filesystem.** Its device (`stat -c %d`, the st_dev
+  `du -x` uses) must equal the scan root's; a different filesystem mounted beneath
+  the scan root that held PGDATA would make the root walk and the PGDATA figures
+  describe different filesystems, so the scan stops
+  (`postgres_data_directory_not_on_scan_root_filesystem`). The atime policy is read
+  again after the mount monitor is armed, so a remount just before it cannot leave
+  the write flag on a stale reading.
+- **WAL summaries and archive status are located.** `pg_ls_waldir()` lists only
+  files directly in `pg_wal`; PostgreSQL 18's `pg_wal/summaries` and
+  `pg_wal/archive_status` are read in the same closing statement
+  (`pg_ls_summariesdir()`, `pg_ls_archive_statusdir()`), reported with
+  `summarize_wal` and `wal_summary_keep_time`, and accounted, instead of sitting
+  inside the pg_wal measurement width.
+- **Known limit: a churned scan near its timeout can exhaust the walk budget.** A scan
+  accepted only after vanished-file diagnostics is retried, because a churned
+  result can undercount — the dangerous direction for a reclaim decision. If a
+  retry of a near-timeout scan leaves too little of the 960-second walk budget for
+  the mandatory scans still queued, the run stops (fail closed) and is re-dispatched;
+  it never emits a wrong receipt. Reserving time for later scans would require
+  predicting their durations, so this is accepted rather than engineered around.
 - **Small honesty fixes.** The container identity is read with `sh -c`, not a login
   shell that would execute profile files; a never-reset statistics window reports a
   null `window_age` rather than zero; and the full receipt is uploaded as the

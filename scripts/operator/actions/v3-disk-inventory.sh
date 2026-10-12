@@ -1280,6 +1280,17 @@ inventory: dict[str, Any] = {}
 receipt["inventory"] = inventory
 
 
+def path_device(path: str) -> int | None:
+    """st_dev of `path` from `stat -c %d`, or None if it cannot be read."""
+    probe = run(["stat", "-c", "%d", path])
+    if probe.returncode != 0:
+        return None
+    try:
+        return int(probe.stdout.strip())
+    except ValueError:
+        return None
+
+
 def mount_table_changed_since_open(handle: Any) -> bool | None:
     """Whether any mount or unmount happened since `handle` was opened.
 
@@ -1540,6 +1551,28 @@ try:
         mount_events_handle = open(PROC_MOUNTS, "rb")
     except OSError:
         mount_events_handle = None
+    # The atime policy is read again now that the monitor is armed. The volume
+    # section's reading came earlier; a remount between it and this open would not
+    # raise the event the held descriptor watches for, and the write flag below would
+    # rest on the stale reading.
+    if isinstance(inventory.get("volume"), dict):
+        inventory["volume"]["atime"] = mount_atime_policy(mount_source)
+    # PGDATA must be on the filesystem being scanned. usage_root is the mount that
+    # holds the Docker volume's source, and a different filesystem mounted on the host
+    # beneath it could hold PGDATA itself: the root walk and df would then describe the
+    # outer filesystem while the PGDATA scans and PostgreSQL's sizes describe the inner
+    # one, and the partition would subtract bytes the measured volume never held.
+    # Device identity, as for pg_wal: the st_dev `du -x` itself uses.
+    scan_root_device = path_device(usage_root)
+    pgdata_device_id = path_device(pgdata_host)
+    inventory["postgres_data_directory_filesystem"] = {
+        "scan_root_device": scan_root_device,
+        "device": pgdata_device_id,
+    }
+    if scan_root_device is None or pgdata_device_id is None:
+        raise RuntimeError("postgres_data_directory_device_unverified")
+    if scan_root_device != pgdata_device_id:
+        raise RuntimeError("postgres_data_directory_not_on_scan_root_filesystem")
     nested_mount_report = same_device_nested_mounts(usage_root)
     inventory["directory_scan_same_device_mounts"] = nested_mount_report
     nested_mount_reason = nested_mount_report.get("reason")
@@ -2871,15 +2904,41 @@ try:
     # so sequential endpoint equality never authorizes an aggregate reclaim candidate.
     # The retained closing-PGDATA child is compared directly with this final value only
     # as a measurement width in the summary.
+    # pg_ls_waldir() lists only ordinary files directly in pg_wal. PostgreSQL 18 also
+    # keeps WAL summaries in pg_wal/summaries (while summarize_wal is on, and until
+    # wal_summary_keep_time expires them after it is turned off) and archiver state in
+    # pg_wal/archive_status. Both are read in the SAME statement, so the three figures
+    # describe one instant, and reported separately with the settings that govern
+    # them: otherwise stable summary storage would only ever appear inside the pg_wal
+    # measurement width, never as a located consumer.
     closing_wal = psql_json(
         "SELECT row_to_json(q)::text FROM (SELECT "
-        "coalesce(sum(size),0)::bigint AS bytes FROM pg_ls_waldir()) q",
+        "(SELECT coalesce(sum(size),0) FROM pg_ls_waldir())::bigint AS bytes, "
+        "(SELECT coalesce(sum(size),0) FROM pg_ls_summariesdir())::bigint "
+        "AS summaries_bytes, "
+        "(SELECT coalesce(sum(size),0) FROM pg_ls_archive_statusdir())::bigint "
+        "AS archive_status_bytes, "
+        "current_setting('summarize_wal') AS summarize_wal, "
+        "current_setting('wal_summary_keep_time') AS wal_summary_keep_time) q",
         db_user,
         db_name,
     )
-    if not closing_wal or "bytes" not in closing_wal[0]:
+    if not closing_wal or any(
+        not isinstance(closing_wal[0].get(field), int)
+        for field in ("bytes", "summaries_bytes", "archive_status_bytes")
+    ):
         raise RuntimeError("wal_bytes_not_reconciled")
     inventory["wal"]["bytes_at_window_close"] = closing_wal[0]["bytes"]
+    inventory["wal"]["summaries_bytes_at_window_close"] = closing_wal[0][
+        "summaries_bytes"
+    ]
+    inventory["wal"]["archive_status_bytes_at_window_close"] = closing_wal[0][
+        "archive_status_bytes"
+    ]
+    inventory["wal"]["summarize_wal"] = closing_wal[0].get("summarize_wal")
+    inventory["wal"]["wal_summary_keep_time"] = closing_wal[0].get(
+        "wal_summary_keep_time"
+    )
     inventory["wal"]["unlisted_directory_classification"] = {
         "available": False,
         "reason": "live_wal_cannot_be_snapshotted_read_only",
@@ -3065,9 +3124,18 @@ try:
     )
     if wal_bytes is None:
         raise RuntimeError("wal_bytes_not_reconciled")
+    # PostgreSQL-managed storage under pg_wal that pg_ls_waldir() does not list,
+    # measured in the same closing statement (see above).
+    wal_summaries_bytes = inventory["wal"]["summaries_bytes_at_window_close"]
+    wal_archive_status_bytes = inventory["wal"]["archive_status_bytes_at_window_close"]
     temp_bytes = temp_bytes_at_close
     accounted_bytes = (
-        operating_database_bytes + other_databases_bytes + wal_bytes + temp_bytes
+        operating_database_bytes
+        + other_databases_bytes
+        + wal_bytes
+        + wal_summaries_bytes
+        + wal_archive_status_bytes
+        + temp_bytes
     )
     if usage_full is None:
         raise RuntimeError("volume_directory_usage_unavailable")
@@ -3270,7 +3338,10 @@ try:
         if name == "pg_wal":
             uncertain(
                 "pg_wal_pgdata_walk_to_window_close",
-                wal_child["bytes"] - wal_bytes,
+                wal_child["bytes"]
+                - wal_bytes
+                - wal_summaries_bytes
+                - wal_archive_status_bytes,
                 wal_child["path"],
             )
             continue
@@ -3598,6 +3669,11 @@ try:
         "operating_database_bytes": operating_database_bytes,
         "other_databases_bytes": other_databases_bytes,
         "wal_bytes": wal_bytes,
+        # Located separately rather than left inside the pg_wal width: WAL summaries
+        # (governed by summarize_wal and wal_summary_keep_time, inventory.wal) and
+        # archive status files. Both are PostgreSQL-managed; neither is a candidate.
+        "wal_summaries_bytes": wal_summaries_bytes,
+        "wal_archive_status_bytes": wal_archive_status_bytes,
         "accounted_bytes": accounted_bytes,
         "unaccounted_bytes": volume_used - accounted_bytes,
         # The figure the candidates actually partition: same window as the scans they
@@ -3694,7 +3770,9 @@ try:
         ),
         "method": (
             "accounted_bytes = operating_database_bytes + other_databases_bytes + "
-            "wal_bytes + current PostgreSQL temporary-directory bytes; "
+            "wal_bytes + wal_summaries_bytes + wal_archive_status_bytes + current "
+            "PostgreSQL temporary-directory bytes, the three WAL figures read in one "
+            "closing statement; "
             "unaccounted_bytes = volume_used_bytes - accounted_bytes. "
             "largest_unaccounted_directories is numerically non-overlapping across its "
             "retained rows: each row "

@@ -112,6 +112,9 @@ def _run_inventory_action(
     mount_change_at_close: str = "none",
     stacked_root_options: str | None = None,
     mount_event_during_scan: bool = False,
+    pgdata_other_device: bool = False,
+    remount_before_scan: str | None = None,
+    wal_summaries_bytes: int = 0,
     base_numeric_tail: bool = False,
     tablespace_at_close_only: bool = False,
     base_over_cap: bool = False,
@@ -258,6 +261,14 @@ def _run_inventory_action(
             # which `readlink -f` cannot distinguish from an ordinary subdirectory.
             target="$3"
             case "$target" in
+              */18/docker)
+                # PGDATA itself; PGDATA_OTHER_DEVICE puts it on a filesystem mounted
+                # beneath the scan root.
+                if [ "$PGDATA_OTHER_DEVICE" = '1' ]; then
+                  printf '%s\\n' '2050'
+                else
+                  printf '%s\\n' '2048'
+                fi ;;
               */pg_wal)
                 if [ "$WAL_SEPARATE_FILESYSTEM" = '1' ]; then
                   printf '%s\\n' '2049'
@@ -345,6 +356,11 @@ def _run_inventory_action(
                 printf 'Filesystem Type 1B-blocks Used Available\\n'
                 printf '/dev/md1 ext4 1948000 %s 292000\\n' "$(( 1557000 + ROOT_SCAN_EXTRA ))" ;;
               *'--output=target'*)
+                if [ -n "$REMOUNT_BEFORE_SCAN" ]; then
+                  # The root is remounted after the volume section read its atime
+                  # policy, before the scan section arms the mount monitor.
+                  printf '%s' "$REMOUNT_BEFORE_SCAN" > "$MOUNTS_FILE"
+                fi
                 if [ "$MOUNT_POINT_FAILURE" = '1' ]; then
                   printf '%s\\n' 'cannot resolve mount point' >&2
                   exit 9
@@ -625,7 +641,7 @@ def _run_inventory_action(
                 wal_calls="$(( wal_calls + 1 ))"
                 printf '%s' "$wal_calls" > "$WAL_QUERY_STAMP"
                 if [ "$wal_calls" -ge 2 ]; then
-                  printf '{"segments":3,"bytes":%s}\\n' "$WAL_AT_WINDOW_CLOSE"
+                  printf '{"bytes":%s,"summaries_bytes":%s,"archive_status_bytes":0,"summarize_wal":"on","wal_summary_keep_time":"10d"}\\n' "$WAL_AT_WINDOW_CLOSE" "$WAL_SUMMARIES_BYTES"
                 else
                   printf '%s\\n' '{"segments":3,"bytes":118000}'
                 fi ;;
@@ -712,6 +728,9 @@ def _run_inventory_action(
     env["CONTAINER_REPLACED"] = "1" if container_replaced else "0"
     env["MOUNTS_CHANGE"] = "1" if mounts_change_during_scan else "0"
     env["MOUNTS_FILE"] = str(mounts_file)
+    env["PGDATA_OTHER_DEVICE"] = "1" if pgdata_other_device else "0"
+    env["REMOUNT_BEFORE_SCAN"] = remount_before_scan or ""
+    env["WAL_SUMMARIES_BYTES"] = str(wal_summaries_bytes)
     env["MOUNTS_AT_CLOSE"] = (
         "\n".join(closing_mounts_lines) + "\n" if closing_mounts_lines else ""
     )
@@ -3728,3 +3747,86 @@ def test_v3_disk_inventory_workflow_uploads_the_full_receipt():
     assert "if: always() && steps.request.outputs.operation == 'v3-disk-inventory'" in upload
     assert "if-no-files-found: error" in upload
     assert "path: ${{ runner.temp }}/v3-disk-inventory-receipt.json" in upload
+
+
+def test_v3_disk_inventory_refuses_pgdata_on_another_filesystem(tmp_path):
+    """PGDATA on a filesystem mounted beneath the scan root invalidates the partition.
+
+    The root walk and df would describe the outer filesystem while the PGDATA scans
+    and PostgreSQL's sizes describe the inner one.
+    """
+    result = _run_inventory_action(tmp_path, pgdata_other_device=True)
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    usage = receipt["inventory"]["volume_directory_usage"]
+    assert (
+        usage["volume_directory_usage_failed"]
+        == "postgres_data_directory_not_on_scan_root_filesystem"
+    )
+    clean_dir = tmp_path / "clean"
+    clean_dir.mkdir()
+    clean = json.loads(_run_inventory_action(clean_dir).stdout)
+    filesystem = clean["inventory"]["postgres_data_directory_filesystem"]
+    assert filesystem == {"scan_root_device": 2048, "device": 2048}
+
+
+def test_v3_disk_inventory_rereads_atime_after_arming_the_mount_monitor(tmp_path):
+    """A remount between the first atime reading and the monitor must not be missed.
+
+    The volume section reads the policy first; the root is then remounted relatime
+    before the monitor's descriptor is opened, so no mount event is ever raised. The
+    write flag must follow the policy in force when the scans ran.
+    """
+    result = _run_inventory_action(
+        tmp_path,
+        root_mount_options="rw,noatime",
+        remount_before_scan="/dev/root / ext4 rw,relatime 0 0\n",
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert receipt["inventory"]["volume"]["atime"]["atime_policy"] == "relatime"
+    assert receipt["filesystem_writes_performed"] is True
+    source = _read(ACTION)
+    armed = source.index('mount_events_handle = open(PROC_MOUNTS, "rb")')
+    reread = source.index('inventory["volume"]["atime"] = mount_atime_policy(mount_source)')
+    assert armed < reread < source.index(
+        "nested_mount_report = same_device_nested_mounts(usage_root)"
+    )
+
+
+def test_v3_disk_inventory_locates_wal_summaries_separately(tmp_path):
+    """WAL summaries under pg_wal are located, not left inside the pg_wal width."""
+    result = _run_inventory_action(tmp_path, wal_summaries_bytes=7000)
+    receipt = json.loads(result.stdout)
+    wal = receipt["inventory"]["wal"]
+    assert wal["summaries_bytes_at_window_close"] == 7000
+    assert wal["archive_status_bytes_at_window_close"] == 0
+    assert wal["summarize_wal"] == "on"
+    assert wal["wal_summary_keep_time"] == "10d"
+    summary = receipt["inventory"]["summary"]
+    assert summary["wal_summaries_bytes"] == 7000
+    baseline_dir = tmp_path / "baseline"
+    baseline_dir.mkdir()
+    baseline = json.loads(_run_inventory_action(baseline_dir).stdout)["inventory"]
+    # Accounted, so the unaccounted figure shrinks by exactly the summaries...
+    assert (
+        summary["accounted_bytes"]
+        == baseline["summary"]["accounted_bytes"] + 7000
+    )
+    # ...and the pg_wal walk-to-close width no longer carries them.
+    terms = {term["term"]: term["bytes"] for term in summary["measurement_uncertainty_terms"]}
+    base_terms = {
+        term["term"]: term["bytes"]
+        for term in baseline["summary"]["measurement_uncertainty_terms"]
+    }
+    # (The fixture's pg_wal walk does not grow with them, so the width moves by
+    # exactly the summaries; widths are reported as magnitudes.)
+    assert terms["pg_wal_pgdata_walk_to_window_close"] == abs(
+        base_terms["pg_wal_pgdata_walk_to_window_close"] - 7000
+    )
+    source = _read(ACTION)
+    closing = source.split("closing_wal = psql_json(")[1].split("db_user,")[0]
+    # One statement, so the three figures describe one instant.
+    assert "pg_ls_waldir()" in closing
+    assert "pg_ls_summariesdir()" in closing
+    assert "pg_ls_archive_statusdir()" in closing
