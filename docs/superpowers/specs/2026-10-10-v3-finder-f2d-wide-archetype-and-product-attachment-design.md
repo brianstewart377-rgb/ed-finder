@@ -1988,7 +1988,17 @@ Files:
   ```
 
   So `f["60"] >= f["76"] >= f["88"]` by construction, and a conversion that produced
-  anything else would be wrong on its face. PR4 owns a small committed converter
+  anything else would be wrong on its face. **Those are the fractions of a complete
+  read only (review round 37).** When the probe sampled chunks (step 5a), the
+  converter computes the same cumulative fractions per sampled chunk and emits,
+  for every key and floor, the one-sided 99.9 % upper bound across chunks (mean
+  + 3.09 × standard error, clipped to 1) instead of the pooled point estimate,
+  then re-imposes the ordering by taking `f["76"] = max(f["76"], f["88"])` and
+  `f["60"] = max(f["60"], f["76"])` — raising, never lowering. Its output records
+  `mode: complete | sampled`, the seed and the chunk count; `Σ_all` and the
+  footprint receipt use exactly these values. Converter tests cover a complete
+  input (point fractions), a sampled input (bounds strictly above the point
+  estimates for a non-degenerate spread) and the ordering repair. PR4 owns a small committed converter
   (`scripts/dev/convert_calibration_histogram.py`) rather than a documented manual
   step: the fractions digest is a fail-closed gate input, so the transformation that
   produces it has to be reproducible and reviewable, and a by-hand JSON edit is
@@ -2101,8 +2111,15 @@ Files:
   wearing a resume's clothes.
 - `scripts/operator/actions/v3-publish-derived-products.sh` (new: both products
   in one transaction via `publish_derived_product`; receipts timestamps, audits
-  and view counts — **and fails closed on the deployed application before it
-  publishes anything**, because publication is what makes the route live: it
+  and view counts. **It runs only in the protected production workflow, under the
+  same `v3-production-application-authority` concurrency group as deployment and
+  holding the same host deployment lock the deployer takes, from before its first
+  image check until after commit (review round 37)** — the ops workflow's
+  separate concurrency group would let a deployment swap the API image between
+  the check and the commit, publishing one-way into an unattested image. Holding
+  the lock, it repeats the image-digest check as its last statement before
+  `COMMIT` and rolls back on any change. It also **fails closed on the deployed
+  application before it publishes anything**, because publication is what makes the route live: it
   reads the running API container's image digest and compares it with the
   accepted-release attestation for the F2d release, and takes the expected
   `ranking_version`/`ranking_sha256` **from that attestation alone** —
@@ -2145,7 +2162,15 @@ Files:
   application rollback left the old keyed-schema image running. Tests cover the
   out-of-order case — products READY, old image digest — and the identity
   mismatch)
-- `scripts/operator/actions/v3-archetype-plan-probe.sh` (new, read-only: builds
+- `scripts/operator/actions/v3-archetype-plan-probe.sh` (new, read-only. **Its
+  SQL comes from the deployed image, not from the checkout (review round 37):**
+  the operator workflow runs from `trusted-main`, which can be newer than the
+  attested release, so building the queries there could validate fixed SQL while
+  the running image executes older SQL. The action generates every page and count
+  statement by running the query builders **inside the running API container**,
+  pinned by the attested image digest, and records the SHA-256 of each generated
+  statement; the publish action does the same on its own connection and refuses
+  if the container's digest is not the attested one. It then builds
   the real picked page and count SQL through `build_ranked_query` /
   `build_count_query` for **all eight archetypes** at each of the three floors —
   24 pairs, not one key's three (review round 22): planner choices depend on each
@@ -3349,3 +3374,19 @@ does not bind, because the ROADMAP outranks it.
    index is now `(derived_generation_id, weighted_potential DESC NULLS LAST,
    system_id64)`, matching the `ORDER BY` exactly; about 1.6 GB more, covered by
    PR1's re-measurement.
+
+### Review round 37 (2026-10-12)
+
+1. **P1 — Carry sampled upper bounds into the controlling gate** → correct. The
+   ROADMAP's step 7′ now requires the converter's 99.9 % upper bounds whenever the
+   probe sampled, and the converter section defines them (per-chunk cumulative
+   fractions, bound per key and floor, ordering repaired upward only) with tests
+   for complete, sampled and repaired inputs.
+2. **P1 — Serialize product publication with application deployment** → correct.
+   The publish action runs only in the protected production workflow, under the
+   deployment concurrency group and holding the host deployment lock from its
+   first image check to after commit, and repeats the digest check as its last
+   statement before `COMMIT`.
+3. **P1 — Bind the plan probe SQL to the deployed image** → correct. The probe
+   SQL is generated inside the running, digest-pinned API container rather than
+   from the `trusted-main` checkout, with each statement's SHA-256 recorded.
