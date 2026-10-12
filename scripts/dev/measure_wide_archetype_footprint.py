@@ -361,6 +361,19 @@ def main() -> None:
         fractions_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         sigma_all = round(sum(sum(v.values()) for v in normalized.values()), 6)
     out: dict[str, object] = {
+        # The built-in layouts are comparison evidence, not the capacity input. Their
+        # DDL predates the final no-pick index (which adds a trailing system_id64),
+        # and they create every index AFTER the fill -- a compact bulk build --
+        # whereas migration 011 creates them on the empty relation and the builder
+        # inserts 198.5 M rows incrementally, which splits pages and lowers
+        # occupancy. Either difference understates production bytes, so no receipt
+        # from this path may satisfy the capacity gate; only the final-migration
+        # path (F2d PR1), which applies 011 itself before a chunked fill, may.
+        "capacity_gate_eligible": False,
+        "capacity_gate_ineligible_reason": (
+            "built-in comparison layout: pre-final index DDL and indexes built after "
+            "the fill; the capacity gate requires the final-migration path"
+        ),
         "score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell",
         "fractions_json": args.fractions_json,
         "fractions_canonical": fractions_canonical if fractions else None,

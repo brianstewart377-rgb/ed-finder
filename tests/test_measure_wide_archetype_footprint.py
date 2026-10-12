@@ -228,3 +228,16 @@ def test_unreadable_or_non_object_fractions_stop_with_a_message(
     with pytest.raises(SystemExit) as exc:
         module.main()
     assert message in str(exc.value.code)
+
+
+def test_built_in_layout_receipts_cannot_satisfy_the_capacity_gate():
+    """The built-in layouts understate production bytes, so they are marked ineligible.
+
+    Their no-pick index lacks the final trailing system_id64, and they build every
+    index after the fill, unlike migration 011's index-first, incremental production
+    order. Only the final-migration path may feed the capacity gate.
+    """
+    source = SCRIPT.read_text(encoding="utf-8")
+    header = source.split("out: dict[str, object] = {")[1].split("}")[0]
+    assert '"capacity_gate_eligible": False,' in header
+    assert "capacity_gate_ineligible_reason" in header
