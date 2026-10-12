@@ -561,9 +561,12 @@ The following bounding, metric and windowing rules govern how the receipt may be
   to its ID once, and every later `docker` call addresses that ID, so a replaced
   container cannot answer under the old name; at emission the name is resolved again
   and a different ID stops the receipt (`postgres_container_replaced_during_run`). The
-  mount table below the scan root is fingerprinted before the first `du` and compared
-  at emission; a mount added or replaced during the scans stops the receipt
-  (`mount_topology_changed_during_scan`). The closing tablespace count is taken in the
+  mount table at and below the scan root is fingerprinted before the first `du` —
+  each entry's source, target and type, in table order, so a mount replaced at the
+  same target with the same type or stacked on an existing target still changes it —
+  and compared at emission; a mount added, stacked or replaced during the scans stops
+  the receipt (`mount_topology_changed_during_scan`). The closing table must also pass
+  the opening same-device check on its own (`mount_topology_unsafe_at_close`). The closing tablespace count is taken in the
   **same statement** as the closing database sizes, so both describe one snapshot.
 - **`filesystem_writes_performed` follows the measured atime policy.** Under `relatime`
   or `strictatime` the `du` traversals update directory access times, so the flag is
@@ -689,9 +692,15 @@ The following bounding, metric and windowing rules govern how the receipt may be
   (`candidates_do_not_account_for_unaccounted:shortfall_N_uncertainty_M`, summary
   preserved for diagnosis). A shortfall *within* the uncertainty is reported and is no
   longer treated as an error, because it never was one. When the base breakdown or root
-  path attribution is incomplete, `candidate_list_complete` is false,
+  path attribution is incomplete, or a scan the candidates come from was accepted only
+  after vanished-file diagnostics (`candidate_list_degraded_scans`; a renamed WAL
+  segment can be missed that way), `candidate_list_complete` is false,
   `candidate_list_incomplete_reasons` names the cause, and the verdict is null rather
-  than guessed. The paired `df` reading is taken
+  than guessed. Path attribution follows `du`, which counts a file with several hard
+  links once, under whichever link it reaches first
+  (`hard_linked_files_attributed_to_one_path`): a candidate's bytes are where `du`
+  found them, not proof that deleting that path alone frees them, so link counts are
+  checked before anything is reclaimed. The paired `df` reading is taken
   **immediately** after the root scan, before the second full data-directory walk, so
   the pairing holds in time and not merely in name.
 

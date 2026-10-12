@@ -508,6 +508,10 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
     # stacked on top of the earlier one, so the last entry is the visible one.
     points: dict[str, str] = {}
     root_fstype: str | None = None
+    # Every entry at or below the root, in table order and with its source, for the
+    # fingerprint. `points` keeps only the visible mount per target, which is right
+    # for the device check but would hide a stacked mount or a replaced source.
+    fingerprint_entries: list[str] = []
     for line_number, line in enumerate(lines, start=1):
         fields = line.split()
         if len(fields) < 3:
@@ -516,6 +520,7 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         point = os.path.normpath(decode_proc_mount_path(fields[1]))
         if point == base:
             root_fstype = fields[2]
+            fingerprint_entries.append(f"{fields[0]}\t{point}\t{fields[2]}")
             continue
         strictly_below = (
             point != "/" and point.startswith("/")
@@ -524,20 +529,21 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         )
         if strictly_below:
             points[point] = fields[2]
+            fingerprint_entries.append(f"{fields[0]}\t{point}\t{fields[2]}")
     # The scan root is a mount target by construction (`df --output=target`), so a
     # table without its entry is not one this check can reason about.
     if root_fstype is None:
         report.update(reason="scan_root_mount_entry_missing")
         return report
     report["scan_root_filesystem_type"] = root_fstype
-    # A fingerprint of every mount below the root, of every type, so the table can be
-    # compared again when the receipt is emitted: a mount added or replaced during the
-    # scans changes what `du -x` traversed or what it could see.
+    # A fingerprint of every mount at or below the root, of every type, so the table
+    # can be compared again when the receipt is emitted: a mount added, stacked or
+    # replaced during the scans changes what `du -x` traversed or what it could see.
+    # Source, target and type, in table order: a replacement at the same target with
+    # the same type but another source (say a bind of the root's own filesystem) must
+    # change it, and so must a second mount stacked on an existing target.
     report["mount_table_sha256"] = hashlib.sha256(
-        "\n".join(
-            [root_fstype]
-            + [f"{point}\t{fstype}" for point, fstype in sorted(points.items())]
-        ).encode("utf-8", "surrogateescape")
+        "\n".join(fingerprint_entries).encode("utf-8", "surrogateescape")
     ).hexdigest()
     ordered_points = sorted(
         point for point, fstype in points.items() if fstype == root_fstype
@@ -777,6 +783,16 @@ class ScanBudget:
 # space, so the totals for everything else remain correct and usable.
 DU_VANISHED_MARKERS = ("No such file or directory",)
 DU_ATTEMPTS = 3
+# The du scans every candidate row is derived from, by their error labels: the two
+# PGDATA bracket totals, the volume root walk, the PGDATA depth-1 scan and base/.
+CANDIDATE_SOURCE_SCANS = frozenset(
+    {
+        "directory_total_failed",
+        "directory_usage_failed",
+        "postgres_data_directory_usage_failed",
+        "base_directory_usage_failed",
+    }
+)
 tolerated_churn: list[dict[str, Any]] = []
 
 
@@ -1261,6 +1277,10 @@ def closing_identity_checks() -> None:
         inventory["directory_scan_same_device_mounts_at_close"] = closing
         if closing.get("mount_table_sha256") != opening_mount_fingerprint:
             failures.append("mount_topology_changed_during_scan")
+        # Judged on its own as well: the table at close must pass the same check the
+        # opening table passed, whatever the fingerprint says.
+        if closing.get("safe_to_scan") is not True:
+            failures.append("mount_topology_unsafe_at_close")
 
 
 def emit_receipt() -> None:
@@ -3457,7 +3477,23 @@ try:
         candidate_list_incomplete_reasons.append(
             "volume_directory_usage_scan_truncated"
         )
-    candidate_list_complete = bool(base_breakdown_used) and root_rows_omitted == 0
+    # A scan accepted after every attempt ended in vanished-file diagnostics may have
+    # missed a file that was renamed rather than removed -- PostgreSQL recycles WAL
+    # by renaming -- so its rows can undercount. Every candidate row comes from one of
+    # these scans, so the list is then not known to be complete either.
+    degraded_candidate_scans = sorted(
+        {
+            entry["scan"]
+            for entry in tolerated_churn
+            if entry.get("accepted_possibly_undercounting")
+            and entry.get("scan") in CANDIDATE_SOURCE_SCANS
+        }
+    )
+    if degraded_candidate_scans:
+        candidate_list_incomplete_reasons.append(
+            "contributing_directory_scan_degraded"
+        )
+    candidate_list_complete = not candidate_list_incomplete_reasons
     accounted_within_uncertainty = (
         abs(candidate_shortfall) <= measurement_uncertainty
         if candidate_list_complete
@@ -3497,6 +3533,11 @@ try:
         "candidate_shortfall_bytes": candidate_shortfall,
         "candidate_list_complete": candidate_list_complete,
         "candidate_list_incomplete_reasons": candidate_list_incomplete_reasons,
+        "candidate_list_degraded_scans": degraded_candidate_scans,
+        # du counts a file with several hard links once, under whichever link its
+        # walk reaches first, so a candidate's bytes are where du found them -- not
+        # proof that removing that path alone frees them. Stated, not detected.
+        "hard_linked_files_attributed_to_one_path": True,
         "candidates_account_for_unaccounted_within_uncertainty": (
             accounted_within_uncertainty
         ),
@@ -3620,10 +3661,18 @@ try:
             "like. "
             "That comparison is only made when candidate_list_complete is true. An "
             "unavailable base breakdown removes base/'s rows from the list entirely, "
-            "and root-stream truncation prevents complete path attribution. Either "
-            "condition is named in candidate_list_incomplete_reasons, and makes the "
+            "root-stream truncation prevents complete path attribution, and a "
+            "contributing scan accepted after vanished-file diagnostics may have missed "
+            "a renamed file (candidate_list_degraded_scans). Each condition is named in "
+            "candidate_list_incomplete_reasons, and makes the "
             "verdict null -- not asserted, not disproved -- while the shortfall and "
             "uncertainty are still reported. "
+            "Path attribution follows du, which counts a file with several hard links "
+            "once, under whichever link its walk reaches first "
+            "(hard_linked_files_attributed_to_one_path): a candidate's bytes are where "
+            "du found them, not proof that deleting that path alone frees them, because "
+            "another link elsewhere keeps the blocks allocated. Check link counts before "
+            "reclaiming anything. "
             "The du scan covers the whole "
             "filesystem that holds the data directory, not only the PostgreSQL volume "
             "subdirectory. filesystem_minus_directory_scan_bytes is "

@@ -109,6 +109,7 @@ def _run_inventory_action(
     root_mount_options: str = "rw,relatime",
     container_replaced: bool = False,
     mounts_change_during_scan: bool = False,
+    mount_change_at_close: str = "none",
     tablespace_at_close_only: bool = False,
     base_over_cap: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -156,6 +157,33 @@ def _run_inventory_action(
         raise ValueError(f"unsupported nested_mount_mode: {nested_mount_mode}")
     if nested_mount_mode != "unreadable":
         mounts_file.write_text("\n".join(mounts_lines) + "\n", encoding="utf-8")
+    # The table the scans leave behind: the du stub writes it, so the opening check
+    # sees `mounts_lines` and the closing check sees this.
+    closing_mounts_lines: list[str] | None = None
+    if mount_change_at_close in {"source_replaced", "stacked"}:
+        if nested_mount_mode != "different_device":
+            raise ValueError(f"{mount_change_at_close} needs a different-device mount")
+        replaced = mounts_lines[-1]
+        if mount_change_at_close == "source_replaced":
+            # Same target, same type, another source: what a bind of the root's own
+            # filesystem looks like in /proc/mounts.
+            closing_mounts_lines = mounts_lines[:-1] + [
+                "/dev/root " + replaced.split(" ", 1)[1]
+            ]
+        else:
+            # A second mount stacked on the same target.
+            closing_mounts_lines = mounts_lines + [replaced]
+    elif mount_change_at_close == "same_device_added":
+        same_device_path = next(
+            path
+            for path in (Path("/usr"), Path("/etc"), Path("/var"), Path("/opt"))
+            if path.is_dir() and path.stat().st_dev == Path("/").stat().st_dev
+        )
+        closing_mounts_lines = mounts_lines + [
+            f"/dev/root {same_device_path} ext4 rw,relatime 0 0"
+        ]
+    elif mount_change_at_close != "none":
+        raise ValueError(f"unsupported mount_change_at_close: {mount_change_at_close}")
     body = body.replace(
         'PROC_MOUNTS = "/proc/mounts"', f"PROC_MOUNTS = {str(mounts_file)!r}"
     )
@@ -345,6 +373,10 @@ def _run_inventory_action(
             if [ "$MOUNTS_CHANGE" = '1' ]; then
               # A mount appears while the scans are running.
               printf '%s\\n' 'tmpfs /run/added-during-scan tmpfs rw 0 0' >> "$MOUNTS_FILE"
+            fi
+            if [ -n "$MOUNTS_AT_CLOSE" ]; then
+              # The mount table is replaced while the scans are running.
+              printf '%s' "$MOUNTS_AT_CLOSE" > "$MOUNTS_FILE"
             fi
             if [ "$DU_FAILURE" = '1' ]; then
               printf '%s\\n' 'directory scan denied' >&2
@@ -647,6 +679,9 @@ def _run_inventory_action(
     env["CONTAINER_REPLACED"] = "1" if container_replaced else "0"
     env["MOUNTS_CHANGE"] = "1" if mounts_change_during_scan else "0"
     env["MOUNTS_FILE"] = str(mounts_file)
+    env["MOUNTS_AT_CLOSE"] = (
+        "\n".join(closing_mounts_lines) + "\n" if closing_mounts_lines else ""
+    )
     env["TABLESPACE_AT_CLOSE_ONLY"] = "1" if tablespace_at_close_only else "0"
     env["BASE_OVER_CAP"] = "1" if base_over_cap else "0"
     env["DB_TOTAL_STAMP"] = str(tmp_path / "db-total-stamp")
@@ -713,8 +748,9 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "mount_points_below_root": 0,
         "different_filesystem_type_skipped": 0,
         "scan_root_filesystem_type": "ext4",
-        # Root type plus every mount below it; this fixture has none below.
-        "mount_table_sha256": hashlib.sha256(b"ext4").hexdigest(),
+        # Source, target and type of the root entry and of every mount below it, in
+        # table order; this fixture has only the root entry.
+        "mount_table_sha256": hashlib.sha256(b"/dev/root\t/\text4").hexdigest(),
         "same_device_mount_count": 0,
         "same_device_mount_paths": [],
         "same_device_mount_paths_truncated": False,
@@ -1573,7 +1609,11 @@ def test_v3_disk_inventory_separates_the_pgdata_scan_from_the_root_scan():
     root_handler = source.index(
         'section_failed(failures, inventory, "volume_directory_usage", exc)'
     )
-    pgdata_scan = source.index('"postgres_data_directory_usage_failed",')
+    # Anchored on the call itself: the scan's error label also appears in
+    # CANDIDATE_SOURCE_SCANS, near the top of the program.
+    pgdata_scan = source.index(
+        "closing_usage, pgdata_children_omitted, pgdata_children_omitted_bytes = du_stream("
+    )
     assert root_handler < pgdata_scan
 
 
@@ -2976,10 +3016,11 @@ def test_v3_disk_inventory_emits_no_base_candidate_without_the_breakdown(tmp_pat
     # computed, and the candidate list declares itself incomplete so the shortfall it
     # reports is not read as a verdict.
     assert "metric_difference = None" in source
-    assert (
-        "candidate_list_complete = bool(base_breakdown_used) and root_rows_omitted == 0"
-        in source
-    )
+    # Completeness is derived from the named reasons, so no condition can make the
+    # list incomplete without saying why (base/, truncation and degraded scans each
+    # append one).
+    assert "candidate_list_complete = not candidate_list_incomplete_reasons" in source
+    assert '"postgres_base_directory_breakdown_unavailable"' in source
     assert "if candidate_list_complete" in source
     # And null is distinguished from false at the failure site, so "cannot be asserted"
     # does not stop the operation the way "disproved" does.
@@ -3444,3 +3485,81 @@ def test_v3_disk_inventory_marks_the_capped_base_aggregate_unproven(tmp_path):
     for row in rows:
         assert row["proven_unreferenced"] is False
         assert "not proven reclaimable" in row["path"]
+
+
+def test_v3_disk_inventory_fingerprints_the_mount_source(tmp_path):
+    """A mount replaced at the same target with the same type is still a change.
+
+    A different-device mount (which du -x skips) swapped for a bind of the root's own
+    filesystem keeps its target and type; only the source differs. A fingerprint of
+    targets and types alone would call that table unchanged while du -x traversed the
+    replacement.
+    """
+    result = _run_inventory_action(
+        tmp_path,
+        nested_mount_mode="different_device",
+        mount_change_at_close="source_replaced",
+    )
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_topology_changed_during_scan" in receipt["failures"]
+    opening = receipt["inventory"]["directory_scan_same_device_mounts"]
+    closing = receipt["inventory"]["directory_scan_same_device_mounts_at_close"]
+    # Nothing else distinguishes the two tables: same targets, same types.
+    assert opening["mount_points_below_root"] == closing["mount_points_below_root"] == 1
+    assert opening["mount_table_sha256"] != closing["mount_table_sha256"]
+
+
+def test_v3_disk_inventory_fingerprints_a_stacked_mount(tmp_path):
+    """A second mount on an existing target must not collapse into the first."""
+    result = _run_inventory_action(
+        tmp_path,
+        nested_mount_mode="different_device",
+        mount_change_at_close="stacked",
+    )
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_topology_changed_during_scan" in receipt["failures"]
+
+
+def test_v3_disk_inventory_refuses_an_unsafe_mount_table_at_close(tmp_path):
+    """The closing table must pass the opening check on its own, not only match it."""
+    result = _run_inventory_action(tmp_path, mount_change_at_close="same_device_added")
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_topology_unsafe_at_close" in receipt["failures"]
+    closing = receipt["inventory"]["directory_scan_same_device_mounts_at_close"]
+    assert closing["safe_to_scan"] is False
+    assert closing["reason"] == "same_device_nested_mount_under_scan_root"
+
+
+def test_v3_disk_inventory_marks_a_churn_degraded_candidate_list_incomplete(tmp_path):
+    """A scan accepted after vanished-file diagnostics cannot prove the list complete.
+
+    PostgreSQL recycles WAL by renaming, so a path du could not stat may still occupy
+    space under its new name. Every candidate row comes from the bracket, root,
+    PGDATA and base scans, so a degraded one leaves the closure unasserted (null),
+    named, and not a failure.
+    """
+    clean = _run_inventory_action(tmp_path)
+    assert clean.returncode == 0, clean.stderr or clean.stdout
+    clean_summary = json.loads(clean.stdout)["inventory"]["summary"]
+    assert clean_summary["candidate_list_complete"] is True
+    assert clean_summary["candidate_list_degraded_scans"] == []
+    # Stated on every receipt: attribution follows du's one-link-per-file rule.
+    assert clean_summary["hard_linked_files_attributed_to_one_path"] is True
+
+    churned_dir = tmp_path / "churned"
+    churned_dir.mkdir()
+    result = _run_inventory_action(churned_dir, du_churn=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "success"
+    summary = receipt["inventory"]["summary"]
+    assert summary["candidate_list_complete"] is False
+    assert "contributing_directory_scan_degraded" in summary[
+        "candidate_list_incomplete_reasons"
+    ]
+    assert summary["candidates_account_for_unaccounted_within_uncertainty"] is None
+    assert "directory_usage_failed" in summary["candidate_list_degraded_scans"]
+    assert "directory_total_failed" in summary["candidate_list_degraded_scans"]
