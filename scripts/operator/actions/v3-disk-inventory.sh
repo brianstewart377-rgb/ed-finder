@@ -33,6 +33,7 @@ exec "$PYTHON_BIN" -I -B - <<'PY'
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import heapq
 import json
 import selectors
@@ -232,7 +233,7 @@ def resolve_database_identity() -> tuple[str, str]:
         [
             "docker",
             "exec",
-            POSTGRES_CONTAINER,
+            postgres_container_ref,
             "sh",
             "-lc",
             'printf "%s\\t%s\\n" "$POSTGRES_USER" "${POSTGRES_DB:-$POSTGRES_USER}"',
@@ -265,7 +266,7 @@ def psql(
         [
             "docker",
             "exec",
-            POSTGRES_CONTAINER,
+            postgres_container_ref,
             "psql",
             "-X",
             "-qAt",
@@ -529,6 +530,15 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         report.update(reason="scan_root_mount_entry_missing")
         return report
     report["scan_root_filesystem_type"] = root_fstype
+    # A fingerprint of every mount below the root, of every type, so the table can be
+    # compared again when the receipt is emitted: a mount added or replaced during the
+    # scans changes what `du -x` traversed or what it could see.
+    report["mount_table_sha256"] = hashlib.sha256(
+        "\n".join(
+            [root_fstype]
+            + [f"{point}\t{fstype}" for point, fstype in sorted(points.items())]
+        ).encode("utf-8", "surrogateescape")
+    ).hexdigest()
     ordered_points = sorted(
         point for point, fstype in points.items() if fstype == root_fstype
     )
@@ -600,7 +610,9 @@ def postgres_mounts() -> list[tuple[str, str]]:
     PGDATA volume, which is typically empty and on PGDATA's own device, so neither a
     path test nor a device test can detect it. Only the container's mount list can.
     """
-    result = run(["docker", "inspect", "-f", MOUNT_INSPECT_FORMAT, POSTGRES_CONTAINER])
+    result = run(
+        ["docker", "inspect", "-f", MOUNT_INSPECT_FORMAT, postgres_container_ref]
+    )
     if result.returncode != 0:
         raise RuntimeError("postgres_mount_inspection_failed")
     mounts: list[tuple[str, str]] = []
@@ -1157,6 +1169,14 @@ def section_failed(
     inventory[section] = {f"{section}_failed": str(exc)[:240]}
 
 
+# Identity pins for the whole run, checked again when the receipt is emitted. The
+# container name resolves to an ID once; every later docker call addresses that ID, so
+# a container replaced mid-run cannot answer later queries under the old name.
+postgres_container_ref = POSTGRES_CONTAINER
+postgres_container_id: str | None = None
+opening_mount_root: str | None = None
+opening_mount_fingerprint: str | None = None
+
 receipt: dict[str, Any] = {
     "schema_version": "ed-finder/operator-operation-result/v1",
     "operation": "v3-disk-inventory",
@@ -1199,7 +1219,11 @@ receipt: dict[str, Any] = {
         "all, and whether it happens is a property of the host's mount options rather "
         "than of this action: inventory.volume.atime reports the measured policy and "
         "directory_atime_writes_suppressed is true only under noatime or nodiratime. "
-        "No file content, size, name or ownership is changed either way."
+        "No file content, size, name or ownership is changed either way. "
+        "filesystem_writes_performed reports that metadata write and nothing else: "
+        "true once a du traversal has started on a filesystem mounted relatime or "
+        "strictatime, false under noatime or nodiratime or when no traversal ran, and "
+        "null when the mount policy could not be read."
     ),
     "database_identity_source": "running_container_role_and_database_names_only",
     "query_policy": {
@@ -1212,8 +1236,36 @@ inventory: dict[str, Any] = {}
 receipt["inventory"] = inventory
 
 
+def closing_identity_checks() -> None:
+    """Re-verify, at emission, the identities the whole run assumed held still.
+
+    The run is long, and the container and the mount table can both change under it.
+    Each is pinned when first read and compared again here; a change stops the receipt
+    rather than letting it combine two states. Only what was pinned is checked.
+    """
+    if postgres_container_id is not None:
+        try:
+            probe = run(["docker", "inspect", "-f", "{{.Id}}", POSTGRES_CONTAINER])
+        except RuntimeError:
+            probe = None
+        current = (
+            probe.stdout.strip() if probe is not None and probe.returncode == 0 else None
+        )
+        receipt.setdefault("postgres", {})["container_id_at_close"] = current
+        if current is None:
+            failures.append("postgres_container_identity_unverified_at_close")
+        elif current != postgres_container_id:
+            failures.append("postgres_container_replaced_during_run")
+    if opening_mount_root is not None and opening_mount_fingerprint is not None:
+        closing = same_device_nested_mounts(opening_mount_root)
+        inventory["directory_scan_same_device_mounts_at_close"] = closing
+        if closing.get("mount_table_sha256") != opening_mount_fingerprint:
+            failures.append("mount_topology_changed_during_scan")
+
+
 def emit_receipt() -> None:
     """Serialize inside the non-scan ledger and expose any exhausted ceiling."""
+    closing_identity_checks()
     receipt["failures"] = sorted(set(failures))
     receipt["status"] = "success" if not failures else "stopped"
     encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
@@ -1254,14 +1306,23 @@ if failures:
 
 try:
     container = run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", POSTGRES_CONTAINER]
+        ["docker", "inspect", "-f", "{{.Id}} {{.State.Running}}", POSTGRES_CONTAINER]
     )
 except RuntimeError as exc:
     failures.append(str(exc))
     emit_receipt()
-if container.returncode != 0 or container.stdout.strip() != "true":
+container_fields = container.stdout.split()
+if (
+    container.returncode != 0
+    or len(container_fields) != 2
+    or container_fields[1] != "true"
+    or len(container_fields[0]) != 64
+    or any(ch not in "0123456789abcdef" for ch in container_fields[0])
+):
     failures.append("postgres_container_unavailable")
     emit_receipt()
+postgres_container_id = container_fields[0]
+postgres_container_ref = postgres_container_id
 
 try:
     db_user, db_name = resolve_database_identity()
@@ -1273,6 +1334,7 @@ except RuntimeError as exc:
 receipt["direct_db_access_performed"] = True
 receipt["postgres"] = {
     "container": POSTGRES_CONTAINER,
+    "container_id": postgres_container_id,
     "database_user": db_user,
     "database_name": db_name,
 }
@@ -1401,6 +1463,22 @@ try:
     nested_mount_reason = nested_mount_report.get("reason")
     if nested_mount_reason is not None:
         raise RuntimeError(str(nested_mount_reason))
+    opening_mount_root = usage_root
+    opening_mount_fingerprint = nested_mount_report.get("mount_table_sha256")
+    # The first du traversal starts below. Under relatime or strictatime it updates
+    # directory access times, so from here the write flag follows the measured policy.
+    volume_section = inventory.get("volume")
+    atime_report = (
+        volume_section.get("atime") if isinstance(volume_section, dict) else None
+    )
+    atime_suppressed = (
+        atime_report.get("directory_atime_writes_suppressed")
+        if isinstance(atime_report, dict) and atime_report.get("available")
+        else None
+    )
+    receipt["filesystem_writes_performed"] = (
+        None if atime_suppressed is None else not atime_suppressed
+    )
 
     # Bracket the data-directory measurement around the filesystem scan. The database
     # is live: it extends relations, recycles WAL and writes logs while these commands
@@ -2731,7 +2809,9 @@ try:
         "SELECT coalesce(sum(pg_database_size(oid)),0)::bigint::text AS total_bytes, "
         "coalesce(sum(CASE WHEN datname=current_database() "
         "THEN pg_database_size(oid) ELSE 0 END),0)::bigint::text "
-        "AS operating_bytes FROM pg_database) q",
+        "AS operating_bytes, (SELECT count(*) FROM pg_tablespace "
+        "WHERE spcname NOT IN ('pg_default','pg_global'))::bigint::text "
+        "AS non_default_tablespace_count FROM pg_database) q",
         db_user,
         db_name,
     )
@@ -2756,25 +2836,15 @@ try:
     if len(closing_temp_rows) != 1:
         raise RuntimeError("closing_temp_output_invalid")
     temp_bytes_at_close = closing_temp_rows[0].get("temp_directory_bytes") or 0
-    # Recheck the TABLESPACE set here too, beside the closing database totals it
-    # qualifies. A non-default tablespace created after the opening count left
-    # single_filesystem_accounting_valid true while pg_database_size had begun
-    # including bytes outside the selected filesystem -- bytes then subtracted from
-    # volume_used, with the resulting negative base metric difference able to keep the
-    # closure true. A successful receipt that understates unaccounted space is the one
-    # shape of error this whole section exists to rule out, so the assumption is
-    # re-measured at the moment the figures that depend on it are taken.
-    closing_tablespace_rows = psql_json(
-        "SELECT row_to_json(q)::text FROM ("
-        "SELECT count(*)::bigint::text AS non_default_count FROM pg_tablespace "
-        "WHERE spcname NOT IN ('pg_default','pg_global')) q",
-        db_user,
-        db_name,
-    )
-    if len(closing_tablespace_rows) != 1:
-        raise RuntimeError("closing_tablespace_count_output_invalid")
+    # The TABLESPACE count comes from the SAME statement as the closing database
+    # sizes above, so both describe one snapshot. A separate later count could miss a
+    # tablespace that existed while pg_database_size ran and was dropped before the
+    # count -- passing single_filesystem_accounting_valid while the subtracted total
+    # included bytes from another filesystem, the one shape of error this section
+    # exists to rule out. (Read-only, nothing can make it atomic with the filesystem
+    # walk itself; this closes the gap between two separate statements.)
     non_default_tablespace_count_at_close = required_int(
-        closing_tablespace_rows[0].get("non_default_count"),
+        closing_database_rows[0].get("non_default_tablespace_count"),
         "closing_tablespace_count_output_invalid",
     )
     inventory["tablespaces_at_window_close"] = {
@@ -3217,13 +3287,21 @@ try:
         if base_breakdown["entries_omitted_bytes"] > 0:
             inside.append(
                 {
+                    # Unclassified: with no names retained, nothing shows these are
+                    # non-numeric, and a numeric one may be a database still being
+                    # created. It gets the same not-proven marking as a retained
+                    # numeric row -- never weaker safety metadata than rows whose
+                    # paths survived.
                     "path": (
                         f"{base_breakdown['path']} "
                         f"({base_breakdown['entries_omitted_by_cap']} further entries "
-                        "the row cap dropped; paths not retained)"
+                        "the row cap dropped; paths not retained, so unclassified -- "
+                        "may include a database still being created; not proven "
+                        "reclaimable)"
                     ),
                     "exclusive_bytes": base_breakdown["entries_omitted_bytes"],
                     "inside_data_directory": True,
+                    "proven_unreferenced": False,
                 }
             )
     pgdata_root_files = (

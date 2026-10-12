@@ -556,6 +556,23 @@ The following bounding, metric and windowing rules govern how the receipt may be
   longer says the whole residual is unreclaimable. This is not treated as a gap in
   the candidate list: the scan root of a real host always has mounts beneath it
   (`/proc`, `/sys`, `/dev`), so doing that would null the verdict on every run.
+- **Identities the run depends on are pinned and re-checked at emission.** The run is
+  long, and the system can change under it. The PostgreSQL container name is resolved
+  to its ID once, and every later `docker` call addresses that ID, so a replaced
+  container cannot answer under the old name; at emission the name is resolved again
+  and a different ID stops the receipt (`postgres_container_replaced_during_run`). The
+  mount table below the scan root is fingerprinted before the first `du` and compared
+  at emission; a mount added or replaced during the scans stops the receipt
+  (`mount_topology_changed_during_scan`). The closing tablespace count is taken in the
+  **same statement** as the closing database sizes, so both describe one snapshot.
+- **`filesystem_writes_performed` follows the measured atime policy.** Under `relatime`
+  or `strictatime` the `du` traversals update directory access times, so the flag is
+  true once a traversal starts; false under `noatime`/`nodiratime` or when no
+  traversal ran; null if the policy could not be read. It never indicates a content
+  write.
+- **Unnamed `base/` entries the row cap dropped are unclassified.** Their aggregate row
+  carries `proven_unreferenced: false` and says it may include a database still being
+  created, the same marking as a retained numeric row.
 - **Index definitions are bounded, not just index rows.** `pg_get_indexdef()` can return
   arbitrarily large text for an expression or partial index, so a row cap alone does not
   bound the output that `run()` buffers, `psql_json()` materializes and the receipt

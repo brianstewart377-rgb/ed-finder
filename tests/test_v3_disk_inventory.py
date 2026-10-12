@@ -1,4 +1,5 @@
 import heapq
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -105,6 +106,11 @@ def _run_inventory_action(
     wal_at_window_close: int = 118000,
     nested_mount_mode: str = "none",
     root_scan_truncated: bool = False,
+    root_mount_options: str = "rw,relatime",
+    container_replaced: bool = False,
+    mounts_change_during_scan: bool = False,
+    tablespace_at_close_only: bool = False,
+    base_over_cap: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" -I -B - <<'PY'\n", 1)[1].rsplit(
@@ -112,7 +118,7 @@ def _run_inventory_action(
     )[0]
     usage_root = "/"
     mounts_file = tmp_path / "proc-mounts"
-    mounts_lines = ["/dev/root / ext4 rw,relatime 0 0"]
+    mounts_lines = [f"/dev/root / ext4 {root_mount_options} 0 0"]
     if nested_mount_mode in {"same_device", "stat_failure"}:
         scan_root = tmp_path / "scan-root"
         scan_root.mkdir()
@@ -225,11 +231,20 @@ def _run_inventory_action(
         textwrap.dedent(
             """\
             #!/bin/sh
-            postgres='edfinder-v3-phase4c-full-20260827_r5-postgres'
+            postgres_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            replacement_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
             if [ "$1" = 'inspect' ]; then
               format="$3"
-              if [ "$format" = '{{.State.Running}}' ]; then
-                printf '%s\\n' 'true'
+              if [ "$format" = '{{.Id}} {{.State.Running}}' ]; then
+                printf '%s true\\n' "$postgres_id"
+              elif [ "$format" = '{{.Id}}' ]; then
+                # Asked by NAME when the receipt is emitted. CONTAINER_REPLACED makes
+                # the name resolve to a different container by then.
+                if [ "$CONTAINER_REPLACED" = '1' ]; then
+                  printf '%s\\n' "$replacement_id"
+                else
+                  printf '%s\\n' "$postgres_id"
+                fi
               else
                 printf '/var/lib/docker/volumes/edfinder-pgdata/_data\\t/var/lib/postgresql\\n'
                 if [ "$PGDATA_INNER_MOUNT" = '1' ]; then
@@ -248,11 +263,11 @@ def _run_inventory_action(
               fi
               exit 0
             fi
-            if [ "$1" = 'exec' ] && [ "$2" = "$postgres" ] && [ "$3" = 'sh' ]; then
+            if [ "$1" = 'exec' ] && [ "$2" = "$postgres_id" ] && [ "$3" = 'sh' ]; then
               printf 'edfinder_v3\\tedfinder_v3_db\\n'
               exit 0
             fi
-            if [ "$1" = 'exec' ] && [ "$2" = "$postgres" ] && [ "$3" = 'psql' ]; then
+            if [ "$1" = 'exec' ] && [ "$2" = "$postgres_id" ] && [ "$3" = 'psql' ]; then
               shift 3
               exec psql "$@"
             fi
@@ -327,6 +342,10 @@ def _run_inventory_action(
         textwrap.dedent(
             """\
             #!/bin/sh
+            if [ "$MOUNTS_CHANGE" = '1' ]; then
+              # A mount appears while the scans are running.
+              printf '%s\\n' 'tmpfs /run/added-during-scan tmpfs rw 0 0' >> "$MOUNTS_FILE"
+            fi
             if [ "$DU_FAILURE" = '1' ]; then
               printf '%s\\n' 'directory scan denied' >&2
               exit 7
@@ -393,7 +412,18 @@ def _run_inventory_action(
                 printf '8200\\t%s/base/5\\0' "$data"
                 printf '500\\t%s/base/16999\\0' "$data"
                 printf '100\\t%s/base/pgsql_tmp\\0' "$data"
-                printf '1330000\\t%s/base\\0' "$data" ;;
+                if [ "$BASE_OVER_CAP" = '1' ]; then
+                  # More entries than the 4,000-record cap keeps, so the smallest are
+                  # dropped into the unnamed aggregate.
+                  i=0
+                  while [ "$i" -lt 4005 ]; do
+                    printf '1\\t%s/base/stray-%s\\0' "$data" "$i"
+                    i=$((i + 1))
+                  done
+                  printf '%s\\t%s/base\\0' "$((1330000 + 4005))" "$data"
+                else
+                  printf '1330000\\t%s/base\\0' "$data"
+                fi ;;
               *"--max-depth=1 $data")
                 # PGDATA_GREW drifts ONLY this closing root total, not the depth-0
                 # calls that bracket the root walk, so the scan-side and closing
@@ -493,6 +523,13 @@ def _run_inventory_action(
             case "$sql" in
               *'data_directory'*)
                 printf '%s\\n' '/var/lib/postgresql/18/docker' ;;
+              *'AS non_default_tablespace_count'*)
+                # Closing database totals and the tablespace count, in ONE statement.
+                tbs=0
+                if [ "$TABLESPACE_PRESENT" = '1' ] || [ "$TABLESPACE_AT_CLOSE_ONLY" = '1' ]; then
+                  tbs=1
+                fi
+                printf '{"total_bytes":"%s","operating_bytes":"%s","non_default_tablespace_count":"%s"}\\n' "$(( 1328000 + DATABASE_GREW ))" "$(( 1320000 + DATABASE_GREW ))" "$tbs" ;;
               *'AS non_default_count FROM pg_tablespace'*)
                 if [ "$TABLESPACE_PRESENT" = '1' ]; then
                   printf '%s\\n' '{"non_default_count":"1"}'
@@ -607,6 +644,11 @@ def _run_inventory_action(
     env["WAL_AT_WINDOW_CLOSE"] = str(wal_at_window_close)
     env["WAL_QUERY_STAMP"] = str(tmp_path / "wal-query-stamp")
     env["DATABASE_GREW"] = str(database_grew)
+    env["CONTAINER_REPLACED"] = "1" if container_replaced else "0"
+    env["MOUNTS_CHANGE"] = "1" if mounts_change_during_scan else "0"
+    env["MOUNTS_FILE"] = str(mounts_file)
+    env["TABLESPACE_AT_CLOSE_ONLY"] = "1" if tablespace_at_close_only else "0"
+    env["BASE_OVER_CAP"] = "1" if base_over_cap else "0"
     env["DB_TOTAL_STAMP"] = str(tmp_path / "db-total-stamp")
     env["PGDATA_DEPTH0_STAMP"] = str(tmp_path / "pgdata-depth0-stamp")
     env["BASE_SCAN_DENIED"] = "1" if base_scan_denied else "0"
@@ -635,7 +677,10 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
     assert receipt["failures"] == []
     assert receipt["read_only"] is True
     assert receipt["db_writes_performed"] is False
-    assert receipt["filesystem_writes_performed"] is False
+    # The fixture mounts the root `relatime`, the kernel default, so the du traversals
+    # DO update directory access times -- a metadata write -- and the flag says so.
+    # (It was a constant False, which the scope text below already contradicted.)
+    assert receipt["filesystem_writes_performed"] is True
     # And the claim says what it covers. The shell spools a here-document above the
     # pipe-buffer size to an unlinked temporary file before the interpreter starts, so
     # an unqualified `false` overclaimed. Measured under bash 5.2.21: a 126 KB
@@ -668,6 +713,8 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "mount_points_below_root": 0,
         "different_filesystem_type_skipped": 0,
         "scan_root_filesystem_type": "ext4",
+        # Root type plus every mount below it; this fixture has none below.
+        "mount_table_sha256": hashlib.sha256(b"ext4").hexdigest(),
         "same_device_mount_count": 0,
         "same_device_mount_paths": [],
         "same_device_mount_paths_truncated": False,
@@ -3293,3 +3340,107 @@ def test_v3_disk_inventory_refuses_a_failed_nested_mount_stat(tmp_path):
         ]
         == "nested_mount_stat_failed"
     )
+
+
+def test_v3_disk_inventory_reports_atime_writes_from_the_measured_policy(tmp_path):
+    """The write flag follows the mount policy instead of a constant.
+
+    Under relatime or strictatime a du traversal updates directory access times; under
+    noatime or nodiratime it does not. An unconditional False contradicted the
+    receipt's own scope text on every default-mounted host.
+    """
+    suppressed = _run_inventory_action(tmp_path, root_mount_options="rw,noatime")
+    assert suppressed.returncode == 0, suppressed.stderr or suppressed.stdout
+    receipt = json.loads(suppressed.stdout)
+    assert receipt["inventory"]["volume"]["atime"]["atime_policy"] == "noatime"
+    assert receipt["filesystem_writes_performed"] is False
+
+    relatime_dir = tmp_path / "relatime"
+    relatime_dir.mkdir()
+    default = _run_inventory_action(relatime_dir, root_mount_options="rw,relatime")
+    assert default.returncode == 0, default.stderr or default.stdout
+    default_receipt = json.loads(default.stdout)
+    assert default_receipt["filesystem_writes_performed"] is True
+    assert "filesystem_writes_performed reports that metadata write" in (
+        default_receipt["filesystem_writes_scope"]
+    )
+
+
+def test_v3_disk_inventory_pins_the_postgres_container_for_the_whole_run(tmp_path):
+    """A container replaced mid-run must not yield a receipt combining two instances.
+
+    The name is resolved to an ID once and every later docker call addresses that ID
+    (the stub accepts exec ONLY by ID, so a regression to the name fails every test).
+    At emission the name is resolved again; a different ID stops the receipt.
+    """
+    source = _read(ACTION)
+    assert 'postgres_container_ref = postgres_container_id' in source
+    assert source.count("postgres_container_ref,") == 2
+    result = _run_inventory_action(tmp_path, container_replaced=True)
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "postgres_container_replaced_during_run" in receipt["failures"]
+    assert receipt["postgres"]["container_id"] == "a" * 64
+    assert receipt["postgres"]["container_id_at_close"] == "b" * 64
+
+
+def test_v3_disk_inventory_refuses_a_mount_table_that_changed_during_the_scan(tmp_path):
+    """A mount added while the scans ran changes what du traversed or could see."""
+    result = _run_inventory_action(tmp_path, mounts_change_during_scan=True)
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_topology_changed_during_scan" in receipt["failures"]
+    opening = receipt["inventory"]["directory_scan_same_device_mounts"]
+    closing = receipt["inventory"]["directory_scan_same_device_mounts_at_close"]
+    assert opening["mount_table_sha256"] != closing["mount_table_sha256"]
+
+
+def test_v3_disk_inventory_counts_tablespaces_in_the_closing_size_statement(tmp_path):
+    """The closing tablespace count must describe the same snapshot as the sizes.
+
+    A separate later count could miss a tablespace that existed while
+    pg_database_size ran and was dropped before the count. Here the opening count is
+    zero and only the closing statement sees one, so the refusal can only come from
+    the count carried in that same statement.
+    """
+    source = _read(ACTION)
+    closing = source.split("closing_database_rows = psql_json(")[1].split(
+        "if len(closing_database_rows)"
+    )[0]
+    assert "AS non_default_tablespace_count" in closing
+    assert "closing_tablespace_rows = psql_json(" not in source
+    result = _run_inventory_action(tmp_path, tablespace_at_close_only=True)
+    receipt = json.loads(result.stdout)
+    assert receipt["inventory"]["tablespaces"]["non_default_count"] == 0
+    at_close = receipt["inventory"]["tablespaces_at_window_close"]
+    assert at_close["non_default_count"] == 1
+    assert at_close["single_filesystem_accounting_valid"] is False
+    assert result.returncode == 1, result.stderr or result.stdout
+
+
+def test_v3_disk_inventory_marks_the_capped_base_aggregate_unproven(tmp_path):
+    """Entries the base/ row cap dropped are unnamed, so they are unclassified.
+
+    Nothing shows they are non-numeric, and a numeric one may be a database still being
+    created. The aggregate must carry at least the not-proven marking that a retained
+    numeric row carries -- never weaker safety metadata than rows whose paths survived.
+    """
+    result = _run_inventory_action(tmp_path, base_over_cap=True)
+    receipt = json.loads(result.stdout)
+    breakdown = receipt["inventory"]["postgres_base_directory_breakdown"]
+    assert breakdown["entries_omitted_by_cap"] > 0
+    summary = receipt["inventory"]["summary"]
+    rows = [
+        row
+        for row in summary["largest_unaccounted_directories"]
+        if "further entries the row cap dropped" in row["path"]
+    ]
+    # Exactly one aggregate row, so the assertions below cannot pass vacuously.
+    assert len(rows) == 1
+    source = _read(ACTION)
+    aggregate_block = source.split('if base_breakdown["entries_omitted_bytes"] > 0:')[1][:1500]
+    assert '"proven_unreferenced": False,' in aggregate_block
+    assert "not proven" in aggregate_block
+    for row in rows:
+        assert row["proven_unreferenced"] is False
+        assert "not proven reclaimable" in row["path"]
