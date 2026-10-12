@@ -124,6 +124,15 @@ CREATE TABLE scratch.{table} (
 )"""
 
 
+# Fractional parts of the golden ratio and of sqrt(2): irrational steps, so the Weyl
+# sequence frac(n * step + offset) is equidistributed for every archetype's offset.
+WEYL_STEP = "0.61803398874989484820"
+WEYL_KEY_OFFSET = 0.41421356237309504880
+# The bell layouts still draw from random(); seeding it makes those runs reproducible
+# too (INSERT ... SELECT runs in one backend, so the seed governs every draw).
+RANDOM_SEED = 0.42
+
+
 def _score_expr(index: int, distribution: str, floors: dict[str, float] | None = None) -> str:
     if distribution == "uniform":
         return f"((g.n * {97 + index * 13}) %% 101)"
@@ -134,16 +143,22 @@ def _score_expr(index: int, distribution: str, floors: dict[str, float] | None =
         if floors is None:
             raise ValueError("the 'fractions' distribution needs per-floor probabilities")
         f60, f76, f88 = (float(floors[str(floor)]) for floor in (60, 76, 88))
-        # Draw one uniform and place the row in the band its probability selects, so the
-        # measured index sizes follow the supplied per-key tier fractions exactly.
+        # Deterministic, not random(): this path produces the capacity receipt, so the
+        # same migration and histogram must give the same rows and the same index
+        # bytes on every run. A Weyl sequence over the row number gives each row a
+        # position u in [0, 1) -- equidistributed, so the share of rows below any f
+        # matches f to within about 1/rows -- and u picks the band; the score inside
+        # the band is a fixed function of the row number. The realized fractions are
+        # still measured and reported (fraction_ge*_by_key).
+        u = (
+            f"mod(g.n * {WEYL_STEP}::numeric + {(index * WEYL_KEY_OFFSET) % 1:.20f}::numeric, 1)"
+        )
         return (
             "(CASE"
-            f" WHEN random() < {f88} THEN 88 + floor(random() * 13)"
-            f" WHEN random() < {(f76 - f88) / (1 - f88) if f88 < 1 else 0}"
-            " THEN 76 + floor(random() * 12)"
-            f" WHEN random() < {(f60 - f76) / (1 - f76) if f76 < 1 else 0}"
-            " THEN 60 + floor(random() * 16)"
-            " ELSE floor(random() * 60) END)::int"
+            f" WHEN {u} < {f88} THEN 88 + ((g.n * 7 + {index}) %% 13)"
+            f" WHEN {u} < {f76} THEN 76 + ((g.n * 11 + {index}) %% 12)"
+            f" WHEN {u} < {f60} THEN 60 + ((g.n * 13 + {index}) %% 16)"
+            f" ELSE ((g.n * 17 + {index}) %% 60) END)::int"
         )
     raise ValueError(f"unknown distribution {distribution!r}")
 
@@ -331,7 +346,10 @@ def main() -> None:
         "fractions_canonical": fractions_canonical if fractions else None,
         "fractions_sha256": fractions_sha256 if fractions else None,
         "sigma_all": sigma_all if fractions else None,
-        "rows": args.rows, "method": (
+        "rows": args.rows,
+        "sampling": "fractions: deterministic Weyl bands; bell: random() after setseed",
+        "random_seed": RANDOM_SEED,
+        "method": (
         "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, "
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"
     )}
@@ -357,6 +375,7 @@ def main() -> None:
             table = f"wide_archetype_{layout}"
             conn.execute(f"DROP TABLE IF EXISTS scratch.{table}")
             conn.execute(_ddl(table, weighted_keys))
+            conn.execute(f"SELECT setseed({RANDOM_SEED})")
             layout_fractions = fractions if (weighted_keys and fractions) else None
             _fill(
                 conn, table, args.rows,

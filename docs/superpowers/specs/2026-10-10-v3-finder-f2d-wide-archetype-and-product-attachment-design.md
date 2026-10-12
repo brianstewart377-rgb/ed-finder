@@ -794,6 +794,12 @@ the walk starts there:
   the explanation route's single-snapshot read use. That constant is hashed with
   the call graph, so changing the aggregate itself — to `max`, say — moves the
   digest too.
+- The rating-vector read is bound the same way (review round 33): its select list —
+  the six arrays in exactly the order `score_raw_system` unpacks them, with no
+  cast — is a second module-level constant used by both reads and hashed with the
+  call graph, and `score_raw_system` takes a named row built from that constant
+  rather than a positional tuple, so a reordered or cast column cannot change how
+  a value is interpreted without moving the digest.
 - The builder, the validator's recomputation and the explanation route all call
   `score_raw_system` and nothing below it; `_read_chunk_vectors` becomes a pure
   fetch.
@@ -814,7 +820,7 @@ covered function, and **changed** by an edit to each of
 `score_raw_system`, the scaling, the opportunity mean, `completeness_ppm`, the
 confidence half-up helper, the weighted-key expression, `fit_all`,
 `_fit_anchored`, `_fit_flexible`, `_quality`, `_clamp`, `tier_of`, `summarise`,
-`weighted_potential` and the opportunity select-list constant — one case per
+`weighted_potential` and each of the two select-list constants — one case per
 covered member, since "the call graph" is only as real as the assertions behind
 it.
 
@@ -1423,6 +1429,26 @@ anchored to what is **visible now and must not stop being visible**, which is th
 outgoing published set. A missing counterpart and an unpublished counterpart then
 become the same violation, as they should be: in both cases something the Finder
 is serving stops being served.
+
+**How the counterparts are published in the same transaction (review round 33).**
+They cannot be published by separate calls before or after the flip:
+`publish_derived_product` requires its base to be the current PUBLISHED generation
+(section 7.2), so it cannot run before the flip, and a separate call after it is
+the outage the rule forbids. So `publish_derived_generation` takes the incoming
+products to publish as an argument and, inside its own single transaction:
+(1) verifies each named product is READY with a VERIFIED receipt; (2) moves the
+pointer and retires the outgoing generation; (3) publishes each named product
+through the same internal routine `publish_derived_product` uses — whose
+current-PUBLISHED check now passes, because the flip happened earlier in this
+transaction — writing each product's audit row; and only then (4) evaluates the
+counterpart rule above and the unfinished-product rule (round 30), raising on any
+violation so the whole transaction, flip included, rolls back. The rules are
+checked against the state the transaction is about to commit, not before the
+publications that satisfy them. `publish_derived_product` on its own stays the
+path for attaching products to the already-current generation, as this rollout
+does. Tests: a later promotion naming both counterparts commits atomically and
+the Finder answers throughout; naming only one is refused with the pointer
+unchanged; naming a product that is not READY/VERIFIED is refused before the flip.
 
 The first launch passes because the outgoing generation has no published Finder
 products, so there is nothing to require a counterpart for. Every later promotion
@@ -2086,7 +2112,17 @@ Files:
   plan that the window node is an `Index Only Scan` on the expected
   `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= …`
   index with ≤ 10,001 actual rows, that the sort node's input is ≤ 10,000, and
-  that the fetch node's rows are ≤ `page_size`; it writes nothing. This is the
+  that the fetch node's rows are ≤ `page_size`. **It bounds every other node too
+  (review round 33):** `Actual Rows` counts rows a node emits, not rows it
+  examined and discarded, so a sequential or hash-joined read of
+  `v3_app.system_search` or of the final archetype fetch could pass the checks
+  above while reading all 198.5 million rows. So in both the page and the count
+  plan, every node that reads `system_search` or `system_archetype` other than the
+  window node must be an `Index Scan` or `Index Only Scan` on that relation's
+  `(derived_generation_id, system_id64)` primary key, and for each such node
+  `(Actual Rows + Rows Removed by Filter) × Actual Loops` must not exceed 10,001;
+  any `Seq Scan`, `Bitmap Heap Scan`, or hash or merge join input reading either
+  relation fails the probe. It writes nothing. This is the
   executable form of step 10's bounded-plan check —
   `v3-derived-lifecycle-status` reports lifecycle and footprint data and
   contains no `EXPLAIN`, so it cannot perform it.
@@ -3164,3 +3200,28 @@ does not bind, because the ROADMAP outranks it.
    still moves it: program equivalence is undecidable in general, and that error
    is the suppression direction the asymmetry argument already accepts. The
    manifest records the CPython version the tree was taken under.
+
+### Review round 33 (2026-10-12)
+
+1. **P1 — Define a feasible atomic generation-promotion path** → correct; the rule
+   was unsatisfiable as written, because product publication requires the base to
+   be current already. `publish_derived_generation` now takes the incoming
+   products as an argument and, in one transaction, verifies them, flips the
+   pointer, publishes them through the shared routine (whose current-PUBLISHED
+   check then passes) and only then evaluates the counterpart and
+   unfinished-product rules, rolling everything back on a violation. Tests cover
+   the atomic commit and both refusals.
+2. **P2 — Bind the rating-vector select contract into the model digest** →
+   correct. Its select list is now a second hashed constant shared by both reads,
+   and `score_raw_system` takes a named row built from it, so a reorder or cast
+   moves the digest; the digest tests cover both constants.
+3. **P1 — Assert bounded access for every joined relation** → correct. The probe
+   now requires every non-window node reading `system_search` or
+   `system_archetype` to be a primary-key index scan with
+   `(rows + rows removed) × loops ≤ 10,001`, and fails on any sequential, bitmap
+   heap, hash or merge read of either relation, in both the page and count plans.
+4. **P2 — Make histogram-backed footprint samples deterministic** → correct, fixed
+   in the script: the fractions path assigns bands from a Weyl sequence over the
+   row number (realized fractions within about 1/rows of the targets; a Python
+   mirror of the SQL is tested), and the bell layouts are seeded with `setseed`
+   before each fill. The receipt records the sampling method and seed.
