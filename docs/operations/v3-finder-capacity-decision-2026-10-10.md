@@ -5,8 +5,11 @@ ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added
 after review and **answered yes by the owner on 2026-10-10 (23:12 BST, in
 chat: “yes yes”, after the index layout had been revised to the partial
-form)** — recorded below; the ROADMAP lists these recorded answers as the
-prerequisite of step 4′, which is therefore satisfied. Numbers come
+form)** — recorded below; the ROADMAP lists these recorded answers as **a**
+prerequisite of step 4′, and *that* prerequisite is satisfied. **Step 4′ as a
+whole is not unblocked:** the ROADMAP also holds its code PRs on the F2d design's
+unresolved owner questions (2, 3, 4, 6 and 7), so this record must not be read
+as clearing the gate. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in

@@ -688,8 +688,16 @@ rule and the tier thresholds. It excludes generation identity, publication
 sequence and `expected_rows` — everything describing *which data* was scored
 rather than *how*.
 
-**It includes `model_file_sha256` — the shared model file alone — and excludes the
-broad `code_sha256` (review round 19).** `code_identity()` hashes three files:
+**It includes no whole-file hash at all (review rounds 19, 24 and 35).** Round 19
+narrowed it from the broad `code_sha256` to the model file; round 24 (below)
+showed that even the model file is not scoring-only. So `model_file_sha256` is
+**not** an input to `archetype_model_sha256`: it stays in the product manifest,
+and therefore in `archetype_manifest_sha256`, where it identifies the exact build
+and lets the explanation route check the deployed file (section 4.3). An earlier
+revision of this paragraph still said the digest included it, which contradicted
+the member-level hashing below and, implemented literally, would have moved the
+digest for an explanation-only edit or a storage-only version bump.
+`code_identity()` hashes three files:
 the builder `scripts/v3_system_archetype.py`, the model
 `scripts/v3_system_archetype_model.py`, and the migration
 `011_v3_system_archetype.sql` (`scripts/v3_system_archetype.py:64-73`). Taking all
@@ -698,7 +706,9 @@ storage-only migration change would alter the digest while every score stayed
 bit-identical, suppressing the comparison this field exists to enable through an
 edit that changed nothing. Taking none of them was the opposite error, left over
 from round 32: the digest then rested entirely on declared constants, so a change
-to the model's *logic* that left its constants alone would not show up.
+to the model's *logic* that left its constants alone would not show up. Both
+errors are avoided by hashing the scoring functions themselves, as normalized
+syntax trees, rather than whole files or constants alone (below).
 
 **But the model file is not scoring-only either (review round 24).** It also
 defines `ARCHETYPE_VERSION` — which this very design bumps to `v3-archetype-4`
@@ -2147,7 +2157,18 @@ Files:
   the `weighted_potential` index with ≤ 10,001 actual rows, every other node
   reading `system_search` or `system_archetype` a primary-key index scan within
   the same `(rows + rows removed) × loops ≤ 10,001` bound, and no sequential,
-  bitmap heap, hash or merge read of either. It writes nothing. This is the
+  bitmap heap, hash or merge read of either. **The sentinel count is the
+  exception to the node-type rule (review round 35):** `build_count_query`
+  emits no `ORDER BY`, and PR1 changes only its cap, so no index is required by
+  its query and the planner may legitimately take the first 10,001 joined rows
+  by whatever path is cheapest — including a scan that stops at the limit.
+  Requiring a `weighted_potential` window there would reject a bounded plan. So
+  for the no-pick count the probe prescribes no node type and bounds work
+  instead: the plan must be capped by its `LIMIT 10001`, and every node reading
+  `system_search` or `system_archetype` must satisfy
+  `(Actual Rows + Rows Removed by Filter) × Actual Loops ≤ 10,001` — a scan that
+  stops at the limit passes; one that discards another generation's rows or
+  reads the table through fails. It writes nothing. This is the
   executable form of step 10's bounded-plan check —
   `v3-derived-lifecycle-status` reports lifecycle and footprint data and
   contains no `EXPLAIN`, so it cannot perform it.
@@ -3262,3 +3283,21 @@ does not bind, because the ROADMAP outranks it.
    probe covered only picked pairs; it now also plans and bounds the no-pick page
    and its sentinel count — the request the live Explore flow sends by default —
    with the same rules, on the publication connection before commit.
+
+### Review round 35 (2026-10-12)
+
+1. **P2 — Remove the whole-file hash from the model digest** → correct. The
+   paragraph heading still said the digest included `model_file_sha256`,
+   contradicting the member-level hashing that follows it. It now says the digest
+   includes no whole-file hash; `model_file_sha256` stays in the product manifest
+   (and so in `archetype_manifest_sha256`) for exact-build identity and the
+   explanation route's deployed-file check.
+2. **P2 — Keep step 4′ blocked on the remaining owner decisions** → correct, fixed
+   in the capacity-decision document's status line: only the questions 5/6
+   prerequisite is satisfied, and step 4′ stays blocked on the unresolved F2d
+   design questions, as the ROADMAP says.
+3. **P1 — Define an ordered window for the default count probe** → correct. The
+   no-pick sentinel count has no `ORDER BY`, so requiring a `weighted_potential`
+   window would reject a bounded plan. For that count the probe now prescribes
+   no node type and bounds work instead: capped by `LIMIT 10001`, with
+   `(rows + rows removed) × loops ≤ 10,001` on every node reading either relation.
