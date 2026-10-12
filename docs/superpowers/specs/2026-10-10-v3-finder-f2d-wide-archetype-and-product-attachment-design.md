@@ -1157,17 +1157,20 @@ release (section 8 step 5), not in a later F4 slice.
 passes Sol coordinates for that purpose. The stored key's ties are broken inside
 the index by `system_id64` alone; honouring a distance tie-break would require
 sorting the whole window by distance for equal keys and would defeat the
-index-order guarantee. The new identity therefore **changes the picked-mode
-tie-break to `system_id64` only**. `PROFILE_SPEC` today has one global
-`tie_break = ["distance", "system_id64"]`; it becomes **mode-specific** —
-`tie_break: {"picked": ["system_id64"], "no_pick": ["distance", "system_id64"]}`
-— so the hash describes exactly what each path executes: the no-pick path keeps
-its distance-then-id order unchanged, the picked path drops distance, and the
-SQL builder reads the mode's list rather than a shared constant. The identity
-test mutates each list separately and asserts the digest changes; the
-response-order tests replace the Sol-distance tie cases for picked mode and keep
-them for no-pick. Distance from Sol remains a displayed fact, not an ordering
-term, for picked results.
+index-order guarantee. The new identity therefore **changes the score-ordering
+tie-break to `system_id64` only, in both modes** (picked earlier; no-pick in
+review round 42). The no-pick path has the same problem the picked path had: a
+request may carry reference coordinates while sorting by development, and with
+`distance` before `system_id64` equal `weighted_potential` rows are ordered by a
+per-request value no index can hold, so a leading tie group larger than 10,001
+must be read and sorted — defeating the `(weighted_potential DESC NULLS LAST,
+system_id64)` index and the bounded plan the publication probe requires.
+`PROFILE_SPEC`'s `tie_break = ["distance", "system_id64"]` therefore becomes
+`["system_id64"]`, which the builder applies to both score orderings, and the
+identity test asserts the digest changes. Distance stays a displayed fact and the
+primary key of the separate nearest-first sort, never a score tie-break. The
+response-order tests replace the Sol-distance tie cases with `system_id64` ties in
+both modes.
 
 **The count is bounded too.** Today `/api/archetypes/rankings` awaits
 `build_count_query(..., cap=None)`, an exact count over every qualifying row —
@@ -2353,8 +2356,10 @@ Files:
 
 Focused checks: shell/action contract tests, retaining the capacity gate's four
 existing refusals (missing or incomplete histogram, `Σ_all > 4.0`, a footprint
-receipt that is synthetic or built from a different `011`, and insufficient free
-space), and adding refusals for an absent coefficient decision, a non-`accepted`
+receipt that is synthetic or built from a different `011` — including the
+committed `2026-10-10-wide-archetype-footprint-200k.json` itself, fed in
+unchanged, which must be refused as synthetic and gate-ineligible (review round
+42) — and insufficient free space), and adding refusals for an absent coefficient decision, a non-`accepted`
 decision value, a probe `code_identity`/manifest `code_sha256` mismatch, a
 probe/manifest `coefficients` mismatch, and a probe/manifest
 `archetype_model_sha256` mismatch. Each failure class has its own exit code
@@ -3528,3 +3533,23 @@ does not bind, because the ROADMAP outranks it.
    committed step 0 receipt plus the `010` delta measured as a pre/post-DDL
    difference on disposable PostgreSQL 18, both provenance-bound, instead of the
    87 GB constant.
+
+### Review round 42 (2026-10-12)
+
+1. **Octopus — validation before the fractions SQL expression** → accepted as
+   defence in depth: `_score_expr` now refuses a mapping without numeric, ordered
+   60/76/88 floors itself, in addition to `normalize_fractions()` upstream, with a
+   parametrized test.
+2. **Octopus — synthetic evidence could be mistaken for a gate input** → already
+   classified: the committed 200 k evidence carries a `provenance` block with
+   `is_capacity_gate_input: false` and the reason, and the gate requires
+   `measured-histogram`, a matching digest and `capacity_gate_eligible: true`.
+   PR4's refusal tests now also feed that exact file to the gate and require a
+   refusal.
+3. **P1 — Include distance in the no-pick ordering index** → resolved the other
+   way: distance is removed from the no-pick score tie-break as it already was
+   from the picked one, so `PROFILE_SPEC.tie_break` is `["system_id64"]` for both
+   and the index matches the canonical order exactly.
+4. **P1 — Use the measured Search projection in the controlling gate** → correct;
+   ROADMAP step 7′ now carries the two-part measured Search projection and its
+   refusal rule.

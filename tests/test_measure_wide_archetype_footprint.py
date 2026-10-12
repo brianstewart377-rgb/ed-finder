@@ -277,3 +277,17 @@ def test_normalize_fractions_rejects_unordered_or_out_of_range_values(floors):
     fractions[module.ARCHETYPE_KEYS[0]] = floors
     with pytest.raises(ValueError, match="must give 1 >= f60 >= f76 >= f88 >= 0"):
         module.normalize_fractions(fractions)
+
+
+@pytest.mark.parametrize(
+    ("floors", "message"),
+    [
+        ({"60": 0.5, "76": 0.2}, "needs floors 60, 76 and 88"),
+        ({"60": 0.5, "76": "x", "88": 0.1}, "needs numeric floors"),
+        ({"60": 0.5, "76": 1.2, "88": 0.1}, "needs 1 >= f60 >= f76 >= f88 >= 0"),
+    ],
+)
+def test_score_expression_refuses_unvalidated_floors(floors, message):
+    module = _load()
+    with pytest.raises(ValueError, match=message):
+        module._score_expr(0, "fractions", floors)

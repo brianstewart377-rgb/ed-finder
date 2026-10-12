@@ -312,8 +312,12 @@ newer dated source wins).
      incomplete or its digest does not match; refuses `Σ_all > 4.0`; requires a
      footprint receipt for the applied `011` whose `score_distribution_source`
      is `measured-histogram` and whose fractions digest matches; takes a fresh
-     read-only `df`; and refuses unless Search (≈87 GB) plus the measured
-     Archetype total plus 15 % working room fits. Archetype ≈ 44 GB heap +
+     read-only `df`; and refuses unless the **measured** Search projection —
+     the real pre-`010` bytes per row from the committed step 0 receipt plus the
+     `010` delta measured as a pre/post-DDL difference on disposable PostgreSQL
+     18, times the system count; refusing if either input is absent, never the
+     ≈87 GB fixture estimate — plus the measured Archetype total plus 15 %
+     working room fits. Archetype ≈ 44 GB heap +
      16 GB primary/weighted + 9.9 GB × Σ_all — ≈76 GB at the synthetic Σ_all of
      1.54, ≈297 GB only if every fraction were 1. **This gate must pass before
      the Search build**, because `system_search` is itself an irreversible

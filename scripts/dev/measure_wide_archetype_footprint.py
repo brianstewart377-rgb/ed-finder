@@ -142,7 +142,16 @@ def _score_expr(index: int, distribution: str, floors: dict[str, float] | None =
     if distribution == "fractions":
         if floors is None:
             raise ValueError("the 'fractions' distribution needs per-floor probabilities")
-        f60, f76, f88 = (float(floors[str(floor)]) for floor in (60, 76, 88))
+        # Checked here as well as in normalize_fractions(), so this expression can
+        # never be built from an unvalidated mapping, whatever the caller.
+        if not isinstance(floors, dict) or any(str(f) not in floors for f in (60, 76, 88)):
+            raise ValueError("the 'fractions' distribution needs floors 60, 76 and 88")
+        try:
+            f60, f76, f88 = (float(floors[str(floor)]) for floor in (60, 76, 88))
+        except (TypeError, ValueError):
+            raise ValueError("the 'fractions' distribution needs numeric floors") from None
+        if not 1.0 >= f60 >= f76 >= f88 >= 0.0:
+            raise ValueError("the 'fractions' distribution needs 1 >= f60 >= f76 >= f88 >= 0")
         # Deterministic, not random(): this path produces the capacity receipt, so the
         # same migration and histogram must give the same rows and the same index
         # bytes on every run. A Weyl sequence over the row number gives each row a
