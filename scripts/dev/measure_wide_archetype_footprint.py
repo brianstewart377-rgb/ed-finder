@@ -328,7 +328,19 @@ def main() -> None:
         normalized: dict[str, dict[str, float]] = {}
         for key in ARCHETYPE_KEYS:
             floors = fractions[key]
-            values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
+            # Validated before indexing, so a malformed file stops with this script's
+            # own message instead of a KeyError or TypeError traceback.
+            if not isinstance(floors, dict):
+                sys.exit(f"--fractions-json {key!r} must be an object of floor fractions")
+            missing_floors = [str(floor) for floor in (60, 76, 88) if str(floor) not in floors]
+            if missing_floors:
+                sys.exit(
+                    f"--fractions-json {key!r} is missing floor keys: {', '.join(missing_floors)}"
+                )
+            try:
+                values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
+            except (TypeError, ValueError):
+                sys.exit(f"--fractions-json {key!r} floor fractions must be numbers")
             if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
                 sys.exit(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
             normalized[key] = {"60": values[0], "76": values[1], "88": values[2]}

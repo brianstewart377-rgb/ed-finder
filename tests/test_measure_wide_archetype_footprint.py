@@ -182,3 +182,28 @@ def test_bell_sampling_is_seeded_before_every_fill():
         "_fill("
     )
     assert '"random_seed": RANDOM_SEED' in source
+
+
+@pytest.mark.parametrize(
+    ("floors", "message"),
+    [
+        ({"60": 0.5, "76": 0.2}, "missing floor keys: 88"),
+        ({"76": 0.2, "88": 0.1}, "missing floor keys: 60"),
+        ({"60": "x", "76": 0.2, "88": 0.1}, "must be numbers"),
+        ([0.5, 0.2, 0.1], "must be an object"),
+    ],
+)
+def test_malformed_fractions_stop_with_a_message_not_a_traceback(
+    tmp_path, monkeypatch, floors, message
+):
+    import json as _json
+
+    module = _load()
+    fractions = {key: {"60": 0.5, "76": 0.2, "88": 0.1} for key in module.ARCHETYPE_KEYS}
+    fractions[module.ARCHETYPE_KEYS[0]] = floors
+    path = tmp_path / "fractions.json"
+    path.write_text(_json.dumps(fractions), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["measure", "--fractions-json", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert message in str(exc.value.code)
