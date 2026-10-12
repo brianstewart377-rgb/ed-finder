@@ -160,10 +160,17 @@ def test_a_conflicting_rollout_state_sigma_limit_fails(tmp_path, monkeypatch):
     raise AssertionError("a conflicting rollout-state Σ_all limit was not detected")
 
 
+# "owner questions (2, 3, 4, 6 and 7)", "open questions: **2, 3, 4, 6 and 7**" and
+# equivalent wordings all name the same list; only the numbers are compared.
+OWNER_QUESTIONS = re.compile(
+    r"(?:owner|open|unresolved) questions:?\s*\*{0,2}\(?([0-9][0-9, and]*[0-9])\)?\*{0,2}",
+    re.IGNORECASE,
+)
+
+
 def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
-    pattern = re.compile(r"owner questions\s*\*{0,2}\(?([0-9][0-9, and]*[0-9])\)?\*{0,2}")
-    roadmap = {m.strip() for m in pattern.findall(_read(ROADMAP))}
-    capacity = {m.strip() for m in pattern.findall(_read(CAPACITY))}
+    roadmap = {m.strip() for m in OWNER_QUESTIONS.findall(_read(ROADMAP))}
+    capacity = {m.strip() for m in OWNER_QUESTIONS.findall(_read(CAPACITY))}
     assert roadmap, "the ROADMAP no longer lists the unresolved owner questions"
     assert capacity, "the capacity decision no longer lists them"
     normalize = lambda value: sorted(re.findall(r"[0-9]+", value))  # noqa: E731
@@ -173,8 +180,19 @@ def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
 
 def test_the_design_and_roadmap_agree_on_the_open_owner_questions():
     design = _f2d_current()
-    match = re.search(r"Open questions: \*\*([0-9][0-9, and]*[0-9])\*\*", design)
+    match = OWNER_QUESTIONS.search(design[design.find("## 11."):])
     assert match, "the design's section 11 status line moved"
-    roadmap = re.search(r"owner questions \*\*([0-9][0-9, and]*[0-9])\*\*", _read(ROADMAP))
+    roadmap = OWNER_QUESTIONS.search(_read(ROADMAP))
     assert roadmap, "the ROADMAP no longer lists the open owner questions"
     assert re.findall(r"[0-9]+", match.group(1)) == re.findall(r"[0-9]+", roadmap.group(1))
+
+
+def test_the_owner_question_parser_tolerates_equivalent_wording(tmp_path, monkeypatch):
+    """Rewording "owner questions" as "open questions:" must not fail the governance check."""
+    reworded = tmp_path / "roadmap.md"
+    reworded.write_text(
+        _read(ROADMAP).replace("owner questions", "open questions:"), encoding="utf-8"
+    )
+    monkeypatch.setitem(globals(), "ROADMAP", reworded)
+    test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions()
+    test_the_design_and_roadmap_agree_on_the_open_owner_questions()
