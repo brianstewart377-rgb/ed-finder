@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -34,6 +35,15 @@ from measure_wide_archetype_footprint import (  # noqa: E402
     _disposable_conninfo_from_env,
     assert_disposable_server,
 )
+
+def warm_median_ms(timings: list[tuple[float, float]]) -> float:
+    """Median planning+execution time of every run after the first (cold-ish) one.
+
+    A true median: for an even number of warm runs it averages the two middle
+    values, where indexing the middle of the sorted list would take the upper one.
+    """
+    return round(statistics.median(p + e for p, e in timings[1:]), 2)
+
 
 LAYOUTS = {
     "dedup_score_only": "CREATE INDEX probe_ix ON scratch.probe (gen, score DESC)",
@@ -103,13 +113,12 @@ def main() -> None:
                 root = explained[0]
                 timings.append((root["Planning Time"], root["Execution Time"]))
                 plan = root["Plan"]
-            warm = sorted(p + e for p, e in timings[1:])
             out[name] = {
                 "index_bytes": size,
                 "index_bytes_per_row": round(size / args.rows, 1),
                 "plan_nodes": _plan_nodes(plan, []),
                 "first_run_ms": {"planning": round(timings[0][0], 2), "execution": round(timings[0][1], 2)},
-                "warm_median_wall_ms": round(warm[len(warm) // 2], 2),
+                "warm_median_wall_ms": warm_median_ms(timings),
             }
         conn.execute("DROP TABLE scratch.probe")
     json.dump(out, sys.stdout, indent=2, sort_keys=True)

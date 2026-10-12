@@ -305,11 +305,10 @@ newer dated source wins).
      the mandatory receipt could never be produced.
   7′. **Combined capacity gate, the last point of no return.** One governed
      read-only action computes `Σ_all` (the sum of all 24 per-key tier
-     fractions) from that committed histogram — **using, when the probe sampled
-     chunks rather than reading all of them, the converter's per-key, per-floor
-     99.9 % upper bounds across sampled chunks, never the point estimates**
-     (F2d design step 5a and its converter), so sampling error cannot understate
-     the space needed — refusing if it is absent,
+     fractions) from that committed histogram — **which must come from a
+     complete read of every chunk, never a sample** (F2d design step 5a: no
+     sampling bound is both valid and narrow enough), so sampling error cannot
+     understate the space needed — refusing if it is absent,
      incomplete or its digest does not match; refuses `Σ_all > 4.0`; requires a
      footprint receipt for the applied `011` whose `score_distribution_source`
      is `measured-histogram` and whose fractions digest matches; takes a fresh

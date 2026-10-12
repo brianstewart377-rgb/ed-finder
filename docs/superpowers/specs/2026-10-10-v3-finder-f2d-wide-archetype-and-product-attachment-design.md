@@ -1500,7 +1500,18 @@ products, so there is nothing to require a counterpart for. Every later promotio
 must carry both. One rule covers both cases deliberately: an exemption dated to
 this rollout is the kind of thing that outlives its reason, and that is precisely
 how the original text went wrong. The guard lives in the function, next to the
-READY/VERIFIED check, so no caller can skip it.
+READY/VERIFIED check — **and below it too (review round 38)**, because a
+privileged migration or operator connection could otherwise update
+`current_derived_generation` directly: `guard_derived_manifest` permits the
+lifecycle transitions involved, and nothing on the pointer table checks either
+rule. So `015` adds a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on
+`current_derived_generation` that evaluates, at commit, both the counterpart rule
+and the unfinished-product rule (round 30) for the pointer change in that
+transaction, exactly as product publication is guarded. The function stays the
+supported path; the trigger makes every other path fail the same way. Tests:
+a direct `UPDATE` of the pointer that violates either rule is rejected at commit
+and leaves the pointer unchanged; the same direct update that satisfies both
+commits.
 
 Tests cover: a later promotion whose incoming products are registered but
 unpublished (refused); a later promotion that registers and publishes only
@@ -1623,7 +1634,8 @@ replace either; the rollout below is authorized only once both say so:
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no Finder product rows on the pinned `parallel_v1` target generation** — not an empty `v3_meta.derived_product` (review round 17): a READY `system_search` is deliberately retained on `opt1` and its purge is deferred (ROADMAP lines 140-143), so a global emptiness check would fail permanently and block the deployment it is supposed to authorize. Retained products on other generations must not block it. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape** only where the schema carries a concrete value: the `Literal[60, 76, 88]` floor as an enum, and the individual `offset`/`from`/`limit`/`size` maxima. It **cannot** prove the combined bounds `offset + limit <= 10000` and `from + size <= 10000` (review round 16): JSON Schema has no way to relate two fields, so an image whose route or request model omitted that validator would publish an identical schema and pass a gate that claimed to check it. The combined bounds are therefore proved by a **behavioural probe against the deployed image**, which the 503 does not prevent because a 422 is raised by request validation before the generation is ever consulted: `offset=9999&limit=1` and `from=9999&size=1` are accepted (503, not 422), while `offset=9999&limit=2` and `from=9999&size=2` are rejected with 422. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
 | 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. **The recorded decision must be an explicit affirmative (review round 16):** a complete histogram with `Σ_all <= 4.0` is evidence that the build would *fit*, not that its scoring logic was *approved*. A review that concluded the coefficients must change would still leave a complete, in-bounds histogram behind, and the old precondition would have passed on it — launching the immutable, non-purgeable build with rejected logic. The committed evidence therefore carries an explicit `coefficient_decision: accepted` (anything else, including absent, refuses), and the probe receipt's `code_identity` and `coefficients` canonical JSON objects **must equal the registered product manifest's `code_sha256` and `coefficients` objects respectively**, and the probe receipt's `archetype_model_sha256` — computed by the same shared function the manifest uses — must equal the manifest's (review round 30: the scoring identity is compared directly, not only through file hashes). **"The manifest" here is the expected one, because the product is not registered until step 8 (review round 36).** The probe receipt therefore carries the complete expected product manifest that `product_manifest()` produces for the pinned generation and deployed code — computed, not read from a row — and steps 5–6 compare against that; step 8's registration must then produce a manifest byte-identical to it (equal SHA-256), and refuses otherwise, so the build is exactly what was capacity-tested. Without that second half the first is still bypassable: an approved probe could authorize a build whose real tier fractions were never capacity-tested at all. | Reuse the built `v3-archetype-calibration-probe` operator action unchanged; the Python probe it runs scores through `score_raw_system` after PR1 (section 10, PR1). It is read-only and reads raw rating vectors and opportunities, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
-| 5a | **A representative histogram, with a bound (review round 36).** The calibration probe's default stride sampling takes chunk ordinals `0, stride, 2 × stride, …` (`scripts/v3_archetype_calibration_probe.py:24,44-61`) with no randomization or uncertainty bound; if tier frequency correlates with canonical chunk order, the sample can understate `Σ_all` and the gate would approve an undersized build. For the capacity input the probe instead draws chunks uniformly at random without replacement from a recorded seed (or reads every chunk), records the per-chunk fractions, and the gate uses, for every key and floor, the one-sided 99.9 % upper bound of the chunk-cluster estimate (mean + 3.09 × standard error across sampled chunks, clipped to 1) rather than the point estimate. `Σ_all` is computed from those bounds, and the footprint receipt is built from the bounded fractions. A complete read needs no bound. | Extend the calibration probe with a seeded random-chunk mode and per-chunk output; the conversion and gate take the bounds. | 0 GB |
+| 5a | **The capacity input is a complete read, not a sample (review rounds 36 and 38).** The calibration probe's default stride sampling takes chunk ordinals `0, stride, 2 × stride, …` (`scripts/v3_archetype_calibration_probe.py:24,44-61`) with no randomization or uncertainty bound, so if tier frequency correlates with canonical chunk order the sample can understate `Σ_all`. Round 36 proposed a seeded random sample with a normal-approximation 99.9 % bound; round 38 showed that is not a valid guarantee — bounded, heterogeneous chunk fractions can miss rare dense chunks entirely (even with zero sample variance), and 24 independent bounds give no simultaneous coverage of `Σ_all`. A distribution-free simultaneous bound over 24 fractions is so wide it would likely refuse every build. So the capacity gate takes **exact counts from every chunk**: the probe gains a complete mode that scores every system through `score_raw_system` and emits per-key tier counts, run as a detached read-only job with start/status receipts (it reads ≈ 198.5 M systems, far beyond a single bounded action). The sampled mode remains for coefficient review only and its output is refused by the gate (`mode` must be `complete`). | Extend the calibration probe with a detached complete-read mode; the converter and gate refuse anything else. | 0 GB |
+| 5b | **The probe and the builder score with the deployed model, proven by hash (review round 38).** The calibration action runs the `trusted-main` checkout (`/work` on `PYTHONPATH`), which can be newer than the deployed F2d image; scoring with a different model file would capacity-test, and then build, a product whose `model_file_sha256` differs from the running API, so every on-demand explanation would answer 409 after a one-way publication. So the probe and the archetype build action each first read the SHA-256 of `shared_contracts/v3_system_archetype_model.py` **inside the running API container**, pinned by the attested image digest, and refuse unless the checkout's file hashes the same; the publish action, before `COMMIT`, compares each product manifest's `model_file_sha256` with that in-container hash and rolls back on a mismatch. | Add the in-container hash check to the probe, build and publish actions. | 0 GB |
 | 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram — **produced through the defined conversion below, because the probe's output is not the measurement script's input format (review round 20)**, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-5 calibration histogram and re-measured with the final migration text before the build |
@@ -1988,17 +2000,12 @@ Files:
   ```
 
   So `f["60"] >= f["76"] >= f["88"]` by construction, and a conversion that produced
-  anything else would be wrong on its face. **Those are the fractions of a complete
-  read only (review round 37).** When the probe sampled chunks (step 5a), the
-  converter computes the same cumulative fractions per sampled chunk and emits,
-  for every key and floor, the one-sided 99.9 % upper bound across chunks (mean
-  + 3.09 × standard error, clipped to 1) instead of the pooled point estimate,
-  then re-imposes the ordering by taking `f["76"] = max(f["76"], f["88"])` and
-  `f["60"] = max(f["60"], f["76"])` — raising, never lowering. Its output records
-  `mode: complete | sampled`, the seed and the chunk count; `Σ_all` and the
-  footprint receipt use exactly these values. Converter tests cover a complete
-  input (point fractions), a sampled input (bounds strictly above the point
-  estimates for a non-degenerate spread) and the ordering repair. PR4 owns a small committed converter
+  anything else would be wrong on its face. **They are exact only for a complete
+  read, so the converter accepts only that (review rounds 37 and 38):** it refuses
+  a histogram whose `mode` is not `complete` or whose per-key totals do not equal
+  the generation's system count, and the gate refuses a fractions file the
+  converter did not produce. Converter tests cover a complete input and the two
+  refusals. PR4 owns a small committed converter
   (`scripts/dev/convert_calibration_histogram.py`) rather than a documented manual
   step: the fractions digest is a fail-closed gate input, so the transformation that
   produces it has to be reproducible and reviewable, and a by-hand JSON edit is
@@ -3390,3 +3397,25 @@ does not bind, because the ROADMAP outranks it.
 3. **P1 — Bind the plan probe SQL to the deployed image** → correct. The probe
    SQL is generated inside the running, digest-pinned API container rather than
    from the `trusted-main` checkout, with each statement's SHA-256 recorded.
+
+### Review round 38 (2026-10-12)
+
+1. **P1 — Use a valid simultaneous upper confidence bound** → correct, and the fix
+   is to stop sampling for this purpose. The normal-approximation bound is not a
+   guarantee for bounded, heterogeneous chunk fractions and gives no simultaneous
+   coverage over 24 of them, while a distribution-free simultaneous bound would be
+   too wide to ever pass. Step 5a now requires exact counts from a complete,
+   detached read-only run; the converter and gate refuse anything else.
+2. **P1 — Enforce generation-promotion rules below the function** → correct. `015`
+   adds a deferred constraint trigger on `current_derived_generation` that checks
+   both rules at commit for any pointer change, with tests for a violating and a
+   satisfying direct update.
+3. **P2 — Compute the median for even warm-run counts** → correct, fixed in the
+   probe-index script with `statistics.median` and tests for even and odd counts.
+   The committed probe-index evidence used the default four repeats (three warm
+   runs), so its medians were already exact.
+4. **P1 — Pin calibration code to the deployed release** → correct. New step 5b:
+   the probe and the archetype build refuse unless the checkout's canonical model
+   file hashes the same as the file inside the running, digest-pinned API
+   container, and publication compares each manifest's `model_file_sha256` with
+   that in-container hash before commit.
