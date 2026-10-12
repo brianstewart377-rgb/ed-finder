@@ -1522,10 +1522,18 @@ rule. So `015` adds a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on
 `current_derived_generation` that evaluates, at commit, both the counterpart rule
 and the unfinished-product rule (round 30) for the pointer change in that
 transaction, exactly as product publication is guarded. The function stays the
-supported path; the trigger makes every other path fail the same way. Tests:
-a direct `UPDATE` of the pointer that violates either rule is rejected at commit
-and leaves the pointer unchanged; the same direct update that satisfies both
-commits.
+supported path; the trigger makes every other path fail the same way. **It also
+serializes with publication (review round 47):** a `BEFORE UPDATE` row trigger on
+`current_derived_generation` takes `pg_advisory_xact_lock(764003001)` — the lock
+`publish_derived_product` and `publish_derived_generation` hold — so a direct
+pointer update waits for an in-flight publication instead of racing it, and the
+product-publication deferred audit check re-verifies at commit that the
+product's base is still the current PUBLISHED generation. Tests: a direct
+`UPDATE` of the pointer that violates either rule is rejected at commit and leaves
+the pointer unchanged; the same direct update that satisfies both commits; and a
+two-session race — one session publishing a product, the other updating the
+pointer directly — never commits a publication audit on a generation that is no
+longer current.
 
 Tests cover: a later promotion whose incoming products are registered but
 unpublished (refused); a later promotion that registers and publishes only
@@ -1883,7 +1891,11 @@ Files:
   `[014, 010, 011-rewritten, 013]`)
 - `scripts/operator/actions/v3-derived-lifecycle-status.sh` (pending-set
   contract, if it pins hashes)
-- tests: `tests/test_v3_system_archetype_migration.py`,
+- tests: `tests/test_local_search_v3.py` (**in PR1, not only PR2 — review round
+  47**: PR1 changes the local-search sentinel count, the combined pagination
+  bound, the galaxy-wide hard-filter refusal, the anchored KNN path, the capped
+  total and the response identity, so their assertions land with that code; PR2
+  adds only the publication-gate cases), `tests/test_v3_system_archetype_migration.py`,
   `tests/test_v3_system_archetype_model.py`,
   `tests/test_v3_system_archetype_register.py`,
   `tests/test_v3_system_archetype_build.py`,
@@ -1975,6 +1987,15 @@ integration, Svelte, Cypress, Review Lab and image-parity CI.
 ### PR4 — governed operator actions and revised release gate
 
 Files:
+
+- `scripts/operator/actions/v3-derived-lifecycle-status.sh` and its contract
+  tests (review round 47): the post-go-live step reads each product's
+  `published_at` and its `derived_product_publication_audit` rows from this
+  read-only action, independently of the publisher's own receipt, but today its
+  product query selects lifecycle and validation fields only
+  (`scripts/operator/actions/v3-derived-lifecycle-status.sh:443-454`) and it never
+  reads the audit table. PR4 adds both, with tests for a published and an
+  unpublished product.
 
 - `scripts/v3_archetype_calibration_probe.py` and a new
   `scripts/operator/actions/v3-archetype-calibration-complete.sh` (**the complete
@@ -2162,7 +2183,10 @@ Files:
   ```
   written_fraction   = sealed chunk rows for this product and generation / system_count
   remaining_fraction = 1 − written_fraction            # clamped to [0, 1]
-  projected_search_bytes ×= remaining_fraction         # when resuming Search
+  # when resuming Search: bytes, not rows (variable-width rows, review round 47)
+  projected_search_bytes = max(0, projected_search_bytes − search_bytes_written)
+  search_bytes_written   = total size of v3_derived.system_search, its indexes and
+                           TOAST now − the same at build start (start receipt)
   # when resuming Archetype: rows-proportional terms by rows, tier terms by entries
   heap_and_fixed_index_bytes ×= remaining_fraction
   remaining_tier_entries[k, f] = complete_count[k, f] − inserted_count[k, f]
@@ -3691,3 +3715,26 @@ does not bind, because the ROADMAP outranks it.
    with 422 asking for an anchor or no filter; anchored requests keep every filter
    and are bounded by their window, which the probe exercises with the most
    selective accepted filter.
+
+### Review round 47 (2026-10-12)
+
+1. **Octopus — capacity-decision status could read as gate clearance** → its
+   status line now says it records questions 5–6 only and defers every other gate
+   to the ROADMAP and this design, and the invariant test checks that the
+   ROADMAP and the capacity decision list the same unresolved owner questions.
+2. **P1 — Probe both live no-pick searches before commit** → correct; ROADMAP
+   step 9′ now requires the galaxy-wide no-pick page and count and the anchored
+   nearest-first request alongside the 24 picked pairs, before commit.
+3. **P1 — Size Search resumes from the remaining rows** → correct; Search rows are
+   variable-width, so a resume subtracts the bytes actually written — the growth of
+   the table, its indexes and TOAST since the build's start receipt (insert-only, so
+   all of it is this build) — instead of scaling by rows.
+4. **P1 — Serialize direct pointer updates with product publication** → correct; a
+   `BEFORE UPDATE` trigger on the pointer takes the publication advisory lock, the
+   publication audit re-checks the current pointer at commit, and a two-session race
+   test covers it.
+5. **P2 — Assign publication reporting to the lifecycle status action** → correct;
+   PR4 now extends `v3-derived-lifecycle-status` to report each product's
+   `published_at` and its publication audit rows, with contract tests.
+6. **P2 — Keep local-search contract tests in PR1** → correct; PR1's test list now
+   includes `tests/test_local_search_v3.py` for every behaviour PR1 changes.

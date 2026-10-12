@@ -128,3 +128,13 @@ def test_the_checks_fail_on_a_drifted_copy(tmp_path, monkeypatch):
     except AssertionError:
         return
     raise AssertionError("a drifted apply set was not detected")
+
+
+def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
+    pattern = re.compile(r"owner questions\s*\*{0,2}\(?([0-9][0-9, and]*[0-9])\)?\*{0,2}")
+    roadmap = {m.strip() for m in pattern.findall(_read(ROADMAP))}
+    capacity = {m.strip() for m in pattern.findall(_read(CAPACITY))}
+    assert roadmap, "the ROADMAP no longer lists the unresolved owner questions"
+    assert capacity, "the capacity decision no longer lists them"
+    normalize = lambda value: sorted(re.findall(r"[0-9]+", value))  # noqa: E731
+    assert {tuple(normalize(v)) for v in roadmap} == {tuple(normalize(v)) for v in capacity}

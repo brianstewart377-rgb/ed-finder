@@ -348,8 +348,10 @@ newer dated source wins).
      the publisher's **own** connection, inside the same transaction, after both
      updates and before commit — where the transaction can see its own newly
      visible rows — it runs the real page and count `EXPLAIN` for **all eight
-     archetypes at all three floors** and rolls back on any plan that is not the
-     expected bounded shape. All 24 pairs, because planner choices depend on each
+     archetypes at all three floors**, **and for both live no-pick requests** — the
+     galaxy-wide page and its 10,001-row count, and the anchored nearest-first
+     request at Sol and at the densest 500-ly window (F2d design, PR4 probe) —
+     and rolls back on any plan that is not the expected bounded shape. All 24 pairs, because planner choices depend on each
      key's own statistics and partial-index selectivity, so one tested key proves
      nothing about the other seven, each of which is user-selectable. The
      Archetype build step must have run and receipted **`VACUUM (ANALYZE)`** on the

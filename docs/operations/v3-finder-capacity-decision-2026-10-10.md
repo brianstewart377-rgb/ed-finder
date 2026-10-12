@@ -1,7 +1,10 @@
 # Finder rollout — capacity decision (2026-10-10)
 
-**Status:** decided 2026-10-10 — owner approved **A + B** (purge deferred, new
-ranking identity accepted); recorded in `v3-finder-production-rollout-state.md`.
+**Status:** decided 2026-10-10 for the capacity route (**A + B**, purge deferred,
+new ranking identity accepted) and for questions 5–6 below **only**. This record
+clears no rollout gate by itself: every other gate and the unresolved owner
+decisions are governed by `docs/ROADMAP.md` and the F2d design. Recorded in
+`v3-finder-production-rollout-state.md`.
 Questions 5–6 (explanation version rule, wide-row index layout) were added
 after review and **answered yes by the owner on 2026-10-10 (23:12 BST, in
 chat: “yes yes”, after the index layout had been revised to the partial
