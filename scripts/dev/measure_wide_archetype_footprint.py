@@ -321,7 +321,15 @@ def main() -> None:
     fractions_sha256: str | None = None
     sigma_all: float | None = None
     if args.fractions_json:
-        fractions = json.loads(Path(args.fractions_json).read_text(encoding="utf-8"))
+        try:
+            parsed = json.loads(Path(args.fractions_json).read_text(encoding="utf-8"))
+        except OSError as exc:
+            sys.exit(f"--fractions-json could not be read: {exc}")
+        except json.JSONDecodeError as exc:
+            sys.exit(f"--fractions-json is not valid JSON: {exc}")
+        if not isinstance(parsed, dict):
+            sys.exit("--fractions-json must be a JSON object keyed by archetype")
+        fractions = parsed
         missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
         if missing:
             sys.exit(f"--fractions-json is missing archetype keys: {', '.join(missing)}")

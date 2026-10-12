@@ -207,3 +207,24 @@ def test_malformed_fractions_stop_with_a_message_not_a_traceback(
     with pytest.raises(SystemExit) as exc:
         module.main()
     assert message in str(exc.value.code)
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (None, "could not be read"),
+        ("{not json", "is not valid JSON"),
+        ("[1, 2, 3]", "must be a JSON object keyed by archetype"),
+    ],
+)
+def test_unreadable_or_non_object_fractions_stop_with_a_message(
+    tmp_path, monkeypatch, content, message
+):
+    module = _load()
+    path = tmp_path / "fractions.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["measure", "--fractions-json", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert message in str(exc.value.code)
