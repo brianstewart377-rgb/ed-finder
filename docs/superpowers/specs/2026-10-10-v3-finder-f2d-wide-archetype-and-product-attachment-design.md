@@ -1593,6 +1593,15 @@ contracts rather than replace them. (`tests/test_v3_system_archetype_migration.p
 
 ## 8. Production rollout replacing ROADMAP steps 4–9
 
+**Authority (review round 45).** `docs/ROADMAP.md` controls the rollout order and
+its gates; this section is the detail beneath it. Where the two disagree, the
+ROADMAP wins and the difference is a defect to fix in the same change. The
+invariants both state — the governed migration apply set, the `Σ_all` refusal
+limit, the attach target generation and the complete-read capacity input — are
+checked across the ROADMAP, this design, the capacity decision and the
+rollout-state record by `tests/test_finder_rollout_doc_invariants.py`, so they
+cannot drift silently.
+
 The current roadmap says to create a fresh generation, build Search, calibrate,
 build Archetype, validate both, and publish the generation. Steps 4–9 are
 replaced below; steps 0–3 remain prerequisites. (`docs/ROADMAP.md:154-179`)
@@ -3628,3 +3637,15 @@ does not bind, because the ROADMAP outranks it.
    distances still order by weighted potential then `system_id64`, via an
    incremental sort per distance group, so the nearest-first contract and its
    hash are unchanged.
+
+### Review round 45 (2026-10-12)
+
+1. **Octopus — operational authority split across documents** → fixed rather than
+   accepted (owner's choice). Section 8 now states that the ROADMAP controls and
+   that a disagreement is a defect, and a new contract test,
+   `tests/test_finder_rollout_doc_invariants.py`, extracts the shared invariants
+   from the ROADMAP, this design (excluding its review history), the capacity
+   decision and the rollout-state record and fails if any differs: the planned
+   migration apply set (every list that includes `015` must equal the ROADMAP's
+   step-2 list), every `Σ_all` limit, the attach target generation, and the
+   complete-read rule for the capacity input.
