@@ -2052,12 +2052,33 @@ Files:
                               × sigma_all × system_count
   projected_archetype_bytes   = heap + fixed_index + tier_index
   projected_search_bytes      = 0 if system_search is already written for this
-                                generation, else 87_000_000_000
+                                generation, else
+                                (real_pre010_bytes_per_row
+                                 + measured_010_delta_bytes_per_row) × system_count
   projected_new_bytes         = projected_archetype_bytes + projected_search_bytes
   required_bytes              = ceil(1.15 × projected_new_bytes)
   reserve_bytes               = required_bytes − projected_new_bytes
   gate passes  iff  available_bytes >= required_bytes
   ```
+
+  **The Search term is measured, not a constant (review round 41).** The 87 GB
+  figure came from a 12-system fixture replicated to scale, which the rollout-state
+  evidence itself calls order-of-magnitude: repeated rows lack real name lengths
+  and body-count variation, and Search is the first irreversible write, so an
+  under-projection there strands an insert-only product before Archetype starts.
+  Two measured parts replace it. `real_pre010_bytes_per_row` comes from production:
+  the committed step 0 receipt records the real pre-`010` `system_search` on
+  `opt1` at 80,522,969,088 bytes (table and indexes) for 198,528,286 rows
+  (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`,
+  `footprint.measured_footprint_attribution.system_search` and
+  `footprint.rows_by_generation`) — about 405.6 bytes per row of real data,
+  captured before the purge removes that payload. `measured_010_delta_bytes_per_row`
+  is what `010` adds, measured on disposable PostgreSQL 18 as the **difference**
+  between the pre- and post-`010` DDL filled with the same rows, so the fixture's
+  missing variation cancels instead of entering the total; that receipt is
+  produced by the final-migration measurement path and digest-bound like the
+  Archetype receipt. The gate records both inputs and their provenance, and
+  refuses if either is absent.
 
   **Every per-row cost comes from the footprint receipt, not from a constant in
   this document (review round 18).** The gate already requires that receipt and
@@ -3492,3 +3513,18 @@ does not bind, because the ROADMAP outranks it.
    Search action refuses to register or build from a checkout that does not
    produce it, and publication compares the Search manifest's code identity with
    the attested value before commit.
+
+### Review round 41 (2026-10-12)
+
+1. **Octopus — tests for the script's new behaviour** → the malformed-input and
+   determinism tests already landed in rounds 33–36; this round extracts the
+   fractions normalization into `normalize_fractions()` and tests that its digest
+   and `Σ_all` are canonical (independent of key order and number form), that the
+   digest moves with any value, and that unordered or out-of-range fractions are
+   refused. The four normalized per-row metrics are PR1's, and section 10 already
+   requires their provenance tests there.
+2. **P1 — Measure Search instead of hard-coding its capacity** → correct. The gate
+   now projects Search from the real pre-`010` bytes per row recorded in the
+   committed step 0 receipt plus the `010` delta measured as a pre/post-DDL
+   difference on disposable PostgreSQL 18, both provenance-bound, instead of the
+   87 GB constant.

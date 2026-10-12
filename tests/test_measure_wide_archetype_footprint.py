@@ -241,3 +241,39 @@ def test_built_in_layout_receipts_cannot_satisfy_the_capacity_gate():
     header = source.split("out: dict[str, object] = {")[1].split("}")[0]
     assert '"capacity_gate_eligible": False,' in header
     assert "capacity_gate_ineligible_reason" in header
+
+
+def test_normalize_fractions_digest_and_sigma_are_canonical_and_stable():
+    """The digest the gate re-computes must not depend on key order or number form."""
+    import hashlib
+    import json as _json
+
+    module = _load()
+    keys = list(module.ARCHETYPE_KEYS)
+    forward = {key: {"60": 0.5, "76": 0.25, "88": 0.125} for key in keys}
+    # Same values, keys reversed and given as ints where possible.
+    backward = {key: {"88": 0.125, "76": 0.25, "60": 0.5} for key in reversed(keys)}
+    normalized, digest, sigma = module.normalize_fractions(forward)
+    _, digest_again, sigma_again = module.normalize_fractions(backward)
+    assert digest == digest_again
+    assert sigma == sigma_again == round(len(keys) * (0.5 + 0.25 + 0.125), 6)
+    expected = hashlib.sha256(
+        _json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert digest == expected
+    # Any change to one value moves the digest.
+    changed = dict(forward)
+    changed[keys[0]] = {"60": 0.5, "76": 0.25, "88": 0.124}
+    assert module.normalize_fractions(changed)[1] != digest
+
+
+@pytest.mark.parametrize(
+    "floors",
+    [{"60": 0.2, "76": 0.5, "88": 0.1}, {"60": 1.5, "76": 0.2, "88": 0.1}],
+)
+def test_normalize_fractions_rejects_unordered_or_out_of_range_values(floors):
+    module = _load()
+    fractions = {key: {"60": 0.5, "76": 0.2, "88": 0.1} for key in module.ARCHETYPE_KEYS}
+    fractions[module.ARCHETYPE_KEYS[0]] = floors
+    with pytest.raises(ValueError, match="must give 1 >= f60 >= f76 >= f88 >= 0"):
+        module.normalize_fractions(fractions)

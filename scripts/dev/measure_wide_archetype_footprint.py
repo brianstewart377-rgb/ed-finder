@@ -301,6 +301,43 @@ def _disposable_conninfo_from_env() -> dict[str, str]:
         sys.exit(str(exc))
 
 
+def normalize_fractions(
+    fractions: dict[str, object],
+) -> tuple[dict[str, dict[str, float]], str, float]:
+    """Validate per-key floor fractions; return them canonical, with digest and Σ_all.
+
+    Raises ValueError with the operator-facing message on any malformed input, so a
+    bad file stops with this script's own words rather than a traceback. The capacity
+    gate re-computes the digest from the governed calibration evidence and refuses
+    the receipt unless the two match, so a stale or substituted file cannot pass as a
+    measured histogram.
+    """
+    missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
+    if missing:
+        raise ValueError(f"--fractions-json is missing archetype keys: {', '.join(missing)}")
+    normalized: dict[str, dict[str, float]] = {}
+    for key in ARCHETYPE_KEYS:
+        floors = fractions[key]
+        if not isinstance(floors, dict):
+            raise ValueError(f"--fractions-json {key!r} must be an object of floor fractions")
+        missing_floors = [str(floor) for floor in (60, 76, 88) if str(floor) not in floors]
+        if missing_floors:
+            raise ValueError(
+                f"--fractions-json {key!r} is missing floor keys: {', '.join(missing_floors)}"
+            )
+        try:
+            values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
+        except (TypeError, ValueError):
+            raise ValueError(f"--fractions-json {key!r} floor fractions must be numbers") from None
+        if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
+            raise ValueError(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
+        normalized[key] = {"60": values[0], "76": values[1], "88": values[2]}
+    canonical = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    sigma_all = round(sum(sum(v.values()) for v in normalized.values()), 6)
+    return normalized, digest, sigma_all
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     parser.add_argument("--rows", type=int, default=200_000, help="synthetic rows to build (default 200000)")
@@ -330,36 +367,10 @@ def main() -> None:
         if not isinstance(parsed, dict):
             sys.exit("--fractions-json must be a JSON object keyed by archetype")
         fractions = parsed
-        missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
-        if missing:
-            sys.exit(f"--fractions-json is missing archetype keys: {', '.join(missing)}")
-        normalized: dict[str, dict[str, float]] = {}
-        for key in ARCHETYPE_KEYS:
-            floors = fractions[key]
-            # Validated before indexing, so a malformed file stops with this script's
-            # own message instead of a KeyError or TypeError traceback.
-            if not isinstance(floors, dict):
-                sys.exit(f"--fractions-json {key!r} must be an object of floor fractions")
-            missing_floors = [str(floor) for floor in (60, 76, 88) if str(floor) not in floors]
-            if missing_floors:
-                sys.exit(
-                    f"--fractions-json {key!r} is missing floor keys: {', '.join(missing_floors)}"
-                )
-            try:
-                values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
-            except (TypeError, ValueError):
-                sys.exit(f"--fractions-json {key!r} floor fractions must be numbers")
-            if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
-                sys.exit(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
-            normalized[key] = {"60": values[0], "76": values[1], "88": values[2]}
-        # The capacity gate trusts this receipt's provenance, so record the exact
-        # probabilities used and their digest. The gate re-computes this digest from the
-        # governed calibration evidence and refuses the receipt unless the two match, so a
-        # stale or substituted JSON file cannot pass as a measured histogram.
-        canonical = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
-        fractions_canonical = normalized
-        fractions_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        sigma_all = round(sum(sum(v.values()) for v in normalized.values()), 6)
+        try:
+            fractions_canonical, fractions_sha256, sigma_all = normalize_fractions(fractions)
+        except ValueError as exc:
+            sys.exit(str(exc))
     out: dict[str, object] = {
         # The built-in layouts are comparison evidence, not the capacity input. Their
         # DDL predates the final no-pick index (which adds a trailing system_id64),
