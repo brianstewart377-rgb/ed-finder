@@ -66,6 +66,22 @@ AND 1000000)`, likewise `archetype_confidence_ppm`): the builder writes
 than left to `round()`'s default, which is ties-to-even in Python and
 ties-away-from-zero in PostgreSQL `numeric` (the same ambiguity review round 16
 removed from the ranking key; found by sweeping for it rather than by review).
+
+**The helper's input is the fit's already-rounded confidence, never the raw
+product (review round 29).** The model rounds once, where it does today:
+`_fit_anchored` and `_fit_flexible` return `round(conf, 6)`
+(`scripts/v3_system_archetype_model.py:131,145`), and `summarise` returns
+`round(archetype_confidence, 6)`. The helper then only converts that six-decimal
+value to an integer. On such an input the half-up rule never meets a tie: the
+value is the nearest double to `k / 1_000_000`, so `value × 1_000_000` lies within
+about `1e-10` of the integer `k`, and `floor(… + 0.5)` returns `k` — checked
+exhaustively for every `k` from 0 to 1,000,000 with zero mismatches. Applying the
+helper to the **raw** product instead would change model output: raw confidence
+`0.9999 × 0.9950 = 0.9949005` rounds to `0.994900` today, while half-up on the
+raw value gives `994901`. So the persisted ppm equals the current model output
+exactly, and a test pins both that example (`994900`) and the exhaustive
+conversion. Rounding the raw value is ties-to-even, inside the fits, and is
+covered by the model digest with the rest of the call graph.
 Unlike completeness there is no integer source here, because model confidence is
 genuinely a float, so the rule is instead pinned to one place: a shared helper
 computes it, the validator **calls that helper** rather than reimplementing the
@@ -1504,7 +1520,7 @@ replace either; the rollout below is authorized only once both say so:
 | 2 | Run governed migration `plan`, review the exact receipt, then separately `apply`. | Reuse `.github/workflows/v3-production-schema-migration.yml`; no new action. The pending-set process is already the roadmap step 2. (`docs/ROADMAP.md:162-168`) | negligible product rows; creates empty `011`/`015` structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Reuse built `v3-system-search-validate-constraints-start/status`; it changes catalog validation flags, not data rows. (`scripts/operator/actions/v3-system-search-validate-constraints.sh:1-6,24-55,70-90`) | no product rows |
 | 4 | **Revise the F3 application-release gate and deploy the release first.** The gate requires: the exact current PUBLISHED generation key/UUID/sequence; migrations `[014, 010, 011-rewritten, 013, 015]` applied with their exact ledger hashes; the new `ranking_version`/`ranking_sha256`; the bounded ranking route and the `Literal[60, 76, 88]` floor present in the built image; and the publication check live in `_current_derived_generation()`. It requires **no Finder product rows on the pinned `parallel_v1` target generation** — not an empty `v3_meta.derived_product` (review round 17): a READY `system_search` is deliberately retained on `opt1` and its purge is deferred (ROADMAP lines 140-143), so a global emptiness check would fail permanently and block the deployment it is supposed to authorize. Retained products on other generations must not block it. After promotion, verify the two things separately, because a 503 carries no response envelope and therefore cannot advertise an identity: the **live request** proves only that the Finder answers 503 (with the not-ready reason), while the **ranking identity** is proved from the deployed image digest matching the accepted-release attestation, which must record both concrete `ranking_version`/`ranking_sha256` values (this gate adds that field if the attestation format lacks it) — **not** from `/openapi.json`, where both are unconstrained `str` and a comparison would be vacuous. `/openapi.json` proves the **built-image parameter shape** only where the schema carries a concrete value: the `Literal[60, 76, 88]` floor as an enum, and the individual `offset`/`from`/`limit`/`size` maxima. It **cannot** prove the combined bounds `offset + limit <= 10000` and `from + size <= 10000` (review round 16): JSON Schema has no way to relate two fields, so an image whose route or request model omitted that validator would publish an identical schema and pass a gate that claimed to check it. The combined bounds are therefore proved by a **behavioural probe against the deployed image**, which the 503 does not prevent because a 422 is raised by request validation before the generation is ever consulted: `offset=9999&limit=1` and `from=9999&size=1` are accepted (503, not 422), while `offset=9999&limit=2` and `from=9999&size=2` are rejected with 422. The identity is re-verified from a real envelope at step 9, once products are published, which is the check that compares a value the running code actually computed. | Amend the existing release authority and reuse the governed release/deployment workflows; no new build action. Its current assumptions predate attach-to-PUBLISHED. (`docs/operations/v3-production-application-release.md:286-337`, `CLAUDE.md:31-37,82-91`) | 0 GB |
-| 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. **The recorded decision must be an explicit affirmative (review round 16):** a complete histogram with `Σ_all <= 4.0` is evidence that the build would *fit*, not that its scoring logic was *approved*. A review that concluded the coefficients must change would still leave a complete, in-bounds histogram behind, and the old precondition would have passed on it — launching the immutable, non-purgeable build with rejected logic. The committed evidence therefore carries an explicit `coefficient_decision: accepted` (anything else, including absent, refuses), and the probe receipt's `code_identity` and `coefficients` canonical JSON objects **must equal the registered product manifest's `code_sha256` and `coefficients` objects respectively**. Without that second half the first is still bypassable: an approved probe could authorize a build whose real tier fractions were never capacity-tested at all. | Reuse built `v3-archetype-calibration-probe` unchanged. It is read-only and reads vectors, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
+| 5 | Run the bounded coefficient-calibration probe on `ratings_v4_prod_p4_parallel_v1`, record the decision, and commit its per-key tier histogram as the capacity gate's input. **The recorded decision must be an explicit affirmative (review round 16):** a complete histogram with `Σ_all <= 4.0` is evidence that the build would *fit*, not that its scoring logic was *approved*. A review that concluded the coefficients must change would still leave a complete, in-bounds histogram behind, and the old precondition would have passed on it — launching the immutable, non-purgeable build with rejected logic. The committed evidence therefore carries an explicit `coefficient_decision: accepted` (anything else, including absent, refuses), and the probe receipt's `code_identity` and `coefficients` canonical JSON objects **must equal the registered product manifest's `code_sha256` and `coefficients` objects respectively**. Without that second half the first is still bypassable: an approved probe could authorize a build whose real tier fractions were never capacity-tested at all. | Reuse the built `v3-archetype-calibration-probe` operator action unchanged; the Python probe it runs scores through `score_raw_system` after PR1 (section 10, PR1). It is read-only and reads raw rating vectors and opportunities, not the stored product. (`scripts/operator/actions/v3-archetype-calibration-probe.sh:1-5,21,77-85,135-157`, `scripts/v3_archetype_calibration_probe.py:212-220,256-298`) | 0 GB |
 | 6 | **Combined capacity gate — the last point of no return.** One governed read-only action computes `Σ_all` from the committed calibration histogram (refusing if it is absent, incomplete, or its digest does not match the recorded evidence), refuses `Σ_all > 4.0`, requires a footprint receipt for the applied `011` whose `score_distribution_source` is `measured-histogram` and whose fractions digest matches that histogram — **produced through the defined conversion below, because the probe's output is not the measurement script's input format (review round 20)**, takes a fresh read-only `df`, and refuses unless **Search (≈ 87 GB) plus the measured Archetype total plus 15 % working room** fits the free space. It must pass before step 7, because `system_search` is itself an irreversible 198.5 M-row insert-only write: building Search first and failing the gate afterwards would strand an unpublishable, non-purgeable 87 GB product. Both build actions call the same gate as a fail-closed precondition and record its receipt. | New read-only action, modelled on `v3-derived-lifecycle-status`; its arithmetic is the one in section 3.3. | 0 GB |
 | 7 | Register, build, and validate post-`010` `system_search` on the pinned current `ratings_v4_prod_p4_parallel_v1`. | Retarget the existing F1 start/status action from `opt1`, pin exact `010` and `015` ledger hashes, accept only the exact current PUBLISHED generation, and retain its validation receipt. The current action is hard-coded to `opt1` and checks only `006`. (`scripts/operator/actions/v3-system-search-f1.sh:15-20,76-113,175-176`) | about **87 GB** (measured/extrapolated post-`010`) (`docs/operations/v3-finder-production-rollout-state.md` (PR #805)) |
 | 8 | Register, build, and validate wide `system_archetype` on the same pinned generation. | Build a new governed Archetype start/status action using the F1 safety pattern; it must invoke the existing CLI build then `--validate`, pin rewritten `011` and `015`, and receipt READY/VERIFIED plus row/chunk counts. The roadmap records that this governed validation route does not exist today. (`docs/ROADMAP.md:190-195`, `scripts/v3_system_archetype.py:1109-1154`) | **about 76 GB** on the synthetic distribution (section 3.4); the tier-partial indexes are sized from the step-5 calibration histogram and re-measured with the final migration text before the build |
@@ -1630,7 +1646,18 @@ Files:
 - `shared_contracts/v3_system_archetype_model.py` (new canonical model)
 - `scripts/v3_system_archetype_model.py` (compatibility re-export)
 - `scripts/v3_system_archetype.py`
-- `scripts/v3_archetype_calibration_probe.py` (shared-model import only)
+- `scripts/v3_archetype_calibration_probe.py` (**not** import-only, review round
+  29): today it passes each `_read_chunk_vectors` result straight to
+  `CalibrationAggregate.add`, which calls `fit_all` on `SystemVectors`
+  (`scripts/v3_system_archetype.py:249-280`,
+  `scripts/v3_archetype_calibration_probe.py:98-114,256-298`). Once
+  `_read_chunk_vectors` is a pure raw fetch, the probe must take the same raw
+  rows and score them through `score_raw_system`, and it must not keep a private
+  copy of the old scaling or SQL `avg` path — otherwise the histogram that gates
+  the capacity decision would measure a different scoring path from the one the
+  builder runs, while reporting the builder's `code_identity`. Its test runs the
+  probe and the builder over the same disposable fixture chunk and asserts that
+  the probe's per-key tier counts equal the tiers the builder persisted
 - `apps/api/src/ranking/profile.py` (`RANKING_VERSION = 'v3-colony-potential-2'`,
   new pinned `ranking_sha256`)
 - `apps/api/src/ranking/ranking_sql.py` (fixed key → wide-column map; no-pick
@@ -3029,3 +3056,23 @@ does not bind, because the ROADMAP outranks it.
    and explanation route call only that entry point, the fixture is raw database
    rows exercised through the real chunk read on disposable PostgreSQL 18, and the
    last-bit change from moving the mean out of `avg` is stated with why it is safe.
+
+### Review round 29 (2026-10-12)
+
+1. **P2 — Preserve the existing confidence rounding semantics** → the ambiguity is
+   real, the behaviour change is not, provided the helper is fed the right value;
+   now stated. The fits already return `round(conf, 6)` and the half-up helper
+   converts that six-decimal value to ppm, where no tie can occur (checked for all
+   1,000,001 values). Your example — raw `0.9949005` — therefore persists as
+   `994900`, matching today; half-up would only differ if applied to the raw
+   product, which section 3.1 now forbids, with a test pinning the example and the
+   exhaustive conversion.
+2. **P1 — Route the calibration probe through the new scoring entry point** →
+   correct. The probe calls `fit_all` on `_read_chunk_vectors` output today, so
+   once that function is a raw fetch the probe would either break or keep the
+   superseded scaling and SQL `avg` path while reporting the builder's
+   `code_identity`. PR1 now changes the probe to score the same raw rows through
+   `score_raw_system`, forbids a private copy of the old adapter, and tests that the
+   probe's per-key tier counts equal the builder's persisted tiers on the same
+   fixture chunk; rollout step 5 says the action is unchanged but the Python it runs
+   is not.
