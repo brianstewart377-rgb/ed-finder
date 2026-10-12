@@ -354,10 +354,12 @@ newer dated source wins).
      and rolls back on any plan that is not the expected bounded shape. All 24 pairs, because planner choices depend on each
      key's own statistics and partial-index selectivity, so one tested key proves
      nothing about the other seven, each of which is user-selectable. The
-     Archetype build step must have run and receipted **`VACUUM (ANALYZE)`** on the
-     completed table, and the probe asserts **both `last_vacuum` and
-     `last_analyze`** postdate the final insert, and requires **`Heap Fetches: 0`**
-     on the window node. `ANALYZE` alone is not enough twice over: an `EXPLAIN` on
+     Archetype **and Search** build steps must each have run and receipted
+     **`VACUUM (ANALYZE)`** on their completed table as their last action, and the
+     probe asserts **both `last_vacuum` and `last_analyze`** postdate each
+     table's own final insert, and requires **`Heap Fetches: 0`** on the window
+     node. Search is included because both no-pick requests read it and its
+     statistics would otherwise date from part-way through a 198.5 M-row append. `ANALYZE` alone is not enough twice over: an `EXPLAIN` on
      stale statistics can reject a sound build, or pass and then have autovacuum
      move the planner off the bounded plan after users are exposed; and `ANALYZE`
      does not populate the visibility map, so after the bulk insert an apparent

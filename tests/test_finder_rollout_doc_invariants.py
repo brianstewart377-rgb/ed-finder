@@ -85,15 +85,23 @@ def test_the_list_parser_normalizes_spelling_and_spacing():
 
 
 def test_every_sigma_all_limit_is_the_same():
+    """Every stated Σ_all limit is 4.0.
+
+    The rollout-state record states no limit today; it is still parsed, so a limit
+    added there later must agree (review round 51).
+    """
     limits = set()
     comparison = r"Σ_all\s*(?:>|≤|<=|>=|<)\s*([0-9]+(?:\.[0-9]+)?)"
-    for name, text, phrasing in (
-        ("ROADMAP", _read(ROADMAP), comparison),
-        ("F2d design", _f2d_current(), comparison),
-        ("capacity decision", _read(CAPACITY), r"stops above Σ_all\s*([0-9]+(?:\.[0-9]+)?)"),
+    stops_above = r"stops above Σ_all\s*([0-9]+(?:\.[0-9]+)?)"
+    for name, text, phrasings, must_state in (
+        ("ROADMAP", _read(ROADMAP), (comparison,), True),
+        ("F2d design", _f2d_current(), (comparison,), True),
+        ("capacity decision", _read(CAPACITY), (stops_above,), True),
+        ("rollout state", _read(ROLLOUT), (comparison, stops_above), False),
     ):
-        found = re.findall(phrasing, text)
-        assert found, f"{name} no longer states the Σ_all limit"
+        found = [value for phrasing in phrasings for value in re.findall(phrasing, text)]
+        if must_state:
+            assert found, f"{name} no longer states the Σ_all limit"
         limits.update(found)
     assert len(limits) == 1, limits
     assert {float(value) for value in limits} == {4.0}
@@ -135,6 +143,21 @@ def test_the_checks_fail_on_a_drifted_copy(tmp_path, monkeypatch):
     except AssertionError:
         return
     raise AssertionError("a drifted apply set was not detected")
+
+
+def test_a_conflicting_rollout_state_sigma_limit_fails(tmp_path, monkeypatch):
+    """A Σ_all limit added to the rollout-state record must agree with the others."""
+    drifted = tmp_path / "rollout.md"
+    drifted.write_text(
+        _read(ROLLOUT) + "\nThe build may proceed while Σ_all ≤ 5.0.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(globals(), "ROLLOUT", drifted)
+    try:
+        test_every_sigma_all_limit_is_the_same()
+    except AssertionError:
+        return
+    raise AssertionError("a conflicting rollout-state Σ_all limit was not detected")
 
 
 def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
