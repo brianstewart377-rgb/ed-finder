@@ -553,8 +553,10 @@ trip reads:
   absent the route is a 404 for that system, not a computed explanation.
 
 The query must use the leading `(derived_generation_id, system_id64)` keys and
-return the same `SystemVectors` fields as `_read_chunk_vectors`, then call the
-shared `fit_all` and `summarise` and compare every recomputed value with the
+return the same raw rating-vector row and integer opportunity groups as the
+builder's chunk read (through the shared opportunity select-list constant,
+section 5.1), then call the shared scoring entry point `score_raw_system` and
+build the explanations from the same inputs, and compare every recomputed value with the
 stored row (a test seeds a deliberately divergent stored row and asserts the
 fail-closed response rather than a plausible-looking explanation). The existing source relations have primary
 keys beginning with those two columns, and the builder currently reads exactly
@@ -694,8 +696,9 @@ no score. The design would have broken its own field on its own next version bum
 So the digest covers a **named set of members of the model file**, not the file:
 the coefficients, the anchors, the archetype key order, the tier thresholds, the
 `_weighted_e4` integer expression, the confidence rounding rule, the completeness
-derivation rule, **and the source text of the named scoring functions and the
-shared completeness-derivation helper**. It explicitly excludes
+derivation rule, **and the source text of every function that turns the selected
+database values into a persisted value** (the single scoring entry point below).
+It explicitly excludes
 `ARCHETYPE_VERSION`, the explanation construction and every storage-shape
 constant.
 
@@ -724,29 +727,65 @@ leaving `archetype_model_sha256` identical, and F4 would compare outputs from
 the round-35 asymmetry argument identified as the one that must never happen: a
 silently wrong comparison presented to the user as fact.
 
-So the digest covers `fit_all` and **every function reachable from it**, with the
-`_explain_*` functions as the only exclusion. Determined by walking the call graph
-rather than by a hand-maintained list, because a list is one refactor away from
-being incomplete and would fail in the dangerous direction. A helper added to the
-scoring path later is therefore covered automatically.
+So the digest covers the scoring entry point and **every function reachable from
+it**, with the `_explain_*` functions as the only exclusion. Determined by walking
+the call graph rather than by a hand-maintained list, because a list is one
+refactor away from being incomplete and would fail in the dangerous direction. A
+helper added to the scoring path later is therefore covered automatically.
 
-Completeness is a second semantic root outside that graph: the builder derives it
-from the raw `system_rating_vector.completeness smallint[]` before calling the
-materialization path. PR1 therefore extracts a named shared
-`completeness_ppm(raw_completeness)` helper implementing `min(raw_completeness) ×
-100`; both the builder and validator call that helper, and its source text is
-hashed into `archetype_model_sha256` in addition to the reachable `fit_all` graph.
-Hashing only a declared literal is insufficient: changing the helper in both
-builder and validator could otherwise change every stored weighted key while
-leaving the digest unchanged.
+**The walk starts from the database values, not from `fit_all` (review rounds 27
+and 28).** Score-affecting work also happens *before* `fit_all` is called. The
+builder derives `completeness_ppm` from the raw
+`system_rating_vector.completeness smallint[]`, and `_read_chunk_vectors` divides
+`completeness` and `confidence` by 10,000 and aggregates opportunities with
+`count(*)` and `avg(local_score)` in SQL before building `SystemVectors`
+(`scripts/v3_system_archetype.py:249-280`). Changing any of those in both the
+builder and the validator would change every stored score and weighted key while
+leaving the digest unchanged. Round 27 added completeness as a second root and
+round 28 found the adapter; adding roots one finding at a time is exactly the
+hand-maintained list the graph walk exists to avoid. PR1 therefore gives the model
+module **one** scoring entry point that starts from database-shaped values, and
+the walk starts there:
 
-That is a behaviour-preserving refactor of code PR1 already changes, and it makes
-the stated exclusion true rather than aspirational. Two tests: the digest is
-**unchanged** by an edit confined to an `_explain_*` function, and **changed** by an
-edit to each of `fit_all`, `_fit_anchored`, `_fit_flexible`, `_quality`, `_clamp`
-and `tier_of`, **and changed by an edit to `completeness_ppm`** — one case per
-covered function or semantic root, since "the call graph" and the additional
-derivation root are only as real as the assertions behind them.
+- `score_raw_system(vector_row, opportunity_groups)` takes the rating-vector row
+  exactly as selected (all six arrays unscaled) and that system's opportunity
+  groups as integer triples `(economy_ordinal, row_count, local_score_sum)`. It
+  returns every value the wide row persists from the model: the eight
+  score/tier/confidence-ppm triples, `completeness_ppm`, the eight
+  `<key>_weighted_e4` keys, the `summarise` columns and `weighted_potential`. The
+  scaling, the opportunity mean (`local_score_sum / row_count`, exact integers
+  divided once), `completeness_ppm`, the confidence half-up helper, `fit_all`,
+  `summarise`, `weighted_potential` and the weighted-key integer expression are
+  all reachable from it.
+- The opportunity read returns only `count(*)::int` and `sum(local_score)::bigint`
+  per `(system_id64, economy_ordinal)` — exact integers, no `avg`, no cast to a
+  floating-point type. Its select list is a module-level constant in the model
+  module (static text containing no values) that both the builder's chunk read and
+  the explanation route's single-snapshot read use. That constant is hashed with
+  the call graph, so changing the aggregate itself — to `max`, say — moves the
+  digest too.
+- The builder, the validator's recomputation and the explanation route all call
+  `score_raw_system` and nothing below it; `_read_chunk_vectors` becomes a pure
+  fetch.
+
+Moving the mean out of PostgreSQL can change its last bit: today `avg(smallint)`
+is a `numeric` quotient that is then rounded to `double precision`, while the
+entry point divides the exact integer sum once. That is acceptable because
+`v3-archetype-4` rebuilds every row, every comparison of a recomputed value with a
+stored one (the validator, the explanation route, the frozen fixture) goes through
+the same entry point, and no `v3-archetype-3` value is ever compared with a
+`v3-archetype-4` one — their model digests differ anyway.
+
+That is a behaviour-preserving refactor of code PR1 already changes, apart from
+that last-bit mean, and it makes the stated exclusion true rather than
+aspirational. Two kinds of test: the digest is **unchanged** by an edit confined to
+an `_explain_*` function, and **changed** by an edit to each of
+`score_raw_system`, the scaling, the opportunity mean, `completeness_ppm`, the
+confidence half-up helper, the weighted-key expression, `fit_all`,
+`_fit_anchored`, `_fit_flexible`, `_quality`, `_clamp`, `tier_of`, `summarise`,
+`weighted_potential` and the opportunity select-list constant — one case per
+covered member, since "the call graph" is only as real as the assertions behind
+it.
 
 That keeps the property round 19 was after — a change to **how scores are
 computed** always moves the digest — while a change to how they are stored,
@@ -772,13 +811,18 @@ not: a later generation rebuilt from different canonical data can give the same
 system different rating vectors or completeness, and so a different
 `<key>_weighted_e4`, under an identical model. Requiring equal keys would reject
 that valid rebuild and block READY. The key-equality assertion is against the
-committed **frozen input fixture** of
-`(score, confidence_ppm, system_rating_vector.completeness)` values instead, with
-the last member stored as the raw `smallint[]`, not an already-derived
-`completeness_ppm`. The test calls the shared helper, asserts its derived ppm, then
-asserts the final weighted keys, including the half and endpoint vectors. This is
-the implementation of the checked claim, not a second weaker rule; starting from
-an already-derived ppm would leave the source transformation untested.
+committed **frozen input fixture** instead, and the fixture is **database-shaped**
+(review round 28): raw `system_rating_vector` rows with all six arrays as stored
+and raw `economy_opportunity` rows, not already-derived scores, ppm values or
+`SystemVectors`. A disposable PostgreSQL 18 test inserts them, runs the builder's
+real chunk read (so the shared opportunity select list is exercised), passes the
+result to `score_raw_system`, and asserts the derived `completeness_ppm`, every
+score, tier and confidence ppm, and the final weighted keys — including the half
+and endpoint vectors and an opportunity group whose mean is not exactly
+representable (local scores `1, 1, 2`). A unit test drives `score_raw_system`
+directly from the same rows' integer groups and must agree with it. This is the
+implementation of the checked claim, not a second weaker rule; starting after any
+transformation would leave that transformation untested.
 
 Add a canonical ordered `wide_columns` list (the eight `_weighted_e4` keys and their exact definition
 the integer definition `(score × confidence_ppm × completeness_ppm + 50_000_000) // 100_000_000` included verbatim, not a `round(...)` form),
@@ -797,15 +841,20 @@ fail-closed exit codes. (`scripts/v3_system_archetype.py:1109-1154`)
 
 For every Ratings chunk:
 
-1. Read vectors and opportunities exactly as today.
-2. Call `fit_all`, `summarise`, and `weighted_potential` exactly once per
-   system.
+1. Read the raw rating vectors and the integer opportunity groups
+   (`count(*)::int`, `sum(local_score)::bigint`) through the shared select-list
+   constant (section 5.1).
+2. Call `score_raw_system` exactly once per system; it runs the scaling,
+   `fit_all`, `summarise`, `weighted_potential`, `completeness_ppm`, the
+   confidence half-up helper and the weighted-key expression.
 3. Pivot the ordered eight fits into one wide tuple.
 4. Insert one wide row per system, then one unchanged
    `archetype_build_chunk` receipt in the same transaction.
 
-The current builder performs the same source read and computations but inserts
-eight rows plus one summary; the rewrite changes only the materialization.
+The current builder reads the same rows and performs the same computations —
+apart from computing the opportunity mean with `avg` in SQL (section 5.1 explains
+the last-bit difference) — but inserts eight rows plus one summary; the rewrite
+otherwise changes only the materialization.
 (`scripts/v3_system_archetype.py:249-281,491-550`)
 
 The chunk `content_sha256` covers every persisted wide-row column in stable
@@ -2965,3 +3014,18 @@ does not bind, because the ROADMAP outranks it.
    never emitted. PR1 now requires all four, derives them from the measured heap and
    classified indexes (including tier bytes normalized by `sigma_all`), and tests
    their provenance rather than accepting aggregate index bytes.
+
+### Review round 28 (2026-10-12)
+
+1. **P2 — Include the raw-input adapter in the model digest** → correct. After
+   round 27, `_read_chunk_vectors` still divided completeness and confidence by
+   10,000 and aggregated opportunities with `count`/`avg` in SQL before `fit_all`,
+   all outside both hashed roots, and the frozen fixture started after most of it.
+   Rather than add a third root, section 5.1 now defines one scoring entry point,
+   `score_raw_system`, that starts from database-shaped values (the raw vector row
+   and integer `count`/`sum` opportunity groups) and returns every persisted
+   model-derived value; the digest walks its whole call graph (`_explain_*`
+   excluded) plus the shared opportunity select-list constant. Builder, validator
+   and explanation route call only that entry point, the fixture is raw database
+   rows exercised through the real chunk read on disposable PostgreSQL 18, and the
+   last-bit change from moving the mean out of `avg` is stated with why it is safe.
