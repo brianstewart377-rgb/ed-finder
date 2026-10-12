@@ -1158,7 +1158,8 @@ mode or drop the filter”). Consequences, all honest and bounded:
   indexes), which no cheap index can provide on the wide row.
 
 The disposable-PG18 tests assert the 422 for each hard filter on a picked
-request, that Any mode with the same filters is unaffected, and — from the plan —
+request, the 422 for each hard filter on a **galaxy-wide** Any request, that an
+**anchored** Any request with the same filters is unaffected, and — from the plan —
 that the inner scan reads ≤ 10,001 entries. Because the route is live in
 production from the moment the release deploys, this bounded form ships in that
 release (section 8 step 5), not in a later F4 slice.
@@ -1528,12 +1529,17 @@ serializes with publication (review round 47):** a `BEFORE UPDATE` row trigger o
 `publish_derived_product` and `publish_derived_generation` hold — so a direct
 pointer update waits for an in-flight publication instead of racing it, and the
 product-publication deferred audit check re-verifies at commit that the
-product's base is still the current PUBLISHED generation. Tests: a direct
+product's base is still the current PUBLISHED generation. **The pointer is a
+singleton that only `UPDATE` may change (review round 48):** statement triggers
+reject `TRUNCATE`, `DELETE` and `INSERT` on `current_derived_generation`
+unconditionally, so no path can empty the pointer or add a second row around the
+lock and both rules. Tests: a direct
 `UPDATE` of the pointer that violates either rule is rejected at commit and leaves
 the pointer unchanged; the same direct update that satisfies both commits; and a
 two-session race — one session publishing a product, the other updating the
 pointer directly — never commits a publication audit on a generation that is no
-longer current.
+longer current; and `TRUNCATE`, `DELETE` and `INSERT` on the pointer table are
+each rejected, with the pointer unchanged.
 
 Tests cover: a later promotion whose incoming products are registered but
 unpublished (refused); a later promotion that registers and publishes only
@@ -1923,10 +1929,14 @@ new PG18 footprint receipt from
 the final `011` text (heap and all 26 physical indexes — 24 tier partials,
 weighted index, primary key);
 migration/script, PostgreSQL integration, canonical-safety,
-application-deployment, Cypress, Review Lab and security CI. The rankings
-response shape does not change, but the `min_score` parameter constraint does,
-so PR1 regenerates the typed clients and the OpenAPI drift check proves they
-match.
+application-deployment, Cypress, Review Lab and security CI. **The response
+schemas change, additively (review round 48):** PR1 adds `is_truncated` to the
+rankings response and `archetype_version`, `archetype_manifest_sha256` and
+`archetype_model_sha256` to the shared ranking identity of both envelopes, besides
+the `min_score` constraint, the combined pagination bounds and the anchored
+`total_is_capped`. PR1 regenerates the typed clients for all of them, the OpenAPI
+drift check proves they match, and contract tests assert each new field is
+present and populated.
 
 ### PR2 — migration `015`, builders on PUBLISHED, API publication gate, registration
 
@@ -1948,7 +1958,12 @@ Files:
   section 8 above)
 - `docs/ROADMAP.md` (step 4′ progress note only; the sequence itself comes from
   PR #805)
-- tests: `tests/test_v3_derived_product_publication.py` (new: the full
+- tests: `tests/test_ranking_identity_and_no_legacy.py` (review round 48: its
+  fixture applies migrations 003/004/006/010/011, calls the seven-argument
+  generation publisher and then hits both Finder endpoints; once `015` drops that
+  signature and `_current_derived_generation()` requires `published_at`, it must
+  apply `015`, use the new publication flow and publish both products, or it
+  cannot pass), `tests/test_v3_derived_product_publication.py` (new: the full
   disposable-PG18 lifecycle matrix of section 7.5, including paired direct DML),
   `tests/test_local_search_v3.py`, `tests/test_archetype_rankings_v3.py`,
   `tests/integration/conftest.py`, `tests/test_seed_cypress_v3_generation.py`,
@@ -2480,7 +2495,13 @@ operations. (`scripts/operator/actions/v3-system-search-f1.sh:15-24,76-113,175-1
 
 ## 11. Risks and open questions
 
-Each unresolved choice is phrased for an explicit yes/no disposition.
+**Status (2026-10-12, review round 48).** Answered: **1, 5, 8 and 9** — 8 is the
+recorded owner decision (no purge before Finder promotion), and 9 is answered by
+the 422 contract and the owner's stated wish for filtered archetypes as a later
+increment. Open questions: **2, 3, 4, 6 and 7**; each blocks the code PR that
+encodes it. `docs/ROADMAP.md` holds the authoritative list, and
+`tests/test_finder_rollout_doc_invariants.py` checks that this status agrees
+with it. Each question below is phrased for an explicit yes/no disposition.
 
 1. **Yes/no: approve the section 3.3 layout — eight stored `<key>_weighted_e4`
    ranking keys, primary key, weighted index, and 24 partial
@@ -3738,3 +3759,23 @@ does not bind, because the ROADMAP outranks it.
    `published_at` and its publication audit rows, with contract tests.
 6. **P2 — Keep local-search contract tests in PR1** → correct; PR1's test list now
    includes `tests/test_local_search_v3.py` for every behaviour PR1 changes.
+
+### Review round 48 (2026-10-12)
+
+1. **P1 — Record question 9 as resolved in the design** → correct; section 11 now
+   opens with a status line — answered 1, 5, 8 and 9; open 2, 3, 4, 6 and 7 — that
+   matches the ROADMAP, and the invariant test checks the two agree.
+2. **P2 — Restrict the Any-mode filter assertion to anchored searches** → correct;
+   the tests assert 422 for every galaxy-wide filtered Any request and leave only
+   anchored filtered requests unaffected.
+3. **P1 — Guard every pointer-table mutation** → correct; `TRUNCATE`, `DELETE` and
+   `INSERT` on `current_derived_generation` are rejected unconditionally, with
+   tests, so only the locked, rule-checked `UPDATE` can change it.
+4. **P2 — Treat the response additions as schema changes** → correct; PR1's
+   summary now lists the additive response fields, regenerates clients for them
+   and tests their presence.
+5. **P1 — Update the ranking-identity fixture in PR2** → correct; PR2 owns the
+   `test_ranking_identity_and_no_legacy.py` fixture change.
+6. **P2 — Include the capacity decision in the Σ_all drift check** → correct; the
+   invariant test now also reads the capacity decision's "stops above Σ_all …"
+   phrasing.

@@ -86,8 +86,15 @@ def test_the_list_parser_normalizes_spelling_and_spacing():
 
 def test_every_sigma_all_limit_is_the_same():
     limits = set()
-    for text in (_read(ROADMAP), _f2d_current()):
-        limits.update(re.findall(r"Σ_all\s*(?:>|≤|<=|>=|<)\s*([0-9]+(?:\.[0-9]+)?)", text))
+    comparison = r"Σ_all\s*(?:>|≤|<=|>=|<)\s*([0-9]+(?:\.[0-9]+)?)"
+    for name, text, phrasing in (
+        ("ROADMAP", _read(ROADMAP), comparison),
+        ("F2d design", _f2d_current(), comparison),
+        ("capacity decision", _read(CAPACITY), r"stops above Σ_all\s*([0-9]+(?:\.[0-9]+)?)"),
+    ):
+        found = re.findall(phrasing, text)
+        assert found, f"{name} no longer states the Σ_all limit"
+        limits.update(found)
     assert len(limits) == 1, limits
     assert {float(value) for value in limits} == {4.0}
 
@@ -138,3 +145,13 @@ def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
     assert capacity, "the capacity decision no longer lists them"
     normalize = lambda value: sorted(re.findall(r"[0-9]+", value))  # noqa: E731
     assert {tuple(normalize(v)) for v in roadmap} == {tuple(normalize(v)) for v in capacity}
+
+
+
+def test_the_design_and_roadmap_agree_on_the_open_owner_questions():
+    design = _f2d_current()
+    match = re.search(r"Open questions: \*\*([0-9][0-9, and]*[0-9])\*\*", design)
+    assert match, "the design's section 11 status line moved"
+    roadmap = re.search(r"owner questions \*\*([0-9][0-9, and]*[0-9])\*\*", _read(ROADMAP))
+    assert roadmap, "the ROADMAP no longer lists the open owner questions"
+    assert re.findall(r"[0-9]+", match.group(1)) == re.findall(r"[0-9]+", roadmap.group(1))
