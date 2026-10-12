@@ -878,12 +878,10 @@ type RankingProvenance = Readonly<{
   // identifies one build exactly; includes generation identity, so it changes on
   // every rebuild and must never gate a cross-generation comparison
   archetype_manifest_sha256: string;
-  // the canonical semantic manifest -- coefficients, anchors, key order, the
-  // weighted-key integer expression, the confidence rounding rule, tier thresholds --
-  // PLUS the shared model file's hash. Excludes generation identity, and excludes the
-  // builder and migration hashes: the model file owns scoring, the builder owns
-  // iteration and storage. Two generations built from the same model therefore agree,
-  // and a change to how scores are computed always moves this digest. It errs towards
+  // generation-free model digest. Its scope is defined only in F2d design
+  // section 5.1: any change to how a persisted score is computed from the stored
+  // inputs moves it; which data was scored (generation, sequence, rows) does not.
+  // Two generations built from the same model therefore agree. It errs towards
   // suppressing a comparison rather than allowing a wrong one -- see the rule below.
   archetype_model_sha256: string;
 }>;
@@ -1071,62 +1069,35 @@ generation ("a data refresh changes freshness, not semantics") would be
 contradicted by the very field used to enforce it.
 
 F2d therefore persists and exposes a second, **generation-free** digest,
-`archetype_model_sha256`, over a **canonical semantic manifest**: the
-coefficients, the anchors, the archetype key order, the `_weighted_e4` integer
-expression carried as a literal string, the confidence rounding rule and the tier
-thresholds. It deliberately excludes generation identity, publication sequence
-and `expected_rows` — everything describing *which data* was scored rather than
-*how*.
+`archetype_model_sha256`. **Its scope and its validation are defined in one place
+only — F2d design section 5.1 — and this document does not restate them (review
+round 42).** Earlier revisions of this section summarised that scope (a hash of
+the model file, a fixture of already-derived vectors) and fell out of date each
+time F2d corrected it; two copies of a definition are one correction away from
+disagreeing, and the stale copy here would have told an F4 implementer that score
+drift F2d now catches was out of scope.
 
-**It includes the shared model file's hash and excludes the builder's and the
-migration's (settled, review round 35).** This has been argued both ways across
-rounds — round 31 included all three source hashes, round 32 removed all of them,
-F2d round 19 settled on the model file alone — so the decision and its cost are
-recorded here rather than left to the next reviewer, and the paragraph that said
-the opposite is gone rather than sitting beside this one.
+F4 relies on exactly one property, which F2d section 5.1 states and tests: **any
+change to how a persisted score is computed from the stored inputs — including
+the transformations applied to those inputs before the fit — moves
+`archetype_model_sha256`, while a change to which data was scored (generation,
+publication sequence, row count) does not.** F4's rule is therefore: equal
+digest, together with equal `ranking_version`, `ranking_sha256` and
+`archetype_version`, means comparable; a different or missing digest means not
+comparable, shown with the “different ranking versions” note.
 
-`code_identity()` hashes three files (`scripts/v3_system_archetype.py:64-73`) and
-they own different things: the model `scripts/v3_system_archetype_model.py` owns
-**scoring**; the builder `scripts/v3_system_archetype.py` owns iteration, batching
-and storage; the migration `011_v3_system_archetype.sql` owns layout. Hashing the
-model file alone therefore means a change to **how scores are computed** always
-moves the digest, and a change to **how they are written** never does.
+The two failure directions are not symmetric, which is why F4 accepts F2d erring
+towards suppression: a false "not comparable" is a temporary, visible loss of a
+feature, while a false "comparable" is a silently wrong comparison presented to
+the user as fact. F4 never checks the digest by comparing values two generations
+stored — a data refresh legitimately changes stored scores under an identical
+model (`docs/development/v3-search-spatial-derived-data-decision.md:8-12`); that
+check, against frozen inputs, belongs to F2d's validator.
 
-The known cost, stated plainly: a **comment-only edit** to the model file also
-moves the digest, suppressing otherwise valid cross-generation comparisons until
-the next rebuild. Hashing only the enumerated constants has the opposite cost: a
-change to the model's *logic* that left its constants alone would not move the
-digest, and scores computed differently would be compared as equivalent.
-
-Those costs are not symmetric, which is what settles it. This field gates
-**whether two numbers may be compared at all**, so a false "not comparable" is a
-temporary, visible loss of a feature, while a false "comparable" is a silently
-wrong comparison presented to the user as fact. Erring towards suppression is
-therefore correct, and the frozen-input validation below is what keeps that
-suppression honest rather than permanent.
-
-The validator then checks the digest means what it claims — but it must **not** do
-so by comparing values two generations stored (review round 34). A new generation
-contains updated canonical facts, so a sampled system's `<key>_weighted_e4` can
-legitimately differ under an identical model; canonical changes are expected to
-trigger derived rebuilds
-(`docs/development/v3-search-spatial-derived-data-decision.md:8-12`). Comparing
-stored outputs would therefore reject the **data-refresh case this digest exists
-to permit** — the check would fail precisely when the feature was working.
-
-The assertion is instead that **two implementations with equal
-`archetype_model_sha256` produce identical `<key>_weighted_e4` values when
-evaluated against the same frozen input records** — a committed fixture of
-`(score, confidence_ppm, completeness_ppm)` vectors including the half boundaries
-— which isolates the model from the data it is applied to. That is the only form
-of the check that can distinguish "the model changed" from "the galaxy did".
-
-`archetype_manifest_sha256`, which covers the source files and the generation,
-remains available and displayed for anyone who needs exact-build identity. `archetype_manifest_sha256`
-keeps its existing job of identifying one build exactly, and is still shown with
-the generation line; it is simply not the field a semantic comparison may hinge
-on. Comparison is then possible exactly when it is meaningful: same model, any
-generation.
+`archetype_manifest_sha256` keeps its job of identifying one build exactly and is
+still shown with the generation line; it is simply not the field a semantic
+comparison may hinge on. Comparison is then possible exactly when it is
+meaningful: same model, any generation.
 
 This is a dependency on F2d, not an F4 change, so it is recorded in the F2d
 design as a PR1 requirement; F4 consumes the field. Until it exists, snapshots
@@ -2171,8 +2142,8 @@ explanation path is the F2d on-demand endpoint (section 4, “Per-archetype
 explanation”).
 Enablement therefore also requires **an accessible explanation path**: the F2d
 design's `GET /api/archetypes/system/{id64}/explanation` (its PR3) plus **PR F4e**
-below, which renders the per-archetype breakdown from it in the result
-card/Inspect hand-off with the same evidence wording. Until both land, the flag
+below, which renders the per-archetype breakdown from it in the Explore result
+card with the same evidence wording (not on the Inspect page — see F4e). Until both land, the flag
 stays `0` in every release build; enabling it with unexplained scores would
 contradict the contract.
 Required proof: focused Vitest/component tests, Svelte web checks, visual review
@@ -2242,8 +2213,14 @@ Exact files:
   echoed-identity check would run. A test changes only the manifest hash and
   asserts a new fetch)
 - create `apps/web/src/lib/features/explore/ArchetypeExplanation.svelte`,
-  `ArchetypeExplanation.test.ts` (a disclosure region under the result card's
-  tier/confidence row and in the Inspect hand-off: per-archetype contribution
+  `ArchetypeExplanation.test.ts` (a disclosure region under the Explore result
+  card's tier/confidence row — **only there** (review round 42): the Inspect page
+  receives only the originating query and anchor, not the row's generation,
+  version and manifest identity, so it could not request an explanation that
+  matches the displayed score. F4e therefore leaves
+  `apps/web/src/routes/inspect/+page.svelte` untouched; an Inspect-side
+  explanation would be a later increment that first transfers that identity and
+  adds its own route tests. Per-archetype contribution
   list in plain words, the same evidence/confidence wording as the card, a
   `role="region"` labelled by the card heading, keyboard-reachable, no colour-only
   meaning; the 409 state reads “Explanation unavailable for this ranking
@@ -3519,3 +3496,19 @@ had written in the preceding round, which is worth noting rather than hiding.
    F4b now creates `apps/web/src/routes/inspect/+page.test.ts` and the
    `InspectPageTestHost.svelte` QueryClient host, with disabled/enabled,
    duplicate-replacement, bare-link and state-carrying return coverage.
+
+### Review round 42 (2026-10-12)
+
+1. **P2 — Include input construction in the model digest** → correct, and fixed at
+   its source: F2d round 28 now walks the digest from a single scoring entry point
+   that starts from database-shaped values, so the scaling and opportunity
+   aggregation before the fit are hashed and the frozen fixture is raw database
+   rows. This document no longer restates the digest's scope at all — section 6's
+   comparison rule now points to F2d section 5.1 and states only the one property
+   F4 relies on, because the restated copy had already drifted from F2d twice.
+2. **P2 — Add the Inspect surface to F4e** → correct; the promise is removed
+   rather than half-implemented. Inspect receives the originating query and anchor
+   but not the row's generation, version and manifest identity, so it cannot
+   request an explanation matching the displayed score. F4e's disclosure is on the
+   Explore result card only and leaves the Inspect route untouched; an Inspect-side
+   explanation would be a later increment that first transfers that identity.
