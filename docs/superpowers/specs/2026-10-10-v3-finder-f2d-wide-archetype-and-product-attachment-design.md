@@ -774,7 +774,15 @@ So the digest covers the scoring entry point and **every function reachable from
 it**, with the `_explain_*` functions as the only exclusion. Determined by walking
 the call graph rather than by a hand-maintained list, because a list is one
 refactor away from being incomplete and would fail in the dangerous direction. A
-helper added to the scoring path later is therefore covered automatically.
+helper added to the scoring path later is therefore covered automatically —
+**and so is every module-level value the graph reads (review round 49).** A
+helper that reads a global such as a new weight would otherwise keep an
+unchanged tree while its value changed. So the walk also collects every name a
+covered function loads that resolves to a module-level assignment in the model
+module, and hashes that assignment's normalized tree (and, recursively, the
+globals its value expression reads); names resolving to imports or builtins are
+not hashed. A test changes only the value of a referenced global and asserts the
+digest moves.
 
 **Each covered function is hashed as its normalized syntax tree, not its source
 text (review round 32).** Raw source would move the digest for a comment, a
@@ -1520,26 +1528,48 @@ privileged migration or operator connection could otherwise update
 `current_derived_generation` directly: `guard_derived_manifest` permits the
 lifecycle transitions involved, and nothing on the pointer table checks either
 rule. So `015` adds a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on
-`current_derived_generation` that evaluates, at commit, both the counterpart rule
-and the unfinished-product rule (round 30) for the pointer change in that
-transaction, exactly as product publication is guarded. The function stays the
-supported path; the trigger makes every other path fail the same way. **It also
+`current_derived_generation` that evaluates, at commit, **the complete
+publication contract** for the pointer change in that transaction (review round
+49) — not only the two Finder rules. Checking only the counterpart and
+unfinished-product rules would let a direct update move the pointer to an
+arbitrary generation, or change only its sequence, whenever the outgoing set is
+empty, as it is during this rollout. So the trigger requires, exactly as
+`publish_derived_generation` does: the new target is READY with a VERIFIED
+receipt (or an eligible RETIRED generation) on the current canonical generation;
+it differs from the old target; `publication_sequence` is the old value plus one;
+the old target moved to RETIRED and the new one to PUBLISHED in the same
+transaction; a matching `derived_publication_audit` row was written in the same
+transaction; and the counterpart and unfinished-product rules (round 30). The
+function stays the supported path; the trigger makes every other path meet the
+same contract or fail. **It also
 serializes with publication (review round 47):** a `BEFORE UPDATE` row trigger on
 `current_derived_generation` takes `pg_advisory_xact_lock(764003001)` — the lock
 `publish_derived_product` and `publish_derived_generation` hold — so a direct
 pointer update waits for an in-flight publication instead of racing it, and the
 product-publication deferred audit check re-verifies at commit that the
 product's base is still the current PUBLISHED generation. **The pointer is a
-singleton that only `UPDATE` may change (review round 48):** statement triggers
-reject `TRUNCATE`, `DELETE` and `INSERT` on `current_derived_generation`
-unconditionally, so no path can empty the pointer or add a second row around the
-lock and both rules. Tests: a direct
+singleton (review rounds 48 and 49):** statement triggers reject `TRUNCATE` and
+`DELETE` on `current_derived_generation` unconditionally. `INSERT` is allowed only
+as the **first** publication on an empty table — migration `003` creates the
+table empty and fresh databases and fixtures publish their first generation into
+it — through a row-level `BEFORE INSERT` trigger that takes the same advisory lock,
+refuses if a row already exists, and is followed by the same deferred contract
+check with no old target and `publication_sequence = 1`. Because a row-level
+`BEFORE INSERT` trigger fires for every proposed row of `INSERT … ON CONFLICT DO
+UPDATE`, even when the conflict branch would update, the revised publisher uses a
+plain `UPDATE` whenever the singleton exists and `INSERT` only for the first
+publication (`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:276-281`
+uses `ON CONFLICT` today). Tests: a direct
 `UPDATE` of the pointer that violates either rule is rejected at commit and leaves
 the pointer unchanged; the same direct update that satisfies both commits; and a
 two-session race — one session publishing a product, the other updating the
 pointer directly — never commits a publication audit on a generation that is no
-longer current; and `TRUNCATE`, `DELETE` and `INSERT` on the pointer table are
-each rejected, with the pointer unchanged.
+longer current; `TRUNCATE` and `DELETE` on the pointer table are rejected with
+the pointer unchanged; an `INSERT` into an empty table that meets the contract
+commits (the first publication, as fixtures and Review Lab do) while a second
+`INSERT` is refused; and direct updates that move the pointer to a non-READY
+generation, skip or repeat a sequence, or omit the lifecycle or audit changes are
+each rejected at commit.
 
 Tests cover: a later promotion whose incoming products are registered but
 unpublished (refused); a later promotion that registers and publishes only
@@ -3779,3 +3809,20 @@ does not bind, because the ROADMAP outranks it.
 6. **P2 — Include the capacity decision in the Σ_all drift check** → correct; the
    invariant test now also reads the capacity decision's "stops above Σ_all …"
    phrasing.
+
+### Review round 49 (2026-10-12)
+
+1. **P2 — Hash globals referenced by the scoring call graph** → correct; the walk
+   now hashes every module-level assignment a covered function reads (recursively),
+   with a test that changes only a referenced global.
+2. **P1 — Apply full publication checks to direct pointer updates** → correct; the
+   deferred table guard now checks the complete publication contract — READY/
+   VERIFIED target on the current canonical generation, a different target, a
+   sequence of old plus one, the matching lifecycle transitions and audit row —
+   plus both Finder rules, with a rejection test for each omission.
+3. **P1 — Preserve a bootstrap path for the pointer singleton** → correct; my round
+   48 rejection of every `INSERT` would have made a fresh database unpublishable.
+   `INSERT` is now allowed only into an empty table, under the same lock and the
+   same contract check, and the revised publisher uses a plain `UPDATE` once the
+   singleton exists, because row-level `BEFORE INSERT` triggers fire even for
+   `ON CONFLICT DO UPDATE`.
