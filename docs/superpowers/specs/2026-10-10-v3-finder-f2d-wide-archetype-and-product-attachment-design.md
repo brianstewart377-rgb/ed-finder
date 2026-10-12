@@ -2295,15 +2295,43 @@ Files:
   that query filters by the cube bounding box and then sorts every candidate by a
   computed `sqrt(...)`, so its work grows with the density of the window, not with
   the page. PR1 therefore rewrites the anchored nearest-first page and its
-  10,001st-row count as one GiST index scan on `system_search_position_gist`
-  (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:52`) with the existing
-  bounding-box predicate as the index condition and `ORDER BY position_ly <->
-  anchor, system_id64` (KNN order, ties to an incremental sort), so both stop after
-  the page or the 10,001st row. The probe runs that request at Sol and at the
-  densest 500-ly window — the anchor taken from the highest-count cell of the
-  current spatial pyramid, recorded in the receipt — and requires the KNN index
-  scan, no `Sort` node over the candidate set, and
-  `(Actual Rows + Rows Removed by Filter) × Actual Loops ≤ 10,001` for each
+  10,001st-row count around a GiST KNN scan on `system_search_position_gist`
+  (`sql/v3/migrations/004_v3_search_spatial_clusters.sql:52`), **with the limit
+  inside and the radius outside (review round 44)**:
+
+  ```sql
+  SELECT … FROM (
+      SELECT …, s.position_ly <-> :anchor AS distance_ly
+        FROM v3_app.system_search s JOIN … (the archetype summary, by primary key)
+       WHERE s.position_ly <@ :bounding_cube          -- index condition
+       ORDER BY s.position_ly <-> :anchor,            -- KNN order from the index
+                sum.weighted_potential DESC NULLS LAST,
+                s.system_id64
+       LIMIT :inner_limit                             -- offset + page, or 10,001
+  ) nearest
+  WHERE nearest.distance_ly <= 500                    -- the exact radius
+  ```
+
+  A radius filter on a KNN scan cannot stop it — PostgreSQL would read every
+  bounding-box candidate, corners included, to prove a small count — but the
+  inner `LIMIT` does, after `inner_limit` rows whatever the density. Because the
+  scan is in distance order, the rows within the radius are exactly a prefix of
+  it, so filtering that prefix gives the same answer: the count is exact when it
+  is below 10,001 and capped otherwise. **The existing tie-break is kept:** equal
+  distances still order by weighted potential, then `system_id64`
+  (`apps/api/src/ranking/ranking_sql.py:469-477`), served by an incremental sort
+  over each equal-distance group rather than a sort of the window, so the live
+  nearest-first contract and the profile hash do not change on this path. The
+  anchored response also reports `total_is_capped` from the sentinel, as the
+  galaxy-wide one does: the current code sets it only for galaxy-wide requests
+  (`apps/api/src/local_search.py:965-970`), so PR1 sets
+  `total = min(count, cap)` and `total_is_capped = count > cap` for every count,
+  with tests at exactly 10,000 and 10,001 anchored matches. The probe runs the
+  anchored request at Sol and at the densest 500-ly window — the anchor taken
+  from the highest-count cell of the current spatial pyramid, recorded in the
+  receipt — and requires the KNN index scan under the inner `Limit`, an
+  `Incremental Sort` rather than a `Sort`, and
+  `(Actual Rows + Rows Removed by Filter) × Actual Loops ≤ inner_limit` for each
   generation holding Search rows (the position index does not lead with the
   generation, so another generation's rows in the same neighbourhood are read
   and discarded; after purge P there is one). It writes nothing. This is the
@@ -3585,3 +3613,18 @@ does not bind, because the ROADMAP outranks it.
    release attestation records the Archetype manifest's complete `code_sha256`,
    and the probe, build and publish actions refuse any other, as already done for
    Search; the model-file check stays as the explanation route's guard.
+
+### Review round 44 (2026-10-12)
+
+1. **P1 — Stop the KNN scan at the radius boundary** → correct; a radius filter
+   cannot stop a KNN scan. The rewrite puts the `LIMIT` inside the KNN subquery
+   and the radius outside it: the scan stops after `inner_limit` rows, and since
+   it runs in distance order the in-radius rows are a prefix of it, so the page
+   and the capped count are unchanged in meaning.
+2. **P2 — Expose truncation for the anchored sentinel count** → correct; PR1 sets
+   `total_is_capped = count > cap` for every count, anchored included, with tests
+   at 10,000 and 10,001 anchored matches.
+3. **P2 — Preserve the weighted-score tie-break in KNN order** → correct; equal
+   distances still order by weighted potential then `system_id64`, via an
+   incremental sort per distance group, so the nearest-first contract and its
+   hash are unchanged.
