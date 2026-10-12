@@ -427,7 +427,9 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
 
     Read straight from /proc/mounts: reading a virtual file writes nothing, and it
     avoids depending on findmnt being installed. Longest matching mount point wins,
-    because a nested mount governs the paths below it.
+    because a nested mount governs the paths below it; for an equal-length point
+    the LATER entry wins, because a mount stacked on a target hides the earlier one
+    and is the one the kernel applies.
     """
     try:
         with open(PROC_MOUNTS, encoding="utf-8", errors="surrogateescape") as handle:
@@ -444,7 +446,7 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
         point = decode_proc_mount_path(fields[1])
         stripped = point.rstrip("/") or "/"
         if stripped == "/" or target == stripped or target.startswith(f"{stripped}/"):
-            if best is None or len(stripped) > best[0]:
+            if best is None or len(stripped) >= best[0]:
                 best = (len(stripped), point, fields[3])
     if best is None:
         return {"available": False, "reason": "mount_point_not_found"}
@@ -468,6 +470,12 @@ def mount_atime_policy(path: str) -> dict[str, Any]:
         "atime_policy": policy,
         "directory_atime_writes_suppressed": suppressed,
     }
+
+
+def mount_fingerprint_entry(fields: list[str], point: str) -> str:
+    """One /proc/mounts entry as fingerprinted: source, target, type and options."""
+    options = fields[3] if len(fields) > 3 else ""
+    return f"{fields[0]}\t{point}\t{fields[2]}\t{options}"
 
 
 def same_device_nested_mounts(root: str) -> dict[str, Any]:
@@ -520,7 +528,7 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         point = os.path.normpath(decode_proc_mount_path(fields[1]))
         if point == base:
             root_fstype = fields[2]
-            fingerprint_entries.append(f"{fields[0]}\t{point}\t{fields[2]}")
+            fingerprint_entries.append(mount_fingerprint_entry(fields, point))
             continue
         strictly_below = (
             point != "/" and point.startswith("/")
@@ -529,7 +537,7 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
         )
         if strictly_below:
             points[point] = fields[2]
-            fingerprint_entries.append(f"{fields[0]}\t{point}\t{fields[2]}")
+            fingerprint_entries.append(mount_fingerprint_entry(fields, point))
     # The scan root is a mount target by construction (`df --output=target`), so a
     # table without its entry is not one this check can reason about.
     if root_fstype is None:
@@ -539,9 +547,11 @@ def same_device_nested_mounts(root: str) -> dict[str, Any]:
     # A fingerprint of every mount at or below the root, of every type, so the table
     # can be compared again when the receipt is emitted: a mount added, stacked or
     # replaced during the scans changes what `du -x` traversed or what it could see.
-    # Source, target and type, in table order: a replacement at the same target with
-    # the same type but another source (say a bind of the root's own filesystem) must
-    # change it, and so must a second mount stacked on an existing target.
+    # Source, target, type and options, in table order: a replacement at the same
+    # target with the same type but another source (say a bind of the root's own
+    # filesystem) must change it, so must a second mount stacked on an existing
+    # target, and so must a remount that changes only options -- noatime to relatime
+    # would make the opening atime policy, and so filesystem_writes_performed, wrong.
     report["mount_table_sha256"] = hashlib.sha256(
         "\n".join(fingerprint_entries).encode("utf-8", "surrogateescape")
     ).hexdigest()

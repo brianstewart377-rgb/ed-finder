@@ -110,6 +110,7 @@ def _run_inventory_action(
     container_replaced: bool = False,
     mounts_change_during_scan: bool = False,
     mount_change_at_close: str = "none",
+    stacked_root_options: str | None = None,
     tablespace_at_close_only: bool = False,
     base_over_cap: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -120,6 +121,9 @@ def _run_inventory_action(
     usage_root = "/"
     mounts_file = tmp_path / "proc-mounts"
     mounts_lines = [f"/dev/root / ext4 {root_mount_options} 0 0"]
+    if stacked_root_options is not None:
+        # A second mount stacked on the root; the kernel applies this later one.
+        mounts_lines.append(f"/dev/root / ext4 {stacked_root_options} 0 0")
     if nested_mount_mode in {"same_device", "stat_failure"}:
         scan_root = tmp_path / "scan-root"
         scan_root.mkdir()
@@ -173,6 +177,9 @@ def _run_inventory_action(
         else:
             # A second mount stacked on the same target.
             closing_mounts_lines = mounts_lines + [replaced]
+    elif mount_change_at_close == "root_remounted":
+        # Only the root's options change, as `mount -o remount,relatime /` would.
+        closing_mounts_lines = ["/dev/root / ext4 rw,relatime 0 0"] + mounts_lines[1:]
     elif mount_change_at_close == "same_device_added":
         same_device_path = next(
             path
@@ -748,9 +755,11 @@ def test_v3_disk_inventory_emits_expected_read_only_receipt(tmp_path):
         "mount_points_below_root": 0,
         "different_filesystem_type_skipped": 0,
         "scan_root_filesystem_type": "ext4",
-        # Source, target and type of the root entry and of every mount below it, in
-        # table order; this fixture has only the root entry.
-        "mount_table_sha256": hashlib.sha256(b"/dev/root\t/\text4").hexdigest(),
+        # Source, target, type and options of the root entry and of every mount
+        # below it, in table order; this fixture has only the root entry.
+        "mount_table_sha256": hashlib.sha256(
+            b"/dev/root\t/\text4\trw,relatime"
+        ).hexdigest(),
         "same_device_mount_count": 0,
         "same_device_mount_paths": [],
         "same_device_mount_paths_truncated": False,
@@ -2810,7 +2819,8 @@ def test_v3_disk_inventory_measures_the_atime_policy_rather_than_assuming_it():
     assert "open(PROC_MOUNTS" in source
     # Longest matching mount point wins, because a nested mount governs what is below
     # it -- the same reasoning as the nearest-ancestor attribution in exclusive_usage.
-    assert "if best is None or len(stripped) > best[0]:" in source
+    # Ties go to the later entry: a mount stacked on a target hides the earlier one.
+    assert "if best is None or len(stripped) >= best[0]:" in source
     # /proc/mounts octal-escapes separators; a mount point containing a space must not
     # be mis-parsed into the options column.
     assert '.replace("\\\\040", " ")' in source
@@ -3563,3 +3573,32 @@ def test_v3_disk_inventory_marks_a_churn_degraded_candidate_list_incomplete(tmp_
     assert summary["candidates_account_for_unaccounted_within_uncertainty"] is None
     assert "directory_usage_failed" in summary["candidate_list_degraded_scans"]
     assert "directory_total_failed" in summary["candidate_list_degraded_scans"]
+
+
+def test_v3_disk_inventory_reads_atime_from_the_visible_stacked_mount(tmp_path):
+    """Two mounts on one target: the later one is the one the kernel applies.
+
+    Keeping the first equal-length entry would read a hidden noatime mount and
+    report no writes while du traversed a relatime one.
+    """
+    result = _run_inventory_action(
+        tmp_path, root_mount_options="rw,noatime", stacked_root_options="rw,relatime"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    atime = receipt["inventory"]["volume"]["atime"]
+    assert atime["atime_policy"] == "relatime"
+    assert atime["directory_atime_writes_suppressed"] is False
+    assert receipt["filesystem_writes_performed"] is True
+
+
+def test_v3_disk_inventory_refuses_a_remount_that_changed_only_options(tmp_path):
+    """noatime at the start and relatime later would leave the writes flag wrong."""
+    result = _run_inventory_action(
+        tmp_path,
+        root_mount_options="rw,noatime",
+        mount_change_at_close="root_remounted",
+    )
+    assert result.returncode == 1, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert "mount_topology_changed_during_scan" in receipt["failures"]

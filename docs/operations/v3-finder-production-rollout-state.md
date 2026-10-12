@@ -562,13 +562,16 @@ The following bounding, metric and windowing rules govern how the receipt may be
   container cannot answer under the old name; at emission the name is resolved again
   and a different ID stops the receipt (`postgres_container_replaced_during_run`). The
   mount table at and below the scan root is fingerprinted before the first `du` —
-  each entry's source, target and type, in table order, so a mount replaced at the
-  same target with the same type or stacked on an existing target still changes it —
+  each entry's source, target, type and options, in table order, so a mount replaced
+  at the same target with the same type, stacked on an existing target, or remounted
+  with different options (which would invalidate the measured atime policy) still
+  changes it —
   and compared at emission; a mount added, stacked or replaced during the scans stops
   the receipt (`mount_topology_changed_during_scan`). The closing table must also pass
   the opening same-device check on its own (`mount_topology_unsafe_at_close`). The closing tablespace count is taken in the
   **same statement** as the closing database sizes, so both describe one snapshot.
-- **`filesystem_writes_performed` follows the measured atime policy.** Under `relatime`
+- **`filesystem_writes_performed` follows the measured atime policy** — of the
+  visible mount: for a target with stacked mounts, the later entry. Under `relatime`
   or `strictatime` the `du` traversals update directory access times, so the flag is
   true once a traversal starts; false under `noatime`/`nodiratime` or when no
   traversal ran; null if the policy could not be read. It never indicates a content
