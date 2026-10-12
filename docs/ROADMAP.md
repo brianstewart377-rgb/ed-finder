@@ -245,7 +245,8 @@ newer dated source wins).
      `max_distance_ly`, `has_elw`, `min_slots`, `max_contamination`) is also a
      422 in the initial product: filters cannot be applied inside the bounded
      window without changing what they mean, so archetype ranking is unfiltered
-     and Any mode keeps every filter. Nothing live calls the route yet.
+     and Any mode keeps every filter only when anchored (galaxy-wide hard filters
+     return 422 — owner decision 2026-10-12). Nothing live calls the route yet.
   2–3. Only then: governed migration `plan` → review → `apply` of
      `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
      validation.

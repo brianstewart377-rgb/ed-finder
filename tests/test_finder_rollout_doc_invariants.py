@@ -24,7 +24,15 @@ CAPACITY = ROOT / "docs" / "operations" / "v3-finder-capacity-decision-2026-10-1
 ROLLOUT = ROOT / "docs" / "operations" / "v3-finder-production-rollout-state.md"
 
 TARGET_GENERATION = "ratings_v4_prod_p4_parallel_v1"
-MIGRATION_LIST = re.compile(r"\[0\d\d(?:-rewritten)?(?:, 0\d\d(?:-rewritten)?)+\]")
+# Any bracketed list of migration ordinals, with any spacing and either spelling of
+# the rewritten 011 (`011-rewritten` or `011'`).
+MIGRATION_LIST = re.compile(r"\[\s*0\d\d[^\]]*\]")
+
+
+def _normalize(found: str) -> str:
+    items = [item.strip() for item in found.strip("[]").split(",")]
+    items = ["011-rewritten" if item in {"011'", "011’"} else item for item in items]
+    return "[" + ", ".join(items) + "]"
 
 
 def _read(path: Path) -> str:
@@ -52,16 +60,28 @@ def test_every_planned_apply_set_matches_the_roadmap():
     Lists without 015 describe earlier states (today's registered pending set, or
     PR1's intermediate identity) and are allowed to differ.
     """
-    canonical = _roadmap_apply_set()
+    canonical = _normalize(_roadmap_apply_set())
     assert "015" in canonical
-    for name, text in (
-        ("ROADMAP", _read(ROADMAP)),
-        ("F2d design", _f2d_current()),
-        ("capacity decision", _read(CAPACITY)),
-        ("rollout state", _read(ROLLOUT)),
+    for name, text, must_state in (
+        ("ROADMAP", _read(ROADMAP), True),
+        ("F2d design", _f2d_current(), True),
+        ("capacity decision", _read(CAPACITY), True),
+        ("rollout state", _read(ROLLOUT), False),
     ):
-        planned = {found for found in MIGRATION_LIST.findall(text) if "015" in found}
+        planned = {
+            _normalize(found) for found in MIGRATION_LIST.findall(text) if "015" in found
+        }
+        if must_state:
+            # An empty set must not pass vacuously for a document that states the plan.
+            assert planned, f"{name} no longer states the planned apply set"
         assert planned <= {canonical}, (name, planned, canonical)
+
+
+def test_the_list_parser_normalizes_spelling_and_spacing():
+    assert _normalize("[014,010, 011', 013,015]") == "[014, 010, 011-rewritten, 013, 015]"
+    assert MIGRATION_LIST.findall("apply [014,  010, 011', 013, 015] now") == [
+        "[014,  010, 011', 013, 015]"
+    ]
 
 
 def test_every_sigma_all_limit_is_the_same():

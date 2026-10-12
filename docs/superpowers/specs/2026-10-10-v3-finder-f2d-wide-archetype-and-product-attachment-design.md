@@ -1136,8 +1136,19 @@ mode or drop the filter”). Consequences, all honest and bounded:
   predicates, so `total = min(qualifying, 10000)` and `is_truncated =
   qualifying > 10000` mean exactly what they say — the Finder never shows an
   empty page while matches exist;
-- Any mode keeps every filter, unchanged: it runs through local search, which
-  has its own indexes and its own (already capped) count;
+- Any mode keeps every filter **when anchored**, and refuses them galaxy-wide
+  (owner decision, 2026-10-12, review round 46): the 10,001-row cap limits
+  matching rows, not rows examined, and filters such as `has_biologicals`,
+  `main_star_class_in` or the count thresholds have no supporting Search index,
+  so a galaxy-wide filtered request could read most of the 198.5 M-row
+  generation to find enough matches or prove there are fewer. PR1 therefore makes
+  a galaxy-wide Any request carrying any hard filter fail with HTTP 422 (“pick an
+  anchor area or remove the filter”); an anchored request keeps every filter and
+  is bounded by its 500-ly window (the anchored publication probe, PR4). Filtered
+  galaxy-wide search joins the deferred filter-first work below. Tests assert the
+  422 for each hard filter without an anchor and that the same filters work with
+  one; the F4 UI must disable the hard filters in galaxy-wide Any mode until an
+  anchor is set;
 - the F4 UI disables — not hides — the hard filters while an archetype is
   picked, with the same reason as the 422, so the combination is never offered
   (F4 design, picker anatomy);
@@ -2340,10 +2351,22 @@ Files:
   from the highest-count cell of the current spatial pyramid, recorded in the
   receipt — and requires the KNN index scan under the inner `Limit`, an
   `Incremental Sort` rather than a `Sort`, and
-  `(Actual Rows + Rows Removed by Filter) × Actual Loops ≤ inner_limit` for each
-  generation holding Search rows (the position index does not lead with the
-  generation, so another generation's rows in the same neighbourhood are read
-  and discarded; after purge P there is one). It writes nothing. This is the
+  `(Actual Rows + Rows Removed by Filter) × Actual Loops ≤ (inner_limit + T) × G`
+  (review round 46). `T = 1,000` is the tie slack: an incremental sort must finish
+  the equal-distance group that straddles `inner_limit` before it can order it,
+  so it reads past the limit by that group's size. Exact ties need equal squared
+  distances on the 1/32-ly position grid, so real groups are small; a group larger
+  than `T` at a probed anchor fails the probe, and at any other live anchor the
+  route's statement timeout bounds it. `G` is the number of generations holding
+  Search rows, read from the database at probe time and recorded: the position
+  index does not lead with the generation, so each other generation's rows in the
+  same neighbourhood are read and discarded — `G = 2` during this rollout, because
+  the pre-`010` `opt1` product is retained. **With hard filters (anchored only —
+  see below),** the filters sit inside the KNN subquery, so the scan reads until
+  `inner_limit` matches or the bounding box is exhausted: the bound is then the
+  box's candidate count × `G`, which the probe measures with a count at the
+  densest window and asserts while running the anchored request with the most
+  selective accepted filter there. It writes nothing. This is the
   executable form of step 10's bounded-plan check —
   `v3-derived-lifecycle-status` reports lifecycle and footprint data and
   contains no `EXPLAIN`, so it cannot perform it.
@@ -3649,3 +3672,22 @@ does not bind, because the ROADMAP outranks it.
    migration apply set (every list that includes `015` must equal the ROADMAP's
    step-2 list), every `Σ_all` limit, the attach target generation, and the
    complete-read rule for the capacity input.
+
+### Review round 46 (2026-10-12)
+
+1. **P1 — Bound KNN reads across equal-distance groups** → correct; the bound now
+   carries an explicit tie slack `T = 1,000` for the boundary group the incremental
+   sort must finish, with the statement timeout as the backstop at unprobed anchors.
+2. **P2 — Normalize every documented migration-list spelling** → correct; the
+   invariant test now parses every bracketed list containing `015` with any
+   spacing, normalizes `011'` to `011-rewritten`, and requires the ROADMAP, this
+   design and the capacity decision each to yield at least one planned list.
+3. **P1 — Add a generation-scoped KNN access path** → resolved by bounding rather
+   than adding an index: the work bound is multiplied by `G`, the generations
+   holding Search rows, read at probe time (2 during this rollout, with `opt1`
+   retained), and the "after purge P" assumption is removed from this design.
+4. **P2 — Bound selective Any-mode scans before calling them capped** → owner
+   decision 2026-10-12: galaxy-wide Any requests with any hard filter are refused
+   with 422 asking for an anchor or no filter; anchored requests keep every filter
+   and are bounded by their window, which the probe exercises with the most
+   selective accepted filter.
