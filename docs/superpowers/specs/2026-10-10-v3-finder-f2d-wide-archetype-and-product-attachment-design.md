@@ -1450,6 +1450,20 @@ does. Tests: a later promotion naming both counterparts commits atomically and
 the Finder answers throughout; naming only one is refused with the pointer
 unchanged; naming a product that is not READY/VERIFIED is refused before the flip.
 
+**The old entry point is removed, not left beside the new one (review round 34).**
+Adding the products argument changes the function's signature, and
+`CREATE OR REPLACE FUNCTION` with a different argument list creates an
+**overload**: the existing seven-argument
+`v3_meta.publish_derived_generation(uuid, uuid, bigint, uuid, bigint, text, text)`
+(`sql/v3/migrations/006_v3_derived_product_lifecycle.sql:210-214`) would stay
+callable and would flip the pointer without either rule. Migration `015`
+therefore executes `DROP FUNCTION
+v3_meta.publish_derived_generation(uuid, uuid, bigint, uuid, bigint, text, text)`
+in the same transaction that creates the new signature. Tests assert
+`to_regprocedure` of the old signature is NULL after `015`, that exactly one
+`publish_derived_generation` exists in `pg_proc`, and that a call with the old
+seven arguments fails.
+
 The first launch passes because the outgoing generation has no published Finder
 products, so there is nothing to require a counterpart for. Every later promotion
 must carry both. One rule covers both cases deliberately: an exemption dated to
@@ -2122,7 +2136,18 @@ Files:
   `(derived_generation_id, system_id64)` primary key, and for each such node
   `(Actual Rows + Rows Removed by Filter) × Actual Loops` must not exceed 10,001;
   any `Seq Scan`, `Bitmap Heap Scan`, or hash or merge join input reading either
-  relation fails the probe. It writes nothing. This is the
+  relation fails the probe. **The default no-pick request is probed too (review
+  round 34).** The live Explore flow sends the galaxy-wide, no-archetype request
+  (`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:138-142`), whose
+  plan is rooted in the `(generation, weighted_potential DESC)` index and the
+  Search/summary join — a different plan from every picked pair, so all 24 could
+  pass while the request most users send scans the table. The probe therefore
+  also runs that request's real page SQL and its 10,001st-row sentinel count, and
+  bounds them the same way: the window node an `Index Scan`/`Index Only Scan` on
+  the `weighted_potential` index with ≤ 10,001 actual rows, every other node
+  reading `system_search` or `system_archetype` a primary-key index scan within
+  the same `(rows + rows removed) × loops ≤ 10,001` bound, and no sequential,
+  bitmap heap, hash or merge read of either. It writes nothing. This is the
   executable form of step 10's bounded-plan check —
   `v3-derived-lifecycle-status` reports lifecycle and footprint data and
   contains no `EXPLAIN`, so it cannot perform it.
@@ -3225,3 +3250,15 @@ does not bind, because the ROADMAP outranks it.
    row number (realized fractions within about 1/rows of the targets; a Python
    mirror of the SQL is tested), and the bell layouts are seeded with `setseed`
    before each fill. The receipt records the sampling method and seed.
+
+### Review round 34 (2026-10-12)
+
+1. **P1 — Remove the legacy generation-publisher overload** → correct. A new
+   argument list makes `CREATE OR REPLACE` an overload, leaving the
+   seven-argument publisher callable without either rule. `015` now drops that
+   exact signature in the same transaction, with tests that it is gone, that one
+   publisher remains, and that an old-style call fails.
+2. **P1 — Probe the live default ranking path before publication** → correct. The
+   probe covered only picked pairs; it now also plans and bounds the no-pick page
+   and its sentinel count — the request the live Explore flow sends by default —
+   with the same rules, on the publication connection before commit.
