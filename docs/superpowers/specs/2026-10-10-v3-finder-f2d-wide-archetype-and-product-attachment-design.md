@@ -663,14 +663,19 @@ nearest-first path is rewritten as in section 8 (plan probe).
   ("pick an anchor area or remove the filter"; owner decision 2026-10-12): the
   cap limits matching rows, not rows examined, and filters such as
   `has_biologicals` or `main_star_class_in` have no supporting Search index.
-  Anchored Any requests keep every filter. An **unfiltered** anchored request
-  is bounded by the inner `LIMIT` of section 8.7 at any radius the route accepts
+  Anchored Any requests keep every filter, and are bounded in one of two ways.
+  An **unfiltered nearest-first** request (`sort_by='distance'`) is bounded by
+  the inner `LIMIT` of section 8.7 at any radius the route accepts
   (`max_distance_ly` defaults to 500 ly and is capped at `MAX_SEARCH_RADIUS`,
-  10,000 ly by default; `apps/api/src/local_search.py:55,252-253`). A
-  **filtered** anchored request is bounded only by the bounding box's candidate
-  count, so PR1 caps its radius at the 500 ly the publication probe measures
-  and answers 422 above it ("reduce the radius or remove the filter"); the
-  Explore flow sends 500 ly today, so no live caller changes. The F4 UI
+  10,000 ly by default; `apps/api/src/local_search.py:55,252-253`). Every
+  other anchored request — one carrying a hard filter, or one sorted by score
+  (`sort_by='development'`, the request default, which the route maps to score
+  order even with an anchor; `local_search.py:665-671,886-910`) — has no index
+  that orders by score and distance together, so its only bound is the bounding
+  box's candidate count. PR1 therefore caps the radius of those requests at the
+  500 ly the publication probe measures and answers 422 above it ("reduce the
+  radius, sort by distance, or remove the filter"); the Explore flow sends 500
+  ly and sorts anchored requests by distance today, so no live caller changes. The F4 UI
   disables — not hides — the hard filters while an archetype is picked and in
   galaxy-wide Any mode until an anchor is set, showing the same reason text as
   the 422 so the combination is never offered. Filtered archetype ranking is
@@ -707,8 +712,9 @@ and `offset=10000` → 422; `from=9950,size=50` ok, `from=10000,size=1` and
 `from=10001` → 422; counts at exactly 10,000 (flag false) and 10,001 (flag
 true) for picked, galaxy-wide and anchored; the 422 for each hard filter on a
 picked request and on a galaxy-wide Any request, the same filters accepted
-when anchored at 500 ly, a filtered anchored request at 501 ly → 422, and an
-unfiltered anchored request at 10,000 ly accepted; `system_id64` tie cases in both modes; both envelopes carry all
+when anchored at 500 ly, a filtered anchored request at 501 ly → 422, a
+score-sorted anchored request at 501 ly → 422, and an unfiltered nearest-first
+anchored request at 10,000 ly accepted; `system_id64` tie cases in both modes; both envelopes carry all
 three identity fields; unknown-key rejection and adversarial strings that never
 appear in SQL; and the retained no-legacy-relation assertions
 (`tests/test_ranking_sql.py`, `tests/test_archetype_rankings_v3.py`,
@@ -875,9 +881,13 @@ has no Finder products before this rollout.
    from a second session with `pg_try_advisory_xact_lock`).
 7. Publishing both products in one transaction makes views and API reads
    available.
-8. First launch: `publish_derived_generation` succeeds with every registered
-   product READY but unpublished when the outgoing generation has no published
-   Finder products, and does not set `published_at`. A later promotion is
+8. First launch: `publish_derived_generation` succeeds when the **incoming**
+   generation's registered products are READY but unpublished and the
+   **outgoing** generation has no Finder products at all (the fixture bootstrap:
+   the generation is published first, its products afterwards through
+   `publish_derived_product`), and does not set `published_at`; the same call
+   is refused when the outgoing generation holds a READY-unpublished product
+   the incoming transaction does not replace. A later promotion is
    refused when a published outgoing product lacks a published counterpart
    (unpublished or unregistered); naming both counterparts commits atomically
    with the Finder answering throughout; naming only one is refused with the
@@ -1261,9 +1271,13 @@ live no-pick requests** the Explore flow sends
   larger group at a probed anchor fails) and `G` = the number of generations
   holding Search rows, read at probe time and recorded (`G = 2` while `opt1` is
   retained, because the position index does not lead with the generation).
-  With the most selective accepted hard filter, the bound is the bounding box's
-  candidate count × `G` at the 500-ly radius the route allows for filtered
-  requests (section 6), measured with a count at the densest window.
+  The probe also runs the two anchored requests the inner `LIMIT` cannot bound
+  — the anchored request with the most selective accepted hard filter, and the
+  anchored **score-sorted** request (`sort_by='development'`) — at the densest
+  window and the 500-ly radius the route allows them (section 6); for both, the
+  bound is the bounding box's candidate count × `G`, measured with a count at
+  that window, and the plan must read `system_search` through
+  `system_search_position_gist` and nothing else by sequential scan.
 
 ### 8.8 Post-go-live verification (step 10)
 

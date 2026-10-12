@@ -1326,3 +1326,20 @@ beyond round 52:
   count, is now capped at the 500 ly the publication probe measures and answers
   422 above it; unfiltered anchored requests stay bounded by the inner `LIMIT` at
   any accepted radius.
+
+### Review round 53 (2026-10-13, on the rewrite)
+
+1. **P1 — Remove the first-launch exception for unfinished products** → wording
+   fixed; the rule was right but the test case said "every registered product
+   READY but unpublished" without saying on which generation. It now says the
+   incoming generation's products (the fixture bootstrap) and that an outgoing
+   READY-unpublished product the incoming transaction does not replace refuses
+   the flip (section 7.5 item 8).
+2. **P1 — Reject unbounded score-sorted anchored searches** → correct; the route
+   maps the default `sort_by='development'` to score order even with an anchor
+   (`local_search.py:665-671,886-910`), and no index orders by score and
+   distance together, so at a 10,000-ly radius that request could scan and sort
+   most of the galaxy. Score-sorted anchored requests are now treated like
+   filtered anchored requests: radius capped at the probed 500 ly, 422 above it,
+   probed at the densest window with the bounding-box bound (sections 6 and 8.7).
+
