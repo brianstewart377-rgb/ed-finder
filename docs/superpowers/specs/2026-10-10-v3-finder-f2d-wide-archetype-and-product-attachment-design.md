@@ -749,6 +749,20 @@ the call graph rather than by a hand-maintained list, because a list is one
 refactor away from being incomplete and would fail in the dangerous direction. A
 helper added to the scoring path later is therefore covered automatically.
 
+**Each covered function is hashed as its normalized syntax tree, not its source
+text (review round 32).** Raw source would move the digest for a comment, a
+docstring or a reformat, with every score unchanged — a false "not comparable"
+for an edit that changed nothing. So each function is parsed with `ast` and hashed
+as `ast.dump(tree, include_attributes=False)` after removing its docstring, which
+discards comments, line positions, blank lines and formatting; the opportunity
+select-list constant is hashed with its whitespace collapsed. What still moves the
+digest is any change to the tree, including a refactor that happens to compute the
+same values: equivalence of programs cannot be decided in general, and that error
+is in the suppression direction the asymmetry argument accepts. The tree format is
+the pinned CPython 3.14's, so the manifest records the interpreter version beside
+the digest; an interpreter change may move the digest for every function, again
+only towards suppression.
+
 **The walk starts from the database values, not from `fit_all` (review rounds 27
 and 28).** Score-affecting work also happens *before* `fit_all` is called. The
 builder derives `completeness_ppm` from the raw
@@ -795,7 +809,8 @@ the same entry point, and no `v3-archetype-3` value is ever compared with a
 That is a behaviour-preserving refactor of code PR1 already changes, apart from
 that last-bit mean, and it makes the stated exclusion true rather than
 aspirational. Two kinds of test: the digest is **unchanged** by an edit confined to
-an `_explain_*` function, and **changed** by an edit to each of
+an `_explain_*` function and by a comment-, docstring- or formatting-only edit to a
+covered function, and **changed** by an edit to each of
 `score_raw_system`, the scaling, the opportunity mean, `completeness_ppm`, the
 confidence half-up helper, the weighted-key expression, `fit_all`,
 `_fit_anchored`, `_fit_flexible`, `_quality`, `_clamp`, `tier_of`, `summarise`,
@@ -3138,3 +3153,14 @@ does not bind, because the ROADMAP outranks it.
    the schema check to the floor enum and the four individual maxima and names the
    behavioural accepted/rejected pairs as the only proof of the two combined
    bounds, re-run by the publish action.
+
+### Review round 32 (2026-10-12)
+
+1. **P2 — Canonicalize scoring semantics instead of raw source text** → correct as
+   far as it can be. Each covered function is now hashed as its normalized syntax
+   tree with the docstring removed, and the select-list constant with whitespace
+   collapsed, so comments, docstrings and formatting no longer move the digest
+   (new test cases for each). A refactor that changes the tree but not the values
+   still moves it: program equivalence is undecidable in general, and that error
+   is the suppression direction the asymmetry argument already accepts. The
+   manifest records the CPython version the tree was taken under.
