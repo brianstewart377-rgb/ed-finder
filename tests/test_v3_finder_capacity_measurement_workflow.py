@@ -126,3 +126,20 @@ def test_workflow_has_no_production_or_operator_credentials() -> None:
     assert "ed_new_operator_" not in lowered
     assert "nb79a3d.mevnode.com" not in lowered
     assert "ed-finder-prod" not in lowered
+
+
+def test_measurement_steps_receive_the_attested_service_container_address() -> None:
+    """A non-loopback disposable server is accepted only at the address the workflow attests."""
+    import yaml
+
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/v3-finder-capacity-measurement.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["measure"]["steps"]
+    attest = next(step for step in steps if step.get("id") == "disposable")
+    assert attest["env"]["SERVICE_ID"] == "${{ job.services.postgres.id }}"
+    assert "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'" in attest["run"]
+    for name in ("Measure the eligible Archetype footprint", "Measure the Search footprint"):
+        step = next(step for step in steps if step.get("name") == name)
+        assert step["env"]["EDFINDER_DISPOSABLE_SERVER_ADDRESS"] == "${{ steps.disposable.outputs.address }}"
+        assert steps.index(attest) < steps.index(step)

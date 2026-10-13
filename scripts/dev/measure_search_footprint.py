@@ -147,13 +147,28 @@ def _parse_address(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Addre
         return None
 
 
-def server_address_is_disposable(server_addr: object, client_addr: object = None) -> bool:
-    """True for a loopback server, or a container-bridge server reached from its own bridge.
+ATTESTED_SERVER_ADDRESS_ENV = "EDFINDER_DISPOSABLE_SERVER_ADDRESS"
+
+
+def attested_server_address() -> str | None:
+    """The disposable container address the orchestrator attests from its own inspection."""
+    value = os.environ.get(ATTESTED_SERVER_ADDRESS_ENV, "").strip()
+    return value or None
+
+
+def server_address_is_disposable(
+    server_addr: object,
+    client_addr: object = None,
+    attested_addr: object = None,
+) -> bool:
+    """True for a loopback server, or for exactly the attested disposable container.
 
     A published container port shows the server its bridge address and the bridge
-    gateway as the client; a forwarded connection to some other private-address
-    server shows a loopback client there, so the non-loopback case requires both
-    addresses to be private, non-loopback and within the same /16. Same rule as
+    gateway as the client. That case is accepted only when the orchestrator
+    attested that exact server address (from its own docker inspect of the
+    service container it started), the address is RFC 1918 / ULA, and the client
+    is a non-loopback private address on the same /16; a relay on a private LAN
+    or a forward to another server is refused. Same rule as
     scripts/dev/measure_wide_archetype_footprint.py.
     """
     server = _parse_address(server_addr)
@@ -161,6 +176,9 @@ def server_address_is_disposable(server_addr: object, client_addr: object = None
         return False
     if server.is_loopback:
         return True
+    attested = _parse_address(attested_addr)
+    if attested is None or attested != server:
+        return False
     if not any(server in network for network in DISPOSABLE_PRIVATE_NETWORKS):
         return False
     client = _parse_address(client_addr)
@@ -182,10 +200,10 @@ def assert_disposable_server(
         "SELECT host(inet_server_addr()), host(inet_client_addr()), "
         "current_setting('server_version_num')::int, current_database()"
     ).fetchone()
-    if not server_address_is_disposable(address, client_address):
+    if not server_address_is_disposable(address, client_address, attested_server_address()):
         raise ValueError(
             f"connected server address {address!r} (client {client_address!r}) is not loopback "
-            "or a same-bridge container"
+            f"or the attested disposable container ({ATTESTED_SERVER_ADDRESS_ENV})"
         )
     allowed = database in ALLOWED_DBNAMES or database.startswith(MEASUREMENT_DATABASE_PREFIX)
     if not allowed or (expected_database is not None and database != expected_database):
