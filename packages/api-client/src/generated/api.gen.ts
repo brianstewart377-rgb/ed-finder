@@ -2548,11 +2548,13 @@ export interface components {
              * @default 0
              */
             count: number;
+            /** Is Truncated */
+            is_truncated: boolean;
             /** Source */
             source?: string | null;
             /** Query Ms */
             query_ms?: number | null;
-            ranking?: components["schemas"]["RankingIdentity"] | null;
+            ranking: components["schemas"]["RankingIdentity"];
         };
         /**
          * ArchetypeRationale
@@ -5579,6 +5581,12 @@ export interface components {
             derived_generation_id: string;
             /** Publication Sequence */
             publication_sequence: number;
+            /** Archetype Version */
+            archetype_version: string;
+            /** Archetype Manifest Sha256 */
+            archetype_manifest_sha256: string;
+            /** Archetype Model Sha256 */
+            archetype_model_sha256: string;
         };
         /** RatingExplanationResponse */
         RatingExplanationResponse: {
@@ -6208,7 +6216,7 @@ export interface components {
             total_is_capped?: boolean | null;
             /** Warning */
             warning?: string | null;
-            ranking?: components["schemas"]["RankingIdentity"] | null;
+            ranking: components["schemas"]["RankingIdentity"];
         };
         /**
          * SimulateBuildPlacement
@@ -10431,7 +10439,7 @@ export interface operations {
             query: {
                 /** @description Colony archetype key */
                 archetype: string;
-                min_score?: number;
+                min_score?: 60 | 76 | 88;
                 galaxy_region?: number | null;
                 max_distance_ly?: number | null;
                 has_elw?: boolean | null;

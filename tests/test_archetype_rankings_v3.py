@@ -16,12 +16,13 @@ psycopg created -- the plain, DB-pool-taking helper the thin, rate-limited
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from pathlib import Path
 import sys
 from uuid import uuid4
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +42,15 @@ from scripts.v3_system_search import (  # noqa: E402
 )
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
-from edfinder_api.ranking.profile import RANKING_VERSION  # noqa: E402
+from edfinder_api.ranking.profile import (  # noqa: E402
+    ARCHETYPE_KEYS,
+    RANKING_VERSION,
+    ranking_sha256,
+)
+from edfinder_api.ranking.ranking_sql import (  # noqa: E402
+    build_count_query,
+    build_ranked_query,
+)
 from edfinder_api.routers import archetypes  # noqa: E402
 
 
@@ -134,18 +143,15 @@ async def _asyncpg_pool(connection):
 
 
 def _pick_scored_archetype_key(connection) -> str:
-    """Pick an archetype_key present in the fixture with score variance,
-    so ordering assertions aren't trivially satisfied by a single value."""
-    row = connection.execute('''
-        SELECT archetype_key
-          FROM v3_app.system_archetype
-         GROUP BY archetype_key
-        HAVING count(DISTINCT archetype_score) > 1
-         ORDER BY archetype_key
-         LIMIT 1
-    ''').fetchone()
-    assert row, 'fixture must contain an archetype_key with score variance'
-    return row[0]
+    """Pick a known wide-row key with at least one result at the B floor."""
+    for key in ARCHETYPE_KEYS:
+        qualifying = connection.execute(
+            f'SELECT count(*) FROM v3_app.system_archetype '
+            f'WHERE {key}_score >= 60'
+        ).fetchone()[0]
+        if qualifying:
+            return key
+    raise AssertionError('fixture must contain an archetype score at or above 60')
 
 
 @pytest.mark.asyncio
@@ -155,28 +161,15 @@ async def test_archetype_rankings_v3_orders_by_archetype_score_with_count(databa
 
     archetype_key = _pick_scored_archetype_key(connection)
 
-    all_rows = connection.execute('''
-        SELECT a.system_id64, a.archetype_score, a.confidence, s.completeness,
-               s.x_ly, s.y_ly, s.z_ly
-          FROM v3_app.system_archetype a
-          JOIN v3_app.system_search s ON s.system_id64 = a.system_id64
-         WHERE a.archetype_key = %s
-    ''', (archetype_key,)).fetchall()
-    # `_pick_scored_archetype_key` guarantees >1 distinct archetype_score for
-    # this key -- using the max score as the threshold guarantees at least
-    # one row passes (the max itself) and at least one row is excluded (any
-    # row scored below it), so the count assertion below is never vacuous.
-    min_score_threshold = max(row[1] for row in all_rows)
+    all_rows = connection.execute(
+        f'''SELECT system_id64, {archetype_key}_score,
+                   {archetype_key}_weighted_e4
+              FROM v3_app.system_archetype'''
+    ).fetchall()
+    min_score_threshold = 60
     rows = [row for row in all_rows if row[1] >= min_score_threshold]
     assert rows
-    assert len(rows) < len(all_rows)
-
-    def sort_key(row):
-        system_id64, score, confidence, completeness, x, y, z = row
-        dist = (x * x + y * y + z * z) ** 0.5
-        return (-(score * confidence * completeness), dist, system_id64)
-
-    expected_order = [row[0] for row in sorted(rows, key=sort_key)]
+    expected_order = [row[0] for row in sorted(rows, key=lambda row: (-row[2], row[0]))]
 
     pool = await _asyncpg_pool(connection)
     try:
@@ -205,6 +198,156 @@ async def test_archetype_rankings_v3_orders_by_archetype_score_with_count(databa
     # came back.
     assert result['total'] == len(expected_order)
     assert result['count'] == len(expected_order)
+    assert result['is_truncated'] is False
+
+    product_identity = connection.execute('''
+        SELECT product_version, encode(manifest_sha256, 'hex'),
+               manifest ->> 'archetype_model_sha256'
+          FROM v3_meta.derived_product
+         WHERE product_code = 'system_archetype'
+    ''').fetchone()
+    assert result['ranking']['archetype_version'] == product_identity[0]
+    assert result['ranking']['archetype_manifest_sha256'] == product_identity[1]
+    assert result['ranking']['archetype_model_sha256'] == product_identity[2]
+
+
+@pytest.mark.asyncio
+async def test_archetype_rankings_v3_adjacent_pages_follow_wide_weighted_order(database):
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    archetype_key = _pick_scored_archetype_key(connection)
+    expected = [
+        row[0]
+        for row in connection.execute(
+            f'''SELECT system_id64
+                  FROM v3_app.system_archetype
+                 WHERE {archetype_key}_score >= 60
+                 ORDER BY {archetype_key}_weighted_e4 DESC, system_id64 ASC'''
+        ).fetchall()
+    ]
+    assert len(expected) >= 2, 'fixture must exercise two adjacent pages'
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        pages = []
+        for offset in (0, 1):
+            page = await archetypes._archetype_rankings_v3(
+                archetype=archetype_key, min_score=60, galaxy_region=None,
+                max_distance_ly=None, has_elw=None, min_slots=None,
+                max_contamination=None, limit=1, offset=offset, pool=pool,
+            )
+            pages.extend(row['id64'] for row in page['results'])
+    finally:
+        await pool.close()
+
+    assert pages == expected[:2]
+    assert len(set(pages)) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('min_score', (60, 76, 88))
+async def test_archetype_rankings_v3_database_accepts_each_floor(database, min_score):
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    archetype_key = _pick_scored_archetype_key(connection)
+    pool = await _asyncpg_pool(connection)
+    try:
+        result = await archetypes._archetype_rankings_v3(
+            archetype=archetype_key, min_score=min_score, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=50, offset=0, pool=pool,
+        )
+    finally:
+        await pool.close()
+
+    assert result['archetype'] == archetype_key
+    assert result['total'] <= 10_000
+
+
+def _plan_nodes(node):
+    yield node
+    for child in node.get('Plans', ()):
+        yield from _plan_nodes(child)
+
+
+async def _explain_json(connection, sql, params):
+    raw = await connection.fetchval(f'EXPLAIN (FORMAT JSON)\n{sql}', *params)
+    document = json.loads(raw) if isinstance(raw, str) else raw
+    return document[0]['Plan']
+
+
+@pytest.mark.asyncio
+async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(database):
+    """The disposable fixture is intentionally tiny, so disable sequential
+    scans only for this plan-contract assertion. This makes PostgreSQL expose
+    the index path the production-scale relation chooses by cost while still
+    retaining ``force_generic_plan`` and the real views/query text."""
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    pool = await _asyncpg_pool(connection)
+    floor_suffix = {60: 'b', 76: 'a', 88: 's'}
+
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(readonly=True):
+                await conn.execute('SET LOCAL plan_cache_mode = force_generic_plan')
+                await conn.execute('SET LOCAL enable_seqscan = off')
+                for floor, suffix in floor_suffix.items():
+                    expected_index = f'system_archetype_mining_hub_{suffix}_weighted'
+                    count_sql, count_params = build_count_query(
+                        archetypes.PROFILE_SPEC,
+                        picked_archetype='mining_hub',
+                        picked_economy=None,
+                        hard_filters={},
+                        reference_coords=None,
+                        min_score=floor,
+                    )
+                    count_plan = await _explain_json(conn, count_sql, count_params)
+                    count_nodes = list(_plan_nodes(count_plan))
+                    matching_count_scans = [
+                        node for node in count_nodes
+                        if node.get('Node Type') == 'Index Only Scan'
+                        and node.get('Index Name') == expected_index
+                    ]
+                    assert matching_count_scans
+                    assert all(node['Plan Rows'] <= 10_001 for node in matching_count_scans)
+
+                    for page_size in (50, 500):
+                        page_sql, page_params = build_ranked_query(
+                            archetypes.PROFILE_SPEC,
+                            picked_archetype='mining_hub',
+                            picked_economy=None,
+                            hard_filters={},
+                            reference_coords=None,
+                            min_score=floor,
+                            limit=page_size,
+                            offset=0,
+                        )
+                        page_plan = await _explain_json(conn, page_sql, page_params)
+                        page_nodes = list(_plan_nodes(page_plan))
+                        matching_page_scans = [
+                            node for node in page_nodes
+                            if node.get('Node Type') == 'Index Only Scan'
+                            and node.get('Index Name') == expected_index
+                        ]
+                        assert matching_page_scans
+                        assert all(node['Plan Rows'] <= 10_000 for node in matching_page_scans)
+
+                        sorts = [node for node in page_nodes if node.get('Node Type') == 'Sort']
+                        assert sorts
+                        assert all(
+                            child['Plan Rows'] <= 10_000
+                            for node in sorts for child in node.get('Plans', ())
+                        )
+
+                        fetches = [
+                            node for node in page_nodes
+                            if node.get('Index Name') == 'system_archetype_pkey'
+                        ]
+                        assert fetches
+                        assert all(node['Plan Rows'] <= page_size for node in fetches)
+    finally:
+        await pool.close()
 
 
 @pytest.mark.asyncio
@@ -229,7 +372,7 @@ async def test_archetype_rankings_v3_reports_actual_summary_not_invented_archety
     pool = await _asyncpg_pool(connection)
     try:
         result = await archetypes._archetype_rankings_v3(
-            archetype=archetype_key, min_score=0, galaxy_region=None,
+            archetype=archetype_key, min_score=60, galaxy_region=None,
             max_distance_ly=None, has_elw=None, min_slots=None,
             max_contamination=None, limit=50, offset=0, pool=pool,
         )
@@ -246,56 +389,11 @@ async def test_archetype_rankings_v3_reports_actual_summary_not_invented_archety
 
 
 @pytest.mark.asyncio
-async def test_archetype_rankings_v3_honours_max_distance_hard_filter_and_count(database):
-    connection, _, _, _ = database
-    _build_published_generation(database)
-
-    archetype_key = _pick_scored_archetype_key(connection)
-
-    all_rows = connection.execute('''
-        SELECT a.system_id64, s.x_ly, s.y_ly, s.z_ly
-          FROM v3_app.system_archetype a
-          JOIN v3_app.system_search s ON s.system_id64 = a.system_id64
-         WHERE a.archetype_key = %s
-    ''', (archetype_key,)).fetchall()
-    distances = sorted((row[0], (row[1] ** 2 + row[2] ** 2 + row[3] ** 2) ** 0.5) for row in all_rows)
-    assert len(distances) > 1, 'fixture must have more than one system to split by distance'
-    # Median distance as the cutoff guarantees at least one system inside and
-    # at least one outside, regardless of the actual coordinate spread.
-    threshold = distances[len(distances) // 2][1]
-    expected_ids = {system_id64 for system_id64, dist in distances if dist <= threshold}
-    assert expected_ids
-    assert len(expected_ids) < len(distances), 'fixture must contain a system beyond the threshold too'
-
-    pool = await _asyncpg_pool(connection)
-    try:
-        result = await archetypes._archetype_rankings_v3(
-            archetype=archetype_key,
-            min_score=0,
-            galaxy_region=None,
-            max_distance_ly=threshold,
-            has_elw=None,
-            min_slots=None,
-            max_contamination=None,
-            limit=50,
-            offset=0,
-            pool=pool,
-        )
-    finally:
-        await pool.close()
-
-    returned_ids = {row['id64'] for row in result['results']}
-    assert returned_ids == expected_ids
-    assert result['total'] == len(expected_ids)
-    assert result['count'] == len(expected_ids)
-
-
-@pytest.mark.asyncio
 async def test_archetype_rankings_v3_rejects_unknown_archetype():
     with pytest.raises(HTTPException) as excinfo:
         await archetypes._archetype_rankings_v3(
             archetype='not_a_real_archetype',
-            min_score=40,
+            min_score=60,
             galaxy_region=None,
             max_distance_ly=None,
             has_elw=None,
@@ -309,73 +407,64 @@ async def test_archetype_rankings_v3_rejects_unknown_archetype():
 
 
 @pytest.mark.asyncio
-async def test_archetype_rankings_v3_rejects_min_slots():
+@pytest.mark.parametrize(
+    ('parameter', 'value'),
+    (
+        ('galaxy_region', 1),
+        ('max_distance_ly', 500.0),
+        ('has_elw', False),
+        ('min_slots', 1),
+        ('max_contamination', 10.0),
+    ),
+)
+async def test_archetype_rankings_v3_rejects_every_hard_filter(parameter, value):
+    filters = {
+        'galaxy_region': None,
+        'max_distance_ly': None,
+        'has_elw': None,
+        'min_slots': None,
+        'max_contamination': None,
+    }
+    filters[parameter] = value
     with pytest.raises(HTTPException) as excinfo:
         await archetypes._archetype_rankings_v3(
             archetype='mining_hub',
-            min_score=40,
-            galaxy_region=None,
-            max_distance_ly=None,
-            has_elw=None,
-            min_slots=5,
-            max_contamination=None,
+            min_score=60,
+            **filters,
             limit=50,
             offset=0,
             pool=object(),
         )
     assert excinfo.value.status_code == 422
+    assert parameter in excinfo.value.detail
+    assert (
+        'archetype ranking is unfiltered in the initial product; '
+        'filter in Any mode or drop the filter'
+    ) in excinfo.value.detail
 
 
 @pytest.mark.asyncio
-async def test_archetype_rankings_v3_rejects_max_contamination():
+@pytest.mark.parametrize('min_score', (59, 70, 100))
+async def test_archetype_rankings_v3_rejects_unindexed_score_floor(min_score):
     with pytest.raises(HTTPException) as excinfo:
         await archetypes._archetype_rankings_v3(
-            archetype='mining_hub',
-            min_score=40,
-            galaxy_region=None,
-            max_distance_ly=None,
-            has_elw=None,
-            min_slots=None,
-            max_contamination=10.0,
-            limit=50,
-            offset=0,
-            pool=object(),
+            archetype='mining_hub', min_score=min_score, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=50, offset=0, pool=object(),
         )
     assert excinfo.value.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_archetype_rankings_v3_has_elw_maps_to_elw_count_bounds(monkeypatch):
-    """Finding #23: has_elw is honoured in BOTH directions now that
-    system_search exposes elw_count with min+max range filters -- true ->
-    elw_count_min=1 (at least one ELW), false -> elw_count_max=0 (exactly
-    zero). Neither 422s. Capture the hard_filters handed to the builder and
-    bail before any pool use."""
-    captured: dict = {}
-
-    def _fake_build_ranked(spec, **kwargs):
-        captured.clear()
-        captured.update(kwargs['hard_filters'])
-        raise RuntimeError('stop-before-pool')
-
-    monkeypatch.setattr(archetypes, 'build_ranked_query', _fake_build_ranked)
-
-    async def _run(has_elw):
-        with pytest.raises(RuntimeError):
-            await archetypes._archetype_rankings_v3(
-                archetype='mining_hub', min_score=40, galaxy_region=None,
-                max_distance_ly=None, has_elw=has_elw, min_slots=None,
-                max_contamination=None, limit=50, offset=0, pool=object(),
-            )
-        return dict(captured)
-
-    false_filters = await _run(False)
-    assert false_filters.get('elw_count_max') == 0
-    assert 'elw_count_min' not in false_filters
-
-    true_filters = await _run(True)
-    assert true_filters.get('elw_count_min') == 1
-    assert 'elw_count_max' not in true_filters
+@pytest.mark.parametrize(('offset', 'limit'), ((9999, 2), (10000, 1)))
+async def test_archetype_rankings_v3_rejects_window_beyond_10000(offset, limit):
+    with pytest.raises(HTTPException) as excinfo:
+        await archetypes._archetype_rankings_v3(
+            archetype='mining_hub', min_score=60, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=limit, offset=offset, pool=object(),
+        )
+    assert excinfo.value.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -410,7 +499,7 @@ async def test_archetype_rankings_v3_requires_published_generation():
     with pytest.raises(HTTPException) as excinfo:
         await archetypes._archetype_rankings_v3(
             archetype='mining_hub',
-            min_score=40,
+            min_score=60,
             galaxy_region=None,
             max_distance_ly=None,
             has_elw=None,
@@ -421,6 +510,162 @@ async def test_archetype_rankings_v3_requires_published_generation():
             pool=_Pool(),
         )
     assert excinfo.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_archetype_rankings_v3_requires_ready_archetype_product():
+    class _Connection:
+        def transaction(self, *, isolation=None, readonly=True):
+            return _FakeTransaction()
+
+        async def fetchrow(self, *_args, **_kwargs):
+            return {
+                'derived_generation_id': '00000000-0000-0000-0000-000000000001',
+                'publication_sequence': 1,
+            }
+
+        async def fetch(self, *_args, **_kwargs):
+            return [{'product_code': 'system_search'}]
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire(_Connection())
+
+    with pytest.raises(HTTPException) as excinfo:
+        await archetypes._archetype_rankings_v3(
+            archetype='mining_hub', min_score=60, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=50, offset=0, pool=_Pool(),
+        )
+    assert excinfo.value.status_code == 503
+    assert 'system_archetype' in excinfo.value.detail
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+class _RankingConnection:
+    def __init__(self, qualifying):
+        self.qualifying = qualifying
+
+    def transaction(self, *, isolation=None, readonly=True):
+        return _FakeTransaction()
+
+    async def fetch(self, *_args):
+        return []
+
+    async def fetchval(self, *_args):
+        return self.qualifying
+
+
+class _Acquire:
+    def __init__(self, connection):
+        self.connection = connection
+
+    async def __aenter__(self):
+        return self.connection
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+class _RankingPool:
+    def __init__(self, qualifying):
+        self.connection = _RankingConnection(qualifying)
+
+    def acquire(self):
+        return _Acquire(self.connection)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('min_score', (60, 76, 88))
+async def test_archetype_rankings_v3_accepts_each_indexed_floor_and_carries_identity(
+    monkeypatch, min_score,
+):
+    calls = []
+
+    def _query(*_args, **kwargs):
+        calls.append(kwargs)
+        return 'SELECT 1', []
+
+    async def _generation(_connection):
+        return {
+            'derived_generation_id': '00000000-0000-0000-0000-000000000001',
+            'publication_sequence': 7,
+            'archetype_version': 'v3-archetype-4',
+            'archetype_manifest_sha256': 'a' * 64,
+            'archetype_model_sha256': 'b' * 64,
+        }
+
+    monkeypatch.setattr(archetypes, 'build_ranked_query', _query)
+    monkeypatch.setattr(archetypes, 'build_count_query', _query)
+    monkeypatch.setattr(archetypes, '_current_derived_generation', _generation)
+
+    result = await archetypes._archetype_rankings_v3(
+        archetype='mining_hub', min_score=min_score, galaxy_region=None,
+        max_distance_ly=None, has_elw=None, min_slots=None,
+        max_contamination=None, limit=1, offset=9999, pool=_RankingPool(10_000),
+    )
+
+    assert [call['min_score'] for call in calls] == [min_score, min_score]
+    assert result['total'] == 10_000
+    assert result['is_truncated'] is False
+    assert result['ranking'] == {
+        'ranking_version': RANKING_VERSION,
+        'ranking_sha256': ranking_sha256(),
+        'derived_generation_id': '00000000-0000-0000-0000-000000000001',
+        'publication_sequence': 7,
+        'archetype_version': 'v3-archetype-4',
+        'archetype_manifest_sha256': 'a' * 64,
+        'archetype_model_sha256': 'b' * 64,
+    }
+
+
+@pytest.mark.asyncio
+async def test_archetype_rankings_v3_10001_sentinel_is_truncated(monkeypatch):
+    monkeypatch.setattr(
+        archetypes, 'build_ranked_query', lambda *_args, **_kwargs: ('SELECT 1', []),
+    )
+    monkeypatch.setattr(
+        archetypes, 'build_count_query', lambda *_args, **_kwargs: ('SELECT 1', []),
+    )
+
+    async def _generation(_connection):
+        return {
+            'derived_generation_id': '00000000-0000-0000-0000-000000000001',
+            'publication_sequence': 7,
+            'archetype_version': 'v3-archetype-4',
+            'archetype_manifest_sha256': 'a' * 64,
+            'archetype_model_sha256': 'b' * 64,
+        }
+
+    monkeypatch.setattr(archetypes, '_current_derived_generation', _generation)
+    result = await archetypes._archetype_rankings_v3(
+        archetype='mining_hub', min_score=60, galaxy_region=None,
+        max_distance_ly=None, has_elw=None, min_slots=None,
+        max_contamination=None, limit=50, offset=0, pool=_RankingPool(10_001),
+    )
+    assert result['total'] == 10_000
+    assert result['is_truncated'] is True
+
+
+def test_archetype_rankings_openapi_exposes_bounded_floor_and_window():
+    app = FastAPI()
+    app.include_router(archetypes.router)
+    operation = app.openapi()['paths']['/api/archetypes/rankings']['get']
+    parameters = {parameter['name']: parameter for parameter in operation['parameters']}
+
+    assert parameters['min_score']['schema']['enum'] == [60, 76, 88]
+    assert parameters['min_score']['schema']['default'] == 60
+    assert parameters['offset']['schema']['minimum'] == 0
+    assert parameters['offset']['schema']['maximum'] == 9999
+    assert parameters['limit']['schema']['minimum'] == 1
+    assert parameters['limit']['schema']['maximum'] == 500
 
 
 def test_archetype_rankings_v3_reads_no_legacy_relation():

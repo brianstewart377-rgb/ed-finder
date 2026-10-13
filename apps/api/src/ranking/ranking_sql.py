@@ -1,141 +1,48 @@
-"""V3 Finder ranking-profile SQL builder (F2c, Task 2).
+"""Bounded SQL builders for the V3 Finder ranking profile.
 
-Pure, DB-free parameterized-SQL assembly for the ranking profile defined in
-`edfinder_api.ranking.profile`. This module holds **SQL construction only**:
-no database connection, no execution, and no literal values ever land in the
-returned SQL text — every value is bound through an asyncpg `$n` placeholder
-and returned alongside the SQL in a positional `params` list.
-
-## Relations read
-
-- `v3_app.system_search` (`s`) — the F1 Finder projection: exact coordinates,
-  body/feature counts (`sql/v3/migrations/004_v3_search_spatial_clusters.sql`,
-  `010_v3_system_search_body_type_counts.sql`), and the `confidence` /
-  `completeness` facts the uncertainty modifier reads.
-- `v3_app.system_archetype_summary` (`sum`) — the F2b no-pick primary score
-  (`best_colony_potential`) plus `archetype_confidence`
-  (`sql/v3/migrations/011_v3_system_archetype.sql`).
-- `v3_app.system_archetype` (`a`) — only joined when `picked_archetype` is
-  set, restricted to that one `archetype_key` in the join condition (not a
-  WHERE filter, so the LEFT JOIN still yields a row — with a NULL score —
-  for a system that was never scored for that archetype).
-
-All three are already generation-pinned views (`v3_app.*` joins
-`v3_meta.current_derived_generation`), so this module never adds its own
-generation predicate — the caller resolves and echoes the pinned generation
-separately (the `ratings_v4.py` `_current()` pattern), matching the F2c/F3
-design.
-
-## Hard-filter key convention
-
-The canonical key set is `edfinder_api.ranking.profile.HARD_FILTER_KEYS`
-(fixed by Task 1). This module is the single place that maps each key to its
-real `v3_app.system_search` (or cross-relation) predicate:
-
-| key                        | column / expression                              |
-|-----------------------------|--------------------------------------------------|
-| `elw_count_min`             | `s.elw_count >= $n`                              |
-| `ww_count_min`               | `s.ww_count >= $n`                                |
-| `terraformable_count_min`    | `s.terraformable_count >= $n`                     |
-| `landable_count_min`         | `s.landable_count >= $n`                          |
-| `has_rings`                  | `s.has_rings = $n` (explicit true/false)          |
-| `has_biologicals`            | `s.has_biologicals = $n` (explicit true/false)    |
-| `has_geologicals`            | `s.has_geologicals = $n` (explicit true/false)    |
-| `main_star_class_in`         | `s.main_star_class IN ($n, ...)`                  |
-| `min_development_score`      | `<primary_score_expr> >= $n` (see below)          |
-| `max_distance_ly`            | `<distance_expr> <= $n` (needs `reference_coords`)|
-| `galaxy_region`              | `s.galaxy_region_id = $n`                         |
-
-`min_development_score` has no dedicated `system_search` column — V2's
-`local_search.py` filtered a *computed* colony/development score, not a stored
-column. This module mirrors that with a floor on the **raw primary score**
-(`primary_score_expr`: `a.archetype_score` when `picked_archetype`, else
-`sum.best_colony_potential`) — the underlying colony-potential quality, before
-the uncertainty modifier. That floor is deliberately on the raw primary, not on
-the uncertainty-weighted ordering key, in **both** ranking paths: a picked
-archetype orders by `archetype_score * uncertainty` yet filters on raw
-`archetype_score`; the no-pick path orders by the precomputed
-`weighted_potential` (`= round(best_colony_potential * uncertainty)`) yet
-filters on raw `best_colony_potential`. So "minimum development score" means
-"minimum underlying colony potential", independent of how uncertainty reorders
-equally-floored systems.
-
-`max_distance_ly` needs a Euclidean reference point. Without
-`reference_coords` there is nothing to measure distance from, so the filter
-is **safely ignored** rather than raising — consistent with "ignore unknown
-keys safely" for a key that is known but inapplicable to this call. Any
-`hard_filters` key outside `HARD_FILTER_KEYS` (typos, future/removed keys) is
-ignored the same way.
-
-## Economy-picked ranking (not yet supported — fail closed)
-
-`system_search` / `system_archetype*` carry no per-economy potential column
-today (no `economy_potential`/`potential_score` projection exists yet, and
-`PROFILE_SPEC["primary_score_rule"]["economy"]` names an aspirational
-`potential_score` field that has no backing relation). Rather than silently
-rank a requested economy by the overall `best_colony_potential` — which
-returns results that look economy-tuned but are not — a non-None
-`picked_economy` **raises `ValueError`** in `_build_common`. The HTTP layer
-(`local_search.local_db_search_v3`) rejects a concrete economy with a 422
-before ever calling the builder, so the only economy value that reaches a
-successful query is "no pick".
-
-    TODO(F2c/F3 follow-up): once a per-economy potential projection exists
-    (tracked as a future Finder derived-data task), branch picked_economy
-    onto its real column and lift both the builder guard and the 422.
-
-## Uncertainty modifier
-
-`PROFILE_SPEC["uncertainty"]["factor_expr"]` is `confidence * completeness`.
-`system_archetype` carries a per-archetype `confidence` but no
-`completeness` counterpart; `system_search` is the only relation with both
-facts. So the modifier is built as:
-
-- archetype-picked: `a.confidence * s.completeness` — the archetype's own
-  judgement confidence, scaled by the system's general data completeness.
-  No `COALESCE` fallback is needed: when the LEFT JOIN finds no row for the
-  picked archetype, `a.archetype_score` (the primary score) is already
-  NULL, so the `primary_score * uncertainty_factor` ORDER BY term is NULL
-  either way and `NULLS LAST` places it after every scored system.
-- no-pick: `s.confidence * s.completeness` — the system's general evidence
-  confidence (matching the spec's `confidence * completeness` factor and the
-  `confidence` badge), NOT `sum.archetype_confidence` (which is classification
-  separation and would zero out fully-observed but ambiguous systems).
-
-See docs/superpowers/plans/2026-09-27-v3-finder-f2c-f3-ranking.md (Task 2)
-and docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md.
+The picked-archetype path reads migration 011's wide row. Identifiers come
+only from ``PROFILE_SPEC``; values remain asyncpg parameters, except for the
+three server-owned score-floor literals required for partial-index planning.
 """
 
 from __future__ import annotations
 
 from typing import Any, Final
 
-from .profile import BODY_COUNT_COLUMNS, HARD_FILTER_KEYS
+from .profile import (
+    ACCEPTED_ARCHETYPE_SCORE_FLOORS,
+    ARCHETYPE_SCORE_FLOOR_DEFAULT,
+    BODY_COUNT_COLUMNS,
+    HARD_FILTER_KEYS,
+    PROFILE_SPEC,
+    RANKING_COUNT_SENTINEL,
+    RANKING_OFFSET_MAX,
+    RANKING_OFFSET_MIN,
+    RANKING_PAGE_LIMIT_MAX,
+    RANKING_PAGE_LIMIT_MIN,
+    RANKING_WINDOW_LIMIT,
+)
 
-# Body-count range filters map 1:1 onto a `v3_app.system_search` integer
-# column: `<col>_min` -> `s.<col> >= $n`, `<col>_max` -> `s.<col> <= $n`.
-# `BODY_COUNT_COLUMNS` (in `profile.py`) is the single source of truth for
-# which columns exist; both bounds are supported for every one.
-_BODY_COUNT_COLUMN_SET: frozenset[str] = frozenset(BODY_COUNT_COLUMNS)
-_COUNT_BOUND_OPS: tuple[tuple[str, str], ...] = (("_min", ">="), ("_max", "<="))
 
+# Derived from the hashed profile, never maintained as a second identifier
+# list in SQL code. A copy prevents accidental mutation of the profile.
+ARCHETYPE_COLUMNS: Final[dict[str, dict[str, str]]] = {
+    key: dict(columns)
+    for key, columns in PROFILE_SPEC["archetype_columns"].items()
+}
+_FLOOR_SQL: Final[dict[int, str]] = {
+    floor: str(floor) for floor in ACCEPTED_ARCHETYPE_SCORE_FLOORS
+}
 
-def _count_filter_column(key: str) -> tuple[str, str] | None:
-    """Resolve a `<col>_min` / `<col>_max` hard-filter key to its
-    `(column, comparison_operator)`, or `None` if `key` is not a body-count
-    range filter. Non-count keys that merely contain "min"/"max" (e.g.
-    `min_development_score`, `max_distance_ly`) do not end in `_min`/`_max`
-    over a known count column, so they fall through to their own branches.
-    """
-    for suffix, op in _COUNT_BOUND_OPS:
-        if key.endswith(suffix) and key[: -len(suffix)] in _BODY_COUNT_COLUMN_SET:
-            return key[: -len(suffix)], op
-    return None
+SORT_SCORE: Final[str] = "score"
+SORT_DISTANCE: Final[str] = "distance"
+SUPPORTED_SORTS: Final[frozenset[str]] = frozenset({SORT_SCORE, SORT_DISTANCE})
+
+_BODY_COUNT_COLUMN_SET = frozenset(BODY_COUNT_COLUMNS)
+_COUNT_BOUND_OPS = (("_min", ">="), ("_max", "<="))
 
 
 class _ParamBuilder:
-    """Accumulates positional asyncpg params and mints `$n` placeholders."""
-
     def __init__(self) -> None:
         self.params: list[Any] = []
 
@@ -144,249 +51,362 @@ class _ParamBuilder:
         return f"${len(self.params)}"
 
 
-# The ranking identity (`profile.ranking_sha256`) hashes these two fields, so
-# the executed SQL MUST be a function of them — otherwise a spec change could
-# leave ordering untouched (or a builder change could diverge from the hash),
-# serving stale cache entries under a now-wrong identity. The builder consumes
-# both and fails closed on anything it does not implement (finding: "Bind
-# ranking identity to the executed SQL").
-_IMPLEMENTED_UNCERTAINTY_FACTOR: Final[str] = "confidence * completeness"
-_IMPLEMENTED_TIE_BREAK: Final[tuple[str, ...]] = ("distance", "system_id64")
-# The exact `primary_score_rule` this builder implements: archetype-pick orders
-# by `a.archetype_score`, no-pick by the `system_archetype_summary` potential
-# (via the precomputed `weighted_potential` key), and a concrete economy is
-# rejected (no per-economy projection exists). Hashed into `ranking_sha256`, so
-# the builder must consume it — otherwise changing a score expression would mint
-# a new identity/cache namespace while executing identical hard-coded SQL.
-_IMPLEMENTED_PRIMARY_SCORE_RULE: Final[dict[str, str]] = {
-    "archetype": "system_archetype.archetype_score",
-    "economy": "potential_score",
-    "none": "system_archetype_summary.best_colony_potential",
-}
+def _count_filter_column(key: str) -> tuple[str, str] | None:
+    for suffix, operator in _COUNT_BOUND_OPS:
+        column = key[: -len(suffix)] if key.endswith(suffix) else ""
+        if column in _BODY_COUNT_COLUMN_SET:
+            return column, operator
+    return None
 
 
-def _require_implemented_identity(spec: dict[str, Any]) -> None:
-    """Fail closed unless `spec`'s hashed ordering fields match what this
-    builder actually emits, so `ranking_sha256` and the executed SQL cannot
-    silently drift apart."""
-    factor_expr = (spec.get("uncertainty") or {}).get("factor_expr")
-    if factor_expr != _IMPLEMENTED_UNCERTAINTY_FACTOR:
+def _require_spec(spec: dict[str, Any]) -> None:
+    """Bind emitted SQL to every hashed profile field it implements."""
+
+    checked = (
+        "primary_score_rule",
+        "uncertainty",
+        "tie_break",
+        "archetype_keys",
+        "archetype_columns",
+        "archetype_score_floor",
+        "stored_weighted_key_expression",
+        "ranking_window",
+        "picked_archetype_rejected_filters",
+        "picked_archetype_filter_rejection_reason",
+        "local_search_contract",
+    )
+    mismatched = [
+        name for name in checked if spec.get(name) != PROFILE_SPEC.get(name)
+    ]
+    if mismatched:
         raise ValueError(
-            "ranking spec uncertainty.factor_expr "
-            f"{factor_expr!r} is not implemented by this SQL builder "
-            f"(implements {_IMPLEMENTED_UNCERTAINTY_FACTOR!r}); the hashed "
-            "ranking identity would not match the executed query."
-        )
-    primary_score_rule = spec.get("primary_score_rule")
-    if primary_score_rule != _IMPLEMENTED_PRIMARY_SCORE_RULE:
-        raise ValueError(
-            f"ranking spec primary_score_rule {primary_score_rule!r} is not "
-            f"implemented by this SQL builder (implements "
-            f"{_IMPLEMENTED_PRIMARY_SCORE_RULE!r}); the hashed ranking identity "
-            "would not match the executed query."
+            "ranking spec is not implemented by this SQL builder; mismatched "
+            f"field(s): {', '.join(mismatched)}"
         )
 
 
-def _distance_expr(builder: _ParamBuilder, reference_coords: tuple[float, float, float]) -> str:
-    rx, ry, rz = reference_coords
-    x_param = builder.add(float(rx))
-    y_param = builder.add(float(ry))
-    z_param = builder.add(float(rz))
+def _picked_columns(picked_archetype: str) -> dict[str, str]:
+    try:
+        return ARCHETYPE_COLUMNS[picked_archetype]
+    except KeyError as exc:
+        raise ValueError(f"unknown archetype key: {picked_archetype!r}") from exc
+
+
+def _floor_literal(min_score: int | None) -> str:
+    if min_score is None:
+        min_score = ARCHETYPE_SCORE_FLOOR_DEFAULT
+    try:
+        return _FLOOR_SQL[int(min_score)]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "min_score must be one of "
+            f"{list(ACCEPTED_ARCHETYPE_SCORE_FLOORS)!r}"
+        ) from exc
+
+
+def _distance_expr(
+    builder: _ParamBuilder,
+    reference_coords: tuple[float, float, float],
+) -> str:
+    x, y, z = (builder.add(float(value)) for value in reference_coords)
     return (
         "sqrt("
-        f"(s.x_ly - {x_param}) ^ 2 + "
-        f"(s.y_ly - {y_param}) ^ 2 + "
-        f"(s.z_ly - {z_param}) ^ 2"
+        f"(s.x_ly - {x}) ^ 2 + "
+        f"(s.y_ly - {y}) ^ 2 + "
+        f"(s.z_ly - {z}) ^ 2"
         ")"
     )
 
 
-def _bounded_distance_predicates(
+def _radius_geometry(
     builder: _ParamBuilder,
     reference_coords: tuple[float, float, float],
     radius: float,
-) -> list[str]:
-    """Upper-bound (`<= radius`) distance predicates that share one set of
-    coordinate/radius params between an index-usable `position_ly <@ cube(...)`
-    bounding box and the exact Euclidean check.
+) -> tuple[str, str, str]:
+    """Return ``(anchor, bounding_cube, radius_param)`` with shared binds."""
 
-    `v3_derived.system_search` carries a GiST index on the `position_ly` cube
-    (`004_v3_search_spatial_clusters.sql`), so the bounding-box containment is
-    index-satisfiable and bounds the scan before the exact `sqrt(...) <= r`
-    refinement runs — the main Finder radius path stays viable at galaxy scale
-    (finding: "Add an indexable radius predicate"). The cube is a superset of
-    the true sphere, so the exact check still decides membership.
-    """
-    rx, ry, rz = reference_coords
-    cx = builder.add(float(rx))
-    cy = builder.add(float(ry))
-    cz = builder.add(float(rz))
-    r = builder.add(float(radius))
-    # Cast every placeholder to double precision: `$cx - $r` between two bare
-    # (untyped) bind params is an ambiguous operator PostgreSQL cannot resolve
-    # ("operator is not unique: unknown - unknown"). The exact `sqrt` check
-    # below infers types from the `s.x_ly` columns, but the cube array has no
-    # column operand to anchor inference, so it must say so explicitly.
-    fcx, fcy, fcz, fr = (f"{p}::double precision" for p in (cx, cy, cz, r))
-    cube_bound = (
-        "s.position_ly <@ cube("
-        f"array[{fcx} - {fr}, {fcy} - {fr}, {fcz} - {fr}], "
-        f"array[{fcx} + {fr}, {fcy} + {fr}, {fcz} + {fr}])"
+    x, y, z = (builder.add(float(value)) for value in reference_coords)
+    radius_param = builder.add(float(radius))
+    fx, fy, fz, fr = (
+        f"{param}::double precision" for param in (x, y, z, radius_param)
     )
-    exact = (
-        "sqrt("
-        f"(s.x_ly - {cx}) ^ 2 + "
-        f"(s.y_ly - {cy}) ^ 2 + "
-        f"(s.z_ly - {cz}) ^ 2"
-        f") <= {r}"
+    anchor = f"cube(array[{fx}, {fy}, {fz}])"
+    bounding_cube = (
+        "cube("
+        f"array[{fx} - {fr}, {fy} - {fr}, {fz} - {fr}], "
+        f"array[{fx} + {fr}, {fy} + {fr}, {fz} + {fr}]"
+        ")"
     )
-    return [cube_bound, exact]
+    return anchor, bounding_cube, radius_param
 
 
-def _build_common(
+def _no_pick_filters(
     builder: _ParamBuilder,
     *,
-    spec: dict[str, Any],
-    picked_archetype: str | None,
-    picked_economy: str | None,  # accepted, not yet used — see module docstring's economy-pick TODO
     hard_filters: dict[str, Any],
     reference_coords: tuple[float, float, float] | None,
-) -> tuple[list[str], list[str], str, str, str]:
-    """Build the joins, WHERE clauses and score expressions shared by both
-    `build_ranked_query` and `build_count_query`.
-
-    This is the single place hard filters are translated into predicates —
-    both callers go through it so the count and the ranked page can never
-    drift onto different filter semantics. Returns
-    `(joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr)`;
-    each caller assembles its own final SQL text (a ranked SELECT with
-    ORDER BY/LIMIT/OFFSET, or a bare COUNT(*)) from these pieces.
-
-    `confidence_expr` is the *raw* confidence factor that feeds the
-    uncertainty modifier (`a.confidence` for a picked archetype, else
-    `sum.archetype_confidence`). It is exposed as its own selectable
-    expression so a response can echo the confidence badge by selecting the
-    real column directly, rather than dividing `uncertainty_factor` back out
-    by `completeness` (which is undefined at completeness=0 and conflates the
-    per-archetype judgement confidence with the general data-completeness
-    fraction).
-    """
-
-    # Bind the executed SQL to the hashed ranking identity (fail closed on an
-    # uncertainty curve this builder does not implement).
-    _require_implemented_identity(spec)
-
-    if picked_economy:
-        # No per-economy potential projection exists yet (the
-        # `PROFILE_SPEC["primary_score_rule"]["economy"]` `potential_score`
-        # field has no backing `system_search`/`system_archetype*` column).
-        # Silently ranking a requested economy by the overall
-        # `best_colony_potential` returned results that *looked* economy-tuned
-        # but were not. Fail closed here so no caller can reach that path;
-        # `local_search.local_db_search_v3` rejects a picked economy with a
-        # 422 before it ever calls the builder.
-        raise ValueError(
-            "picked_economy is not supported by the V3 ranking profile yet: "
-            "no per-economy potential projection exists "
-            f"(requested economy={picked_economy!r})."
-        )
-
-    # INNER (not LEFT) join: a published generation has a complete summary
-    # product (both F1/F2b products reach VERIFIED over the same system set
-    # before publish), so no system_search row lacks a summary row. Keeping it
-    # non-nullable lets the no-pick ORDER BY on `sum.weighted_potential` be
-    # satisfied by that column's index instead of scanning/sorting the whole
-    # generation — a LEFT join ordered by the nullable side cannot use it
-    # (finding: "Make the default ranking index usable through the join").
-    joins = ["JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64"]
-
-    if picked_archetype:
-        archetype_param = builder.add(picked_archetype)
-        joins.append(
-            "LEFT JOIN v3_app.system_archetype a "
-            f"ON a.system_id64 = s.system_id64 AND a.archetype_key = {archetype_param}"
-        )
-        primary_score_expr = "a.archetype_score"
-        # No COALESCE fallback needed: when the LEFT JOIN finds no matching
-        # archetype row, `a.archetype_score` is already NULL, so the
-        # `primary_score_expr * uncertainty_expr` ORDER BY term is NULL
-        # either way and `NULLS LAST` sorts it after every scored system.
-        confidence_expr = "a.confidence"
-    else:
-        # No-pick ranking: the F2b no-pick primary score. (A concrete
-        # `picked_economy` never reaches here — it is rejected above.)
-        # Uncertainty uses the system's general EVIDENCE confidence
-        # (`s.confidence`), per PROFILE_SPEC's `confidence * completeness`
-        # factor — NOT `sum.archetype_confidence`, which is classification
-        # separation between the top two archetypes. Separation would drive a
-        # fully-observed system with two equally strong fits to a factor of
-        # zero (ranking it below poorly-observed systems) and would disagree
-        # with the `confidence` badge the response already reports from
-        # `s.confidence`.
-        primary_score_expr = "sum.best_colony_potential"
-        confidence_expr = "s.confidence"
-
-    uncertainty_expr = f"{confidence_expr} * s.completeness"
-
-    where_clauses: list[str] = []
-
+    omit_max_distance: bool = False,
+) -> list[str]:
+    clauses: list[str] = []
     for key, value in hard_filters.items():
         if key not in HARD_FILTER_KEYS:
-            # Unknown/typo'd/future key: ignore safely rather than erroring.
             continue
-
         count_filter = _count_filter_column(key)
-        if count_filter is not None:
-            column, op = count_filter
-            param = builder.add(int(value))
-            where_clauses.append(f"s.{column} {op} {param}")
-        elif key == "has_rings":
-            param = builder.add(bool(value))
-            where_clauses.append(f"s.has_rings = {param}")
-        elif key == "has_biologicals":
-            param = builder.add(bool(value))
-            where_clauses.append(f"s.has_biologicals = {param}")
-        elif key == "has_geologicals":
-            param = builder.add(bool(value))
-            where_clauses.append(f"s.has_geologicals = {param}")
+        if count_filter:
+            column, operator = count_filter
+            clauses.append(f"s.{column} {operator} {builder.add(int(value))}")
+        elif key in {"has_rings", "has_biologicals", "has_geologicals"}:
+            clauses.append(f"s.{key} = {builder.add(bool(value))}")
         elif key == "main_star_class_in":
-            placeholders = ", ".join(builder.add(v) for v in value)
-            where_clauses.append(f"s.main_star_class IN ({placeholders})")
+            values = [builder.add(item) for item in value]
+            if values:
+                clauses.append(f"s.main_star_class IN ({', '.join(values)})")
         elif key == "min_development_score":
-            param = builder.add(int(value))
-            where_clauses.append(f"{primary_score_expr} >= {param}")
-        elif key == "galaxy_region":
-            param = builder.add(int(value))
-            where_clauses.append(f"s.galaxy_region_id = {param}")
-        elif key == "max_distance_ly":
-            if reference_coords is None:
-                # Known key, but no reference point to measure distance
-                # from in this call: safely ignored (see module docstring).
-                continue
-            # Index-usable cube bounding box + exact Euclidean refinement,
-            # sharing one coordinate/radius param set.
-            where_clauses.extend(
-                _bounded_distance_predicates(builder, reference_coords, float(value))
+            clauses.append(
+                f"sum.best_colony_potential >= {builder.add(int(value))}"
             )
-        elif key == "min_distance_ly":
-            if reference_coords is None:
-                # No reference point to measure distance from: safely ignored,
-                # like max_distance_ly above.
+        elif key == "galaxy_region":
+            clauses.append(f"s.galaxy_region_id = {builder.add(int(value))}")
+        elif key == "max_distance_ly":
+            if reference_coords is None or omit_max_distance:
                 continue
-            distance_expr = _distance_expr(builder, reference_coords)
-            param = builder.add(float(value))
-            where_clauses.append(f"{distance_expr} >= {param}")
-        # Every HARD_FILTER_KEYS member is handled above; nothing falls
-        # through silently for a *known* key.
+            anchor, bounding_cube, radius_param = _radius_geometry(
+                builder, reference_coords, float(value)
+            )
+            clauses.extend(
+                (
+                    f"s.position_ly <@ {bounding_cube}",
+                    f"s.position_ly <-> {anchor} <= {radius_param}",
+                )
+            )
+        elif key == "min_distance_ly" and reference_coords is not None:
+            clauses.append(
+                f"{_distance_expr(builder, reference_coords)} "
+                f">= {builder.add(float(value))}"
+            )
+    return clauses
 
-    return joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr
+
+def _picked_page_query(
+    builder: _ParamBuilder,
+    *,
+    picked_archetype: str,
+    min_score: int | None,
+    limit: int,
+    offset: int,
+) -> str:
+    columns = _picked_columns(picked_archetype)
+    floor = _floor_literal(min_score)
+    score = columns["score"]
+    tier = columns["tier"]
+    confidence = columns["confidence"]
+    weighted = columns["weighted_key"]
+    limit_param = builder.add(int(limit))
+    offset_param = builder.add(int(offset))
+    order = "selected_archetype_weighted_e4 DESC, system_id64 ASC"
+    confidence_expr = confidence.replace(
+        f"{picked_archetype}_confidence_ppm",
+        f"fetch.{picked_archetype}_confidence_ppm",
+    )
+
+    return (
+        "WITH archetype_window AS (\n"
+        "    SELECT ar.system_id64, "
+        f"ar.{weighted} AS selected_archetype_weighted_e4\n"
+        "    FROM v3_app.system_archetype ar\n"
+        f"    WHERE ar.{score} >= {floor}\n"
+        f"    ORDER BY ar.{weighted} DESC, ar.system_id64 ASC\n"
+        f"    LIMIT {RANKING_WINDOW_LIMIT}\n"
+        "), ranked_page AS (\n"
+        "    SELECT s.*, aw.selected_archetype_weighted_e4\n"
+        "    FROM archetype_window aw\n"
+        "    JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64\n"
+        f"    ORDER BY {order}\n"
+        f"    LIMIT {limit_param} OFFSET {offset_param}\n"
+        ")\n"
+        "SELECT page.*,\n"
+        f"       fetch.{score} AS primary_score,\n"
+        f"       fetch.{tier} AS selected_archetype_tier,\n"
+        f"       {confidence_expr} AS ranking_confidence,\n"
+        f"       ({confidence_expr} * page.completeness) AS uncertainty_factor,\n"
+        "       fetch.primary_archetype AS summary_primary_archetype,\n"
+        "       fetch.secondary_archetype AS summary_secondary_archetype,\n"
+        "       fetch.best_colony_potential AS summary_best_colony_potential,\n"
+        "       (fetch.archetype_confidence_ppm / 1000000.0)::double precision "
+        "AS summary_archetype_confidence,\n"
+        "       fetch.weighted_potential AS weighted_potential\n"
+        "FROM ranked_page page\n"
+        "JOIN v3_app.system_archetype fetch "
+        "ON fetch.system_id64 = page.system_id64\n"
+        "ORDER BY page.selected_archetype_weighted_e4 DESC, "
+        "page.system_id64 ASC"
+    )
 
 
-# Ordering modes `build_ranked_query` supports. Callers (the search router)
-# reject any other `sort_by` with a 422 rather than silently ignoring it.
-SORT_SCORE: Final[str] = "score"
-SORT_DISTANCE: Final[str] = "distance"
-SUPPORTED_SORTS: Final[frozenset[str]] = frozenset({SORT_SCORE, SORT_DISTANCE})
+def _picked_count_query(
+    *,
+    picked_archetype: str,
+    min_score: int | None,
+) -> str:
+    columns = _picked_columns(picked_archetype)
+    floor = _floor_literal(min_score)
+    score = columns["score"]
+    # A count has no order. The fixed literal still makes the matching partial
+    # index provable to a generic plan.
+    return (
+        "SELECT count(*) FROM (\n"
+        "    SELECT 1\n"
+        "    FROM v3_app.system_archetype ar\n"
+        "    JOIN v3_app.system_search s ON s.system_id64 = ar.system_id64\n"
+        f"    WHERE ar.{score} >= {floor}\n"
+        f"    LIMIT {RANKING_COUNT_SENTINEL}\n"
+        ") t"
+    )
+
+
+def _no_pick_knn_page(
+    builder: _ParamBuilder,
+    *,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float],
+    limit: int,
+    offset: int,
+) -> str:
+    radius = float(hard_filters["max_distance_ly"])
+    anchor, bounding_cube, radius_param = _radius_geometry(
+        builder, reference_coords, radius
+    )
+    clauses = [f"s.position_ly <@ {bounding_cube}"]
+    clauses.extend(
+        _no_pick_filters(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            omit_max_distance=True,
+        )
+    )
+    inner_limit = builder.add(int(offset + limit))
+    limit_param = builder.add(int(limit))
+    offset_param = builder.add(int(offset))
+    where_sql = " AND ".join(clauses)
+    return (
+        "SELECT nearest.*\n"
+        "FROM (\n"
+        "    SELECT s.*,\n"
+        "           sum.best_colony_potential AS primary_score,\n"
+        "           s.confidence AS ranking_confidence,\n"
+        "           (s.confidence * s.completeness) AS uncertainty_factor,\n"
+        "           sum.primary_archetype AS summary_primary_archetype,\n"
+        "           sum.secondary_archetype AS summary_secondary_archetype,\n"
+        "           sum.best_colony_potential AS summary_best_colony_potential,\n"
+        "           sum.archetype_confidence AS summary_archetype_confidence,\n"
+        "           sum.weighted_potential AS weighted_potential,\n"
+        f"           s.position_ly <-> {anchor} AS distance_ly\n"
+        "    FROM v3_app.system_search s\n"
+        "    JOIN v3_app.system_archetype_summary sum "
+        "ON sum.system_id64 = s.system_id64\n"
+        f"    WHERE {where_sql}\n"
+        f"    ORDER BY s.position_ly <-> {anchor}, "
+        "sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
+        f"    LIMIT {inner_limit}\n"
+        ") nearest\n"
+        f"WHERE nearest.distance_ly <= {radius_param}\n"
+        "ORDER BY nearest.distance_ly ASC, "
+        "nearest.weighted_potential DESC NULLS LAST, nearest.system_id64 ASC\n"
+        f"LIMIT {limit_param} OFFSET {offset_param}"
+    )
+
+
+def _no_pick_knn_count(
+    builder: _ParamBuilder,
+    *,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float],
+    sentinel: int,
+) -> str:
+    radius = float(hard_filters["max_distance_ly"])
+    anchor, bounding_cube, radius_param = _radius_geometry(
+        builder, reference_coords, radius
+    )
+    clauses = [f"s.position_ly <@ {bounding_cube}"]
+    clauses.extend(
+        _no_pick_filters(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            omit_max_distance=True,
+        )
+    )
+    sentinel_param = builder.add(int(sentinel))
+    return (
+        "SELECT count(*) FROM (\n"
+        "    SELECT nearest.system_id64\n"
+        "    FROM (\n"
+        "        SELECT s.system_id64, "
+        f"s.position_ly <-> {anchor} AS distance_ly\n"
+        "        FROM v3_app.system_search s\n"
+        "        JOIN v3_app.system_archetype_summary sum "
+        "ON sum.system_id64 = s.system_id64\n"
+        f"        WHERE {' AND '.join(clauses)}\n"
+        f"        ORDER BY s.position_ly <-> {anchor}, "
+        "sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
+        f"        LIMIT {sentinel_param}\n"
+        "    ) nearest\n"
+        f"    WHERE nearest.distance_ly <= {radius_param}\n"
+        ") bounded"
+    )
+
+
+def _no_pick_page(
+    builder: _ParamBuilder,
+    *,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float] | None,
+    limit: int,
+    offset: int,
+) -> str:
+    clauses = _no_pick_filters(
+        builder,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+    )
+    limit_param = builder.add(int(limit))
+    offset_param = builder.add(int(offset))
+    where_sql = f"WHERE {' AND '.join(clauses)}\n" if clauses else ""
+    select_list = (
+        "SELECT s.*,\n"
+        "       sum.best_colony_potential AS primary_score,\n"
+        "       s.confidence AS ranking_confidence,\n"
+        "       (s.confidence * s.completeness) AS uncertainty_factor,\n"
+        "       sum.primary_archetype AS summary_primary_archetype,\n"
+        "       sum.secondary_archetype AS summary_secondary_archetype,\n"
+        "       sum.best_colony_potential AS summary_best_colony_potential,\n"
+        "       sum.archetype_confidence AS summary_archetype_confidence,\n"
+        "       sum.weighted_potential AS weighted_potential\n"
+    )
+    if not clauses and reference_coords is None:
+        return (
+            "WITH summary_window AS (\n"
+            "    SELECT sum.*\n"
+            "    FROM v3_app.system_archetype_summary sum\n"
+            "    ORDER BY sum.weighted_potential DESC NULLS LAST, "
+            "sum.system_id64 ASC\n"
+            f"    LIMIT {RANKING_WINDOW_LIMIT}\n"
+            ")\n"
+            f"{select_list}"
+            "FROM summary_window sum\n"
+            "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
+            "ORDER BY sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
+            f"LIMIT {limit_param} OFFSET {offset_param}"
+        )
+    return (
+        f"{select_list}"
+        "FROM v3_app.system_archetype_summary sum\n"
+        "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
+        f"{where_sql}"
+        "ORDER BY sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
+        f"LIMIT {limit_param} OFFSET {offset_param}"
+    )
 
 
 def build_ranked_query(
@@ -399,113 +419,54 @@ def build_ranked_query(
     limit: int,
     offset: int,
     sort: str = SORT_SCORE,
+    min_score: int | None = None,
 ) -> tuple[str, list[Any]]:
-    """Build a parameterized, generation-agnostic ranked SELECT.
+    """Build a bounded ranked-page query and its asyncpg parameters."""
 
-    Returns `(sql, params)` where `sql` uses only `$1..$n` placeholders (no
-    literal values) and `params` is the matching positional argument list
-    for asyncpg. Pure — never opens a database connection.
-
-    `sort` selects the primary ordering:
-    - `SORT_SCORE` (default): weighted score (`primary_score * uncertainty`)
-      DESC, then nearest-distance, then `system_id64` — the ranking profile's
-      canonical order.
-    - `SORT_DISTANCE`: nearest reference distance ASC first, then weighted
-      score DESC, then `system_id64`. Requires `reference_coords`; without a
-      reference there is nothing to measure distance from, so it falls back to
-      score order. Any value outside `SUPPORTED_SORTS` is the caller's error
-      (the router 422s before calling this).
-
-    `spec` is accepted (rather than reading the module-level `PROFILE_SPEC`
-    directly) so callers can pass a resolved `RANKING_VERSIONS[version]` for
-    a future non-default profile without this function changing shape; the
-    current implementation only depends on the fixed `HARD_FILTER_KEYS`
-    contract and `uncertainty`/`tie_break` field names within `spec`.
-
-    See `build_count_query` for the matching `COUNT(*)` query over the same
-    WHERE clause — the two share `_build_common` so a page's filter and its
-    total can never drift apart. (Sort order does not affect a count, so
-    `build_count_query` takes no `sort`.)
-    """
-
-    # Tie-break is part of the hashed ranking identity: bind it so the executed
-    # ORDER BY cannot drift from the spec that produced `ranking_sha256`.
-    tie_break = tuple(spec.get("tie_break") or ())
-    if tie_break != _IMPLEMENTED_TIE_BREAK:
-        raise ValueError(
-            f"ranking spec tie_break {list(tie_break)!r} is not implemented by "
-            f"this SQL builder (implements {list(_IMPLEMENTED_TIE_BREAK)!r}); "
-            "the hashed ranking identity would not match the executed query."
-        )
-
+    _require_spec(spec)
+    if picked_economy:
+        raise ValueError("picked_economy has no V3 projection")
+    if sort not in SUPPORTED_SORTS:
+        raise ValueError(f"unsupported sort: {sort!r}")
+    if (
+        limit < RANKING_PAGE_LIMIT_MIN
+        or limit > RANKING_PAGE_LIMIT_MAX
+        or offset < RANKING_OFFSET_MIN
+        or offset > RANKING_OFFSET_MAX
+        or offset + limit > RANKING_WINDOW_LIMIT
+    ):
+        raise ValueError("limit/offset exceed the ranking window")
     builder = _ParamBuilder()
-    joins, where_clauses, primary_score_expr, confidence_expr, uncertainty_expr = _build_common(
-        builder,
-        spec=spec,
-        picked_archetype=picked_archetype,
-        picked_economy=picked_economy,
-        hard_filters=hard_filters,
-        reference_coords=reference_coords,
-    )
-
-    # No-pick ranks by the precomputed, single-column `weighted_potential`
-    # (= round(best_colony_potential * confidence * completeness), built into
-    # `system_archetype_summary`), which has a supporting index so the default
-    # galaxy-wide Explore load is index-satisfiable instead of sorting the whole
-    # generation by a cross-table product (finding: "Precompute the default
-    # galaxy-wide ordering"). A picked archetype has no precomputed column, so
-    # it keeps the exact `archetype_score * uncertainty` product over its
-    # index-bounded (finding #204) filtered set.
-    if picked_archetype:
-        score_term = f"({primary_score_expr}) * ({uncertainty_expr}) DESC NULLS LAST"
+    if picked_archetype is not None:
+        if hard_filters:
+            raise ValueError("picked archetype ranking does not accept hard filters")
+        sql = _picked_page_query(
+            builder,
+            picked_archetype=picked_archetype,
+            min_score=min_score,
+            limit=limit,
+            offset=offset,
+        )
+    elif (
+        sort == SORT_DISTANCE
+        and reference_coords is not None
+        and hard_filters.get("max_distance_ly") is not None
+    ):
+        sql = _no_pick_knn_page(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            limit=limit,
+            offset=offset,
+        )
     else:
-        score_term = "sum.weighted_potential DESC NULLS LAST"
-    distance_term = (
-        f"{_distance_expr(builder, reference_coords)} ASC"
-        if reference_coords is not None
-        else None
-    )
-
-    if sort == SORT_DISTANCE and distance_term is not None:
-        # Nearest-first: distance ASC primary, weighted score as tie-break.
-        order_terms = [distance_term, score_term]
-    else:
-        # Canonical ranking order: weighted score primary, distance tie-break.
-        order_terms = [score_term]
-        if distance_term is not None:
-            order_terms.append(distance_term)
-    order_terms.append("s.system_id64 ASC")
-
-    limit_param = builder.add(int(limit))
-    offset_param = builder.add(int(offset))
-
-    where_sql = f"WHERE {' AND '.join(where_clauses)}\n" if where_clauses else ""
-    joins_sql = "\n".join(joins)
-
-    sql = (
-        "SELECT s.*, "
-        f"({primary_score_expr}) AS primary_score, "
-        f"({confidence_expr}) AS ranking_confidence, "
-        f"({uncertainty_expr}) AS uncertainty_factor, "
-        # The system's ACTUAL no-pick summary facts (always joined via `sum`),
-        # aliased so a response can report the real primary/secondary archetype
-        # and overall best potential rather than inventing them from the
-        # selected archetype (finding #20). NULL for a system with no summary.
-        "sum.primary_archetype AS summary_primary_archetype, "
-        "sum.secondary_archetype AS summary_secondary_archetype, "
-        "sum.best_colony_potential AS summary_best_colony_potential, "
-        "sum.archetype_confidence AS summary_archetype_confidence, "
-        # The precomputed no-pick ranking key (the ORDER BY term for a no-pick
-        # query), surfaced so a response/debug can report the exact value the
-        # default ordering sorted by.
-        "sum.weighted_potential AS weighted_potential\n"
-        "FROM v3_app.system_search s\n"
-        f"{joins_sql}\n"
-        f"{where_sql}"
-        f"ORDER BY {', '.join(order_terms)}\n"
-        f"LIMIT {limit_param} OFFSET {offset_param}"
-    )
-
+        sql = _no_pick_page(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            limit=limit,
+            offset=offset,
+        )
     return sql, builder.params
 
 
@@ -517,58 +478,58 @@ def build_count_query(
     hard_filters: dict[str, Any],
     reference_coords: tuple[float, float, float] | None,
     cap: int | None = None,
+    sort: str = SORT_SCORE,
+    min_score: int | None = None,
 ) -> tuple[str, list[Any]]:
-    """Build the `COUNT(*)` companion to `build_ranked_query`'s SELECT.
+    """Build a count query; ``cap`` means a ``cap + 1`` sentinel limit."""
 
-    Uses exactly the same joins and WHERE predicates as `build_ranked_query`
-    (via the shared `_build_common` helper) for the same arguments, so the
-    reported total can never drift from what the page actually filtered on.
-    Carries no ORDER BY, no tie-break distance params, and no LIMIT/OFFSET —
-    none of those affect a row count. Pure — never opens a database
-    connection.
-
-    `cap` bounds the count: when set, the scan is wrapped in a
-    `SELECT count(*) FROM (SELECT 1 ... LIMIT :cap) t` so the total saturates
-    at `cap` instead of running an unbounded `COUNT(*)` over the whole
-    published generation. Callers (galaxy-wide search) mark `total_is_capped`
-    when the returned total reaches `cap`. Mirrors the legacy builder's
-    galaxy-wide count cap.
-    """
-
+    _require_spec(spec)
+    if picked_economy:
+        raise ValueError("picked_economy has no V3 projection")
+    if sort not in SUPPORTED_SORTS:
+        raise ValueError(f"unsupported sort: {sort!r}")
+    if cap is not None and (cap < 1 or cap > RANKING_WINDOW_LIMIT):
+        raise ValueError("count cap exceeds the ranking window")
     builder = _ParamBuilder()
-    joins, where_clauses, _primary_score_expr, _confidence_expr, _uncertainty_expr = _build_common(
+    if picked_archetype is not None:
+        if hard_filters:
+            raise ValueError("picked archetype ranking does not accept hard filters")
+        sql = _picked_count_query(
+            picked_archetype=picked_archetype,
+            min_score=min_score,
+        )
+        return sql, builder.params
+
+    sentinel = int(cap) + 1 if cap is not None else None
+    if (
+        sort == SORT_DISTANCE
+        and reference_coords is not None
+        and hard_filters.get("max_distance_ly") is not None
+        and sentinel is not None
+    ):
+        sql = _no_pick_knn_count(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            sentinel=sentinel,
+        )
+        return sql, builder.params
+
+    clauses = _no_pick_filters(
         builder,
-        spec=spec,
-        picked_archetype=picked_archetype,
-        picked_economy=picked_economy,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
     )
-
-    where_sql = f"WHERE {' AND '.join(where_clauses)}\n" if where_clauses else ""
-    joins_sql = "\n".join(joins)
-
-    if cap is not None:
-        # Bounded count: the subquery stops scanning at `cap` rows, so a
-        # galaxy-wide search never performs a full-generation COUNT(*). The
-        # cap parameter is added last, so it is the final positional ($n)
-        # after every WHERE/join param already registered above.
-        cap_param = builder.add(int(cap))
-        sql = (
-            "SELECT count(*) FROM (\n"
-            "SELECT 1\n"
-            "FROM v3_app.system_search s\n"
-            f"{joins_sql}\n"
-            f"{where_sql}"
-            f"LIMIT {cap_param}\n"
-            ") t"
-        ).rstrip()
+    where_sql = f"WHERE {' AND '.join(clauses)}\n" if clauses else ""
+    base = (
+        "SELECT 1\n"
+        "FROM v3_app.system_archetype_summary sum\n"
+        "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
+        f"{where_sql}"
+    )
+    if sentinel is None:
+        sql = "SELECT count(*)\n" + base.replace("SELECT 1\n", "", 1)
     else:
-        sql = (
-            "SELECT count(*)\n"
-            "FROM v3_app.system_search s\n"
-            f"{joins_sql}\n"
-            f"{where_sql}"
-        ).rstrip()
-
-    return sql, builder.params
+        sentinel_param = builder.add(sentinel)
+        sql = f"SELECT count(*) FROM (\n{base}LIMIT {sentinel_param}\n) bounded"
+    return sql.rstrip(), builder.params

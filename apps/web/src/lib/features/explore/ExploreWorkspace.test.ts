@@ -93,7 +93,18 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       dispose: vi.fn(),
     }));
     vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
-    vi.mocked(api.searchExploreSystems).mockResolvedValue({ results: [] });
+    vi.mocked(api.searchExploreSystems).mockResolvedValue({
+      results: [],
+      ranking: {
+        ranking_version: 'v3-colony-potential-2',
+        ranking_sha256: 'ranking-sha',
+        derived_generation_id: 'generation-id',
+        publication_sequence: 1,
+        archetype_version: 'archetype-version',
+        archetype_manifest_sha256: 'manifest-sha',
+        archetype_model_sha256: 'model-sha',
+      },
+    });
     vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
       systems: [],
       truncated: false,

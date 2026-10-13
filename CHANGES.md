@@ -32,6 +32,12 @@ by a raw-input wide-row builder and exact validator. The governed migration
 manifest and schema authority are recut for the rewritten `011`; this remains
 registration only and does not claim production application.
 
+The Finder ranking/API layer now reads that wide row through bounded 10,000-row
+windows, literal B/A/S floors, cap-plus-one counts, and an anchored GiST KNN
+nearest-first path. Picked and galaxy-wide hard-filter combinations fail
+closed, filtered or score-sorted anchored searches are limited to 500 ly, and
+both ranking envelopes carry the READY archetype product's complete identity.
+
 ## 2026-10-11 — Read-only production disk inventory action
 
 The governed `v3-disk-inventory` action inventories PostgreSQL volume

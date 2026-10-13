@@ -29,7 +29,20 @@ import asyncpg
 from fastapi import HTTPException
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
-from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION, TIER_THRESHOLDS, ranking_sha256
+from edfinder_api.ranking.profile import (
+    LOCAL_SEARCH_ANCHORED_RADIUS_REJECTION_REASON,
+    LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY,
+    LOCAL_SEARCH_FROM_MIN,
+    LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON,
+    LOCAL_SEARCH_MAX_RADIUS_DEFAULT_LY,
+    LOCAL_SEARCH_REQUEST_RADIUS_DEFAULT_LY,
+    LOCAL_SEARCH_RESULT_CAP,
+    LOCAL_SEARCH_SIZE_MIN,
+    PROFILE_SPEC,
+    RANKING_VERSION,
+    TIER_THRESHOLDS,
+    ranking_sha256,
+)
 from edfinder_api.ranking.ranking_sql import (
     build_count_query,
     build_ranked_query,
@@ -52,11 +65,14 @@ log = logging.getLogger("ed-finder.local_search")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-MAX_SEARCH_RADIUS = float(os.getenv("MAX_SEARCH_RADIUS_LY", "10000"))
+MAX_SEARCH_RADIUS = float(os.getenv(
+    "MAX_SEARCH_RADIUS_LY", str(LOCAL_SEARCH_MAX_RADIUS_DEFAULT_LY),
+))
 DEFAULT_PAGE_SIZE = 50_000
 MAX_PAGE_SIZE     = 200_000
 CLUSTER_RADIUS_LY = float(os.getenv("CLUSTER_RADIUS_LY", "500"))
 GALAXY_WIDE_COUNT_CAP = 10_000
+V3_DEFAULT_PAGE_SIZE = 50
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +265,11 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
     _min_raw = dist_filter.get("min")
     _max_raw = dist_filter.get("max")
     min_dist = float(_min_raw) if _min_raw is not None else 0.0
-    max_dist_req = float(_max_raw) if _max_raw is not None else 500.0
+    max_dist_req = (
+        float(_max_raw)
+        if _max_raw is not None
+        else float(LOCAL_SEARCH_REQUEST_RADIUS_DEFAULT_LY)
+    )
     max_dist = min(max_dist_req, MAX_SEARCH_RADIUS)
     radius_capped = max_dist < max_dist_req
 
@@ -596,9 +616,6 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 # would read as "no matches for that filter" when really the filter was
 # never applied.
 #
-# TODO(F3 follow-up): `min_distance` (the lower bound of the distance range
-# filter) still has no `HARD_FILTER_KEYS` entry and is silently ignored by
-# the V3 path — only the upper bound (`max_distance_ly`) is enforced today.
 # The derived products a V3 Finder ranked read depends on. Publication only
 # blocks *registered* products that aren't READY, so a generation could be
 # published with one of these never registered at all -- its `v3_app.*` view
@@ -607,7 +624,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 _REQUIRED_FINDER_PRODUCTS: frozenset[str] = frozenset({'system_search', 'system_archetype'})
 
 
-async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg.Record:
+async def _current_derived_generation(connection: asyncpg.Connection) -> dict[str, Any]:
     row = await connection.fetchrow('''
         SELECT c.derived_generation_id, c.publication_sequence
         FROM v3_meta.current_derived_generation c
@@ -624,7 +641,10 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg
     # empty result that reads as a valid search with no hits.
     ready = await connection.fetch(
         '''
-        SELECT product_code
+        SELECT product_code,
+               product_version AS archetype_version,
+               encode(manifest_sha256, 'hex') AS archetype_manifest_sha256,
+               manifest ->> 'archetype_model_sha256' AS archetype_model_sha256
         FROM v3_meta.derived_product
         WHERE derived_generation_id = $1
           AND lifecycle_state = 'READY'
@@ -640,10 +660,24 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> asyncpg
             'Finder ranking products are not available for the published '
             f'generation (missing/not-ready: {", ".join(sorted(missing))}).',
         )
-    return row
+
+    archetype_product = next(
+        product for product in ready if product['product_code'] == 'system_archetype'
+    )
+    identity = {
+        'archetype_version': archetype_product['archetype_version'],
+        'archetype_manifest_sha256': archetype_product['archetype_manifest_sha256'],
+        'archetype_model_sha256': archetype_product['archetype_model_sha256'],
+    }
+    if any(not value for value in identity.values()):
+        raise HTTPException(
+            503,
+            'Finder archetype product identity is incomplete for the published generation.',
+        )
+    return {**dict(row), **identity}
 
 
-async def resolve_published_generation(pool: asyncpg.Pool) -> asyncpg.Record:
+async def resolve_published_generation(pool: asyncpg.Pool) -> dict[str, Any]:
     """Resolve the current PUBLISHED derived generation (id + sequence).
 
     Public wrapper around `_current_derived_generation` for callers (the
@@ -754,6 +788,88 @@ def _v3_hard_filters(ctx: LocalSearchContext) -> dict[str, Any]:
     return hard_filters
 
 
+def _validate_v3_window(ctx: LocalSearchContext) -> None:
+    """Fail closed on an unbounded or nonsensical V3 result window.
+
+    The public Pydantic model enforces the same contract. Keeping the check at
+    the execution boundary protects direct/internal callers too, and ensures a
+    future route cannot accidentally issue an oversized OFFSET/LIMIT query.
+    """
+    if ctx.from_idx < LOCAL_SEARCH_FROM_MIN:
+        raise HTTPException(
+            422,
+            f'from must be greater than or equal to {LOCAL_SEARCH_FROM_MIN}',
+        )
+    if ctx.size < LOCAL_SEARCH_SIZE_MIN:
+        raise HTTPException(
+            422,
+            f'size must be greater than or equal to {LOCAL_SEARCH_SIZE_MIN}',
+        )
+    if ctx.from_idx + ctx.size > LOCAL_SEARCH_RESULT_CAP:
+        raise HTTPException(
+            422,
+            f'from + size must be less than or equal to {LOCAL_SEARCH_RESULT_CAP}',
+        )
+
+
+def _explicit_galaxy_wide_distance_filters(body: dict) -> set[str]:
+    """Return explicitly requested distance bounds for an unanchored query.
+
+    `_v3_hard_filters` deliberately records radius bounds only for anchored
+    requests. In galaxy-wide mode an explicitly supplied distance bound is
+    nevertheless a hard-filter request and must be rejected rather than
+    silently ignored.
+    """
+    distance = ((body.get('filters') or {}).get('distance') or {})
+    if not isinstance(distance, dict):
+        return set()
+    names: set[str] = set()
+    if distance.get('min') is not None:
+        names.add('min_distance_ly')
+    if distance.get('max') is not None:
+        names.add('max_distance_ly')
+    return names
+
+
+def _validate_v3_query_bound(
+    body: dict,
+    ctx: LocalSearchContext,
+    hard_filters: dict[str, Any],
+    sort_mode: str,
+) -> None:
+    """Enforce the two bounded Any-mode access paths from the F2d design."""
+    if ctx.galaxy_wide:
+        requested = set(hard_filters) | _explicit_galaxy_wide_distance_filters(body)
+        if requested:
+            names = ', '.join(sorted(requested))
+            raise HTTPException(
+                422,
+                f'{names}: {LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON}',
+            )
+        return
+
+    # max_distance_ly is the anchored KNN path's intrinsic radius, not a hard
+    # filter for access-path classification. Every other predicate is.
+    classification_filters = set(hard_filters) - {'max_distance_ly'}
+    unfiltered_nearest_first = (
+        sort_mode == SORT_DISTANCE and not classification_filters
+    )
+    if (
+        not unfiltered_nearest_first
+        and ctx.max_dist_req > LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY
+    ):
+        raise HTTPException(
+            422,
+            LOCAL_SEARCH_ANCHORED_RADIUS_REJECTION_REASON,
+        )
+
+
+def _bounded_v3_total(qualifying: int | None) -> tuple[int, bool]:
+    """Turn the cap+1 sentinel count into the public total contract."""
+    count = int(qualifying) if qualifying is not None else 0
+    return min(count, LOCAL_SEARCH_RESULT_CAP), count > LOCAL_SEARCH_RESULT_CAP
+
+
 def _v3_tier(score: Any) -> str | None:
     if score is None:
         return None
@@ -849,7 +965,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     other schema's relation is ever touched here.
     """
     t0 = time.time()
-    ctx = _parse_local_search_context(body)
+    # `_parse_local_search_context` is shared with legacy routes whose default
+    # page is 50,000. The V3 public request model defaults to 50, so preserve
+    # that bounded contract for direct/internal callers that omit `size` too.
+    ctx = _parse_local_search_context({'size': V3_DEFAULT_PAGE_SIZE, **body})
+    _validate_v3_window(ctx)
 
     # `v3_app.system_search` has no population column at all (see the module
     # comment above): a caller who explicitly asked for ANY population
@@ -862,6 +982,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     if isinstance(_pop_filter, dict) and any(
         _pop_filter.get(k) is not None for k in ('value', 'min', 'max')
     ):
+        if ctx.galaxy_wide:
+            raise HTTPException(
+                422,
+                f'population: {LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON}',
+            )
         raise HTTPException(
             422,
             'population filter is not supported by V3 Finder search '
@@ -897,7 +1022,15 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
     sort_mode = _SORT_BY_TO_MODE[sort_by]
 
     hard_filters = _v3_hard_filters(ctx)
-    reference_coords = (ctx.rx, ctx.ry, ctx.rz) if ctx.has_reference_coords else None
+    _validate_v3_query_bound(body, ctx, hard_filters, sort_mode)
+    # Galaxy-wide mode is deliberately unanchored. A caller may still send
+    # display/reference coordinates, but letting those reach the builder would
+    # bypass the bounded no-pick summary window without changing semantics.
+    reference_coords = (
+        (ctx.rx, ctx.ry, ctx.rz)
+        if not ctx.galaxy_wide and ctx.has_reference_coords
+        else None
+    )
 
     sql, params = build_ranked_query(
         PROFILE_SPEC,
@@ -915,11 +1048,10 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         picked_economy=picked_economy,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
-        # Galaxy-wide searches carry no distance restriction, so an exact
-        # COUNT(*) would scan the whole published generation on every cache
-        # miss. Cap the count like the legacy path; a distance-bounded search
-        # keeps its precise total.
-        cap=GALAXY_WIDE_COUNT_CAP if ctx.galaxy_wide else None,
+        # Every count is sentinel-bounded. The builder emits LIMIT cap + 1 so
+        # exactly 10,000 matches remains distinguishable from truncation.
+        cap=LOCAL_SEARCH_RESULT_CAP,
+        sort=sort_mode,
     )
 
     try:
@@ -931,7 +1063,7 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
             async with conn.transaction(isolation='repeatable_read', readonly=True):
                 generation_row = await _current_derived_generation(conn)
                 rows = await conn.fetch(sql, *params)
-                total = await conn.fetchval(count_sql, *count_params)
+                qualifying = await conn.fetchval(count_sql, *count_params)
     except HTTPException:
         raise
     except (asyncpg.exceptions.UndefinedTableError,
@@ -945,13 +1077,16 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
 
     results = [_build_v3_system_record(row, reference_coords) for row in rows]
     elapsed = round((time.time() - t0) * 1000)
-    log.debug('local_db_search_v3: %d total, returning %d (from=%d) in %dms',
-              total, len(results), ctx.from_idx, elapsed)
+    qualifying = int(qualifying) if qualifying is not None else 0
+    total, total_is_capped = _bounded_v3_total(qualifying)
+    log.debug('local_db_search_v3: %d qualifying (reported=%d), returning %d (from=%d) in %dms',
+              qualifying, total, len(results), ctx.from_idx, elapsed)
 
     resp: dict[str, Any] = {
         'results':  results,
         'count':    len(results),
-        'total':    int(total) if total is not None else len(results),
+        'total':    total,
+        'total_is_capped': total_is_capped,
         'source':   f'v3:{RANKING_VERSION}',
         'query_ms': elapsed,
         'display_economy': 'overall',  # only "any"/no-pick reaches here (concrete economy → 422 above)
@@ -960,14 +1095,11 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
             'ranking_sha256': ranking_sha256(),
             'derived_generation_id': str(generation_row['derived_generation_id']),
             'publication_sequence': generation_row['publication_sequence'],
+            'archetype_version': generation_row['archetype_version'],
+            'archetype_manifest_sha256': generation_row['archetype_manifest_sha256'],
+            'archetype_model_sha256': generation_row['archetype_model_sha256'],
         },
     }
-    # Galaxy-wide totals are bounded by GALAXY_WIDE_COUNT_CAP (the count SQL
-    # was capped above); advertise the truncation so clients don't treat the
-    # saturated value as an exact galaxy population. Matches the legacy
-    # contract asserted by tests/integration/test_search_query_safety.py.
-    if ctx.galaxy_wide and total is not None and int(total) >= GALAXY_WIDE_COUNT_CAP:
-        resp['total_is_capped'] = True
     if ctx.radius_capped:
         resp['warning'] = (
             f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "

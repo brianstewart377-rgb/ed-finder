@@ -16,6 +16,7 @@ pool connected to the same disposable database psycopg created.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from pathlib import Path
 import sys
@@ -41,7 +42,12 @@ from scripts.v3_system_search import (  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 from edfinder_api import local_search  # noqa: E402
-from edfinder_api.ranking.profile import RANKING_VERSION  # noqa: E402
+from edfinder_api.ranking.profile import PROFILE_SPEC, RANKING_VERSION  # noqa: E402
+from edfinder_api.ranking.ranking_sql import (  # noqa: E402
+    SORT_DISTANCE,
+    build_count_query,
+    build_ranked_query,
+)
 
 
 @pytest.fixture
@@ -247,18 +253,23 @@ async def test_local_search_v3_honours_terraformable_hard_filter(database):
     connection, _, _, _ = database
     _build_published_generation(database)
 
-    all_counts = dict(connection.execute('''
-        SELECT system_id64, terraformable_count FROM v3_app.system_search
-    ''').fetchall())
-    expected_ids = {system_id64 for system_id64, count in all_counts.items() if count >= 1}
+    all_rows = connection.execute('''
+        SELECT system_id64, terraformable_count, x_ly, y_ly, z_ly
+          FROM v3_app.system_search
+    ''').fetchall()
+    expected_ids = {
+        system_id64 for system_id64, count, x, y, z in all_rows
+        if count >= 1 and (x * x + y * y + z * z) ** 0.5 <= 500.0
+    }
     assert expected_ids, 'fixture must contain at least one terraformable system'
-    assert len(expected_ids) < len(all_counts), 'fixture must contain at least one non-matching system too'
+    assert len(expected_ids) < len(all_rows), 'fixture must contain at least one non-matching system too'
 
     pool = await _asyncpg_pool(connection)
     try:
         result = await local_search.local_db_search_v3(
             {
-                'galaxy_wide': True,
+                'galaxy_wide': False,
+                'reference_coords': {'x': 0.0, 'y': 0.0, 'z': 0.0},
                 'size': 50,
                 'from': 0,
                 'body_filters': {'terraformable_count': {'min': 1}},
@@ -284,18 +295,23 @@ async def test_local_search_v3_honours_body_count_max_bound(database):
     connection, _, _, _ = database
     _build_published_generation(database)
 
-    all_counts = dict(connection.execute('''
-        SELECT system_id64, terraformable_count FROM v3_app.system_search
-    ''').fetchall())
-    expected_ids = {system_id64 for system_id64, count in all_counts.items() if count == 0}
+    all_rows = connection.execute('''
+        SELECT system_id64, terraformable_count, x_ly, y_ly, z_ly
+          FROM v3_app.system_search
+    ''').fetchall()
+    expected_ids = {
+        system_id64 for system_id64, count, x, y, z in all_rows
+        if count == 0 and (x * x + y * y + z * z) ** 0.5 <= 500.0
+    }
     assert expected_ids, 'fixture must contain at least one zero-terraformable system'
-    assert len(expected_ids) < len(all_counts), 'fixture must contain at least one excluded system too'
+    assert len(expected_ids) < len(all_rows), 'fixture must contain at least one excluded system too'
 
     pool = await _asyncpg_pool(connection)
     try:
         result = await local_search.local_db_search_v3(
             {
-                'galaxy_wide': True,
+                'galaxy_wide': False,
+                'reference_coords': {'x': 0.0, 'y': 0.0, 'z': 0.0},
                 'size': 50,
                 'from': 0,
                 'body_filters': {'terraformable_count': {'max': 0}},
@@ -363,17 +379,27 @@ async def test_local_search_v3_require_bio_excludes_non_bio_systems(database):
     connection, _, _, _ = database
     _build_published_generation(database)
 
-    all_flags = dict(connection.execute('''
-        SELECT system_id64, has_biologicals FROM v3_app.system_search
-    ''').fetchall())
-    expected_ids = {system_id64 for system_id64, flag in all_flags.items() if flag}
+    all_rows = connection.execute('''
+        SELECT system_id64, has_biologicals, x_ly, y_ly, z_ly
+          FROM v3_app.system_search
+    ''').fetchall()
+    expected_ids = {
+        system_id64 for system_id64, flag, x, y, z in all_rows
+        if flag and (x * x + y * y + z * z) ** 0.5 <= 500.0
+    }
     assert expected_ids, 'fixture must contain at least one biological system'
-    assert len(expected_ids) < len(all_flags), 'fixture must contain at least one non-bio system too'
+    assert len(expected_ids) < len(all_rows), 'fixture must contain at least one non-bio system too'
 
     pool = await _asyncpg_pool(connection)
     try:
         result = await local_search.local_db_search_v3(
-            {'galaxy_wide': True, 'size': 50, 'from': 0, 'require_bio': True},
+            {
+                'galaxy_wide': False,
+                'reference_coords': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+                'size': 50,
+                'from': 0,
+                'require_bio': True,
+            },
             pool,
         )
     finally:
@@ -382,6 +408,76 @@ async def test_local_search_v3_require_bio_excludes_non_bio_systems(database):
     returned_ids = {row['id64'] for row in result['results']}
     assert returned_ids == expected_ids
     assert result['total'] == len(expected_ids)
+
+
+def _plan_nodes(plan, ancestors=()):
+    yield plan, ancestors
+    for child in plan.get('Plans', ()):
+        yield from _plan_nodes(child, (*ancestors, plan['Node Type']))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('statement_kind', ('page', 'count'))
+async def test_anchored_nearest_first_plan_keeps_knn_below_inner_limit(
+    database, statement_kind,
+):
+    """The exact-radius predicate must not be allowed to unbound KNN.
+
+    The synthetic fixture is intentionally tiny, so sequential and bitmap
+    paths are disabled for this structural plan assertion. Production plan
+    probes make the corresponding cost-based assertion against full data.
+    """
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    kwargs = {
+        'picked_archetype': None,
+        'picked_economy': None,
+        'hard_filters': {'max_distance_ly': 500.0},
+        'reference_coords': (0.0, 0.0, 0.0),
+        'sort': SORT_DISTANCE,
+    }
+    if statement_kind == 'page':
+        sql, params = build_ranked_query(
+            PROFILE_SPEC, **kwargs, limit=50, offset=0,
+        )
+    else:
+        sql, params = build_count_query(
+            PROFILE_SPEC, **kwargs, cap=10_000,
+        )
+
+    pool = await _asyncpg_pool(connection)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute('SET plan_cache_mode = force_generic_plan')
+            await conn.execute('SET enable_seqscan = off')
+            await conn.execute('SET enable_bitmapscan = off')
+            raw = await conn.fetchval(f'EXPLAIN (FORMAT JSON) {sql}', *params)
+    finally:
+        await pool.close()
+
+    document = json.loads(raw) if isinstance(raw, str) else raw
+    nodes = list(_plan_nodes(document[0]['Plan']))
+    knn_nodes = [
+        (node, ancestors)
+        for node, ancestors in nodes
+        if node['Node Type'] in {'Index Scan', 'Index Only Scan'}
+        and node.get('Index Name') == 'system_search_position_gist'
+        and '<->' in str(node.get('Order By', ''))
+    ]
+    assert knn_nodes, document
+    assert all('Limit' in ancestors for _, ancestors in knn_nodes), document
+    assert any(node['Node Type'] == 'Incremental Sort' for node, _ in nodes), document
+    assert not any(node['Node Type'] == 'Sort' for node, _ in nodes), document
+
+    # The outer Subquery Scan applies the spherical radius only after the
+    # bounded nearest-neighbour prefix has been materialised.
+    radius_filters = [
+        (node, ancestors)
+        for node, ancestors in nodes
+        if 'distance_ly' in str(node.get('Filter', ''))
+    ]
+    assert radius_filters, document
+    assert all('Limit' not in ancestors for _, ancestors in radius_filters), document
 
 
 @pytest.mark.asyncio
@@ -561,6 +657,116 @@ def test_parse_context_one_sided_distance_does_not_crash():
     assert ctx2.max_dist_req == 500.0  # default upper bound when omitted
 
 
+@pytest.mark.parametrize(
+    ('from_idx', 'size', 'accepted'),
+    ((9950, 50, True), (9999, 1, True), (10_000, 1, False), (10_001, 1, False),
+     (-1, 1, False), (0, 0, False)),
+)
+def test_v3_window_is_bounded(from_idx, size, accepted):
+    from fastapi import HTTPException
+
+    ctx = local_search._parse_local_search_context({
+        'galaxy_wide': True,
+        'from': from_idx,
+        'size': size,
+    })
+    if accepted:
+        local_search._validate_v3_window(ctx)
+    else:
+        with pytest.raises(HTTPException) as excinfo:
+            local_search._validate_v3_window(ctx)
+        assert excinfo.value.status_code == 422
+
+
+def test_v3_sentinel_total_distinguishes_exact_cap_from_truncation():
+    assert local_search._bounded_v3_total(10_000) == (10_000, False)
+    assert local_search._bounded_v3_total(10_001) == (10_000, True)
+
+
+@pytest.mark.parametrize(
+    'hard_filter',
+    (
+        'elw_count_min',
+        'terraformable_count_max',
+        'has_biologicals',
+        'main_star_class_in',
+        'min_development_score',
+        'galaxy_region',
+    ),
+)
+def test_galaxy_wide_any_rejects_every_hard_filter_class(hard_filter):
+    from fastapi import HTTPException
+
+    ctx = local_search._parse_local_search_context({'galaxy_wide': True})
+    with pytest.raises(HTTPException) as excinfo:
+        local_search._validate_v3_query_bound(
+            {}, ctx, {hard_filter: object()}, local_search.SORT_SCORE,
+        )
+    assert excinfo.value.status_code == 422
+    assert hard_filter in str(excinfo.value.detail)
+    assert 'pick an anchor area or remove the filter' in str(excinfo.value.detail)
+
+
+@pytest.mark.parametrize('bound', ('min', 'max'))
+def test_galaxy_wide_any_rejects_explicit_distance_bounds(bound):
+    from fastapi import HTTPException
+
+    body = {'galaxy_wide': True, 'filters': {'distance': {bound: 10}}}
+    ctx = local_search._parse_local_search_context(body)
+    with pytest.raises(HTTPException) as excinfo:
+        local_search._validate_v3_query_bound(
+            body, ctx, {}, local_search.SORT_SCORE,
+        )
+    assert excinfo.value.status_code == 422
+    assert f'{bound}_distance_ly' in str(excinfo.value.detail)
+
+
+def _anchored_context(*, radius: float, sort_by: str = 'distance'):
+    return local_search._parse_local_search_context({
+        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+        'filters': {'distance': {'max': radius}},
+        'sort_by': sort_by,
+    })
+
+
+def test_anchored_filter_and_sort_radius_contract():
+    from fastapi import HTTPException
+
+    # Every filter remains accepted at the measured 500-ly bound.
+    filtered_500 = _anchored_context(radius=500)
+    local_search._validate_v3_query_bound(
+        {}, filtered_500,
+        {'max_distance_ly': 500.0, 'has_biologicals': True},
+        local_search.SORT_DISTANCE,
+    )
+
+    # Above it, a real filter or score-first ordering is rejected.
+    filtered_501 = _anchored_context(radius=501)
+    with pytest.raises(HTTPException, match='reduce the radius, sort by distance, or remove the filter'):
+        local_search._validate_v3_query_bound(
+            {}, filtered_501,
+            {'max_distance_ly': 501.0, 'has_biologicals': True},
+            local_search.SORT_DISTANCE,
+        )
+    with pytest.raises(HTTPException, match='reduce the radius, sort by distance, or remove the filter'):
+        local_search._validate_v3_query_bound(
+            {}, filtered_501, {'max_distance_ly': 501.0}, local_search.SORT_SCORE,
+        )
+
+    # max_distance_ly is intrinsic to KNN, while min_distance_ly is a hard
+    # filter. Thus nearest-first alone can use the full route radius.
+    nearest_10k = _anchored_context(radius=10_000)
+    local_search._validate_v3_query_bound(
+        {}, nearest_10k, {'max_distance_ly': 10_000.0}, local_search.SORT_DISTANCE,
+    )
+    with pytest.raises(HTTPException, match='reduce the radius, sort by distance, or remove the filter'):
+        local_search._validate_v3_query_bound(
+            {}, filtered_501,
+            {'max_distance_ly': 501.0, 'min_distance_ly': 1.0},
+            local_search.SORT_DISTANCE,
+        )
+
+
 @pytest.mark.asyncio
 async def test_current_derived_generation_503_when_required_product_missing():
     """Finding #19: a published generation whose Finder products were never
@@ -588,8 +794,48 @@ async def test_current_derived_generation_ok_when_both_products_ready():
             return {'derived_generation_id': 'g1', 'publication_sequence': 3}
 
         async def fetch(self, *_a, **_k):
-            return [{'product_code': 'system_search'},
-                    {'product_code': 'system_archetype'}]
+            return [
+                {
+                    'product_code': 'system_search',
+                    'archetype_version': 'v3-search-1',
+                    'archetype_manifest_sha256': '1' * 64,
+                    'archetype_model_sha256': None,
+                },
+                {
+                    'product_code': 'system_archetype',
+                    'archetype_version': 'v3-archetype-4',
+                    'archetype_manifest_sha256': '2' * 64,
+                    'archetype_model_sha256': '3' * 64,
+                },
+            ]
 
     row = await local_search._current_derived_generation(_Conn())
     assert row['publication_sequence'] == 3
+    assert row['archetype_version'] == 'v3-archetype-4'
+    assert row['archetype_manifest_sha256'] == '2' * 64
+    assert row['archetype_model_sha256'] == '3' * 64
+
+
+@pytest.mark.asyncio
+async def test_current_derived_generation_503_when_archetype_identity_is_incomplete():
+    from fastapi import HTTPException
+
+    class _Conn:
+        async def fetchrow(self, *_a, **_k):
+            return {'derived_generation_id': 'g1', 'publication_sequence': 3}
+
+        async def fetch(self, *_a, **_k):
+            return [
+                {'product_code': 'system_search'},
+                {
+                    'product_code': 'system_archetype',
+                    'archetype_version': 'v3-archetype-4',
+                    'archetype_manifest_sha256': '2' * 64,
+                    'archetype_model_sha256': None,
+                },
+            ]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search._current_derived_generation(_Conn())
+    assert excinfo.value.status_code == 503
+    assert 'identity is incomplete' in str(excinfo.value.detail)

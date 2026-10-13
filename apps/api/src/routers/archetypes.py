@@ -31,7 +31,7 @@ import hashlib
 import json
 import math
 import time
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -54,10 +54,20 @@ from edfinder_api.models import (
     SystemArchetypeResponse,
 )
 from edfinder_api.ranking.profile import (
+    ACCEPTED_ARCHETYPE_SCORE_FLOORS,
     ARCHETYPE_KEYS,
+    ARCHETYPE_SCORE_FLOOR_DEFAULT,
+    PICKED_ARCHETYPE_FILTER_REJECTION_REASON,
+    PICKED_ARCHETYPE_REJECTED_FILTERS,
     PROFILE_SPEC,
+    RANKING_COUNT_SENTINEL,
+    RANKING_OFFSET_MAX,
+    RANKING_OFFSET_MIN,
+    RANKING_OFFSET_PLUS_LIMIT_MAX,
+    RANKING_PAGE_LIMIT_MAX,
+    RANKING_PAGE_LIMIT_MIN,
     RANKING_VERSION,
-    TIER_THRESHOLDS,
+    RANKING_WINDOW_LIMIT,
     ranking_sha256,
 )
 from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
@@ -278,19 +288,11 @@ def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str,
 # handler delegates to, so the helper stays directly unit-testable without
 # going through slowapi's `Request`-bound limiter decorator.
 #
-# `min_slots` and `max_contamination` have no `v3_app.system_archetype`
-# column at all (no slot-count or contamination projection exists in the F2b
-# relation) -- like `local_db_search_v3`'s population-filter handling, a
-# caller who explicitly asks for either gets a clear 422 rather than a
-# silently-ignored filter. `has_elw` maps onto the elw_count range filters:
-# true -> `elw_count_min = 1` (at least one ELW), false -> `elw_count_max = 0`
-# (exactly zero), so both directions are honoured rather than dropped.
-#
-# `max_distance_ly` and the always-shown `distance_to_sol` both measure from
-# Sol at the coordinate origin (the same `(0, 0, 0)` convention
-# `local_search.py`'s `SOL_ID64` guard and the legacy
-# `SQRT(x*x + y*y + z*z)` this endpoint replaces both rely on), so
-# `reference_coords` is always `(0.0, 0.0, 0.0)` here -- never `None`.
+# The picked-archetype access path is deliberately unfiltered: a fixed partial
+# index supplies the first 10,000 stored weighted keys, after which the page
+# fetch touches at most 500 wide rows. Any hard-filter parameter is rejected
+# before SQL construction so it cannot silently change the meaning of that
+# bounded window.
 async def _archetype_rankings_v3(
     *,
     archetype: str,
@@ -314,52 +316,71 @@ async def _archetype_rankings_v3(
                 f"Valid values: {sorted(ARCHETYPE_KEYS)}"
             ),
         )
-    if min_slots is not None:
+    if min_score not in ACCEPTED_ARCHETYPE_SCORE_FLOORS:
+        raise HTTPException(
+            status_code=422,
+            detail=f'min_score must be one of {list(ACCEPTED_ARCHETYPE_SCORE_FLOORS)}',
+        )
+    if offset < RANKING_OFFSET_MIN or offset > RANKING_OFFSET_MAX:
+        raise HTTPException(
+            status_code=422,
+            detail=f'offset must be between 0 and {RANKING_WINDOW_LIMIT - 1}',
+        )
+    if limit < RANKING_PAGE_LIMIT_MIN or limit > RANKING_PAGE_LIMIT_MAX:
         raise HTTPException(
             status_code=422,
             detail=(
-                'min_slots is not supported by V3 archetype rankings '
-                '(v3_app.system_archetype has no slot-count column).'
+                f'limit must be between {RANKING_PAGE_LIMIT_MIN} and '
+                f'{RANKING_PAGE_LIMIT_MAX}'
             ),
         )
-    if max_contamination is not None:
+    if offset + limit > RANKING_OFFSET_PLUS_LIMIT_MAX:
         raise HTTPException(
             status_code=422,
             detail=(
-                'max_contamination is not supported by V3 archetype rankings '
-                '(v3_app.system_archetype has no contamination column).'
+                'offset + limit must be less than or equal to '
+                f'{RANKING_OFFSET_PLUS_LIMIT_MAX}'
             ),
         )
-    hard_filters: dict[str, Any] = {'min_development_score': min_score}
-    if galaxy_region is not None:
-        hard_filters['galaxy_region'] = galaxy_region
-    if max_distance_ly is not None:
-        hard_filters['max_distance_ly'] = max_distance_ly
-    # has_elw True -> at least one ELW (elw_count >= 1); False -> exactly zero
-    # (elw_count <= 0). Both are now expressible via the elw_count_min /
-    # elw_count_max hard filters, so has_elw=false is honoured rather than 422'd.
-    if has_elw is True:
-        hard_filters['elw_count_min'] = 1
-    elif has_elw is False:
-        hard_filters['elw_count_max'] = 0
 
-    reference_coords = (0.0, 0.0, 0.0)
+    filter_values = {
+        'galaxy_region': galaxy_region,
+        'max_distance_ly': max_distance_ly,
+        'has_elw': has_elw,
+        'min_slots': min_slots,
+        'max_contamination': max_contamination,
+    }
+    rejected = [
+        name
+        for name in PICKED_ARCHETYPE_REJECTED_FILTERS
+        if filter_values[name] is not None
+    ]
+    if rejected:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f'{", ".join(rejected)}: '
+                f'{PICKED_ARCHETYPE_FILTER_REJECTION_REASON}'
+            ),
+        )
 
     sql, params = build_ranked_query(
         PROFILE_SPEC,
         picked_archetype=archetype,
         picked_economy=None,
-        hard_filters=hard_filters,
-        reference_coords=reference_coords,
+        hard_filters={},
+        reference_coords=None,
         limit=limit,
         offset=offset,
+        min_score=min_score,
     )
     count_sql, count_params = build_count_query(
         PROFILE_SPEC,
         picked_archetype=archetype,
         picked_economy=None,
-        hard_filters=hard_filters,
-        reference_coords=reference_coords,
+        hard_filters={},
+        reference_coords=None,
+        min_score=min_score,
     )
 
     try:
@@ -388,13 +409,15 @@ async def _archetype_rankings_v3(
 
     query_ms = int((time.monotonic() - t0) * 1000)
     results = [_build_v3_ranking_row(row, archetype) for row in rows]
+    qualifying = int(total) if total is not None else len(results)
 
     return {
         'archetype':       archetype,
         'archetype_label': _V3_ARCHETYPE_LABELS.get(archetype, archetype),
         'results':         results,
-        'total':           int(total) if total is not None else len(results),
+        'total':           min(qualifying, RANKING_WINDOW_LIMIT),
         'count':           len(results),
+        'is_truncated':    qualifying == RANKING_COUNT_SENTINEL,
         'source':          f'v3:{RANKING_VERSION}',
         'query_ms':        query_ms,
         'ranking': {
@@ -402,31 +425,19 @@ async def _archetype_rankings_v3(
             'ranking_sha256': ranking_sha256(),
             'derived_generation_id': str(generation_row['derived_generation_id']),
             'publication_sequence': generation_row['publication_sequence'],
+            'archetype_version': generation_row['archetype_version'],
+            'archetype_manifest_sha256': generation_row['archetype_manifest_sha256'],
+            'archetype_model_sha256': generation_row['archetype_model_sha256'],
         },
     }
-
-
-def _v3_ranking_tier(score: Any) -> str:
-    s = float(score or 0)
-    if s >= TIER_THRESHOLDS['S']:
-        return 'S'
-    if s >= TIER_THRESHOLDS['A']:
-        return 'A'
-    if s >= TIER_THRESHOLDS['B']:
-        return 'B'
-    if s >= TIER_THRESHOLDS['C']:
-        return 'C'
-    return 'D'
 
 
 def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     """Shape one `build_ranked_query` row into an `ArchetypeRankingRow`.
 
     `build_ranked_query` selects `s.*` (the `v3_app.system_search` columns)
-    plus `primary_score` (= `a.archetype_score` for a picked archetype),
-    `ranking_confidence` (= the raw `a.confidence` selected-fit confidence the
-    uncertainty modifier reads), `uncertainty_factor`
-    (= `a.confidence * s.completeness`), and the summary aliases
+    plus the selected wide-row score, stored tier, confidence and weighted
+    ordering key, and the summary aliases
     (`summary_primary_archetype`/`summary_secondary_archetype`/
     `summary_best_colony_potential`/`summary_archetype_confidence`).
 
@@ -446,10 +457,11 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
 
     completeness = row.get('completeness')
     # `confidence` (badge) = the selected fit's evidence confidence
-    # (a.confidence, exposed as ranking_confidence). `archetype_confidence`
-    # keeps its established meaning: the summary's classification-separation
-    # confidence for the system's own primary/secondary archetypes -- read from
-    # the summary alias, not overwritten with the selected-fit value.
+    # (the wide row's `<key>_confidence_ppm / 1000000.0`, exposed as
+    # ranking_confidence). `archetype_confidence` keeps its established
+    # meaning: the summary's classification-separation confidence for the
+    # system's own primary/secondary archetypes -- read from the summary alias,
+    # not overwritten with the selected-fit value.
     ranking_confidence = row.get('ranking_confidence')
     selected_fit_confidence = (
         round(float(ranking_confidence), 4) if ranking_confidence is not None else None
@@ -468,7 +480,7 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
         'coords':              {'x': x, 'y': y, 'z': z},
         'distance_to_sol':     distance_to_sol,
         'score':               score,
-        'tier':                _v3_ranking_tier(score),
+        'tier':                row['selected_archetype_tier'],
         # The system's ACTUAL primary/secondary archetype and overall best
         # potential, read from the summary (finding #20) -- not the requested
         # archetype. The requested one is exposed as `selected_archetype`.
@@ -508,15 +520,25 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
 async def get_archetype_rankings(
     request: Request,
     archetype:       str            = Query(..., description='Colony archetype key'),
-    min_score:       int            = Query(40,  ge=0,   le=100),
+    min_score:       Literal[60, 76, 88] = Query(ARCHETYPE_SCORE_FLOOR_DEFAULT),
     galaxy_region:   Optional[int]  = Query(None, ge=0, le=2_147_483_647),
     max_distance_ly: Optional[float]= Query(None, ge=0),
     has_elw:         Optional[bool] = Query(None),
     min_slots:       Optional[int]  = Query(None, ge=0),
     max_contamination: Optional[float] = Query(None, ge=0, le=100),
-    limit:           int            = Query(50,  ge=1,  le=500),
-    offset:          int            = Query(0,   ge=0),
+    limit:           int            = Query(
+        50, ge=RANKING_PAGE_LIMIT_MIN, le=RANKING_PAGE_LIMIT_MAX
+    ),
+    offset:          int            = Query(
+        RANKING_OFFSET_MIN, ge=RANKING_OFFSET_MIN, le=RANKING_OFFSET_MAX
+    ),
 ):
+    if offset + limit > RANKING_OFFSET_PLUS_LIMIT_MAX:
+        raise HTTPException(
+            422,
+            'offset + limit must be less than or equal to '
+            f'{RANKING_OFFSET_PLUS_LIMIT_MAX}',
+        )
     pool = get_pool()
     return await _archetype_rankings_v3(
         archetype=archetype,

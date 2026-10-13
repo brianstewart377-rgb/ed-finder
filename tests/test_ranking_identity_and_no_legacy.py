@@ -36,7 +36,11 @@ from scripts.v3_system_search import (  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 from edfinder_api import local_search  # noqa: E402
-from edfinder_api.ranking.profile import RANKING_VERSION, ranking_sha256  # noqa: E402
+from edfinder_api.ranking.profile import (  # noqa: E402
+    ARCHETYPE_KEYS,
+    RANKING_VERSION,
+    ranking_sha256,
+)
 from edfinder_api.routers import archetypes  # noqa: E402
 from edfinder_api.routers import search as search_router  # noqa: E402
 
@@ -122,6 +126,18 @@ def _current_generation_row(connection):
     ''').fetchone()
 
 
+def _archetype_product_identity(connection, generation_id):
+    return connection.execute('''
+        SELECT product_version,
+               encode(manifest_sha256, 'hex'),
+               manifest ->> 'archetype_model_sha256'
+          FROM v3_meta.derived_product
+         WHERE derived_generation_id = %s
+           AND product_code = 'system_archetype'
+           AND lifecycle_state = 'READY'
+    ''', (generation_id,)).fetchone()
+
+
 async def _asyncpg_pool(connection):
     import asyncpg
     from psycopg.conninfo import conninfo_to_dict
@@ -145,6 +161,8 @@ async def test_local_search_v3_carries_ranking_identity_and_confidence_badge(dat
 
     gen_row = _current_generation_row(connection)
     assert gen_row is not None
+    product_identity = _archetype_product_identity(connection, gen_row[0])
+    assert product_identity is not None
 
     pool = await _asyncpg_pool(connection)
     try:
@@ -158,11 +176,14 @@ async def test_local_search_v3_carries_ranking_identity_and_confidence_badge(dat
 
     ranking = result.get('ranking')
     assert ranking is not None
-    assert ranking['ranking_version'] == RANKING_VERSION == 'v3-colony-potential-1'
+    assert ranking['ranking_version'] == RANKING_VERSION == 'v3-colony-potential-2'
     assert ranking['ranking_sha256'] == ranking_sha256()
     assert ranking['ranking_sha256']
-    assert ranking['derived_generation_id'] == gen_row[0]
+    assert ranking['derived_generation_id'] == str(gen_row[0])
     assert ranking['publication_sequence'] == gen_row[1]
+    assert ranking['archetype_version'] == product_identity[0]
+    assert ranking['archetype_manifest_sha256'] == product_identity[1]
+    assert ranking['archetype_model_sha256'] == product_identity[2]
 
     for row in result['results']:
         assert 'confidence' in row
@@ -176,16 +197,23 @@ async def test_archetype_rankings_v3_carries_ranking_identity_and_confidence_bad
 
     gen_row = _current_generation_row(connection)
     assert gen_row is not None
+    product_identity = _archetype_product_identity(connection, gen_row[0])
+    assert product_identity is not None
 
-    archetype_key = connection.execute(
-        'SELECT archetype_key FROM v3_app.system_archetype LIMIT 1'
-    ).fetchone()[0]
+    archetype_key = next(
+        key
+        for key in ARCHETYPE_KEYS
+        if connection.execute(
+            f'SELECT count(*) FROM v3_app.system_archetype '
+            f'WHERE {key}_score >= 60'
+        ).fetchone()[0]
+    )
 
     pool = await _asyncpg_pool(connection)
     try:
         result = await archetypes._archetype_rankings_v3(
             archetype=archetype_key,
-            min_score=0,
+            min_score=60,
             galaxy_region=None,
             max_distance_ly=None,
             has_elw=None,
@@ -202,15 +230,123 @@ async def test_archetype_rankings_v3_carries_ranking_identity_and_confidence_bad
 
     ranking = result.get('ranking')
     assert ranking is not None
-    assert ranking['ranking_version'] == RANKING_VERSION == 'v3-colony-potential-1'
+    assert ranking['ranking_version'] == RANKING_VERSION == 'v3-colony-potential-2'
     assert ranking['ranking_sha256'] == ranking_sha256()
     assert ranking['ranking_sha256']
-    assert ranking['derived_generation_id'] == gen_row[0]
+    assert ranking['derived_generation_id'] == str(gen_row[0])
     assert ranking['publication_sequence'] == gen_row[1]
+    assert ranking['archetype_version'] == product_identity[0]
+    assert ranking['archetype_manifest_sha256'] == product_identity[1]
+    assert ranking['archetype_model_sha256'] == product_identity[2]
 
     for row in result['results']:
         assert 'confidence' in row
         assert 'completeness' in row
+
+
+def _install_count_boundary_views(connection) -> None:
+    """Replace application views with a cheap 10k-row boundary fixture.
+
+    Each ``database`` fixture owns a disposable database, so replacing the
+    published read views is isolated to this one test. The product lifecycle
+    rows remain real; only the large result population is synthetic.
+    """
+    connection.execute('DROP VIEW v3_app.system_archetype_summary')
+    connection.execute('DROP VIEW v3_app.system_archetype')
+    connection.execute('DROP VIEW v3_app.system_search')
+    connection.execute('''
+        CREATE TABLE v3_derived.f2d_count_boundary (
+            system_id64 bigint PRIMARY KEY
+        )
+    ''')
+    connection.execute('''
+        INSERT INTO v3_derived.f2d_count_boundary (system_id64)
+        SELECT value FROM generate_series(1, 10000) AS value
+    ''')
+    connection.execute('''
+        CREATE VIEW v3_app.system_search AS
+        SELECT c.derived_generation_id,
+               f.system_id64,
+               ('Boundary ' || f.system_id64)::text AS name,
+               0.0::double precision AS x_ly,
+               0.0::double precision AS y_ly,
+               0.0::double precision AS z_ly,
+               cube(ARRAY[0.0, 0.0, 0.0]::double precision[]) AS position_ly,
+               1.0::double precision AS confidence,
+               1.0::double precision AS completeness
+          FROM v3_meta.current_derived_generation c
+          CROSS JOIN v3_derived.f2d_count_boundary f
+    ''')
+    connection.execute('''
+        CREATE VIEW v3_app.system_archetype AS
+        SELECT c.derived_generation_id,
+               f.system_id64,
+               60::smallint AS paradise_score,
+               'B'::char(1) AS paradise_tier,
+               1000000::integer AS paradise_confidence_ppm,
+               600000::integer AS paradise_weighted_e4,
+               'paradise'::text AS primary_archetype,
+               NULL::text AS secondary_archetype,
+               60::smallint AS best_colony_potential,
+               'B'::char(1) AS best_tier,
+               1000000::integer AS archetype_confidence_ppm,
+               60.0::double precision AS weighted_potential
+          FROM v3_meta.current_derived_generation c
+          CROSS JOIN v3_derived.f2d_count_boundary f
+    ''')
+    connection.execute('''
+        CREATE VIEW v3_app.system_archetype_summary AS
+        SELECT derived_generation_id, system_id64,
+               primary_archetype, secondary_archetype,
+               best_colony_potential, best_tier,
+               (archetype_confidence_ppm / 1000000.0)::double precision
+                   AS archetype_confidence,
+               weighted_potential
+          FROM v3_app.system_archetype
+    ''')
+
+
+@pytest.mark.asyncio
+async def test_all_ranked_envelopes_distinguish_exact_cap_from_sentinel(database):
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    _install_count_boundary_views(connection)
+    pool = await _asyncpg_pool(connection)
+
+    async def assert_boundary(expected_truncated: bool) -> None:
+        picked = await archetypes._archetype_rankings_v3(
+            archetype='paradise', min_score=60, galaxy_region=None,
+            max_distance_ly=None, has_elw=None, min_slots=None,
+            max_contamination=None, limit=1, offset=0, pool=pool,
+        )
+        galaxy = await local_search.local_db_search_v3(
+            {'galaxy_wide': True, 'size': 1, 'from': 0}, pool,
+        )
+        anchored = await local_search.local_db_search_v3(
+            {
+                'reference_coords': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+                'filters': {'distance': {'max': 500.0}},
+                'sort_by': 'distance',
+                'size': 1,
+                'from': 0,
+            },
+            pool,
+        )
+
+        assert picked['total'] == 10_000
+        assert picked['is_truncated'] is expected_truncated
+        for envelope in (galaxy, anchored):
+            assert envelope['total'] == 10_000
+            assert envelope['total_is_capped'] is expected_truncated
+
+    try:
+        await assert_boundary(False)
+        connection.execute(
+            'INSERT INTO v3_derived.f2d_count_boundary VALUES (10001)'
+        )
+        await assert_boundary(True)
+    finally:
+        await pool.close()
 
 
 def test_no_legacy_relation_scoped_to_v3_ranking_paths():
@@ -251,6 +387,13 @@ def test_no_legacy_relation_scoped_to_v3_ranking_paths():
     legacy_src = inspect.getsource(local_search._build_local_search_sql).lower()
     assert 'from systems' in legacy_src
     assert 'join ratings' in legacy_src
-    legacy_rerank_src = inspect.getsource(archetypes.post_archetype_rerank).lower()
-    assert 'system_archetype_scores' in legacy_rerank_src
-    assert 'system_archetype_traits' in legacy_rerank_src
+    # SlowAPI's decorated callable does not reliably retain the complete
+    # function source under Python 3.14 (`inspect.getsource` can return only a
+    # decorator argument). The module text is sufficient for this deliberately
+    # broad sanity check; the actual no-legacy guard above remains precisely
+    # function-scoped.
+    legacy_archetypes_src = (
+        ROOT / 'apps/api/src/routers/archetypes.py'
+    ).read_text().lower()
+    assert 'system_archetype_scores' in legacy_archetypes_src
+    assert 'system_archetype_traits' in legacy_archetypes_src

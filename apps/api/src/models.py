@@ -58,6 +58,11 @@ from typing import Any, Literal, Optional
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from edfinder_api.models_economy import EconomyFilterField, EconomyNameField
+from edfinder_api.ranking.profile import (
+    RANKING_OFFSET_PLUS_LIMIT_MAX,
+    RANKING_PAGE_LIMIT_MAX,
+    RANKING_PAGE_LIMIT_MIN,
+)
 
 
 
@@ -383,6 +388,9 @@ class RankingIdentity(BaseModel):
     # V4 response models: carry it as the UUID string.
     derived_generation_id: str
     publication_sequence:  int
+    archetype_version:         str
+    archetype_manifest_sha256: str
+    archetype_model_sha256:    str
 
 
 class SearchResponse(BaseModel):
@@ -413,9 +421,10 @@ class SearchResponse(BaseModel):
     # Surfaces the radius-cap notice from `local_db_search`. UI can
     # render this as a small banner next to the results count.
     warning:          Optional[str] = None
-    # Ranking-identity block (F2c/F3 Task 5). Only set by the V3 path
-    # (`local_db_search_v3`); None on the legacy `local_db_search` response.
-    ranking:          Optional[RankingIdentity] = None
+    # Every successful V3 Finder envelope carries the complete ranking and
+    # published archetype-product identity. Product readiness is checked
+    # before the read, so a partial/identity-free envelope is never valid.
+    ranking:          RankingIdentity
 
 
 class SystemDetailResponse(BaseModel):
@@ -541,7 +550,9 @@ class LocalSearchRequest(BaseModel):
     # size: 1..500. A missing lower bound let size=-1 through Pydantic and
     # become a negative SQL LIMIT (a DB error surfaced as a 503); from_ needs
     # an upper bound so an oversized offset can't overflow asyncpg int encoding.
-    size:             int                      = Field(default=50, ge=1, le=500)
+    size:             int                      = Field(
+        default=50, ge=RANKING_PAGE_LIMIT_MIN, le=RANKING_PAGE_LIMIT_MAX
+    )
     from_:            int                      = Field(default=0, ge=0, le=2_147_483_647, alias='from')
     body_filters:     Optional[BodyFilters]    = None
     require_bio:      Optional[bool]           = None
@@ -572,6 +583,15 @@ class LocalSearchRequest(BaseModel):
                 return 'development'
             return lowered
         return value
+
+    @model_validator(mode='after')
+    def _bounded_result_window(self) -> 'LocalSearchRequest':
+        if self.from_ + self.size > RANKING_OFFSET_PLUS_LIMIT_MAX:
+            raise ValueError(
+                'from + size must be less than or equal to '
+                f'{RANKING_OFFSET_PLUS_LIMIT_MAX}'
+            )
+        return self
 
 
 class GalaxySearchRequest(BaseModel):
@@ -916,12 +936,12 @@ class ArchetypeRankingsResponse(BaseModel):
     results:         list[ArchetypeRankingRow]
     total:           int = 0
     count:           int = 0
+    is_truncated:    bool
     source:          Optional[str] = None
     query_ms:        Optional[int] = None
     _cached:         Optional[bool] = None
-    # Ranking-identity block (F2c/F3 Task 5) -- always set by the V3
-    # `/rankings` path.
-    ranking:         Optional[RankingIdentity] = None
+    # Always set by the generation-pinned V3 `/rankings` path.
+    ranking:         RankingIdentity
 
 
 # ── Request: POST /api/archetypes/rerank ─────────────────────────────
