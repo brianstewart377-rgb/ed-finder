@@ -14,7 +14,21 @@ Layouts measured:
 * ``v1_with_system_id64`` — eight ``(generation, <key>_score DESC, system_id64)``
   indexes (every entry unique; no B-tree deduplication);
 * ``v2_score_only`` — eight ``(generation, <key>_score DESC)`` indexes (B-tree
-  deduplication collapses the 101 distinct score values into posting lists).
+  deduplication collapses the 101 distinct score values into posting lists);
+* ``v4_weighted_key_tier_partials`` — the layout the F2d design adopted after review
+  round 5: eight stored ``<key>_weighted_e4 integer`` columns (score x confidence x
+  completeness in 1e-4 units, the canonical picked-ranking key) and, per key, three
+  partial ``(generation, <key>_weighted_e4 DESC, system_id64)`` indexes under the
+  exposed tier floors ``WHERE <key>_score >= 60 / 76 / 88``, plus the primary key and
+  the ``weighted_potential`` index; bell-shaped distribution, per-floor fractions
+  reported;
+* ``v3_partial_ge60_score_sysid`` — the earlier partial score-ordered layout: eight partial
+  ``(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60`` indexes.
+  Its size scales with the fraction of rows scoring >= 60, so this variant is filled
+  with a bell-shaped score distribution (mean ~45, sd ~15; the same shape as
+  ``measure_wide_archetype_probe_indexes.py``) and reports that fraction per key;
+  the first two variants keep the uniform distribution so their numbers stay
+  comparable with the 2026-10-10 evidence.
 
 Both layouts share the primary key and the ``weighted_potential`` index.
 
@@ -41,9 +55,11 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import psycopg
@@ -78,12 +94,17 @@ def _tier(expr: str) -> str:
     )
 
 
-def _ddl(table: str) -> str:
+def _ddl(table: str, weighted_keys: bool = False) -> str:
     cols: list[str] = []
     for key in ARCHETYPE_KEYS:
         cols.append(f"{key}_score smallint NOT NULL CHECK ({key}_score BETWEEN 0 AND 100)")
         cols.append(f"{key}_tier char(1) NOT NULL CHECK ({key}_tier IN ('S','A','B','C','D'))")
         cols.append(f"{key}_confidence real NOT NULL CHECK ({key}_confidence BETWEEN 0 AND 1)")
+    if weighted_keys:
+        # score x confidence x completeness in 1e-4 units (0..1,000,000): the exact
+        # canonical picked-ranking key the F2d design stores per archetype.
+        for key in ARCHETYPE_KEYS:
+            cols.append(f"{key}_weighted_e4 integer NOT NULL CHECK ({key}_weighted_e4 BETWEEN 0 AND 1000000)")
     key_list = ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS)
     return f"""
 CREATE TABLE scratch.{table} (
@@ -103,29 +124,90 @@ CREATE TABLE scratch.{table} (
 )"""
 
 
-def _fill(conn: psycopg.Connection, table: str, rows: int) -> None:
+# Fractional parts of the golden ratio and of sqrt(2): irrational steps, so the Weyl
+# sequence frac(n * step + offset) is equidistributed for every archetype's offset.
+WEYL_STEP = "0.61803398874989484820"
+WEYL_KEY_OFFSET = 0.41421356237309504880
+# The bell layouts still draw from random(); seeding it makes those runs reproducible
+# too (INSERT ... SELECT runs in one backend, so the seed governs every draw).
+RANDOM_SEED = 0.42
+
+
+def _score_expr(index: int, distribution: str, floors: dict[str, float] | None = None) -> str:
+    if distribution == "uniform":
+        return f"((g.n * {97 + index * 13}) %% 101)"
+    if distribution == "bell":
+        uniforms = "+".join(["random()"] * 12)
+        return f"LEAST(100, GREATEST(0, round(45 + 15 * (({uniforms}) - 6))))::int"
+    if distribution == "fractions":
+        if floors is None:
+            raise ValueError("the 'fractions' distribution needs per-floor probabilities")
+        # Checked here as well as in normalize_fractions(), so this expression can
+        # never be built from an unvalidated mapping, whatever the caller.
+        if not isinstance(floors, dict) or any(str(f) not in floors for f in (60, 76, 88)):
+            raise ValueError("the 'fractions' distribution needs floors 60, 76 and 88")
+        try:
+            f60, f76, f88 = (float(floors[str(floor)]) for floor in (60, 76, 88))
+        except (TypeError, ValueError):
+            raise ValueError("the 'fractions' distribution needs numeric floors") from None
+        if not 1.0 >= f60 >= f76 >= f88 >= 0.0:
+            raise ValueError("the 'fractions' distribution needs 1 >= f60 >= f76 >= f88 >= 0")
+        # Deterministic, not random(): this path produces the capacity receipt, so the
+        # same migration and histogram must give the same rows and the same index
+        # bytes on every run. A Weyl sequence over the row number gives each row a
+        # position u in [0, 1) -- equidistributed, so the share of rows below any f
+        # matches f to within about 1/rows -- and u picks the band; the score inside
+        # the band is a fixed function of the row number. The realized fractions are
+        # still measured and reported (fraction_ge*_by_key).
+        u = (
+            f"mod(g.n * {WEYL_STEP}::numeric + {(index * WEYL_KEY_OFFSET) % 1:.20f}::numeric, 1)"
+        )
+        return (
+            "(CASE"
+            f" WHEN {u} < {f88} THEN 88 + ((g.n * 7 + {index}) %% 13)"
+            f" WHEN {u} < {f76} THEN 76 + ((g.n * 11 + {index}) %% 12)"
+            f" WHEN {u} < {f60} THEN 60 + ((g.n * 13 + {index}) %% 16)"
+            f" ELSE ((g.n * 17 + {index}) %% 60) END)::int"
+        )
+    raise ValueError(f"unknown distribution {distribution!r}")
+
+
+def _fill(conn: psycopg.Connection, table: str, rows: int, distribution: str = "uniform",
+          weighted_keys: bool = False, fractions: dict[str, dict[str, float]] | None = None) -> None:
     key_array = "ARRAY[" + ", ".join(f"'{key}'" for key in ARCHETYPE_KEYS) + "]"
-    select: list[str] = [f"'{GENERATION_ID}'::uuid", "g.n::bigint * 7919", "'v3-archetype-4'"]
-    for index, _key in enumerate(ARCHETYPE_KEYS):
-        score = f"((g.n * {97 + index * 13}) %% 101)"
-        select.append(f"{score}::smallint")
-        select.append(_tier(score))
-        select.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6)::real")
-    best = "((g.n * 97) %% 101)"
-    secondary = f"CASE WHEN g.n %% 11 = 0 THEN NULL ELSE ({key_array})[1 + ((g.n + 3) %% 8)] END"
+    # Inner query draws every score once (the bell distribution uses random()), so the
+    # derived tier and weighted key of a row always agree with its score.
+    inner_cols = ["g.n AS n"]
+    for index, key in enumerate(ARCHETYPE_KEYS):
+        inner_cols.append(
+            f"{_score_expr(index, distribution, fractions.get(key) if fractions else None)} AS s_{key}"
+        )
+        inner_cols.append(f"round(((g.n * {31 + index}) %% 1000000) / 1000000.0, 6) AS c_{key}")
+    inner_cols.append("0.5 + ((g.n * 53) %% 1000) / 2000.0 AS completeness")
+    inner = f"SELECT {', '.join(inner_cols)} FROM generate_series(1, %s) AS g(n)"
+    select: list[str] = [f"'{GENERATION_ID}'::uuid", "d.n::bigint * 7919", "'v3-archetype-4'"]
+    for key in ARCHETYPE_KEYS:
+        select.append(f"d.s_{key}::smallint")
+        select.append(_tier(f"d.s_{key}"))
+        select.append(f"d.c_{key}::real")
+    if weighted_keys:
+        for key in ARCHETYPE_KEYS:
+            select.append(f"round(d.s_{key} * d.c_{key} * d.completeness * 10000)::integer")
+    best = "((d.n * 97) %% 101)"
+    secondary = f"CASE WHEN d.n %% 11 = 0 THEN NULL ELSE ({key_array})[1 + ((d.n + 3) %% 8)] END"
     select.extend(
         [
-            f"({key_array})[1 + (g.n %% 8)]",
+            f"({key_array})[1 + (d.n %% 8)]",
             secondary,
             f"{best}::smallint",
             _tier(best),
-            "round(((g.n * 17) %% 1000000) / 1000000.0, 6)::real",
-            f"{best} * (((g.n * 17) %% 1000000) / 1000000.0)",
+            "round(((d.n * 17) %% 1000000) / 1000000.0, 6)::real",
+            f"{best} * (((d.n * 17) %% 1000000) / 1000000.0)",
             "'2026-10-10T00:00:00Z'::timestamptz",
         ]
     )
     conn.execute(
-        f"INSERT INTO scratch.{table} SELECT {', '.join(select)} FROM generate_series(1, %s) AS g(n)",
+        f"INSERT INTO scratch.{table} SELECT {', '.join(select)} FROM ({inner}) AS d",
         (rows,),
     )
 
@@ -228,13 +310,99 @@ def _disposable_conninfo_from_env() -> dict[str, str]:
         sys.exit(str(exc))
 
 
+def normalize_fractions(
+    fractions: dict[str, object],
+) -> tuple[dict[str, dict[str, float]], str, float]:
+    """Validate per-key floor fractions; return them canonical, with digest and Σ_all.
+
+    Raises ValueError with the operator-facing message on any malformed input, so a
+    bad file stops with this script's own words rather than a traceback. The capacity
+    gate re-computes the digest from the governed calibration evidence and refuses
+    the receipt unless the two match, so a stale or substituted file cannot pass as a
+    measured histogram.
+    """
+    missing = [key for key in ARCHETYPE_KEYS if key not in fractions]
+    if missing:
+        raise ValueError(f"--fractions-json is missing archetype keys: {', '.join(missing)}")
+    normalized: dict[str, dict[str, float]] = {}
+    for key in ARCHETYPE_KEYS:
+        floors = fractions[key]
+        if not isinstance(floors, dict):
+            raise ValueError(f"--fractions-json {key!r} must be an object of floor fractions")
+        missing_floors = [str(floor) for floor in (60, 76, 88) if str(floor) not in floors]
+        if missing_floors:
+            raise ValueError(
+                f"--fractions-json {key!r} is missing floor keys: {', '.join(missing_floors)}"
+            )
+        try:
+            values = [float(floors[str(floor)]) for floor in (60, 76, 88)]
+        except (TypeError, ValueError):
+            raise ValueError(f"--fractions-json {key!r} floor fractions must be numbers") from None
+        if not all(0.0 <= v <= 1.0 for v in values) or not values[0] >= values[1] >= values[2]:
+            raise ValueError(f"--fractions-json {key!r} must give 1 >= f60 >= f76 >= f88 >= 0")
+        normalized[key] = {"60": values[0], "76": values[1], "88": values[2]}
+    canonical = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    sigma_all = round(sum(sum(v.values()) for v in normalized.values()), 6)
+    return normalized, digest, sigma_all
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     parser.add_argument("--rows", type=int, default=200_000, help="synthetic rows to build (default 200000)")
+    parser.add_argument(
+        "--fractions-json",
+        help=(
+            "Path to a JSON object {archetype_key: {'60': f, '76': f, '88': f}} of REAL per-key "
+            "tier fractions (from the governed calibration probe's histogram). When given, the "
+            "v4 layout's scores are drawn to match those fractions instead of the declared "
+            "synthetic bell distribution, and the receipt records the source as 'measured-histogram'."
+        ),
+    )
     args = parser.parse_args()
     if args.rows < 1000 or args.rows > 5_000_000:
         sys.exit("--rows must be between 1000 and 5000000")
-    out: dict[str, object] = {"rows": args.rows, "method": (
+    fractions: dict[str, dict[str, float]] | None = None
+    fractions_canonical: dict[str, dict[str, float]] | None = None
+    fractions_sha256: str | None = None
+    sigma_all: float | None = None
+    if args.fractions_json:
+        try:
+            parsed = json.loads(Path(args.fractions_json).read_text(encoding="utf-8"))
+        except OSError as exc:
+            sys.exit(f"--fractions-json could not be read: {exc}")
+        except json.JSONDecodeError as exc:
+            sys.exit(f"--fractions-json is not valid JSON: {exc}")
+        if not isinstance(parsed, dict):
+            sys.exit("--fractions-json must be a JSON object keyed by archetype")
+        fractions = parsed
+        try:
+            fractions_canonical, fractions_sha256, sigma_all = normalize_fractions(fractions)
+        except ValueError as exc:
+            sys.exit(str(exc))
+    out: dict[str, object] = {
+        # The built-in layouts are comparison evidence, not the capacity input. Their
+        # DDL predates the final no-pick index (which adds a trailing system_id64),
+        # and they create every index AFTER the fill -- a compact bulk build --
+        # whereas migration 011 creates them on the empty relation and the builder
+        # inserts 198.5 M rows incrementally, which splits pages and lowers
+        # occupancy. Either difference understates production bytes, so no receipt
+        # from this path may satisfy the capacity gate; only the final-migration
+        # path (F2d PR1), which applies 011 itself before a chunked fill, may.
+        "capacity_gate_eligible": False,
+        "capacity_gate_ineligible_reason": (
+            "built-in comparison layout: pre-final index DDL and indexes built after "
+            "the fill; the capacity gate requires the final-migration path"
+        ),
+        "score_distribution_source": "measured-histogram" if fractions else "declared-synthetic-bell",
+        "fractions_json": args.fractions_json,
+        "fractions_canonical": fractions_canonical if fractions else None,
+        "fractions_sha256": fractions_sha256 if fractions else None,
+        "sigma_all": sigma_all if fractions else None,
+        "rows": args.rows,
+        "sampling": "fractions: deterministic Weyl bands; bell: random() after setseed",
+        "random_seed": RANDOM_SEED,
+        "method": (
         "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, "
         "pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems"
     )}
@@ -245,21 +413,56 @@ def main() -> None:
             sys.exit(str(exc))
         out["postgres"] = conn.execute("SELECT version()").fetchone()[0]
         conn.execute("CREATE SCHEMA IF NOT EXISTS scratch")
-        for layout, trailing in (("v1_with_system_id64", ", system_id64"), ("v2_score_only", "")):
+        # (layout, index column template, trailing columns, partial predicates, distribution, weighted columns)
+        layouts = (
+            ("v1_with_system_id64", "{key}_score", ", system_id64", ("",), "uniform", False),
+            ("v2_score_only", "{key}_score", "", ("",), "uniform", False),
+            ("v3_partial_ge60_score_sysid", "{key}_score", ", system_id64", (" WHERE {key}_score >= 60",), "bell", False),
+            # The F2d layout adopted after review round 5: the canonical weighted key is
+            # stored per archetype and indexed under each exposed tier floor, so the
+            # picked ranking is served in canonical order by a bounded index scan.
+            ("v4_weighted_key_tier_partials", "{key}_weighted_e4", ", system_id64",
+             (" WHERE {key}_score >= 60", " WHERE {key}_score >= 76", " WHERE {key}_score >= 88"), "bell", True),
+        )
+        for layout, column, trailing, predicates, distribution, weighted_keys in layouts:
             table = f"wide_archetype_{layout}"
             conn.execute(f"DROP TABLE IF EXISTS scratch.{table}")
-            conn.execute(_ddl(table))
-            _fill(conn, table, args.rows)
+            conn.execute(_ddl(table, weighted_keys))
+            conn.execute(f"SELECT setseed({RANDOM_SEED})")
+            layout_fractions = fractions if (weighted_keys and fractions) else None
+            _fill(
+                conn, table, args.rows,
+                "fractions" if layout_fractions else distribution,
+                weighted_keys, layout_fractions,
+            )
             for key in ARCHETYPE_KEYS:
-                conn.execute(
-                    f"CREATE INDEX {table}_{key} ON scratch.{table} "
-                    f"(derived_generation_id, {key}_score DESC{trailing})"
-                )
+                for ordinal, predicate in enumerate(predicates):
+                    # Keep names under PostgreSQL's 63-character identifier limit.
+                    conn.execute(
+                        f"CREATE INDEX wa_{layout}_{key}_{ordinal} ON scratch.{table} "
+                        f"(derived_generation_id, {column.format(key=key)} DESC{trailing}){predicate.format(key=key)}"
+                    )
             conn.execute(
-                f"CREATE INDEX {table}_weighted ON scratch.{table} (derived_generation_id, weighted_potential DESC)"
+                f"CREATE INDEX wa_{layout}_weighted ON scratch.{table} (derived_generation_id, weighted_potential DESC)"
             )
             conn.execute(f"VACUUM ANALYZE scratch.{table}")
-            out[layout] = _sizes(conn, table)
+            report = _sizes(conn, table)
+            report["score_distribution"] = "fractions" if layout_fractions else distribution
+            for floor in (60, 76, 88):
+                report[f"fraction_ge{floor}_by_key"] = {
+                    key: round(count / args.rows, 4)
+                    for key, count in zip(
+                        ARCHETYPE_KEYS,
+                        conn.execute(
+                            "SELECT " + ", ".join(
+                                f"count(*) FILTER (WHERE {key}_score >= {floor})" for key in ARCHETYPE_KEYS
+                            )
+                            + f" FROM scratch.{table}"
+                        ).fetchone(),
+                        strict=True,
+                    )
+                }
+            out[layout] = report
     json.dump(out, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 

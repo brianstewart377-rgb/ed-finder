@@ -186,7 +186,10 @@ newer dated source wins).
   run. The owner chose **A + B** (recorded in
   `docs/operations/v3-finder-capacity-decision-2026-10-10.md`): rewrite the
   unapplied migration `011` as one wide archetype row per system with
-  explanations computed on demand (≈65 GB measured instead of ≈1 TB), attach
+  explanations computed on demand (≈76 GB measured on a synthetic score
+  distribution with the stored ranking keys and tier-partial indexes, sized for
+  real at the capacity gate from the calibration histogram, instead of ≈1 TB),
+  attach
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
@@ -208,26 +211,168 @@ newer dated source wins).
      (`scripts/dev/measure_wide_archetype_footprint.py`). Prerequisites: the
      owner's recorded answers to questions 5 and 6 of
      `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
-     exact-version rule for on-demand explanations; the deduplicating
-     score-index layout) — the code PRs that encode either may not merge
-     before the answer is recorded there.
+     exact-version rule for on-demand explanations; the **partial unique-entry**
+     score-index layout, refined by the F2d design review into stored
+     per-archetype ranking keys `<key>_weighted_e4` with partial indexes under
+     each exposed tier floor, which replaced the deduplicating layout after the
+     F4 design review showed that layout cannot bound the slice 1c probe) — the
+     code PRs that encode either may not merge before the answer is recorded
+     there. **Both were answered yes by the owner on 2026-10-10 and are
+     recorded there**, so *that* prerequisite is satisfied. **It is not the only
+     one.** The F2d design still records owner questions **2, 3, 4, 6 and 7** as
+     unresolved, and they govern the persisted confidence representation, model
+     ownership, the new explanation endpoint, atomic publication and PR
+     sequencing. Questions 1 and 5 are answered, question 8 (no purge before Finder
+     promotion) is the recorded owner decision, and question 9 (hard filters in
+     selected mode) is answered by the design's 422 contract and the owner's
+     stated wish for filtered archetypes as a later increment. **Design question 6
+     is atomic publication and is open** — it is not the capacity decision's
+     question 6 (the score-index layout), which the owner answered yes; the two
+     documents number their questions independently and conflating them had left
+     the one-transaction publication PR free to merge unanswered while an already
+     accepted choice stayed blocked. So the code PRs encoding any
+     still-unresolved choice **may not merge** until that question's answer is
+     recorded in the capacity decision alongside 1, 5, 6 and 6b: declaring the
+     prerequisite satisfied on the strength of two answers would let
+     implementations of choices the owner has not accepted reach `main`, and this
+     document is the one that would have authorized it. The rewritten `011`
+     also changes the rankings route's `min_score` contract deliberately:
+     it accepts **exactly the three indexed tier floors**
+     `Literal[60, 76, 88]` with default 60 — not the continuous range 60–100 —
+     because each accepted value must have its own partial index; 70 or 100 are
+     422s, and a continuous range would reintroduce an unbounded residual scan.
+     A picked request carrying a hard filter (`galaxy_region`,
+     `max_distance_ly`, `has_elw`, `min_slots`, `max_contamination`) is also a
+     422 in the initial product: filters cannot be applied inside the bounded
+     window without changing what they mean, so archetype ranking is unfiltered
+     and Any mode keeps every filter only when anchored (galaxy-wide hard filters
+     return 422 — owner decision 2026-10-12). Nothing live calls the route yet.
   2–3. Only then: governed migration `plan` → review → `apply` of
      `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
      validation.
-  5′. Register, build and validate post-`010` `system_search` on
-     `ratings_v4_prod_p4_parallel_v1` (≈87 GB).
-  6. Unchanged: run the read-only calibration probe and record the coefficient
-     decision before the archetype product is registered.
-  7′. Register, build and validate the wide-row `system_archetype` on the same
-     generation (≈65 GB measured; the gate re-measures and stops if search +
-     archetype + working room exceed the free space in a fresh step 0 receipt).
-  8′. Both products reach `READY` through the receipted governed validation
-     routes.
-  9′. Publish both **products** with `v3_meta.publish_derived_product` in one
-     governed transaction; the generation pointer does not move (no
-     `publish_derived_generation`).
+  5′. **Deploy the release before any product reaches READY.** Revise the
+     application-release gate to require the applied migration set and its exact
+     ledger hashes, the new ranking identity, the bounded ranking route and the
+     publication check in the built image — and **no Finder product rows on the
+     pinned `parallel_v1` target generation** (not an empty
+     `v3_meta.derived_product`: the READY `system_search` retained on `opt1` at
+     lines 140-143 is deliberately unpurged, so a global emptiness check would
+     fail permanently and block this very deployment) — then build the immutable
+     release carrying the F2d code and
+     promote it. Verify the two things separately — a 503 has no response
+     envelope, so it cannot advertise an identity: the live request proves the
+     Finder answers 503, while the **ranking identity** is proved from the
+     deployed image digest matching the accepted-release attestation, which must
+     record both concrete `ranking_version`/`ranking_sha256` values — **not**
+     from the served `/openapi.json`, where both response fields are
+     unconstrained `str` (`apps/api/src/models.py:378-379`) and a comparison
+     would pass against any image, including the old keyed-schema one. OpenAPI
+     proves only the parameter shape its schema states concretely (the
+     `Literal[60, 76, 88]` enum and the individual `offset`/`from`/`limit`/`size`
+     maxima); the **combined** `offset + limit <= 10000` and `from + size <=
+     10000` bounds are not expressible in JSON Schema and are proved by a
+     behavioural probe against the deployed image, which a 503 does not prevent
+     because request validation raises 422 before the generation is consulted:
+     `offset=9999&limit=1` accepted, `offset=9999&limit=2` rejected with 422 —
+     **and the local-search pair as well**, `from=9999&size=1` accepted,
+     `from=9999&size=2` rejected. Both pairs are needed: an image missing only the
+     local-search `from + size` validator publishes an identical OpenAPI schema and
+     passes the `offset`/`limit` probes, after which a direct
+     `from=9999&size=2` escapes the promised 10,000-row window and drives an
+     excessive `OFFSET`.
+     The identity is re-verified from a real envelope at step 9. This ordering is required: the
+     currently deployed API gates only on both products being READY, so if the
+     products reached READY under that build it would stop answering 503 and
+     start reading the post-`015` views, which hide unpublished rows — a
+     valid-looking empty search and a broken picked ranking. Deploying first
+     removes that interval.
+  6′. Run the read-only calibration probe, record the coefficient decision, and
+     commit its per-key tier histogram — it is the capacity gate's input. **The
+     recorded decision must be an explicit `coefficient_decision: accepted`, and
+     the probe's recorded code/coefficient identity must equal the manifest the
+     Archetype builder registers.** A complete in-bounds histogram is evidence
+     that the build would *fit*, not that its scoring logic was *approved*: a
+     review concluding the coefficients must change leaves exactly that evidence
+     behind, so gating on completeness, digest, size and disk space alone lets the
+     immutable, non-purgeable build launch from a **rejected** probe. And without
+     the identity match, an approved probe could authorize a build whose real tier
+     fractions were never capacity-tested at all. Both checks are stated here, not
+     only in the design, because this document outranks it.
+     The histogram also needs the defined cumulative conversion before the
+     measurement script can read it (`f["88"]=S/total`, `f["76"]=(S+A)/total`,
+     `f["60"]=(S+A+B)/total`): the probe emits `S`/`A`/`B`/`C`/`D` counts under
+     `per_archetype.<key>.tier_histogram`, which `--fractions-json` cannot
+     consume, so handing it the probe artifact reports every archetype missing and
+     the mandatory receipt could never be produced.
+  7′. **Combined capacity gate, the last point of no return.** One governed
+     read-only action computes `Σ_all` (the sum of all 24 per-key tier
+     fractions) from that committed histogram — **which must come from a
+     complete read of every chunk, never a sample** (F2d design step 5a: no
+     sampling bound is both valid and narrow enough), so sampling error cannot
+     understate the space needed — refusing if it is absent,
+     incomplete or its digest does not match; refuses `Σ_all > 4.0`; requires a
+     footprint receipt for the applied `011` whose `score_distribution_source`
+     is `measured-histogram` and whose fractions digest matches; takes a fresh
+     read-only `df`; and refuses unless the **measured** Search projection —
+     the real pre-`010` bytes per row from the committed step 0 receipt plus the
+     `010` delta measured as a pre/post-DDL difference on disposable PostgreSQL
+     18, times the system count; refusing if either input is absent, never the
+     ≈87 GB fixture estimate — plus the measured Archetype total plus 15 %
+     working room fits. Archetype ≈ 44 GB heap +
+     16 GB primary/weighted + 9.9 GB × Σ_all — ≈76 GB at the synthetic Σ_all of
+     1.54, ≈297 GB only if every fraction were 1. **This gate must pass before
+     the Search build**, because `system_search` is itself an irreversible
+     insert-only 198.5 M-row write: building it first and failing the gate
+     afterwards would strand an unpublishable 87 GB product. Both build actions
+     call it as a fail-closed precondition.
+  8′. Register, build and validate post-`010` `system_search` on
+     `ratings_v4_prod_p4_parallel_v1` (≈87 GB), then the wide-row
+     `system_archetype` on the same generation. The deployed app stays 503
+     throughout, because the products are not published.
+  9′ (last — go-live). The publish action first fails closed on the deployed
+     application — the running API image digest must match the accepted F2d
+     release, and the expected ranking identity is confirmed from that
+     accepted-release attestation **alone**, **not** from a Finder response
+     envelope (the API answers 503 until the products are published, so no
+     envelope exists yet) and **not** from the served `/openapi.json` (both
+     identity fields are unconstrained `str`, so a schema comparison would be
+     vacuous and would pass against the wrong image). The attestation must carry
+     both concrete values; the publish action refuses when it carries no identity
+     rather than treating a missing value as a match — then publishes both **products**
+     with `v3_meta.publish_derived_product` in one governed transaction; the
+     generation pointer does not move (no `publish_derived_generation`).
 
-  Steps 10–11 keep their shape against the published generation. Until 4′ has
+     **Before that transaction commits, the publish action must prove the
+     production plan.** `published_at` is a one-way transition with no governed
+     path to clear it, so the image and identity checks alone are not enough: on
+     the publisher's **own** connection, inside the same transaction, after both
+     updates and before commit — where the transaction can see its own newly
+     visible rows — it runs the real page and count `EXPLAIN` for **all eight
+     archetypes at all three floors**, **and for both live no-pick requests** — the
+     galaxy-wide page and its 10,001-row count, and the anchored nearest-first
+     request at Sol and at the densest 500-ly window (F2d design, PR4 probe) —
+     and rolls back on any plan that is not the expected bounded shape. All 24 pairs, because planner choices depend on each
+     key's own statistics and partial-index selectivity, so one tested key proves
+     nothing about the other seven, each of which is user-selectable. The
+     Archetype **and Search** build steps must each have run and receipted
+     **`VACUUM (ANALYZE)`** on their completed table as their last action, and the
+     probe asserts **both `last_vacuum` and `last_analyze`** postdate each
+     table's own final insert, and requires **`Heap Fetches: 0`** on the window
+     node. Search is included because both no-pick requests read it and its
+     statistics would otherwise date from part-way through a 198.5 M-row append. `ANALYZE` alone is not enough twice over: an `EXPLAIN` on
+     stale statistics can reject a sound build, or pass and then have autovacuum
+     move the planner off the bounded plan after users are exposed; and `ANALYZE`
+     does not populate the visibility map, so after the bulk insert an apparent
+     `Index Only Scan` can still perform up to 10,001 heap fetches per request and
+     be published as bounded. Only the zero-heap-fetch assertion tests what
+     index-only actually means.
+     Without this, the one-way publication can commit without the production plan
+     ever having been validated. Then
+     verify from the live app that results are served and the envelopes carry
+     the expected generation, ranking identity and product identity — this is
+     where the response identity is checked, once it exists.
+
+  Until 4′ has
   merged, **no production step beyond step 0 may be dispatched** (not even the
   migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
   every detached worker stopped (the paused `opt1` worker was killed by the
@@ -247,26 +392,30 @@ newer dated source wins).
   actions must expose and receipt the validation path (search: inline in `run()`;
   archetype: `--validate`) so READY is reached through a reviewed route.
 
-  Retaining `opt1`'s roughly 198.5-million `system_search` rows is currently the
-  **only executable path**: migration `006_v3_derived_product_lifecycle.sql`
-  installs statement-level `DELETE` and `TRUNCATE` triggers that reject mutation
-  with `system_search rows and receipts are insert-only`, and no reviewed governed
-  purge migration/action exists. Purge is therefore not an available branch.
-  Before step 4, the owner must either accept retention after measuring the
-  complete candidate footprint of `system_rating_vector`, `body_mechanics`, and
-  `economy_opportunity`, including their primary-key indexes, on a disposable
-  PostgreSQL 18 sample and extrapolating those relations and indexes to full scale,
-  and confirm disk headroom for the complete fresh Ratings V4 generation: roughly
-  198.5 million `system_rating_vector` rows plus `body_mechanics` (one row per
-  physical body) and `economy_opportunity` (one row per eligible body/economy
-  pair), which can be far larger than the system-level rows, and their primary-key
-  indexes (step 4), roughly 198.5 million fresh `system_search` rows with 18 new
-  count columns (step 5), roughly 1.59 billion fresh `system_archetype` rows plus
-  roughly 198.5 million fresh `system_archetype_summary` rows (step 7), and all
-  associated ratings, search, archetype, and summary indexes, including
-  `system_archetype_key_score` and `system_archetype_summary_weighted`; or add
-  **design and review a governed purge path** as a prerequisite before step 4. The
-  [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
+  **Superseded (kept for history, not for execution).** The paragraph that used to
+  follow here described the pre-wide-row route: it called retaining `opt1`'s
+  `system_search` rows "the only executable path", referred to build actions in the
+  old steps 5 and 7, and required the owner to choose before step 4 between
+  accepting retention after measuring a fresh Ratings V4 generation — roughly
+  1.59 billion keyed `system_archetype` rows plus a separate
+  `system_archetype_summary` — or designing a governed purge path first. **None of
+  that is current.** The replacement sequence above attaches both Finder products
+  to the already-published `parallel_v1` generation, so no fresh Ratings V4
+  generation is built and no purge decision gates step 4; the wide row stores one
+  row per system with the summary expanded as a view, so the 1.59-billion-row and
+  separate-summary figures no longer describe anything that will be written; and
+  the capacity question is settled by the fail-closed combined gate
+  (`docs/superpowers/specs/2026-10-10-v3-finder-f2d-wide-archetype-and-product-attachment-design.md`
+  section 10, PR4) rather than by an owner choice before step 4.
+
+  The insert-only `DELETE`/`TRUNCATE` triggers in
+  `006_v3_derived_product_lifecycle.sql` remain in force and no governed purge path
+  exists, which is still true and still means purge is not an available branch — it
+  is simply no longer a prerequisite, because nothing in the current sequence needs
+  one. Disk reclamation is tracked separately against the read-only inventory
+  receipt, not as a gate on this rollout.
+
+  The [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and

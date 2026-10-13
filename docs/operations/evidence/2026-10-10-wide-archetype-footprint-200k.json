@@ -1,7 +1,9 @@
 {
+  "fractions_json": null,
   "method": "design DDL in scratch schema, synthetic rows, indexes per layout, VACUUM ANALYZE, pg_table_size/pg_indexes_size, linear extrapolation to 198.5 M systems",
   "postgres": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
   "rows": 200000,
+  "score_distribution_source": "declared-synthetic-bell",
   "server_version_num": 180004,
   "v1_with_system_id64": {
     "avg_tuple_bytes": 179.81816,
@@ -11,51 +13,82 @@
       "table_gb": 37.0,
       "total_gb": 132.3
     },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.2475,
+      "manufacturing_hub": 0.2475,
+      "megacomplex": 0.2475,
+      "mining_hub": 0.2475,
+      "paradise": 0.2475,
+      "population_capital": 0.2475,
+      "research_hub": 0.2475,
+      "stronghold": 0.2475
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.1287,
+      "manufacturing_hub": 0.1287,
+      "megacomplex": 0.1287,
+      "mining_hub": 0.1287,
+      "paradise": 0.1287,
+      "population_capital": 0.1287,
+      "research_hub": 0.1287,
+      "stronghold": 0.1287
+    },
     "index_bytes": 96051200,
     "index_bytes_per_row": 480.3,
     "indexes": {
-      "wide_archetype_v1_with_system_id64_flexible": {
+      "wa_v1_with_system_id64_flexible_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_manufacturing_hub": {
+      "wa_v1_with_system_id64_manufacturing_hub_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_megacomplex": {
+      "wa_v1_with_system_id64_megacomplex_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_mining_hub": {
+      "wa_v1_with_system_id64_mining_hub_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
       },
-      "wide_archetype_v1_with_system_id64_paradise": {
+      "wa_v1_with_system_id64_paradise_0": {
         "bytes": 9969664,
         "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_population_capital_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_research_hub_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_stronghold_0": {
+        "bytes": 9969664,
+        "bytes_per_row": 49.8
+      },
+      "wa_v1_with_system_id64_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
       },
       "wide_archetype_v1_with_system_id64_pkey": {
         "bytes": 8142848,
         "bytes_per_row": 40.7
-      },
-      "wide_archetype_v1_with_system_id64_population_capital": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_research_hub": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_stronghold": {
-        "bytes": 9969664,
-        "bytes_per_row": 49.8
-      },
-      "wide_archetype_v1_with_system_id64_weighted": {
-        "bytes": 8151040,
-        "bytes_per_row": 40.8
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 133341184,
@@ -69,54 +102,334 @@
       "table_gb": 37.0,
       "total_gb": 65.2
     },
+    "fraction_ge60_by_key": {
+      "flexible": 0.4059,
+      "manufacturing_hub": 0.4059,
+      "megacomplex": 0.4059,
+      "mining_hub": 0.4059,
+      "paradise": 0.4059,
+      "population_capital": 0.4059,
+      "research_hub": 0.4059,
+      "stronghold": 0.4059
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.2475,
+      "manufacturing_hub": 0.2475,
+      "megacomplex": 0.2475,
+      "mining_hub": 0.2475,
+      "paradise": 0.2475,
+      "population_capital": 0.2475,
+      "research_hub": 0.2475,
+      "stronghold": 0.2475
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.1287,
+      "manufacturing_hub": 0.1287,
+      "megacomplex": 0.1287,
+      "mining_hub": 0.1287,
+      "paradise": 0.1287,
+      "population_capital": 0.1287,
+      "research_hub": 0.1287,
+      "stronghold": 0.1287
+    },
     "index_bytes": 28352512,
     "index_bytes_per_row": 141.8,
     "indexes": {
-      "wide_archetype_v2_score_only_flexible": {
+      "wa_v2_score_only_flexible_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_manufacturing_hub": {
+      "wa_v2_score_only_manufacturing_hub_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_megacomplex": {
+      "wa_v2_score_only_megacomplex_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_mining_hub": {
+      "wa_v2_score_only_mining_hub_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
       },
-      "wide_archetype_v2_score_only_paradise": {
+      "wa_v2_score_only_paradise_0": {
         "bytes": 1507328,
         "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_population_capital_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_research_hub_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_stronghold_0": {
+        "bytes": 1507328,
+        "bytes_per_row": 7.5
+      },
+      "wa_v2_score_only_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
       },
       "wide_archetype_v2_score_only_pkey": {
         "bytes": 8142848,
         "bytes_per_row": 40.7
-      },
-      "wide_archetype_v2_score_only_population_capital": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_research_hub": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_stronghold": {
-        "bytes": 1507328,
-        "bytes_per_row": 7.5
-      },
-      "wide_archetype_v2_score_only_weighted": {
-        "bytes": 8151040,
-        "bytes_per_row": 40.8
       }
     },
     "rows": 200000,
+    "score_distribution": "uniform",
     "table_bytes": 37289984,
     "table_bytes_per_row": 186.4,
     "total_bytes": 65642496,
     "total_bytes_per_row": 328.2
+  },
+  "v3_partial_ge60_score_sysid": {
+    "avg_tuple_bytes": 179.81816,
+    "extrapolated_prod": {
+      "index_gb": 29.7,
+      "systems": 198500000,
+      "table_gb": 37.0,
+      "total_gb": 66.7
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.1691,
+      "manufacturing_hub": 0.1686,
+      "megacomplex": 0.1678,
+      "mining_hub": 0.1689,
+      "paradise": 0.1677,
+      "population_capital": 0.1683,
+      "research_hub": 0.1693,
+      "stronghold": 0.1696
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.0207,
+      "manufacturing_hub": 0.021,
+      "megacomplex": 0.0206,
+      "mining_hub": 0.0201,
+      "paradise": 0.0198,
+      "population_capital": 0.0201,
+      "research_hub": 0.0215,
+      "stronghold": 0.0208
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.0019,
+      "manufacturing_hub": 0.0018,
+      "megacomplex": 0.0019,
+      "mining_hub": 0.0018,
+      "paradise": 0.0019,
+      "population_capital": 0.002,
+      "research_hub": 0.0019,
+      "stronghold": 0.0019
+    },
+    "index_bytes": 29908992,
+    "index_bytes_per_row": 149.5,
+    "indexes": {
+      "wa_v3_partial_ge60_score_sysid_flexible_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_manufacturing_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_megacomplex_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_mining_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_paradise_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_population_capital_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_research_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v3_partial_ge60_score_sysid_stronghold_0": {
+        "bytes": 1712128,
+        "bytes_per_row": 8.6
+      },
+      "wa_v3_partial_ge60_score_sysid_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      },
+      "wide_archetype_v3_partial_ge60_score_sysid_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      }
+    },
+    "rows": 200000,
+    "score_distribution": "bell",
+    "table_bytes": 37289984,
+    "table_bytes_per_row": 186.4,
+    "total_bytes": 67198976,
+    "total_bytes_per_row": 336.0
+  },
+  "v4_weighted_key_tier_partials": {
+    "avg_tuple_bytes": 211.81816,
+    "extrapolated_prod": {
+      "index_gb": 31.7,
+      "systems": 198500000,
+      "table_gb": 44.0,
+      "total_gb": 75.7
+    },
+    "fraction_ge60_by_key": {
+      "flexible": 0.1683,
+      "manufacturing_hub": 0.167,
+      "megacomplex": 0.1682,
+      "mining_hub": 0.1686,
+      "paradise": 0.1683,
+      "population_capital": 0.1677,
+      "research_hub": 0.1693,
+      "stronghold": 0.1689
+    },
+    "fraction_ge76_by_key": {
+      "flexible": 0.0199,
+      "manufacturing_hub": 0.0205,
+      "megacomplex": 0.0207,
+      "mining_hub": 0.0204,
+      "paradise": 0.0199,
+      "population_capital": 0.0204,
+      "research_hub": 0.0204,
+      "stronghold": 0.0205
+    },
+    "fraction_ge88_by_key": {
+      "flexible": 0.0019,
+      "manufacturing_hub": 0.0018,
+      "megacomplex": 0.0018,
+      "mining_hub": 0.0018,
+      "paradise": 0.002,
+      "population_capital": 0.0019,
+      "research_hub": 0.0019,
+      "stronghold": 0.0018
+    },
+    "index_bytes": 31956992,
+    "index_bytes_per_row": 159.8,
+    "indexes": {
+      "wa_v4_weighted_key_tier_partials_flexible_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_flexible_1": {
+        "bytes": 212992,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_flexible_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_0": {
+        "bytes": 1687552,
+        "bytes_per_row": 8.4
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_manufacturing_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_megacomplex_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_mining_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_1": {
+        "bytes": 212992,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_paradise_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_0": {
+        "bytes": 1695744,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_population_capital_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_research_hub_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_0": {
+        "bytes": 1703936,
+        "bytes_per_row": 8.5
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_1": {
+        "bytes": 221184,
+        "bytes_per_row": 1.1
+      },
+      "wa_v4_weighted_key_tier_partials_stronghold_2": {
+        "bytes": 40960,
+        "bytes_per_row": 0.2
+      },
+      "wa_v4_weighted_key_tier_partials_weighted": {
+        "bytes": 8151040,
+        "bytes_per_row": 40.8
+      },
+      "wide_archetype_v4_weighted_key_tier_partials_pkey": {
+        "bytes": 8142848,
+        "bytes_per_row": 40.7
+      }
+    },
+    "rows": 200000,
+    "score_distribution": "bell",
+    "table_bytes": 44335104,
+    "table_bytes_per_row": 221.7,
+    "total_bytes": 76292096,
+    "total_bytes_per_row": 381.5
+  },
+  "provenance": {
+    "producing_script": "scripts/dev/measure_wide_archetype_footprint.py",
+    "producing_commit": "6f9f79e",
+    "note": "Recorded after review (F2d round 21) because this artifact predates the fractions_canonical / fractions_sha256 / sigma_all fields the current script always emits (added in c0e49fa), so it could not have been produced by the checked-in revision and its provenance was unreproducible. It was produced by the script at 6f9f79e, which emits exactly the fields present here.",
+    "is_capacity_gate_input": false,
+    "why_not": "score_distribution_source is declared-synthetic-bell with no fractions digest. The combined capacity gate requires a measured-histogram receipt whose fractions digest matches the committed calibration histogram, so it would refuse this artifact. This is layout-comparison evidence for the design's section 3.4, not a gate input, and it must not be substituted for the pre-build receipt."
   }
 }

@@ -133,7 +133,7 @@ generation) over a reduced-scope launch on `opt1`.
 | 3 | Run a separate governed `VALIDATE CONSTRAINT` operation for all 18 deferred `system_search` checks. | **Action built, not yet run:** `scripts/operator/actions/v3-system-search-validate-constraints.sh` (`start`/`status`), allowlisted in `.github/workflows/chatgpt-ed-new-ops.yml` as `v3-system-search-validate-constraints-start` / `-status` (this PR). It runs only after migration `010` is in the live ledger with hash `a042ccd1…`, validates each check in its own transaction under a detached runner, and `status` reports `pg_constraint.convalidated` for all 18 — the catalog is the receipt. Run it before the fresh build so the full-table scan covers about 198.5M retained `opt1` rows instead of about 397M rows after the second product. The `NOT VALID` checks still enforce every subsequent builder insert automatically |
 | 4 | Create a fresh, non-published, `010`-aware derived generation. | **needs new tooling/decision** — `ratings-v4-generation.sh:174-177` always derives `ratings_v4_prod_p${sequence}` and `ratings_v4_prod_p4` already exists BUILDING, so dispatching it *resumes `p4`*, it does not create a fresh key. Either adopt `p4` as the candidate or add fresh-key/retarget support |
 | 5 | Build `system_search` with body-type counts on that generation. | `v3-system-search-f1.sh` exists but is **pinned to `opt1`** AND verifies only migration `006` (not `010`), while the v2 builder writes `010`'s columns — so it needs **both** a retarget to the fresh generation **and** to pin+verify exact `010`, or it passes preflight then fails on the first body-count write. After step 2, `013` makes the code-only parallel chunk-range builder available |
-| 6 | Run the authorized read-only coefficient-calibration probe and record the coefficient decision. | **Action built, not yet run:** `scripts/v3_archetype_calibration_probe.py` (read-only, bounded) run through `scripts/operator/actions/v3-archetype-calibration-probe.sh`, allowlisted as `v3-archetype-calibration-probe` (this PR). Its receipt (per-archetype score distributions, primary/secondary counts, tier histograms, mining/manufacturing/megacomplex separation) is the calibration evidence; the coefficient decision must be recorded in docs before step 7 registers the product. The probe can read the already-published `parallel_v1` ratings vectors and does not wait for the fresh generation, so it may run earlier once the step 0 state is reconfirmed. The decision must precede `system_archetype` registration because coefficients are hashed into the product manifest and a `READY` product cannot be rewritten |
+| 6 | Run the authorized read-only coefficient-calibration probe and record the coefficient decision; the capacity gate's input is a separate complete read of every chunk, never a sample (F2d design step 5a). | **Action built, not yet run:** `scripts/v3_archetype_calibration_probe.py` (read-only, bounded) run through `scripts/operator/actions/v3-archetype-calibration-probe.sh`, allowlisted as `v3-archetype-calibration-probe` (this PR). Its receipt (per-archetype score distributions, primary/secondary counts, tier histograms, mining/manufacturing/megacomplex separation) is the calibration evidence; the coefficient decision must be recorded in docs before step 7 registers the product. The probe can read the already-published `parallel_v1` ratings vectors and does not wait for the fresh generation, so it may run earlier once the step 0 state is reconfirmed. The decision must precede `system_archetype` registration because coefficients are hashed into the product manifest and a `READY` product cannot be rewritten |
 | 7 | Build `system_archetype` on the same generation. | **NO governed action — must be built** (model on `f1`) |
 | 8 | Validate both products to `READY`. | **NO governed action — must be built:** the step 5 and step 7 build actions must expose and receipt the validation path (search: inline in `run()`; archetype: `--validate`) so READY is reached through a reviewed route |
 | 9 | Publish the owning generation with `v3_meta.publish_derived_generation`. | **NO governed action — must be built** (model on the pyramid publish) |
@@ -198,8 +198,12 @@ per-key score index entry is unique when `system_id64` is a trailing column
 101 distinct score values into posting lists (7.5 B/row each). The picked
 ranking orders by the computed product `score × confidence × completeness`,
 which no score index can serve, and the wide row is joined by its primary key,
-so the trailing `system_id64` buys nothing; the deduplicating form keeps the
-`min_development_score` / tier-floor range path at about 1.5 GB per key.
+so the trailing `system_id64` buys nothing for the *final* ordering — but the F4
+slice 1c bounded probe (first 10,001 rows of a key in exact `score DESC,
+system_id64` order) does need it, and integer scores tie heavily, so the layout
+adopted after review is the **partial** unique-entry index restricted to
+`<key>_score >= 60` (the lowest floor F4 exposes): bounded and deterministic,
+sized by the real ≥ 60 fraction the step 6 calibration probe reports.
 
 | Relation | sample rows | table B/row | index B/row | prod rows | table GB | index GB | total GB |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -211,6 +215,17 @@ so the trailing `system_id64` buys nothing; the deduplicating form keeps the
 | `system_archetype_summary` | 199,992 | 96 | 79 | 198.5 M | 19 | 16 | **35** |
 | wide-row `system_archetype` (F2d design, one row per system, 42 columns, no explanation; PK + 8 `(generation, <key>_score DESC, system_id64)` indexes + weighted index — the spec's first draft) | 200,000 | 186 | 480 | 198.5 M | 37 | 95 | **132** |
 | wide-row `system_archetype` (same table; PK + 8 deduplicating `(generation, <key>_score DESC)` indexes + weighted index — the recommended layout) | 200,000 | 186 | 142 | 198.5 M | 37 | 28 | **65** |
+| wide-row `system_archetype` (same table; PK + 8 **partial** `(generation, <key>_score DESC, system_id64) WHERE <key>_score >= 60` indexes + weighted index — the layout adopted after review, 1M-row probe experiment with 16.9 % of rows ≥ 60) | 1,000,000 | 186 | 149 | 198.5 M | 37 | 30 | **≈ 66** (ceiling 132 if every system scored ≥ 60) |
+| wide-row `system_archetype` with the eight stored ranking keys `<key>_weighted_e4` (PK + weighted index + 24 **partial** `(generation, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 / 76 / 88` indexes — the F2d design's final layout, `v4_weighted_key_tier_partials` in the committed evidence; bell-shaped synthetic scores, 16.9 % / 2.1 % / 0.19 %) | 200,000 | 222 | 160 | 198.5 M | 44 | 32 | **≈ 76** (the three partials per key are nested, so this scales with the sum of all 24 per-key tier fractions Σ_all — 1.54 here; ≈ 297 GB only if every fraction were 1) |
+
+**Superseded planning text — retained as historical measurement evidence only.**
+The next two paragraphs through “step 0 reconfirms state” describe the
+fresh-generation route superseded by the owner's A + B decision below and are
+not rollout instructions. The controlling ROADMAP replacement sequence attaches
+both Finder products to the existing published
+`ratings_v4_prod_p4_parallel_v1` generation; no step creates or waits for a
+fresh generation. Capacity is decided by the final-wide-row, histogram-backed
+combined gate before either product build.
 
 Sum of the four system-level relations for one complete fresh generation: about
 **1,174 GB**, of which `system_archetype` alone is about
