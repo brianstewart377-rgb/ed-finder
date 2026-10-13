@@ -363,6 +363,22 @@ def score_raw_system(
     return result
 
 
+def explain_raw_system(
+    vector_row: SystemVectorRow,
+    opportunity_groups: tuple[tuple[int, int, int], ...],
+) -> dict[str, dict]:
+    '''Build the eight on-demand explanations from database-shaped inputs.
+
+    Reuses the fits themselves (``fit_all`` attaches each explanation to its
+    ``ArchetypeFit``) so the explanation can never describe inputs other than
+    the ones that produced the score; this module holds exactly one copy of
+    the scoring arithmetic. Not reachable from ``score_raw_system``, so it
+    does not enter ``archetype_model_sha256``.
+    '''
+    fits = fit_all(_scaled_vectors(vector_row, opportunity_groups))
+    return {fit.key: fit.explanation for fit in fits}
+
+
 class _DigestError(ValueError):
     pass
 
@@ -625,6 +641,7 @@ __all__ = (
     'archetype_model_sha256',
     'completeness_to_ppm',
     'confidence_to_ppm',
+    'explain_raw_system',
     'fit_all',
     'score_raw_system',
     'search_uncertainty_factor',

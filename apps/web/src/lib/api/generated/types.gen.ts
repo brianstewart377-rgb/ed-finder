@@ -7021,6 +7021,94 @@ export type StatusResponse = {
 };
 
 /**
+ * SystemArchetypeExplanationEntry
+ *
+ * One recomputed and stored-value-verified V3 archetype explanation.
+ */
+export type SystemArchetypeExplanationEntry = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Score
+     */
+    score: number;
+    /**
+     * Tier
+     */
+    tier: 'S' | 'A' | 'B' | 'C' | 'D';
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Weighted E4
+     */
+    weighted_e4: number;
+    /**
+     * Explanation
+     */
+    explanation: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * SystemArchetypeExplanationResponse
+ *
+ * On-demand V3 archetype explanations pinned to one product identity.
+ */
+export type SystemArchetypeExplanationResponse = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Archetypes
+     */
+    archetypes: Array<SystemArchetypeExplanationEntry>;
+    summary: SystemArchetypeExplanationSummary;
+    /**
+     * Completeness
+     */
+    completeness: number;
+    ranking: RankingIdentity;
+};
+
+/**
+ * SystemArchetypeExplanationSummary
+ *
+ * The verified summary columns from the published wide archetype row.
+ */
+export type SystemArchetypeExplanationSummary = {
+    /**
+     * Primary Archetype
+     */
+    primary_archetype: string;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Best Colony Potential
+     */
+    best_colony_potential: number;
+    /**
+     * Best Tier
+     */
+    best_tier: 'S' | 'A' | 'B' | 'C' | 'D';
+    /**
+     * Archetype Confidence
+     */
+    archetype_confidence: number;
+    /**
+     * Weighted Potential
+     */
+    weighted_potential: number;
+};
+
+/**
  * SystemArchetypeResponse
  *
  * Full archetype breakdown for one system.
@@ -11173,6 +11261,49 @@ export type PostArchetypeRerankApiArchetypesRerankPostResponses = {
 };
 
 export type PostArchetypeRerankApiArchetypesRerankPostResponse = PostArchetypeRerankApiArchetypesRerankPostResponses[keyof PostArchetypeRerankApiArchetypesRerankPostResponses];
+
+export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: {
+        /**
+         * Expected Generation Id
+         */
+        expected_generation_id?: string | null;
+        /**
+         * Expected Archetype Version
+         */
+        expected_archetype_version?: string | null;
+        /**
+         * Expected Manifest Sha256
+         */
+        expected_manifest_sha256?: string | null;
+    };
+    url: '/api/archetypes/system/{id64}/explanation';
+};
+
+export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetError = GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors[keyof GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors];
+
+export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemArchetypeExplanationResponse;
+};
+
+export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponse = GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses[keyof GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses];
 
 export type GetSystemArchetypesApiArchetypesSystemId64GetData = {
     body?: never;

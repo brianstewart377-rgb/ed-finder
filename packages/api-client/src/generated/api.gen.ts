@@ -1586,6 +1586,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/archetypes/system/{id64}/explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** On-demand V3 archetype explanations for a single system */
+        get: operations["get_system_archetype_explanation_api_archetypes_system__id64__explanation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/archetypes/system/{id64}": {
         parameters: {
             query?: never;
@@ -6820,6 +6837,64 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * SystemArchetypeExplanationEntry
+         * @description One recomputed and stored-value-verified V3 archetype explanation.
+         */
+        SystemArchetypeExplanationEntry: {
+            /** Key */
+            key: string;
+            /** Score */
+            score: number;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "S" | "A" | "B" | "C" | "D";
+            /** Confidence */
+            confidence: number;
+            /** Weighted E4 */
+            weighted_e4: number;
+            /** Explanation */
+            explanation: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * SystemArchetypeExplanationResponse
+         * @description On-demand V3 archetype explanations pinned to one product identity.
+         */
+        SystemArchetypeExplanationResponse: {
+            /** Id64 */
+            id64: number;
+            /** Archetypes */
+            archetypes: components["schemas"]["SystemArchetypeExplanationEntry"][];
+            summary: components["schemas"]["SystemArchetypeExplanationSummary"];
+            /** Completeness */
+            completeness: number;
+            ranking: components["schemas"]["RankingIdentity"];
+        };
+        /**
+         * SystemArchetypeExplanationSummary
+         * @description The verified summary columns from the published wide archetype row.
+         */
+        SystemArchetypeExplanationSummary: {
+            /** Primary Archetype */
+            primary_archetype: string;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Best Colony Potential */
+            best_colony_potential: number;
+            /**
+             * Best Tier
+             * @enum {string}
+             */
+            best_tier: "S" | "A" | "B" | "C" | "D";
+            /** Archetype Confidence */
+            archetype_confidence: number;
+            /** Weighted Potential */
+            weighted_potential: number;
+        };
+        /**
          * SystemArchetypeResponse
          * @description Full archetype breakdown for one system.
          */
@@ -10494,6 +10569,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArchetypeRerankResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_system_archetype_explanation_api_archetypes_system__id64__explanation_get: {
+        parameters: {
+            query?: {
+                expected_generation_id?: string | null;
+                expected_archetype_version?: string | null;
+                expected_manifest_sha256?: string | null;
+            };
+            header?: never;
+            path: {
+                id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemArchetypeExplanationResponse"];
                 };
             };
             /** @description Validation Error */

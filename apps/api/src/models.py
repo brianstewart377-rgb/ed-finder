@@ -761,6 +761,41 @@ TierValue = Literal['S', 'A', 'B', 'C', 'D']
 BuildComplexity = Literal['trivial', 'simple', 'moderate', 'advanced', 'expert']
 
 
+class SystemArchetypeExplanationEntry(BaseModel):
+    """One recomputed and stored-value-verified V3 archetype explanation."""
+    model_config = ConfigDict(extra='forbid')
+
+    key: str
+    score: int
+    tier: TierValue
+    confidence: float
+    weighted_e4: int
+    explanation: dict[str, Any]
+
+
+class SystemArchetypeExplanationSummary(BaseModel):
+    """The verified summary columns from the published wide archetype row."""
+    model_config = ConfigDict(extra='forbid')
+
+    primary_archetype: str
+    secondary_archetype: Optional[str] = None
+    best_colony_potential: int
+    best_tier: TierValue
+    archetype_confidence: float
+    weighted_potential: float
+
+
+class SystemArchetypeExplanationResponse(BaseModel):
+    """On-demand V3 archetype explanations pinned to one product identity."""
+    model_config = ConfigDict(extra='forbid')
+
+    id64: int
+    archetypes: list[SystemArchetypeExplanationEntry]
+    summary: SystemArchetypeExplanationSummary
+    completeness: float
+    ranking: RankingIdentity
+
+
 class ArchetypeRerankWeights(BaseModel):
     """
     Weight dimensions for archetype-based reranking.

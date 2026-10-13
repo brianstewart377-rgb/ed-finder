@@ -20,6 +20,7 @@ from scripts.v3_system_archetype_model import (
     SystemVectors,
     archetype_model_sha256,
     confidence_to_ppm,
+    explain_raw_system,
     fit_all,
     score_raw_system,
     search_uncertainty_factor,
@@ -31,6 +32,9 @@ from scripts.v3_system_archetype_model import (
 
 
 MODEL_PATH = Path(canonical_model.__file__)
+EXPECTED_ARCHETYPE_MODEL_SHA256 = (
+    'dbf62b783fb2220d92202ab84c7f9adf556ed8be43218716c5a69e052c552533'
+)
 
 
 def _vectors(**over):
@@ -301,6 +305,24 @@ def test_integer_opportunity_mean_is_divided_once_in_model():
     assert raw['paradise_score'] == fit.score
 
 
+def test_explain_raw_system_assembles_the_same_eight_explanations():
+    row = _raw_vector(
+        potential=(90, 80, 70, 60, 50, 90, 80),
+        quality=(90, 80, None, 60, 50, 90, 80),
+        quality_min=(90, 80, 30, 60, 50, 90, 80),
+        quality_max=(90, 80, 70, 60, 50, 90, 80),
+    )
+    opportunity_groups = ((1, 3, 4), (2, 2, 120), (6, 4, 320))
+    expected = {
+        fit.key: fit.explanation
+        for fit in fit_all(canonical_model._scaled_vectors(
+            row,
+            opportunity_groups,
+        ))
+    }
+    assert explain_raw_system(row, opportunity_groups) == expected
+
+
 def test_shared_sql_contracts_are_raw_integer_reads():
     collapsed_vector = ' '.join(VECTOR_READ_SQL.split()).lower()
     collapsed_opportunity = ' '.join(OPPORTUNITY_READ_SQL.split()).lower()
@@ -322,6 +344,7 @@ def test_canonical_model_digest_is_computable_and_stable():
     assert len(digest) == 64
     assert int(digest, 16) >= 0
     assert digest == archetype_model_sha256()
+    assert digest == EXPECTED_ARCHETYPE_MODEL_SHA256
 
 
 def test_model_digest_excludes_version_and_explanation_construction(tmp_path):

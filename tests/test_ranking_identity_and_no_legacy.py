@@ -375,6 +375,8 @@ def test_no_legacy_relation_scoped_to_v3_ranking_paths():
         archetypes._archetype_rankings_v3,
         archetypes._build_v3_ranking_row,
         archetypes.get_archetype_rankings,
+        archetypes._system_archetype_explanation_v3,
+        archetypes.get_system_archetype_explanation,
     )
     for fn in scoped_functions:
         src = inspect.getsource(fn).lower()
