@@ -161,24 +161,30 @@ def test_non_loopback_dsn_is_refused_before_connect_or_write():
 def test_server_must_be_loopback_postgresql_18_before_any_database_create():
     module = _load()
     assert module.assert_disposable_server(
-        _FakeConn(("127.0.0.1", 180004, "ratings_v4_validation")),
+        _FakeConn(("127.0.0.1", "127.0.0.1", 180004, "ratings_v4_validation")),
         expected_database="ratings_v4_validation",
     ) == 180004
-    with pytest.raises(ValueError, match="not loopback or private"):
+    with pytest.raises(ValueError, match="not loopback or a same-bridge container"):
         module.assert_disposable_server(
-            _FakeConn(("203.0.113.9", 180004, "ratings_v4_validation"))
+            _FakeConn(("203.0.113.9", "203.0.113.1", 180004, "ratings_v4_validation"))
         )
     # A disposable service container behind a published loopback port reports
-    # its bridge address; the client host is pinned to loopback separately.
+    # its bridge address and sees the bridge gateway as the client.
     assert module.assert_disposable_server(
-        _FakeConn(("172.18.0.2", 180004, "ratings_v4_validation"))
+        _FakeConn(("172.18.0.2", "172.18.0.1", 180004, "ratings_v4_validation"))
     ) == 180004
-    assert module.server_address_is_disposable("10.1.2.3") is True
-    assert module.server_address_is_disposable("8.8.8.8") is False
+    # A tunnel to another private-address server shows a loopback client there.
+    with pytest.raises(ValueError, match="not loopback or a same-bridge container"):
+        module.assert_disposable_server(
+            _FakeConn(("10.1.2.3", "127.0.0.1", 180004, "ratings_v4_validation"))
+        )
+    assert module.server_address_is_disposable("10.1.2.3", "10.1.0.1") is True
+    assert module.server_address_is_disposable("10.1.2.3", "10.2.0.1") is False
+    assert module.server_address_is_disposable("8.8.8.8", "8.8.8.1") is False
     assert module.server_address_is_disposable(None) is False
     with pytest.raises(ValueError, match="PostgreSQL 17, not 18"):
         module.assert_disposable_server(
-            _FakeConn(("127.0.0.1", 170006, "ratings_v4_validation"))
+            _FakeConn(("127.0.0.1", "127.0.0.1", 170006, "ratings_v4_validation"))
         )
     source = SCRIPT.read_text(encoding="utf-8")
     measure_source = source.split("def measure_search_footprint", 1)[1]

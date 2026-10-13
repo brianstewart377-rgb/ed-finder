@@ -138,28 +138,55 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
     return keywords
 
 
-def server_address_is_disposable(server_addr: object) -> bool:
-    """True for a loopback or RFC 1918 / ULA server address; everything else is refused."""
-    if not isinstance(server_addr, str) or not server_addr:
-        return False
+def _parse_address(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not isinstance(value, str) or not value:
+        return None
     try:
-        address = ipaddress.ip_address(server_addr.split("/", 1)[0])
+        return ipaddress.ip_address(value.split("/", 1)[0])
     except ValueError:
+        return None
+
+
+def server_address_is_disposable(server_addr: object, client_addr: object = None) -> bool:
+    """True for a loopback server, or a container-bridge server reached from its own bridge.
+
+    A published container port shows the server its bridge address and the bridge
+    gateway as the client; a forwarded connection to some other private-address
+    server shows a loopback client there, so the non-loopback case requires both
+    addresses to be private, non-loopback and within the same /16. Same rule as
+    scripts/dev/measure_wide_archetype_footprint.py.
+    """
+    server = _parse_address(server_addr)
+    if server is None:
         return False
-    if address.is_loopback:
+    if server.is_loopback:
         return True
-    return any(address in network for network in DISPOSABLE_PRIVATE_NETWORKS)
+    if not any(server in network for network in DISPOSABLE_PRIVATE_NETWORKS):
+        return False
+    client = _parse_address(client_addr)
+    if client is None or client.is_loopback or client.version != server.version:
+        return False
+    if not any(client in network for network in DISPOSABLE_PRIVATE_NETWORKS):
+        return False
+    prefix = 16 if server.version == 4 else 64
+    return ipaddress.ip_network(f"{server}/{prefix}", strict=False) == ipaddress.ip_network(
+        f"{client}/{prefix}", strict=False
+    )
 
 
 def assert_disposable_server(
     conn: psycopg.Connection[Any], *, expected_database: str | None = None
 ) -> int:
     """Refuse unless this is the expected loopback PostgreSQL 18 database."""
-    address, version_num, database = conn.execute(
-        "SELECT host(inet_server_addr()), current_setting('server_version_num')::int, current_database()"
+    address, client_address, version_num, database = conn.execute(
+        "SELECT host(inet_server_addr()), host(inet_client_addr()), "
+        "current_setting('server_version_num')::int, current_database()"
     ).fetchone()
-    if not server_address_is_disposable(address):
-        raise ValueError(f"connected server address {address!r} is not loopback or private")
+    if not server_address_is_disposable(address, client_address):
+        raise ValueError(
+            f"connected server address {address!r} (client {client_address!r}) is not loopback "
+            "or a same-bridge container"
+        )
     allowed = database in ALLOWED_DBNAMES or database.startswith(MEASUREMENT_DATABASE_PREFIX)
     if not allowed or (expected_database is not None and database != expected_database):
         raise ValueError(f"connected database {database!r} is not the expected disposable database")
