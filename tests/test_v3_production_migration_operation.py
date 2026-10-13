@@ -80,6 +80,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "010_v3_system_search_body_type_counts.sql",
         "011_v3_system_archetype.sql",
         "013_v3_system_search_parallel.sql",
+        "015_v3_derived_product_publication.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -108,6 +109,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "010_v3_system_search_body_type_counts.sql",
         "011_v3_system_archetype.sql",
         "013_v3_system_search_parallel.sql",
+        "015_v3_derived_product_publication.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.

@@ -5,6 +5,7 @@ Skips unless the isolated local PostgreSQL validation service is configured
 (see reference_local_test_database)."""
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 import sys
@@ -33,13 +34,31 @@ ARCHETYPE_KEYS = (
 def test_neutral_seed_probes_wide_archetype_table_and_summary_view():
     from scripts.dev.seed_v3_fixture_generation import _MIGRATION_PROBES
 
-    migration, probe = _MIGRATION_PROBES[-1]
+    migration, probe = next(
+        entry for entry in _MIGRATION_PROBES
+        if entry[0] == '011_v3_system_archetype.sql'
+    )
     assert migration == '011_v3_system_archetype.sql'
     assert "table_schema='v3_derived' AND table_name='system_archetype'" in probe
     assert "table_type='BASE TABLE'" in probe
     assert "table_schema='v3_app' AND table_name='system_archetype_summary'" in probe
     assert 'information_schema.views' in probe
     assert 'v3_derived.system_archetype_summary' not in probe
+    assert _MIGRATION_PROBES[-1] == (
+        '015_v3_derived_product_publication.sql',
+        "SELECT to_regclass('v3_meta.derived_product_publication_audit') IS NOT NULL",
+    )
+
+
+def test_neutral_seed_publishes_products_atomically_in_dependency_order():
+    from scripts.dev.seed_v3_fixture_generation import seed_v3_fixture_generation
+
+    source = inspect.getsource(seed_v3_fixture_generation)
+    transaction = source.index('with connection.transaction():')
+    generation = source.index('publish_derived_generation', transaction)
+    search = source.index("(generation_id, 'system_search', publication_actor)", generation)
+    archetype = source.index("(generation_id, 'system_archetype', publication_actor)", search)
+    assert transaction < generation < search < archetype
 
 
 def test_cypress_wrapper_passes_fixture_and_publication_metadata(monkeypatch, tmp_path):
@@ -216,13 +235,33 @@ def test_seed_publishes_and_exposes_journey_ids(full_review_lineage):
                     'JOIN v3_meta.current_derived_generation c USING (derived_generation_id)'
                 ).fetchone()
                 assert published == ('PUBLISHED',)
-                products = dict(conn.execute(
-                    'SELECT p.product_code, p.lifecycle_state FROM v3_meta.derived_product p '
+                product_rows = conn.execute(
+                    'SELECT p.product_code, p.lifecycle_state, p.published_at '
+                    'FROM v3_meta.derived_product p '
                     'JOIN v3_meta.current_derived_generation c USING (derived_generation_id) '
                     'WHERE p.product_code = ANY(%s)',
                     (['system_search', 'system_archetype'],),
-                ).fetchall())
-                assert products == {'system_search': 'READY', 'system_archetype': 'READY'}
+                ).fetchall()
+                products = {
+                    code: (state, published_at)
+                    for code, state, published_at in product_rows
+                }
+                assert set(products) == {'system_search', 'system_archetype'}
+                assert all(state == 'READY' for state, _ in products.values())
+                assert all(published_at is not None for _, published_at in products.values())
+                publication_audits = conn.execute(
+                    'SELECT a.product_code,a.published_at,a.actor '
+                    'FROM v3_meta.derived_product_publication_audit a '
+                    'JOIN v3_meta.current_derived_generation c USING (derived_generation_id) '
+                    'ORDER BY a.product_code'
+                ).fetchall()
+                assert [row[0] for row in publication_audits] == [
+                    'system_archetype', 'system_search',
+                ]
+                assert all(
+                    published_at == products[code][1] and actor == 'cypress-seed'
+                    for code, published_at, actor in publication_audits
+                )
                 receipts = conn.execute(
                     "SELECT p.validation_receipt->>'status' FROM v3_meta.derived_product p "
                     'JOIN v3_meta.current_derived_generation c USING (derived_generation_id) '

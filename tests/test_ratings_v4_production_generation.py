@@ -20,7 +20,15 @@ from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 @pytest.fixture(scope='module')
 def database():
     with canonical_database() as (connection, canonical, metadata, payloads):
-        connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
+        for name in (
+            '003_ratings_v4_derived.sql',
+            '004_v3_search_spatial_clusters.sql',
+            '006_v3_derived_product_lifecycle.sql',
+            '010_v3_system_search_body_type_counts.sql',
+            '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
+        ):
+            connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         snapshot = CanonicalSnapshot.pin(connection)
         exported = snapshot.export_chunk(connection, [row['id64'] for row in canonical['systems']])
         yield connection, exported, snapshot.metadata, [payload['system'] for payload in payloads], snapshot
@@ -142,8 +150,11 @@ def test_publish_compare_and_swap_and_rollback(database):
     second, _ = build_ready(database)
 
     def publish(target, previous, sequence, canonical=snapshot.generation_id):
-        return connection.execute('SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
-            (target, previous, sequence, canonical, snapshot.publication_sequence, 'test', 'verified fixture')).fetchone()[0]
+        return connection.execute(
+            'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
+            (target, previous, sequence, canonical, snapshot.publication_sequence,
+             'test', 'verified fixture', []),
+        ).fetchone()[0]
 
     assert publish(first, None, 0) == 1
     with pytest.raises(psycopg.errors.RaiseException, match='derived publication changed'):

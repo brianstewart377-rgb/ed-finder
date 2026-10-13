@@ -256,7 +256,7 @@ def _require_verified_search(connection, generation_id: str) -> None:
 
 def register_product(connection, generation_key: str) -> tuple[Generation, str, bytes]:
     generation = _generation(connection, generation_key)
-    if generation.state not in {'BUILDING', 'VALIDATING', 'READY'}:
+    if generation.state not in {'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED'}:
         raise ValueError('generation cannot accept an Archetype product')
     _require_verified_search(connection, generation.identifier)
     manifest = product_manifest(generation)
@@ -418,7 +418,9 @@ def _build_chunk(
                 WHERE derived_generation_id=%s FOR SHARE''',
             (generation.identifier,),
         ).fetchone()
-        if base is None or base[0] not in {'BUILDING', 'VALIDATING', 'READY'}:
+        if base is None or base[0] not in {
+            'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED',
+        }:
             raise ValueError('generation cannot accept Archetype rows')
         product = connection.execute(
             '''SELECT lifecycle_state,manifest_sha256
@@ -701,7 +703,7 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
         coverage_reasons.append('coverage: wide-row count mismatch')
     if receipt_count != len(rating_chunks):
         coverage_reasons.append('coverage: missing chunk receipt')
-    if generation.state != 'READY':
+    if generation.state not in {'READY', 'PUBLISHED'}:
         return {
             'status': 'INCOMPLETE',
             'derived_generation_id': generation.identifier,
@@ -805,7 +807,7 @@ def run(
             (generation.identifier,),
         ).fetchone()[0])
         complete = (
-            generation.state == 'READY' and rating_chunks > 0
+            generation.state in {'READY', 'PUBLISHED'} and rating_chunks > 0
             and archetype_chunks == rating_chunks
             and rating_systems == generation.expected_systems
         )

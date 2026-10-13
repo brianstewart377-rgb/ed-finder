@@ -161,7 +161,7 @@ def _product(connection, generation_id: str):
 
 def register_product(connection, generation_key: str) -> tuple[Generation, str, bytes]:
     generation = _generation(connection, generation_key)
-    if generation.state not in {'BUILDING', 'VALIDATING', 'READY'}:
+    if generation.state not in {'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED'}:
         raise ValueError('generation cannot accept a Search product')
     manifest = product_manifest(generation)
     manifest_sha = _digest(manifest)
@@ -410,7 +410,9 @@ def _insert_chunk(
                 WHERE derived_generation_id=%s FOR SHARE''',
             (generation.identifier,),
         ).fetchone()
-        if base is None or base[0] not in {'BUILDING', 'VALIDATING', 'READY'}:
+        if base is None or base[0] not in {
+            'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED',
+        }:
             raise ValueError('generation cannot accept Search rows')
         product = connection.execute(
             '''SELECT lifecycle_state,manifest_sha256
@@ -573,7 +575,7 @@ def validate_product(
     ).fetchall()
 
     complete = (
-        generation.state in {'VALIDATING', 'READY'}
+        generation.state in {'VALIDATING', 'READY', 'PUBLISHED'}
         and vector_count == generation.expected_systems
         and search_count == generation.expected_systems
         and len(rating_chunks) == len(search_chunks)

@@ -34,12 +34,14 @@
 #                                 reviewed V3 migration operation before Search is
 #                                 attached to a production generation.
 #
-#   010/011/013 are declared after 014; none has ever been applied to production.
+#   010/011/013/015 are declared after 014; none has ever been applied to production.
 #                                 011 was therefore rewritten in place as the
 #                                 one-wide-row-per-system archetype schema. 013 is
 #                                 the parallel-rebuild scheduler schema and creates
-#                                 two new empty tables. Registration is not
-#                                 application.
+#                                 two new empty tables. 015 adds the audited product-
+#                                 publication gate that allows Finder products to be
+#                                 attached to the current PUBLISHED generation.
+#                                 Registration is not application.
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
@@ -55,3 +57,4 @@ d7fa24abff95a91ee81a11493681f6df60b20bbb3840314c3fabb04b59532861  009_v3_journal
 a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf  010_v3_system_search_body_type_counts.sql  v3/migrations/010_v3_system_search_body_type_counts.sql
 652982595f7ff86f78452bcadd467e399643980e126fbf9c427854608d8c5e25  011_v3_system_archetype.sql  v3/migrations/011_v3_system_archetype.sql
 2f3c444b30339aa414fe1555fbcc917d30649fb9516d28a86c9d25a3b0086041  013_v3_system_search_parallel.sql  v3/migrations/013_v3_system_search_parallel.sql
+319a4655478e2da9b8d7f7e0c44d7d0c2b3548b8b2934a9564a3b6af897c5791  015_v3_derived_product_publication.sql  v3/migrations/015_v3_derived_product_publication.sql

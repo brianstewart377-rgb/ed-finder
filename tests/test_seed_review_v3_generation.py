@@ -73,20 +73,34 @@ def test_review_seed_publishes_dedicated_fixture_and_spatial_pyramid():
                 }
                 assert exposed == REVIEW_SYSTEM_IDS
 
-                products = dict(
-                    connection.execute(
-                        'SELECT p.product_code, p.lifecycle_state '
+                product_rows = connection.execute(
+                        'SELECT p.product_code, p.lifecycle_state, p.published_at '
                         'FROM v3_meta.derived_product p '
                         'JOIN v3_meta.current_derived_generation c '
                         'USING (derived_generation_id) '
                         'WHERE p.product_code = ANY(%s)',
                         (['system_search', 'system_archetype'],),
                     ).fetchall()
-                )
-                assert products == {
-                    'system_search': 'READY',
-                    'system_archetype': 'READY',
+                products = {
+                    code: (state, published_at)
+                    for code, state, published_at in product_rows
                 }
+                assert set(products) == {'system_search', 'system_archetype'}
+                assert all(state == 'READY' for state, _ in products.values())
+                assert all(published_at is not None for _, published_at in products.values())
+                publication_audits = connection.execute(
+                    'SELECT a.product_code,a.published_at,a.actor '
+                    'FROM v3_meta.derived_product_publication_audit a '
+                    'JOIN v3_meta.current_derived_generation c '
+                    'USING (derived_generation_id) ORDER BY a.product_code'
+                ).fetchall()
+                assert [row[0] for row in publication_audits] == [
+                    'system_archetype', 'system_search',
+                ]
+                assert all(
+                    published_at == products[code][1] and actor == 'review-lab-seed'
+                    for code, published_at, actor in publication_audits
+                )
                 receipts = dict(
                     connection.execute(
                         "SELECT p.product_code, p.validation_receipt->>'status' "

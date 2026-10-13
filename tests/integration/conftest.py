@@ -113,8 +113,9 @@ async def v3_derived_ready():
     (`/api/local/search` reads `v3_meta`/`v3_app` via the ranking profile)
     must skip there rather than fail on a missing `v3_meta` relation. They run
     for real against the dedicated V3 fixture DB. Requires the published
-    generation AND both Finder products to be READY -- the exact precondition
-    `local_search._current_derived_generation` enforces at request time.
+    generation AND both Finder products to be READY and published -- the exact
+    precondition `local_search._current_derived_generation` enforces at request
+    time.
     """
     conn = await asyncpg.connect(os.environ["DATABASE_URL"])
     try:
@@ -134,12 +135,13 @@ async def v3_derived_ready():
             """
             SELECT product_code FROM v3_meta.derived_product
             WHERE derived_generation_id=$1 AND lifecycle_state='READY'
+              AND published_at IS NOT NULL
               AND product_code = ANY($2::text[])
             """,
             published, ['system_search', 'system_archetype'],
         )
         if {r['product_code'] for r in ready} < {'system_search', 'system_archetype'}:
-            pytest.skip("V3 Finder products not READY in this DB")
+            pytest.skip("V3 Finder products not READY and published in this DB")
     finally:
         await conn.close()
 

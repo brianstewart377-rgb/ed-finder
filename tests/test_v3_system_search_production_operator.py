@@ -96,7 +96,7 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
     spec.loader.exec_module(module)
     document = module.build(ROOT)
     # Reproduce the installed prefix independently and assert both endpoints of
-    # the through-012 -> through-012-014-010-011-013 transition.
+    # the through-012 -> through-012-014-010-011-013-015 transition.
     desired_document = dict(document)
     entries = document['migration_set_entries']
     stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '012_v3_spatial_pyramid_decouple.sql') + 1
@@ -117,12 +117,13 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
         '010_v3_system_search_body_type_counts.sql',
         '011_v3_system_archetype.sql',
         '013_v3_system_search_parallel.sql',
+        '015_v3_derived_product_publication.sql',
     ]
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
-    assert transition["to_migration_set_identity"] == "sha256:cf97b0ab6f8ec2a64cdc15c97a46c5d4ba6115ca35d5c470e3b8d62d84abbc93"
+    assert transition["to_migration_set_identity"] == "sha256:253a4957294dfe5595e6d344cdec1a81592c61ab91bfb906932ddf802fcd6832"
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
-    assert authority["external_authority"]["schema_identity_sha256"] == "6f600e8d0a6607c907bcf838a60b4d2dbbed3752f8575b9f7c75074f8273f811"
+    assert authority["external_authority"]["schema_identity_sha256"] == "069d8c9b70ec5dc0a51f23bc247c60b64a1cf20e16dd2af616606c043d1925e1"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
     reachable = {
         module.migration_set_identity(entries[:prefix_length])

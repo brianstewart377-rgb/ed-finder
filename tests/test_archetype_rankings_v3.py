@@ -63,6 +63,7 @@ def database():
             '006_v3_derived_product_lifecycle.sql',
             '010_v3_system_search_body_type_counts.sql',
             '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
         ):
             connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         yield connection, canonical, metadata, payloads
@@ -94,9 +95,9 @@ def _eof_receipt(database):
 
 def _publish(connection, generation_id, snapshot):
     return connection.execute(
-        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
         (generation_id, None, 0, snapshot.generation_id, snapshot.publication_sequence,
-         'test', 'archetype rankings v3 fixture'),
+         'test', 'archetype rankings v3 fixture', ['system_search', 'system_archetype']),
     ).fetchone()[0]
 
 
@@ -525,7 +526,11 @@ async def test_archetype_rankings_v3_requires_ready_archetype_product():
             }
 
         async def fetch(self, *_args, **_kwargs):
-            return [{'product_code': 'system_search'}]
+            return [{
+                'product_code': 'system_search',
+                'lifecycle_state': 'READY',
+                'published_at': '2026-10-13T00:00:00+00:00',
+            }]
 
     class _Pool:
         def acquire(self):

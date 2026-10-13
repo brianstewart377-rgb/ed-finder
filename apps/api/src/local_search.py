@@ -616,11 +616,11 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 # would read as "no matches for that filter" when really the filter was
 # never applied.
 #
-# The derived products a V3 Finder ranked read depends on. Publication only
-# blocks *registered* products that aren't READY, so a generation could be
-# published with one of these never registered at all -- its `v3_app.*` view
-# would then be empty, indistinguishable from "no matching systems". Requiring
-# both to be READY lets us signal explicit unavailability instead.
+# The derived products a V3 Finder ranked read depends on. A generation may be
+# published before either Finder product is attached, and a READY product stays
+# hidden until its separate publication audit commits. Requiring both products
+# to be READY and published keeps every unavailable state distinct from a valid
+# search with no matches.
 _REQUIRED_FINDER_PRODUCTS: frozenset[str] = frozenset({'system_search', 'system_archetype'})
 
 
@@ -634,35 +634,43 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> dict[st
     if row is None:
         raise HTTPException(404, 'No published Ratings V4 generation')
 
-    # A published generation whose Finder products were never registered/built
-    # exposes EMPTY v3_app.* views. Distinguish "product unavailable" from
-    # "genuinely no matches" by requiring both products to be READY for this
-    # pinned generation; if not, fail explicitly (503) rather than serving an
-    # empty result that reads as a valid search with no hits.
-    ready = await connection.fetch(
+    # The v3_app views intentionally expose only published products. Inspect
+    # the product rows themselves so a 503 can name whether each dependency is
+    # missing, unfinished/failed, or READY but not yet published.
+    products = await connection.fetch(
         '''
         SELECT product_code,
+               lifecycle_state,
+               published_at,
                product_version AS archetype_version,
                encode(manifest_sha256, 'hex') AS archetype_manifest_sha256,
                manifest ->> 'archetype_model_sha256' AS archetype_model_sha256
         FROM v3_meta.derived_product
         WHERE derived_generation_id = $1
-          AND lifecycle_state = 'READY'
           AND product_code = ANY($2::text[])
         ''',
         row['derived_generation_id'],
         list(_REQUIRED_FINDER_PRODUCTS),
     )
-    missing = _REQUIRED_FINDER_PRODUCTS - {r['product_code'] for r in ready}
-    if missing:
+    by_code = {product['product_code']: product for product in products}
+    unavailable: list[str] = []
+    for product_code in sorted(_REQUIRED_FINDER_PRODUCTS):
+        product = by_code.get(product_code)
+        if product is None:
+            unavailable.append(f'{product_code}=MISSING')
+        elif product['lifecycle_state'] != 'READY':
+            unavailable.append(f'{product_code}={product["lifecycle_state"]}')
+        elif product['published_at'] is None:
+            unavailable.append(f'{product_code}=READY-unpublished')
+    if unavailable:
         raise HTTPException(
             503,
             'Finder ranking products are not available for the published '
-            f'generation (missing/not-ready: {", ".join(sorted(missing))}).',
+            f'generation ({", ".join(unavailable)}).',
         )
 
     archetype_product = next(
-        product for product in ready if product['product_code'] == 'system_archetype'
+        product for product in products if product['product_code'] == 'system_archetype'
     )
     identity = {
         'archetype_version': archetype_product['archetype_version'],

@@ -24,6 +24,7 @@ CHAIN = (
     '006_v3_derived_product_lifecycle.sql',
     '010_v3_system_search_body_type_counts.sql',
     '011_v3_system_archetype.sql',
+    '015_v3_derived_product_publication.sql',
 )
 
 PRODUCT_CODE = 'system_archetype'
@@ -301,11 +302,13 @@ def test_insert_requires_building_product(database):
             )
 
 
-def test_insert_guard_keeps_only_prepublication_attachment_states(database):
+def test_insert_guard_allows_attachment_to_published_generation(database):
     connection, _, _, _ = database
     definition = connection.execute(
         "SELECT pg_get_functiondef('v3_derived.guard_system_archetype_insert()'::regprocedure)",
     ).fetchone()[0]
     compact = ' '.join(definition.split())
-    assert "base_stateNOTIN('BUILDING','VALIDATING','READY')" in compact.replace(' ', '')
-    assert 'PUBLISHED' not in compact
+    assert (
+        "base_stateNOTIN('BUILDING','VALIDATING','READY','PUBLISHED')"
+        in compact.replace(' ', '')
+    )

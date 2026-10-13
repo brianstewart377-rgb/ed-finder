@@ -24,6 +24,8 @@ def database():
         connection.execute((ROOT / 'sql/v3/migrations/004_v3_search_spatial_clusters.sql').read_text())
         connection.execute((ROOT / 'sql/v3/migrations/006_v3_derived_product_lifecycle.sql').read_text())
         connection.execute((ROOT / 'sql/v3/migrations/010_v3_system_search_body_type_counts.sql').read_text())
+        connection.execute((ROOT / 'sql/v3/migrations/011_v3_system_archetype.sql').read_text())
+        connection.execute((ROOT / 'sql/v3/migrations/015_v3_derived_product_publication.sql').read_text())
         yield connection, canonical, metadata, payloads
 
 
@@ -66,10 +68,11 @@ def _ready_ratings(database, generation_id):
 
 def _publish(connection, generation_id, snapshot):
     return connection.execute(
-        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
         (
             generation_id, None, 0, snapshot.generation_id,
             snapshot.publication_sequence, 'test', 'Search product fixture',
+            ['system_search'],
         ),
     ).fetchone()[0]
 
@@ -168,8 +171,12 @@ def test_search_can_finish_after_ratings_ready_and_blocks_publication_until_veri
         'SELECT count(*) FROM v3_app.system_search'
     ).fetchone()[0] == 12
 
-    with pytest.raises(ValueError, match='cannot accept'):
-        register_product(connection, key)
+    published_generation, published_state, published_manifest_sha = register_product(
+        connection, key,
+    )
+    assert published_generation.state == 'PUBLISHED'
+    assert published_state == 'READY'
+    assert published_manifest_sha == manifest_sha
 
 
 def test_search_projection_populates_body_type_counts(database):
