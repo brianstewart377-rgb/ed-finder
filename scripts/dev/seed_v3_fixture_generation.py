@@ -221,7 +221,42 @@ def _owned_published_sequence(
     if (audit_actor != publication_actor or not isinstance(audit_reason, str)
             or not audit_reason.endswith(digest_suffix)):
         raise RuntimeError('fixture digest mismatch')
+    _ensure_products_published(connection, derived_generation_id, publication_actor)
     return sequence
+
+
+_FINDER_PRODUCTS = ('system_search', 'system_archetype')
+
+
+def _ensure_products_published(connection, derived_generation_id, publication_actor: str) -> None:
+    """Re-running the seed against a database seeded before migration 015 finds
+    both Finder products READY but with ``published_at`` NULL (015 initialises
+    the column that way), which hides them from the application views and
+    makes the Finder 503. Publish them in one transaction; fail closed on any
+    product that is missing or not READY/VERIFIED rather than return a fixture
+    the application cannot serve."""
+    rows = connection.execute(
+        '''SELECT product_code, lifecycle_state, validation_receipt->>'status', published_at
+             FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code = ANY(%s)''',
+        (derived_generation_id, list(_FINDER_PRODUCTS)),
+    ).fetchall()
+    state = {row[0]: row for row in rows}
+    unpublished = []
+    for code in _FINDER_PRODUCTS:
+        row = state.get(code)
+        if row is None or row[1] != 'READY' or row[2] != 'VERIFIED':
+            raise RuntimeError(f'fixture product {code} is not READY/VERIFIED')
+        if row[3] is None:
+            unpublished.append(code)
+    if not unpublished:
+        return
+    with connection.transaction():
+        for code in unpublished:
+            connection.execute(
+                'SELECT v3_meta.publish_derived_product(%s,%s,%s)',
+                (derived_generation_id, code, publication_actor),
+            ).fetchone()
 
 
 def _ensure_migrations(connection) -> None:
