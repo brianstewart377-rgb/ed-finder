@@ -373,10 +373,23 @@ jobs:
           python -m uv sync --project apps/api --frozen --group test --no-install-project
       - name: Assert V3 application runtime identity
         run: apps/api/.venv/bin/python scripts/checks/assert_v3_python_runtime.py
+      - name: Attest the disposable PostgreSQL service container address
+        id: disposable
+        env:
+          SERVICE_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          # The footprint scripts accept a non-loopback server only when the
+          # orchestrator attests the exact address of ITS OWN service container,
+          # read here from the container the job started (not from the DSN).
+          address="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$SERVICE_ID")"
+          [[ "$address" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "service container address unresolved: '$address'" >&2; exit 1; }
+          echo "address=$address" >> "$GITHUB_OUTPUT"
       - name: Run every validation-fixture-backed Finder test module
         env:
           RATINGS_V4_VALIDATION_DATABASE_URL: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
           EDFINDER_DISPOSABLE_DSN: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
+          EDFINDER_DISPOSABLE_SERVER_ADDRESS: ${{ steps.disposable.outputs.address }}
           PGPASSWORD: edfinder
           DATABASE_URL: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
           REDIS_URL:    redis://localhost:6379/15

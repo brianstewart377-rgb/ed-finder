@@ -61,7 +61,12 @@ def test_lane_runs_on_postgresql_18_with_the_validation_fixture_url() -> None:
         "postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation"
     )
     assert env["EDFINDER_DISPOSABLE_DSN"] == env["RATINGS_V4_VALIDATION_DATABASE_URL"]
+    assert env["EDFINDER_DISPOSABLE_SERVER_ADDRESS"] == "${{ steps.disposable.outputs.address }}"
     assert "-rs" in run_step["run"]
+    attest = next(step for step in lane["steps"] if step.get("id") == "disposable")
+    assert attest["env"]["SERVICE_ID"] == "${{ job.services.postgres.id }}"
+    assert "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'" in attest["run"]
+    assert lane["steps"].index(attest) < lane["steps"].index(run_step)
 
 
 def test_discovery_finds_every_known_fixture_backed_module() -> None:

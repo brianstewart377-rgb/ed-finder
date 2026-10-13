@@ -342,24 +342,49 @@ def _parse_address(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Addre
         return None
 
 
-def server_address_is_disposable(server_addr: object, client_addr: object = None) -> bool:
-    """True for a loopback server, or a container-bridge server reached from its own bridge.
+ATTESTED_SERVER_ADDRESS_ENV = "EDFINDER_DISPOSABLE_SERVER_ADDRESS"
+
+
+def attested_server_address() -> str | None:
+    """The disposable container address the orchestrator attests, if any.
+
+    The caller that owns the disposable service (the CI lane, the capacity
+    measurement workflow) inspects its own service container and exports the
+    container's network address here. It is the only way a non-loopback server
+    address is accepted: a private address alone, or a client/server pair on the
+    same /16, is not proof that the server is the local container - a TCP relay
+    on a private LAN presents exactly that pair.
+    """
+    value = os.environ.get(ATTESTED_SERVER_ADDRESS_ENV, "").strip()
+    return value or None
+
+
+def server_address_is_disposable(
+    server_addr: object,
+    client_addr: object = None,
+    attested_addr: object = None,
+) -> bool:
+    """True for a loopback server, or for exactly the attested disposable container.
 
     The client side is already pinned to a loopback host by disposable_conninfo().
     A disposable PostgreSQL that runs as a container behind a published loopback
     port reports its own bridge address (e.g. 172.18.0.2) in inet_server_addr()
-    and sees the bridge gateway (e.g. 172.18.0.1) in inet_client_addr(). A
-    forwarded connection to some other private-address server (an SSH or TCP
-    tunnel) presents a loopback client address on that server instead, so the
-    non-loopback case requires BOTH addresses to be private, non-loopback and
-    within the same /16 before it is accepted. Public and documentation ranges
-    are always refused.
+    and sees the bridge gateway (e.g. 172.18.0.1) in inet_client_addr(). That
+    case is accepted only when the orchestrator attested that exact server
+    address (ATTESTED_SERVER_ADDRESS_ENV, from its own container inspection),
+    the address is RFC 1918 / ULA, and the client address is a non-loopback
+    private address on the same /16. Public and documentation ranges, an
+    unattested or differently attested address, and a loopback client (an SSH
+    or TCP forward to another server) are all refused.
     """
     server = _parse_address(server_addr)
     if server is None:
         return False
     if server.is_loopback:
         return True
+    attested = _parse_address(attested_addr)
+    if attested is None or attested != server:
+        return False
     if not any(server in network for network in DISPOSABLE_PRIVATE_NETWORKS):
         return False
     client = _parse_address(client_addr)
@@ -379,10 +404,10 @@ def assert_disposable_server(conn: psycopg.Connection) -> int:
         "SELECT host(inet_server_addr()), host(inet_client_addr()), "
         "current_setting('server_version_num')::int, current_database()"
     ).fetchone()
-    if not server_address_is_disposable(server_addr, client_addr):
+    if not server_address_is_disposable(server_addr, client_addr, attested_server_address()):
         raise ValueError(
             f"connected server address {server_addr!r} (client {client_addr!r}) is not loopback "
-            "or a same-bridge container; refusing to write"
+            f"or the attested disposable container ({ATTESTED_SERVER_ADDRESS_ENV}); refusing to write"
         )
     if dbname not in ALLOWED_DBNAMES:
         raise ValueError(f"connected database {dbname!r} is not the disposable validation service; refusing to write")
@@ -947,9 +972,13 @@ def _run_final_migration_mode(
                     "SELECT host(inet_server_addr()),host(inet_client_addr()),"
                     "current_setting('server_version_num')::int"
                 ).fetchone()
-                if not server_address_is_disposable(address, client) or int(major) // 10000 != 18:
+                if (
+                    not server_address_is_disposable(address, client, attested_server_address())
+                    or int(major) // 10000 != 18
+                ):
                     raise ValueError(
-                        "temporary measurement database is not loopback or same-bridge PostgreSQL 18"
+                        "temporary measurement database is not loopback or the attested "
+                        "disposable container on PostgreSQL 18"
                     )
                 result = _measure_final_migration(
                     conn,
