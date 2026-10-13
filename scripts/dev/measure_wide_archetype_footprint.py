@@ -63,6 +63,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -77,6 +78,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import scripts.v3_system_archetype as archetype_builder  # noqa: E402
+from scripts.operator.lib import f2d_evidence  # noqa: E402
+from scripts.operator.lib.f2d_operator_identity import (  # noqa: E402
+    OperatorIdentityError,
+    compute_operator_code_sha256,
+)
 from shared_contracts import v3_system_archetype_model as archetype_model  # noqa: E402
 
 PROD_SYSTEMS = 198_500_000
@@ -126,6 +132,7 @@ BUILTIN_FRACTIONS = {
     for key in ARCHETYPE_KEYS
 }
 MEASUREMENT_DATABASE_PREFIX = "wide_archetype_measure_"
+SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def _tier(expr: str) -> str:
@@ -420,6 +427,64 @@ def per_row_costs(
             tier_index_bytes, tier_entries
         ),
     }
+
+
+def archetype_fixed_cost(
+    *,
+    heap_bytes: int,
+    text_bytes_stored: int,
+    primary_key_bytes: int,
+    weighted_index_bytes: int,
+    rows: int,
+) -> int:
+    """Return the integral fixed per-row cost with variable text removed.
+
+    Migration 011 rejects the design prose's literal ``paradise``/``paradise``
+    fill because a non-null secondary archetype must differ from the primary.
+    Measuring the real fill's text octets and subtracting them from the heap
+    realizes the intended text-free fixed term without weakening that CHECK.
+    """
+    if text_bytes_stored < 0 or text_bytes_stored > heap_bytes:
+        raise ValueError("stored archetype text bytes must fit within the measured heap")
+    return _ceil_ratio(
+        heap_bytes - text_bytes_stored + primary_key_bytes + weighted_index_bytes,
+        rows,
+    )
+
+
+def validate_archetype_footprint_receipt(receipt: object) -> dict[str, object]:
+    """Validate a sealed final-migration receipt for the capacity gate."""
+    if not isinstance(receipt, dict):
+        raise ValueError("archetype footprint receipt must be a JSON object")
+    body = dict(receipt)
+    seal = body.pop("content_sha256", None)
+    if not isinstance(seal, str) or SHA256_RE.fullmatch(seal) is None:
+        raise ValueError("archetype footprint receipt content_sha256 is malformed")
+    if f2d_evidence.canonical_sha256(body) != seal:
+        raise ValueError("archetype footprint receipt seal does not verify")
+    if receipt.get("capacity_gate_eligible") is not True:
+        raise ValueError("archetype footprint receipt is not capacity-gate eligible")
+    if receipt.get("score_distribution_source") != "measured-histogram":
+        raise ValueError("archetype footprint receipt is not from a measured histogram")
+    for field in (
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+        "archetype_fixed_bytes_per_row",
+    ):
+        value = receipt.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"archetype footprint receipt {field} must be a positive integer")
+    for field in (
+        "migration_011_sha256",
+        "fractions_sha256",
+        "f2d_operator_code_sha256",
+    ):
+        value = receipt.get(field)
+        if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+            raise ValueError(f"archetype footprint receipt {field} must be lowercase SHA-256")
+    return receipt
 
 
 def capacity_gate_eligible(*, final_migration: bool, distribution_source: str) -> bool:
@@ -774,6 +839,7 @@ def _measure_final_migration(
     fractions: dict[str, dict[str, float]],
     fractions_sha256: str,
     distribution_source: str,
+    f2d_operator_code_sha256: str,
 ) -> dict[str, object]:
     migration_bytes = migration_path.read_bytes()
     applied_migration_sha256 = hashlib.sha256(migration_bytes).hexdigest()
@@ -815,11 +881,17 @@ def _measure_final_migration(
         raise ValueError("part-1 Archetype builder validation did not verify the measurement fill")
     conn.execute("VACUUM ANALYZE v3_derived.system_archetype")
     index_sizes = _final_index_sizes(conn)
-    row_count, heap_bytes = conn.execute(
-        """SELECT count(*),pg_table_size('v3_derived.system_archetype'::regclass)
+    row_count, heap_bytes, text_bytes_stored = conn.execute(
+        """SELECT count(*),pg_table_size('v3_derived.system_archetype'::regclass),
+                  COALESCE(SUM(
+                      octet_length(primary_archetype)
+                      + COALESCE(octet_length(secondary_archetype),0)
+                  ),0)
              FROM v3_derived.system_archetype"""
     ).fetchone()
-    row_count, heap_bytes = int(row_count), int(heap_bytes)
+    row_count = int(row_count)
+    heap_bytes = int(heap_bytes)
+    text_bytes_stored = int(text_bytes_stored)
     if row_count != rows:
         raise ValueError(f"builder wrote {row_count} rows, expected {rows}")
     counts = conn.execute(
@@ -852,8 +924,6 @@ def _measure_final_migration(
         rows=row_count,
         tier_entries=tier_entries,
     )
-    # f2d_operator_code_sha256 is deliberately absent. PR4 owns the converter and
-    # governed operator identity and will add that field to eligible evidence.
     return {
         "capacity_gate_eligible": capacity_gate_eligible(
             final_migration=True, distribution_source=distribution_source
@@ -868,8 +938,17 @@ def _measure_final_migration(
         "rows": row_count,
         "row_count": row_count,
         "heap_bytes": heap_bytes,
+        "text_bytes_stored": text_bytes_stored,
         "per_index_bytes": index_sizes,
         "tier_index_bytes": tier_bytes,
+        "archetype_fixed_bytes_per_row": archetype_fixed_cost(
+            heap_bytes=heap_bytes,
+            text_bytes_stored=text_bytes_stored,
+            primary_key_bytes=primary_bytes,
+            weighted_index_bytes=weighted_bytes,
+            rows=row_count,
+        ),
+        "f2d_operator_code_sha256": f2d_operator_code_sha256,
         **costs,
     }
 
@@ -882,6 +961,7 @@ def _run_final_migration_mode(
     fractions: dict[str, dict[str, float]],
     fractions_sha256: str,
     distribution_source: str,
+    f2d_operator_code_sha256: str,
 ) -> dict[str, object]:
     database = MEASUREMENT_DATABASE_PREFIX + uuid4().hex
     with psycopg.connect(**conninfo, autocommit=True) as admin:
@@ -902,6 +982,7 @@ def _run_final_migration_mode(
                     fractions=fractions,
                     fractions_sha256=fractions_sha256,
                     distribution_source=distribution_source,
+                    f2d_operator_code_sha256=f2d_operator_code_sha256,
                 )
                 result["server_version_num"] = int(major)
                 return result
@@ -909,6 +990,27 @@ def _run_final_migration_mode(
             admin.execute(
                 sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
             )
+
+
+def _emit_json(value: dict[str, object], output_path: Path | None) -> None:
+    """Write JSON atomically when requested, retaining the historical stdout form."""
+    if output_path is None:
+        json.dump(value, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return
+    if output_path.is_symlink():
+        raise ValueError("--output must not be a symlink")
+    temporary = output_path.with_name(f".{output_path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(f2d_evidence.canonical_json(value))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(output_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def main() -> None:
@@ -930,6 +1032,11 @@ def main() -> None:
             "v4 layout's scores are drawn to match those fractions instead of the declared "
             "synthetic bell distribution, and the receipt records the source as 'measured-histogram'."
         ),
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="atomically write the receipt here instead of printing it",
     )
     args = parser.parse_args()
     if args.rows < 1000 or args.rows > 5_000_000:
@@ -963,6 +1070,7 @@ def main() -> None:
         else:
             distribution_source = "measured-histogram"
         try:
+            operator_identity = compute_operator_code_sha256(ROOT)
             final_receipt = _run_final_migration_mode(
                 _disposable_conninfo_from_env(),
                 migration_path=migration_path,
@@ -970,11 +1078,12 @@ def main() -> None:
                 fractions=fractions,
                 fractions_sha256=fractions_sha256,
                 distribution_source=distribution_source,
+                f2d_operator_code_sha256=operator_identity,
             )
-        except (OSError, psycopg.Error, ValueError) as exc:
+            final_receipt = f2d_evidence.seal(final_receipt)
+            _emit_json(final_receipt, args.output)
+        except (OSError, OperatorIdentityError, psycopg.Error, ValueError) as exc:
             sys.exit(str(exc))
-        json.dump(final_receipt, sys.stdout, indent=2, sort_keys=True)
-        sys.stdout.write("\n")
         return
     out: dict[str, object] = {
         # The built-in layouts are comparison evidence, not the capacity input. Their
@@ -1059,8 +1168,10 @@ def main() -> None:
                     )
                 }
             out[layout] = report
-    json.dump(out, sys.stdout, indent=2, sort_keys=True)
-    sys.stdout.write("\n")
+    try:
+        _emit_json(out, args.output)
+    except (OSError, ValueError) as exc:
+        sys.exit(str(exc))
 
 
 if __name__ == "__main__":

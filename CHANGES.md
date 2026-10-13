@@ -23,6 +23,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The capacity-measurement slice adds fixed, shared F2d evidence paths and
+canonical sealed-receipt loading; sealed, operator-identity-bound Archetype and
+Search footprint receipts; and a manual GitHub-hosted PostgreSQL 18 measurement
+workflow. Search is measured from three independent empty database states
+(pre-010, post-010, and minimum-text fixed cost), while the Archetype receipt
+records its measured text-free fixed cost for safe resume arithmetic. The
+workflow only uploads evidence for review; it does not access or change
+production.
+
 The first governed-action slice pins the complete F2d operator surface to a
 canonical content identity, adds matching fail-closed shell and Python identity
 helpers, and allowlists a detached read-only complete calibration start/status

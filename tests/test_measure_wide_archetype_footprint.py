@@ -358,7 +358,90 @@ def test_capacity_eligibility_needs_final_migration_and_measured_histogram():
     source = SCRIPT.read_text(encoding="utf-8")
     assert 'distribution_source = "synthetic-builtin"' in source
     assert 'distribution_source = "measured-histogram"' in source
-    assert '"f2d_operator_code_sha256":' not in source
+    assert '"f2d_operator_code_sha256": f2d_operator_code_sha256' in source
+
+
+def test_archetype_fixed_cost_removes_variable_text_and_rounds_up():
+    module = _load()
+    assert module.archetype_fixed_cost(
+        heap_bytes=10_000,
+        text_bytes_stored=1_001,
+        primary_key_bytes=2_000,
+        weighted_index_bytes=3_000,
+        rows=1_000,
+    ) == 14
+    with pytest.raises(ValueError, match="must fit within the measured heap"):
+        module.archetype_fixed_cost(
+            heap_bytes=100,
+            text_bytes_stored=101,
+            primary_key_bytes=1,
+            weighted_index_bytes=1,
+            rows=1,
+        )
+
+
+def _eligible_archetype_receipt(module):
+    body = {
+        "capacity_gate_eligible": True,
+        "score_distribution_source": "measured-histogram",
+        "heap_bytes_per_row": 100,
+        "primary_key_bytes_per_row": 20,
+        "weighted_index_bytes_per_row": 30,
+        "tier_index_bytes_per_row_per_unit_fraction": 40,
+        "archetype_fixed_bytes_per_row": 140,
+        "migration_011_sha256": "1" * 64,
+        "fractions_sha256": "2" * 64,
+        "f2d_operator_code_sha256": "3" * 64,
+    }
+    return module.f2d_evidence.seal(body)
+
+
+def test_archetype_receipt_validator_requires_gate_fields_and_verifying_seal():
+    module = _load()
+    receipt = _eligible_archetype_receipt(module)
+    assert module.validate_archetype_footprint_receipt(receipt) == receipt
+    for field in (
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+        "archetype_fixed_bytes_per_row",
+    ):
+        body = {key: value for key, value in receipt.items() if key not in {field, "content_sha256"}}
+        with pytest.raises(ValueError, match=field):
+            module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    tampered = dict(receipt)
+    tampered["heap_bytes_per_row"] += 1
+    with pytest.raises(ValueError, match="seal does not verify"):
+        module.validate_archetype_footprint_receipt(tampered)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["migration_011_sha256", "fractions_sha256", "f2d_operator_code_sha256"],
+)
+def test_archetype_receipt_validator_requires_lowercase_hash_fields(field):
+    module = _load()
+    receipt = _eligible_archetype_receipt(module)
+    body = {key: value for key, value in receipt.items() if key != "content_sha256"}
+    del body[field]
+    with pytest.raises(ValueError, match=field):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body[field] = "A" * 64
+    with pytest.raises(ValueError, match=field):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+def test_committed_synthetic_archetype_receipt_is_gate_ineligible():
+    module = _load()
+    path = ROOT / "docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json"
+    synthetic = json.loads(path.read_text(encoding="utf-8"))
+    synthetic.pop("content_sha256", None)
+    with pytest.raises(ValueError, match="not capacity-gate eligible"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(synthetic))
+    synthetic["capacity_gate_eligible"] = True
+    with pytest.raises(ValueError, match="not from a measured histogram"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(synthetic))
 
 
 def test_migration_receipt_hashes_the_exact_file_bytes(tmp_path):
@@ -432,7 +515,16 @@ def test_final_migration_mode_smoke_on_disposable_postgresql_18(
     assert receipt["capacity_gate_eligible"] is False
     assert receipt["migration_011_sha256"] == module.migration_sql_sha256(migration)
     assert len(receipt["per_index_bytes"]) == 26
-    assert "f2d_operator_code_sha256" not in receipt
+    assert receipt["f2d_operator_code_sha256"] == module.compute_operator_code_sha256(ROOT)
+    assert receipt["content_sha256"] == module.f2d_evidence.canonical_sha256(
+        {key: value for key, value in receipt.items() if key != "content_sha256"}
+    )
+    assert receipt["text_bytes_stored"] > 0
+    assert receipt["archetype_fixed_bytes_per_row"] <= (
+        receipt["heap_bytes_per_row"]
+        + receipt["primary_key_bytes_per_row"]
+        + receipt["weighted_index_bytes_per_row"]
+    )
     for field in (
         "heap_bytes_per_row",
         "primary_key_bytes_per_row",
