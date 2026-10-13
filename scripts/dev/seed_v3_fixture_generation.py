@@ -279,8 +279,6 @@ def seed_v3_fixture_generation(
 
     search_generation, _, search_manifest_sha = search_register_product(connection, key)
     search_build_available(connection, search_generation, search_manifest_sha)
-    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
-    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
 
     eof_receipt = {
         'consumed_to_eof': True,
@@ -291,8 +289,16 @@ def seed_v3_fixture_generation(
     }
     seal_source(connection, generation_id, eof_receipt)
     assert validate_generation(connection, generation_id)['status'] == 'VERIFIED'
+    # Search must be READY with a VERIFIED receipt before the archetype product
+    # may even register (F2d design section 5.3: the wide row's
+    # weighted_potential reads Search confidence and the envelope joins Search),
+    # and Search validation itself needs the sealed, validated base generation.
+    # So the order is: validate generation -> validate Search -> register,
+    # build and validate Archetype -> publish.
     assert search_validate_product(
         connection, search_generation, search_manifest_sha)['status'] == 'VERIFIED'
+    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
+    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
     assert archetype_builder.validate_product(
         connection, archetype_generation, archetype_manifest_sha)['status'] == 'VERIFIED'
 
