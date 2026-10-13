@@ -1771,7 +1771,7 @@ generation pin across window probe, page and count.
 F2d design (its section 6 and owner question 9): applying them before the window
 is unbounded, and applying them after it would let a selective filter return an
 empty page while millions of matching systems exist — a quiet change in what a
-filter means, which the product contract forbids
+filter means, while the product contract says Finder filters select the results
 (`docs/colonisation-redesign/spatial-platform-product-contract.md:102-110`).
 So the API answers 422 for a picked request carrying `galaxy_region`,
 `max_distance_ly`, `has_elw`, `min_slots` or `max_contamination`.
@@ -1796,6 +1796,30 @@ user hears it once rather than per control; picking an archetype while filters
 are active clears them from the URL with a polite **“Filters cleared for
 archetype ranking.”**, and returning to Any restores them from committed draft
 state exactly as the anchor is restored. That increment owns those tests.
+
+**Hard filters in Any mode (owner decision 2026-10-12; F2d design section 6).**
+A **galaxy-wide** Any request carrying any hard filter is also a 422 from F2d
+PR1 onwards ("pick an anchor area or remove the filter"): the 10,001-row cap
+limits matching rows, not rows examined, and filters such as `has_biologicals`
+or `main_star_class_in` have no supporting Search index. Anchored Any requests
+keep every filter, with one bound: an anchored request that carries a hard
+filter, or that sorts by score rather than distance, is capped at the 500 ly the
+publication probe measures and is a 422 above it ("reduce the radius, sort by
+distance, or remove the filter"); an unfiltered nearest-first anchored request
+may use any radius the route accepts. The request's own radius is not a hard
+filter for this rule. Nothing live changes: the Explore flow sends no filters,
+and its anchored request is distance-sorted at 500 ly
+(`apps/web/src/lib/features/explore/ExploreWorkspace.svelte:123-142`). **The
+increment that adds Any-mode filter controls owns the UI side:** while no anchor
+is committed the filter controls are disabled, never hidden, each with
+`aria-disabled` and one shared explanation carrying the 422's wording,
+referenced with `aria-describedby`; committing an anchor enables them; while an
+anchor is committed and any filter or a score sort is active, the radius control
+is capped at 500 ly with the same wording; and a direct URL that would produce a
+refused request is normalized to an accepted one with a polite status message
+rather than sent. Tests: controls disabled without an anchor and enabled with
+one; the radius cap engages with a filter or a score sort and releases without
+them; no request the UI emits is one of the refused shapes.
 
 These two-stage semantics are part of ranking identity, not an implementation
 detail — and because the deployed route performs them from F2d PR1 onwards (the
@@ -3512,3 +3536,17 @@ had written in the preceding round, which is worth noting rather than hiding.
    request an explanation matching the displayed score. F4e's disclosure is on the
    Explore result card only and leaves the Inspect route untouched; an Inspect-side
    explanation would be a later increment that first transfers that identity.
+
+### Review round 43 (2026-10-13)
+
+1. **P1 — Deploy the bounded route before publishing products** (thread opened
+   against the pre-#806 ROADMAP) → resolved by PR #806's ROADMAP amendment, now
+   on `main` and merged into this branch: step 5′ deploys the release before any
+   product reaches READY and step 9′ publishes last, which is what section 1 of
+   this design already said.
+2. **Owner decision 2026-10-12 recorded** → galaxy-wide Any-mode hard filters
+   return 422 and the UI disables them until an anchor is set; the F2d anchored
+   rules (filtered or score-sorted anchored requests capped at 500 ly) are
+   stated with the UI obligations they create for the Any-filter increment
+   (slice 1c, "Hard filters in Any mode").
+
