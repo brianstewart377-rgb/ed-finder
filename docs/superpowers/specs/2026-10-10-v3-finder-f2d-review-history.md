@@ -1418,4 +1418,10 @@ beyond round 52:
 1. **P2 — Put purge P before constraint validation in this sequence** → correct;
    the ROADMAP now mandates 2 → P → 3 and this design's rollout table went
    straight from 2 to 3. Row P is inserted and row 3 says "after P".
+2. **P2 — Point step P to the future implementation PR** → correct; row P
+   said "PR #808's workflow and actions" while #808 is design-only. It now names
+   the ROADMAP 4″ code PR as the builder.
+3. **P2 — Keep the opt1 product manifest after the purge** → correct; the purge
+   deletes payload and retains every `derived_product` row, so the release gate's
+   "not an empty `derived_product`" reasoning holds for ever, not only until P.
 

@@ -960,7 +960,7 @@ unpublished rows) and a picked ranking into an error on the removed
 |---:|---|---|---:|
 | 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015, 016]`; recompute every migration-set/transition identity; re-attest reachable prefixes. | PR1 (rewritten `011`), PR2 (`015`) and the purge code PR (`016`, ROADMAP 4″) each recut the authority and lineage tests; complete when the purge code PR merges. Current tail is `[014, 010, 011, 013]`. | negligible |
 | 2 | Governed migration `plan`, review the receipt, then `apply`. | `.github/workflows/v3-production-schema-migration.yml`; no new action. | empty structures |
-| P | The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`, phase by phase, under every execution gate of `docs/development/v3-governed-derived-purge-design.md` (ROADMAP steps 4″ and P; owner decision 2026-10-11). It runs **before** step 3 so the constraint validation does not scan the ≈ 198.5 M retained `opt1` Search rows, and before any Finder build. | PR #808's protected purge workflow and actions; nothing in this design. | reclaims the two targets' payload (figures in the purge design) |
+| P | The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`, phase by phase, under every execution gate of `docs/development/v3-governed-derived-purge-design.md` (ROADMAP steps 4″ and P; owner decision 2026-10-11). It runs **before** step 3 so the constraint validation does not scan the ≈ 198.5 M retained `opt1` Search rows, and before any Finder build. | The protected purge workflow and actions that the ROADMAP 4″ code PR builds to that design (PR #808 is the design only; nothing in this design). | reclaims the two targets' payload (figures in the purge design) |
 | 3 | Validate all 18 deferred `system_search` constraints after `010` **and after P**. | Built `v3-system-search-validate-constraints-start/status`. | none |
 | 4 | Revise the F3 release gate and **deploy the release first** (section 8.1). | Amend the release authority; reuse the governed release workflows. | 0 |
 | 5 | Coefficient calibration, the complete read, and the eligible footprint measurement (section 8.2). | Built `v3-archetype-calibration-probe` for coefficient review; PR4's complete-read action for the capacity input; PR4's disposable-PostgreSQL measurement workflow for the gate's receipts. | 0 (nothing on production) |
@@ -978,9 +978,10 @@ The gate requires: the exact current PUBLISHED generation key/UUID/sequence;
 route, `Literal[60, 76, 88]` floor, hard-filter rejection, bounded
 `from`/`offset`, publication check in `_current_derived_generation()`); and
 **no Finder product rows on `parallel_v1`** — not an empty
-`v3_meta.derived_product`, because a READY `system_search` still present on
-`opt1` (retained until the governed purge P of ROADMAP step 4″ removes it)
-would block it. It must **not** require product READY, receipts,
+`v3_meta.derived_product`, because the READY `system_search` **product row** on
+`opt1` is retained for ever — the governed purge P deletes payload only and keeps
+every `derived_product` manifest and receipt — so a global emptiness check would
+block it permanently. It must **not** require product READY, receipts,
 row counts, `published_at` or an audit: those would force the products to be
 built under the old image.
 
