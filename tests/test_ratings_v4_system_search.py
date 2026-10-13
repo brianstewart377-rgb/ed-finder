@@ -156,7 +156,15 @@ def test_search_can_finish_after_ratings_ready_and_blocks_publication_until_veri
     ).fetchone()[0] == 'READY'
 
     import psycopg
-    with pytest.raises(psycopg.errors.RaiseException, match='unverified derived products'):
+    # Migration 015: the publisher verifies every product the caller names
+    # before the pointer moves. Naming the still-BUILDING Search product is
+    # refused with the publisher's own message (006's unconditional
+    # "unverified derived products" gate retired with 015, which lets an
+    # unnamed product finish building on a PUBLISHED base).
+    with pytest.raises(
+        psycopg.errors.RaiseException,
+        match='named derived product is not READY/VERIFIED and unpublished',
+    ):
         _publish(connection, generation_id, snapshot)
 
     # Product-aware 006 guards deliberately allow this while the base generation
