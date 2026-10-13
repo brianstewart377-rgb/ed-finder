@@ -60,6 +60,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import ipaddress
 import json
 import os
 import random
@@ -91,6 +92,14 @@ ARCHETYPE_KEYS = (
     "flexible",
 )
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# RFC 1918 and IPv6 unique-local ranges: what a disposable container network uses.
+# Documentation/TEST-NET ranges and every global address stay refused.
+DISPOSABLE_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
 LOOPBACK_ADDRESSES = {"127.0.0.1": "127.0.0.1", "localhost": "127.0.0.1", "::1": "::1"}
 # libpq fills omitted parameters from these; any of them could re-route the connection.
 AMBIENT_ROUTING_VARS = ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGDATABASE")
@@ -324,13 +333,35 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
     return keywords
 
 
+def server_address_is_disposable(server_addr: object) -> bool:
+    """True for a loopback or private (container-network) server address.
+
+    The client side is already pinned to a loopback host by disposable_conninfo().
+    A disposable PostgreSQL that runs as a container behind a published loopback
+    port reports its own bridge address (e.g. 172.18.0.2) in inet_server_addr(),
+    so loopback alone would refuse every GitHub-hosted service container; any
+    public address is still refused.
+    """
+    if not isinstance(server_addr, str) or not server_addr:
+        return False
+    try:
+        address = ipaddress.ip_address(server_addr.split("/", 1)[0])
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    return any(address in network for network in DISPOSABLE_PRIVATE_NETWORKS)
+
+
 def assert_disposable_server(conn: psycopg.Connection) -> int:
-    """Fail closed unless connected to the loopback-addressed, allowlisted disposable database on PostgreSQL 18."""
+    """Fail closed unless connected to a loopback/private-addressed, allowlisted disposable database on PostgreSQL 18."""
     server_addr, version_num, dbname = conn.execute(
         "SELECT host(inet_server_addr()), current_setting('server_version_num')::int, current_database()"
     ).fetchone()
-    if server_addr not in {"127.0.0.1", "::1"}:
-        raise ValueError(f"connected server address {server_addr!r} is not loopback; refusing to write")
+    if not server_address_is_disposable(server_addr):
+        raise ValueError(
+            f"connected server address {server_addr!r} is not loopback or private; refusing to write"
+        )
     if dbname not in ALLOWED_DBNAMES:
         raise ValueError(f"connected database {dbname!r} is not the disposable validation service; refusing to write")
     if version_num // 10000 != REQUIRED_SERVER_MAJOR:
@@ -893,8 +924,10 @@ def _run_final_migration_mode(
                 address, major = conn.execute(
                     "SELECT host(inet_server_addr()),current_setting('server_version_num')::int"
                 ).fetchone()
-                if address not in {"127.0.0.1", "::1"} or int(major) // 10000 != 18:
-                    raise ValueError("temporary measurement database is not loopback PostgreSQL 18")
+                if not server_address_is_disposable(address) or int(major) // 10000 != 18:
+                    raise ValueError(
+                        "temporary measurement database is not loopback/private PostgreSQL 18"
+                    )
                 result = _measure_final_migration(
                     conn,
                     migration_path=migration_path,

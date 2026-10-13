@@ -473,15 +473,26 @@ async def test_anchored_nearest_first_plan_keeps_knn_below_inner_limit(
     assert any(node['Node Type'] == 'Incremental Sort' for node, _ in nodes), document
     assert not any(node['Node Type'] == 'Sort' for node, _ in nodes), document
 
-    # The outer Subquery Scan applies the spherical radius only after the
-    # bounded nearest-neighbour prefix has been materialised.
+    # The spherical radius is applied only after the bounded nearest-neighbour
+    # prefix has been materialised: the filter must sit outside the INNER Limit
+    # that caps the KNN scan. (The page statement wraps everything in a second,
+    # outer Limit for LIMIT/OFFSET, so "no Limit ancestor at all" is not the
+    # invariant; the inner Limit is the one whose subtree holds the KNN scan.)
+    inner_limit_paths = set()
+    for _, ancestors in knn_nodes:
+        inner_limit_index = len(ancestors) - 1 - ancestors[::-1].index('Limit')
+        inner_limit_paths.add(ancestors[:inner_limit_index + 1])
+    assert len(inner_limit_paths) == 1, document
+    inner_limit_path = inner_limit_paths.pop()
     radius_filters = [
         (node, ancestors)
         for node, ancestors in nodes
         if 'distance_ly' in str(node.get('Filter', ''))
     ]
     assert radius_filters, document
-    assert all('Limit' not in ancestors for _, ancestors in radius_filters), document
+    for _, ancestors in radius_filters:
+        # A node inside the inner Limit shares that Limit's full ancestor path.
+        assert ancestors[:len(inner_limit_path)] != inner_limit_path, document
 
 
 @pytest.mark.asyncio
