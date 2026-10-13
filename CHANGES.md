@@ -23,6 +23,11 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The combined Finder capacity gate is now wired as a synchronous, read-only
+governed operation. Its trusted bundle is bound to the selected source SHA and
+the explicitly supplied F2d operator-code attestation, and its sealed receipt
+is retained for review before either product build can proceed.
+
 The capacity-measurement slice adds fixed, shared F2d evidence paths and
 canonical sealed-receipt loading; sealed, operator-identity-bound Archetype and
 Search footprint receipts; and a manual GitHub-hosted PostgreSQL 18 measurement

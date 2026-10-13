@@ -171,7 +171,7 @@ def test_probe_operation_is_allowlisted_through_trusted_main():
         == "Stage trusted main and run V3 archetype calibration probe"
     )
 
-    assert execute_job["timeout-minutes"] == 40
+    assert execute_job["timeout-minutes"] == 55
     assert probe_step["timeout-minutes"] == 35
     assert "          - v3-archetype-calibration-probe\n" in workflow
     assert "|v3-archetype-calibration-probe|" in workflow
@@ -231,6 +231,39 @@ def test_complete_read_operations_are_allowlisted_and_use_a_trusted_bundle():
     assert "V3 archetype complete-read start requires root or passwordless sudo" in workflow
     assert "V3 archetype complete-read status requires root or passwordless sudo" in workflow
     assert "name: v3-archetype-calibration-complete-operation" in workflow
+    assert "retention-days: 90" in workflow
+
+
+def test_capacity_gate_operation_is_allowlisted_and_uses_a_trusted_bundle():
+    workflow = _read(WORKFLOW)
+    parsed_workflow = yaml.safe_load(workflow)
+    execute_job = parsed_workflow["jobs"]["execute"]
+    operation_options = parsed_workflow[True]["workflow_dispatch"]["inputs"][
+        "operation"
+    ]["options"]
+
+    assert operation_options.count("v3-finder-capacity-gate") == 1
+    assert "|v3-finder-capacity-gate|" in workflow
+    step_names = {step.get("name") for step in execute_job["steps"]}
+    assert "Prepare trusted V3 Finder capacity gate bundle and dependencies" in step_names
+    assert "Stage trusted main for V3 Finder capacity gate" in step_names
+    assert "Run V3 Finder capacity gate" in step_names
+    assert "Upload V3 Finder capacity gate receipt" in step_names
+
+    gate_step = next(
+        step
+        for step in execute_job["steps"]
+        if step.get("name") == "Run V3 Finder capacity gate"
+    )
+    assert gate_step["timeout-minutes"] == 50
+    assert "^[0-9a-f]{64}$" in workflow
+    assert ".v3-capacity-gate-source-sha" in workflow
+    assert ".v3-probe-wheelhouse" in workflow
+    assert 'stage="/var/tmp/edfinder-v3-capacity-gate-${source_sha}"' in workflow
+    assert "bash -s -- run '$stage' '$source_sha'" in workflow
+    assert "--preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED" in workflow
+    assert "trusted-main/scripts/operator/actions/v3-finder-capacity-gate.sh" in workflow
+    assert "name: v3-finder-capacity-gate-operation" in workflow
     assert "retention-days: 90" in workflow
 
 
