@@ -449,7 +449,7 @@ finalize_operation() {
   local chunk_row final_insert_at chunk_count row_count stats last_vacuum last_analyze vacuum_performed=false
   [ -f "$STATE_ROOT/build-start-receipt.json" ] && [ ! -L "$STATE_ROOT/build-start-receipt.json" ] \
     || fail "Search build-start receipt is missing"
-  manifest_sha="$(PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" - "$STATE_ROOT/build-start-receipt.json" "$TARGET_GENERATION_ID" <<'PY'
+  manifest_sha="$(PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" - "$STATE_ROOT/build-start-receipt.json" "$TARGET_GENERATION_ID" "$F2D_IDENTITY" <<'PY'
 import sys
 from scripts.operator.lib.f2d_evidence import load_sealed
 receipt = load_sealed(sys.argv[1])
@@ -457,9 +457,13 @@ if (receipt.get('schema_version') != 'ed-finder/v3-build-start-receipt/v1'
         or receipt.get('product_code') != 'system_search'
         or receipt.get('derived_generation_id') != sys.argv[2]):
     raise SystemExit(1)
+# A build started under a different attested operator identity is never
+# finalized under this one: its gate and start evidence came from other code.
+if receipt.get('f2d_operator_code_sha256') != sys.argv[3]:
+    raise SystemExit(2)
 print(receipt.get('manifest_sha256', ''))
 PY
-  )" || fail "Search build-start receipt is invalid"
+  )" || fail "Search build-start receipt is invalid or was produced under another operator identity"
   [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] || fail "Search build-start manifest digest is invalid"
 
   docker inspect "$WORKER" >/dev/null 2>&1 || fail "Search worker container is missing"

@@ -98,7 +98,7 @@ jobs:
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
           case "$operation" in
-            v3-finder-capacity-gate|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize)
+            v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize)
               [[ "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || {
                 echo "F2d operator-code attestation must be exactly 64 lowercase hexadecimal characters" >&2
                 exit 64
@@ -718,12 +718,14 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          [[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid F2d operator-code attestation" >&2; exit 64; }
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"
-          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- start '$stage' '$source_sha'; else echo 'V3 archetype complete-read start requires root or passwordless sudo for the bounded worker launch' >&2; exit 64; fi"
+          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- start '$stage' '$source_sha'; else echo 'V3 archetype complete-read start requires root or passwordless sudo for the bounded worker launch' >&2; exit 64; fi"
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
             < trusted-main/scripts/operator/actions/v3-archetype-calibration-complete.sh | tee "$RECEIPT"
 
@@ -735,12 +737,14 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          [[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid F2d operator-code attestation" >&2; exit 64; }
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"
-          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- status '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- status '$stage' '$source_sha'; else echo 'V3 archetype complete-read status requires root or passwordless sudo for the bounded status read' >&2; exit 64; fi"
+          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- status '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- status '$stage' '$source_sha'; else echo 'V3 archetype complete-read status requires root or passwordless sudo for the bounded status read' >&2; exit 64; fi"
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
             < trusted-main/scripts/operator/actions/v3-archetype-calibration-complete.sh | tee "$RECEIPT"
 

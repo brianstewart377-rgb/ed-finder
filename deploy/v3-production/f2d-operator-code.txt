@@ -1,4 +1,5 @@
 deploy/v3-production/f2d-operator-code.txt
+docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json
 requirement:psycopg[binary]==3.3.4
 scripts/dev/convert_calibration_histogram.py
 scripts/dev/measure_search_footprint.py

@@ -16,9 +16,9 @@ from typing import NoReturn
 
 MANIFEST_RELATIVE_PATH = "deploy/v3-production/f2d-operator-code.txt"
 ATTESTED_ENVIRONMENT_VARIABLE = "F2D_OPERATOR_CODE_SHA256_ATTESTED"
-_SHA256_RE = re.compile(r"[0-9a-f]{64}")
-_PATH_RE = re.compile(r"[A-Za-z0-9._+/@-]+")
-_REQUIREMENT_RE = re.compile(r"requirement:psycopg\[binary\]==[0-9]+\.[0-9]+\.[0-9]+")
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+_PATH_RE = re.compile(r"[A-Za-z0-9._+/@-]+\Z")
+_REQUIREMENT_RE = re.compile(r"requirement:psycopg\[binary\]==[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
 class OperatorIdentityError(ValueError):

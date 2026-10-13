@@ -281,6 +281,9 @@ start_operation() {
   printf 'V3_ARCHETYPE_COMPLETE_DATABASE_URL=%s\n' "$dsn" > "$env_file"
   printf 'F2D_OPERATOR_CODE_SHA256_ATTESTED=%s\n' "$F2D_IDENTITY" >> "$env_file"
   chmod 600 "$env_file"
+  # The DSN file must not outlive a failed launch (set -e exits before the
+  # explicit removal below when docker run fails).
+  trap 'rm -f -- "$env_file"' EXIT
 
   docker run -d \
     --name "$WORKER" \
@@ -315,7 +318,8 @@ start_operation() {
         --publication-sequence 1 --state-dir /state \
         --image-model-file /app/shared_contracts/v3_system_archetype_model.py
     ' >/dev/null
-  rm -f "$env_file"
+  rm -f -- "$env_file"
+  trap - EXIT
 
   sleep 3
   worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"

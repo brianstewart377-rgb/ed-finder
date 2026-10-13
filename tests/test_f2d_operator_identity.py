@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SHELL_HELPER = REPO_ROOT / "scripts/operator/lib/f2d_operator_identity.sh"
 EXPECTED_ACTIVE_ENTRIES = (
     "deploy/v3-production/f2d-operator-code.txt",
+    "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json",
     "requirement:psycopg[binary]==3.3.4",
     "scripts/dev/convert_calibration_histogram.py",
     "scripts/dev/measure_search_footprint.py",
@@ -130,9 +131,14 @@ def test_every_manifest_entry_change_is_refused(checkout: Path, entry: str) -> N
 
 def test_unlisted_document_does_not_move_identity(checkout: Path) -> None:
     before = identity.compute_operator_code_sha256(checkout)
+    # docs/operations/evidence/ already exists in the copied checkout because the
+    # step-0 receipt is manifest-listed; an unlisted document beside it must not
+    # move the identity.
     document = checkout / "docs/unlisted.md"
-    document.parent.mkdir()
+    document.parent.mkdir(parents=True, exist_ok=True)
     document.write_text("evidence-only change\n", encoding="utf-8")
+    sibling = checkout / "docs/operations/evidence/unlisted-note.md"
+    sibling.write_text("evidence-only change\n", encoding="utf-8")
     assert identity.compute_operator_code_sha256(checkout) == before
     assert _shell("verify", str(checkout), before).returncode == 0
 

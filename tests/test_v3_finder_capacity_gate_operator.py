@@ -301,3 +301,17 @@ def test_ops_workflow_stages_runs_and_uploads_capacity_gate_receipt() -> None:
     assert "StrictHostKeyChecking=yes" in workflow
     assert "UserKnownHostsFile=~/.ssh/known_hosts" in workflow
     assert "IdentitiesOnly=yes" in workflow
+
+
+def test_step0_capacity_evidence_is_bound_by_the_operator_code_manifest() -> None:
+    """The gate derives real_pre010_bytes_per_row from the committed step-0 receipt.
+
+    That receipt carries no seal of its own, so it is bound through the
+    operator-code manifest instead: any change to it moves
+    f2d_operator_code_sha256 and every F2d action refuses until a later accepted
+    release re-attests the new value.
+    """
+    manifest = (ROOT / "deploy/v3-production/f2d-operator-code.txt").read_text().splitlines()
+    assert "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json" in manifest
+    evidence = (ROOT / "scripts/operator/lib/f2d_evidence.py").read_text()
+    assert "2026-10-10-v3-derived-lifecycle-status-receipt.json" in evidence
