@@ -220,6 +220,7 @@ def test_ops_workflow_allowlists_attestation_only_for_f2d_actions() -> None:
     )
     governed_operations = (
         "v3-finder-capacity-gate",
+        "v3-archetype-plan-probe",
         "v3-system-search-f1-start",
         "v3-system-search-f1-status",
         "v3-system-search-f1-finalize",

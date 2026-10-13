@@ -35,6 +35,16 @@ and now reject the old `gpt-5.6-sol` literal.
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The governed read-only Archetype plan probe now generates all 80 ranking page
+and count statements from the attested running API image, executes them with
+production statistics under generic-plan settings, and seals complete
+per-statement plan evidence. Its assertion module is connection-driven so the
+later product publisher can run the same checks inside its own transaction;
+the standalone action validates build maintenance receipts, product
+publication, the image digest, and the densest current spatial window before
+starting a bounded read-only worker. No action was dispatched and no production
+system was accessed.
+
 The governed Finder build slice now retargets Search to the current published
 `ratings_v4_prod_p4_parallel_v1` generation and adds the wide Archetype build.
 Both actions are identity- and migration-pinned, require the combined capacity
