@@ -246,7 +246,7 @@ write_build_start_receipt() {
   path="$STATE_ROOT/build-start-receipt.json"
   PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" - "$path" "$TARGET_GENERATION_ID" \
     "$manifest_sha" "$relation_size" "$started_at" "$F2D_IDENTITY" <<'PY' \
-    || fail "Search build-start receipt is invalid or conflicts with this build"
+    || fail "Search build-start receipt is invalid, conflicts with this build, or was written under another operator identity"
 import os
 from pathlib import Path
 import sys
@@ -273,6 +273,12 @@ if path.exists():
         or len(receipt['f2d_operator_code_sha256']) != 64
     ):
         raise SystemExit(2)
+    # A receipt written under another attested operator identity is never
+    # resumed: the finalizers refuse it, so launching a build on it would strand
+    # the product. The operator removes it deliberately or the build restarts
+    # under the current identity.
+    if receipt['f2d_operator_code_sha256'] != identity:
+        raise SystemExit(3)
     raise SystemExit(0)
 body = {
     'schema_version': 'ed-finder/v3-build-start-receipt/v1',

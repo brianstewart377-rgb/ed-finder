@@ -249,3 +249,17 @@ def test_action_exposes_only_start_status_and_finalize_modes() -> None:
     assert "status) status_operation" in source
     assert "finalize) finalize_operation" in source
     assert 'fail "expected start, status, or finalize"' in source
+
+
+def test_start_refuses_a_build_start_receipt_from_another_operator_identity():
+    """A receipt written under a different attested identity is never resumed at start.
+
+    The finalizers refuse such a receipt, so launching an irreversible build on it
+    would strand the product; the start refuses first and names the reason.
+    """
+    source = (ROOT / "scripts/operator/actions/v3-system-archetype.sh").read_text()
+    block = source[source.index("def write_build_start_receipt") if "def write_build_start_receipt" in source else source.index("write_build_start_receipt() {"):]
+    block = block[: block.index("receipt_seal() {")]
+    assert "if receipt['f2d_operator_code_sha256'] != identity:" in block
+    assert "raise SystemExit(3)" in block
+    assert "written under another operator identity" in block

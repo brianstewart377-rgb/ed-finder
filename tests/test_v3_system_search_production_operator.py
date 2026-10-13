@@ -202,3 +202,17 @@ def test_search_status_is_read_only_and_reports_both_products():
     assert "INSERT " not in status
     assert "UPDATE " not in status
     assert "DELETE " not in status
+
+
+def test_start_refuses_a_build_start_receipt_from_another_operator_identity():
+    """A receipt written under a different attested identity is never resumed at start.
+
+    The finalizers refuse such a receipt, so launching an irreversible build on it
+    would strand the product; the start refuses first and names the reason.
+    """
+    source = (ROOT / "scripts/operator/actions/v3-system-search-f1.sh").read_text()
+    block = source[source.index("def write_build_start_receipt") if "def write_build_start_receipt" in source else source.index("write_build_start_receipt() {"):]
+    block = block[: block.index("receipt_seal() {")]
+    assert "if receipt['f2d_operator_code_sha256'] != identity:" in block
+    assert "raise SystemExit(3)" in block
+    assert "written under another operator identity" in block
