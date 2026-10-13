@@ -180,7 +180,9 @@ def test_the_roadmap_and_capacity_decision_list_the_same_open_owner_questions():
 
 def test_the_design_and_roadmap_agree_on_the_open_owner_questions():
     design = _f2d_current()
-    match = OWNER_QUESTIONS.search(design[design.find("## 11."):])
+    section_start = design.find("## 11.")
+    assert section_start >= 0, "the design's section 11 heading moved"
+    match = OWNER_QUESTIONS.search(design[section_start:])
     assert match, "the design's section 11 status line moved"
     roadmap = OWNER_QUESTIONS.search(_read(ROADMAP))
     assert roadmap, "the ROADMAP no longer lists the open owner questions"

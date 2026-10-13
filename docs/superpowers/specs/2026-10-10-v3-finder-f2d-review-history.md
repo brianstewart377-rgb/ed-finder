@@ -1343,3 +1343,24 @@ beyond round 52:
    filtered anchored requests: radius capped at the probed 500 ly, 422 above it,
    probed at the densest window with the bounding-box bound (sections 6 and 8.7).
 
+### Review round 54 (2026-10-13)
+
+1. **P1 — Exempt the sentinel count from the index-scan-only rule** → correct;
+   the rewrite dropped the word "exception" that made the two rules
+   consistent. Section 8.7 now names the no-pick sentinel count as the one
+   exception to the node-type rule.
+2. **P1 — Pin the capacity-gate implementation itself** and 3. **P1 — Pin the
+   publication and plan-assertion code** → correct, and the same class as
+   rounds 40, 50 and 52. Closed structurally rather than one identity at a
+   time: every F2d operator action compares the `SOURCE_SHA` the workflow hands
+   it with the attestation's `source_sha` and refuses to run from any other
+   checkout (section 8.3). The per-artifact identities stay for receipts
+   produced at other times.
+4. **P2 — Exclude the KNN radius from hard-filter classification** → correct;
+   `_v3_hard_filters` records `max_distance_ly` for every anchored request, so
+   a literal reading would have made every nearest-first request "filtered".
+   The radius is now defined as the KNN path's intrinsic predicate for this
+   classification; `min_distance_ly` and the rest remain hard filters.
+5. **Octopus — brittle heading anchor in the invariant test** → fixed; the test
+   asserts the section 11 heading exists before slicing.
+

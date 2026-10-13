@@ -664,7 +664,12 @@ nearest-first path is rewritten as in section 8 (plan probe).
   cap limits matching rows, not rows examined, and filters such as
   `has_biologicals` or `main_star_class_in` have no supporting Search index.
   Anchored Any requests keep every filter, and are bounded in one of two ways.
-  An **unfiltered nearest-first** request (`sort_by='distance'`) is bounded by
+  For this classification the request's own radius is not a hard filter:
+  `_v3_hard_filters` records `max_distance_ly` for every anchored request
+  (`local_search.py:737-743`), but it is the KNN path's intrinsic upper-radius
+  predicate; `min_distance_ly` and every other entry are hard filters. An
+  **unfiltered nearest-first** request (`sort_by='distance'`, no entry other
+  than `max_distance_ly`) is bounded by
   the inner `LIMIT` of section 8.7 at any radius the route accepts
   (`max_distance_ly` defaults to 500 ly and is capped at `MAX_SEARCH_RADIUS`,
   10,000 ly by default; `apps/api/src/local_search.py:55,252-253`). Every
@@ -713,8 +718,9 @@ and `offset=10000` → 422; `from=9950,size=50` ok, `from=10000,size=1` and
 true) for picked, galaxy-wide and anchored; the 422 for each hard filter on a
 picked request and on a galaxy-wide Any request, the same filters accepted
 when anchored at 500 ly, a filtered anchored request at 501 ly → 422, a
-score-sorted anchored request at 501 ly → 422, and an unfiltered nearest-first
-anchored request at 10,000 ly accepted; `system_id64` tie cases in both modes; both envelopes carry all
+score-sorted anchored request at 501 ly → 422, an unfiltered nearest-first
+anchored request at 10,000 ly accepted, and a nearest-first request with
+`min_distance_ly` at 501 ly → 422; `system_id64` tie cases in both modes; both envelopes carry all
 three identity fields; unknown-key rejection and adversarial strings that never
 appear in SQL; and the retained no-legacy-relation assertions
 (`tests/test_ranking_sql.py`, `tests/test_archetype_rankings_v3.py`,
@@ -1025,10 +1031,26 @@ capacity-tested.
 ### 8.3 Pinned code identities
 
 The operator workflow runs the `trusted-main` checkout, which can be newer than
-the attested F2d release, so every piece of code whose output a gate trusts is
-pinned to the release attestation. Each receipt records the identity of the
-code that produced it; each consumer refuses on any mismatch, with its own exit
-code; a missing attested value is a refusal, never a match.
+the attested F2d release. Two rules close that gap.
+
+**The actions run only at the attested source.** Every F2d operator action — the
+complete read, the capacity gate, both build actions, the publish action and
+the plan probe — compares the `SOURCE_SHA` the workflow hands it (the checkout
+it was sourced from; the existing probe action already verifies that marker,
+`v3-archetype-calibration-probe.sh:12,90-92`) with the `source_sha` the F2d
+accepted-release attestation records, and refuses unless they are equal or a
+later accepted release's attestation names its own SHA as carrying these
+actions unchanged. This pins the actions' own logic — the gate arithmetic and
+its refusals, the plan assertions and their shared parser, the publication
+transaction — not only the code whose outputs they consume. Tests: an action
+run from a checkout whose `SOURCE_SHA` is not the attested one refuses before
+reading or writing anything.
+
+**Receipts carry the identity of the code that produced them.** Artifacts can be
+produced at other times than the action that consumes them (the footprint
+receipt, the converted histogram, the complete-read receipt), so each records
+the identity of its producer, and each consumer refuses on any mismatch with its
+own exit code. A missing attested value is a refusal, never a match.
 
 | Identity recorded in the F2d release attestation | Covers | Checked by |
 |---|---|---|
@@ -1038,6 +1060,7 @@ code; a missing attested value is a refusal, never a match.
 | `calibration_code_sha256` | SHA-256 of the canonical JSON `[path, file SHA-256]` list for `scripts/v3_archetype_calibration_probe.py` and `v3-archetype-calibration-complete.sh`, plus the exact `psycopg` requirement string and wheel hash the action installs | the complete-read action over its own checkout before reading anything; the probe refuses any loaded module under `/work` outside this set and the Archetype `code_sha256` set; the capacity gate against the receipt |
 | `capacity_code_sha256` | the same form over `scripts/dev/measure_wide_archetype_footprint.py` and `scripts/dev/convert_calibration_histogram.py` | the footprint receipt and the fractions file each record the identity of the code that wrote them; the capacity gate refuses unless both equal the attestation |
 | `ranking_version`/`ranking_sha256` and the image digest | the built API | the publish action (section 8.6) |
+| `source_sha` | the release source every F2d operator action must run from (the rule above) | every F2d operator action, before anything else |
 
 Tests: a checkout whose builder, probe script or measurement script differs
 from the attested identity is refused before any read or write; a probe
@@ -1229,17 +1252,21 @@ live no-pick requests** the Explore flow sends
   >= …` partial with ≤ 10,001 actual rows and **`Heap Fetches: 0`**; the sort
   node's input ≤ 10,000; the fetch node's rows ≤ `page_size` at 50 and 500.
 - **Every other node** reading `system_search` or `system_archetype` in any
-  probed plan is an `Index Scan`/`Index Only Scan` on that relation's
-  `(derived_generation_id, system_id64)` primary key with `(Actual Rows + Rows
-  Removed by Filter) × Actual Loops ≤ 10,001`; any `Seq Scan`, `Bitmap Heap
-  Scan`, or hash/merge join input over either relation fails — `Actual Rows`
-  counts emitted rows, not examined ones.
+  probed plan **except the no-pick sentinel count (next but one)** is an `Index
+  Scan`/`Index Only Scan` on that relation's `(derived_generation_id,
+  system_id64)` primary key with `(Actual Rows + Rows Removed by Filter) ×
+  Actual Loops ≤ 10,001`; any `Seq Scan`, `Bitmap Heap Scan`, or hash/merge
+  join input over either relation fails — `Actual Rows` counts emitted rows,
+  not examined ones.
 - **Galaxy-wide no-pick page.** Window node an index scan on the
   `weighted_potential` index with ≤ 10,001 rows; other nodes as above.
-- **No-pick sentinel count.** No node type is prescribed, because
-  `build_count_query` has no `ORDER BY` and may legitimately stop at its
-  `LIMIT 10001` by any path; every node reading either relation satisfies the
-  same `(rows + removed) × loops ≤ 10,001` bound.
+- **No-pick sentinel count — the one exception to the node-type rule.** No
+  node type is prescribed, because `build_count_query` has no `ORDER BY` and
+  may legitimately stop at its `LIMIT 10001` by any path, a sequential scan
+  that stops at the limit included; the plan must be capped by that `LIMIT`,
+  and every node reading either relation satisfies the same `(rows + removed)
+  × loops ≤ 10,001` bound, so a scan that discards another generation's rows
+  or reads the table through still fails.
 - **Anchored nearest-first.** PR1 rewrites the anchored page and its sentinel
   count around a GiST KNN scan on `system_search_position_gist`
   (`004_v3_search_spatial_clusters.sql:52`), **limit inside, radius outside**:
