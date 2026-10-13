@@ -23,6 +23,8 @@ on:
           - v3-system-search-validate-constraints-start
           - v3-system-search-validate-constraints-status
           - v3-archetype-calibration-probe
+          - v3-archetype-calibration-complete-start
+          - v3-archetype-calibration-complete-status
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -80,7 +82,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-derived-lifecycle-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-derived-lifecycle-status) ;;
             v3-disk-inventory) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
@@ -480,5 +482,87 @@ jobs:
         with:
           name: v3-archetype-calibration-probe-operation
           path: ${{ runner.temp }}/v3-archetype-calibration-probe.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Prepare trusted V3 archetype complete-read bundle and dependencies
+        if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          printf '%s\n' "$source_sha" > trusted-main/.v3-archetype-complete-source-sha
+          rm -rf trusted-main/.v3-probe-wheelhouse
+          mkdir -p trusted-main/.v3-probe-wheelhouse
+          python -m pip download --disable-pip-version-check --only-binary=:all: \
+            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+
+      - name: Stage trusted main for V3 archetype complete read
+        if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid GitHub run ID" >&2; exit 64; }
+          [[ "$RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "Invalid GitHub run attempt" >&2; exit 64; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"
+          stage_state="$(ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; if [ -L '$stage' ]; then echo 'Trusted complete-read stage is a symlink' >&2; exit 64; elif [ -d '$stage' ]; then [ ! -L '$stage/.v3-archetype-complete-source-sha' ] && [ \"\$(cat '$stage/.v3-archetype-complete-source-sha' 2>/dev/null || true)\" = '$source_sha' ] || { echo 'Trusted complete-read stage marker mismatch' >&2; exit 64; }; printf present; elif [ -e '$stage' ]; then echo 'Trusted complete-read stage is not a directory' >&2; exit 64; else printf absent; fi")"
+          if [ "$stage_state" = "present" ]; then
+            exit 0
+          fi
+          [ "$stage_state" = "absent" ] || { echo "Unexpected trusted stage state" >&2; exit 64; }
+          incoming="${stage}.incoming-${RUN_ID}-${RUN_ATTEMPT}"
+          tar -C trusted-main --exclude=.git -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; [ ! -e '$incoming' ] && [ ! -L '$incoming' ]; mkdir '$incoming'; if tar --no-same-owner --no-same-permissions -C '$incoming' -xf - && [ \"\$(cat '$incoming/.v3-archetype-complete-source-sha' 2>/dev/null || true)\" = '$source_sha' ] && [ ! -e '$stage' ] && [ ! -L '$stage' ]; then mv '$incoming' '$stage'; else rm -rf -- '$incoming'; exit 64; fi"
+
+      - name: Launch V3 archetype calibration complete read
+        if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-start'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- start '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- start '$stage' '$source_sha'; else echo 'V3 archetype complete-read start requires root or passwordless sudo for the bounded worker launch' >&2; exit 64; fi"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
+            < trusted-main/scripts/operator/actions/v3-archetype-calibration-complete.sh | tee "$RECEIPT"
+
+      - name: Inspect V3 archetype calibration complete-read status
+        if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- status '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- status '$stage' '$source_sha'; else echo 'V3 archetype complete-read status requires root or passwordless sudo for the bounded status read' >&2; exit 64; fi"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
+            < trusted-main/scripts/operator/actions/v3-archetype-calibration-complete.sh | tee "$RECEIPT"
+
+      - name: Upload V3 archetype calibration complete-read operation receipt
+        if: always() && (steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-archetype-calibration-complete-operation
+          path: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
           if-no-files-found: warn
           retention-days: 90

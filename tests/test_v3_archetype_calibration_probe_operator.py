@@ -196,6 +196,44 @@ def test_probe_operation_is_allowlisted_through_trusted_main():
     assert "retention-days: 90" in workflow
 
 
+def test_complete_read_operations_are_allowlisted_and_use_a_trusted_bundle():
+    workflow = _read(WORKFLOW)
+    parsed_workflow = yaml.safe_load(workflow)
+    execute_job = parsed_workflow["jobs"]["execute"]
+    # PyYAML's YAML 1.1 resolver treats the unquoted Actions key `on` as true.
+    operation_options = parsed_workflow[True]["workflow_dispatch"]["inputs"][
+        "operation"
+    ]["options"]
+
+    operations = (
+        "v3-archetype-calibration-complete-start",
+        "v3-archetype-calibration-complete-status",
+    )
+    for operation in operations:
+        assert operation_options.count(operation) == 1
+        assert f"|{operation}|" in workflow or f"|{operation})" in workflow
+
+    step_names = {step.get("name") for step in execute_job["steps"]}
+    assert "Prepare trusted V3 archetype complete-read bundle and dependencies" in step_names
+    assert "Stage trusted main for V3 archetype complete read" in step_names
+    assert "Launch V3 archetype calibration complete read" in step_names
+    assert "Inspect V3 archetype calibration complete-read status" in step_names
+    assert "Upload V3 archetype calibration complete-read operation receipt" in step_names
+
+    assert ".v3-archetype-complete-source-sha" in workflow
+    assert ".v3-probe-wheelhouse" in workflow
+    assert "psycopg[binary]==3.3.4" in workflow
+    assert 'stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"' in workflow
+    assert "bash -s -- start '$stage' '$source_sha'" in workflow
+    assert "bash -s -- status '$stage' '$source_sha'" in workflow
+    script = "trusted-main/scripts/operator/actions/v3-archetype-calibration-complete.sh"
+    assert workflow.count(script) == 2
+    assert "V3 archetype complete-read start requires root or passwordless sudo" in workflow
+    assert "V3 archetype complete-read status requires root or passwordless sudo" in workflow
+    assert "name: v3-archetype-calibration-complete-operation" in workflow
+    assert "retention-days: 90" in workflow
+
+
 def test_probe_action_has_fixed_targets_and_bounded_read_only_container():
     source = _read(ACTION)
 

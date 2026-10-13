@@ -23,6 +23,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The first governed-action slice pins the complete F2d operator surface to a
+canonical content identity, adds matching fail-closed shell and Python identity
+helpers, and allowlists a detached read-only complete calibration start/status
+pair. The complete reader resumes only identity- and generation-bound chunk
+checkpoints, scores every Ratings system through the shared model SQL and
+`score_raw_system`, and seals the full per-key/per-chunk histogram and expected
+product manifest. A pure-standard-library converter verifies that receipt and
+emits the measured 60/76/88 fractions consumed by the disposable footprint
+measurement. No action was dispatched and no production system was accessed.
+
 The additive `GET /api/archetypes/system/{id64}/explanation` route now
 recomputes all eight archetype explanations on demand from the published
 Ratings vector and opportunity inputs. It serves only an exact product/model
