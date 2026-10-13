@@ -21,6 +21,14 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-11 — Read-only production disk inventory action
+
+The governed `v3-disk-inventory` action inventories PostgreSQL volume
+directories, databases, WAL, temporary files and logs, large relations and
+indexes, dead tuples, and derived-generation attribution, then summarizes
+accounted and unaccounted usage. It is strictly read-only and performs no
+reclamation; any purge or rewrite remains a separate reviewed design.
+
 ## 2026-10-10 — Finder rollout step 0 run; capacity decision A + B recorded
 
 The read-only `v3-derived-lifecycle-status` inspection ran against production
