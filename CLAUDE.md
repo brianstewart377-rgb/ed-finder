@@ -41,8 +41,12 @@ rewritten as one wide archetype row per system (F2d design, PR #806), both Finde
 products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
 (seq 1) behind an explicit **product**-publication gate (migration `015`), and
 the generation pointer does not move; no production migration apply may run
-until the rewritten `011` and `015` are registered, because the runner applies
-every pending entry. The Finder archetype UI (F4) is gated on F2c/F3, not
+until the rewritten `011`, `015` and the governed-purge migration `016` are
+registered, because the runner applies every pending entry. **Amendment
+2026-10-11 (owner):** the purge deferral is superseded — a governed purge of
+`ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1` runs before either Finder
+product build (`docs/development/v3-governed-derived-purge-design.md`; ROADMAP
+steps 4″ and P). The Finder archetype UI (F4) is gated on F2c/F3, not
 UI-only yet) is in `docs/ROADMAP.md` "Programme status —
 2026-09-26" and its "Capacity decision" paragraph; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.

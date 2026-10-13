@@ -1,6 +1,12 @@
 # Finder rollout — capacity decision (2026-10-10)
 
-**Status:** decided 2026-10-10 for the capacity route (**A + B**, purge deferred,
+**Status amendment (2026-10-11):** the owner retained A + B but superseded the
+purge deferral by selecting the governed pre-build purge sequence in
+[`docs/development/v3-governed-derived-purge-design.md`](../development/v3-governed-derived-purge-design.md)
+and the controlling [`docs/ROADMAP.md`](../ROADMAP.md) amendment. The analysis
+below remains the dated 2026-10-10 evidence and is not execution authority.
+
+**Status:** decided 2026-10-10 for the capacity route (**A + B**, purge deferred on that date,
 new ranking identity accepted) and for questions 5–6 below **only**. This record
 clears no rollout gate by itself: every other gate and the unresolved owner
 decisions are governed by `docs/ROADMAP.md` and the F2d design. Recorded in
@@ -197,7 +203,7 @@ window, backup/PITR implications). Kept as the fallback if A/B are rejected.
 
 **A + B**, in that order: rewrite `011` as the wide-row archetype product, add
 `015` to attach and explicitly publish products on the published generation,
-then register and apply `[014, 010, 011', 013, 015]`, **revise the release gate
+then register and apply `[014, 010, 011', 013, 015, 016]` (`016` from the governed purge design), run the governed purge, **revise the release gate
 and deploy the release** (before any product exists), run the calibration probe
 and the capacity input's complete read of every chunk, never a sample,
 **pass the combined Search + Archetype capacity gate**, and only then build

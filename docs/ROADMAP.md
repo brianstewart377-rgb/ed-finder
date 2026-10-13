@@ -193,17 +193,20 @@ newer dated source wins).
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
-  The replacement for steps 4–9 is therefore — and **4′ comes before step 2**,
-  because the governed migration runner applies *every* pending entry: running
-  step 2 today would apply the current eight-row `011`, record its hash in the
-  production ledger and make the rewrite impossible without a corrective
-  migration. Step 2 (and therefore step 3, which needs `010` applied) is
-  **blocked until 4′'s amended registration has merged**:
+  **The purge deferral was superseded on 2026-10-11** (amendment below); A + B
+  stand. The replacement for steps 4–9 is therefore — and **4′ and 4″ come
+  before step 2**, because the governed migration runner applies *every* pending
+  entry: running step 2 today would apply the current eight-row `011`, record
+  its hash in the production ledger and make the rewrite impossible without a
+  corrective migration. Step 2 (and therefore step 3, which needs `010`
+  applied) is **blocked until the amended registrations of 4′ and 4″ have
+  merged**:
 
   4′. Land the F2d design (PR #806) and its code PRs (rewritten `011` + wide-row
      model/builder/validator; `015` + API publication gate; ranking SQL and
-     explanation endpoint; registration amended to
-     `[014, 010, 011-rewritten, 013, 015]` with recomputed identities; governed
+     explanation endpoint; registration amended to add the rewritten `011` and
+     `015` with recomputed identities (4″ then adds `016`, giving the step 2
+     apply set); governed
      archetype-build and product-publish actions, and the search action
      retargeted from `opt1` to `parallel_v1`). Code only; verified on
      disposable PostgreSQL 18, including a repeat of the wide-row footprint
@@ -223,7 +226,9 @@ newer dated source wins).
      unresolved, and they govern the persisted confidence representation, model
      ownership, the new explanation endpoint, atomic publication and PR
      sequencing. Questions 1 and 5 are answered, question 8 (no purge before Finder
-     promotion) is the recorded owner decision, and question 9 (hard filters in
+     promotion) was the recorded owner decision until the owner selected the
+     governed pre-build purge on 2026-10-11 (4″ and P above supersede it), and
+     question 9 (hard filters in
      selected mode) is answered by the design's 422 contract and the owner's
      stated wish for filtered archetypes as a later increment. **Design question 6
      is atomic publication and is open** — it is not the capacity decision's
@@ -247,9 +252,25 @@ newer dated source wins).
      window without changing what they mean, so archetype ranking is unfiltered
      and Any mode keeps every filter only when anchored (galaxy-wide hard filters
      return 422 — owner decision 2026-10-12). Nothing live calls the route yet.
-  2–3. Only then: governed migration `plan` → review → `apply` of
-     `[014, 010, 011-rewritten, 013, 015]`, followed by the step 3 constraint
-     validation.
+  4″. Land the governed-purge code PR after 4′, as designed in
+     [`v3-governed-derived-purge-design.md`](development/v3-governed-derived-purge-design.md):
+     register `016_v3_governed_derived_purge.sql` after `015`; immutable purge
+     request/event records; payload-only delete authorization that keeps
+     `UPDATE`, `TRUNCATE` and all metadata/receipt retention fail-closed; the
+     protected plan/authorize/delete/rewrite/status workflow; disposable
+     PostgreSQL 18 crash/lock/WAL tests. Code only; it performs no purge.
+  2. Only then: governed migration `plan` → review → `apply` of
+     `[014, 010, 011-rewritten, 013, 015, 016]`.
+  P. The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`,
+     phase by phase, and no destructive phase until every execution gate in the
+     design has a recorded owner answer: a fresh lifecycle/disk/WAL/quiescence
+     receipt; both targets moved to `FAILED`; FK-safe bounded deletes; then
+     one-relation-at-a-time `VACUUM FULL` in the order `system_search`,
+     `economy_opportunity`, `body_mechanics`, `system_rating_vector`, each a
+     separate reviewed dispatch with before/after evidence. Finished only on a
+     reviewed completion receipt.
+  3. The step 3 constraint validation, after P has physically reclaimed the old
+     `opt1` Search payload and before 5′.
   5′. **Deploy the release before any product reaches READY.** Revise the
      application-release gate to require the applied migration set and its exact
      ledger hashes, the new ranking identity, the bounded ranking route and the
@@ -372,18 +393,17 @@ newer dated source wins).
      the expected generation, ranking identity and product identity — this is
      where the response identity is checked, once it exists.
 
-  Until 4′ has
+  Until 4′ and 4″ have
   merged, **no production step beyond step 0 may be dispatched** (not even the
-  migration plan/apply); 4′ is the gate. Step 0 itself stays open until a receipt records
+  migration plan/apply); 4′ and 4″ are the gate. Step 0 itself stays open until a receipt records
   every detached worker stopped (the paused `opt1` worker was killed by the
   owner on 2026-10-10; the confirming receipt is pending). The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.
-  Step 3 must run before 5′ so its full-table scan covers about 198.5M retained
-  `opt1` rows instead of about 397M rows after the second product; the
-  `NOT VALID` checks still enforce every subsequent builder insert
-  automatically. The step 3 action `v3-system-search-validate-constraints` is
+  Step 3 runs after P and before 5′, so its full-table scan covers neither the
+  reclaimed `opt1` rows nor the new product's; the `NOT VALID` checks still
+  enforce every subsequent builder insert automatically. The step 3 action `v3-system-search-validate-constraints` is
   merged (#799) and may only start once migration `010` is applied.
   For step 6, the read-only action `v3-archetype-calibration-probe` is merged
   (#800); the probe reads the already-published `parallel_v1` ratings vectors and
@@ -401,7 +421,8 @@ newer dated source wins).
   `system_archetype_summary` — or designing a governed purge path first. **None of
   that is current.** The replacement sequence above attaches both Finder products
   to the already-published `parallel_v1` generation, so no fresh Ratings V4
-  generation is built and no purge decision gates step 4; the wide row stores one
+  generation is built and the purge decision is now the owner's recorded 2026-10-11
+  choice below rather than an open question; the wide row stores one
   row per system with the summary expanded as a view, so the 1.59-billion-row and
   separate-summary figures no longer describe anything that will be written; and
   the capacity question is settled by the fail-closed combined gate
@@ -409,12 +430,32 @@ newer dated source wins).
   section 10, PR4) rather than by an owner choice before step 4.
 
   The insert-only `DELETE`/`TRUNCATE` triggers in
-  `006_v3_derived_product_lifecycle.sql` remain in force and no governed purge path
-  exists, which is still true and still means purge is not an available branch — it
-  is simply no longer a prerequisite, because nothing in the current sequence needs
-  one. Disk reclamation is tracked separately against the read-only inventory
-  receipt, not as a gate on this rollout.
+  `006_v3_derived_product_lifecycle.sql` remain in force today; the governed purge
+  path that 4″ adds is the only sanctioned way through them, and it is a
+  prerequisite of this rollout by the owner's 2026-10-11 decision below.
 
+  **Capacity decision amendment (owner, 2026-10-11) — governed purge selected.**
+  The 2026-10-10 instruction to defer purge is superseded; decisions A and B
+  stand (wide-row `011`; both Finder products attach to the already-published
+  `ratings_v4_prod_p4_parallel_v1` behind `015`'s product-publication gate; the
+  generation pointer does not move). Before either Finder product build, a
+  reviewed governed purge (4″, P) removes only the incomplete
+  `ratings_v4_prod_p4` generation and the superseded, unpublished
+  `ratings_v4_prod_p4_opt1` generation. The published `parallel_v1` generation
+  and every payload row it owns, the canonical/derived/spatial pointers, all
+  schema and publication audit rows, generation and product manifests, and
+  build and product receipts are out of scope and retained. The owner chose
+  this knowing A + B alone leaves about 129 GB of headroom without a purge
+  (87 GB Search + ≈ 76 GB measured archetype from 292 GB free).
+
+  The accepted absence of an executable PostgreSQL 18 recovery runbook is not
+  a recovery mechanism. Every destructive phase must independently prove the
+  two exact target UUIDs/keys/manifests, stopped writers, unchanged current
+  pointers, preserved published row counts, FK-safe order, sufficient
+  free/WAL/temp headroom and a durable phase receipt; any mismatch stops before
+  mutation. The controlling path is 4′ → 4″ → 2 → P → 3 → 5′ → 6 → 7′ → 8′ →
+  9′ → 10–11, subject to every execution gate in the
+  [governed derived-generation purge design](development/v3-governed-derived-purge-design.md).
   The [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity

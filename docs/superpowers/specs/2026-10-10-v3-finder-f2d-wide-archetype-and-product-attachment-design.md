@@ -13,7 +13,9 @@ are recorded in `2026-10-10-v3-finder-f2d-review-history.md`)
 archetype row per system with explanations computed on demand; attach the two
 Finder products to the already-published `ratings_v4_prod_p4_parallel_v1`
 generation behind a new explicit product-publication gate in migration `015`;
-defer purge; accept a new ranking identity.
+accept a new ranking identity. (The 2026-10-10 "defer purge" part of that
+decision was superseded on 2026-10-11 by the governed pre-build purge of PR
+#808; see section 2 and question 8.)
 (`docs/operations/v3-finder-production-rollout-state.md`,
 `docs/operations/v3-finder-capacity-decision-2026-10-10.md`, both PR #805)
 
@@ -97,8 +99,11 @@ B/row heap either way).
   or ranking response fields. A storage-shape version bump and a new ranking
   identity are still required because reproducibility hashes describe the live
   implementation.
-- Do not add a purge path or delete retained `p4`/`opt1` data; the owner
-  deferred purge. (`006_v3_derived_product_lifecycle.sql:165-206`)
+- This design adds no purge path and deletes no `p4`/`opt1` data. The owner's
+  2026-10-10 deferral of purge was superseded on 2026-10-11 by the governed
+  pre-build purge of PR #808 (`docs/development/v3-governed-derived-purge-design.md`,
+  ROADMAP steps 4″ and P), which is a separate design and runs before step 7
+  here. (`006_v3_derived_product_lifecycle.sql:165-206`)
 - Do not make explanations searchable, sortable or persisted.
 
 ## 3. Rewritten migration `011`: one wide row per system
@@ -924,7 +929,8 @@ replacing them (`tests/test_v3_system_archetype_migration.py:93-209`,
 **Authority.** `docs/ROADMAP.md` controls the rollout order and its gates; this
 section is the detail beneath it, and where the two disagree the ROADMAP wins
 and the difference is a defect to fix in the same change. The shared invariants
-— the governed apply set `[014, 010, 011-rewritten, 013, 015]`, the `Σ_all ≤
+— the governed apply set `[014, 010, 011-rewritten, 013, 015, 016]` (`016` is the
+governed purge migration of PR #808, registered by its code PR after `015`), the `Σ_all ≤
 4.0` refusal limit, the attach target `ratings_v4_prod_p4_parallel_v1` and the
 complete-read capacity input — are checked across the ROADMAP, this design, the
 capacity decision and the rollout-state record by
@@ -952,9 +958,10 @@ unpublished rows) and a picked ranking into an error on the removed
 
 | # | Governed step | Reuse/build | Product disk |
 |---:|---|---|---:|
-| 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015]`; recompute every migration-set/transition identity; re-attest reachable prefixes. | PR1 (rewritten `011`) and PR2 (`015`) each recut the authority and lineage tests; complete when PR2 merges. Current tail is `[014, 010, 011, 013]`. | negligible |
+| 1 | Amend step-1 registration to ordered `[014, 010, 011-rewritten, 013, 015, 016]`; recompute every migration-set/transition identity; re-attest reachable prefixes. | PR1 (rewritten `011`), PR2 (`015`) and the purge code PR (`016`, ROADMAP 4″) each recut the authority and lineage tests; complete when the purge code PR merges. Current tail is `[014, 010, 011, 013]`. | negligible |
 | 2 | Governed migration `plan`, review the receipt, then `apply`. | `.github/workflows/v3-production-schema-migration.yml`; no new action. | empty structures |
-| 3 | Validate all 18 deferred `system_search` constraints after `010`. | Built `v3-system-search-validate-constraints-start/status`. | none |
+| P | The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`, phase by phase, under every execution gate of `docs/development/v3-governed-derived-purge-design.md` (ROADMAP steps 4″ and P; owner decision 2026-10-11). It runs **before** step 3 so the constraint validation does not scan the ≈ 198.5 M retained `opt1` Search rows, and before any Finder build. | The protected purge workflow and actions that the ROADMAP 4″ code PR builds to that design (PR #808 is the design only; nothing in this design). | reclaims the two targets' payload (figures in the purge design) |
+| 3 | Validate all 18 deferred `system_search` constraints after `010` **and after P**. | Built `v3-system-search-validate-constraints-start/status`. | none |
 | 4 | Revise the F3 release gate and **deploy the release first** (section 8.1). | Amend the release authority; reuse the governed release workflows. | 0 |
 | 5 | Coefficient calibration, the complete read, and the eligible footprint measurement (section 8.2). | Built `v3-archetype-calibration-probe` for coefficient review; PR4's complete-read action for the capacity input; PR4's disposable-PostgreSQL measurement workflow for the gate's receipts. | 0 (nothing on production) |
 | 6 | **Combined capacity gate** (section 8.4) — the last point of no return, before the Search build. | New read-only action modelled on `v3-derived-lifecycle-status`. | 0 |
@@ -966,13 +973,15 @@ unpublished rows) and a picked ranking into an error on the removed
 ### 8.1 Release gate (step 4)
 
 The gate requires: the exact current PUBLISHED generation key/UUID/sequence;
-`[014, 010, 011-rewritten, 013, 015]` applied with exact ledger hashes; the new
+`[014, 010, 011-rewritten, 013, 015, 016]` applied with exact ledger hashes; the new
 `ranking_version`/`ranking_sha256`; the built-image contracts (bounded ranking
 route, `Literal[60, 76, 88]` floor, hard-filter rejection, bounded
 `from`/`offset`, publication check in `_current_derived_generation()`); and
 **no Finder product rows on `parallel_v1`** — not an empty
-`v3_meta.derived_product`, because the READY `system_search` retained on `opt1`
-would block it permanently. It must **not** require product READY, receipts,
+`v3_meta.derived_product`, because the READY `system_search` **product row** on
+`opt1` is retained for ever — the governed purge P deletes payload only and keeps
+every `derived_product` manifest and receipt — so a global emptiness check would
+block it permanently. It must **not** require product READY, receipts,
 row counts, `published_at` or an audit: those would force the products to be
 built under the old image.
 
@@ -1350,8 +1359,9 @@ live no-pick requests** the Explore flow sends
   slack `T = 1,000` (the equal-distance group straddling the limit must be
   finished; exact ties need equal squared distances on the 1/32-ly grid, so a
   larger group at a probed anchor fails) and `G` = the number of generations
-  holding Search rows, read at probe time and recorded (`G = 2` while `opt1` is
-  retained, because the position index does not lead with the generation).
+  holding Search rows, read at probe time and recorded (`G = 2` if `opt1` still
+  holds rows, 1 after the governed purge P, because the position index does not
+  lead with the generation).
   The probe also runs the two anchored requests the inner `LIMIT` cannot bound
   — the anchored request with the most selective accepted hard filter, and the
   anchored **score-sorted** request (`sort_by='development'`) — at the densest
@@ -1476,7 +1486,8 @@ canonical-safety, application-deployment, Cypress, Review Lab and security CI.
 ### PR2 — migration `015`, builders on PUBLISHED, API publication gate
 
 - `sql/v3/migrations/015_v3_derived_product_publication.sql` (section 7);
-  manifest and authority recut for `[014, 010, 011-rewritten, 013, 015]`.
+  manifest and authority recut for the registered set through `015` (the purge
+  code PR of ROADMAP 4″ recuts again for `016`).
 - `scripts/v3_system_search.py`, `scripts/v3_system_archetype.py` accept a
   PUBLISHED base.
 - `apps/api/src/local_search.py`: `_current_derived_generation()` requires
@@ -1577,8 +1588,10 @@ with it.
    carry their own registration and authority recut so every head is green? A
    separate registration PR cannot pass the manifest-integrity and
    authority-identity tests at intermediate heads.
-8. **Accept no purge before Finder promotion?** **Owner: yes** — the recorded
-   decision; changing it needs a separate destructive-data design and authority.
+8. **Accept no purge before Finder promotion?** **Superseded.** The owner's
+   2026-10-10 "yes" was replaced on 2026-10-11 by the governed pre-build purge of
+   PR #808 (ROADMAP 4″ and P), which carries its own design and authority; this
+   design's gates still hold whether or not `opt1` rows remain.
 9. **Accept that the initial archetype ranking takes no hard filters**, and
    that galaxy-wide Any-mode requests refuse them until an anchor is set?
    **Owner: yes** (2026-10-12); filtered archetype ranking is deferred work.
