@@ -147,6 +147,10 @@ export type ArchetypeRankingsResponse = {
      */
     count?: number;
     /**
+     * Is Truncated
+     */
+    is_truncated: boolean;
+    /**
      * Source
      */
     source?: string | null;
@@ -154,7 +158,7 @@ export type ArchetypeRankingsResponse = {
      * Query Ms
      */
     query_ms?: number | null;
-    ranking?: RankingIdentity | null;
+    ranking: RankingIdentity;
 };
 
 /**
@@ -5020,6 +5024,18 @@ export type RankingIdentity = {
      * Publication Sequence
      */
     publication_sequence: number;
+    /**
+     * Archetype Version
+     */
+    archetype_version: string;
+    /**
+     * Archetype Manifest Sha256
+     */
+    archetype_manifest_sha256: string;
+    /**
+     * Archetype Model Sha256
+     */
+    archetype_model_sha256: string;
 };
 
 /**
@@ -6078,7 +6094,7 @@ export type SearchResponse = {
      * Warning
      */
     warning?: string | null;
-    ranking?: RankingIdentity | null;
+    ranking: RankingIdentity;
 };
 
 /**
@@ -11082,7 +11098,7 @@ export type GetArchetypeRankingsApiArchetypesRankingsGetData = {
         /**
          * Min Score
          */
-        min_score?: number;
+        min_score?: 60 | 76 | 88;
         /**
          * Galaxy Region
          */

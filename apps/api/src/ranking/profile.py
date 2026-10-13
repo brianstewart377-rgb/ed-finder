@@ -30,7 +30,7 @@ import hashlib
 import json
 from typing import Any, Final
 
-RANKING_VERSION: Final[str] = "v3-colony-potential-1"
+RANKING_VERSION: Final[str] = "v3-colony-potential-2"
 
 # The 8 V3-native archetype keys computed by F2b (scripts/v3_system_archetype_
 # model.py's `ARCHETYPE_KEYS` is the source of truth). Duplicated here as a
@@ -107,9 +107,67 @@ HARD_FILTER_KEYS: Final[tuple[str, ...]] = (
     "galaxy_region",
 )
 
-# Tie-break order applied after the primary score x uncertainty ordering:
-# nearest reference distance first, then system_id64 for determinism.
-TIE_BREAK: Final[tuple[str, ...]] = ("distance", "system_id64")
+# The stored key's only ranking tie-break. Distance is a separate primary sort
+# for anchored nearest-first requests, not part of picked-archetype ranking.
+TIE_BREAK: Final[tuple[str, ...]] = ("system_id64",)
+
+ARCHETYPE_SCORE_FLOOR_DEFAULT: Final[int] = 60
+ACCEPTED_ARCHETYPE_SCORE_FLOORS: Final[tuple[int, ...]] = (60, 76, 88)
+RANKING_WINDOW_LIMIT: Final[int] = 10_000
+RANKING_OFFSET_PLUS_LIMIT_MAX: Final[int] = 10_000
+RANKING_COUNT_SENTINEL: Final[int] = 10_001
+RANKING_PAGE_LIMIT_MIN: Final[int] = 1
+RANKING_PAGE_LIMIT_MAX: Final[int] = 500
+RANKING_OFFSET_MIN: Final[int] = 0
+RANKING_OFFSET_MAX: Final[int] = 9_999
+
+PICKED_ARCHETYPE_REJECTED_FILTERS: Final[tuple[str, ...]] = (
+    "galaxy_region",
+    "max_distance_ly",
+    "has_elw",
+    "min_slots",
+    "max_contamination",
+)
+PICKED_ARCHETYPE_FILTER_REJECTION_REASON: Final[str] = (
+    "archetype ranking is unfiltered in the initial product; "
+    "filter in Any mode or drop the filter"
+)
+
+LOCAL_SEARCH_RESULT_CAP: Final[int] = 10_000
+LOCAL_SEARCH_FROM_MIN: Final[int] = 0
+LOCAL_SEARCH_SIZE_MIN: Final[int] = 1
+LOCAL_SEARCH_REQUEST_RADIUS_DEFAULT_LY: Final[int] = 500
+LOCAL_SEARCH_MAX_RADIUS_DEFAULT_LY: Final[int] = 10_000
+LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY: Final[int] = 500
+LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON: Final[str] = (
+    "pick an anchor area or remove the filter"
+)
+LOCAL_SEARCH_ANCHORED_RADIUS_REJECTION_REASON: Final[str] = (
+    "reduce the radius, sort by distance, or remove the filter"
+)
+
+# This text is deliberately part of the identity verbatim.  It is the exact
+# integer arithmetic used by migration 011 and the wide-row builder.
+STORED_WEIGHTED_KEY_EXPRESSION: Final[str] = (
+    "((<key>_score::bigint * <key>_confidence_ppm * completeness_ppm) "
+    "+ 50000000) / 100000000"
+)
+
+
+def _archetype_columns() -> dict[str, dict[str, str]]:
+    """Return the fixed key-to-wide-column map used by ranking SQL."""
+
+    return {
+        key: {
+            "score": f"{key}_score",
+            "tier": f"{key}_tier",
+            "confidence": (
+                f"({key}_confidence_ppm / 1000000.0)::double precision"
+            ),
+            "weighted_key": f"{key}_weighted_e4",
+        }
+        for key in ARCHETYPE_KEYS
+    }
 
 
 def _json(value: Any) -> str:
@@ -140,7 +198,7 @@ def _canonical_base() -> dict[str, Any]:
     return {
         "ranking_version": RANKING_VERSION,
         "primary_score_rule": {
-            "archetype": "system_archetype.archetype_score",
+            "archetype": "archetype_columns[picked_archetype].score",
             "economy": "potential_score",
             "none": "system_archetype_summary.best_colony_potential",
         },
@@ -158,6 +216,75 @@ def _canonical_base() -> dict[str, Any]:
         "tier_thresholds": dict(TIER_THRESHOLDS),
         "hard_filter_keys": list(HARD_FILTER_KEYS),
         "archetype_keys": list(ARCHETYPE_KEYS),
+        "archetype_columns": _archetype_columns(),
+        "archetype_score_floor": {
+            "default": ARCHETYPE_SCORE_FLOOR_DEFAULT,
+            "accepted": list(ACCEPTED_ARCHETYPE_SCORE_FLOORS),
+        },
+        "stored_weighted_key_expression": STORED_WEIGHTED_KEY_EXPRESSION,
+        "ranking_window": {
+            "limit": RANKING_WINDOW_LIMIT,
+            "offset_plus_limit_max": RANKING_OFFSET_PLUS_LIMIT_MAX,
+            "page_limit_min": RANKING_PAGE_LIMIT_MIN,
+            "page_limit_max": RANKING_PAGE_LIMIT_MAX,
+            "offset_min": RANKING_OFFSET_MIN,
+            "offset_max": RANKING_OFFSET_MAX,
+            "count_sentinel": RANKING_COUNT_SENTINEL,
+            "is_truncated_rule": "qualifying = 10001",
+            "total_rule": "min(qualifying, 10000)",
+        },
+        "picked_archetype_rejected_filters": list(
+            PICKED_ARCHETYPE_REJECTED_FILTERS
+        ),
+        "picked_archetype_filter_rejection_reason": (
+            PICKED_ARCHETYPE_FILTER_REJECTION_REASON
+        ),
+        "local_search_contract": {
+            "request_bounds": {
+                "from_min": LOCAL_SEARCH_FROM_MIN,
+                "size_min": LOCAL_SEARCH_SIZE_MIN,
+                "from_plus_size_max": RANKING_OFFSET_PLUS_LIMIT_MAX,
+            },
+            "count": {
+                "cap": LOCAL_SEARCH_RESULT_CAP,
+                "sentinel_rule": "cap + 1",
+                "total_rule": "min(qualifying, cap)",
+                "total_is_capped_rule": "qualifying > cap",
+                "applies_to": ["galaxy-wide", "anchored"],
+            },
+            "galaxy_wide_any": {
+                "rejected_hard_filters": list(HARD_FILTER_KEYS),
+                "rejection_rule": "reject any hard filter",
+                "reason": LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON,
+            },
+            "anchored_any": {
+                "intrinsic_radius_key": "max_distance_ly",
+                "intrinsic_radius_is_hard_filter": False,
+                "min_distance_ly_is_hard_filter": True,
+                "other_filter_rule": "every other hard filter remains hard",
+                "nearest_first_sort": "distance",
+                "score_sort": "development",
+                "request_radius_default_ly": (
+                    LOCAL_SEARCH_REQUEST_RADIUS_DEFAULT_LY
+                ),
+                "route_max_radius_setting": "MAX_SEARCH_RADIUS",
+                "route_max_radius_default_ly": (
+                    LOCAL_SEARCH_MAX_RADIUS_DEFAULT_LY
+                ),
+                "unfiltered_nearest_first_radius_rule": (
+                    "accepted through the route maximum"
+                ),
+                "restricted_request_rule": (
+                    "any hard filter or score-sorted"
+                ),
+                "restricted_radius_cap_ly": (
+                    LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY
+                ),
+                "restricted_radius_reason": (
+                    LOCAL_SEARCH_ANCHORED_RADIUS_REJECTION_REASON
+                ),
+            },
+        },
     }
 
 

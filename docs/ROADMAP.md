@@ -221,26 +221,30 @@ newer dated source wins).
      F4 design review showed that layout cannot bound the slice 1c probe) — the
      code PRs that encode either may not merge before the answer is recorded
      there. **Both were answered yes by the owner on 2026-10-10 and are
-     recorded there**, so *that* prerequisite is satisfied. **It is not the only
-     one.** The F2d design still records owner questions **2, 3, 4, 6 and 7** as
-     unresolved, and they govern the persisted confidence representation, model
-     ownership, the new explanation endpoint, atomic publication and PR
-     sequencing. Questions 1 and 5 are answered, question 8 (no purge before Finder
+     recorded there**, so *that* prerequisite is satisfied. **Nor is it the only
+     one — but the rest are now satisfied too.** The F2d design's
+     open owner questions: **none** (as of 2026-10-13). Design questions 2, 3, 4, 6 and 7 —
+     the persisted confidence representation, model ownership, the new
+     explanation endpoint, atomic publication and PR sequencing — were **answered
+     yes by the owner on 2026-10-13 (in chat: "yes to all")** and are recorded in
+     the capacity decision's section 5 alongside 1, 5, 6 and 6b. Questions 1
+     and 5 were answered on 2026-10-10, question 8 (no purge before Finder
      promotion) was the recorded owner decision until the owner selected the
      governed pre-build purge on 2026-10-11 (4″ and P above supersede it), and
      question 9 (hard filters in
      selected mode) is answered by the design's 422 contract and the owner's
      stated wish for filtered archetypes as a later increment. **Design question 6
-     is atomic publication and is open** — it is not the capacity decision's
+     is atomic publication** — it is not the capacity decision's
      question 6 (the score-index layout), which the owner answered yes; the two
-     documents number their questions independently and conflating them had left
-     the one-transaction publication PR free to merge unanswered while an already
-     accepted choice stayed blocked. So the code PRs encoding any
-     still-unresolved choice **may not merge** until that question's answer is
-     recorded in the capacity decision alongside 1, 5, 6 and 6b: declaring the
-     prerequisite satisfied on the strength of two answers would let
-     implementations of choices the owner has not accepted reach `main`, and this
-     document is the one that would have authorized it. The rewritten `011`
+     documents number their questions independently, and conflating them had
+     earlier left the one-transaction publication PR free to merge unanswered
+     while an already accepted choice stayed blocked, which is why both answers
+     are recorded separately. The rule stands for any future question: a code PR
+     encoding a choice the owner has not accepted **may not merge** until that
+     answer is recorded in the capacity decision, because declaring a
+     prerequisite satisfied on partial answers would let unaccepted choices reach
+     `main`, and this document is the one that would have authorized it. The
+     rewritten `011`
      also changes the rankings route's `min_score` contract deliberately:
      it accepts **exactly the three indexed tier floors**
      `Literal[60, 76, 88]` with default 60 — not the continuous range 60–100 —

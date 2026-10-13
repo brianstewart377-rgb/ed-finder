@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from array import array
 from collections.abc import Iterable, Sequence
+import hashlib
 import json
 import math
 import os
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts import v3_system_archetype as archetype_builder  # noqa: E402
-from scripts import v3_system_archetype_model as model  # noqa: E402
+from shared_contracts import v3_system_archetype_model as model  # noqa: E402
 
 PROBE_VERSION = 'v3-archetype-calibration-probe-1'
 DEFAULT_DATABASE_URL_ENV = 'V3_ARCHETYPE_PROBE_DATABASE_URL'
@@ -95,28 +96,37 @@ class CalibrationAggregate:
             if primary != secondary
         }
 
-    def add(self, vectors: model.SystemVectors) -> None:
-        fits = model.fit_all(vectors)
-        summary = model.summarise(fits)
-        fits_by_key = {fit.key: fit for fit in fits}
+    def add(
+        self,
+        vector_row: model.SystemVectorRow,
+        opportunity_groups: tuple[tuple[int, int, int], ...],
+    ) -> None:
+        scored = model.score_raw_system(vector_row, opportunity_groups)
 
         self.systems += 1
-        for fit in fits:
-            self.scores[fit.key].append(fit.score)
-            self.confidences[fit.key].append(fit.confidence)
-            self.tier_histograms[fit.key][fit.tier] += 1
+        for key in model.ARCHETYPE_KEYS:
+            score = scored[f'{key}_score']
+            tier = scored[f'{key}_tier']
+            self.scores[key].append(score)
+            self.confidences[key].append(
+                scored[f'{key}_confidence_ppm'] * 0.000001
+            )
+            self.tier_histograms[key][tier] += 1
 
-        primary = summary['primary_archetype']
-        secondary = summary['secondary_archetype']
+        primary = scored['primary_archetype']
+        secondary = scored['secondary_archetype']
         self.primary_counts[primary] += 1
         self.secondary_counts[secondary if secondary is not None else 'none'] += 1
-        self.best_tier_histogram[summary['best_tier']] += 1
-        self.summary_confidences.append(summary['archetype_confidence'])
+        self.best_tier_histogram[scored['best_tier']] += 1
+        self.summary_confidences.append(
+            scored['archetype_confidence_ppm'] * 0.000001
+        )
 
         if primary in self.separation_primary_counts:
             self.separation_primary_counts[primary] += 1
         separation_good = sum(
-            fits_by_key[key].tier in {'S', 'A', 'B'} for key in SEPARATION_KEYS
+            scored[f'{key}_tier'] in {'S', 'A', 'B'}
+            for key in SEPARATION_KEYS
         )
         if separation_good >= 2:
             self.two_or_more_separation += 1
@@ -165,10 +175,17 @@ class CalibrationAggregate:
         }
 
 
-def aggregate_vectors(vectors: Iterable[model.SystemVectors]) -> dict:
+def aggregate_vectors(
+    rows: Iterable[
+        tuple[
+            model.SystemVectorRow,
+            tuple[tuple[int, int, int], ...],
+        ]
+    ],
+) -> dict:
     aggregate = CalibrationAggregate()
-    for vector in vectors:
-        aggregate.add(vector)
+    for vector_row, opportunity_groups in rows:
+        aggregate.add(vector_row, opportunity_groups)
     return aggregate.result()
 
 
@@ -220,6 +237,31 @@ def _chunk_rows(connection, generation_id: str) -> list[tuple[int, int]]:
     return [(int(ordinal), int(systems)) for ordinal, systems in rows]
 
 
+def _read_chunk_rows(connection, generation_id: str, ordinal: int):
+    '''Read raw model inputs with the canonical shared query contract.'''
+    scope = {
+        'generation_id': generation_id,
+        'chunk_ordinal': ordinal,
+        'system_id64': None,
+    }
+    vector_rows = connection.execute(model.VECTOR_READ_SQL, scope).fetchall()
+    opportunity_rows = connection.execute(
+        model.OPPORTUNITY_READ_SQL, scope,
+    ).fetchall()
+    groups: dict[int, list[tuple[int, int, int]]] = {}
+    for system_id64, economy_ordinal, row_count, local_score_sum in opportunity_rows:
+        groups.setdefault(int(system_id64), []).append((
+            int(economy_ordinal), int(row_count), int(local_score_sum or 0),
+        ))
+    return {
+        int(row[0]): (
+            model.SystemVectorRow.from_row(row),
+            tuple(groups.get(int(row[0]), [])),
+        )
+        for row in vector_rows
+    }
+
+
 def _run(connection, args) -> tuple[int, dict | None]:
     connection.read_only = True
     connection.execute(
@@ -255,11 +297,12 @@ def _run(connection, args) -> tuple[int, dict | None]:
 
     aggregate = CalibrationAggregate()
     for ordinal in ordinals:
-        vectors = archetype_builder._read_chunk_vectors(
+        raw_rows = _read_chunk_rows(
             connection, generation_id, ordinal,
         )
-        for vector in vectors.values():
-            aggregate.add(vector)
+        for system_id64 in sorted(raw_rows):
+            vector_row, opportunity_groups = raw_rows[system_id64]
+            aggregate.add(vector_row, opportunity_groups)
         connection.commit()
     if aggregate.systems == 0:
         print(
@@ -278,8 +321,13 @@ def _run(connection, args) -> tuple[int, dict | None]:
         'max_systems': args.max_systems,
         'ordinals_first_last': [ordinals[0], ordinals[-1]] if ordinals else [None, None],
     }
+    builder_generation = archetype_builder._generation(connection, generation_key)
+    expected_product_manifest = archetype_builder.product_manifest(builder_generation)
+    model_file = ROOT / 'shared_contracts/v3_system_archetype_model.py'
     result = {
         'probe_version': PROBE_VERSION,
+        'mode': 'sampled',
+        'row_count': aggregate.systems,
         'generation': {
             'generation_key': generation_key,
             'derived_generation_id': generation_id,
@@ -289,6 +337,9 @@ def _run(connection, args) -> tuple[int, dict | None]:
         },
         'sample': sample,
         'coefficients': archetype_builder._coefficients(),
+        'archetype_model_sha256': model.archetype_model_sha256(),
+        'model_file_sha256': hashlib.sha256(model_file.read_bytes()).hexdigest(),
+        'expected_product_manifest': expected_product_manifest,
         'archetype_version': model.ARCHETYPE_VERSION,
         'anchors': archetype_builder._anchors(),
         'code_identity': archetype_builder.code_identity(),

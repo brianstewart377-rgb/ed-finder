@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -267,6 +269,16 @@ def test_normalize_fractions_digest_and_sigma_are_canonical_and_stable():
     assert module.normalize_fractions(changed)[1] != digest
 
 
+def test_normalize_fractions_rejects_a_missing_archetype_key():
+    module = _load()
+    fractions = {
+        key: {"60": 0.5, "76": 0.2, "88": 0.1}
+        for key in module.ARCHETYPE_KEYS[1:]
+    }
+    with pytest.raises(ValueError, match="missing archetype keys: paradise"):
+        module.normalize_fractions(fractions)
+
+
 @pytest.mark.parametrize(
     "floors",
     [{"60": 0.2, "76": 0.5, "88": 0.1}, {"60": 1.5, "76": 0.2, "88": 0.1}],
@@ -291,3 +303,140 @@ def test_score_expression_refuses_unvalidated_floors(floors, message):
     module = _load()
     with pytest.raises(ValueError, match=message):
         module._score_expr(0, "fractions", floors)
+
+
+def test_final_receipt_per_row_costs_are_exact_ceilings():
+    module = _load()
+    assert module.per_row_costs(
+        heap_bytes=1001,
+        primary_key_bytes=2001,
+        weighted_index_bytes=3001,
+        tier_index_bytes=4001,
+        rows=1000,
+        tier_entries=80,
+    ) == {
+        "heap_bytes_per_row": 2,
+        "primary_key_bytes_per_row": 3,
+        "weighted_index_bytes_per_row": 4,
+        "tier_index_bytes_per_row_per_unit_fraction": 51,
+    }
+
+
+def test_tier_cost_is_normalized_by_receipts_own_sigma_all():
+    module = _load()
+    sparse = module.per_row_costs(
+        heap_bytes=1,
+        primary_key_bytes=1,
+        weighted_index_bytes=1,
+        tier_index_bytes=1000,
+        rows=1000,
+        tier_entries=20,  # sigma_all = .02
+    )
+    dense = module.per_row_costs(
+        heap_bytes=1,
+        primary_key_bytes=1,
+        weighted_index_bytes=1,
+        tier_index_bytes=2000,
+        rows=1000,
+        tier_entries=40,  # sigma_all = .04
+    )
+    assert sparse["tier_index_bytes_per_row_per_unit_fraction"] == 50
+    assert dense["tier_index_bytes_per_row_per_unit_fraction"] == 50
+
+
+def test_capacity_eligibility_needs_final_migration_and_measured_histogram():
+    module = _load()
+    assert not module.capacity_gate_eligible(
+        final_migration=True, distribution_source="synthetic-builtin"
+    )
+    assert module.capacity_gate_eligible(
+        final_migration=True, distribution_source="measured-histogram"
+    )
+    assert not module.capacity_gate_eligible(
+        final_migration=False, distribution_source="measured-histogram"
+    )
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'distribution_source = "synthetic-builtin"' in source
+    assert 'distribution_source = "measured-histogram"' in source
+    assert '"f2d_operator_code_sha256":' not in source
+
+
+def test_migration_receipt_hashes_the_exact_file_bytes(tmp_path):
+    import hashlib
+
+    module = _load()
+    migration = tmp_path / "011.sql"
+    migration.write_bytes(b"BEGIN;\r\nSELECT 1;\r\nCOMMIT;\r\n")
+    assert module.migration_sql_sha256(migration) == hashlib.sha256(
+        migration.read_bytes()
+    ).hexdigest()
+
+
+class _IndexConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, _sql):
+        rows = self.rows
+
+        class _Cursor:
+            def fetchall(self):
+                return rows
+
+        return _Cursor()
+
+
+def test_final_measurement_refuses_a_missing_index_after_fill():
+    module = _load()
+    complete = [(name, 8192) for name in module.FINAL_INDEX_NAMES]
+    assert len(module._final_index_sizes(_IndexConn(complete))) == 26
+    with pytest.raises(ValueError, match="exactly the 26 designed indexes"):
+        module._final_index_sizes(_IndexConn(complete[1:]))
+
+
+def test_final_index_contract_is_primary_weighted_and_24_tier_partials():
+    module = _load()
+    assert len(module.FINAL_INDEX_NAMES) == 26
+    assert len(module.TIER_INDEX_NAMES) == 24
+    assert "system_archetype_pkey" in module.FINAL_INDEX_NAMES
+    assert "system_archetype_summary_weighted" in module.FINAL_INDEX_NAMES
+
+
+def test_final_mode_invokes_the_part_1_builder_pipeline_in_chunk_order():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "archetype_builder.register_product(" in source
+    assert "archetype_builder.build_available(" in source
+    assert "max_chunks=1" in source
+    assert "archetype_builder.validate_product(" in source
+
+
+def test_final_migration_mode_smoke_on_disposable_postgresql_18(
+    monkeypatch, capsys
+):
+    """Exercise the actual final DDL + canonical builder path when PG18 is available."""
+    dsn = os.environ.get("RATINGS_V4_VALIDATION_DATABASE_URL")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL 18 validation URL not set")
+    module = _load()
+    migration = ROOT / "sql/v3/migrations/011_v3_system_archetype.sql"
+    monkeypatch.setenv("EDFINDER_DISPOSABLE_DSN", dsn)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["measure", "--rows", "1000", "--migration-sql", str(migration)],
+    )
+    module.main()
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["row_count"] == 1000
+    assert receipt["score_distribution_source"] == "synthetic-builtin"
+    assert receipt["capacity_gate_eligible"] is False
+    assert receipt["migration_011_sha256"] == module.migration_sql_sha256(migration)
+    assert len(receipt["per_index_bytes"]) == 26
+    assert "f2d_operator_code_sha256" not in receipt
+    for field in (
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+    ):
+        assert isinstance(receipt[field], int) and receipt[field] > 0

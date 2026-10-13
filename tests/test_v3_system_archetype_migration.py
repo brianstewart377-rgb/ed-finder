@@ -5,6 +5,7 @@ import sys
 from uuid import uuid4
 
 import psycopg
+from psycopg import sql
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,12 +18,61 @@ from scripts.ratings_v4.production_generation import (  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 MIGRATIONS = ROOT / 'sql/v3/migrations'
-CHAIN = ('003_ratings_v4_derived.sql', '004_v3_search_spatial_clusters.sql',
-         '006_v3_derived_product_lifecycle.sql', '010_v3_system_search_body_type_counts.sql',
-         '011_v3_system_archetype.sql')
+CHAIN = (
+    '003_ratings_v4_derived.sql',
+    '004_v3_search_spatial_clusters.sql',
+    '006_v3_derived_product_lifecycle.sql',
+    '010_v3_system_search_body_type_counts.sql',
+    '011_v3_system_archetype.sql',
+)
 
 PRODUCT_CODE = 'system_archetype'
 PRODUCT_VERSION = 'v3-system-archetype-test-1'
+ARCHETYPE_KEYS = (
+    'paradise',
+    'mining_hub',
+    'manufacturing_hub',
+    'megacomplex',
+    'research_hub',
+    'stronghold',
+    'population_capital',
+    'flexible',
+)
+WIDE_COLUMNS = (
+    'derived_generation_id',
+    'system_id64',
+    'archetype_version',
+    *(
+        column
+        for key in ARCHETYPE_KEYS
+        for column in (
+            f'{key}_score',
+            f'{key}_tier',
+            f'{key}_confidence_ppm',
+            f'{key}_weighted_e4',
+        )
+    ),
+    'primary_archetype',
+    'secondary_archetype',
+    'best_colony_potential',
+    'best_tier',
+    'archetype_confidence_ppm',
+    'weighted_potential',
+    'completeness_ppm',
+    'computed_at',
+)
+APP_COLUMNS = WIDE_COLUMNS + tuple(f'{key}_confidence' for key in ARCHETYPE_KEYS)
+SUMMARY_COLUMNS = (
+    'derived_generation_id',
+    'system_id64',
+    'primary_archetype',
+    'secondary_archetype',
+    'best_colony_potential',
+    'best_tier',
+    'archetype_confidence',
+    'weighted_potential',
+    'computed_at',
+)
 
 
 @pytest.fixture
@@ -31,12 +81,6 @@ def database():
         for name in CHAIN:
             connection.execute((MIGRATIONS / name).read_text())
         yield connection, canonical, metadata, payloads
-
-
-def _tables(connection, schema):
-    return {row[0] for row in connection.execute(
-        'SELECT table_name FROM information_schema.tables WHERE table_schema=%s', (schema,)
-    ).fetchall()}
 
 
 def _json(value) -> str:
@@ -68,9 +112,6 @@ def _ratings_generation(database, *, chunk_size=4):
 
 
 def _register_archetype_product(connection, generation_id, expected_rows):
-    # Mirrors scripts/v3_system_search.py:register_product's column contract
-    # for v3_meta.derived_product (product_code/manifest/manifest_sha256/expected_rows),
-    # scoped here to the archetype product under test rather than Search.
     manifest = {
         'product_code': PRODUCT_CODE,
         'product_version': PRODUCT_VERSION,
@@ -88,122 +129,183 @@ def _register_archetype_product(connection, generation_id, expected_rows):
 
 
 def _archetype_generation(database):
-    """Build a real Ratings generation with rows in system_rating_vector and
-    register a BUILDING system_archetype product against it, satisfying the
-    insert-guard trigger in 011_v3_system_archetype.sql."""
     connection, _, _, _ = database
     _, generation_id, _, _ = _ratings_generation(database)
-    row = connection.execute(
-        '''SELECT derived_generation_id, system_id64 FROM v3_derived.system_rating_vector
-            WHERE derived_generation_id=%s LIMIT 1''',
+    rows = connection.execute(
+        '''SELECT derived_generation_id, system_id64
+             FROM v3_derived.system_rating_vector
+            WHERE derived_generation_id=%s
+            ORDER BY system_id64''',
         (generation_id,),
-    ).fetchone()
-    assert row is not None, 'expected at least one rating row from the built generation'
-    expected_rows = connection.execute(
-        'SELECT count(*) FROM v3_derived.system_rating_vector WHERE derived_generation_id=%s',
-        (generation_id,),
-    ).fetchone()[0]
-    _register_archetype_product(connection, generation_id, expected_rows)
-    return row
+    ).fetchall()
+    assert rows, 'expected rating rows from the built generation'
+    _register_archetype_product(connection, generation_id, len(rows))
+    return rows
 
 
-def test_archetype_relations_exist(database):
+def _valid_row(generation_id, system_id64):
+    values = {
+        'derived_generation_id': generation_id,
+        'system_id64': system_id64,
+        'archetype_version': 'v3-archetype-4',
+        'primary_archetype': 'paradise',
+        'secondary_archetype': 'mining_hub',
+        'best_colony_potential': 75,
+        'best_tier': 'A',
+        'archetype_confidence_ppm': 900_000,
+        'weighted_potential': 67.5,
+        'completeness_ppm': 1_000_000,
+    }
+    for key in ARCHETYPE_KEYS:
+        values[f'{key}_score'] = 75
+        values[f'{key}_tier'] = 'A'
+        values[f'{key}_confidence_ppm'] = 900_000
+        values[f'{key}_weighted_e4'] = 675_000
+    return values
+
+
+def _insert_wide_row(connection, values):
+    columns = tuple(column for column in WIDE_COLUMNS if column != 'computed_at')
+    statement = sql.SQL('INSERT INTO v3_derived.system_archetype ({}) VALUES ({})').format(
+        sql.SQL(', ').join(sql.Identifier(column) for column in columns),
+        sql.SQL(', ').join(sql.Placeholder(column) for column in columns),
+    )
+    connection.execute(statement, values)
+
+
+def _columns(connection, schema, relation):
+    return tuple(row[0] for row in connection.execute(
+        '''SELECT column_name
+             FROM information_schema.columns
+            WHERE table_schema=%s AND table_name=%s
+            ORDER BY ordinal_position''',
+        (schema, relation),
+    ).fetchall())
+
+
+def test_wide_relation_and_both_views_project_every_column(database):
     connection, _, _, _ = database
-    derived = _tables(connection, 'v3_derived')
-    assert {'system_archetype', 'system_archetype_summary', 'archetype_build_chunk'} <= derived
-    app = _tables(connection, 'v3_app')
-    assert {'system_archetype', 'system_archetype_summary'} <= app
+    assert _columns(connection, 'v3_derived', 'system_archetype') == WIDE_COLUMNS
+    assert _columns(connection, 'v3_app', 'system_archetype') == APP_COLUMNS
+    assert _columns(connection, 'v3_app', 'system_archetype_summary') == SUMMARY_COLUMNS
+
+    # PostgreSQL resolves every projected expression, including all derived
+    # confidence doubles, even when the current-generation view is empty.
+    connection.execute('SELECT * FROM v3_app.system_archetype LIMIT 0')
+    connection.execute('SELECT * FROM v3_app.system_archetype_summary LIMIT 0')
 
 
-def test_score_and_tier_constraints_reject_out_of_range(database):
+def test_summary_is_a_view_not_a_physical_table(database):
     connection, _, _, _ = database
-    generation_id, system_id64 = _archetype_generation(database)
-
-    # Positive case: a valid row against a real generation/system inserts cleanly.
-    with connection.transaction():
-        connection.execute(
-            '''INSERT INTO v3_derived.system_archetype(
-                   derived_generation_id,system_id64,archetype_key,archetype_version,
-                   archetype_score,tier,confidence,explanation)
-               VALUES(%s,%s,'paradise','v3-archetype-2',75,'A',0.9,'{}'::jsonb)''',
-            (generation_id, system_id64),
-        )
     assert connection.execute(
-        '''SELECT count(*) FROM v3_derived.system_archetype
-            WHERE derived_generation_id=%s AND system_id64=%s''',
-        (generation_id, system_id64),
+        '''SELECT count(*)
+             FROM information_schema.tables
+            WHERE table_schema='v3_derived'
+              AND table_name='system_archetype_summary'
+              AND table_type='BASE TABLE' ''',
+    ).fetchone()[0] == 0
+    assert connection.execute(
+        '''SELECT count(*)
+             FROM information_schema.views
+            WHERE table_schema='v3_app'
+              AND table_name='system_archetype_summary' ''',
     ).fetchone()[0] == 1
 
-    with pytest.raises(psycopg.errors.CheckViolation):
-        with connection.transaction():
-            connection.execute(
-                '''INSERT INTO v3_derived.system_archetype(
-                       derived_generation_id,system_id64,archetype_key,archetype_version,
-                       archetype_score,tier,confidence,explanation)
-                   VALUES(%s,%s,'industrial','v3-archetype-2',101,'S',0.9,'{}'::jsonb)''',
-                (generation_id, system_id64),
-            )
 
-    with pytest.raises(psycopg.errors.CheckViolation):
-        with connection.transaction():
-            connection.execute(
-                '''INSERT INTO v3_derived.system_archetype(
-                       derived_generation_id,system_id64,archetype_key,archetype_version,
-                       archetype_score,tier,confidence,explanation)
-                   VALUES(%s,%s,'military','v3-archetype-2',50,'X',0.9,'{}'::jsonb)''',
-                (generation_id, system_id64),
-            )
-
-
-def test_archetype_rows_are_insert_only(database):
+def test_wide_constraints_accept_valid_row_and_reject_invalid_values(database):
     connection, _, _, _ = database
-    with pytest.raises(psycopg.errors.RaiseException, match='insert-only'):
-        connection.execute(
-            "UPDATE v3_derived.system_archetype SET archetype_score=archetype_score")
+    generation_id, system_id64 = _archetype_generation(database)[0]
+
+    invalid_cases = (
+        ('paradise_score', 101),
+        ('paradise_tier', 'X'),
+        ('paradise_confidence_ppm', 1_000_001),
+        ('paradise_weighted_e4', -1),
+        ('primary_archetype', 'unknown'),
+        ('secondary_archetype', 'paradise'),
+        ('best_colony_potential', 101),
+        ('best_tier', 'X'),
+        ('archetype_confidence_ppm', -1),
+        ('weighted_potential', 101.0),
+        ('completeness_ppm', 1_000_001),
+    )
+    for column, value in invalid_cases:
+        values = _valid_row(generation_id, system_id64)
+        values[column] = value
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connection.transaction():
+                _insert_wide_row(connection, values)
+
+    _insert_wide_row(connection, _valid_row(generation_id, system_id64))
 
 
-def test_summary_has_weighted_potential_column(database):
-    # The precomputed no-pick ranking key (#335): a NOT NULL smallint bounded
-    # to the [0, 100] score domain on system_archetype_summary.
+def test_exactly_26_wide_table_indexes_have_canonical_definitions(database):
     connection, _, _, _ = database
-    row = connection.execute(
-        '''SELECT data_type, is_nullable
-             FROM information_schema.columns
-            WHERE table_schema='v3_derived' AND table_name='system_archetype_summary'
-              AND column_name='weighted_potential' ''',
-    ).fetchone()
-    assert row is not None, 'weighted_potential column missing'
-    assert row[0] == 'double precision'
-    assert row[1] == 'NO'
-
-
-def test_summary_weighted_potential_domain_is_enforced(database):
-    connection, _, _, _ = database
-    generation_id, system_id64 = _archetype_generation(database)
-    with pytest.raises(psycopg.errors.CheckViolation):
-        with connection.transaction():
-            connection.execute(
-                '''INSERT INTO v3_derived.system_archetype_summary(
-                       derived_generation_id,system_id64,primary_archetype,
-                       secondary_archetype,best_colony_potential,best_tier,
-                       archetype_confidence,weighted_potential)
-                   VALUES(%s,%s,'paradise',NULL,80,'A',0.9,101)''',
-                (generation_id, system_id64),
-            )
-
-
-def test_ranking_access_path_indexes_exist(database):
-    # #204: a (generation, archetype_key, score) access path on system_archetype
-    # so selected-archetype rankings do not scan the whole 8x-per-system product.
-    # #335: a (generation, weighted_potential DESC) path on the summary so the
-    # default galaxy-wide ordering is index-satisfiable.
-    connection, _, _, _ = database
-    defs = [row[0] for row in connection.execute(
-        '''SELECT indexdef FROM pg_indexes
-            WHERE schemaname='v3_derived'
-              AND tablename IN ('system_archetype','system_archetype_summary')''',
+    definitions = [row[0] for row in connection.execute(
+        '''SELECT indexdef
+             FROM pg_indexes
+            WHERE schemaname='v3_derived' AND tablename='system_archetype'
+            ORDER BY indexname''',
     ).fetchall()]
-    blob = '\n'.join(defs)
-    assert any('archetype_key' in d and 'archetype_score' in d for d in defs), \
-        'missing selected-archetype ranking index (#204)'
-    assert 'weighted_potential' in blob, 'missing weighted_potential ordering index (#335)'
+    assert len(definitions) == 26
+    assert sum('UNIQUE INDEX' in definition for definition in definitions) == 1
+    assert any(
+        '(derived_generation_id, weighted_potential DESC NULLS LAST, system_id64)' in definition
+        and ' WHERE ' not in definition
+        for definition in definitions
+    )
+
+    for key in ARCHETYPE_KEYS:
+        for floor in (60, 76, 88):
+            matching = [
+                definition for definition in definitions
+                if f'(derived_generation_id, {key}_weighted_e4 DESC, system_id64)' in definition
+                and f'({key}_score >= {floor})' in definition
+            ]
+            assert len(matching) == 1, (key, floor, definitions)
+
+
+def test_product_rows_and_receipts_are_insert_only(database):
+    connection, _, _, _ = database
+    for relation in ('system_archetype', 'archetype_build_chunk'):
+        for operation in (
+            sql.SQL('UPDATE v3_derived.{} SET derived_generation_id=derived_generation_id'),
+            sql.SQL('DELETE FROM v3_derived.{}'),
+            sql.SQL('TRUNCATE v3_derived.{}'),
+        ):
+            with pytest.raises(psycopg.errors.RaiseException, match='insert-only'):
+                with connection.transaction():
+                    connection.execute(operation.format(sql.Identifier(relation)))
+
+
+def test_insert_requires_building_product(database):
+    connection, _, _, _ = database
+    generation_id, _ = _archetype_generation(database)[0]
+    connection.execute(
+        '''UPDATE v3_meta.derived_product
+              SET lifecycle_state='READY',
+                  validation_receipt='{"status":"VERIFIED"}'::jsonb,
+                  validation_sha256=%s,
+                  validated_at=now()
+            WHERE derived_generation_id=%s AND product_code=%s''',
+        (b'v' * 32, generation_id, PRODUCT_CODE),
+    )
+    with pytest.raises(psycopg.errors.RaiseException, match='is not BUILDING'):
+        with connection.transaction():
+            connection.execute(
+                '''INSERT INTO v3_derived.archetype_build_chunk(
+                       derived_generation_id,chunk_ordinal,archetype_version,
+                       source_projection_sha256,content_sha256,systems)
+                   VALUES (%s,0,%s,%s,%s,1)''',
+                (generation_id, PRODUCT_VERSION, b's' * 32, b'c' * 32),
+            )
+
+
+def test_insert_guard_keeps_only_prepublication_attachment_states(database):
+    connection, _, _, _ = database
+    definition = connection.execute(
+        "SELECT pg_get_functiondef('v3_derived.guard_system_archetype_insert()'::regprocedure)",
+    ).fetchone()[0]
+    compact = ' '.join(definition.split())
+    assert "base_stateNOTIN('BUILDING','VALIDATING','READY')" in compact.replace(' ', '')
+    assert 'PUBLISHED' not in compact

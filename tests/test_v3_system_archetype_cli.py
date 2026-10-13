@@ -55,7 +55,26 @@ def _ratings_generation(database, *, chunk_size=4):
             connection, generation_id, ordinal, canonical,
             snapshot.metadata, chunk,
         )
+    _verified_search_product(connection, generation_id, len(records))
     return key, generation_id
+
+
+def _verified_search_product(connection, generation_id, expected_rows):
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_product(
+               derived_generation_id,product_code,product_version,manifest,
+               manifest_sha256,expected_rows)
+           VALUES (%s,'system_search','fixture-search-1','{}'::jsonb,%s,%s)''',
+        (generation_id, b'\x01' * 32, expected_rows),
+    )
+    connection.execute(
+        '''UPDATE v3_meta.derived_product
+              SET lifecycle_state='READY',
+                  validation_receipt='{"status":"VERIFIED"}'::jsonb,
+                  validation_sha256=%s,validated_at=now()
+            WHERE derived_generation_id=%s AND product_code='system_search' ''',
+        (b'\x02' * 32, generation_id),
+    )
 
 
 def _eof_receipt(database):
@@ -252,5 +271,19 @@ def test_cli_follow_returns_nonzero_exit_when_base_generation_fails(database, mo
 
 def test_code_identity_lists_model_and_migration():
     ident = builder.code_identity()
+    assert 'shared_contracts/v3_system_archetype_model.py' in ident
     assert 'scripts/v3_system_archetype_model.py' in ident
     assert 'sql/v3/migrations/011_v3_system_archetype.sql' in ident
+
+
+def test_code_identity_changes_when_only_canonical_model_changes(tmp_path):
+    for path in builder.code_identity():
+        destination = tmp_path / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / path).read_bytes())
+    before = builder.code_identity(tmp_path)
+    canonical = tmp_path / 'shared_contracts/v3_system_archetype_model.py'
+    canonical.write_text(canonical.read_text() + '\n# identity-only test\n')
+    after = builder.code_identity(tmp_path)
+    changed = {path for path in before if before[path] != after[path]}
+    assert changed == {'shared_contracts/v3_system_archetype_model.py'}

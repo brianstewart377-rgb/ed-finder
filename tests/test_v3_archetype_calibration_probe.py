@@ -1,6 +1,7 @@
 '''Tests for the read-only V3 archetype coefficient-calibration probe.'''
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,9 +20,11 @@ from scripts.ratings_v4.production_generation import (  # noqa: E402
     write_chunk,
 )
 from scripts import v3_archetype_calibration_probe as probe  # noqa: E402
-from scripts.v3_system_archetype_model import (  # noqa: E402
+from shared_contracts.v3_system_archetype_model import (  # noqa: E402
     ARCHETYPE_KEYS,
-    SystemVectors,
+    SystemVectorRow,
+    archetype_model_sha256,
+    score_raw_system,
 )
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
@@ -61,18 +64,18 @@ def _ratings_generation(database, *, chunk_size=4):
     return key, generation_id, snapshot, records
 
 
-def _vectors(**overrides) -> SystemVectors:
+def _raw_row(**overrides) -> SystemVectorRow:
     values = {
-        'pot': (0,) * 7,
-        'qual': (None,) * 7,
-        'qual_min': (0,) * 7,
-        'qual_max': (0,) * 7,
-        'completeness': (1.0,) * 7,
-        'confidence': (1.0,) * 7,
-        'opp': {},
+        'system_id64': 1,
+        'potential': (0,) * 7,
+        'quality': (None,) * 7,
+        'quality_min': (0,) * 7,
+        'quality_max': (0,) * 7,
+        'completeness': (10_000,) * 7,
+        'confidence': (10_000,) * 7,
     }
     values.update(overrides)
-    return SystemVectors(**values)
+    return SystemVectorRow(**values)
 
 
 @pytest.mark.parametrize(
@@ -116,33 +119,62 @@ def test_default_stride_targets_one_thousand_system_chunks():
     assert probe.default_stride(3, 200_000) == 1
 
 
-def test_real_fit_aggregation_invariants():
-    vectors = [
-        _vectors(
-            pot=(90, 20, 15, 75, 30, 90, 10),
-            qual=(80, 40, 40, 70, 50, 85, 30),
-            opp={1: (9, 80.0), 6: (10, 85.0)},
+def test_raw_score_aggregation_matches_shared_score_raw_system():
+    rows = [
+        (
+            _raw_row(
+                potential=(90, 20, 15, 75, 30, 90, 10),
+                quality=(80, 40, 40, 70, 50, 85, 30),
+            ),
+            ((1, 9, 720), (6, 10, 850)),
         ),
-        _vectors(
-            pot=(20, 90, 85, 30, 20, 10, 92),
-            qual=(30, 80, 85, 40, 30, 20, 90),
-            opp={2: (10, 80.0), 3: (10, 85.0), 7: (9, 88.0)},
+        (
+            _raw_row(
+                system_id64=2,
+                potential=(20, 90, 85, 30, 20, 10, 92),
+                quality=(30, 80, 85, 40, 30, 20, 90),
+            ),
+            ((2, 10, 800), (3, 10, 850), (7, 9, 792)),
         ),
-        _vectors(
-            pot=(70, 70, 70, 70, 70, 70, 70),
-            qual=(60, 60, 60, 60, 60, 60, 60),
-            confidence=(0.9,) * 7,
-            completeness=(0.8,) * 7,
+        (
+            _raw_row(
+                system_id64=3,
+                potential=(70,) * 7,
+                quality=(60,) * 7,
+                confidence=(9_000,) * 7,
+                completeness=(8_000,) * 7,
+            ),
+            (),
         ),
     ]
-    result = probe.aggregate_vectors(vectors)
+    result = probe.aggregate_vectors(rows)
 
     for key in ARCHETYPE_KEYS:
-        assert result['per_archetype'][key]['count'] == len(vectors)
-        assert sum(result['per_archetype'][key]['tier_histogram'].values()) == len(vectors)
-    assert sum(result['primary_counts'].values()) == len(vectors)
-    assert sum(result['secondary_counts'].values()) == len(vectors)
-    assert sum(result['best_tier_histogram'].values()) == len(vectors)
+        expected = [score_raw_system(*row) for row in rows]
+        expected_scores = [scored[f'{key}_score'] for scored in expected]
+        expected_tiers = {
+            tier: sum(scored[f'{key}_tier'] == tier for scored in expected)
+            for tier in probe.TIERS
+        }
+        observed = result['per_archetype'][key]
+        assert observed['count'] == len(rows)
+        assert observed['score_min'] == min(expected_scores)
+        assert observed['score_max'] == max(expected_scores)
+        assert observed['tier_histogram'] == expected_tiers
+    assert sum(result['primary_counts'].values()) == len(rows)
+    assert sum(result['secondary_counts'].values()) == len(rows)
+    assert sum(result['best_tier_histogram'].values()) == len(rows)
+
+
+def test_probe_source_has_no_private_scaling_or_model_fit_or_sql_average():
+    source = (ROOT / 'scripts/v3_archetype_calibration_probe.py').read_text()
+
+    assert '/ 10_000' not in source
+    assert 'fit_all(' not in source
+    assert 'avg(' not in source.lower()
+    assert 'model.VECTOR_READ_SQL' in source
+    assert 'model.OPPORTUNITY_READ_SQL' in source
+    assert 'model.score_raw_system' in source
 
 
 def _run_probe_subprocess(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -207,12 +239,38 @@ def test_probe_reads_all_fixture_chunks_without_writing(
     output = capsys.readouterr()
     receipt = json.loads(output.out)
 
+    assert receipt['mode'] == 'sampled'
+    assert receipt['row_count'] == 12
     assert receipt['sample']['systems_sampled'] == 12
     assert receipt['sample']['chunks_sampled'] == 3
     assert receipt['sample']['ordinals_first_last'] == [0, 2]
     for key_name in ARCHETYPE_KEYS:
         assert receipt['per_archetype'][key_name]['count'] == 12
+        assert sum(
+            receipt['per_archetype'][key_name]['tier_histogram'].values()
+        ) == receipt['row_count']
     assert sum(receipt['primary_counts'].values()) == 12
+    canonical_model = ROOT / 'shared_contracts/v3_system_archetype_model.py'
+    assert receipt['archetype_model_sha256'] == archetype_model_sha256()
+    assert receipt['model_file_sha256'] == hashlib.sha256(
+        canonical_model.read_bytes()
+    ).hexdigest()
+    assert (
+        receipt['expected_product_manifest']['archetype_model_sha256']
+        == receipt['archetype_model_sha256']
+    )
+    assert (
+        receipt['expected_product_manifest']['model_file_sha256']
+        == receipt['model_file_sha256']
+    )
+    assert (
+        receipt['expected_product_manifest']['code_sha256']
+        == receipt['code_identity']
+    )
+    assert (
+        receipt['expected_product_manifest']['coefficients']
+        == receipt['coefficients']
+    )
     assert receipt['read_only'] is True
     assert receipt['writes_performed'] is False
 

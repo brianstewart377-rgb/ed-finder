@@ -18,6 +18,28 @@ sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 ACHENAR = 10477373803000
 LOSSLESS = 9007199254740993
+ARCHETYPE_KEYS = (
+    'paradise',
+    'mining_hub',
+    'manufacturing_hub',
+    'megacomplex',
+    'research_hub',
+    'stronghold',
+    'population_capital',
+    'flexible',
+)
+
+
+def test_neutral_seed_probes_wide_archetype_table_and_summary_view():
+    from scripts.dev.seed_v3_fixture_generation import _MIGRATION_PROBES
+
+    migration, probe = _MIGRATION_PROBES[-1]
+    assert migration == '011_v3_system_archetype.sql'
+    assert "table_schema='v3_derived' AND table_name='system_archetype'" in probe
+    assert "table_type='BASE TABLE'" in probe
+    assert "table_schema='v3_app' AND table_name='system_archetype_summary'" in probe
+    assert 'information_schema.views' in probe
+    assert 'v3_derived.system_archetype_summary' not in probe
 
 
 def test_cypress_wrapper_passes_fixture_and_publication_metadata(monkeypatch, tmp_path):
@@ -208,7 +230,23 @@ def test_seed_publishes_and_exposes_journey_ids(full_review_lineage):
                     (['system_search', 'system_archetype'],),
                 ).fetchall()
                 assert receipts == [('VERIFIED',), ('VERIFIED',)]
-                assert conn.execute('SELECT COUNT(*) FROM v3_app.system_archetype').fetchone()[0] > 0
+                wide_columns = ', '.join(
+                    f'{key}_score, {key}_tier, {key}_confidence_ppm, '
+                    f'{key}_weighted_e4'
+                    for key in ARCHETYPE_KEYS
+                )
+                wide_rows = conn.execute(
+                    f'SELECT system_id64, {wide_columns} '
+                    'FROM v3_derived.system_archetype'
+                ).fetchall()
+                assert {row[0] for row in wide_rows} == exposed
+                assert all(all(value is not None for value in row[1:]) for row in wide_rows)
+                assert conn.execute(
+                    'SELECT COUNT(*) FROM v3_app.system_archetype_summary'
+                ).fetchone() == (len(exposed),)
+                assert conn.execute(
+                    "SELECT to_regclass('v3_derived.system_archetype_summary') IS NULL"
+                ).fetchone() == (True,)
                 if full_review_lineage:
                     assert conn.execute("SELECT to_regclass('v3_private.watchlist') IS NOT NULL").fetchone()[0]
                     assert conn.execute("SELECT to_regclass('public.systems') IS NULL").fetchone()[0]

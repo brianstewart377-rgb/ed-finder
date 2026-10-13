@@ -141,6 +141,11 @@ async def test_local_search_caches_under_result_generation_not_preresolve(client
                 'ranking_version': 'test', 'ranking_sha256': 'sha',
                 'derived_generation_id': 'gen-NEW',
                 'publication_sequence': 2,
+                # F2d PR1: the shared ranking identity also carries the
+                # archetype product identity (design section 6).
+                'archetype_version': 'v3-archetype-4',
+                'archetype_manifest_sha256': 'manifest-sha',
+                'archetype_model_sha256': 'model-sha',
             },
         }
 
