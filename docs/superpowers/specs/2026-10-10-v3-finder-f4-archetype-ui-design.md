@@ -1596,10 +1596,11 @@ promotion. Four API dependencies remain explicit:
   `apps/api/src/ranking/ranking_sql.py:451-462`,
   `apps/api/src/routers/archetypes.py:348-363`).
 - **F2d PR1 — exact Any-count sentinel:** this is a mandatory API prerequisite
-  for F4a/F4b's three count states, not optional follow-up work. The galaxy-wide
-  local-search count probes at most 10,001 rows, returns
-  `total = min(observed, 10000)`, and sets `total_is_capped=true` only when the
-  sentinel exists; exact 10,000 is false and anchored exact totals are unchanged.
+  for F4a/F4b's three count states, not optional follow-up work. Every
+  local-search count — galaxy-wide **and anchored** — probes at most 10,001
+  rows, returns `total = min(observed, 10000)`, and sets `total_is_capped=true`
+  only when the sentinel exists; exact 10,000 is false (F2d section 6, with
+  anchored boundary tests at 10,000 and 10,001).
   PR1 owns `apps/api/src/ranking/ranking_sql.py`,
   `apps/api/src/local_search.py`, `apps/api/src/models.py`, the focused
   `tests/test_ranking_sql.py` and `tests/test_local_search_v3.py` cases, the
@@ -1671,10 +1672,12 @@ because the answers and the re-measurement live on PR #806: the owner approved
 the partial layout on 2026-10-10 (question 6) and the stored-key refinement on
 2026-10-11 (question 6b), and #806 carries the PG18.4 measurement of this exact
 24-index layout (heap 221.7 B/row, indexes 160 B/row, ≈ 76 GB at the synthetic
-Σ_all of 1.54) plus the Σ_all-based capacity gate. **#806 must therefore merge
-before this prerequisite counts as satisfied**, and PR1's own receipt
-re-measures the final `011` text; until then this section's figures are
-attributed to #806, not to `main`. Slice 1c reads, for the selected
+Σ_all of 1.54) plus the Σ_all-based capacity gate. **That prerequisite is
+satisfied: #806 merged to `main` at `95f532a` on 2026-10-13**, and the capacity
+decision there records the owner's approval of questions 6 and 6b. What remains
+is the separate requirement that F2d PR1 land before slice 1c, and PR1's own
+receipt re-measures the final `011` text; the figures in this section are
+#806's dated measurements, superseded by that receipt when it exists. Slice 1c reads, for the selected
 key and floor, the per-archetype **tier-partial stored-key** index
 `(derived_generation_id, <key>_weighted_e4 DESC, system_id64) WHERE <key>_score >= 60 | 76 | 88`
 that F2d defines (section 3.3 there; `<key>_weighted_e4` is the stored key,
@@ -1700,9 +1703,11 @@ and F4's acceptance criteria must assert that shape rather than an index-only
 query:
 
 1. **Window** — index-only scan of the chosen partial, selecting only
-   `system_id64` and `<key>_weighted_e4`, with the literal floor and `LIMIT`
-   10,001. This is the stage that is index-only, and it is the only stage whose
-   row count depends on the size of the generation.
+   `system_id64` and `<key>_weighted_e4`, with the literal floor and `LIMIT
+   10000` for the **page** query (`LIMIT 10001` belongs to the companion
+   **count** query alone, whose extra row derives `is_truncated`; F2d section
+   6). This is the stage that is index-only, and it is the only stage whose row
+   count depends on the size of the generation.
 2. **Join** — `system_search` for the response columns, over the ≤ 10,000
    survivors, filtering nothing.
 3. **Page** — restate `ORDER BY <key>_weighted_e4 DESC, system_id64 ASC`, then
@@ -1961,10 +1966,10 @@ anchor is not URL state. The envelope preserves the selected path's
 `total = min(qualifying, 10000)` (there is no post-filter total — a picked
 request carrying a hard filter is a 422) and the independent API-owned
 `is_truncated`; for Any it exposes
-`navigable_total = min(total, 10000)` alongside the exact `total` and the
-sentinel-backed `total_is_capped` state from the local-search response, so an exact
-anchored total is shown truthfully while no mode promises unreachable numbered
-rows. A selected fit never enters generic
+`navigable_total = min(total, 10000)` alongside the capped `total` and the
+sentinel-backed `total_is_capped` state from the local-search response (anchored
+and galaxy-wide alike; no response carries a `total` above 10,000), so no mode
+promises unreachable numbered rows. A selected fit never enters generic
 `archetype_score`.
 The gate wraps URL hydration, request selection, URL/history effects, selected-
 point F4 behavior and rendering. Its disabled-build regression loads a hand-
@@ -3621,4 +3626,17 @@ had written in the preceding round, which is worth noting rather than hiding.
    the page path at 10,000, as F2d section 8.7 states.
 3. **P2 — Test the non-truncated selected 10,000 boundary** → correct; the
    component plan now pins `total = 10,000, is_truncated=false`.
+
+### Review round 46 (2026-10-13)
+
+1. **P2 — Cap anchored counts in the prerequisite task** → correct; the F2d PR1
+   dependency bullet and the F4a envelope paragraph still said anchored totals
+   were unchanged or exact. Both now state the sentinel for anchored and
+   galaxy-wide alike.
+2. **P2 — Keep the page query at the 10,000-row window** → correct; the slice 1c
+   stage list gave the page window `LIMIT 10001`. It is `LIMIT 10000` for the
+   page and `LIMIT 10001` for the count, as F2d section 6 defines.
+3. **P2 — Mark the merged F2d approval prerequisite as satisfied** → correct;
+   #806 is this branch's merge base (`95f532a`), so the prerequisite is recorded
+   as satisfied, with the F2d PR1 dependency kept.
 
