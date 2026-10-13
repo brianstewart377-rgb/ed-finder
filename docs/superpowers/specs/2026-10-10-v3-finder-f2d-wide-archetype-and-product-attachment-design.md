@@ -1555,8 +1555,9 @@ application-deployment and security CI.
 
 ## 11. Risks and open questions
 
-**Status (2026-10-12).** Answered: **1, 5, 8 and 9**.
-Open questions: **2, 3, 4, 6 and 7**; each blocks the code PR that encodes it.
+**Status (2026-10-13).** Answered: **1, 2, 3, 4, 5, 6, 7 and 9**; 8 superseded.
+Open questions: **none** — 2, 3, 4, 6 and 7 were answered yes by the owner on
+2026-10-13 and are recorded in the capacity decision's section 5.
 `docs/ROADMAP.md` holds the authoritative list and
 `tests/test_finder_rollout_doc_invariants.py` checks that this status agrees
 with it.
@@ -1571,23 +1572,23 @@ with it.
 2. **Approve exact integer parts-per-million confidence storage** with
    `ppm / 1000000.0` in SQL and `ppm / 1e6` in the API? Same 4 bytes as `real`,
    exact, no tolerance; `real` can reorder near-ties, `double precision` costs
-   +14 GB.
+   +14 GB. **Owner: yes** (2026-10-13).
 3. **Approve moving the canonical model into `shared_contracts/`** with a
    temporary `scripts/` re-export? Without it the API image has no `fit_all`
-   (`apps/api/Dockerfile:20-24`).
+   (`apps/api/Dockerfile:20-24`). **Owner: yes** (2026-10-13).
 4. **Approve the additive explanation route** and leave the legacy
    `/api/archetypes/system/{id64}` unchanged until its V2-only fields have a V3
-   source? Repointing it now would drop fields.
+   source? Repointing it now would drop fields. **Owner: yes** (2026-10-13).
 5. **HTTP 409 with exact detail `explanation unavailable for this product
    version`** for a version/hash mismatch? **Owner: yes** (2026-10-10; capacity
    decision question 5).
 6. **Require production publication of both Finder products in one
    transaction?** The API fails closed unless both are published; one
-   transaction gives a cleaner audit boundary.
+   transaction gives a cleaner audit boundary. **Owner: yes** (2026-10-13).
 7. **Accept the four-PR sequencing of section 10**, where PR1 and PR2 each
    carry their own registration and authority recut so every head is green? A
    separate registration PR cannot pass the manifest-integrity and
-   authority-identity tests at intermediate heads.
+   authority-identity tests at intermediate heads. **Owner: yes** (2026-10-13).
 8. **Accept no purge before Finder promotion?** **Superseded.** The owner's
    2026-10-10 "yes" was replaced on 2026-10-11 by the governed pre-build purge of
    PR #808 (ROADMAP 4″ and P), which carries its own design and authority; this

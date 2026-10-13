@@ -15,10 +15,11 @@ Questions 5–6 (explanation version rule, wide-row index layout) were added
 after review and **answered yes by the owner on 2026-10-10 (23:12 BST, in
 chat: “yes yes”, after the index layout had been revised to the partial
 form)** — recorded below; the ROADMAP lists these recorded answers as **a**
-prerequisite of step 4′, and *that* prerequisite is satisfied. **Step 4′ as a
-whole is not unblocked:** the ROADMAP also holds its code PRs on the F2d design's
-unresolved owner questions (2, 3, 4, 6 and 7), so this record must not be read
-as clearing the gate. Numbers come
+prerequisite of step 4′, and *that* prerequisite is satisfied. The ROADMAP also
+held step 4′'s code PRs on the F2d design's remaining owner questions; **those
+were answered yes on 2026-10-13 and are recorded in section 5 below**, so the
+F2d design's open owner questions: **none**. This record still clears no other
+rollout gate. Numbers come
 from the step 0 receipt
 (`evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`) and the
 disposable-sample measurement in
@@ -270,6 +271,24 @@ applied anywhere.
    stops above Σ_all 4.0 (≈ 100 GB), and ≈ 297 GB only in the absurd case where
    every fraction is 1.
    **Owner: yes (2026-10-11, in chat).**
+
+**F2d design questions (numbered by that design's section 11, recorded here on
+2026-10-13; owner in chat: "yes to all").** These are the design's own
+questions, not the ones above — the two documents number independently.
+
+- Design question 2 — exact integer parts-per-million confidence storage
+  (`ppm / 1000000.0` in SQL, `ppm / 1e6` in the API): **Owner: yes (2026-10-13).**
+- Design question 3 — canonical model moved into `shared_contracts/` with a
+  temporary `scripts/` re-export so the API image can import it:
+  **Owner: yes (2026-10-13).**
+- Design question 4 — additive on-demand explanation route, leaving the legacy
+  `/api/archetypes/system/{id64}` unchanged until its V2-only fields have a V3
+  source: **Owner: yes (2026-10-13).**
+- Design question 6 — both Finder products published in one transaction; the
+  API fails closed unless both are published: **Owner: yes (2026-10-13).**
+- Design question 7 — the four-PR sequencing of the design's section 10, each
+  PR carrying its own registration and authority recut: **Owner: yes
+  (2026-10-13).**
 
 Once recorded, the next dispatches are: the `011` rewrite + model/builder
 adaptation (code), the `015` migration + API gate (code), and the amended

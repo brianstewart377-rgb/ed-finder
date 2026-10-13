@@ -32,10 +32,11 @@ still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
 promote. Current programme status (prod app on `bed755b9` shipping
 watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
-identity/journal shipped; Finder F1 `system_search` rebuild in progress and Finder
-**F2b `system_archetype` builder merged (#771)** — next is **F2c** (ranking
-profile) then **F3** (point the Finder API at the V3 projections; `archetypes.py`
-still queries legacy relations). **Capacity decision 2026-10-10 (owner, A + B):**
+identity/journal shipped; Finder F1 `system_search` rebuild in progress; Finder
+**F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
+slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
+read the V3 projections, while `/rerank`, `/system/{id64}` and `/simulate` are
+F3 slice 2 and still query legacy relations. **Capacity decision 2026-10-10 (owner, A + B):**
 the fresh-generation route is superseded — the unapplied migration `011` is being
 rewritten as one wide archetype row per system (F2d design, PR #806), both Finder
 products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
