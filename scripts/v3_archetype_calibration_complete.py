@@ -1,8 +1,29 @@
 #!/usr/bin/env python3
-'''Complete, read-only calibration pass for the V3 system-archetype model.'''
+'''Complete, read-only calibration pass for the V3 system-archetype model.
+
+State layout under ``--state-dir``:
+
+``checkpoint.json``
+    Small, rewritten atomically after every chunk: the generation and
+    operator-code identity it is bound to, the chunk plan digest, cumulative
+    per-key tier totals, ``next_chunk_index`` and the running digest of the
+    per-chunk log. The production generation has ~200,000 canonical chunks, so
+    the per-chunk counts never live in this file.
+``per-chunk.jsonl``
+    Append-only, one canonical JSON line per scored chunk in chunk order:
+    ``{"chunk_ordinal", "row_count", "per_archetype": {key: {"tier_histogram"}}}``.
+    The checkpoint pins its exact byte length and SHA-256; on resume the prefix
+    is re-hashed and re-summed, and any bytes past the pinned length (a torn
+    append) are truncated before scoring continues.
+``receipt.json`` / ``failure-receipt.json``
+    Sealed with ``content_sha256`` over the canonical body. The receipt carries
+    the per-key totals and binds the per-chunk log by digest and byte length
+    (``per_chunk``) and the chunk plan by digest (``chunk_plan``).
+'''
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from fractions import Fraction
 import hashlib
 import json
@@ -25,6 +46,13 @@ DEFAULT_IDENTITY_ENV = 'F2D_OPERATOR_CODE_SHA256_ATTESTED'
 TIERS = ('S', 'A', 'B', 'C', 'D')
 CHECKPOINT_SCHEMA = 'ed-finder/v3-archetype-calibration-checkpoint/v1'
 RECEIPT_SCHEMA = 'ed-finder/v3-archetype-calibration-complete/v1'
+PER_CHUNK_SCHEMA = 'ed-finder/v3-archetype-calibration-per-chunk/v1'
+PER_CHUNK_FILE = 'per-chunk.jsonl'
+EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def canonical_json(value: object) -> str:
@@ -209,7 +237,9 @@ def _new_checkpoint(
         'next_chunk_index': 0,
         'system_count': 0,
         'tier_histograms': _empty_histogram(keys),
-        'per_chunk': [],
+        'per_chunk_bytes': 0,
+        'per_chunk_sha256': EMPTY_SHA256,
+        'started_at': _utc_now(),
     }
 
 
@@ -235,56 +265,157 @@ def _require_checkpoint_identity(
             raise ValueError(f'checkpoint {field} mismatch')
 
 
-def _validate_checkpoint_state(
-    checkpoint: dict[str, Any],
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _parse_per_chunk_line(line: bytes) -> dict[str, Any]:
+    try:
+        chunk = json.loads(line.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError('per-chunk log line is not valid JSON') from exc
+    if not isinstance(chunk, dict):
+        raise ValueError('per-chunk log line is not a JSON object')
+    return chunk
+
+
+def _validate_chunk_record(
+    chunk: dict[str, Any],
+    *,
+    planned: dict[str, int],
+    keys: tuple[str, ...],
+) -> None:
+    if (
+        chunk.get('chunk_ordinal') != planned['chunk_ordinal']
+        or chunk.get('row_count') != planned['row_count']
+        or not isinstance(chunk.get('per_archetype'), dict)
+        or set(chunk['per_archetype']) != set(keys)
+    ):
+        raise ValueError('per-chunk log sequence does not match the chunk plan')
+    for key in keys:
+        entry = chunk['per_archetype'][key]
+        histogram = entry.get('tier_histogram') if isinstance(entry, dict) else None
+        if not isinstance(histogram, dict) or set(histogram) != set(TIERS):
+            raise ValueError('per-chunk log histogram shape is invalid')
+        if (
+            not all(_is_count(value) for value in histogram.values())
+            or sum(histogram.values()) != planned['row_count']
+        ):
+            raise ValueError('per-chunk log histogram total is invalid')
+
+
+def read_per_chunk_log(
+    path: Path,
     *,
     chunk_plan: list[dict[str, int]],
     keys: tuple[str, ...],
-) -> int:
+    expected_bytes: int | None = None,
+    expected_sha256: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]], int, str]:
+    '''Validate a per-chunk log against the chunk plan and return its contents.
+
+    Returns ``(chunks, cumulative histograms, byte length, sha256)``. When
+    ``expected_bytes`` is given only that prefix is read and verified; the
+    caller decides what to do with any bytes beyond it.
+    '''
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('per-chunk log is missing or not a regular file')
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ValueError('per-chunk log is unreadable') from exc
+    if expected_bytes is not None:
+        if len(data) < expected_bytes:
+            raise ValueError('per-chunk log is shorter than the checkpoint records')
+        data = data[:expected_bytes]
+    digest = hashlib.sha256(data).hexdigest()
+    if expected_sha256 is not None and digest != expected_sha256:
+        raise ValueError('per-chunk log digest does not match the checkpoint')
+    if data and not data.endswith(b'\n'):
+        raise ValueError('per-chunk log does not end at a line boundary')
+    lines = data.split(b'\n')[:-1] if data else []
+    if len(lines) > len(chunk_plan):
+        raise ValueError('per-chunk log has more chunks than the chunk plan')
+    chunks: list[dict[str, Any]] = []
+    totals = _empty_histogram(keys)
+    for index, line in enumerate(lines):
+        chunk = _parse_per_chunk_line(line)
+        _validate_chunk_record(chunk, planned=chunk_plan[index], keys=keys)
+        for key in keys:
+            histogram = chunk['per_archetype'][key]['tier_histogram']
+            for tier in TIERS:
+                totals[key][tier] += histogram[tier]
+        chunks.append(chunk)
+    return chunks, totals, len(data), digest
+
+
+def _validate_checkpoint_state(
+    checkpoint: dict[str, Any],
+    *,
+    state_dir: Path,
+    chunk_plan: list[dict[str, int]],
+    keys: tuple[str, ...],
+) -> tuple[int, Any]:
+    '''Verify the checkpoint against the per-chunk log.
+
+    Returns ``(resume index, live SHA-256 object over the verified log)``. A
+    torn append (bytes past the checkpointed length) is truncated so the log
+    and the checkpoint agree before any further chunk is scored.
+    '''
     next_index = checkpoint.get('next_chunk_index')
     system_count = checkpoint.get('system_count')
-    per_chunk = checkpoint.get('per_chunk')
     totals = checkpoint.get('tier_histograms')
+    per_chunk_bytes = checkpoint.get('per_chunk_bytes')
+    per_chunk_sha256 = checkpoint.get('per_chunk_sha256')
     if (
-        not isinstance(next_index, int)
-        or isinstance(next_index, bool)
-        or not 0 <= next_index <= len(chunk_plan)
-        or not isinstance(system_count, int)
-        or isinstance(system_count, bool)
-        or system_count < 0
-        or not isinstance(per_chunk, list)
-        or len(per_chunk) != next_index
+        not _is_count(next_index)
+        or next_index > len(chunk_plan)
+        or not _is_count(system_count)
+        or not _is_count(per_chunk_bytes)
+        or not isinstance(per_chunk_sha256, str)
         or not isinstance(totals, dict)
         or set(totals) != set(keys)
     ):
         raise ValueError('checkpoint progress shape is invalid')
-    recomputed = _empty_histogram(keys)
-    recomputed_systems = 0
-    for index, chunk in enumerate(per_chunk):
-        planned = chunk_plan[index]
-        if (
-            not isinstance(chunk, dict)
-            or chunk.get('chunk_ordinal') != planned['chunk_ordinal']
-            or chunk.get('row_count') != planned['row_count']
-            or not isinstance(chunk.get('per_archetype'), dict)
-        ):
-            raise ValueError('checkpoint chunk sequence is invalid')
-        for key in keys:
-            entry = chunk['per_archetype'].get(key)
-            histogram = entry.get('tier_histogram') if isinstance(entry, dict) else None
-            if not isinstance(histogram, dict) or set(histogram) != set(TIERS):
-                raise ValueError('checkpoint chunk histogram shape is invalid')
-            if any(
-                isinstance(value, bool) or not isinstance(value, int) or value < 0
-                for value in histogram.values()
-            ) or sum(histogram.values()) != planned['row_count']:
-                raise ValueError('checkpoint chunk histogram total is invalid')
-            for tier in TIERS:
-                recomputed[key][tier] += histogram[tier]
-        recomputed_systems += planned['row_count']
+    log_path = state_dir / PER_CHUNK_FILE
+    if next_index == 0 and per_chunk_bytes == 0 and not log_path.exists():
+        if system_count != 0 or totals != _empty_histogram(keys):
+            raise ValueError('checkpoint cumulative totals are invalid')
+        return 0, hashlib.sha256()
+    chunks, recomputed, _, _ = read_per_chunk_log(
+        log_path,
+        chunk_plan=chunk_plan,
+        keys=keys,
+        expected_bytes=per_chunk_bytes,
+        expected_sha256=per_chunk_sha256,
+    )
+    if len(chunks) != next_index:
+        raise ValueError('per-chunk log chunk count does not match the checkpoint')
+    recomputed_systems = sum(chunk['row_count'] for chunk in chunks)
     if recomputed_systems != system_count or recomputed != totals:
         raise ValueError('checkpoint cumulative totals are invalid')
-    return next_index
+    if log_path.stat().st_size > per_chunk_bytes:
+        with log_path.open('r+b') as handle:
+            handle.truncate(per_chunk_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+    with log_path.open('rb') as handle:
+        verified = handle.read(per_chunk_bytes)
+    log_digest = hashlib.sha256(verified)
+    if log_digest.hexdigest() != per_chunk_sha256:
+        raise ValueError('per-chunk log digest does not match the checkpoint')
+    return next_index, log_digest
+
+
+def _append_per_chunk(path: Path, record: dict[str, Any]) -> bytes:
+    line = (canonical_json(record) + '\n').encode('utf-8')
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    with os.fdopen(descriptor, 'ab') as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return line
 
 
 def _score_chunk(
@@ -300,14 +431,13 @@ def _score_chunk(
     return histograms, len(raw_rows)
 
 
-def _apply_chunk(
-    checkpoint: dict[str, Any],
+def _chunk_record(
     *,
     ordinal: int,
     expected_rows: int,
     histograms: dict[str, dict[str, int]],
     actual_rows: int,
-) -> None:
+) -> dict[str, Any]:
     if actual_rows != expected_rows:
         raise ValueError(
             f'chunk {ordinal} row count mismatch: expected {expected_rows}, got {actual_rows}'
@@ -315,18 +445,35 @@ def _apply_chunk(
     for key, histogram in histograms.items():
         if sum(histogram.values()) != actual_rows:
             raise ValueError(f'chunk {ordinal} {key} tier total mismatch')
-        for tier in TIERS:
-            checkpoint['tier_histograms'][key][tier] += histogram[tier]
-    checkpoint['per_chunk'].append({
+    return {
         'chunk_ordinal': ordinal,
         'row_count': actual_rows,
         'per_archetype': {
             key: {'tier_histogram': histogram}
             for key, histogram in histograms.items()
         },
-    })
-    checkpoint['system_count'] += actual_rows
+    }
+
+
+def _apply_chunk(
+    checkpoint: dict[str, Any],
+    *,
+    record: dict[str, Any],
+    appended: bytes,
+    log_digest: Any,
+) -> None:
+    '''Fold one appended per-chunk record into the cumulative checkpoint.
+
+    ``log_digest`` is the live SHA-256 object over the per-chunk log so far.
+    '''
+    for key, entry in record['per_archetype'].items():
+        for tier in TIERS:
+            checkpoint['tier_histograms'][key][tier] += entry['tier_histogram'][tier]
+    checkpoint['system_count'] += record['row_count']
     checkpoint['next_chunk_index'] += 1
+    log_digest.update(appended)
+    checkpoint['per_chunk_bytes'] += len(appended)
+    checkpoint['per_chunk_sha256'] = log_digest.hexdigest()
 
 
 def _sigma_all(histograms: dict[str, dict[str, int]], total: int) -> float:
@@ -358,22 +505,14 @@ def _receipt_body(
         raise ValueError(
             f'complete system count mismatch: expected {expected}, got {system_count}'
         )
+    if checkpoint['next_chunk_index'] != len(chunk_plan):
+        raise ValueError('complete read has not scored every canonical chunk')
     per_archetype: dict[str, Any] = {}
     for key in model.ARCHETYPE_KEYS:
         histogram = checkpoint['tier_histograms'][key]
         if sum(histogram.values()) != system_count:
             raise ValueError(f'{key} tier total does not equal system_count')
-        per_archetype[key] = {
-            'tier_histogram': histogram,
-            'per_chunk': [
-                {
-                    'chunk_ordinal': chunk['chunk_ordinal'],
-                    'row_count': chunk['row_count'],
-                    'tier_histogram': chunk['per_archetype'][key]['tier_histogram'],
-                }
-                for chunk in checkpoint['per_chunk']
-            ],
-        }
+        per_archetype[key] = {'tier_histogram': histogram}
 
     expected_manifest = builder.product_manifest(generation)
     return {
@@ -390,8 +529,17 @@ def _receipt_body(
         },
         'system_count': system_count,
         'chunk_plan': {
-            'chunks': chunk_plan,
+            'chunk_count': len(chunk_plan),
+            'first_chunk_ordinal': chunk_plan[0]['chunk_ordinal'],
+            'last_chunk_ordinal': chunk_plan[-1]['chunk_ordinal'],
             'sha256': chunk_plan_sha256,
+        },
+        'per_chunk': {
+            'file': PER_CHUNK_FILE,
+            'schema_version': PER_CHUNK_SCHEMA,
+            'chunk_count': checkpoint['next_chunk_index'],
+            'bytes': checkpoint['per_chunk_bytes'],
+            'sha256': checkpoint['per_chunk_sha256'],
         },
         'per_archetype': per_archetype,
         'coefficients': builder._coefficients(),
@@ -421,6 +569,13 @@ def run_complete(
     connection.execute(
         "SELECT set_config('statement_timeout',%s,false)",
         (f'{args.statement_timeout_ms}ms',),
+    )
+    # The two shared read constants select their branch with parameter
+    # NULL tests. Custom plans fold those per execution so every one of the
+    # ~200,000 chunk reads keeps the (generation, chunk_ordinal) index path
+    # instead of a generic plan chosen without the parameter values.
+    connection.execute(
+        "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
     )
     row = _generation(connection, args.generation_key)
     if row is None:
@@ -490,11 +645,13 @@ def run_complete(
         )
         _atomic_json(checkpoint_path, checkpoint)
 
-    next_index = _validate_checkpoint_state(
+    next_index, log_digest = _validate_checkpoint_state(
         checkpoint,
+        state_dir=args.state_dir,
         chunk_plan=chunk_plan,
         keys=tuple(model.ARCHETYPE_KEYS),
     )
+    log_path = args.state_dir / PER_CHUNK_FILE
     processed_this_run = 0
     for index in range(next_index, len(chunk_plan)):
         chunk = chunk_plan[index]
@@ -503,13 +660,20 @@ def run_complete(
         )
         histograms, actual_rows = _score_chunk(raw_rows, model)
         connection.commit()
-        _apply_chunk(
-            checkpoint,
+        record = _chunk_record(
             ordinal=chunk['chunk_ordinal'],
             expected_rows=chunk['row_count'],
             histograms=histograms,
             actual_rows=actual_rows,
         )
+        appended = _append_per_chunk(log_path, record)
+        _apply_chunk(
+            checkpoint, record=record, appended=appended, log_digest=log_digest,
+        )
+        # Progress fields for the status reader only; the sealed receipt never
+        # carries them, so a resumed run and a fresh run seal identical bodies.
+        checkpoint['chunk_count'] = len(chunk_plan)
+        checkpoint['updated_at'] = _utc_now()
         _atomic_json(checkpoint_path, checkpoint)
         processed_this_run += 1
         if (
@@ -518,6 +682,20 @@ def run_complete(
             and checkpoint['next_chunk_index'] < len(chunk_plan)
         ):
             return 75, None
+
+    # Final consistency pass over the whole per-chunk log before sealing: the
+    # log must reproduce the cumulative totals and the chunk plan identity.
+    chunks, recomputed, _, _ = read_per_chunk_log(
+        log_path,
+        chunk_plan=chunk_plan,
+        keys=tuple(model.ARCHETYPE_KEYS),
+        expected_bytes=checkpoint['per_chunk_bytes'],
+        expected_sha256=checkpoint['per_chunk_sha256'],
+    )
+    if len(chunks) != len(chunk_plan) or recomputed != checkpoint['tier_histograms']:
+        raise ValueError('per-chunk log does not reproduce the cumulative totals')
+    if _chunk_plan_sha256_of(chunks) != chunk_plan_sha256:
+        raise ValueError('per-chunk log does not reproduce the chunk plan identity')
 
     body = _receipt_body(
         checkpoint=checkpoint,
@@ -538,6 +716,70 @@ def run_complete(
     receipt = seal_receipt(body)
     _atomic_json(args.state_dir / 'receipt.json', receipt)
     return 0, receipt
+
+
+def _chunk_plan_sha256_of(chunks: list[dict[str, Any]]) -> str:
+    return canonical_sha256(
+        [[int(chunk['chunk_ordinal']), int(chunk['row_count'])] for chunk in chunks]
+    )
+
+
+def validate_per_chunk_log(receipt: dict[str, Any], path: Path) -> list[dict[str, Any]]:
+    '''Verify a per-chunk log against a validated complete receipt.
+
+    Consumers (the capacity gate) call this when the log accompanies the
+    committed receipt: the log must hash to the receipt's ``per_chunk`` digest
+    and length, reproduce the chunk plan digest, and sum to the per-key totals
+    and ``system_count``. Returns the parsed chunk records.
+    '''
+    validate_complete_receipt(receipt)
+    binding = receipt.get('per_chunk')
+    plan = receipt.get('chunk_plan')
+    totals = receipt.get('per_archetype')
+    if (
+        not isinstance(binding, dict)
+        or not isinstance(plan, dict)
+        or not isinstance(totals, dict)
+        or not _is_count(binding.get('bytes'))
+        or not _is_count(binding.get('chunk_count'))
+        or not isinstance(binding.get('sha256'), str)
+        or not isinstance(plan.get('sha256'), str)
+    ):
+        raise ValueError('complete receipt per_chunk or chunk_plan binding is malformed')
+    keys = tuple(totals)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('per-chunk log is missing or not a regular file')
+    data = path.read_bytes()
+    if len(data) != binding['bytes'] or hashlib.sha256(data).hexdigest() != binding['sha256']:
+        raise ValueError('per-chunk log does not match the receipt binding')
+    if data and not data.endswith(b'\n'):
+        raise ValueError('per-chunk log does not end at a line boundary')
+    lines = data.split(b'\n')[:-1] if data else []
+    if len(lines) != binding['chunk_count']:
+        raise ValueError('per-chunk log chunk count does not match the receipt')
+    chunks = [_parse_per_chunk_line(line) for line in lines]
+    recomputed = _empty_histogram(keys)
+    system_count = 0
+    for chunk in chunks:
+        planned = {
+            'chunk_ordinal': chunk.get('chunk_ordinal'),
+            'row_count': chunk.get('row_count'),
+        }
+        if not _is_count(planned['chunk_ordinal']) or not _is_count(planned['row_count']):
+            raise ValueError('per-chunk log sequence does not match the chunk plan')
+        _validate_chunk_record(chunk, planned=planned, keys=keys)
+        system_count += chunk['row_count']
+        for key in keys:
+            for tier in TIERS:
+                recomputed[key][tier] += chunk['per_archetype'][key]['tier_histogram'][tier]
+    if _chunk_plan_sha256_of(chunks) != plan['sha256']:
+        raise ValueError('per-chunk log does not reproduce the chunk plan identity')
+    if system_count != receipt.get('system_count'):
+        raise ValueError('per-chunk log does not reproduce system_count')
+    for key in keys:
+        if totals[key].get('tier_histogram') != recomputed[key]:
+            raise ValueError(f'per-chunk log does not reproduce the {key} tier totals')
+    return chunks
 
 
 def _failure_receipt(state_dir: Path, reason: str, identity: str) -> None:
@@ -572,9 +814,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        model_file_sha256 = require_image_model_match(args.image_model_file)
         import psycopg
+    except ImportError:
+        print('psycopg is not installed in the worker environment', file=sys.stderr)
+        return 2
 
+    try:
+        model_file_sha256 = require_image_model_match(args.image_model_file)
         with psycopg.connect(dsn, autocommit=False) as connection:
             exit_code, receipt = run_complete(
                 connection,

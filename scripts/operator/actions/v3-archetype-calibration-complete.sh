@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Detached, read-only complete calibration pass over the pinned published Ratings
 # generation. The worker can resume only a checkpoint bound to that generation
-# and to the same attested F2d operator-code identity.
+# and to the same attested F2d operator-code identity. State under STATE_ROOT:
+# checkpoint.json (small, cumulative), per-chunk.jsonl (append-only per-chunk
+# tier counts bound to the receipt by digest), receipt.json / failure-receipt.json
+# (sealed). status only reads these files and the worker container state.
 set -euo pipefail
 
 ACTION="${1:-}"
@@ -181,9 +184,35 @@ def sealed_read(name):
         return {'invalid': True, 'failure': 'content_sha256_mismatch'}
     return value
 
+def per_chunk_log():
+    path = state_root / 'per-chunk.jsonl'
+    if path.is_symlink() or not path.is_file():
+        return None
+    import hashlib
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with path.open('rb') as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b''):
+                digest.update(block)
+                size += len(block)
+    except OSError:
+        return {'invalid': True}
+    return {'bytes': size, 'sha256': digest.hexdigest()}
+
 receipt = sealed_read('receipt.json')
 failure = sealed_read('failure-receipt.json')
+checkpoint = read('checkpoint.json')
 worker = os.environ['WORKER_STATUS']
+progress = None
+if isinstance(checkpoint, dict) and checkpoint.get('invalid') is not True:
+    progress = {
+        'chunks_done': checkpoint.get('next_chunk_index'),
+        'chunk_count': checkpoint.get('chunk_count'),
+        'systems_scored': checkpoint.get('system_count'),
+        'started_at': checkpoint.get('started_at'),
+        'updated_at': checkpoint.get('updated_at'),
+    }
 if isinstance(receipt, dict) and receipt.get('status') == 'completed':
     status = 'completed'
 elif isinstance(failure, dict) or (
@@ -213,7 +242,9 @@ payload = {
     'f2d_operator_code_sha256': os.environ['F2D_IDENTITY_VALUE'],
     'worker': {'name': 'edfinder-v3-archetype-calibration-complete', 'status': worker,
                'exit_code': int(os.environ['WORKER_EXIT']) if os.environ['WORKER_EXIT'] else None},
-    'checkpoint': read('checkpoint.json'),
+    'progress': progress,
+    'checkpoint': checkpoint,
+    'per_chunk_log': per_chunk_log(),
     'receipt': receipt,
     'failure_receipt': failure,
 }
@@ -291,6 +322,26 @@ start_operation() {
   if [ "$worker_state" != "running" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
     fail "complete calibration worker did not remain running"
+  fi
+
+  # Proof of life: the worker writes (or re-validates) the checkpoint right
+  # after its identity, image-model and generation checks pass. Wait for it so
+  # a worker that refuses inside the container fails this start, not a later
+  # status read.
+  local proof=false
+  for _ in $(seq 1 45); do
+    worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
+    if [ -f "$STATE_ROOT/checkpoint.json" ] && [ "$worker_state" = "running" ]; then
+      proof=true
+      break
+    fi
+    [ "$worker_state" = "running" ] || break
+    sleep 2
+  done
+  if [ "$proof" != true ]; then
+    docker logs --tail 80 "$WORKER" >&2 || true
+    emit_status "v3-archetype-calibration-complete-start"
+    fail "complete calibration worker did not prove a checkpoint while running"
   fi
   emit_status "v3-archetype-calibration-complete-start"
 }

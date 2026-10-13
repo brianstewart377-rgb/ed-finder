@@ -141,6 +141,42 @@ def test_complete_restart_resumes_and_equals_fresh_run(tmp_path, monkeypatch):
     assert reads == [0, 1]
     assert resumed == fresh
 
+    # A torn append past the checkpointed length is truncated, then the run
+    # resumes from the checkpoint and seals the same receipt.
+    torn_state = tmp_path / 'torn'
+    exit_code, _ = complete.run_complete(
+        _Connection(), _args(torn_state, stop_after_chunks=1), f2d_identity=identity,
+    )
+    assert exit_code == 75
+    torn_log = torn_state / complete.PER_CHUNK_FILE
+    pinned = json.loads((torn_state / 'checkpoint.json').read_text())['per_chunk_bytes']
+    assert torn_log.stat().st_size == pinned
+    with torn_log.open('ab') as handle:
+        handle.write(b'{"chunk_ordinal":1,"row_count":1,"per_arch')
+    reads.clear()
+    exit_code, after_torn = complete.run_complete(
+        _Connection(), _args(torn_state), f2d_identity=identity,
+    )
+    assert exit_code == 0
+    assert reads == [1]
+    assert after_torn == fresh
+
+    # A log whose checkpointed prefix was altered is refused, never resumed.
+    altered_state = tmp_path / 'altered'
+    exit_code, _ = complete.run_complete(
+        _Connection(), _args(altered_state, stop_after_chunks=1), f2d_identity=identity,
+    )
+    assert exit_code == 75
+    altered_log = altered_state / complete.PER_CHUNK_FILE
+    altered_log.write_bytes(altered_log.read_bytes().replace(b'"S":', b'"s":'))
+    with pytest.raises(ValueError, match='digest does not match the checkpoint'):
+        complete.run_complete(_Connection(), _args(altered_state), f2d_identity=identity)
+
+    # A log shorter than the checkpoint records is refused.
+    altered_log.write_bytes(b'')
+    with pytest.raises(ValueError, match='shorter than the checkpoint'):
+        complete.run_complete(_Connection(), _args(altered_state), f2d_identity=identity)
+
 
 def test_complete_receipt_totals_chunks_sigma_and_expected_manifest(
     tmp_path, monkeypatch,
@@ -159,15 +195,38 @@ def test_complete_receipt_totals_chunks_sigma_and_expected_manifest(
     )
     assert exit_code == 0
     assert receipt['system_count'] == 3
+
+    # Per-chunk counts live in the append-only log bound to the receipt by
+    # digest and byte length; the receipt itself stays small for ~200k chunks.
+    log_path = tmp_path / complete.PER_CHUNK_FILE
+    log_bytes = log_path.read_bytes()
+    assert receipt['per_chunk'] == {
+        'file': complete.PER_CHUNK_FILE,
+        'schema_version': complete.PER_CHUNK_SCHEMA,
+        'chunk_count': 2,
+        'bytes': len(log_bytes),
+        'sha256': hashlib.sha256(log_bytes).hexdigest(),
+    }
+    assert receipt['chunk_plan'] == {
+        'chunk_count': 2,
+        'first_chunk_ordinal': 0,
+        'last_chunk_ordinal': 1,
+        'sha256': complete.canonical_sha256([[0, 2], [1, 1]]),
+    }
+    chunks = complete.validate_per_chunk_log(receipt, log_path)
+    assert [chunk['chunk_ordinal'] for chunk in chunks] == [0, 1]
+    assert [chunk['row_count'] for chunk in chunks] == [2, 1]
+    assert 'per_chunk' not in receipt['per_archetype']['paradise']
+
     sigma = 0.0
     for key in model.ARCHETYPE_KEYS:
         entry = receipt['per_archetype'][key]
         histogram = entry['tier_histogram']
         assert sum(histogram.values()) == receipt['system_count']
-        assert sum(chunk['row_count'] for chunk in entry['per_chunk']) == 3
+        assert sum(chunk['row_count'] for chunk in chunks) == 3
         combined = {tier: 0 for tier in complete.TIERS}
-        for chunk in entry['per_chunk']:
-            for tier, count in chunk['tier_histogram'].items():
+        for chunk in chunks:
+            for tier, count in chunk['per_archetype'][key]['tier_histogram'].items():
                 combined[tier] += count
         assert combined == histogram
         total = sum(histogram.values())
@@ -175,6 +234,28 @@ def test_complete_receipt_totals_chunks_sigma_and_expected_manifest(
         sigma += (histogram['S'] + histogram['A']) / total
         sigma += histogram['S'] / total
     assert receipt['sigma_all'] == pytest.approx(sigma)
+    for field in ('started_at', 'updated_at', 'chunk_count'):
+        assert field not in receipt
+    checkpoint = json.loads((tmp_path / 'checkpoint.json').read_text())
+    assert checkpoint['chunk_count'] == 2
+    assert checkpoint['next_chunk_index'] == 2
+    assert checkpoint['per_chunk_sha256'] == receipt['per_chunk']['sha256']
+
+    # A log that does not match the receipt binding is refused by the consumer.
+    tampered = tmp_path / 'tampered.jsonl'
+    tampered.write_bytes(log_bytes.replace(b'"row_count":1', b'"row_count":2'))
+    with pytest.raises(ValueError, match='does not match the receipt binding'):
+        complete.validate_per_chunk_log(receipt, tampered)
+    forged = dict(receipt)
+    forged['per_chunk'] = {
+        **receipt['per_chunk'],
+        'bytes': tampered.stat().st_size,
+        'sha256': hashlib.sha256(tampered.read_bytes()).hexdigest(),
+    }
+    forged.pop('content_sha256')
+    forged = complete.seal_receipt(forged)
+    with pytest.raises(ValueError, match='histogram total is invalid'):
+        complete.validate_per_chunk_log(forged, tampered)
 
     generation = builder.Generation(
         identifier=_generation_row()[0],

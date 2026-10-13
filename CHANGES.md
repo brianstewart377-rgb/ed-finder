@@ -28,8 +28,11 @@ canonical content identity, adds matching fail-closed shell and Python identity
 helpers, and allowlists a detached read-only complete calibration start/status
 pair. The complete reader resumes only identity- and generation-bound chunk
 checkpoints, scores every Ratings system through the shared model SQL and
-`score_raw_system`, and seals the full per-key/per-chunk histogram and expected
-product manifest. A pure-standard-library converter verifies that receipt and
+`score_raw_system`, appends per-chunk tier counts to a digest-bound
+`per-chunk.jsonl` log (the production generation has ~200,000 canonical chunks,
+so the sealed receipt binds that log by length and SHA-256 rather than carrying
+it), and seals the per-key totals, chunk-plan identity and expected product
+manifest. A pure-standard-library converter verifies that receipt and
 emits the measured 60/76/88 fractions consumed by the disposable footprint
 measurement. No action was dispatched and no production system was accessed.
 
