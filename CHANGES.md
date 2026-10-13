@@ -38,6 +38,13 @@ nearest-first path. Picked and galaxy-wide hard-filter combinations fail
 closed, filtered or score-sorted anchored searches are limited to 500 ly, and
 both ranking envelopes carry the READY archetype product's complete identity.
 
+The calibration probe now reads the canonical raw-vector and opportunity SQL,
+scores only through the shared model entry point, and records model identities
+and per-archetype tier histograms. The disposable footprint tool can apply and
+measure the final `011` migration with all 26 indexes and histogram-shaped
+builder rows, while fixture, Cypress, and Review Lab seeds validate one wide
+row per system and keep product publication deferred to the follow-up PR.
+
 ## 2026-10-11 — Read-only production disk inventory action
 
 The governed `v3-disk-inventory` action inventories PostgreSQL volume

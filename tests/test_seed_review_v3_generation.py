@@ -19,6 +19,16 @@ sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 REVIEW_FIXTURE_DIR = ROOT / 'tests/fixtures/review_lab_v3_sources'
 REVIEW_SYSTEM_IDS = {9100000000001, 9100000000002, 9100000000003}
+ARCHETYPE_KEYS = (
+    'paradise',
+    'mining_hub',
+    'manufacturing_hub',
+    'megacomplex',
+    'research_hub',
+    'stronghold',
+    'population_capital',
+    'flexible',
+)
 
 
 @pytest.mark.skipif(
@@ -91,6 +101,23 @@ def test_review_seed_publishes_dedicated_fixture_and_spatial_pyramid():
                     'system_search': 'VERIFIED',
                     'system_archetype': 'VERIFIED',
                 }
+                wide_columns = ', '.join(
+                    f'{key}_score, {key}_tier, {key}_confidence_ppm, '
+                    f'{key}_weighted_e4'
+                    for key in ARCHETYPE_KEYS
+                )
+                wide_rows = connection.execute(
+                    f'SELECT system_id64, {wide_columns} '
+                    'FROM v3_derived.system_archetype'
+                ).fetchall()
+                assert {row[0] for row in wide_rows} == REVIEW_SYSTEM_IDS
+                assert all(all(value is not None for value in row[1:]) for row in wide_rows)
+                assert connection.execute(
+                    'SELECT COUNT(*) FROM v3_app.system_archetype_summary'
+                ).fetchone() == (len(REVIEW_SYSTEM_IDS),)
+                assert connection.execute(
+                    "SELECT to_regclass('v3_derived.system_archetype_summary') IS NULL"
+                ).fetchone() == (True,)
 
                 manifest_digest = sha256(
                     (REVIEW_FIXTURE_DIR / 'manifest.json').read_bytes()

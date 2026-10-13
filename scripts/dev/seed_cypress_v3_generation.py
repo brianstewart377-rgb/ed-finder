@@ -2,11 +2,11 @@
 F3-repointed ``POST /api/local/search`` and ``GET /api/archetypes/rankings``
 return 200 for the browser product-journey.
 
-No lifecycle shortcuts: the canonical generation, the derived generation, and
-BOTH Finder products (``system_search`` + ``system_archetype``) reach
-``VERIFIED`` through the genuine build pipeline and are published via
-``v3_meta.publish_derived_generation`` (which refuses anything less). The
-source data is the committed, checksum-locked curated fixture
+No lifecycle shortcuts: the canonical generation and derived generation are
+published, while BOTH Finder products (``system_search`` +
+``system_archetype``) reach READY/VERIFIED through the genuine build pipeline.
+Product publication is deliberately deferred to F2d PR2. The source data is
+the committed, checksum-locked curated fixture
 ``tests/fixtures/cypress_v3_sources`` (journey id64s). Reuses the exact pipeline
 functions the unit tests use (see tests/test_local_search_v3.py).
 """

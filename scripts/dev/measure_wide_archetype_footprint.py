@@ -44,8 +44,11 @@ variables (``PGHOST``, ``PGHOSTADDR``, ``PGPORT``, ``PGSERVICE``, ``PGSERVICEFIL
 ``PGDATABASE``) must be unset; the connection is opened from the validated
 keyword dictionary with ``hostaddr`` pinned to the loopback address, and after
 connecting the script verifies ``inet_server_addr()`` is loopback and the server
-is PostgreSQL 18 before creating anything. It writes only to the ``scratch``
-schema of that database and never reads production.
+is PostgreSQL 18 before creating anything. The default comparison mode writes
+only to the ``scratch`` schema of that database. ``--migration-sql`` creates a
+randomly named temporary database on the same verified disposable server,
+applies the prerequisite migrations and supplied SQL there, and drops that
+temporary database in a ``finally`` block. Neither mode reads production.
 
 Usage::
 
@@ -55,15 +58,26 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import os
+import random
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import psycopg
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import scripts.v3_system_archetype as archetype_builder  # noqa: E402
+from shared_contracts import v3_system_archetype_model as archetype_model  # noqa: E402
 
 PROD_SYSTEMS = 198_500_000
 ARCHETYPE_KEYS = (
@@ -85,6 +99,33 @@ REQUIRED_SERVER_MAJOR = 18
 # validation service (the same name tests/ratings_v4_pg_fixture.py insists on).
 ALLOWED_DBNAMES = frozenset({"ratings_v4_validation"})
 GENERATION_ID = "a7076522-0000-4000-8000-000000000001"
+MIGRATION_PREREQUISITES = (
+    "001_v3_baseline.sql",
+    "003_ratings_v4_derived.sql",
+    "004_v3_search_spatial_clusters.sql",
+    "006_v3_derived_product_lifecycle.sql",
+)
+MIGRATIONS = ROOT / "sql" / "v3" / "migrations"
+FINAL_INDEX_NAMES = frozenset(
+    {
+        "system_archetype_pkey",
+        "system_archetype_summary_weighted",
+        *(
+            f"system_archetype_{key}_{tier}_weighted"
+            for key in ARCHETYPE_KEYS
+            for tier in ("b", "a", "s")
+        ),
+    }
+)
+TIER_INDEX_NAMES = FINAL_INDEX_NAMES - {
+    "system_archetype_pkey",
+    "system_archetype_summary_weighted",
+}
+BUILTIN_FRACTIONS = {
+    key: {"60": 0.168, "76": 0.020, "88": 0.0019}
+    for key in ARCHETYPE_KEYS
+}
+MEASUREMENT_DATABASE_PREFIX = "wide_archetype_measure_"
 
 
 def _tier(expr: str) -> str:
@@ -347,9 +388,540 @@ def normalize_fractions(
     return normalized, digest, sigma_all
 
 
+def _ceil_ratio(numerator: int, denominator: int) -> int:
+    """Return an exact positive integer ceiling (receipt arithmetic is integral)."""
+    if numerator < 0 or denominator <= 0:
+        raise ValueError("receipt byte arithmetic needs non-negative bytes and a positive divisor")
+    return (numerator + denominator - 1) // denominator
+
+
+def per_row_costs(
+    *,
+    heap_bytes: int,
+    primary_key_bytes: int,
+    weighted_index_bytes: int,
+    tier_index_bytes: int,
+    rows: int,
+    tier_entries: int,
+) -> dict[str, int]:
+    """Compute the four gate inputs without rounding an intermediate value.
+
+    ``sigma_all`` is ``tier_entries / rows``.  Consequently
+    ``tier bytes / rows / sigma_all`` is exactly ``tier bytes / tier_entries``;
+    reducing the expression this way avoids a binary-float receipt boundary.
+    """
+    if rows <= 0 or tier_entries <= 0:
+        raise ValueError("the final measurement needs rows and at least one tier entry")
+    return {
+        "heap_bytes_per_row": _ceil_ratio(heap_bytes, rows),
+        "primary_key_bytes_per_row": _ceil_ratio(primary_key_bytes, rows),
+        "weighted_index_bytes_per_row": _ceil_ratio(weighted_index_bytes, rows),
+        "tier_index_bytes_per_row_per_unit_fraction": _ceil_ratio(
+            tier_index_bytes, tier_entries
+        ),
+    }
+
+
+def capacity_gate_eligible(*, final_migration: bool, distribution_source: str) -> bool:
+    return final_migration and distribution_source == "measured-histogram"
+
+
+def migration_sql_sha256(migration_path: Path) -> str:
+    return hashlib.sha256(migration_path.read_bytes()).hexdigest()
+
+
+@dataclass(frozen=True)
+class _SyntheticInput:
+    potential: tuple[int, ...]
+    quality: tuple[int, ...]
+    opportunity_groups: tuple[tuple[int, int, int], ...]
+    signature: tuple[bool, ...]
+
+
+def _signature(scored: dict[str, object]) -> tuple[bool, ...]:
+    return tuple(
+        int(scored[f"{key}_score"]) >= floor
+        for key in ARCHETYPE_KEYS
+        for floor in (60, 76, 88)
+    )
+
+
+def _candidate(
+    potential: tuple[int, ...],
+    quality: tuple[int, ...],
+    groups: tuple[tuple[int, int, int], ...],
+) -> _SyntheticInput:
+    vector = archetype_model.SystemVectorRow(
+        system_id64=1,
+        potential=potential,
+        quality=quality,
+        quality_min=quality,
+        quality_max=quality,
+        completeness=(10_000,) * 7,
+        confidence=(10_000,) * 7,
+    )
+    return _SyntheticInput(
+        potential=potential,
+        quality=quality,
+        opportunity_groups=groups,
+        signature=_signature(archetype_model.score_raw_system(vector, groups)),
+    )
+
+
+def _synthetic_catalog() -> tuple[_SyntheticInput, ...]:
+    """Build a deterministic library of raw model inputs spanning the tier space."""
+    rng = random.Random(20261010)
+    candidates: list[_SyntheticInput] = []
+    # Include smooth all-economy profiles as well as independent economy shapes.
+    for value in range(0, 101, 5):
+        for count in (0, 1, 4, 6, 8):
+            groups = tuple((ordinal, count, count * 100) for ordinal in range(1, 8) if count)
+            candidates.append(_candidate((value,) * 7, (100,) * 7, groups))
+    for _ in range(4096):
+        potential = tuple(rng.randrange(0, 101) for _ in range(7))
+        quality = tuple(rng.randrange(35, 101) for _ in range(7))
+        groups = []
+        for ordinal in range(1, 8):
+            count = rng.choices((0, 1, 4, 6, 8), weights=(30, 25, 20, 15, 10))[0]
+            if count:
+                local = rng.randrange(45, 101)
+                groups.append((ordinal, count, count * local))
+        candidates.append(_candidate(potential, quality, tuple(groups)))
+    # De-duplicate signatures. For footprint work one stable representative of a
+    # requested tier shape is preferable to an arbitrary random representative.
+    return tuple({candidate.signature: candidate for candidate in candidates}.values())
+
+
+def _synthetic_inputs(
+    rows: int, fractions: dict[str, dict[str, float]]
+) -> list[_SyntheticInput]:
+    """Choose raw rows whose scores best match the requested cumulative bands.
+
+    The model's archetypes share economy anchors, so not every arbitrary 24-bit
+    tier vector is physically realizable.  Selection is therefore from real raw
+    rows scored by ``score_raw_system``; the receipt records the realized tier
+    fractions and sigma, never the requested values, for size normalization.
+    """
+    catalog = _synthetic_catalog()
+    target = tuple(
+        fractions[key][str(floor)]
+        for key in ARCHETYPE_KEYS
+        for floor in (60, 76, 88)
+    )
+    # Frank-Wolfe projection finds a mixture of physically realizable raw rows
+    # whose 24 marginal floor fractions are closest to the requested histogram.
+    # It avoids pretending independently fabricated score columns came from the
+    # canonical model when shared economy anchors make some joint patterns
+    # impossible (notably Flexible has only scores 0/25/50/75/100).
+    zero_index = next(
+        index for index, candidate in enumerate(catalog)
+        if not any(candidate.signature)
+    )
+    weights = [0.0] * len(catalog)
+    weights[zero_index] = 1.0
+    realized = [0.0] * len(target)
+    for iteration in range(1, 4001):
+        gradient = [actual - wanted for actual, wanted in zip(realized, target, strict=True)]
+        selected = min(
+            range(len(catalog)),
+            key=lambda candidate_index: sum(
+                gradient[index] * catalog[candidate_index].signature[index]
+                for index in range(len(target))
+            ),
+        )
+        step = 2.0 / (iteration + 2)
+        realized = [
+            (1.0 - step) * actual + step * catalog[selected].signature[index]
+            for index, actual in enumerate(realized)
+        ]
+        weights = [(1.0 - step) * weight for weight in weights]
+        weights[selected] += step
+    counts = [int(weight * rows) for weight in weights]
+    remainder = rows - sum(counts)
+    order = sorted(
+        range(len(catalog)),
+        key=lambda index: (-(weights[index] * rows - counts[index]), index),
+    )
+    for index in order[:remainder]:
+        counts[index] += 1
+    result = [
+        candidate
+        for candidate, count in zip(catalog, counts, strict=True)
+        for _ in range(count)
+    ]
+    random.Random(20261010).shuffle(result)
+    return result
+
+
+def _copy_rows(conn: psycopg.Connection, table: str, columns: tuple[str, ...], rows) -> None:
+    command = sql.SQL("COPY {} ({}) FROM STDIN").format(
+        sql.Identifier(*table.split(".")),
+        sql.SQL(",").join(sql.Identifier(column) for column in columns),
+    )
+    with conn.cursor().copy(command) as copy:
+        for row in rows:
+            copy.write_row(row)
+
+
+def _seed_measurement_source(
+    conn: psycopg.Connection,
+    rows: int,
+    fractions: dict[str, dict[str, float]],
+) -> str:
+    """Seed raw Ratings-shaped rows; Archetype rows are written only by the builder."""
+    zero_hash = b"\0" * 32
+    source_run_id = uuid4()
+    canonical_generation_id = uuid4()
+    generation_id = uuid4()
+    policy_id = conn.execute(
+        """INSERT INTO v3_source.source(source_code,display_name,authority_class)
+             VALUES ('wide_measurement','Wide measurement','REFERENCE_CURATED')
+             RETURNING source_id"""
+    ).fetchone()[0]
+    rights_id = conn.execute(
+        """INSERT INTO v3_source.source_rights_policy(
+               source_id,policy_version,rights_class,retention_class,
+               distribution_allowed,effective_at)
+             VALUES (%s,'measurement-1','CANONICAL_ELIGIBLE','disposable',false,now())
+             RETURNING rights_policy_id""",
+        (policy_id,),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO v3_source.source_run(
+               source_run_id,source_id,rights_policy_id,acquisition_kind,trust_zone,
+               run_state,idempotency_key,is_complete_snapshot,started_at,completed_at,
+               importer_version,importer_code_sha256,importer_config_sha256,
+               normalizer_version,normalizer_sha256)
+             VALUES (%s,%s,%s,'BULK_SNAPSHOT','CANONICAL','SUCCEEDED',
+                     'wide-measurement',true,now(),now(),'measurement',%s,%s,
+                     'measurement',%s)""",
+        (source_run_id, policy_id, rights_id, zero_hash, zero_hash, zero_hash),
+    )
+    conn.execute(
+        """INSERT INTO v3_meta.canonical_generation(
+               generation_id,generation_key,relation_schema,lifecycle_state,
+               manifest_sha256,build_source_run_id,validation_completed_at,published_at)
+             VALUES (%s,'measurement','v3_gen_measurement','PUBLISHED',%s,%s,now(),now())""",
+        (canonical_generation_id, zero_hash, source_run_id),
+    )
+    conn.execute(
+        """INSERT INTO v3_meta.current_canonical_generation(
+               singleton,generation_id,publication_sequence,published_at)
+             VALUES (true,%s,1,now())""",
+        (canonical_generation_id,),
+    )
+    generation_key = "wide_measurement"
+    manifest = {
+        "canonical_schema": "v3_gen_measurement",
+        "measurement": "wide-archetype-footprint",
+    }
+    manifest_text = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+    conn.execute(
+        """INSERT INTO v3_meta.derived_generation(
+               derived_generation_id,canonical_generation_id,
+               canonical_publication_sequence,generation_key,mechanics_version,
+               scorer_version,adapter_version,manifest,manifest_sha256,
+               expected_systems,expected_bodies)
+             VALUES (%s,%s,1,%s,'measurement','measurement','measurement',
+                     %s::jsonb,%s,%s,0)""",
+        (
+            generation_id,
+            canonical_generation_id,
+            generation_key,
+            manifest_text,
+            hashlib.sha256(manifest_text.encode()).digest(),
+            rows,
+        ),
+    )
+    inputs = _synthetic_inputs(rows, fractions)
+    for ordinal, start in enumerate(range(0, rows, 1000)):
+        chunk = inputs[start : start + 1000]
+        conn.execute(
+            """INSERT INTO v3_derived.build_chunk(
+                   derived_generation_id,chunk_ordinal,source_projection_sha256,
+                   canonical_input_sha256,content_sha256,systems,canonical_bodies,
+                   physical_bodies,eligible_opportunities)
+                 VALUES (%s,%s,%s,%s,%s,%s,0,0,0)""",
+            (generation_id, ordinal, zero_hash, zero_hash, zero_hash, len(chunk)),
+        )
+        vector_rows = []
+        body_rows = []
+        opportunity_rows = []
+        for offset, synthetic in enumerate(chunk, start=start + 1):
+            identifier = offset * 7919
+            max_count = max((group[1] for group in synthetic.opportunity_groups), default=0)
+            vector_rows.append(
+                (
+                    generation_id,
+                    identifier,
+                    ordinal,
+                    max_count,
+                    max_count,
+                    zero_hash,
+                    list(synthetic.potential),
+                    list(synthetic.quality),
+                    list(synthetic.quality),
+                    list(synthetic.quality),
+                    [10_000] * 7,
+                    [10_000] * 7,
+                )
+            )
+            for body_pk in range(1, max_count + 1):
+                body_rows.append(
+                    (
+                        generation_id,
+                        identifier,
+                        body_pk,
+                        body_pk,
+                        "Star",
+                        None,
+                        None,
+                        False,
+                        False,
+                        False,
+                        False,
+                        False,
+                        False,
+                        body_pk == 1,
+                        None,
+                        False,
+                        False,
+                        None,
+                    )
+                )
+            for economy_ordinal, count, local_sum in synthetic.opportunity_groups:
+                local_score = local_sum // count
+                for body_pk in range(1, count + 1):
+                    opportunity_rows.append(
+                        (
+                            generation_id,
+                            identifier,
+                            body_pk,
+                            economy_ordinal,
+                            True,
+                            False,
+                            local_score,
+                            100,
+                            100,
+                            100,
+                            1.0,
+                            1.0,
+                        )
+                    )
+        _copy_rows(conn, "v3_derived.system_rating_vector", (
+            "derived_generation_id", "system_id64", "chunk_ordinal",
+            "loaded_body_count", "physical_body_count", "subtype_projection_sha256",
+            "potential", "quality", "quality_min", "quality_max", "completeness",
+            "confidence",
+        ), vector_rows)
+        if body_rows:
+            _copy_rows(conn, "v3_derived.body_mechanics", (
+                "derived_generation_id", "system_id64", "body_pk", "source_body_id64",
+                "body_class", "spectral_class", "luminosity_class", "rings",
+                "biologicals", "geologicals", "volcanism", "terraformable",
+                "tidally_locked", "is_main_star", "reserve_level",
+                "usable_ground_opportunity", "subtype_present", "subtype_observed_at",
+            ), body_rows)
+        if opportunity_rows:
+            _copy_rows(conn, "v3_derived.economy_opportunity", (
+                "derived_generation_id", "system_id64", "body_pk", "economy_ordinal",
+                "native", "modifier", "local_score", "specialisation_quality",
+                "specialisation_min", "specialisation_max", "completeness", "confidence",
+            ), opportunity_rows)
+    conn.execute(
+        """INSERT INTO v3_meta.derived_product(
+               derived_generation_id,product_code,product_version,manifest,
+               manifest_sha256,expected_rows)
+             VALUES (%s,'system_search','measurement-search','{}'::jsonb,%s,%s)""",
+        (generation_id, b"\1" * 32, rows),
+    )
+    conn.execute(
+        """UPDATE v3_meta.derived_product
+              SET lifecycle_state='READY',validation_receipt='{"status":"VERIFIED"}'::jsonb,
+                  validation_sha256=%s,validated_at=now()
+            WHERE derived_generation_id=%s AND product_code='system_search'""",
+        (b"\2" * 32, generation_id),
+    )
+    return generation_key
+
+
+def _final_index_sizes(conn: psycopg.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT i.relname,pg_relation_size(i.oid)
+             FROM pg_index x
+             JOIN pg_class i ON i.oid=x.indexrelid
+             JOIN pg_class t ON t.oid=x.indrelid
+             JOIN pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='v3_derived' AND t.relname='system_archetype'
+            ORDER BY i.relname"""
+    ).fetchall()
+    sizes = {str(name): int(size) for name, size in rows}
+    missing = sorted(FINAL_INDEX_NAMES - sizes.keys())
+    unexpected = sorted(sizes.keys() - FINAL_INDEX_NAMES)
+    if missing or unexpected or len(sizes) != 26:
+        raise ValueError(
+            "final system_archetype relation must have exactly the 26 designed indexes; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    return sizes
+
+
+def _measure_final_migration(
+    conn: psycopg.Connection,
+    *,
+    migration_path: Path,
+    rows: int,
+    fractions: dict[str, dict[str, float]],
+    fractions_sha256: str,
+    distribution_source: str,
+) -> dict[str, object]:
+    migration_bytes = migration_path.read_bytes()
+    applied_migration_sha256 = hashlib.sha256(migration_bytes).hexdigest()
+    try:
+        migration_text = migration_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("--migration-sql must be UTF-8 SQL") from exc
+    for name in MIGRATION_PREREQUISITES:
+        conn.execute((MIGRATIONS / name).read_text(encoding="utf-8"))
+    conn.execute(migration_text)
+    # This check occurs both index-first and after the incremental builder fill.
+    _final_index_sizes(conn)
+    generation_key = _seed_measurement_source(conn, rows, fractions)
+    generation, state, manifest_sha = archetype_builder.register_product(conn, generation_key)
+    if state != "BUILDING":
+        raise ValueError("measurement Archetype product did not register BUILDING")
+    while True:
+        built = archetype_builder.build_available(
+            conn, generation, manifest_sha, max_chunks=1
+        )
+        if not built["chunks_written"]:
+            break
+    conn.execute(
+        """UPDATE v3_meta.derived_generation
+              SET lifecycle_state='VALIDATING',source_receipt='{}'::jsonb,
+                  content_sha256=%s
+            WHERE derived_generation_id=%s""",
+        (b"\3" * 32, generation.identifier),
+    )
+    conn.execute(
+        """UPDATE v3_meta.derived_generation
+              SET lifecycle_state='READY',validation_receipt='{"status":"VERIFIED"}'::jsonb,
+                  validated_at=now()
+            WHERE derived_generation_id=%s""",
+        (generation.identifier,),
+    )
+    receipt = archetype_builder.validate_product(conn, generation, manifest_sha)
+    if receipt.get("status") != "VERIFIED":
+        raise ValueError("part-1 Archetype builder validation did not verify the measurement fill")
+    conn.execute("VACUUM ANALYZE v3_derived.system_archetype")
+    index_sizes = _final_index_sizes(conn)
+    row_count, heap_bytes = conn.execute(
+        """SELECT count(*),pg_table_size('v3_derived.system_archetype'::regclass)
+             FROM v3_derived.system_archetype"""
+    ).fetchone()
+    row_count, heap_bytes = int(row_count), int(heap_bytes)
+    if row_count != rows:
+        raise ValueError(f"builder wrote {row_count} rows, expected {rows}")
+    counts = conn.execute(
+        "SELECT "
+        + ",".join(
+            f"count(*) FILTER (WHERE {key}_score >= {floor})"
+            for key in ARCHETYPE_KEYS
+            for floor in (60, 76, 88)
+        )
+        + " FROM v3_derived.system_archetype"
+    ).fetchone()
+    tier_entries = sum(int(value) for value in counts)
+    if tier_entries <= 0:
+        raise ValueError("synthetic distribution produced no tier-index entries")
+    seeded_fractions: dict[str, dict[str, float]] = {}
+    count_index = 0
+    for key in ARCHETYPE_KEYS:
+        seeded_fractions[key] = {}
+        for floor in (60, 76, 88):
+            seeded_fractions[key][str(floor)] = int(counts[count_index]) / row_count
+            count_index += 1
+    primary_bytes = index_sizes["system_archetype_pkey"]
+    weighted_bytes = index_sizes["system_archetype_summary_weighted"]
+    tier_bytes = sum(index_sizes[name] for name in TIER_INDEX_NAMES)
+    costs = per_row_costs(
+        heap_bytes=heap_bytes,
+        primary_key_bytes=primary_bytes,
+        weighted_index_bytes=weighted_bytes,
+        tier_index_bytes=tier_bytes,
+        rows=row_count,
+        tier_entries=tier_entries,
+    )
+    # f2d_operator_code_sha256 is deliberately absent. PR4 owns the converter and
+    # governed operator identity and will add that field to eligible evidence.
+    return {
+        "capacity_gate_eligible": capacity_gate_eligible(
+            final_migration=True, distribution_source=distribution_source
+        ),
+        "score_distribution_source": distribution_source,
+        "migration_011_path": str(migration_path),
+        "migration_011_sha256": applied_migration_sha256,
+        "fractions_canonical": fractions,
+        "fractions_sha256": fractions_sha256,
+        "seeded_fractions": seeded_fractions,
+        "sigma_all": tier_entries / row_count,
+        "rows": row_count,
+        "row_count": row_count,
+        "heap_bytes": heap_bytes,
+        "per_index_bytes": index_sizes,
+        "tier_index_bytes": tier_bytes,
+        **costs,
+    }
+
+
+def _run_final_migration_mode(
+    conninfo: dict[str, str],
+    *,
+    migration_path: Path,
+    rows: int,
+    fractions: dict[str, dict[str, float]],
+    fractions_sha256: str,
+    distribution_source: str,
+) -> dict[str, object]:
+    database = MEASUREMENT_DATABASE_PREFIX + uuid4().hex
+    with psycopg.connect(**conninfo, autocommit=True) as admin:
+        assert_disposable_server(admin)
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        try:
+            measured_conninfo = {**conninfo, "dbname": database}
+            with psycopg.connect(**measured_conninfo, autocommit=True) as conn:
+                address, major = conn.execute(
+                    "SELECT host(inet_server_addr()),current_setting('server_version_num')::int"
+                ).fetchone()
+                if address not in {"127.0.0.1", "::1"} or int(major) // 10000 != 18:
+                    raise ValueError("temporary measurement database is not loopback PostgreSQL 18")
+                result = _measure_final_migration(
+                    conn,
+                    migration_path=migration_path,
+                    rows=rows,
+                    fractions=fractions,
+                    fractions_sha256=fractions_sha256,
+                    distribution_source=distribution_source,
+                )
+                result["server_version_num"] = int(major)
+                return result
+        finally:
+            admin.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     parser.add_argument("--rows", type=int, default=200_000, help="synthetic rows to build (default 200000)")
+    parser.add_argument(
+        "--migration-sql",
+        help=(
+            "Path to the final 011 migration. Applies its prerequisites in a new "
+            "temporary disposable database, then fills the real wide relation "
+            "through the canonical Archetype builder."
+        ),
+    )
     parser.add_argument(
         "--fractions-json",
         help=(
@@ -380,6 +952,30 @@ def main() -> None:
             fractions_canonical, fractions_sha256, sigma_all = normalize_fractions(fractions)
         except ValueError as exc:
             sys.exit(str(exc))
+        fractions = fractions_canonical
+    if args.migration_sql:
+        migration_path = Path(args.migration_sql)
+        if not migration_path.is_file():
+            sys.exit("--migration-sql must name a readable SQL file")
+        if fractions is None:
+            fractions, fractions_sha256, sigma_all = normalize_fractions(BUILTIN_FRACTIONS)
+            distribution_source = "synthetic-builtin"
+        else:
+            distribution_source = "measured-histogram"
+        try:
+            final_receipt = _run_final_migration_mode(
+                _disposable_conninfo_from_env(),
+                migration_path=migration_path,
+                rows=args.rows,
+                fractions=fractions,
+                fractions_sha256=fractions_sha256,
+                distribution_source=distribution_source,
+            )
+        except (OSError, psycopg.Error, ValueError) as exc:
+            sys.exit(str(exc))
+        json.dump(final_receipt, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return
     out: dict[str, object] = {
         # The built-in layouts are comparison evidence, not the capacity input. Their
         # DDL predates the final no-pick index (which adds a trailing system_id64),
