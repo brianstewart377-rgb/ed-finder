@@ -364,7 +364,7 @@ pin these computed rows before Cypress relies on the exact values.
 | Confidence badge                   | Both paths return `confidence` and `completeness` (`apps/api/src/models.py:264-271`, `apps/api/src/models.py:898-902`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Slice 1 code. Say **Evidence confidence** in Any and **Fit confidence** for a selected archetype; never synthesize a missing value or use “fit” in Any mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Primary/secondary                  | Both paths return `primary_archetype` and `secondary_archetype` (`apps/api/src/models.py:238-243`, `apps/api/src/models.py:886-893`).                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Slice 1 now. Use canonical labels, not underscore replacement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Best Colony Potential** headline | Both paths return `overall_development_potential`, sourced from the summary's best potential (`apps/api/src/local_search.py:806-815`, `apps/api/src/routers/archetypes.py:472-482`).                                                                                                                                                                                                                                                                                                                                                                                                           | Slice 1 code. In selected mode, distinguish the selected-fit `score` from the overall headline; attach a tier only after slice 1b supplies `best_tier`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`). | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is `min(systems at this floor, 10000)` — selected mode takes no hard filters, so there is no post-filter story — and `is_truncated` says a 10,001st qualifying row existed, i.e. the ranking is longer than the window. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **within the top 10,000 for [Archetype]** (the window is the canonical weighted ranking, not the raw fit score); URL, Next, list, map and count stop together. |
+| Page/count state                   | Rankings already accepts wire parameter `limit` (default 50, API range 1–500) plus non-negative `offset` (`apps/api/src/routers/archetypes.py:517-518`). Any forwards `size`/`from` to the ranked query's `LIMIT`/`OFFSET` (`apps/api/src/local_search.py:902-911`, `apps/api/src/ranking/ranking_sql.py:479-506`); its count query receives the 10,000 cap only for galaxy-wide requests, while an anchored search (500 LY by default) keeps an exact total **today** (`apps/api/src/local_search.py:248-254`, `apps/api/src/local_search.py:912-923`) — F2d PR1 replaces both with the 10,001-row sentinel for every count, anchored included, so after it no response carries a `total` above 10,000. | Slice 1c probes at most 10,001 rows of the key's canonical order (the F2d stored-key tier-partial index). `total` is `min(systems at this floor, 10000)` — selected mode takes no hard filters, so there is no post-filter story — and `is_truncated` says a 10,001st qualifying row existed, i.e. the ranking is longer than the window. The F4 facade exposes `page_size` 1–50 (default 50), maps it to wire `limit`, and applies one 10,000 navigation ceiling to every mode before dispatch. Anchored Any shows its exact total but navigates only within the first 10,000. When selected mode is truncated, the UI says **within the top 10,000 for [Archetype]** (the window is the canonical weighted ranking, not the raw fit score); URL, Next, list, map and count stop together. |
 | Weight sliders                     | Current `/api/archetypes/rerank` uses legacy relations and legacy five-weight models (`apps/api/src/routers/archetypes.py:535-590`, `apps/api/src/models.py:744-763`).                                                                                                                                                                                                                                                                                                                                                                                                                         | Needs slice 2. Reserve layout only; do not call it. **Unverified:** the eventual V3 weight dimensions are not defined in current code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Per-archetype explanation          | The current `011` product stores explanation JSON (`docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md:73-77`), but the owner's 2026-10-10 capacity decision removes it: the F2d wide row stores no explanation and F2d PR3 adds `GET /api/archetypes/system/{id64}/explanation`, computed on demand and version/hash-gated (HTTP 409 on mismatch). `/system/{id64}` is legacy today (`apps/api/src/routers/archetypes.py:635-719`).                                                                                                                                                                                                                                                                                                                                                                                    | Needs the F2d explanation endpoint (F2d PR3) and **PR F4e** (section 8), which is a pre-enablement prerequisite — not slice 2. Never read a stored explanation field (there is none) and never show legacy rationale as V3 explanation. |
 | Rerank action                      | Intended endpoint is `POST /api/archetypes/rerank`; its current implementation is legacy (`apps/api/src/routers/archetypes.py:535-628`).                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Needs slice 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -1211,13 +1211,14 @@ The plan assertions and the saturation requirement are therefore parameterized o
 `(archetype, floor)`: every pair names its own expected partial index, and the
 fixture holds ≥ 10,001 rows at the S floor **for every archetype**, so no pair
 measures an empty index. Timings are reported per pair against the same budgets, so
-one slow key cannot hide inside an average. The plan must demonstrate that **both** the page query's and the count query's
-window read at most **10,001** rows — the 10,001st is the sentinel that sets
-`is_truncated`, so a correct saturated plan reads it and a receipt demanding at
-most 10,000 would fail the right implementation (or push someone towards one that
-cannot derive truncation at all) — while the **join** is bounded at the first
-10,000 survivors and the sort and fetch touch no more than that **on the page
-path**. The distinction is the point: the page window probes one row beyond the
+one slow key cannot hide inside an average. The plan must demonstrate that the **page** query's window reads at most
+**10,000** rows (its `LIMIT 10000`; F2d section 6) and the **count** query's
+window at most **10,001** — the 10,001st is the sentinel that sets
+`is_truncated`, so a correct saturated count plan reads it and a receipt
+demanding at most 10,000 on the count path would fail the right implementation
+(or push someone towards one that cannot derive truncation at all) — while on the
+page path the **join** is bounded at the first 10,000 survivors and the sort and
+fetch touch no more than that. The distinction is the point: the page window probes one row beyond the
 ceiling to learn that the ranking is longer and nothing downstream of it sees
 that row. **The count path is different and must not be held to 10,000:** F2d's
 count query is `SELECT count(*) FROM (… LIMIT 10001)`, so its window emits up to
@@ -1758,9 +1759,10 @@ or `88`, so the server-chosen literal **is** the requested value in every accept
 case and the parameter can only ever be redundant. It is dropped: the route
 branches on the validated floor and emits the matching literal alone.
 
-No joined `system_search` predicate participates in selecting the window either. Probe at most 10,001 qualifying
-rows: the first 10,000 form the immutable candidate window and the sentinel
-sets `is_truncated`.
+No joined `system_search` predicate participates in selecting the window either. The page query probes at most
+10,000 qualifying rows — the immutable candidate window — and the companion
+count query probes at most 10,001, the last being the sentinel that sets
+`is_truncated`.
 
 The query then joins `system_search` for the response columns only — **no hard
 filter participates at any stage** (see below). The join does not guarantee row
@@ -1779,9 +1781,11 @@ require sorting the window and defeat the index-order guarantee, and Sol
 distance stays a displayed fact rather than an ordering term; the response-order
 tests that pinned the Sol tie cases are replaced. A row outside the window
 cannot outrank or re-enter it. This guarantees a bounded scan for every selected
-request: the index probe touches at most 10,001 rows and the join and count at
-most 10,000. The count is bounded the same way (`SELECT count(*) FROM
-(… LIMIT 10001)`, F2d section 6). The API rejects
+request: on the page path the index probe touches at most 10,000 rows and the
+join, sort and fetch no more than that; on the count path (`SELECT count(*)
+FROM (… LIMIT 10001)`, F2d section 6) the window and its join may pass up to
+10,001 rows, the last being the sentinel, and every relation-reading node is
+bounded at 10,001 (F2d section 8.7). The API rejects
 `offset >= 10,000` and any request whose `offset + limit` would cross the window;
 the facade's final-page clamp prevents ordinary F4 requests from reaching that
 error.
@@ -2332,8 +2336,9 @@ considered for a governed release build.
   precomputed cross-table ordering key (`docs/ROADMAP.md:197-214`). Mitigation:
   the F2d wide row stores the canonical key `<key>_weighted_e4` and indexes it
   under each exposed tier floor; F2d PR1 reads the top-10,000 window straight
-  from that index in canonical order (literal floor, `LIMIT 10001`, bounded
-  count, combined offset bound) and joins only to fetch response columns. There
+  from that index in canonical order (literal floor, `LIMIT 10000` for the page
+  and `LIMIT 10001` for the bounded count, combined offset bound) and joins only
+  to fetch response columns. There
   is no filtering stage anywhere in the query: a picked request carrying a hard
   filter is rejected with 422 before any SQL is built, so no filter — indexed or
   not — can redefine the window. Deployed before the products are published.
@@ -2366,8 +2371,9 @@ considered for a governed release build.
   weighted order — a picked request accepts no hard filters (422), so there is
   no separate filtered total to reconcile; derive Any `navigable_total`/cap
   state from local search; clamp offset plus page size to the uniform 10,000
-  ceiling in every mode before dispatch (anchored exact totals are displayed,
-  not navigated past 10,000); and update `page_size`,
+  ceiling in every mode before dispatch (every count, anchored included, is
+  sentinel-capped at 10,000 by F2d PR1, so no mode shows or navigates past it);
+  and update `page_size`,
   Next, count/truncation status, list and Finder contribution from one envelope.
   Correct positive out-of-range URLs with SvelteKit replacement navigation and
   reserve the no-match state for `total === 0`.
@@ -3639,4 +3645,18 @@ had written in the preceding round, which is worth noting rather than hiding.
 3. **P2 — Mark the merged F2d approval prerequisite as satisfied** → correct;
    #806 is this branch's merge base (`95f532a`), so the prerequisite is recorded
    as satisfied, with the F2d PR1 dependency kept.
+
+### Review round 47 (2026-10-13)
+
+1. **P2 — Remove the remaining exact anchored-total promise** → correct; the
+   dependency-map row (367) described today's exact anchored total without the
+   post-PR1 state, and the risk text (2369) still promised it. Both now state
+   the sentinel cap. A sweep of the whole body for "exact"/"uncapped"/"10,001"
+   found no further instance.
+2. **P2 — Keep the scale proof's page window at 10,000** and 3. **P2 — Allow
+   10,001 rows through the count-path join** → correct; the scale-proof text
+   (1212–1218), the window paragraph (1759–1764), the implementation paragraph
+   (1780–1792) and the risk text (2333–2337) now all say page `LIMIT 10000` /
+   count `LIMIT 10001`, with the count path bounded at 10,001 and the page path
+   at 10,000, matching F2d sections 6 and 8.7.
 
