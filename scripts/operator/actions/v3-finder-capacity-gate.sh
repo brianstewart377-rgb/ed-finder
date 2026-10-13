@@ -60,11 +60,19 @@ require_stage() {
   [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] \
     || fail "trusted main bundle path is required"
   [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "trusted main SHA is invalid"
+  # The gate runs standalone from its own stage, or as the fail-closed
+  # precondition inside the Search and Archetype build actions from THEIR
+  # staged checkouts (design 8.4/8.5). Each stage namespace carries its own
+  # source-SHA marker; every other path is refused.
+  local marker
   case "$REPO_ROOT" in
-    /var/tmp/edfinder-v3-capacity-gate-"$SOURCE_SHA") ;;
+    /var/tmp/edfinder-v3-capacity-gate-"$SOURCE_SHA") marker=".v3-capacity-gate-source-sha" ;;
+    /var/tmp/edfinder-v3-search-"$SOURCE_SHA") marker=".v3-search-source-sha" ;;
+    /var/tmp/edfinder-v3-archetype-build-"$SOURCE_SHA") marker=".v3-archetype-build-source-sha" ;;
     *) fail "trusted main bundle path is outside reviewed staging namespace" ;;
   esac
-  [ "$(cat "$REPO_ROOT/.v3-capacity-gate-source-sha" 2>/dev/null || true)" = "$SOURCE_SHA" ] \
+  [ ! -L "$REPO_ROOT/$marker" ] || fail "trusted main bundle SHA marker is a symlink"
+  [ "$(cat "$REPO_ROOT/$marker" 2>/dev/null || true)" = "$SOURCE_SHA" ] \
     || fail "trusted main bundle SHA marker mismatch"
   [ -f "$REPO_ROOT/scripts/v3_finder_capacity_gate.py" ] \
     || fail "Finder capacity gate program is missing"

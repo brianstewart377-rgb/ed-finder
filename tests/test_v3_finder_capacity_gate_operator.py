@@ -64,6 +64,23 @@ def test_action_pins_target_stage_and_published_generation() -> None:
     assert '/var/tmp/edfinder-v3-capacity-gate-"$SOURCE_SHA"' in source
     assert ".v3-capacity-gate-source-sha" in source
     assert ".v3-probe-wheelhouse" in source
+    # The Search and Archetype build actions call the gate from their own staged
+    # checkouts (design 8.5), so those two namespaces and markers are accepted too,
+    # each only with its own marker; anything else stays refused.
+    assert '/var/tmp/edfinder-v3-search-"$SOURCE_SHA") marker=".v3-search-source-sha"' in source
+    assert (
+        '/var/tmp/edfinder-v3-archetype-build-"$SOURCE_SHA") marker=".v3-archetype-build-source-sha"'
+        in source
+    )
+    assert '*) fail "trusted main bundle path is outside reviewed staging namespace"' in source
+    search_action = (ROOT / "scripts/operator/actions/v3-system-search-f1.sh").read_text()
+    archetype_action = (ROOT / "scripts/operator/actions/v3-system-archetype.sh").read_text()
+    assert '/var/tmp/edfinder-v3-search-"$SOURCE_SHA"' in search_action
+    assert '/var/tmp/edfinder-v3-archetype-build-"$SOURCE_SHA"' in archetype_action
+    workflow = WORKFLOW.read_text()
+    # Both build stages must carry the gate's wheelhouse for the in-stage gate run.
+    assert "mkdir -p trusted-main/.v3-search-wheelhouse trusted-main/.v3-probe-wheelhouse" in workflow
+    assert "mkdir -p trusted-main/.v3-archetype-wheelhouse trusted-main/.v3-probe-wheelhouse" in workflow
     assert "BEGIN READ ONLY" in source
     assert "current_derived_generation" in source
     assert '"$identifier" = "$TARGET_GENERATION_ID"' in source
