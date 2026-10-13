@@ -164,10 +164,18 @@ def test_server_must_be_loopback_postgresql_18_before_any_database_create():
         _FakeConn(("127.0.0.1", 180004, "ratings_v4_validation")),
         expected_database="ratings_v4_validation",
     ) == 180004
-    with pytest.raises(ValueError, match="not loopback"):
+    with pytest.raises(ValueError, match="not loopback or private"):
         module.assert_disposable_server(
             _FakeConn(("203.0.113.9", 180004, "ratings_v4_validation"))
         )
+    # A disposable service container behind a published loopback port reports
+    # its bridge address; the client host is pinned to loopback separately.
+    assert module.assert_disposable_server(
+        _FakeConn(("172.18.0.2", 180004, "ratings_v4_validation"))
+    ) == 180004
+    assert module.server_address_is_disposable("10.1.2.3") is True
+    assert module.server_address_is_disposable("8.8.8.8") is False
+    assert module.server_address_is_disposable(None) is False
     with pytest.raises(ValueError, match="PostgreSQL 17, not 18"):
         module.assert_disposable_server(
             _FakeConn(("127.0.0.1", 170006, "ratings_v4_validation"))

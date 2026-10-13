@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,15 @@ POST_010_PHYSICAL_SEARCH_MIGRATIONS: tuple[str, ...] = ()
 MEASUREMENT_DATABASE_PREFIX = "search_measure_"
 ALLOWED_DBNAMES = frozenset({"ratings_v4_validation"})
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# RFC 1918 and IPv6 unique-local ranges: what a disposable container network uses.
+# A GitHub-hosted service container behind a published loopback port reports its
+# bridge address in inet_server_addr(); documentation and global ranges stay refused.
+DISPOSABLE_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
 LOOPBACK_ADDRESSES = {"127.0.0.1": "127.0.0.1", "localhost": "127.0.0.1", "::1": "::1"}
 AMBIENT_ROUTING_VARS = (
     "PGHOST",
@@ -128,6 +138,19 @@ def disposable_conninfo(dsn: str) -> dict[str, str]:
     return keywords
 
 
+def server_address_is_disposable(server_addr: object) -> bool:
+    """True for a loopback or RFC 1918 / ULA server address; everything else is refused."""
+    if not isinstance(server_addr, str) or not server_addr:
+        return False
+    try:
+        address = ipaddress.ip_address(server_addr.split("/", 1)[0])
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    return any(address in network for network in DISPOSABLE_PRIVATE_NETWORKS)
+
+
 def assert_disposable_server(
     conn: psycopg.Connection[Any], *, expected_database: str | None = None
 ) -> int:
@@ -135,8 +158,8 @@ def assert_disposable_server(
     address, version_num, database = conn.execute(
         "SELECT host(inet_server_addr()), current_setting('server_version_num')::int, current_database()"
     ).fetchone()
-    if address not in {"127.0.0.1", "::1"}:
-        raise ValueError(f"connected server address {address!r} is not loopback")
+    if not server_address_is_disposable(address):
+        raise ValueError(f"connected server address {address!r} is not loopback or private")
     allowed = database in ALLOWED_DBNAMES or database.startswith(MEASUREMENT_DATABASE_PREFIX)
     if not allowed or (expected_database is not None and database != expected_database):
         raise ValueError(f"connected database {database!r} is not the expected disposable database")
