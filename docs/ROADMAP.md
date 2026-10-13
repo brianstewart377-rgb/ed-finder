@@ -445,7 +445,8 @@ newer dated source wins).
   and every payload row it owns, the canonical/derived/spatial pointers, all
   schema and publication audit rows, generation and product manifests, and
   build and product receipts are out of scope and retained. The owner chose
-  this knowing A + B alone leaves about 140 GB of headroom without a purge.
+  this knowing A + B alone leaves about 129 GB of headroom without a purge
+  (87 GB Search + ≈ 76 GB measured archetype from 292 GB free).
 
   The accepted absence of an executable PostgreSQL 18 recovery runbook is not
   a recovery mechanism. Every destructive phase must independently prove the
