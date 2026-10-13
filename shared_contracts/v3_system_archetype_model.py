@@ -367,51 +367,16 @@ def explain_raw_system(
     vector_row: SystemVectorRow,
     opportunity_groups: tuple[tuple[int, int, int], ...],
 ) -> dict[str, dict]:
-    '''Build the eight on-demand explanations from database-shaped inputs.'''
-    v = _scaled_vectors(vector_row, opportunity_groups)
-    explanations = {}
-    for key in ARCHETYPE_KEYS:
-        if key == 'flexible':
-            breadth = 0
-            for ordinal in range(1, 8):
-                quality, _ = _quality(v, ordinal)
-                if v.pot[ordinal - 1] >= BREADTH_POT and quality >= BREADTH_QUAL:
-                    breadth += 1
-            explanations[key] = _explain_flexible(breadth)
-            continue
+    '''Build the eight on-demand explanations from database-shaped inputs.
 
-        required, supporting = _ANCHORS[key]
-        potentials = [v.pot[ordinal - 1] for ordinal in required]
-        core = ALPHA * min(potentials) + (1 - ALPHA) * (
-            sum(potentials) / len(potentials)
-        )
-        quality_values = [_quality(v, ordinal)[0] for ordinal in required]
-        spec = SPEC_FLOOR + SPEC_SPAN * (
-            sum(quality_values) / len(quality_values) / 100.0
-        )
-        counts = [v.opp.get(ordinal, (0, 0.0))[0] for ordinal in required]
-        local_means = [v.opp.get(ordinal, (0, 0.0))[1] for ordinal in required]
-        mean_count = sum(counts) / len(counts)
-        mean_local = sum(local_means) / len(local_means)
-        cap = CAP_FLOOR + CAP_SPAN * min(
-            1.0, mean_count / CAPACITY_TARGET
-        ) * (mean_local / 100.0)
-        pool = tuple(required) + tuple(supporting)
-        synergy = (
-            SYNERGY_BONUS
-            if all(v.pot[ordinal - 1] >= SYNERGY_THRESHOLD for ordinal in pool)
-            else 0
-        )
-        explanations[key] = _explain_anchored(
-            v,
-            required,
-            supporting,
-            core,
-            spec,
-            cap,
-            synergy,
-        )
-    return explanations
+    Reuses the fits themselves (``fit_all`` attaches each explanation to its
+    ``ArchetypeFit``) so the explanation can never describe inputs other than
+    the ones that produced the score; this module holds exactly one copy of
+    the scoring arithmetic. Not reachable from ``score_raw_system``, so it
+    does not enter ``archetype_model_sha256``.
+    '''
+    fits = fit_all(_scaled_vectors(vector_row, opportunity_groups))
+    return {fit.key: fit.explanation for fit in fits}
 
 
 class _DigestError(ValueError):
