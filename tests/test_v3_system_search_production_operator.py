@@ -119,11 +119,16 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
         '013_v3_system_search_parallel.sql',
     ]
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
-    assert transition["to_migration_set_identity"] == "sha256:1c390ac27a34261ca0aad0e411cf260fe99a30896a45926381a87e5516ae32d9"
+    assert transition["to_migration_set_identity"] == "sha256:cf97b0ab6f8ec2a64cdc15c97a46c5d4ba6115ca35d5c470e3b8d62d84abbc93"
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
-    assert authority["external_authority"]["schema_identity_sha256"] == "a1f0f2b68ed0eb4a5a4bb886c5042d09f496eade32d1a3b31fb698d7c4871734"
+    assert authority["external_authority"]["schema_identity_sha256"] == "6f600e8d0a6607c907bcf838a60b4d2dbbed3752f8575b9f7c75074f8273f811"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
+    reachable = {
+        module.migration_set_identity(entries[:prefix_length])
+        for prefix_length in range(stop, len(entries) + 1)
+    }
+    assert reachable <= set(compatible)
     assert transition['from_migration_set_identity'] in compatible
     assert transition['to_migration_set_identity'] in compatible
 

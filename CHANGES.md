@@ -21,6 +21,17 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-13 — Finder F2d wide Archetype data layer
+
+The unapplied migration `011` now stores one wide archetype row per system,
+with integer-ppm confidences, exact integer weighted ranking keys, 24
+tier-floor partial indexes, and application summary/detail views rather than a
+physical summary table. The canonical scoring model now lives in
+`shared_contracts`, carries a fail-closed semantic model digest, and is consumed
+by a raw-input wide-row builder and exact validator. The governed migration
+manifest and schema authority are recut for the rewritten `011`; this remains
+registration only and does not claim production application.
+
 ## 2026-10-11 — Read-only production disk inventory action
 
 The governed `v3-disk-inventory` action inventories PostgreSQL volume
