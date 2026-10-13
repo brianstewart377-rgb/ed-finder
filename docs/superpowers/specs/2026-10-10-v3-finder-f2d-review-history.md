@@ -1364,3 +1364,21 @@ beyond round 52:
 5. **Octopus — brittle heading anchor in the invariant test** → fixed; the test
    asserts the section 11 heading exists before slicing.
 
+### Review round 55 (2026-10-13)
+
+1. **P1 — Bound resume cost from the remaining source data** → correct; the
+   largest of three row-scaled estimates is still not an upper bound when the
+   unsealed tail is wider than the head. The remainder is now derived from the
+   unsealed source: fixed widths × rows left, Search's variable text read from
+   the canonical source by one aggregate (counted twice for the `lower(name)`
+   index), Archetype's two text columns at their CHECKed maximum of 63 bytes,
+   and the exact tier entries of the unsealed chunks; the subtraction term
+   remains as a floor (section 8.4).
+2. **P1 — Reconcile the histogram commit with source-SHA pinning** → correct;
+   round 54's commit-SHA pin would have refused every action once step 5
+   committed the histogram. The actions are now pinned to the content of an
+   explicit operator-code manifest (`f2d_operator_code_sha256`), which a
+   documentation or evidence commit does not move; it replaces the per-script
+   `calibration_code_sha256` and `capacity_code_sha256` and the `source_sha`
+   row (section 8.3).
+

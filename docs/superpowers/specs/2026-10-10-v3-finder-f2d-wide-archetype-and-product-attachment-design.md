@@ -1031,41 +1031,50 @@ capacity-tested.
 ### 8.3 Pinned code identities
 
 The operator workflow runs the `trusted-main` checkout, which can be newer than
-the attested F2d release. Two rules close that gap.
+the attested F2d release, and the rollout itself commits to `main` between the
+release and the builds (the coefficient decision and the histogram at step 5),
+so the actions cannot be pinned to a commit. They are pinned to the **content**
+of the code that runs.
 
-**The actions run only at the attested source.** Every F2d operator action — the
-complete read, the capacity gate, both build actions, the publish action and
-the plan probe — compares the `SOURCE_SHA` the workflow hands it (the checkout
-it was sourced from; the existing probe action already verifies that marker,
-`v3-archetype-calibration-probe.sh:12,90-92`) with the `source_sha` the F2d
-accepted-release attestation records, and refuses unless they are equal or a
-later accepted release's attestation names its own SHA as carrying these
-actions unchanged. This pins the actions' own logic — the gate arithmetic and
-its refusals, the plan assertions and their shared parser, the publication
-transaction — not only the code whose outputs they consume. Tests: an action
-run from a checkout whose `SOURCE_SHA` is not the attested one refuses before
-reading or writing anything.
+**The operator code runs only at its attested identity.** The repository
+carries an explicit file manifest, `deploy/v3-production/f2d-operator-code.txt`,
+listing every file the F2d operator path executes: the F2d actions and the
+shared shell helpers they source under `scripts/operator/`,
+`scripts/v3_system_search.py`, `scripts/v3_system_archetype.py`,
+`shared_contracts/v3_system_archetype_model.py` and its re-export,
+`scripts/v3_archetype_calibration_probe.py`,
+`scripts/dev/measure_wide_archetype_footprint.py`,
+`scripts/dev/convert_calibration_histogram.py`, the exact `psycopg` requirement
+and wheel the complete read installs, and the manifest itself.
+`f2d_operator_code_sha256` is the SHA-256 of the canonical JSON `[path, file
+SHA-256]` list over that manifest, computed from the release source and recorded
+in the F2d accepted-release attestation. Every F2d operator action — the complete
+read, the capacity gate, both build actions, the publish action and the plan
+probe — computes the same value over its own checkout **before anything else**
+and refuses unless it equals the attested one; inside the container the complete
+read also refuses if any loaded module under `/work` lies outside the manifest.
+A documentation or evidence commit does not move the identity; a change to any
+listed file does, and then only a later accepted release that re-attests the new
+value can run the actions. Every receipt records the identity of the checkout
+that produced it, and every consumer refuses a receipt whose identity is not the
+attested one. A missing attested value is a refusal, never a match.
 
-**Receipts carry the identity of the code that produced them.** Artifacts can be
-produced at other times than the action that consumes them (the footprint
-receipt, the converted histogram, the complete-read receipt), so each records
-the identity of its producer, and each consumer refuses on any mismatch with its
-own exit code. A missing attested value is a refusal, never a match.
+**The built products are bound to the release too.**
 
 | Identity recorded in the F2d release attestation | Covers | Checked by |
 |---|---|---|
+| `f2d_operator_code_sha256` | the operator-code manifest above | every F2d operator action before anything else; every consumer against the producing receipt |
 | Search manifest code identity | `scripts/v3_system_search.py` as the Search manifest hashes it | `v3-system-search-f1.sh` at registration and build; the publish action before `COMMIT` |
 | Archetype manifest `code_sha256` | builder, canonical model, re-export, `011` | the complete read, the Archetype build action, the publish action |
 | In-container `model_file_sha256` | SHA-256 of `shared_contracts/v3_system_archetype_model.py` **inside the running API container** (image pinned by the attested digest) | the complete read and the Archetype build action refuse unless the checkout's file hashes the same; the publish action compares the Archetype manifest's `model_file_sha256` before `COMMIT` (the Search manifest has no such field) |
-| `calibration_code_sha256` | SHA-256 of the canonical JSON `[path, file SHA-256]` list for `scripts/v3_archetype_calibration_probe.py` and `v3-archetype-calibration-complete.sh`, plus the exact `psycopg` requirement string and wheel hash the action installs | the complete-read action over its own checkout before reading anything; the probe refuses any loaded module under `/work` outside this set and the Archetype `code_sha256` set; the capacity gate against the receipt |
-| `capacity_code_sha256` | the same form over `scripts/dev/measure_wide_archetype_footprint.py` and `scripts/dev/convert_calibration_histogram.py` | the footprint receipt and the fractions file each record the identity of the code that wrote them; the capacity gate refuses unless both equal the attestation |
 | `ranking_version`/`ranking_sha256` and the image digest | the built API | the publish action (section 8.6) |
-| `source_sha` | the release source every F2d operator action must run from (the rule above) | every F2d operator action, before anything else |
 
-Tests: a checkout whose builder, probe script or measurement script differs
-from the attested identity is refused before any read or write; a probe
-importing a repository module outside both pinned sets is refused; a probe run
-with a different model file is refused by the in-container check.
+Tests: a checkout in which any manifest-listed file differs from the attested
+identity is refused by every action before any read or write, while a checkout
+that differs only in files outside the manifest is accepted; a receipt carrying
+a different identity is refused by its consumer; a probe importing a repository
+module outside the manifest is refused; a probe run with a different model file
+is refused by the in-container check.
 
 ### 8.4 Combined capacity gate (step 6)
 
@@ -1078,7 +1087,7 @@ distinct exit code and a receipt on any failure:
 - (b) the complete-read receipt's `code_identity`, `coefficients` and
   `archetype_model_sha256` equal the expected manifest's `code_sha256`,
   `coefficients` and `archetype_model_sha256`, and its
-  `calibration_code_sha256` equals the attestation's;
+  `f2d_operator_code_sha256` equals the attestation's;
 - (c) the receipt has `mode: complete`, covers all eight keys and three floors,
   and its per-key totals equal the generation's system count;
 - (d) `Σ_all`, the sum of the 24 per-key tier fractions, cross-checks the
@@ -1090,7 +1099,8 @@ distinct exit code and a receipt on any failure:
   creates every index on the empty relation, then fills in canonical chunk
   order), an `011` hash equal to the applied ledger entry, `fractions_sha256`
   equal to the canonical form of the committed histogram, and
-  `capacity_code_sha256` equal to the attestation's;
+  `f2d_operator_code_sha256` (recorded by the script and by the converter)
+  equal to the attestation's;
 - (f) a fresh read-only `df` of the data volume, through the step 0 action's
   path, satisfies `available_bytes >= required_bytes`.
 
@@ -1143,28 +1153,36 @@ reflects the rows written, so charging the full product again would refuse a
 restart near the ceiling and strand insert-only rows. A resume is recognised
 only when the sealed chunk receipts belong to the same product, generation and
 manifest identity; anything else pays the full projection. The remaining cost
-is the **largest of three estimates**, because none alone is an upper bound:
+is bounded **from the unsealed source data**, not scaled from rows or
+extrapolated from the rows written — neither of those is an upper bound when
+the tail is wider than the head:
 
 ```
-rows_done   = rows in this product's sealed chunk receipts
-rows_left   = system_count − rows_done
-bytes_done  = size of the product's table + indexes + TOAST now − the same at the start receipt
-fresh_left  = the projection applied to the unsealed chunks only (per-row terms × rows_left;
-              the Archetype tier term × tier_entries_left, the exact per-key tier counts of
-              the unsealed chunks from the complete read)
-paced_left  = ceil(rows_left × bytes_done / rows_done)        # 0 when rows_done = 0
-projected_<product>_bytes = max(fresh_left, paced_left, projected_<product>_bytes − bytes_done)
+rows_left            = system_count − rows in this product's sealed chunk receipts
+bytes_done           = size of the product's table + indexes + TOAST now − the same at the start receipt
+fixed_left           = per-row cost of the fixed-width columns, tuple header, alignment and
+                       fixed indexes (receipt, measured) × rows_left
+variable_left        = Search:   Σ over the unsealed source rows of
+                                 octet_length(name) + octet_length(region_name) + octet_length(main_star_class),
+                                 read from the canonical source by one aggregate, × 2
+                                 (stored once in the heap and, for name, once more in the lower(name) index)
+                       Archetype: 2 × 63 bytes × rows_left
+                                 (primary_archetype and secondary_archetype are each CHECKed to at most
+                                 63 characters of [a-z0-9_], 011:25-26 — a maximum, not an average)
+tier_left            = Archetype only: tier_index_bytes_per_row_per_unit_fraction × tier_entries_left,
+                       the exact per-key tier counts of the unsealed chunks from the complete read
+remaining_bytes      = fixed_left + variable_left + tier_left
+projected_<product>_bytes = max(remaining_bytes, projected_<product>_bytes − bytes_done)
 ```
 
-`fresh_left` charges a dense tail in full; `paced_left` assumes an early
-overrun (wider text, poorer index occupancy) continues; the subtraction keeps
-the original budget when early chunks were cheap. Row scaling alone fails
-because Search rows and the Archetype text columns are variable-width and tier
-density can correlate with chunk order; subtraction alone fails because the
-projection is an estimate (90 % of the bytes at 70 % of the rows would leave 10
-% budgeted for ≈ 39 % of the work). The gate refuses a resume when the chunk
-plan differs from the receipt's or a chunk's counts are missing. The receipt
-records every input, the three estimates and the term charged.
+`fixed_left` is exact per row because those widths do not vary; `variable_left`
+is exact for Search (the source text is read, not estimated) and a maximum for
+Archetype; `tier_left` is exact. The 15 % reserve covers index fill factor and
+page-level overhead as it does for a fresh build. The subtraction term keeps the
+original budget when the early chunks were cheaper than projected. The gate
+refuses a resume when the chunk plan differs from the complete read's or a
+chunk's counts are missing, and the receipt records every input, both
+estimates and the term charged.
 
 Tests: `available_bytes == required_bytes` passes and `required_bytes − 1`
 refuses; the receipt reports every input and intermediate; the committed
@@ -1176,9 +1194,11 @@ probe/manifest `archetype_model_sha256` mismatch, and each identity mismatch of
 8.3 are refused with distinct exit codes, varied independently so one valid
 field cannot mask another; resume at 90 % rows and 90 % bytes with matching receipts passes while
 the same space with a different manifest identity refuses; an early saving (90
-% rows, 70 % bytes) is charged 30 %; an early overrun (70 % rows, 90 % bytes)
-is charged ≈ 39 %; a dense tail (90 % rows and bytes, 30 % of tier entries
-unsealed) is charged the full tier term for those entries.
+% rows, 70 % bytes) is charged the source-derived remainder, not 10 %; a wide tail (90 % of the
+Search rows written for 50 % of the projection, the unsealed 10 % carrying
+names six times longer) is charged their measured text bytes, which exceed the
+projection's remaining 50 %; a dense tail (90 % rows and bytes, 30 % of tier
+entries unsealed) is charged the full tier term for those entries.
 
 ### 8.5 Builds (steps 7 and 8)
 
@@ -1471,7 +1491,10 @@ Review Lab and image-parity CI.
   `docs/operations/v3-finder-production-rollout-state.md`;
   `docs/operations/v3-production-application-release.md` and
   `deploy/v3-production/target-authority.json` (release gate of section 8.1,
-  attestation identities of section 8.3, rollback boundary).
+  attestation identities of section 8.3, rollback boundary);
+  `deploy/v3-production/f2d-operator-code.txt` (new: the operator-code manifest
+  of section 8.3, with a test that every F2d action and every file it executes
+  is listed).
 - Tests: `tests/test_v3_system_search_production_operator.py`,
   `tests/test_v3_system_archetype_production_operator.py` (new),
   `tests/test_v3_product_publication_operator.py` (new),
