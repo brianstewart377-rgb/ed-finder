@@ -1,0 +1,4 @@
+{
+  "task": "HEALTH CHECK ONLY. Do not change any file. Report: the first heading line of CLAUDE.md, the output of `git rev-parse HEAD`, and the output of `python --version`. Then stop.",
+  "mode": "investigate"
+}
