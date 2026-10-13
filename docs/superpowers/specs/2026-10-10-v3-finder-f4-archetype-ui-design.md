@@ -644,8 +644,10 @@ number” cannot undo it. So F4 does **not** use “10,000+” on that flag alon
 F2d PR1 therefore owns a **mandatory API prerequisite** for F4a/F4b: the
 galaxy-wide Any count probes at most 10,001 rows, returns
 `total = min(observed, 10000)`, and sets `total_is_capped=true` if and only if
-the 10,001st row exists. Exact 10,000 is `total_is_capped=false`; anchored exact
-counts keep their existing uncapped semantics. PR1 updates the response-model
+the 10,001st row exists. Exact 10,000 is `total_is_capped=false`. **Anchored
+counts are capped the same way** (F2d section 6 applies the sentinel to every
+local-search count, with anchored boundary tests at 10,000 and 10,001). PR1
+updates the response-model
 description/OpenAPI contract, regenerates every checked-in client, and adds
 backend tests for below-cap, exact-10,000 and overflow responses. Before that
 prerequisite lands, the only truthful saturated copy remains **“Showing the
@@ -990,10 +992,10 @@ metadata rather than a bare result array. For selected rankings,
 qualifying row; `total` and `navigable_total` are both
 `min(systems at this floor, 10000)`. There are no filtered survivors to count,
 because a picked request accepts no hard filters (422). For Any, `navigable_total` is `min(total, 10000)` and
-`total_is_capped` remains the distinct truncation flag; an anchored exact total
-above 10,000 is displayed exactly but, like every mode, navigates only within
-`navigation_limit: 10000`, with offset plus page size clamped to that cap before
-dispatch.
+`total_is_capped` remains the distinct truncation flag for anchored and
+galaxy-wide alike (no response carries a `total` above 10,000); every mode
+navigates only within `navigation_limit: 10000`, with offset plus page size
+clamped to that cap before dispatch.
 Navigation, Next, count and truncation copy
 must never be computed independently of that envelope.
 
@@ -1214,9 +1216,15 @@ window read at most **10,001** rows — the 10,001st is the sentinel that sets
 `is_truncated`, so a correct saturated plan reads it and a receipt demanding at
 most 10,000 would fail the right implementation (or push someone towards one that
 cannot derive truncation at all) — while the **join** is bounded at the first
-10,000 survivors and the sort and fetch touch no more than that. The distinction
-is the point: the window probes one row beyond the ceiling to learn that the
-ranking is longer; nothing downstream of it ever sees that row. There are deliberately **no**
+10,000 survivors and the sort and fetch touch no more than that **on the page
+path**. The distinction is the point: the page window probes one row beyond the
+ceiling to learn that the ranking is longer and nothing downstream of it sees
+that row. **The count path is different and must not be held to 10,000:** F2d's
+count query is `SELECT count(*) FROM (… LIMIT 10001)`, so its window emits up to
+10,001 rows and its join may pass the 10,001st row through — that row is what
+makes `is_truncated` true — and every relation-reading node in the count plan is
+bounded at 10,001, not 10,000 (F2d section 8.7). A plan assertion that capped the
+count join at 10,000 would reject the correct builder-produced count plan. There are deliberately **no**
 selective region/distance/body-count cases: a picked request carrying a hard
 filter is rejected with 422, so a filtered benchmark would measure SQL the
 endpoint never builds; filter selectivity cannot reopen a population scan
@@ -1296,9 +1304,9 @@ for:
   unknown parameters, `page_size` default 50 and inclusive 1–50 bounds, the
   mode-independent exclusive 10,000 offset ceiling and request-size clamp
   applied before dispatch (including `offset=2000000000` on a fresh load),
-  anchored Any exact totals above 10,000 displayed exactly but not navigable,
-  the mandatory Any-count sentinel (`total_is_capped=false` at exact 10,000 and
-  true only when the 10,001st row exists), URL correction,
+  the mandatory Any-count sentinel for galaxy-wide **and anchored** requests
+  (`total_is_capped=false` at exact 10,000 and true only when the 10,001st row
+  exists; no anchored `total` above 10,000 is ever presented), URL correction,
   `total = min(qualifying, 10000)` and the independent selected-ranking
   truncation rule, offset/reset rules, last-valid-page calculation, Any-mode removal of
   `min-tier`, and preservation of independent `selected`/`system` plus unrelated
@@ -1337,12 +1345,13 @@ Use Testing Library Svelte, which is installed in the current stack
 - page count/range and offset navigation keep `page_size`, the window total,
   the **within the top 10,000 for [Archetype]** message (canonical weighted window,
   never “by score”), Next state, DOM and map synchronized; cover
-  `total = 10,000, is_truncated=true` and an exact `total < 10,000` with
-  `is_truncated=false`; a three-row fixture envelope at `page_size=1` has three
-  real pages and two enabled Next transitions; also cover anchored Any with an
-  exact total above 10,000 (exact count shown, Next disabled at 10,000) and
-  galaxy-wide Any below 10,000, at exact 10,000 with
-  `total_is_capped=false`, and above 10,000 with `total_is_capped=true`, including
+  `total = 10,000, is_truncated=true`, **`total = 10,000, is_truncated=false`**
+  (exactly 10,000 qualify: no "within the top 10,000" qualification, because the
+  flag is API-owned and never inferred from the count) and an exact
+  `total < 10,000` with `is_truncated=false`; a three-row fixture envelope at
+  `page_size=1` has three real pages and two enabled Next transitions; also cover
+  anchored Any and galaxy-wide Any each below 10,000, at exact 10,000 with
+  `total_is_capped=false`, and overflowing with `total_is_capped=true`, including
   the distinct copy for all three states;
 - a stale/shared `offset=9950` response with `total=3` calls mocked SvelteKit
   `goto` with `replaceState: true` for the last valid page at `offset=0`, refetches
@@ -3600,4 +3609,16 @@ had written in the preceding round, which is worth noting rather than hiding.
    the anchored boundary envelopes are in the component tests.
 6. **P2 — Treat an Any search anchored at Sol as a Sol reference** → correct;
    a Sol anchor now normalizes to `kind: 'sol'` so the two distances compare.
+
+### Review round 45 (2026-10-13)
+
+1. **P2 — Remove the remaining uncapped anchored-count contract** → correct;
+   four sentences still promised an anchored exact `total` above 10,000. All now
+   state the sentinel-capped envelope for anchored and galaxy-wide alike.
+2. **P2 — Allow the sentinel row through the selected count join** → correct;
+   the slice 1c proof text held the join to 10,000, which would reject F2d's
+   correct `LIMIT 10001` count plan. The count path is now bounded at 10,001 and
+   the page path at 10,000, as F2d section 8.7 states.
+3. **P2 — Test the non-truncated selected 10,000 boundary** → correct; the
+   component plan now pins `total = 10,000, is_truncated=false`.
 
