@@ -67,24 +67,42 @@ class _FakeConn:
 
 def test_server_check_requires_loopback_address_allowlisted_database_and_postgresql_18():
     module = _load()
-    ok = ("127.0.0.1", 180004, "ratings_v4_validation")
+    ok = ("127.0.0.1", "127.0.0.1", 180004, "ratings_v4_validation")
     assert module.assert_disposable_server(_FakeConn(ok)) == 180004
-    with pytest.raises(ValueError, match="not loopback or private"):
-        module.assert_disposable_server(_FakeConn(("203.0.113.9", 180004, "ratings_v4_validation")))
+    with pytest.raises(ValueError, match="not loopback or a same-bridge container"):
+        module.assert_disposable_server(
+            _FakeConn(("203.0.113.9", "203.0.113.1", 180004, "ratings_v4_validation"))
+        )
     # A disposable service container behind a published loopback port reports its
-    # bridge address; the client host is pinned to loopback separately.
-    assert module.assert_disposable_server(_FakeConn(("172.18.0.2", 180004, "ratings_v4_validation"))) == 180004
-    assert module.server_address_is_disposable("10.0.0.7") is True
+    # bridge address and sees the bridge gateway as the client.
+    assert module.assert_disposable_server(
+        _FakeConn(("172.18.0.2", "172.18.0.1", 180004, "ratings_v4_validation"))
+    ) == 180004
+    # A tunnel to some other private-address server presents a loopback client on
+    # that server: refused even though the server address is private.
+    with pytest.raises(ValueError, match="not loopback or a same-bridge container"):
+        module.assert_disposable_server(
+            _FakeConn(("10.0.0.7", "127.0.0.1", 180004, "ratings_v4_validation"))
+        )
+    assert module.server_address_is_disposable("10.0.0.7", "10.0.9.1") is True
+    assert module.server_address_is_disposable("10.0.0.7", "10.1.0.1") is False  # other /16
+    assert module.server_address_is_disposable("10.0.0.7", None) is False
+    assert module.server_address_is_disposable("172.18.0.2", "192.168.1.1") is False
+    assert module.server_address_is_disposable("172.18.0.2", "8.8.8.8") is False
     assert module.server_address_is_disposable("::1") is True
-    assert module.server_address_is_disposable("8.8.8.8") is False
+    assert module.server_address_is_disposable("8.8.8.8", "8.8.8.1") is False
     assert module.server_address_is_disposable(None) is False
     assert module.server_address_is_disposable("not-an-address") is False
     with pytest.raises(ValueError, match="not the disposable validation service"):
-        module.assert_disposable_server(_FakeConn(("127.0.0.1", 180004, "edfinder_v3_phase4c_full_20260827_r5")))
+        module.assert_disposable_server(
+            _FakeConn(("127.0.0.1", "127.0.0.1", 180004, "edfinder_v3_phase4c_full_20260827_r5"))
+        )
     with pytest.raises(ValueError, match="PostgreSQL 17, not 18"):
-        module.assert_disposable_server(_FakeConn(("127.0.0.1", 170006, "ratings_v4_validation")))
+        module.assert_disposable_server(
+            _FakeConn(("127.0.0.1", "127.0.0.1", 170006, "ratings_v4_validation"))
+        )
     with pytest.raises(ValueError, match="PostgreSQL 19, not 18"):
-        module.assert_disposable_server(_FakeConn(("::1", 190000, "ratings_v4_validation")))
+        module.assert_disposable_server(_FakeConn(("::1", "::1", 190000, "ratings_v4_validation")))
 
 
 def test_server_check_runs_before_any_ddl():
