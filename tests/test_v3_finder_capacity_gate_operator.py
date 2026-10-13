@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -78,6 +79,16 @@ def test_action_reads_the_postgres_mount_and_fresh_df_like_step_zero() -> None:
         "{{range .Mounts}}{{.Source}}\\t{{.Destination}}\\n{{end}}" in source
     )
     assert '"$destination" = "/var/lib/postgresql/data"' in source
+    # The production PostgreSQL 18 container mounts its volume at
+    # /var/lib/postgresql (step 0 receipt host_disk.mount_destination), so the
+    # step 0 fallback to the first /var/lib/postgresql* mount must be kept.
+    assert '"$destination" == /var/lib/postgresql*' in source
+    assert 'mount_source="$fallback_source"' in source
+    step0 = json.loads(
+        (ROOT / "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json")
+        .read_text(encoding="utf-8")
+    )
+    assert step0["footprint"]["host_disk"]["mount_destination"] == "/var/lib/postgresql"
     assert 'df -B1 --output=source,fstype,size,used,avail "$mount_source"' in source
     assert 'read_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"' in source
     for field in (

@@ -116,17 +116,29 @@ api_database_url() {
 
 write_volume_reading() {
   local output="$1" mount_rows mount_source="" mount_destination=""
+  local fallback_source="" fallback_destination=""
   local df_output filesystem filesystem_type size_bytes used_bytes avail_bytes read_at
   mount_rows="$(docker inspect -f $'{{range .Mounts}}{{.Source}}\t{{.Destination}}\n{{end}}' "$POSTGRES_CONTAINER")" \
     || fail "postgres data mount inspection failed"
+  # Same resolution as the step 0 action (v3-derived-lifecycle-status.sh): the
+  # exact /var/lib/postgresql/data destination wins; otherwise the first mount
+  # under /var/lib/postgresql (the PostgreSQL 18 image mounts the volume there,
+  # and the step 0 receipt records mount_destination=/var/lib/postgresql).
   while IFS=$'\t' read -r source destination; do
     [ -n "$source" ] && [ -n "$destination" ] || continue
     if [ "$destination" = "/var/lib/postgresql/data" ]; then
       [ -z "$mount_source" ] || fail "postgres data mount is ambiguous"
       mount_source="$source"
       mount_destination="$destination"
+    elif [[ "$destination" == /var/lib/postgresql* ]] && [ -z "$fallback_source" ]; then
+      fallback_source="$source"
+      fallback_destination="$destination"
     fi
   done <<< "$mount_rows"
+  if [ -z "$mount_source" ]; then
+    mount_source="$fallback_source"
+    mount_destination="$fallback_destination"
+  fi
   [ -n "$mount_source" ] || fail "postgres data mount is unresolved"
 
   df_output="$(df -B1 --output=source,fstype,size,used,avail "$mount_source")" \
