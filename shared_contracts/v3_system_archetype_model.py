@@ -363,6 +363,57 @@ def score_raw_system(
     return result
 
 
+def explain_raw_system(
+    vector_row: SystemVectorRow,
+    opportunity_groups: tuple[tuple[int, int, int], ...],
+) -> dict[str, dict]:
+    '''Build the eight on-demand explanations from database-shaped inputs.'''
+    v = _scaled_vectors(vector_row, opportunity_groups)
+    explanations = {}
+    for key in ARCHETYPE_KEYS:
+        if key == 'flexible':
+            breadth = 0
+            for ordinal in range(1, 8):
+                quality, _ = _quality(v, ordinal)
+                if v.pot[ordinal - 1] >= BREADTH_POT and quality >= BREADTH_QUAL:
+                    breadth += 1
+            explanations[key] = _explain_flexible(breadth)
+            continue
+
+        required, supporting = _ANCHORS[key]
+        potentials = [v.pot[ordinal - 1] for ordinal in required]
+        core = ALPHA * min(potentials) + (1 - ALPHA) * (
+            sum(potentials) / len(potentials)
+        )
+        quality_values = [_quality(v, ordinal)[0] for ordinal in required]
+        spec = SPEC_FLOOR + SPEC_SPAN * (
+            sum(quality_values) / len(quality_values) / 100.0
+        )
+        counts = [v.opp.get(ordinal, (0, 0.0))[0] for ordinal in required]
+        local_means = [v.opp.get(ordinal, (0, 0.0))[1] for ordinal in required]
+        mean_count = sum(counts) / len(counts)
+        mean_local = sum(local_means) / len(local_means)
+        cap = CAP_FLOOR + CAP_SPAN * min(
+            1.0, mean_count / CAPACITY_TARGET
+        ) * (mean_local / 100.0)
+        pool = tuple(required) + tuple(supporting)
+        synergy = (
+            SYNERGY_BONUS
+            if all(v.pot[ordinal - 1] >= SYNERGY_THRESHOLD for ordinal in pool)
+            else 0
+        )
+        explanations[key] = _explain_anchored(
+            v,
+            required,
+            supporting,
+            core,
+            spec,
+            cap,
+            synergy,
+        )
+    return explanations
+
+
 class _DigestError(ValueError):
     pass
 
@@ -625,6 +676,7 @@ __all__ = (
     'archetype_model_sha256',
     'completeness_to_ppm',
     'confidence_to_ppm',
+    'explain_raw_system',
     'fit_all',
     'score_raw_system',
     'search_uncertainty_factor',

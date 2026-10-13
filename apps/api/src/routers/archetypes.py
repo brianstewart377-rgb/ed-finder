@@ -30,11 +30,24 @@ Route scope:
 import hashlib
 import json
 import math
+from pathlib import Path as FilePath
+import re
 import time
 from typing import Any, Literal, Optional
+import uuid
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
+
+from shared_contracts import v3_system_archetype_model as archetype_model
+from shared_contracts.v3_system_archetype_model import (
+    ARCHETYPE_VERSION,
+    OPPORTUNITY_READ_SQL,
+    VECTOR_READ_SQL,
+    SystemVectorRow,
+    explain_raw_system,
+    score_raw_system,
+)
 
 from edfinder_api.config import log, limiter
 from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
@@ -51,6 +64,7 @@ from edfinder_api.models import (
     ArchetypesProfilesResponse,
     BuildSimulateRequest,
     BuildSimulateResponse,
+    SystemArchetypeExplanationResponse,
     SystemArchetypeResponse,
 )
 from edfinder_api.ranking.profile import (
@@ -120,6 +134,110 @@ _V3_ARCHETYPE_LABELS: dict[str, str] = {
     'population_capital':  'Population Capital',
     'flexible':            'Flexible Multi-Role Colony',
 }
+
+_EXPLANATION_UNAVAILABLE_DETAIL = 'explanation unavailable for this product version'
+_MODEL_SQL_PARAMETER_ORDER = ('generation_id', 'chunk_ordinal', 'system_id64')
+_PSYCOPG_NAMED_PARAMETER = re.compile(r'%\(([^)]+)\)s')
+
+
+def _psycopg_sql_to_asyncpg(
+    sql: str,
+    parameter_order: tuple[str, ...],
+) -> str:
+    """Convert a fixed psycopg named-parameter contract to asyncpg slots."""
+    positions = {name: index for index, name in enumerate(parameter_order, 1)}
+    referenced = set(_PSYCOPG_NAMED_PARAMETER.findall(sql))
+    unknown = referenced - positions.keys()
+    if unknown:
+        raise ValueError(f'unknown SQL parameters: {sorted(unknown)}')
+    missing = positions.keys() - referenced
+    if missing:
+        raise ValueError(f'missing SQL parameters: {sorted(missing)}')
+    return _PSYCOPG_NAMED_PARAMETER.sub(
+        lambda match: f'${positions[match.group(1)]}',
+        sql,
+    )
+
+
+_VECTOR_READ_ASYNCPG_SQL = _psycopg_sql_to_asyncpg(
+    VECTOR_READ_SQL,
+    _MODEL_SQL_PARAMETER_ORDER,
+)
+_OPPORTUNITY_READ_ASYNCPG_SQL = _psycopg_sql_to_asyncpg(
+    OPPORTUNITY_READ_SQL,
+    _MODEL_SQL_PARAMETER_ORDER,
+)
+_DEPLOYED_ARCHETYPE_MODEL_FILE_SHA256 = hashlib.sha256(
+    FilePath(archetype_model.__file__).read_bytes()
+).hexdigest()
+
+_PERSISTED_ARCHETYPE_COLUMNS = tuple(
+    column
+    for key in archetype_model.ARCHETYPE_KEYS
+    for column in (
+        f'{key}_score',
+        f'{key}_tier',
+        f'{key}_confidence_ppm',
+        f'{key}_weighted_e4',
+    )
+) + (
+    'primary_archetype',
+    'secondary_archetype',
+    'best_colony_potential',
+    'best_tier',
+    'archetype_confidence_ppm',
+    'weighted_potential',
+    'completeness_ppm',
+)
+
+# The shared selectors remain byte-for-byte query contracts. Only their named
+# placeholders are converted, then each complete SELECT is embedded as a CTE
+# so the wide row and both source reads make one asyncpg round trip. The
+# correlated version predicate leaves source columns NULL on a stored-version
+# mismatch, allowing the route to return 409 without executing the model.
+_SYSTEM_ARCHETYPE_READ_SQL = f'''
+SELECT a.archetype_version,
+       {', '.join(f'a.{column}' for column in _PERSISTED_ARCHETYPE_COLUMNS)},
+       inputs.source_system_id64,
+       inputs.potential, inputs.quality, inputs.quality_min, inputs.quality_max,
+       inputs.completeness, inputs.confidence,
+       inputs.opportunity_ordinals, inputs.opportunity_row_counts,
+       inputs.opportunity_local_score_sums
+  FROM v3_app.system_archetype a
+  LEFT JOIN LATERAL (
+      WITH vector_input AS (
+{_VECTOR_READ_ASYNCPG_SQL}
+      ),
+      opportunity_input (
+          system_id64, economy_ordinal, row_count, local_score_sum
+      ) AS (
+{_OPPORTUNITY_READ_ASYNCPG_SQL}
+      )
+      SELECT v.system_id64 AS source_system_id64,
+             v.potential, v.quality, v.quality_min, v.quality_max,
+             v.completeness, v.confidence,
+             ARRAY(
+                 SELECT o.economy_ordinal::integer
+                   FROM opportunity_input o
+                  ORDER BY o.economy_ordinal
+             ) AS opportunity_ordinals,
+             ARRAY(
+                 SELECT o.row_count::integer
+                   FROM opportunity_input o
+                  ORDER BY o.economy_ordinal
+             ) AS opportunity_row_counts,
+             ARRAY(
+                 SELECT o.local_score_sum::bigint
+                   FROM opportunity_input o
+                  ORDER BY o.economy_ordinal
+             ) AS opportunity_local_score_sums
+        FROM vector_input v
+       WHERE v.system_id64 = a.system_id64
+         AND a.archetype_version = $4
+  ) inputs ON TRUE
+ WHERE a.derived_generation_id = $1
+   AND a.system_id64 = $3
+'''
 
 # Preset rerank profiles
 _PROFILES = [
@@ -648,6 +766,218 @@ async def post_archetype_rerank(request: Request, body: ArchetypeRerankRequest):
     }
     await _cache_set(redis, cache_key, response, ttl=120)
     return response
+
+
+def _explanation_identity(
+    generation_row: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        'ranking_version': RANKING_VERSION,
+        'ranking_sha256': ranking_sha256(),
+        'derived_generation_id': str(generation_row['derived_generation_id']),
+        'publication_sequence': generation_row['publication_sequence'],
+        'archetype_version': generation_row['archetype_version'],
+        'archetype_manifest_sha256': generation_row['archetype_manifest_sha256'],
+        'archetype_model_sha256': generation_row['archetype_model_sha256'],
+    }
+
+
+def _raise_for_explanation_identity_mismatch(
+    generation_row: dict[str, Any],
+    *,
+    expected_generation_id: uuid.UUID | None,
+    expected_archetype_version: str | None,
+    expected_manifest_sha256: str | None,
+) -> None:
+    mismatched_expectation = (
+        expected_generation_id is not None
+        and str(expected_generation_id) != str(generation_row['derived_generation_id'])
+    ) or (
+        expected_archetype_version is not None
+        and expected_archetype_version != generation_row['archetype_version']
+    ) or (
+        expected_manifest_sha256 is not None
+        and expected_manifest_sha256 != generation_row['archetype_manifest_sha256']
+    )
+    deployed_product_mismatch = (
+        generation_row['archetype_version'] != ARCHETYPE_VERSION
+        or generation_row.get('model_file_sha256')
+        != _DEPLOYED_ARCHETYPE_MODEL_FILE_SHA256
+    )
+    if mismatched_expectation or deployed_product_mismatch:
+        raise HTTPException(409, _EXPLANATION_UNAVAILABLE_DETAIL)
+
+
+def _raise_for_recomputed_mismatch(
+    *,
+    id64: int,
+    generation_id: Any,
+    stored_row: asyncpg.Record,
+    recomputed: dict[str, Any],
+) -> None:
+    for column in _PERSISTED_ARCHETYPE_COLUMNS:
+        if stored_row[column] == recomputed[column]:
+            continue
+        log.error(
+            'archetype explanation mismatch for generation=%s system=%s '
+            'column=%s stored=%r recomputed=%r',
+            generation_id,
+            id64,
+            column,
+            stored_row[column],
+            recomputed[column],
+        )
+        raise HTTPException(
+            503,
+            f'archetype explanation mismatch for column {column}',
+        )
+
+
+async def _system_archetype_explanation_v3(
+    *,
+    id64: int,
+    expected_generation_id: uuid.UUID | None,
+    expected_archetype_version: str | None,
+    expected_manifest_sha256: str | None,
+    pool: asyncpg.Pool,
+) -> dict[str, Any]:
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
+                generation_row = await _current_derived_generation(conn)
+                _raise_for_explanation_identity_mismatch(
+                    generation_row,
+                    expected_generation_id=expected_generation_id,
+                    expected_archetype_version=expected_archetype_version,
+                    expected_manifest_sha256=expected_manifest_sha256,
+                )
+
+                generation_id = generation_row['derived_generation_id']
+                stored_row = await conn.fetchrow(
+                    _SYSTEM_ARCHETYPE_READ_SQL,
+                    generation_id,
+                    None,
+                    id64,
+                    ARCHETYPE_VERSION,
+                )
+                if stored_row is None:
+                    raise HTTPException(
+                        404,
+                        f'No published archetype row for system {id64}',
+                    )
+                if (
+                    stored_row['archetype_version']
+                    != generation_row['archetype_version']
+                    or stored_row['archetype_version'] != ARCHETYPE_VERSION
+                ):
+                    raise HTTPException(409, _EXPLANATION_UNAVAILABLE_DETAIL)
+
+                if stored_row['source_system_id64'] is None:
+                    log.error(
+                        'archetype explanation source vector missing for '
+                        'generation=%s system=%s',
+                        generation_id,
+                        id64,
+                    )
+                    raise HTTPException(
+                        503,
+                        'archetype explanation source inputs are unavailable',
+                    )
+
+                vector_row = SystemVectorRow(
+                    system_id64=int(stored_row['source_system_id64']),
+                    potential=tuple(stored_row['potential']),
+                    quality=tuple(stored_row['quality']),
+                    quality_min=tuple(stored_row['quality_min']),
+                    quality_max=tuple(stored_row['quality_max']),
+                    completeness=tuple(stored_row['completeness']),
+                    confidence=tuple(stored_row['confidence']),
+                )
+                opportunity_groups = tuple(zip(
+                    stored_row['opportunity_ordinals'],
+                    stored_row['opportunity_row_counts'],
+                    stored_row['opportunity_local_score_sums'],
+                    strict=True,
+                ))
+                recomputed = score_raw_system(vector_row, opportunity_groups)
+                explanations = explain_raw_system(vector_row, opportunity_groups)
+                _raise_for_recomputed_mismatch(
+                    id64=id64,
+                    generation_id=generation_id,
+                    stored_row=stored_row,
+                    recomputed=recomputed,
+                )
+    except HTTPException:
+        raise
+    except (
+        asyncpg.exceptions.UndefinedTableError,
+        asyncpg.exceptions.InvalidSchemaNameError,
+    ) as exc:
+        log.error(
+            'system_archetype_explanation_v3 missing relation: %r (sqlstate=%s)',
+            exc,
+            getattr(exc, 'sqlstate', None),
+        )
+        raise HTTPException(503, 'Archetype explanations are unavailable') from exc
+    except asyncpg.PostgresError as exc:
+        log.error('archetypes.system.explanation DB error: %s', exc)
+        raise HTTPException(503, 'Archetype explanations are unavailable') from exc
+
+    return {
+        'id64': id64,
+        'archetypes': [
+            {
+                'key': key,
+                'score': stored_row[f'{key}_score'],
+                'tier': stored_row[f'{key}_tier'],
+                'confidence': stored_row[f'{key}_confidence_ppm'] / 1_000_000.0,
+                'weighted_e4': stored_row[f'{key}_weighted_e4'],
+                'explanation': explanations[key],
+            }
+            for key in archetype_model.ARCHETYPE_KEYS
+        ],
+        'summary': {
+            'primary_archetype': stored_row['primary_archetype'],
+            'secondary_archetype': stored_row['secondary_archetype'],
+            'best_colony_potential': stored_row['best_colony_potential'],
+            'best_tier': stored_row['best_tier'],
+            'archetype_confidence': (
+                stored_row['archetype_confidence_ppm'] / 1_000_000.0
+            ),
+            'weighted_potential': stored_row['weighted_potential'],
+        },
+        'completeness': stored_row['completeness_ppm'] / 1_000_000.0,
+        'ranking': _explanation_identity(generation_row),
+    }
+
+
+@router.get(
+    '/system/{id64}/explanation',
+    response_model=SystemArchetypeExplanationResponse,
+    summary='On-demand V3 archetype explanations for a single system',
+)
+@limiter.limit('120/minute')
+async def get_system_archetype_explanation(
+    request: Request,
+    id64: int = Path(ge=0, le=9_223_372_036_854_775_807),
+    expected_generation_id: uuid.UUID | None = Query(None),
+    expected_archetype_version: str | None = Query(
+        None,
+        min_length=1,
+        max_length=128,
+    ),
+    expected_manifest_sha256: str | None = Query(
+        None,
+        pattern=r'^[0-9a-f]{64}$',
+    ),
+):
+    return await _system_archetype_explanation_v3(
+        id64=id64,
+        expected_generation_id=expected_generation_id,
+        expected_archetype_version=expected_archetype_version,
+        expected_manifest_sha256=expected_manifest_sha256,
+        pool=get_pool(),
+    )
 
 
 # ---------------------------------------------------------------------------

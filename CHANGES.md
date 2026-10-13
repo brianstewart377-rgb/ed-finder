@@ -23,6 +23,14 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The additive `GET /api/archetypes/system/{id64}/explanation` route now
+recomputes all eight archetype explanations on demand from the published
+Ratings vector and opportunity inputs. It serves only an exact product/model
+version and deployed-file hash match, holds identity and data reads in one
+read-only repeatable-read snapshot, verifies every recomputed wide-row value,
+and fails closed on identity or stored-score divergence. The legacy per-system
+archetype route remains unchanged.
+
 Migration `015` now permits independently validated Finder products to be
 attached to the current published Ratings generation, while keeping product
 rows and receipts insert-only and hiding READY products until a one-way,

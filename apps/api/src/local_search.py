@@ -644,7 +644,8 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> dict[st
                published_at,
                product_version AS archetype_version,
                encode(manifest_sha256, 'hex') AS archetype_manifest_sha256,
-               manifest ->> 'archetype_model_sha256' AS archetype_model_sha256
+               manifest ->> 'archetype_model_sha256' AS archetype_model_sha256,
+               manifest ->> 'model_file_sha256' AS model_file_sha256
         FROM v3_meta.derived_product
         WHERE derived_generation_id = $1
           AND product_code = ANY($2::text[])
@@ -682,7 +683,11 @@ async def _current_derived_generation(connection: asyncpg.Connection) -> dict[st
             503,
             'Finder archetype product identity is incomplete for the published generation.',
         )
-    return {**dict(row), **identity}
+    return {
+        **dict(row),
+        **identity,
+        'model_file_sha256': archetype_product.get('model_file_sha256'),
+    }
 
 
 async def resolve_published_generation(pool: asyncpg.Pool) -> dict[str, Any]:
