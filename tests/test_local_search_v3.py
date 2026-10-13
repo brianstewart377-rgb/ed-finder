@@ -104,11 +104,11 @@ def _build_published_generation(database) -> None:
     connection, _, _, _ = database
     key, generation_id, snapshot, _ = _ratings_generation(database)
 
+    # Same order as scripts/dev/seed_v3_fixture_generation.py: the Archetype
+    # builder refuses to register until the same generation's Search product is
+    # READY/VERIFIED, so Search is built and validated first.
     search_generation, _, search_manifest_sha = search_register_product(connection, key)
     search_build_available(connection, search_generation, search_manifest_sha)
-
-    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
-    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
 
     seal_source(connection, generation_id, _eof_receipt(database))
     ready_receipt = validate_generation(connection, generation_id)
@@ -116,6 +116,9 @@ def _build_published_generation(database) -> None:
 
     search_verified = search_validate_product(connection, search_generation, search_manifest_sha)
     assert search_verified['status'] == 'VERIFIED'
+
+    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
+    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
     archetype_verified = archetype_builder.validate_product(
         connection, archetype_generation, archetype_manifest_sha)
     assert archetype_verified['status'] == 'VERIFIED'
