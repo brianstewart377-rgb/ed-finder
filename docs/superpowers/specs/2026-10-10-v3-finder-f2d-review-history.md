@@ -1413,3 +1413,9 @@ beyond round 52:
    offsets differ by ≈ 0.41 each; a `Decimal` form is a harmless nicety for the
    code PR, not a design matter.
 
+### Review round 57 (2026-10-13, on PR #808's merge of this design)
+
+1. **P2 — Put purge P before constraint validation in this sequence** → correct;
+   the ROADMAP now mandates 2 → P → 3 and this design's rollout table went
+   straight from 2 to 3. Row P is inserted and row 3 says "after P".
+
