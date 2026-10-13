@@ -446,6 +446,7 @@ try:
             "g.generation_key, p.product_code, "
             "p.product_version, p.lifecycle_state, p.expected_rows::text, "
             "p.created_at::text AS created_at, p.validated_at::text AS validated_at, "
+            "p.published_at::text AS published_at, "
             "p.failed_at::text AS failed_at, LEFT(p.failure,240) AS failure, "
             "CASE WHEN p.validation_sha256 IS NULL THEN NULL "
             "ELSE encode(p.validation_sha256,'hex') END AS validation_sha256_hex "
@@ -462,8 +463,23 @@ try:
             }
             for row in product_rows
         ]
+        product_publication_audit_rows = psql_json(
+            "SELECT row_to_json(q)::text FROM ("
+            "SELECT derived_generation_id::text AS derived_generation_id, "
+            "product_code, product_version, "
+            "encode(manifest_sha256,'hex') AS manifest_sha256_hex, "
+            "published_at::text AS published_at, actor "
+            "FROM v3_meta.derived_product_publication_audit "
+            "ORDER BY derived_generation_id, product_code) q",
+            db_user,
+            db_name,
+        )
+        receipt["derived_product_publication_audit"] = (
+            product_publication_audit_rows
+        )
     else:
         receipt["derived_products"] = None
+        receipt["derived_product_publication_audit"] = None
         failures.append("derived_product_table_missing")
 
     spatial_present_rows = psql(

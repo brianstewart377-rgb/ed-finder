@@ -23,6 +23,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The governed Finder build slice now retargets Search to the current published
+`ratings_v4_prod_p4_parallel_v1` generation and adds the wide Archetype build.
+Both actions are identity- and migration-pinned, require the combined capacity
+gate, bind registration to sealed manifest evidence, and finish only after
+reviewed validation plus a receipted `VACUUM (ANALYZE)` of the physical product
+table. The read-only lifecycle action now reports product publication
+timestamps and the database publication-audit rows independently of publisher
+receipts. No action was dispatched and no production system was accessed.
+
 The combined Finder capacity gate is now wired as a synchronous, read-only
 governed operation. Its trusted bundle is bound to the selected source SHA and
 the explicitly supplied F2d operator-code attestation, and its sealed receipt

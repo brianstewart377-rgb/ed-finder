@@ -171,7 +171,9 @@ def test_probe_operation_is_allowlisted_through_trusted_main():
         == "Stage trusted main and run V3 archetype calibration probe"
     )
 
-    assert execute_job["timeout-minutes"] == 55
+    # Finalization shares this job and allows the explicitly bounded two-hour
+    # VACUUM (ANALYZE); retain a small orchestration margin around that bound.
+    assert execute_job["timeout-minutes"] == 150
     assert probe_step["timeout-minutes"] == 35
     assert "          - v3-archetype-calibration-probe\n" in workflow
     assert "|v3-archetype-calibration-probe|" in workflow

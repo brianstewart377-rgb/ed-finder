@@ -21,6 +21,7 @@ EXPECTED_ACTIVE_ENTRIES = (
     "scripts/dev/measure_wide_archetype_footprint.py",
     "scripts/operator/actions/v3-archetype-calibration-complete.sh",
     "scripts/operator/actions/v3-finder-capacity-gate.sh",
+    "scripts/operator/actions/v3-system-archetype.sh",
     "scripts/operator/actions/v3-system-search-f1.sh",
     "scripts/operator/lib/f2d_evidence.py",
     "scripts/operator/lib/f2d_operator_identity.py",
@@ -36,7 +37,6 @@ EXPECTED_ACTIVE_ENTRIES = (
     "shared_contracts/v3_system_archetype_model.py",
 )
 PLANNED_ACTION_COMMENTS = (
-    "scripts/operator/actions/v3-system-archetype.sh",
     "scripts/operator/actions/v3-publish-derived-products.sh",
     "scripts/operator/actions/v3-archetype-plan-probe.sh",
 )

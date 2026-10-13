@@ -186,7 +186,7 @@ def test_gate_program_is_read_only() -> None:
     assert "default_transaction_read_only" in source
 
 
-def test_ops_workflow_allowlists_only_the_capacity_gate_attestation_input() -> None:
+def test_ops_workflow_allowlists_attestation_only_for_f2d_actions() -> None:
     workflow = _read(WORKFLOW)
     parsed = yaml.safe_load(workflow)
     # PyYAML's YAML 1.1 resolver treats the unquoted Actions key `on` as true.
@@ -201,11 +201,57 @@ def test_ops_workflow_allowlists_only_the_capacity_gate_attestation_input() -> N
         '[[ "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]]'
         in workflow
     )
-    assert 'if [ "$operation" = "v3-finder-capacity-gate" ]' in workflow
-    assert (
-        "F2d operator-code attestation input is accepted only for "
-        "v3-finder-capacity-gate" in workflow
+    governed_operations = (
+        "v3-finder-capacity-gate",
+        "v3-system-search-f1-start",
+        "v3-system-search-f1-status",
+        "v3-system-search-f1-finalize",
+        "v3-system-archetype-start",
+        "v3-system-archetype-status",
+        "v3-system-archetype-finalize",
     )
+    governed_case = "|".join(governed_operations)
+    assert governed_case in workflow
+    assert "accepted only for F2d governed actions" in workflow
+
+
+def test_ops_workflow_wires_f2d_build_operations() -> None:
+    workflow = _read(WORKFLOW)
+    parsed = yaml.safe_load(workflow)
+    inputs = parsed[True]["workflow_dispatch"]["inputs"]
+    operation_options = inputs["operation"]["options"]
+    execute_job = parsed["jobs"]["execute"]
+    step_names = {step.get("name") for step in execute_job["steps"]}
+
+    for operation in (
+        "v3-system-search-f1-finalize",
+        "v3-system-archetype-start",
+        "v3-system-archetype-status",
+        "v3-system-archetype-finalize",
+    ):
+        assert operation_options.count(operation) == 1
+        assert operation in workflow
+
+    assert {
+        "Stage trusted main for V3 Search F1",
+        "Launch V3 Search F1",
+        "Inspect V3 Search F1 status",
+        "Finalize V3 Search F1",
+        "Upload V3 Search F1 operation receipt",
+        "Prepare trusted V3 Archetype build bundle and dependencies",
+        "Stage trusted main for V3 Archetype build",
+        "Launch V3 Archetype build",
+        "Inspect V3 Archetype build status",
+        "Finalize V3 Archetype build",
+        "Upload V3 Archetype build operation receipt",
+    } <= step_names
+    assert 'stage="/var/tmp/edfinder-v3-archetype-build-${source_sha}"' in workflow
+    assert ".v3-archetype-build-source-sha" in workflow
+    assert ".v3-archetype-wheelhouse" in workflow
+    assert "trusted-main/scripts/operator/actions/v3-system-archetype.sh" in workflow
+    assert workflow.count("--preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED") >= 5
+    assert workflow.count('[[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]]') >= 7
+    assert "DATABASE_URL" not in workflow
 
 
 def test_ops_workflow_stages_runs_and_uploads_capacity_gate_receipt() -> None:

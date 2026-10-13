@@ -8,6 +8,7 @@ later tasks.
 """
 from pathlib import Path
 import sys
+from contextlib import nullcontext
 from uuid import uuid4
 
 import pytest
@@ -97,6 +98,121 @@ def test_register_is_idempotent_and_pins_manifest(database):
         (generation_id,),
     ).fetchone()
     assert product_code == ('system_archetype', 'v3-archetype-4', 'BUILDING')
+
+
+def test_expected_manifest_sha256_matching_value_registers(database):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    generation = builder._generation(connection, key)
+    expected = builder._digest(builder.product_manifest(generation)).hex()
+
+    registered, state, manifest_sha = builder.register_product(
+        connection, key, expected,
+    )
+
+    assert registered.identifier == str(generation_id)
+    assert state == 'BUILDING'
+    assert manifest_sha.hex() == expected
+
+
+def test_expected_manifest_sha256_matching_value_builds_as_before(database):
+    connection, _, _, _ = database
+    key, generation_id, _, records = _ratings_generation(database)
+    generation = builder._generation(connection, key)
+    expected = builder._digest(builder.product_manifest(generation)).hex()
+
+    result = builder.run(
+        connection, key, expected_manifest_sha256=expected,
+    )
+
+    assert result['status'] == 'INCOMPLETE'
+    assert result['chunks_written'] == 3
+    assert connection.execute(
+        '''SELECT count(*) FROM v3_derived.system_archetype
+            WHERE derived_generation_id=%s''',
+        (generation_id,),
+    ).fetchone()[0] == len(records)
+
+
+def test_expected_manifest_sha256_mismatch_registers_nothing(database):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+
+    with pytest.raises(
+        builder.ExpectedManifestMismatchError,
+        match='expected_manifest_mismatch',
+    ):
+        builder.register_product(connection, key, '0' * 64)
+
+    assert connection.execute(
+        '''SELECT count(*) FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code='system_archetype' ''',
+        (generation_id,),
+    ).fetchone()[0] == 0
+
+
+def test_expected_manifest_sha256_checks_existing_registration(database):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    _, _, manifest_sha = builder.register_product(connection, key)
+
+    generation, state, repeated_sha = builder.register_product(
+        connection, key, manifest_sha.hex(),
+    )
+    assert generation.identifier == str(generation_id)
+    assert state == 'BUILDING'
+    assert repeated_sha == manifest_sha
+
+    with pytest.raises(
+        builder.ExpectedManifestMismatchError,
+        match='expected_manifest_mismatch',
+    ):
+        builder.register_product(connection, key, '0' * 64)
+
+
+@pytest.mark.parametrize('value', ['A' * 64, '0' * 63, 'g' * 64])
+def test_expected_manifest_sha256_requires_lowercase_hex(database, value):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+
+    with pytest.raises(
+        builder.ExpectedManifestMismatchError,
+        match='expected_manifest_mismatch',
+    ):
+        builder.register_product(connection, key, value)
+
+    assert connection.execute(
+        '''SELECT count(*) FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code='system_archetype' ''',
+        (generation_id,),
+    ).fetchone()[0] == 0
+
+
+def test_cli_manifest_mismatch_exits_65_without_registration(
+    database, monkeypatch, capsys,
+):
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    import psycopg
+
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', 'fixture')
+    monkeypatch.setattr(
+        psycopg, 'connect',
+        lambda dsn, *, autocommit: nullcontext(connection),
+    )
+
+    assert builder.main([
+        '--generation-key', key,
+        '--expected-manifest-sha256', '0' * 64,
+    ]) == 65
+    assert capsys.readouterr().err == (
+        '{"status": "FAILED", "error": "expected_manifest_mismatch"}\n'
+    )
+    assert connection.execute(
+        '''SELECT count(*) FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code='system_archetype' ''',
+        (generation_id,),
+    ).fetchone()[0] == 0
 
 
 def test_manifest_includes_coefficients_and_anchors(database):

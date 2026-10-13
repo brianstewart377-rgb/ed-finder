@@ -71,6 +71,17 @@ def test_v3_derived_lifecycle_status_does_not_count_derived_data_tables():
         assert f"count(*) FROM v3_derived.{table}" not in source
 
 
+def test_v3_derived_lifecycle_status_reads_product_publication_evidence():
+    source = _read(ACTION)
+
+    assert '"p.published_at::text AS published_at, "' in source
+    assert '"FROM v3_meta.derived_product_publication_audit "' in source
+    assert '"product_code, product_version, "' in source
+    assert '"encode(manifest_sha256,\'hex\') AS manifest_sha256_hex, "' in source
+    assert '"published_at::text AS published_at, actor "' in source
+    assert 'receipt["derived_product_publication_audit"]' in source
+
+
 def test_v3_derived_lifecycle_status_excludes_forbidden_operations_and_secrets():
     source = _read(ACTION)
 
@@ -217,7 +228,10 @@ def _run_status_action(
                     printf 'v3_meta.derived_product\\n'
                   fi ;;
                 *'FROM v3_meta.derived_product p'*)
-                  printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
+                  printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_archetype","product_version":"archetype-v1","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-04 00:00:00+00","validated_at":"2026-09-01 00:00:00+00","published_at":null,"failed_at":null,"failure":null,"validation_sha256_hex":"cafe"}'
+                  printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","published_at":"2026-09-04 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
+                *'FROM v3_meta.derived_product_publication_audit'*)
+                  printf '%s\\n' '{"derived_generation_id":"derived-id","product_code":"system_search","product_version":"search-v2","manifest_sha256_hex":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","published_at":"2026-09-04 00:00:00+00","actor":"finder-product-publisher"}' ;;
                 *"to_regclass('v3_spatial.current_spatial_generation')"*)
                   if [ "$SPATIAL_RELATION_ABSENT" != '1' ]; then
                     printf 'v3_spatial.current_spatial_generation\\n'
@@ -318,8 +332,26 @@ def test_v3_derived_lifecycle_status_emits_expected_read_only_receipt(tmp_path):
         is False
     )
     assert receipt["derived"]["generation_key"] == "ratings_v4_canned"
-    assert receipt["derived_products"][0]["product_code"] == "system_search"
-    assert receipt["derived_products"][0]["lifecycle_state"] == "READY"
+    products = {
+        product["product_code"]: product for product in receipt["derived_products"]
+    }
+    assert products["system_search"]["lifecycle_state"] == "READY"
+    assert products["system_search"]["published_at"] == "2026-09-04 00:00:00+00"
+    assert products["system_archetype"]["lifecycle_state"] == "READY"
+    assert products["system_archetype"]["published_at"] is None
+    assert receipt["derived_product_publication_audit"] == [
+        {
+            "derived_generation_id": "derived-id",
+            "product_code": "system_search",
+            "product_version": "search-v2",
+            "manifest_sha256_hex": (
+                "0123456789abcdef0123456789abcdef"
+                "0123456789abcdef0123456789abcdef"
+            ),
+            "published_at": "2026-09-04 00:00:00+00",
+            "actor": "finder-product-publisher",
+        }
+    ]
     assert receipt["spatial"]["present"] is True
     assert receipt["spatial"]["current"]["spatial_generation_id"] == "spatial-id"
     assert receipt["footprint"]["database_size_bytes"] == 987654321
