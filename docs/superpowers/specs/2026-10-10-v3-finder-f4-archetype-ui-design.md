@@ -625,9 +625,15 @@ count is capped there. Tests assert success at `from=9_950, size=50` and 422 at
 Normalize Any responses
 separately: `navigable_total` is `min(total, 10000)`, and the Any truncation
 state is the existing `total_is_capped === true` rather than selected mode's
-differently defined `is_truncated`. An anchored exact `total` above 10,000 is
-still **displayed** exactly (“12,345 matches; navigation is limited to the
-first 10,000 results”); only navigation is bounded.
+differently defined `is_truncated`. **F2d PR1 caps every local-search count the
+same way — anchored requests included** (its section 6: `LIMIT cap + 1`,
+`total = min(count, cap)`, `total_is_capped = count > cap`, with anchored
+boundary tests at exactly 10,000 and 10,001), so after that mandatory
+prerequisite an anchored response never carries an exact `total` above 10,000.
+Anchored overflow therefore uses the same sentinel-backed copy as galaxy-wide
+("10,000+ matches; the first 10,000 are shown"), and the component tests cover
+the anchored below-cap, exact-10,000 and sentinel-overflow envelopes; there is no
+"exact count above 10,000" display state.
 
 **The plus sign needs a sentinel the API does not yet provide.** Today
 `total_is_capped` is set whenever `total >= GALAXY_WIDE_COUNT_CAP`
@@ -862,7 +868,7 @@ facts:
 
 ```ts
 type DistanceReference = Readonly<{
-  kind: "anchor" | "sol";
+  kind: "anchor" | "sol"; // an Any search anchored AT Sol (id64 10477373803) normalizes to kind "sol"
   id64: Id64;
   name: string;
 }>;
@@ -1109,7 +1115,12 @@ ranking versions” note. A snapshot without `ranking_provenance` (saved before
 F4a) never enters any score comparison, selected or overall; it is still
 listed with its stored values and an “older save” note. Distance is compared only when every entry has the same
 `distance_reference.kind` and id64, labelled **Distance from Sol** or
-**Distance from _name_**. Mixed-reference distances are excluded rather than
+**Distance from _name_**. An Any search whose committed anchor **is Sol**
+normalizes its reference to `kind: 'sol'` (the facade compares the anchor's id64
+with the Sol constant in `apps/api/src/helpers.py:16`, mirrored on the client),
+so a selected-archetype row and a Sol-anchored Any row — two distances measured
+from the identical origin — compare rather than being excluded as different
+references; a test saves one of each and asserts the distance column is shown. Mixed-reference distances are excluded rather than
 silently compared. For referenced snapshots, every finite measured distance is
 valid, including `0`; the reference metadata, not a positive-value test, proves
 the measurement. A legacy snapshot without `distance_reference` is unknown and
@@ -1897,8 +1908,11 @@ Exact files:
   consume F2d PR1's exact Any `total_is_capped` semantics)
 - modify `apps/web/src/lib/api/client.test.ts` (including `page_size=1` →
   `limit=1`, below-cap, exact-10,000 and sentinel-overflow Any envelopes)
-- modify `apps/web/src/lib/api/query.ts` (page size in the ranking query key)
-- modify `apps/web/src/lib/api/query.test.ts`
+- modify `apps/web/src/lib/api/query.ts` (page size in the ranking query key;
+  the committed anchor's `{ id64, name }` in the Any query key, section 6)
+- modify `apps/web/src/lib/api/query.test.ts` (key-partition regression: two
+  anchors with identical coordinates and different identities produce different
+  keys and never share cached rows)
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.svelte` (complete
   disabled-gate boundary and F4-parameter stripping)
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.test.ts` (disabled
@@ -1979,6 +1993,12 @@ Exact files:
 - modify `apps/web/src/lib/features/explore/ExploreWorkspace.test.ts` (including
   three one-row pages and stale-offset replacement/refetch)
 - modify `apps/web/src/lib/features/explore/ExploreWorkspaceTestHost.svelte`
+- modify `apps/web/src/lib/api/client.ts` (`getSystem` normalizes a legacy
+  `(0, 0, 0)` coordinate triple to absent coordinates — the origin guard of
+  section 5)
+- modify `apps/web/src/lib/api/client.test.ts` (a non-Sol system returning
+  `(0, 0, 0)` yields no point with the selection retained; Sol itself yields the
+  point)
 - modify `apps/web/src/lib/features/explore/compare-metrics.ts` (temporarily
   suppress distance in F4 Compare table and CSV)
 - modify `apps/web/src/lib/features/explore/compare-metrics.test.ts`
@@ -2054,11 +2074,17 @@ Exact files:
 - modify `apps/web/src/lib/components/SystemOverlay.svelte` (close path carries
   `page.state` — anchor payload — through the shared navigation helper)
 - modify `apps/web/src/routes/inspect/+page.svelte` (Open in Explore emits
-  `selected=<id64>&system=<id64>` in enabled builds)
+  `selected=<id64>&system=<id64>` in enabled builds; **Back to Explore**
+  (`+page.svelte:25`, today a plain link to `/explore`) replays the originating
+  `from` query and carries `page.state` — the anchor — through the same shared
+  navigation helper, without adding the selection, so the natural return action
+  does not discard the archetype, page or anchored search; with no `from` it
+  falls back to `/explore` as today)
 - create `apps/web/src/routes/inspect/+page.test.ts` (default-off unchanged link;
   enabled replay deletes prior/duplicate `selected` and `system`, sets each once
-  to the inspected id, preserves outbound `page.state`/anchor on return, and
-  covers the bare-link fallback)
+  to the inspected id, preserves outbound `page.state`/anchor on return, covers
+  the bare-link fallback, and a Back to Explore round trip that restores the
+  archetype, floor, page and anchor without selecting the inspected system)
 - create `apps/web/src/routes/inspect/InspectPageTestHost.svelte` (the
   `QueryClientProvider` host required by the mounted `SystemDetail`)
 - modify `apps/web/src/lib/components/SystemOverlay.test.ts` (anchored
@@ -2980,10 +3006,13 @@ carrying `galaxy_region`, `max_distance_ly`, `has_elw`, `min_slots` or
 every “filters applied within the top 10,000” behaviour is replaced by a plain
 window: `total = min(qualifying, 10000)`, `is_truncated` means the ranking is
 longer than the window, and the copy becomes **within the top 10,000 for [Archetype]**.
-F4b disables (never hides) those controls while an archetype is picked, with one
-shared `aria-describedby` explanation, clears them from the URL with a polite
-announcement, and restores them on returning to Any. Earlier rounds' dispositions
-that describe post-window filtering are superseded by this one.
+F4b itself adds no hard-filter controls (none exist in the live `apps/web`
+Finder) and owes one guarantee: a picked request never carries a hard-filter
+parameter. The disable-never-hide, `aria-describedby`, clear-with-announcement
+and restore-on-Any behaviours belong to the later increment that adds the
+controls (slice 1c, "The rule for when such controls are added"). Earlier rounds'
+dispositions that describe post-window filtering, or that assigned those control
+behaviours to F4b, are superseded by this one.
 
 #### Round 24 — 2026-10-11 (PR #801)
 
@@ -3549,4 +3578,26 @@ had written in the preceding round, which is worth noting rather than hiding.
    rules (filtered or score-sorted anchored requests capped at 500 ly) are
    stated with the UI obligations they create for the Any-filter increment
    (slice 1c, "Hard filters in Any mode").
+
+### Review round 44 (2026-10-13)
+
+1. **Octopus — conflicting selected-mode filter behaviour** → fixed; the round-23
+   disposition still assigned disable/clear/restore to F4b while section 8 says
+   the controls do not exist in F4b. The disposition now matches section 8.
+2. **P2 — Preserve state through the Back to Explore link** → correct; the live
+   page's plain `Back to Explore` link discarded the origin and the anchor. It now
+   replays `from` and carries `page.state` without adding the selection, with a
+   round-trip test (F4b inventory).
+3. **P2 — Restore anchor identity to the F4a query-key task** → correct; the
+   `query.ts`/`query.test.ts` tasks now name the anchor identity and the
+   key-partition regression that section 6 requires.
+4. **P2 — Add the origin guard files to the F4b inventory** → correct;
+   `client.ts` and `client.test.ts` are now in F4b's exact file set with the
+   `(0, 0, 0)` normalization and its non-Sol/Sol tests.
+5. **P2 — Match anchored count handling to F2d PR1** → correct; F2d PR1 caps
+   anchored counts with the same sentinel, so the exact-count-above-10,000
+   display state was unreachable. Anchored overflow now uses the capped copy and
+   the anchored boundary envelopes are in the component tests.
+6. **P2 — Treat an Any search anchored at Sol as a Sol reference** → correct;
+   a Sol anchor now normalizes to `kind: 'sol'` so the two distances compare.
 
