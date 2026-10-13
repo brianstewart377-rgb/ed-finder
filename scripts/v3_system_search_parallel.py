@@ -73,14 +73,17 @@ def _lock_base(connection, generation_id):
         '''SELECT lifecycle_state FROM v3_meta.derived_generation
             WHERE derived_generation_id=%s FOR SHARE''', (generation_id,),
     ).fetchone()
-    if row is None or row[0] != 'READY':
-        raise ValueError('parallel Search requires a READY Ratings generation')
+    # Migration 015 lets a Finder product build on an already-PUBLISHED base
+    # (the production target, ratings_v4_prod_p4_parallel_v1, is PUBLISHED);
+    # the serial builder accepts the same two states.
+    if row is None or row[0] not in {'READY', 'PUBLISHED'}:
+        raise ValueError('parallel Search requires a READY or PUBLISHED Ratings generation')
 
 
 def _load_plan(connection, generation_key):
     generation = serial._generation(connection, generation_key)
-    if generation.state != 'READY':
-        raise ValueError('parallel Search requires a READY Ratings generation')
+    if generation.state not in {'READY', 'PUBLISHED'}:
+        raise ValueError('parallel Search requires a READY or PUBLISHED Ratings generation')
     manifest = serial.product_manifest(generation)
     manifest_sha = serial._digest(manifest)
     product = serial._product(connection, generation.identifier)

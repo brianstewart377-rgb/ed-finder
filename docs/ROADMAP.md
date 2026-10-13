@@ -211,8 +211,9 @@ newer dated source wins).
      retargeted from `opt1` to `parallel_v1`). Code only; verified on
      disposable PostgreSQL 18, including a repeat of the wide-row footprint
      measurement with the final migration text
-     (`scripts/dev/measure_wide_archetype_footprint.py`). Prerequisites: the
-     owner's recorded answers to questions 5 and 6 of
+     (`scripts/dev/measure_wide_archetype_footprint.py`). **Progress
+     (2026-10-13): PR1 (#809) merged; PR2 adds migration `015`.** Prerequisites:
+     the owner's recorded answers to questions 5 and 6 of
      `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
      exact-version rule for on-demand explanations; the **partial unique-entry**
      score-index layout, refined by the F2d design review into stored

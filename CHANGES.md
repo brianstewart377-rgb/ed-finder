@@ -23,6 +23,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+Migration `015` now permits independently validated Finder products to be
+attached to the current published Ratings generation, while keeping product
+rows and receipts insert-only and hiding READY products until a one-way,
+audited publication timestamp is committed. Product publication and later
+generation-pointer flips share a transaction lock; deferred table guards
+enforce counterpart and unfinished-product rules even for direct DML. Search
+and Archetype application views and API reads now require both products to be
+READY and published, builders accept a PUBLISHED ratings base, and disposable
+fixture seeds publish Search then Archetype in one transaction.
+
 The unapplied migration `011` now stores one wide archetype row per system,
 with integer-ppm confidences, exact integer weighted ranking keys, 24
 tier-floor partial indexes, and application summary/detail views rather than a

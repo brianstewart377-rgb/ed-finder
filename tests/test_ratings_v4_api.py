@@ -84,7 +84,15 @@ def _receipt(canonical, metadata):
 
 def test_read_only_api_replays_the_published_vector_from_immutable_mechanics():
     with canonical_database() as (connection, canonical, _metadata, payloads):
-        connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
+        for name in (
+            '003_ratings_v4_derived.sql',
+            '004_v3_search_spatial_clusters.sql',
+            '006_v3_derived_product_lifecycle.sql',
+            '010_v3_system_search_body_type_counts.sql',
+            '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
+        ):
+            connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         snapshot = CanonicalSnapshot.pin(connection)
         exported = snapshot.export_chunk(connection, [row['id64'] for row in canonical['systems']])
         generation = create_generation(connection, snapshot, 'api_contract_fixture')
@@ -92,9 +100,9 @@ def test_read_only_api_replays_the_published_vector_from_immutable_mechanics():
         assert write_chunk(connection, generation, 0, exported, snapshot.metadata, records)
         seal_source(connection, generation, _receipt(exported, snapshot.metadata))
         validate_generation(connection, generation)
-        connection.execute('SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)', (
+        connection.execute('SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)', (
             generation, None, 0, snapshot.generation_id, snapshot.publication_sequence,
-            'test', 'verified API contract fixture',
+            'test', 'verified API contract fixture', [],
         ))
 
         identifier = canonical['systems'][0]['id64']

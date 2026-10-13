@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.ratings_v4.canonical_stream import CanonicalSnapshot  # noqa: E402
 from scripts.ratings_v4.production_generation import (  # noqa: E402
-    create_generation, write_chunk,
+    create_generation, seal_source, validate_generation, write_chunk,
 )
 from scripts.v3_system_archetype_model import (  # noqa: E402
     ARCHETYPE_KEYS, score_raw_system,
@@ -37,7 +37,9 @@ def database():
             '003_ratings_v4_derived.sql',
             '004_v3_search_spatial_clusters.sql',
             '006_v3_derived_product_lifecycle.sql',
+            '010_v3_system_search_body_type_counts.sql',
             '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
         ):
             connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         yield connection, canonical, metadata, payloads
@@ -80,6 +82,25 @@ def _verified_search_product(connection, generation_id, expected_rows):
     )
 
 
+def _publish_generation(database, generation_id, snapshot):
+    connection, canonical, metadata, _ = database
+    seal_source(connection, generation_id, {
+        'consumed_to_eof': True,
+        'artifact_sha256': metadata['artifact']['content_sha256'].removeprefix('\\x'),
+        'size_bytes': metadata['artifact']['size_bytes'],
+        'systems': len(canonical['systems']),
+        'bodies': len(canonical['bodies']),
+    })
+    assert validate_generation(connection, generation_id)['status'] == 'VERIFIED'
+    assert connection.execute(
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s::text[])',
+        (
+            generation_id, None, 0, snapshot.generation_id,
+            snapshot.publication_sequence, 'test', 'published-base builder test', [],
+        ),
+    ).fetchone()[0] == 1
+
+
 def test_build_writes_all_rows_and_receipt(database):
     connection, _, _, _ = database
     key, generation_id, _, records = _ratings_generation(database)
@@ -109,6 +130,19 @@ def test_build_writes_all_rows_and_receipt(database):
     again = builder.build_available(connection, generation, manifest_sha)
     assert again['chunks_written'] == 0
     assert again['systems_written'] == 0
+
+
+def test_register_and_build_accept_published_base(database):
+    connection, _, _, _ = database
+    key, generation_id, snapshot, _ = _ratings_generation(database)
+    _publish_generation(database, generation_id, snapshot)
+
+    generation, state, manifest_sha = builder.register_product(connection, key)
+    assert generation.state == 'PUBLISHED'
+    assert state == 'BUILDING'
+    result = builder.build_available(connection, generation, manifest_sha)
+    assert result['chunks_written'] == 3
+    assert result['systems_written'] == 12
 
 
 def test_build_is_deterministic(database):

@@ -293,51 +293,55 @@ Fail-closed gate: the F3 endpoint cutover MUST NOT be promoted to production
 until the `system_search` **and** `system_archetype` derived products are built,
 `VERIFIED`, and published against the live published Ratings V4 generation
 `ratings_v4_prod_p4_parallel_v1`. The endpoints resolve the published generation
-and require both Finder products to be `READY` for it; if either is missing the
-production Finder returns `404` (no published generation) or `503` (products not
-ready), not results. Promoting the application image ahead of the product
-publish would therefore take the production Finder down.
+and require both Finder products to be `READY` with `published_at IS NOT NULL`;
+if either is missing, unfinished, failed, or READY-but-unpublished, the Finder
+returns `503`, not results. Promoting the F3 image before the revised rollout
+gate is satisfied would therefore take the production Finder down.
 
 **Schema prerequisite — application and validation remain outstanding.** This
 PR registers `010_v3_system_search_body_type_counts.sql`,
-`011_v3_system_archetype.sql`, and `013_v3_system_search_parallel.sql` after
-`014_v3_watchlist.sql` in the governed V3 manifest and authority. Migration
+`011_v3_system_archetype.sql`, `013_v3_system_search_parallel.sql`, and
+`015_v3_derived_product_publication.sql` after `014_v3_watchlist.sql` in the
+governed V3 manifest and authority. Migration
 `010` is rewritten to add its columns without inline checks and add its 18
 constraints as `NOT VALID` for bounded application. Migration `011` was
 registered but never applied to production, so it is rewritten in place as the
 one-wide-row-per-system archetype schema rather than followed by a corrective
-migration. Registration is not application: rollout step 2 must still run the
-governed migration `plan`, review it, and apply the pending
-`[014, 010, 011-rewritten, 013]` set; rollout step 3 must then run the separate
-governed constraint validation. The body-count columns created by `010`, and
-the wide `system_archetype` relation plus application projections created by
-`011`, are required by the F3 queries and Finder product builders. The live
+migration. Migration `015` extends the applied `006` lifecycle without
+rewriting it: products may be registered, built and validated on the current
+PUBLISHED generation, but remain invisible until their one-way, audited product
+publication. It also gates all three Finder views on READY-and-published
+products, protects later generation-pointer flips, and removes the unsafe old
+seven-argument generation publisher. Registration is not application: the
+currently registered pending set is
+`[014, 010, 011-rewritten, 013, 015]`; the governed purge code PR will register
+`016` and recut this authority again before the migration `plan`/review/`apply`
+step, because the runner applies every pending migration. Separate governed
+constraint validation follows the purge. The body-count columns created by
+`010`, the wide `system_archetype` relation and projections created by `011`,
+and the product-publication contract created by `015` are required by the F3
+queries and Finder product builders. The live
 `v3_meta.schema_migration` ledger must match the identity derived by
 `scripts/operator/v3_schema_identity.py` before the product build and cutover.
-(The disposable Cypress seed sidesteps this by executing both files directly via
+(The disposable Cypress seed sidesteps this by executing the required
+migrations directly via
 `scripts/dev/seed_cypress_v3_generation.py`; that is acceptable only for the
 throwaway CI database, never the governed path.)
 
-Outstanding before promotion (tracked in `docs/ROADMAP.md`): the governed
-plan/apply and separate constraint-validation steps above, the F1
-`system_search` rebuild, and the F2b `system_archetype` product build. These
-products **cannot** be attached
-to the already-published `ratings_v4_prod_p4_parallel_v1` generation: both
-`scripts/v3_system_archetype.py` (`register_product`) and
-`scripts/v3_system_search.py` reject product registration unless the derived
-generation is `BUILDING`, `VALIDATING`, or `READY`, and the
-`006_v3_derived_product_lifecycle.sql` trigger independently rejects any derived
-product change once the generation is `PUBLISHED`. The build therefore targets a
-**non-published** derived generation: create or select one in
-`BUILDING`/`VALIDATING`/`READY`, attach and verify both `system_search` and
-`system_archetype` there through the genuine build→validate pipeline, then
-atomically publish that generation (a new publication sequence) so both products
-go live together — the current published generation is never mutated in place.
-The CI gap this gate protects
-against — a cutover with no published V3 generation to read — is closed for the
-browser lane by `scripts/dev/seed_cypress_v3_generation.py` (it publishes a real
-derived generation into the Cypress database through the genuine
-build→validate→publish pipeline); production parity is this gate, not that seed.
+Outstanding before promotion (tracked in `docs/ROADMAP.md`): registration of
+`016`, the governed plan/apply, purge and separate constraint-validation steps;
+the revised release gate and release-first deployment; the capacity gate; and
+the Search and Archetype builds. Migration `015` deliberately allows both
+products to be attached to the already-current PUBLISHED
+`ratings_v4_prod_p4_parallel_v1` generation through their genuine
+build→validate pipelines. Neither builder publishes a product. After both are
+READY/VERIFIED, the governed product-publication action publishes Search and
+Archetype together in one transaction; the generation pointer does not move.
+Until that explicit launch, `published_at` is NULL, the publication-gated views
+hide both products, and Finder returns 503. The Cypress/Review Lab fixture uses
+the same lifecycle shape in its disposable database: it publishes its
+generation and then publishes both products in one transaction. Production
+parity is the governed gate, not that seed.
 
 ### Promotion hold (version-drift monitor)
 
@@ -356,4 +360,4 @@ Extending the hold requires a reviewed pull request that bumps
 `covers_main_sha` (and `expires_at` if needed). This is how each later deployable
 change is consciously acknowledged rather than silently covered. The hold must
 be removed in the same pull request that revises the application-release gate
-for the fresh generation in `docs/ROADMAP.md` rollout step 10.
+for the product-publication rollout in `docs/ROADMAP.md`.

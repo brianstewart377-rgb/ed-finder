@@ -24,7 +24,9 @@ def database():
             '003_ratings_v4_derived.sql',
             '004_v3_search_spatial_clusters.sql',
             '006_v3_derived_product_lifecycle.sql',
+            '010_v3_system_search_body_type_counts.sql',
             '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
         ):
             connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         yield connection, canonical, metadata, payloads
@@ -89,6 +91,21 @@ def _ready_ratings(database, generation_id):
     assert receipt['status'] == 'VERIFIED'
 
 
+def _publish_ready_generation(connection, generation_id):
+    snapshot = connection.execute(
+        '''SELECT canonical_generation_id,canonical_publication_sequence
+             FROM v3_meta.derived_generation WHERE derived_generation_id=%s''',
+        (generation_id,),
+    ).fetchone()
+    assert connection.execute(
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s::text[])',
+        (
+            generation_id, None, 0, snapshot[0], snapshot[1],
+            'test', 'published-base validator test', [],
+        ),
+    ).fetchone()[0] == 1
+
+
 def test_wide_build_validates_and_promotes(database):
     connection, _, _, _ = database
     key, generation_id = _ratings_generation(database)
@@ -103,6 +120,20 @@ def test_wide_build_validates_and_promotes(database):
     assert receipt['wide_rows'] == receipt['systems'] == 12
     assert receipt['chunks'] == 3
     assert receipt['invariants_ok'] is True
+
+
+def test_validate_accepts_published_base(database):
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+    generation, _, manifest_sha = builder.register_product(connection, key)
+    builder.build_available(connection, generation, manifest_sha)
+    _ready_ratings(database, generation_id)
+    _publish_ready_generation(connection, generation_id)
+
+    published = builder._generation(connection, key)
+    assert published.state == 'PUBLISHED'
+    receipt = builder.validate_product(connection, published, manifest_sha)
+    assert receipt['status'] == 'VERIFIED'
 
 
 def test_missing_chunk_receipt_and_count_mismatch_fail(database):

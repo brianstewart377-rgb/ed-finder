@@ -27,7 +27,7 @@ from scripts.v3_system_search import (  # noqa: E402
 # The Cypress edfinder database is built from sql/migration-manifest.txt, which
 # lists ONLY legacy sql/*.sql -- it has no V3 schema at all. So the seed brings
 # up the V3 baseline + the exact derived-build migration set that
-# test_local_search_v3.py's fixture proves is sufficient ({001} + these five).
+# test_local_search_v3.py's fixture proves is sufficient ({001} + these six).
 # Apply each required migration ONLY if the object it creates is still missing.
 # Two live shapes must both work: (a) the Cypress edfinder DB with NO V3 schema,
 # and (b) a DB where the account-browser seed already ran derive_entries
@@ -52,6 +52,8 @@ _MIGRATION_PROBES: tuple[tuple[str, str], ...] = (
      "WHERE table_schema='v3_derived' AND table_name='system_archetype' "
      "AND table_type='BASE TABLE') AND EXISTS(SELECT 1 FROM information_schema.views "
      "WHERE table_schema='v3_app' AND table_name='system_archetype_summary')"),
+    ('015_v3_derived_product_publication.sql',
+     "SELECT to_regclass('v3_meta.derived_product_publication_audit') IS NOT NULL"),
 )
 
 # Mirrors tests/test_local_search_v3.py::_ratings_generation (chunk_size=4). The
@@ -219,7 +221,42 @@ def _owned_published_sequence(
     if (audit_actor != publication_actor or not isinstance(audit_reason, str)
             or not audit_reason.endswith(digest_suffix)):
         raise RuntimeError('fixture digest mismatch')
+    _ensure_products_published(connection, derived_generation_id, publication_actor)
     return sequence
+
+
+_FINDER_PRODUCTS = ('system_search', 'system_archetype')
+
+
+def _ensure_products_published(connection, derived_generation_id, publication_actor: str) -> None:
+    """Re-running the seed against a database seeded before migration 015 finds
+    both Finder products READY but with ``published_at`` NULL (015 initialises
+    the column that way), which hides them from the application views and
+    makes the Finder 503. Publish them in one transaction; fail closed on any
+    product that is missing or not READY/VERIFIED rather than return a fixture
+    the application cannot serve."""
+    rows = connection.execute(
+        '''SELECT product_code, lifecycle_state, validation_receipt->>'status', published_at
+             FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code = ANY(%s)''',
+        (derived_generation_id, list(_FINDER_PRODUCTS)),
+    ).fetchall()
+    state = {row[0]: row for row in rows}
+    unpublished = []
+    for code in _FINDER_PRODUCTS:
+        row = state.get(code)
+        if row is None or row[1] != 'READY' or row[2] != 'VERIFIED':
+            raise RuntimeError(f'fixture product {code} is not READY/VERIFIED')
+        if row[3] is None:
+            unpublished.append(code)
+    if not unpublished:
+        return
+    with connection.transaction():
+        for code in unpublished:
+            connection.execute(
+                'SELECT v3_meta.publish_derived_product(%s,%s,%s)',
+                (derived_generation_id, code, publication_actor),
+            ).fetchone()
 
 
 def _ensure_migrations(connection) -> None:
@@ -302,8 +339,28 @@ def seed_v3_fixture_generation(
     assert archetype_builder.validate_product(
         connection, archetype_generation, archetype_manifest_sha)['status'] == 'VERIFIED'
 
-    return connection.execute(
-        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
-        (generation_id, None, 0, snapshot.generation_id, snapshot.publication_sequence,
-         publication_actor,
-         f'{publication_note} [fixture_manifest_sha256={fixture_digest}]')).fetchone()[0]
+    # First publication has no outgoing Finder products, so the generation can
+    # be made current with an empty same-transaction publication set. Attach
+    # both already-verified products immediately afterwards, in the same
+    # transaction and in dependency order, so no fixture reader can observe a
+    # partially available Finder.
+    with connection.transaction():
+        sequence = connection.execute(
+            'SELECT v3_meta.publish_derived_generation('
+            '%s,%s,%s,%s,%s,%s,%s,%s::text[])',
+            (
+                generation_id, None, 0, snapshot.generation_id,
+                snapshot.publication_sequence, publication_actor,
+                f'{publication_note} [fixture_manifest_sha256={fixture_digest}]',
+                [],
+            ),
+        ).fetchone()[0]
+        connection.execute(
+            'SELECT v3_meta.publish_derived_product(%s,%s,%s)',
+            (generation_id, 'system_search', publication_actor),
+        ).fetchone()
+        connection.execute(
+            'SELECT v3_meta.publish_derived_product(%s,%s,%s)',
+            (generation_id, 'system_archetype', publication_actor),
+        ).fetchone()
+    return sequence

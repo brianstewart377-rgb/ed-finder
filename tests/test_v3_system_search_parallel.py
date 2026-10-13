@@ -46,7 +46,9 @@ def database():
             '004_v3_search_spatial_clusters.sql',
             '006_v3_derived_product_lifecycle.sql',
             '010_v3_system_search_body_type_counts.sql',
+            '011_v3_system_archetype.sql',
             '013_v3_system_search_parallel.sql',
+            '015_v3_derived_product_publication.sql',
         ):
             connection.execute((ROOT / 'sql/v3/migrations' / migration).read_text())
         yield fixture
@@ -432,6 +434,51 @@ def test_prepare_resume_and_bounded_worker_preserve_progress(database):
     assert _search_rows(connection, generation_id) == rows
     assert _receipts(connection, generation_id) == receipts
     _assert_complete_counts(connection, generation_id, chunks=3)
+
+
+def _publish_base(connection, generation_id):
+    canonical, canonical_sequence = connection.execute(
+        'SELECT generation_id, publication_sequence '
+        'FROM v3_meta.current_canonical_generation WHERE singleton'
+    ).fetchone()
+    current = connection.execute(
+        'SELECT derived_generation_id, publication_sequence '
+        'FROM v3_meta.current_derived_generation WHERE singleton'
+    ).fetchone()
+    expected_current, expected_sequence = (current or (None, 0))
+    return connection.execute(
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
+        (
+            generation_id, expected_current, expected_sequence or 0, canonical,
+            canonical_sequence, 'parallel-test', 'publish base before Search build', [],
+        ),
+    ).fetchone()[0]
+
+
+def test_prepare_run_and_finalize_accept_a_published_base(database):
+    """Migration 015: the production Search build runs on the already-PUBLISHED
+    ratings generation, so every parallel entry point must accept that state."""
+    connection, _, _, _ = database
+    key, generation_id = _ready_generation(database, chunk_size=2)
+    _publish_base(connection, generation_id)
+    assert connection.execute(
+        'SELECT lifecycle_state FROM v3_meta.derived_generation WHERE derived_generation_id=%s',
+        (generation_id,),
+    ).fetchone()[0] == 'PUBLISHED'
+
+    parallel.prepare(connection, key, workers=2)
+    for range_id in (0, 1):
+        assert parallel.run_worker(connection, key, range_id=range_id)['status'] == 'RANGE_COMPLETE'
+    _assert_complete_counts(connection, generation_id, chunks=6)
+    receipt = parallel.finalize(connection, key)
+    assert receipt['status'] == 'VERIFIED'
+    # Built and verified, but not published: 015 keeps the product invisible
+    # until an explicit product publication.
+    assert connection.execute(
+        '''SELECT lifecycle_state, published_at FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code='system_search' ''',
+        (generation_id,),
+    ).fetchone() == ('READY', None)
 
 
 def test_prepare_requires_ready_ratings(database):

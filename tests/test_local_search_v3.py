@@ -59,6 +59,7 @@ def database():
             '006_v3_derived_product_lifecycle.sql',
             '010_v3_system_search_body_type_counts.sql',
             '011_v3_system_archetype.sql',
+            '015_v3_derived_product_publication.sql',
         ):
             connection.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         yield connection, canonical, metadata, payloads
@@ -90,9 +91,9 @@ def _eof_receipt(database):
 
 def _publish(connection, generation_id, snapshot):
     return connection.execute(
-        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s)',
+        'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
         (generation_id, None, 0, snapshot.generation_id, snapshot.publication_sequence,
-         'test', 'local search v3 fixture'),
+         'test', 'local search v3 fixture', ['system_search', 'system_archetype']),
     ).fetchone()[0]
 
 
@@ -779,7 +780,11 @@ async def test_current_derived_generation_503_when_required_product_missing():
             return {'derived_generation_id': 'g1', 'publication_sequence': 1}
 
         async def fetch(self, *_a, **_k):
-            return [{'product_code': 'system_search'}]  # system_archetype missing
+            return [{
+                'product_code': 'system_search',
+                'lifecycle_state': 'READY',
+                'published_at': '2026-10-13T00:00:00+00:00',
+            }]  # system_archetype missing
 
     with pytest.raises(HTTPException) as excinfo:
         await local_search._current_derived_generation(_Conn())
@@ -787,8 +792,20 @@ async def test_current_derived_generation_503_when_required_product_missing():
     assert 'system_archetype' in str(excinfo.value.detail)
 
 
+@pytest.mark.parametrize(
+    ('lifecycle_state', 'published_at', 'reason'),
+    (
+        ('BUILDING', None, 'BUILDING'),
+        ('FAILED', None, 'FAILED'),
+        ('READY', None, 'unpublished'),
+    ),
+)
 @pytest.mark.asyncio
-async def test_current_derived_generation_ok_when_both_products_ready():
+async def test_current_derived_generation_503_names_unavailable_product_state(
+    lifecycle_state, published_at, reason,
+):
+    from fastapi import HTTPException
+
     class _Conn:
         async def fetchrow(self, *_a, **_k):
             return {'derived_generation_id': 'g1', 'publication_sequence': 3}
@@ -797,12 +814,46 @@ async def test_current_derived_generation_ok_when_both_products_ready():
             return [
                 {
                     'product_code': 'system_search',
+                    'lifecycle_state': lifecycle_state,
+                    'published_at': published_at,
+                },
+                {
+                    'product_code': 'system_archetype',
+                    'lifecycle_state': 'READY',
+                    'published_at': '2026-10-13T00:00:00+00:00',
+                    'archetype_version': 'v3-archetype-4',
+                    'archetype_manifest_sha256': '2' * 64,
+                    'archetype_model_sha256': '3' * 64,
+                },
+            ]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await local_search._current_derived_generation(_Conn())
+    assert excinfo.value.status_code == 503
+    assert 'system_search' in str(excinfo.value.detail)
+    assert reason in str(excinfo.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_current_derived_generation_ok_when_both_products_ready_and_published():
+    class _Conn:
+        async def fetchrow(self, *_a, **_k):
+            return {'derived_generation_id': 'g1', 'publication_sequence': 3}
+
+        async def fetch(self, *_a, **_k):
+            return [
+                {
+                    'product_code': 'system_search',
+                    'lifecycle_state': 'READY',
+                    'published_at': '2026-10-13T00:00:00+00:00',
                     'archetype_version': 'v3-search-1',
                     'archetype_manifest_sha256': '1' * 64,
                     'archetype_model_sha256': None,
                 },
                 {
                     'product_code': 'system_archetype',
+                    'lifecycle_state': 'READY',
+                    'published_at': '2026-10-13T00:00:00+00:00',
                     'archetype_version': 'v3-archetype-4',
                     'archetype_manifest_sha256': '2' * 64,
                     'archetype_model_sha256': '3' * 64,
@@ -826,9 +877,15 @@ async def test_current_derived_generation_503_when_archetype_identity_is_incompl
 
         async def fetch(self, *_a, **_k):
             return [
-                {'product_code': 'system_search'},
+                {
+                    'product_code': 'system_search',
+                    'lifecycle_state': 'READY',
+                    'published_at': '2026-10-13T00:00:00+00:00',
+                },
                 {
                     'product_code': 'system_archetype',
+                    'lifecycle_state': 'READY',
+                    'published_at': '2026-10-13T00:00:00+00:00',
                     'archetype_version': 'v3-archetype-4',
                     'archetype_manifest_sha256': '2' * 64,
                     'archetype_model_sha256': None,

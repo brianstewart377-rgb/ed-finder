@@ -54,7 +54,11 @@ v3_meta.current_derived_generation
 - published_at TIMESTAMPTZ
 ```
 
-Published derived generations are immutable. Recalculation creates a new generation; publication flips a single current pointer after validation.
+The ratings relations of a published derived generation stay immutable.
+Recalculation creates a new generation; publication flips a single current
+pointer after validation. As an explicit exception, derived products may be
+added to a published generation and become visible only through migration
+`015`'s product-publication gate.
 
 ## 2. Exact spatial search: PostgreSQL `cube` + GiST
 
