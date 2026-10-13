@@ -956,7 +956,7 @@ unpublished rows) and a picked ranking into an error on the removed
 | 2 | Governed migration `plan`, review the receipt, then `apply`. | `.github/workflows/v3-production-schema-migration.yml`; no new action. | empty structures |
 | 3 | Validate all 18 deferred `system_search` constraints after `010`. | Built `v3-system-search-validate-constraints-start/status`. | none |
 | 4 | Revise the F3 release gate and **deploy the release first** (section 8.1). | Amend the release authority; reuse the governed release workflows. | 0 |
-| 5 | Coefficient calibration and the complete read (section 8.2). | Built `v3-archetype-calibration-probe` for coefficient review; PR4's complete-read action for the capacity input. | 0 |
+| 5 | Coefficient calibration, the complete read, and the eligible footprint measurement (section 8.2). | Built `v3-archetype-calibration-probe` for coefficient review; PR4's complete-read action for the capacity input; PR4's disposable-PostgreSQL measurement workflow for the gate's receipts. | 0 (nothing on production) |
 | 6 | **Combined capacity gate** (section 8.4) — the last point of no return, before the Search build. | New read-only action modelled on `v3-derived-lifecycle-status`. | 0 |
 | 7 | Register, build, validate post-`010` `system_search` on `parallel_v1`; `VACUUM (ANALYZE)` (section 8.5). | Retarget `v3-system-search-f1.sh` from `opt1`; pin `010`/`015` hashes. | ≈ 80 GB (gate charges the measured projection) |
 | 8 | Register, build, validate wide `system_archetype` on `parallel_v1`; `VACUUM (ANALYZE)` (section 8.5). | New start/status action in the F1 pattern: build then `--validate`, pin `011`/`015`, receipt READY/VERIFIED and counts. | ≈ 76 GB synthetic; sized from the real histogram |
@@ -1019,6 +1019,23 @@ the system count, and the identities of section 8.3. The sampled mode's output
 is refused by the gate. Tests cover the start/status contract, a restart that
 resumes from the checkpoint, and that the receipt's per-key totals equal the
 generation's system count.
+
+**The eligible footprint receipt is produced here, not by PR1.** PR1's receipt
+uses the declared synthetic distribution and is gate-ineligible; the real
+fractions exist only after the complete read. So PR4 adds a dispatchable GitHub
+Actions workflow, `v3-finder-capacity-measurement.yml`, that runs on a
+disposable PostgreSQL 18 service container — never on production — and, from a
+checkout whose `f2d_operator_code_sha256` is the attested one: converts the
+committed complete-read receipt with `convert_calibration_histogram.py`; runs
+`measure_wide_archetype_footprint.py --migration-sql <the registered 011>
+--fractions-json <that output>` for the Archetype receipt; runs the Search
+pre/post-`010` fills and the fixed-cost fills of section 8.4; and uploads the
+sealed receipts, each recording the operator-code identity, the input digests
+and the migration hashes. A reviewed PR commits them under
+`docs/operations/evidence/`, and the capacity gate reads only committed
+receipts. The gate refuses a receipt whose `011` hash is not the applied ledger
+entry, so a measurement taken before step 2's apply must be repeated if `011`
+changed.
 
 The probe receipt also carries the **expected product manifest** that
 `product_manifest()` produces for the pinned generation and the attested code
@@ -1135,10 +1152,24 @@ The Search term is measured, never the ≈ 87 GB fixture figure:
 `real_pre010_bytes_per_row` is the committed step 0 receipt's real pre-`010`
 `system_search` on `opt1`, 80,522,969,088 bytes for 198,528,286 rows (≈ 405.6
 B/row; `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json`),
-and `measured_010_delta_bytes_per_row` is the pre/post-`010` DDL difference
-measured on disposable PostgreSQL 18 with the same rows, digest-bound like the
-Archetype receipt. The gate refuses if either input or its provenance is
-absent. The reserve is 15 % of the projected new footprint — the only
+and `measured_010_delta_bytes_per_row` is the difference between the final
+post-`010` DDL and the pre-`010` DDL **each filled from empty with the same
+rows** on disposable PostgreSQL 18, digest-bound like the Archetype receipt. It
+is never a populated table sized before and after `ALTER TABLE`: `010` adds 18
+`NOT NULL DEFAULT 0` columns (`010_v3_system_search_body_type_counts.sql:13-32`)
+that PostgreSQL stores as fast defaults without rewriting existing tuples, so
+that delta would read near zero while every newly built row stores the
+integers. The gate refuses if either input or its provenance is absent.
+
+**Fixed-cost fields for the resume arithmetic.** The same measurement run also
+records `search_fixed_bytes_per_row` — the final post-`010` DDL filled with
+rows whose `name`, `region_name` and `main_star_class` are one character each
+(the minimum the CHECKs allow), so the per-row heap and index bytes contain
+essentially no variable text — and `archetype_fixed_bytes_per_row`, the heap
+plus primary-key plus weighted-index bytes per row with the shortest archetype
+name (`paradise`) in both text columns, whose 16 bytes the maximum-width term
+below then counts again, conservatively. The gate refuses a receipt missing
+either field. The reserve is 15 % of the projected new footprint — the only
 denominator that scales with the WAL, index-build spill (≈ 8 GB peak for the
 primary key) and measurement error being covered; 15 % of the volume would
 equal the entire free reading. Worked example at `sigma_all = 1.52`: archetype
@@ -1160,12 +1191,15 @@ the tail is wider than the head:
 ```
 rows_left            = system_count − rows in this product's sealed chunk receipts
 bytes_done           = size of the product's table + indexes + TOAST now − the same at the start receipt
-fixed_left           = per-row cost of the fixed-width columns, tuple header, alignment and
-                       fixed indexes (receipt, measured) × rows_left
+fixed_left           = Search:    search_fixed_bytes_per_row    × rows_left
+                       Archetype: archetype_fixed_bytes_per_row × rows_left     (receipt fields above)
 variable_left        = Search:   Σ over the unsealed source rows of
-                                 octet_length(name) + octet_length(region_name) + octet_length(main_star_class),
+                                 octet_length(name) + COALESCE(octet_length(region_name), 0)
+                                                    + COALESCE(octet_length(main_star_class), 0),
                                  read from the canonical source by one aggregate, × 2
-                                 (stored once in the heap and, for name, once more in the lower(name) index)
+                                 (stored once in the heap and, for name, once more in the lower(name) index;
+                                 region_name and main_star_class are nullable, 004:31-32, and a NULL inside
+                                 SUM's expression would drop the whole row)
                        Archetype: 2 × 63 bytes × rows_left
                                  (primary_archetype and secondary_archetype are each CHECKed to at most
                                  63 characters of [a-z0-9_], 011:25-26 — a maximum, not an average)

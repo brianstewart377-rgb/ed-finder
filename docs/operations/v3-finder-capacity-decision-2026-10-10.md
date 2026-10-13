@@ -198,7 +198,8 @@ window, backup/PITR implications). Kept as the fallback if A/B are rejected.
 **A + B**, in that order: rewrite `011` as the wide-row archetype product, add
 `015` to attach and explicitly publish products on the published generation,
 then register and apply `[014, 010, 011', 013, 015]`, **revise the release gate
-and deploy the release** (before any product exists), run the calibration probe,
+and deploy the release** (before any product exists), run the calibration probe
+and the capacity input's complete read of every chunk, never a sample,
 **pass the combined Search + Archetype capacity gate**, and only then build
 `system_search` (post-`010`) and the new `system_archetype` on `parallel_v1`,
 validate, and publish the products. The gate comes **before the Search build**,
@@ -225,7 +226,9 @@ not make room for anything but future ratings rows.
 What this changes in the controlling sequence: steps 4 ("fresh generation") and
 the "retention" branch are replaced by "attach to published generation";
 steps 5/7/8/9 keep their shape but pin `ratings_v4_prod_p4_parallel_v1`; the
-step 6 probe is unchanged; `011` moves from "register" to "rewrite, then
+step 6 probe keeps its sampled mode for coefficient review and gains a
+complete-read mode (every chunk, never a sample) that is the only input the
+capacity gate accepts; `011` moves from "register" to "rewrite, then
 register". The step 1 registration already merged (#792) would be amended to
 replace `011` with the rewritten file — allowed, because `011` has not been
 applied anywhere.

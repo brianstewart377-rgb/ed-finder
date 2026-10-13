@@ -117,11 +117,12 @@ def test_every_document_names_the_same_attach_target():
         assert TARGET_GENERATION in text, name
 
 
-def test_the_capacity_input_is_a_complete_read_in_both_controlling_documents():
-    roadmap = _read(ROADMAP)
-    design = _f2d_current()
-    assert "complete read of every chunk, never a sample" in roadmap
-    assert "The capacity input is a complete read, not a sample" in design
+def test_the_capacity_input_is_a_complete_read_in_every_document():
+    """Every document that tells an operator about the capacity input says it is complete."""
+    assert "complete read of every chunk, never a sample" in _read(ROADMAP)
+    assert "The capacity input is a complete read, not a sample" in _f2d_current()
+    assert "complete read of every chunk, never a sample" in _read(CAPACITY)
+    assert "complete read of every chunk, never a sample" in _read(ROLLOUT)
 
 
 def test_the_design_defers_to_the_roadmap_and_names_this_check():

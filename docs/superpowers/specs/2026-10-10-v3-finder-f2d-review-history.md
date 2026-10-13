@@ -1382,3 +1382,34 @@ beyond round 52:
    `calibration_code_sha256` and `capacity_code_sha256` and the `source_sha`
    row (section 8.3).
 
+### Review round 56 (2026-10-13)
+
+1. **P1 — Coalesce nullable Search text lengths** → correct; `region_name` and
+   `main_star_class` are nullable (`004:31-32`) and a NULL inside `SUM`'s
+   expression drops the whole row. The aggregate now `COALESCE`s each nullable
+   length to 0.
+2. **P2 — Check the complete-read rule in every named document** → correct; the
+   capacity decision said "the step 6 probe is unchanged" and "run the
+   calibration probe" while the ROADMAP requires every chunk. Both documents
+   now state the complete read and the invariant test requires the phrase in
+   all four.
+3. **P1 — Assign production of the eligible footprint receipt** → correct; no
+   step produced the gate's real input. PR4 adds a dispatchable GitHub Actions
+   workflow on a disposable PostgreSQL 18 service container that converts the
+   committed complete-read receipt, runs the Archetype and Search
+   measurements from the attested operator code and uploads sealed receipts
+   for a reviewed evidence commit (step 5, section 8.2).
+4. **P1 — Insert rows after migration 010 when measuring its delta** →
+   correct; `010` adds 18 `NOT NULL DEFAULT 0` columns as fast defaults, so a
+   populated table sized before and after `ALTER` shows no delta. The delta is
+   now the difference between the two DDLs each filled from empty with the same
+   rows (section 8.4).
+5. **P1 — Provide the fixed-cost inputs used by resume arithmetic** → correct;
+   the receipt now records `search_fixed_bytes_per_row` (one-character text
+   fill) and `archetype_fixed_bytes_per_row` (shortest archetype name), the
+   gate refuses a receipt missing either, and the resume formula names them.
+6. **Octopus — Weyl key offset precision** → false positive with evidence: the
+   offset is formatted with `:.20f`, not two decimals, and the eight per-key
+   offsets differ by ≈ 0.41 each; a `Decimal` form is a harmless nicety for the
+   code PR, not a design matter.
+
