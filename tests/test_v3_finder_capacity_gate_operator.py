@@ -548,3 +548,66 @@ def test_search_start_post_launch_proof(
     # Only an unproven normal launch is stopped; a validating worker is not.
     assert ("STOPPED" in result.stdout) == (expected.startswith("FAIL: Search worker did not prove"))
 
+
+@pytest.mark.parametrize(
+    "action_path",
+    [
+        "scripts/operator/actions/v3-system-archetype.sh",
+        "scripts/operator/actions/v3-system-search-f1.sh",
+    ],
+)
+@pytest.mark.parametrize(
+    ("state", "source", "receipt", "expected"),
+    [
+        ("missing", "src", True, "EXISTING=absent"),
+        ("exited", "src", True, "EXISTING=absent"),
+        ("running", "src", True, "EXISTING=running"),
+        ("running", "other", True, "FAIL: running worker w was launched by another source"),
+        ("running", "src", False, "FAIL: running worker w has no build-start receipt"),
+    ],
+)
+def test_running_worker_is_verified_before_any_receipt_is_written(
+    tmp_path, action_path, state, source, receipt, expected
+) -> None:
+    action = (ROOT / action_path).read_text(encoding="utf-8")
+    start = action[action.index("start_operation() {"):action.index("status_operation() {")]
+    check = start.index("  existing_worker_state\n")
+    assert check < start.index("run_capacity_gate")
+    assert check < start.index("write_build_start_receipt")
+
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    if receipt:
+        (state_root / "build-start-receipt.json").write_text("{}", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\n"
+        '[ "$STATE" = missing ] && exit 1\n'
+        'case "$3" in\n'
+        '  *State.Status*) echo "$STATE" ;;\n'
+        '  *source-sha*) echo "$LABEL_SOURCE" ;;\n'
+        '  *f2d-operator-code*) echo id ;;\n'
+        '  *generation-id*) echo gen ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    script = (
+        "set -euo pipefail\n"
+        "fail() { printf 'FAIL: %s\\n' \"$*\"; exit 64; }\n"
+        f"WORKER=w SOURCE_SHA=src F2D_IDENTITY=id TARGET_GENERATION_ID=gen STATE_ROOT={state_root}\n"
+        + _function_source(action, "existing_worker_state")
+        + 'existing_worker_state\necho "EXISTING=$EXISTING_WORKER"\n'
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "STATE": state,
+        "LABEL_SOURCE": source,
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=env, timeout=10
+    )
+    assert expected in result.stdout, result.stdout + result.stderr
+

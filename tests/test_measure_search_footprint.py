@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import importlib.util
 import os
 from pathlib import Path
@@ -55,16 +56,14 @@ def _sizes(total: int) -> dict[str, object]:
 
 
 def _receipt(module, *, pre_total=1001, post_total=1302, fixed_total=902, rows=100):
-    digest_004 = "4" * 64
-    digest_010 = "1" * 64
+    # The validator recomputes the applied migration sets from the current
+    # manifest, so the fixture records exactly those.
+    pre_entries, post_entries = module.migration_sets()
     return module.build_receipt(
         rows=rows,
         versions=(180004, 180004, 180004),
-        migrations_pre010=[["sql/v3/migrations/004_v3_search_spatial_clusters.sql", digest_004]],
-        migrations_post010=[
-            ["sql/v3/migrations/004_v3_search_spatial_clusters.sql", digest_004],
-            ["sql/v3/migrations/010_v3_system_search_body_type_counts.sql", digest_010],
-        ],
+        migrations_pre010=module._receipt_migrations(pre_entries),
+        migrations_post010=module._receipt_migrations(post_entries),
         pre010=_sizes(pre_total),
         post010=_sizes(post_total),
         fixed=_sizes(fixed_total),
@@ -250,3 +249,23 @@ def test_smoke_on_disposable_postgresql_18(monkeypatch, tmp_path):
     assert receipt["capacity_gate_eligible"] is True
     assert receipt["text_bytes_seeded"] > 0
     assert receipt["fixed"]["total_bytes"] > 0
+
+
+def test_validator_refuses_migration_sets_other_than_the_current_manifest():
+    module = _load()
+    body = _receipt(module)
+    del body["content_sha256"]
+    stale = json.loads(json.dumps(body))
+    stale["migrations_applied"]["pre010"][0][1] = "0" * 64
+    with pytest.raises(ValueError, match="migrations_applied differs"):
+        module.validate_search_footprint_receipt(f2d_evidence.seal(stale))
+    short = json.loads(json.dumps(body))
+    short["migrations_applied"]["post010"].pop(0)
+    with pytest.raises(ValueError, match="migrations_applied differs"):
+        module.validate_search_footprint_receipt(f2d_evidence.seal(short))
+    for field in ("migration_004_sha256", "migration_010_sha256"):
+        resealed = json.loads(json.dumps(body))
+        resealed[field] = "0" * 64
+        with pytest.raises(ValueError, match=f"{field} differs"):
+            module.validate_search_footprint_receipt(f2d_evidence.seal(resealed))
+

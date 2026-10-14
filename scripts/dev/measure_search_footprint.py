@@ -586,6 +586,32 @@ def build_receipt(
     return seal(body)
 
 
+def _require_current_migration_sets(receipt: dict[str, Any]) -> None:
+    """Require the measured DDL to be exactly what this checkout would apply.
+
+    The expected pre-/post-010 migration lists and their SHA-256 values are
+    recomputed from the current migration manifest (whose bytes are verified
+    against the files), so costs measured against any other DDL are refused
+    even if the receipt is resealed under the current operator identity.
+    """
+    pre010, post010 = migration_sets()
+    expected = {
+        "pre010": _receipt_migrations(pre010),
+        "post010": _receipt_migrations(post010),
+    }
+    if receipt.get("migrations_applied") != expected:
+        raise ValueError(
+            "Search footprint receipt migrations_applied differs from the current migration manifest"
+        )
+    current = {Path(path).name: digest for path, digest in expected["post010"]}
+    for field, name in (
+        ("migration_004_sha256", MIGRATION_004),
+        ("migration_010_sha256", MIGRATION_010),
+    ):
+        if receipt.get(field) != current[name]:
+            raise ValueError(f"Search footprint receipt {field} differs from the current migration")
+
+
 def validate_search_footprint_receipt(receipt: object) -> dict[str, Any]:
     """Validate the sealed gate inputs consumed by the capacity action."""
     if not isinstance(receipt, dict):
@@ -619,6 +645,7 @@ def validate_search_footprint_receipt(receipt: object) -> dict[str, Any]:
             raise ValueError(f"Search footprint receipt {field} is missing or malformed")
     if receipt.get("distribution_source") != "declared-synthetic-text-v1":
         raise ValueError("Search footprint receipt distribution source is unsupported")
+    _require_current_migration_sets(receipt)
     version = receipt.get("server_version_num")
     if not isinstance(version, int) or version // 10000 != REQUIRED_SERVER_MAJOR:
         raise ValueError("Search footprint receipt was not measured on PostgreSQL 18")

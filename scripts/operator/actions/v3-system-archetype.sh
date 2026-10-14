@@ -444,6 +444,29 @@ stop_unproven_worker() {
   fi
 }
 
+# A worker that is already running is accepted only when it was launched for
+# this generation by this exact source and attested operator identity, and
+# its build-start receipt already exists; nothing is written for it first.
+# Sets EXISTING_WORKER to "running" for an accepted worker, "absent" when
+# none is running; refuses (in this shell, not a subshell) otherwise.
+EXISTING_WORKER=""
+existing_worker_state() {
+  local state label_source label_identity label_generation
+  EXISTING_WORKER="absent"
+  docker inspect "$WORKER" >/dev/null 2>&1 || return 0
+  state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
+  [ "$state" = "running" ] || return 0
+  label_source="$(docker inspect -f '{{index .Config.Labels "ed-finder.source-sha"}}' "$WORKER")"
+  label_identity="$(docker inspect -f '{{index .Config.Labels "ed-finder.f2d-operator-code-sha256"}}' "$WORKER")"
+  label_generation="$(docker inspect -f '{{index .Config.Labels "ed-finder.generation-id"}}' "$WORKER")"
+  [ "$label_source" = "$SOURCE_SHA" ] && [ "$label_identity" = "$F2D_IDENTITY" ] \
+    && [ "$label_generation" = "$TARGET_GENERATION_ID" ] \
+    || fail "running worker ${WORKER} was launched by another source, identity or generation"
+  [ -f "$STATE_ROOT/build-start-receipt.json" ] && [ ! -L "$STATE_ROOT/build-start-receipt.json" ] \
+    || fail "running worker ${WORKER} has no build-start receipt"
+  EXISTING_WORKER="running"
+}
+
 start_operation() {
   require_target
   require_stage
@@ -453,6 +476,15 @@ start_operation() {
   command -v flock >/dev/null 2>&1 || fail "flock is unavailable"
   exec 9>"$STATE_ROOT/start.lock"
   flock -n 9 || fail "another V3 Archetype start is in progress"
+
+  existing_worker_state
+  if [ "$EXISTING_WORKER" = "running" ]; then
+    printf 'operation=v3-system-archetype-start\nresult=already-running\nworker=%s\n' "$WORKER"
+    emit_receipt_status
+    printf 'latest_status=%s\n' "$(latest_status)"
+  printf 'publication_performed=false\ncanonical_writes_performed=false\napplication_service_changes_performed=false\n'
+    return 0
+  fi
 
   local api api_image dsn env_file manifest_sha worker_state proof
   require_search_prerequisite
