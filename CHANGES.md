@@ -21,6 +21,18 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-14 — Codex worker model pin moved to `gpt-6.1-sol`
+
+The Contabo Codex worker moves from `gpt-5.6-sol` to `gpt-6.1-sol`. The
+2026-10-06 attempt (#784) was reverted because Codex then rejected
+`gpt-6.1-sol` for ChatGPT-account sign-in. The worker's Codex CLI is now
+0.162.1, and a live check on the worker, signed in with its ChatGPT account
+and using the workflow's exact flags (`--ignore-user-config --strict-config
+--model gpt-6.1-sol --config model_reasoning_effort="high"`), completed. The
+owner chose 6.1 Sol over GPT-6 Astra to limit credit use. Effort stays
+`high`; the single-model governance contract and its test keep the same shape
+and now reject the old `gpt-5.6-sol` literal.
+
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
 The additive `GET /api/archetypes/system/{id64}/explanation` route now
