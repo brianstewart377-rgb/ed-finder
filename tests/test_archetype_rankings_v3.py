@@ -108,11 +108,11 @@ def _build_published_generation(database) -> None:
     connection, _, _, _ = database
     key, generation_id, snapshot, _ = _ratings_generation(database)
 
+    # Same order as scripts/dev/seed_v3_fixture_generation.py: the Archetype
+    # builder refuses to register until the same generation's Search product is
+    # READY/VERIFIED, so Search is built and validated first.
     search_generation, _, search_manifest_sha = search_register_product(connection, key)
     search_build_available(connection, search_generation, search_manifest_sha)
-
-    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
-    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
 
     seal_source(connection, generation_id, _eof_receipt(database))
     ready_receipt = validate_generation(connection, generation_id)
@@ -120,6 +120,9 @@ def _build_published_generation(database) -> None:
 
     search_verified = search_validate_product(connection, search_generation, search_manifest_sha)
     assert search_verified['status'] == 'VERIFIED'
+
+    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
+    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
     archetype_verified = archetype_builder.validate_product(
         connection, archetype_generation, archetype_manifest_sha)
     assert archetype_verified['status'] == 'VERIFIED'
@@ -341,11 +344,24 @@ async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(da
                             for node in sorts for child in node.get('Plans', ())
                         )
 
+                        # The per-row fetch back into system_archetype must be an
+                        # index path bounded by the page size. On this 12-system
+                        # fixture the planner may satisfy the system_id64 join
+                        # through any index on the relation (it chose the summary
+                        # weighted index on PostgreSQL 16 and 18); that the
+                        # production-scale fetch uses system_archetype_pkey is the
+                        # governed plan probe's assertion (design 8.7), made against
+                        # real statistics, not this fixture's.
                         fetches = [
                             node for node in page_nodes
-                            if node.get('Index Name') == 'system_archetype_pkey'
+                            if node.get('Relation Name') == 'system_archetype'
+                            and node.get('Index Name') != expected_index
                         ]
                         assert fetches
+                        assert all(
+                            node['Node Type'] in {'Index Scan', 'Index Only Scan'}
+                            for node in fetches
+                        )
                         assert all(node['Plan Rows'] <= page_size for node in fetches)
     finally:
         await pool.close()

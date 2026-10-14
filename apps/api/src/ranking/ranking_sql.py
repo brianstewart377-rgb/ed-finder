@@ -206,7 +206,7 @@ def _picked_page_query(
     order = "selected_archetype_weighted_e4 DESC, system_id64 ASC"
     confidence_expr = confidence.replace(
         f"{picked_archetype}_confidence_ppm",
-        f"fetch.{picked_archetype}_confidence_ppm",
+        f"picked.{picked_archetype}_confidence_ppm",
     )
 
     return (
@@ -225,19 +225,19 @@ def _picked_page_query(
         f"    LIMIT {limit_param} OFFSET {offset_param}\n"
         ")\n"
         "SELECT page.*,\n"
-        f"       fetch.{score} AS primary_score,\n"
-        f"       fetch.{tier} AS selected_archetype_tier,\n"
+        f"       picked.{score} AS primary_score,\n"
+        f"       picked.{tier} AS selected_archetype_tier,\n"
         f"       {confidence_expr} AS ranking_confidence,\n"
         f"       ({confidence_expr} * page.completeness) AS uncertainty_factor,\n"
-        "       fetch.primary_archetype AS summary_primary_archetype,\n"
-        "       fetch.secondary_archetype AS summary_secondary_archetype,\n"
-        "       fetch.best_colony_potential AS summary_best_colony_potential,\n"
-        "       (fetch.archetype_confidence_ppm / 1000000.0)::double precision "
+        "       picked.primary_archetype AS summary_primary_archetype,\n"
+        "       picked.secondary_archetype AS summary_secondary_archetype,\n"
+        "       picked.best_colony_potential AS summary_best_colony_potential,\n"
+        "       (picked.archetype_confidence_ppm / 1000000.0)::double precision "
         "AS summary_archetype_confidence,\n"
-        "       fetch.weighted_potential AS weighted_potential\n"
+        "       picked.weighted_potential AS weighted_potential\n"
         "FROM ranked_page page\n"
-        "JOIN v3_app.system_archetype fetch "
-        "ON fetch.system_id64 = page.system_id64\n"
+        "JOIN v3_app.system_archetype picked "
+        "ON picked.system_id64 = page.system_id64\n"
         "ORDER BY page.selected_archetype_weighted_e4 DESC, "
         "page.system_id64 ASC"
     )

@@ -65,18 +65,61 @@ class _FakeConn:
         return _Cur()
 
 
-def test_server_check_requires_loopback_address_allowlisted_database_and_postgresql_18():
+def test_server_check_requires_loopback_address_allowlisted_database_and_postgresql_18(monkeypatch):
     module = _load()
-    ok = ("127.0.0.1", 180004, "ratings_v4_validation")
+    ok = ("127.0.0.1", "127.0.0.1", 180004, "ratings_v4_validation")
     assert module.assert_disposable_server(_FakeConn(ok)) == 180004
-    with pytest.raises(ValueError, match="not loopback"):
-        module.assert_disposable_server(_FakeConn(("203.0.113.9", 180004, "ratings_v4_validation")))
+    with pytest.raises(ValueError, match="not loopback or the attested disposable container"):
+        module.assert_disposable_server(
+            _FakeConn(("203.0.113.9", "203.0.113.1", 180004, "ratings_v4_validation"))
+        )
+    # A disposable service container behind a published loopback port reports its
+    # bridge address and sees the bridge gateway as the client. It is accepted
+    # only when the orchestrator attested that exact address from its own
+    # container inspection.
+    monkeypatch.delenv(module.ATTESTED_SERVER_ADDRESS_ENV, raising=False)
+    with pytest.raises(ValueError, match="not loopback or the attested disposable container"):
+        module.assert_disposable_server(
+            _FakeConn(("172.18.0.2", "172.18.0.1", 180004, "ratings_v4_validation"))
+        )
+    monkeypatch.setenv(module.ATTESTED_SERVER_ADDRESS_ENV, "172.18.0.2")
+    assert module.assert_disposable_server(
+        _FakeConn(("172.18.0.2", "172.18.0.1", 180004, "ratings_v4_validation"))
+    ) == 180004
+    # A relay to some other private server: a different address than attested, or
+    # a loopback client on that server, is refused even on the same /16.
+    with pytest.raises(ValueError, match="not loopback or the attested disposable container"):
+        module.assert_disposable_server(
+            _FakeConn(("172.18.0.7", "172.18.0.1", 180004, "ratings_v4_validation"))
+        )
+    monkeypatch.setenv(module.ATTESTED_SERVER_ADDRESS_ENV, "10.0.0.7")
+    with pytest.raises(ValueError, match="not loopback or the attested disposable container"):
+        module.assert_disposable_server(
+            _FakeConn(("10.0.0.7", "127.0.0.1", 180004, "ratings_v4_validation"))
+        )
+    assert module.server_address_is_disposable("10.0.0.7", "10.0.9.1", "10.0.0.7") is True
+    assert module.server_address_is_disposable("10.0.0.7", "10.0.9.1", None) is False
+    assert module.server_address_is_disposable("10.0.0.7", "10.0.9.1", "10.0.0.8") is False
+    assert module.server_address_is_disposable("10.0.0.7", "10.1.0.1", "10.0.0.7") is False  # other /16
+    assert module.server_address_is_disposable("10.0.0.7", None, "10.0.0.7") is False
+    assert module.server_address_is_disposable("172.18.0.2", "192.168.1.1", "172.18.0.2") is False
+    assert module.server_address_is_disposable("172.18.0.2", "8.8.8.8", "172.18.0.2") is False
+    assert module.server_address_is_disposable("203.0.113.9", "203.0.113.1", "203.0.113.9") is False
+    assert module.server_address_is_disposable("::1") is True
+    assert module.server_address_is_disposable("8.8.8.8", "8.8.8.1", "8.8.8.8") is False
+    assert module.server_address_is_disposable(None) is False
+    assert module.server_address_is_disposable("not-an-address") is False
+    monkeypatch.delenv(module.ATTESTED_SERVER_ADDRESS_ENV, raising=False)
     with pytest.raises(ValueError, match="not the disposable validation service"):
-        module.assert_disposable_server(_FakeConn(("127.0.0.1", 180004, "edfinder_v3_phase4c_full_20260827_r5")))
+        module.assert_disposable_server(
+            _FakeConn(("127.0.0.1", "127.0.0.1", 180004, "edfinder_v3_phase4c_full_20260827_r5"))
+        )
     with pytest.raises(ValueError, match="PostgreSQL 17, not 18"):
-        module.assert_disposable_server(_FakeConn(("127.0.0.1", 170006, "ratings_v4_validation")))
+        module.assert_disposable_server(
+            _FakeConn(("127.0.0.1", "127.0.0.1", 170006, "ratings_v4_validation"))
+        )
     with pytest.raises(ValueError, match="PostgreSQL 19, not 18"):
-        module.assert_disposable_server(_FakeConn(("::1", 190000, "ratings_v4_validation")))
+        module.assert_disposable_server(_FakeConn(("::1", "::1", 190000, "ratings_v4_validation")))
 
 
 def test_server_check_runs_before_any_ddl():

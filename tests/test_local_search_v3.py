@@ -104,11 +104,11 @@ def _build_published_generation(database) -> None:
     connection, _, _, _ = database
     key, generation_id, snapshot, _ = _ratings_generation(database)
 
+    # Same order as scripts/dev/seed_v3_fixture_generation.py: the Archetype
+    # builder refuses to register until the same generation's Search product is
+    # READY/VERIFIED, so Search is built and validated first.
     search_generation, _, search_manifest_sha = search_register_product(connection, key)
     search_build_available(connection, search_generation, search_manifest_sha)
-
-    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
-    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
 
     seal_source(connection, generation_id, _eof_receipt(database))
     ready_receipt = validate_generation(connection, generation_id)
@@ -116,6 +116,9 @@ def _build_published_generation(database) -> None:
 
     search_verified = search_validate_product(connection, search_generation, search_manifest_sha)
     assert search_verified['status'] == 'VERIFIED'
+
+    archetype_generation, _, archetype_manifest_sha = archetype_builder.register_product(connection, key)
+    archetype_builder.build_available(connection, archetype_generation, archetype_manifest_sha)
     archetype_verified = archetype_builder.validate_product(
         connection, archetype_generation, archetype_manifest_sha)
     assert archetype_verified['status'] == 'VERIFIED'
@@ -470,15 +473,26 @@ async def test_anchored_nearest_first_plan_keeps_knn_below_inner_limit(
     assert any(node['Node Type'] == 'Incremental Sort' for node, _ in nodes), document
     assert not any(node['Node Type'] == 'Sort' for node, _ in nodes), document
 
-    # The outer Subquery Scan applies the spherical radius only after the
-    # bounded nearest-neighbour prefix has been materialised.
+    # The spherical radius is applied only after the bounded nearest-neighbour
+    # prefix has been materialised: the filter must sit outside the INNER Limit
+    # that caps the KNN scan. (The page statement wraps everything in a second,
+    # outer Limit for LIMIT/OFFSET, so "no Limit ancestor at all" is not the
+    # invariant; the inner Limit is the one whose subtree holds the KNN scan.)
+    inner_limit_paths = set()
+    for _, ancestors in knn_nodes:
+        inner_limit_index = len(ancestors) - 1 - ancestors[::-1].index('Limit')
+        inner_limit_paths.add(ancestors[:inner_limit_index + 1])
+    assert len(inner_limit_paths) == 1, document
+    inner_limit_path = inner_limit_paths.pop()
     radius_filters = [
         (node, ancestors)
         for node, ancestors in nodes
         if 'distance_ly' in str(node.get('Filter', ''))
     ]
     assert radius_filters, document
-    assert all('Limit' not in ancestors for _, ancestors in radius_filters), document
+    for _, ancestors in radius_filters:
+        # A node inside the inner Limit shares that Limit's full ancestor path.
+        assert ancestors[:len(inner_limit_path)] != inner_limit_path, document
 
 
 @pytest.mark.asyncio
