@@ -390,7 +390,7 @@ def test_unproven_worker_is_stopped_before_start_reports_failure(
 ) -> None:
     action = (ROOT / action_path).read_text(encoding="utf-8")
     start = action[action.index("start_operation() {"):action.index("status_operation() {")]
-    failure = start[start.index('if [ "$proof" -le "$baseline_chunks" ]; then'):]
+    failure = start[start.index('[ "$proof" -le "$baseline_chunks" ]; then'):]
     assert failure.index("stop_unproven_worker") < failure.index("fail ")
 
     state = tmp_path / "state"
@@ -488,4 +488,63 @@ def test_volume_reading_is_refreshed_atomically_while_the_gate_runs(
     # A failed refresh keeps the previous reading (which the gate's freshness
     # check then judges); a successful one replaces it.
     assert output.read_text() == ("new 2\n" if write_succeeds else "old\n")
+
+
+@pytest.mark.parametrize(
+    ("validation_only", "worker", "exit_code", "chunks_after", "expected"),
+    [
+        # Every planned chunk was already committed: validation-only resume.
+        ("true", "exited", "0", 10, "result=validated"),
+        ("true", "running", "0", 10, "result=launched-validation-only"),
+        ("true", "exited", "1", 10, "FAIL: Search validation-only worker did not exit"),
+        # Normal resume: proven only by a chunk this launch commits.
+        ("false", "running", "0", 11, "result=launched"),
+        ("false", "running", "0", 10, "FAIL: Search worker did not prove a chunk"),
+    ],
+)
+def test_search_start_post_launch_proof(
+    tmp_path, validation_only, worker, exit_code, chunks_after, expected
+) -> None:
+    action = (ROOT / "scripts/operator/actions/v3-system-search-f1.sh").read_text(
+        encoding="utf-8"
+    )
+    start = action[action.index("start_operation() {"):action.index("status_operation() {")]
+    begin = start.index("  sleep 3\n")
+    end = start.index("  printf 'operation=v3-system-search-f1-start", begin)
+    segment = start[begin:end]
+    assert "validation_only" in segment
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\n"
+        'case "$3" in *ExitCode*) echo "$EXIT_CODE";; *) echo "$WORKER_STATE";; esac\n',
+        encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "sleep").chmod(0o755)
+    script = (
+        "set -euo pipefail\n"
+        "fail() { printf 'FAIL: %s\\n' \"$*\"; exit 64; }\n"
+        "stop_unproven_worker() { echo STOPPED; }\n"
+        'db_query() { echo "$CHUNKS_AFTER"; }\n'
+        "run() {\n"
+        "  local WORKER=w TARGET_GENERATION_ID=g baseline_chunks=10 proof worker_state\n"
+        f"  local validation_only={validation_only} result=launched\n"
+        + segment
+        + '  echo "result=$result"\n}\nrun\n'
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "WORKER_STATE": worker,
+        "EXIT_CODE": exit_code,
+        "CHUNKS_AFTER": str(chunks_after),
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=env, timeout=10
+    )
+    assert expected in result.stdout, result.stdout + result.stderr
+    # Only an unproven normal launch is stopped; a validating worker is not.
+    assert ("STOPPED" in result.stdout) == (expected.startswith("FAIL: Search worker did not prove"))
 

@@ -20,6 +20,12 @@ scripts/v3_system_search.py
 scripts/v3_system_search_parallel.py
 shared_contracts/__init__.py
 shared_contracts/v3_system_archetype_model.py
+sql/v3/migration-manifest.txt
+sql/v3/migrations/001_v3_baseline.sql
+sql/v3/migrations/003_ratings_v4_derived.sql
+sql/v3/migrations/004_v3_search_spatial_clusters.sql
+sql/v3/migrations/006_v3_derived_product_lifecycle.sql
+sql/v3/migrations/011_v3_system_archetype.sql
 
 # Parts B-D append these paths only when the files land. Listing a missing path
 # in the active block above deliberately makes identity computation refuse.

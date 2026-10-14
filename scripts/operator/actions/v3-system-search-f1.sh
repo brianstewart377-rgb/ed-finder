@@ -391,6 +391,16 @@ start_operation() {
   local baseline_chunks
   baseline_chunks="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
   [[ "$baseline_chunks" =~ ^[0-9]+$ ]] || fail "Search baseline chunk query was invalid"
+  # Search writes one chunk per Ratings build chunk. When every planned chunk
+  # is already committed (a worker that wrote the last chunk but did not
+  # finish validating), this launch can only validate: there is no further
+  # chunk for it to prove itself by.
+  local planned_chunks validation_only=false result=launched
+  planned_chunks="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
+  [[ "$planned_chunks" =~ ^[1-9][0-9]*$ ]] || fail "Search planned chunk query was invalid"
+  [ "$baseline_chunks" -le "$planned_chunks" ] \
+    || fail "Search has more committed chunks than the Ratings chunk plan"
+  [ "$baseline_chunks" -lt "$planned_chunks" ] || validation_only=true
   docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
@@ -418,12 +428,31 @@ start_operation() {
 
   sleep 3
   worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
-  if [ "$worker_state" != "running" ]; then
+  proof="$baseline_chunks"
+  if [ "$validation_only" = true ]; then
+    # Validation-only resume: proven by a clean exit. While it is still
+    # validating it is reported as such and left running (it can write no
+    # further chunk); finalize requires its exit code 0 either way.
+    for _ in $(seq 1 30); do
+      [ "$worker_state" = "running" ] || break
+      sleep 2
+      worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
+    done
+    if [ "$worker_state" = "running" ]; then
+      result=launched-validation-only
+    elif [ "$worker_state" = "exited" ] \
+      && [ "$(docker inspect -f '{{.State.ExitCode}}' "$WORKER")" = "0" ]; then
+      result=validated
+    else
+      docker logs --tail 80 "$WORKER" >&2 || true
+      fail "Search validation-only worker did not exit successfully"
+    fi
+  elif [ "$worker_state" != "running" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
     fail "Search worker did not remain running"
   fi
-  proof=0
   for _ in $(seq 1 30); do
+    [ "$validation_only" = false ] || break
     proof="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
     [[ "$proof" =~ ^[0-9]+$ ]] || fail "Search proof query was invalid"
     [ "$proof" -gt "$baseline_chunks" ] && break
@@ -431,7 +460,7 @@ start_operation() {
     [ "$worker_state" = "running" ] || break
     sleep 2
   done
-  if [ "$proof" -le "$baseline_chunks" ]; then
+  if [ "$validation_only" = false ] && [ "$proof" -le "$baseline_chunks" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
     # A failed start must not leave an unproven worker inserting in the
     # background: stop it (an uncommitted chunk rolls back; committed chunks
@@ -440,7 +469,8 @@ start_operation() {
     fail "Search worker did not prove a chunk committed by this launch; the worker was stopped"
   fi
 
-  printf 'operation=v3-system-search-f1-start\nresult=launched\n'
+  printf 'operation=v3-system-search-f1-start\nresult=%s\n' "$result"
+  printf 'planned_chunks=%s\n' "$planned_chunks"
   printf 'source_sha=%s\ngeneration_key=%s\ngeneration_id=%s\n' \
     "$SOURCE_SHA" "$TARGET_GENERATION_KEY" "$TARGET_GENERATION_ID"
   printf 'manifest_sha256=%s\nworker=%s\nworker_state=%s\nproof_chunks=%s\nbaseline_chunks=%s\n' \

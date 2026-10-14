@@ -36,6 +36,12 @@ EXPECTED_ACTIVE_ENTRIES = (
     "scripts/v3_system_search_parallel.py",
     "shared_contracts/__init__.py",
     "shared_contracts/v3_system_archetype_model.py",
+    "sql/v3/migration-manifest.txt",
+    "sql/v3/migrations/001_v3_baseline.sql",
+    "sql/v3/migrations/003_ratings_v4_derived.sql",
+    "sql/v3/migrations/004_v3_search_spatial_clusters.sql",
+    "sql/v3/migrations/006_v3_derived_product_lifecycle.sql",
+    "sql/v3/migrations/011_v3_system_archetype.sql",
 )
 PLANNED_ACTION_COMMENTS = (
     "scripts/operator/actions/v3-publish-derived-products.sh",
@@ -237,3 +243,19 @@ def test_malformed_manifest_refuses_with_named_reason(
     shell = _shell("compute", str(checkout))
     assert shell.returncode == 64
     assert reason in shell.stderr
+
+
+def test_identity_covers_every_migration_input_the_footprint_measurements_read():
+    """A changed measurement DDL input must change the attested identity."""
+    from scripts.dev import measure_wide_archetype_footprint as wide
+
+    listed = set(
+        (REPO_ROOT / "deploy/v3-production/f2d-operator-code.txt").read_text(encoding="utf-8").splitlines()
+    )
+    # Search applies every manifest-registered migration, each verified against
+    # this manifest's recorded SHA-256, so pinning the manifest pins them all.
+    assert "sql/v3/migration-manifest.txt" in listed
+    # The Archetype measurement reads these migration files directly.
+    for name in (*wide.MIGRATION_PREREQUISITES, "011_v3_system_archetype.sql"):
+        assert f"sql/v3/migrations/{name}" in listed
+
