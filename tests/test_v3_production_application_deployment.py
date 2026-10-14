@@ -1922,3 +1922,99 @@ def test_controlled_cancellation_terminates_and_reaps_active_bounded_child(tmp_p
     assert process.returncode == 78, (stdout, stderr)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+def test_finder_publication_is_protected_and_does_not_require_a_release_run():
+    workflow = _workflow()
+    options = workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"]
+    assert options == ["inventory", "preflight", "promote", "publish-finder-products"]
+    assert workflow["concurrency"] == {
+        "group": "v3-production-application-authority", "cancel-in-progress": "false",
+    }
+    prepare = workflow["jobs"]["prepare"]
+    protected = workflow["jobs"]["production-operation"]
+    assert prepare["if"] == "inputs.operation != 'inventory'"
+    assert protected["needs"] == ["guard", "prepare"]
+    assert protected["if"] == "inputs.operation != 'inventory'"
+    assert protected["environment"] == "v3-production"
+    authority_gate = next(
+        step for step in prepare["steps"]
+        if step.get("name") == "Stop before credentials or SSH while production authority is blocked"
+    )
+    assert "if" not in authority_gate
+    assert authority_gate["run"] == (
+        "python scripts/operator/v3_production_deploy.py --operation authority-gate"
+    )
+    for job in (prepare, protected):
+        for step in job["steps"]:
+            name = step.get("name", "")
+            if (
+                "candidate" in name.lower() or "bounded release run ID" in name
+                or name in (
+                    "Authenticate canonical release and verify candidate",
+                    "Prepare sealed source-free operation bundle and pinned SSH trust",
+                    "Execute exact production authority",
+                )
+            ):
+                assert step["if"] == "inputs.operation != 'publish-finder-products'", name
+
+
+def test_finder_publication_stages_exact_main_with_production_credentials_and_attestation():
+    protected = _workflow()["jobs"]["production-operation"]
+    steps = protected["steps"]
+    publication = [
+        step for step in steps
+        if step.get("if") == "inputs.operation == 'publish-finder-products'"
+    ]
+    assert len(publication) == 4
+    identity, prepare, stage, execute = publication
+    names = [step.get("name", "") for step in steps]
+    assert names.index("Revalidate exact current main after production approval") < names.index(identity["name"])
+    assert names.index(identity["name"]) < names.index(prepare["name"]) < names.index(stage["name"]) < names.index(execute["name"])
+    assert "--operation authority-gate" in identity["run"]
+    assert "deploy/v3-production/target-authority.json" in identity["run"]
+    assert 'authority.get("accepted_release_schema_compatibility", {})' in identity["run"]
+    assert 'compatibility.get("f2d_operator_code_sha256")' in identity["run"]
+    assert 're.fullmatch(r"[0-9a-f]{64}", identity)' in identity["run"]
+    assert 'raise SystemExit("Accepted release has no valid F2d operator-code attestation")' in identity["run"]
+    assert "secrets." not in json.dumps(identity)
+    for step in (prepare, stage, execute):
+        encoded = json.dumps(step)
+        assert "ED_NEW_OPERATOR_" not in encoded
+        assert "secrets.V3_PRODUCTION_" in encoded
+        assert step["env"]["SSH_HOST"] == "${{ secrets.V3_PRODUCTION_HOST }}"
+        assert step["env"]["SSH_PORT"] == "${{ secrets.V3_PRODUCTION_PORT }}"
+        assert "git rev-parse HEAD" in step["run"]
+        assert '"$source_sha" = "$EXPECTED_SOURCE_SHA"' in step["run"]
+    assert prepare["env"]["SSH_KEY"] == "${{ secrets.V3_PRODUCTION_SSH_KEY }}"
+    assert prepare["env"]["SSH_KNOWN_HOSTS"] == "${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}"
+    assert "ssh-keygen -F" in prepare["run"]
+    assert "ssh-keyscan" not in json.dumps(publication)
+    assert '.v3-publish-source-sha' in prepare["run"]
+    assert "--only-binary=:all:" in prepare["run"]
+    assert "--dest .v3-probe-wheelhouse 'psycopg[binary]==3.3.4'" in prepare["run"]
+    assert '/var/tmp/edfinder-v3-publish-${source_sha}' in stage["run"]
+    assert '[ -L' in stage["run"]
+    assert 'stage marker mismatch' in stage["run"]
+    assert 'incoming="${stage}.incoming-${RUN_ID}-${RUN_ATTEMPT}"' in stage["run"]
+    assert 'tar --no-same-owner --no-same-permissions' in stage["run"]
+    assert "mv '$incoming' '$stage'" in stage["run"]
+    for step in (stage, execute):
+        assert "StrictHostKeyChecking=yes" in step["run"]
+        assert "BatchMode=yes" in step["run"]
+        assert "UserKnownHostsFile=~/.ssh/known_hosts" in step["run"]
+        assert "~/.ssh/v3_production_key" in step["run"]
+    assert execute["env"]["ACTOR"] == "github:${{ github.actor }}/run-${{ github.run_id }}"
+    assert execute["env"]["F2D_OPERATOR_CODE_SHA256_ATTESTED"] == (
+        "${{ steps.publication-identity.outputs.f2d_operator_code_sha256_attested }}"
+    )
+    assert "export F2D_OPERATOR_CODE_SHA256_ATTESTED=" in execute["run"]
+    assert 'sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED' in execute["run"]
+    assert "bash -s -- run '$stage' '$source_sha' '$ACTOR'" in execute["run"]
+    assert "< scripts/operator/actions/v3-publish-derived-products.sh" in execute["run"]
+    assert 'tee "$RECEIPT"' in execute["run"]
+    assert "DATABASE_URL" not in json.dumps(publication)
+    upload = next(step for step in steps if step.get("name") == "Upload Finder product publication operation receipt")
+    assert upload["if"] == "always() && inputs.operation == 'publish-finder-products'"
+    assert upload["with"]["name"] == "v3-publish-derived-products-operation"
+    assert upload["with"]["retention-days"] == "90"

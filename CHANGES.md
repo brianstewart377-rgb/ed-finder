@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-14 — Finder F2d governed paired publication (PR4 D2a)
+
+Adds the protected `publish-finder-products` operation, the deployment-lock-held
+host action, and the paired publication transaction. The publisher checks bounded
+view visibility, runs the deployed-image plan probe on its own connection before
+commit, and waits for the host's repeated image-digest check. Sealed receipts
+record preflights, maintenance, probe evidence and audit timestamps. The action
+refuses until D2b supplies the accepted release's ranking and operator-code
+attestation. No action was dispatched and no production system was accessed.
+
 ## 2026-10-14 — Codex worker model pin moved to `gpt-6.1-sol`
 
 The Contabo Codex worker moves from `gpt-5.6-sol` to `gpt-6.1-sol`. The
