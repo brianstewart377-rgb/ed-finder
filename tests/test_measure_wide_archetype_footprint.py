@@ -401,7 +401,176 @@ def test_capacity_eligibility_needs_final_migration_and_measured_histogram():
     source = SCRIPT.read_text(encoding="utf-8")
     assert 'distribution_source = "synthetic-builtin"' in source
     assert 'distribution_source = "measured-histogram"' in source
-    assert '"f2d_operator_code_sha256":' not in source
+    assert '"f2d_operator_code_sha256": f2d_operator_code_sha256' in source
+
+
+def test_archetype_fixed_cost_removes_variable_text_and_rounds_up():
+    module = _load()
+    assert module.archetype_fixed_cost(
+        heap_bytes=10_000,
+        text_bytes_stored=1_001,
+        primary_key_bytes=2_000,
+        weighted_index_bytes=3_000,
+        rows=1_000,
+    ) == 14
+    with pytest.raises(ValueError, match="must fit within the measured heap"):
+        module.archetype_fixed_cost(
+            heap_bytes=100,
+            text_bytes_stored=101,
+            primary_key_bytes=1,
+            weighted_index_bytes=1,
+            rows=1,
+        )
+
+
+def _measured_archetype_body(module):
+    """A receipt body whose costs are derived from consistent raw measurements."""
+    rows = 1_000
+    index_sizes = {name: 4_096 for name in module.TIER_INDEX_NAMES}
+    index_sizes["system_archetype_pkey"] = 22_000
+    index_sizes["system_archetype_summary_weighted"] = 31_000
+    counts = {"60": 168, "76": 20, "88": 2}
+    seeded = {
+        key: {floor: count / rows for floor, count in counts.items()}
+        for key in module.ARCHETYPE_KEYS
+    }
+    tier_entries = sum(counts.values()) * len(module.ARCHETYPE_KEYS)
+    tier_bytes = sum(index_sizes[name] for name in module.TIER_INDEX_NAMES)
+    heap_bytes, text_bytes = 104_000, 12_000
+    costs = module.per_row_costs(
+        heap_bytes=heap_bytes,
+        primary_key_bytes=index_sizes["system_archetype_pkey"],
+        weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+        tier_index_bytes=tier_bytes,
+        rows=rows,
+        tier_entries=tier_entries,
+    )
+    return {
+        "capacity_gate_eligible": True,
+        "score_distribution_source": "measured-histogram",
+        "server_version_num": 180004,
+        "rows": rows,
+        "row_count": rows,
+        "heap_bytes": heap_bytes,
+        "text_bytes_stored": text_bytes,
+        "per_index_bytes": index_sizes,
+        "tier_index_bytes": tier_bytes,
+        "seeded_fractions": seeded,
+        "sigma_all": tier_entries / rows,
+        **costs,
+        "archetype_fixed_bytes_per_row": module.archetype_fixed_cost(
+            heap_bytes=heap_bytes,
+            text_bytes_stored=text_bytes,
+            primary_key_bytes=index_sizes["system_archetype_pkey"],
+            weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+            rows=rows,
+        ),
+        "migration_011_sha256": "1" * 64,
+        "fractions_sha256": "2" * 64,
+        "f2d_operator_code_sha256": "3" * 64,
+    }
+
+
+def _eligible_archetype_receipt(module):
+    return module.f2d_evidence.seal(_measured_archetype_body(module))
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+        "archetype_fixed_bytes_per_row",
+    ],
+)
+def test_archetype_receipt_validator_refuses_resealed_understated_costs(field):
+    module = _load()
+    body = _measured_archetype_body(module)
+    body[field] -= 1
+    with pytest.raises(ValueError, match=f"{field} is not derived from its measurements"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+@pytest.mark.parametrize("version", [None, 170005, 190000, True, "180004"])
+def test_archetype_receipt_validator_requires_postgresql_18(version):
+    module = _load()
+    body = _measured_archetype_body(module)
+    if version is None:
+        del body["server_version_num"]
+    else:
+        body["server_version_num"] = version
+    with pytest.raises(ValueError, match="not measured on PostgreSQL 18"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+def test_archetype_receipt_validator_refuses_inconsistent_raw_measurements():
+    module = _load()
+    body = _measured_archetype_body(module)
+    body["tier_index_bytes"] += 1
+    with pytest.raises(ValueError, match="tier_index_bytes does not sum"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    del body["per_index_bytes"]["system_archetype_pkey"]
+    with pytest.raises(ValueError, match="exactly the designed indexes"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    body["sigma_all"] = body["sigma_all"] / 2
+    with pytest.raises(ValueError, match="sigma_all does not match"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    body["row_count"] += 1
+    with pytest.raises(ValueError, match="row_count must equal rows"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+def test_archetype_receipt_validator_requires_gate_fields_and_verifying_seal():
+    module = _load()
+    receipt = _eligible_archetype_receipt(module)
+    assert module.validate_archetype_footprint_receipt(receipt) == receipt
+    for field in (
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+        "archetype_fixed_bytes_per_row",
+    ):
+        body = {key: value for key, value in receipt.items() if key not in {field, "content_sha256"}}
+        with pytest.raises(ValueError, match=field):
+            module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    tampered = dict(receipt)
+    tampered["heap_bytes_per_row"] += 1
+    with pytest.raises(ValueError, match="seal does not verify"):
+        module.validate_archetype_footprint_receipt(tampered)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["migration_011_sha256", "fractions_sha256", "f2d_operator_code_sha256"],
+)
+def test_archetype_receipt_validator_requires_lowercase_hash_fields(field):
+    module = _load()
+    receipt = _eligible_archetype_receipt(module)
+    body = {key: value for key, value in receipt.items() if key != "content_sha256"}
+    del body[field]
+    with pytest.raises(ValueError, match=field):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body[field] = "A" * 64
+    with pytest.raises(ValueError, match=field):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+def test_committed_synthetic_archetype_receipt_is_gate_ineligible():
+    module = _load()
+    path = ROOT / "docs/operations/evidence/2026-10-10-wide-archetype-footprint-200k.json"
+    synthetic = json.loads(path.read_text(encoding="utf-8"))
+    synthetic.pop("content_sha256", None)
+    with pytest.raises(ValueError, match="not capacity-gate eligible"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(synthetic))
+    synthetic["capacity_gate_eligible"] = True
+    with pytest.raises(ValueError, match="not from a measured histogram"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(synthetic))
 
 
 def test_migration_receipt_hashes_the_exact_file_bytes(tmp_path):
@@ -475,7 +644,19 @@ def test_final_migration_mode_smoke_on_disposable_postgresql_18(
     assert receipt["capacity_gate_eligible"] is False
     assert receipt["migration_011_sha256"] == module.migration_sql_sha256(migration)
     assert len(receipt["per_index_bytes"]) == 26
-    assert "f2d_operator_code_sha256" not in receipt
+    assert receipt["f2d_operator_code_sha256"] == module.compute_operator_code_sha256(ROOT)
+    assert receipt["content_sha256"] == module.f2d_evidence.canonical_sha256(
+        {key: value for key, value in receipt.items() if key != "content_sha256"}
+    )
+    assert receipt["text_bytes_stored"] > 0
+    # Real measurement output satisfies the validator's cost recomputation.
+    module._require_costs_derive_from_measurements(receipt)
+    assert receipt["server_version_num"] // 10000 == 18
+    assert receipt["archetype_fixed_bytes_per_row"] <= (
+        receipt["heap_bytes_per_row"]
+        + receipt["primary_key_bytes_per_row"]
+        + receipt["weighted_index_bytes_per_row"]
+    )
     for field in (
         "heap_bytes_per_row",
         "primary_key_bytes_per_row",

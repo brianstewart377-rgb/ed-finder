@@ -35,6 +35,11 @@ WORKER_CONTAINERS = (
     "edfinder-ratings-v4-prod-p4-opt1",
     "edfinder-ratings-v4-prod-p4-parallel-v1",
     "edfinder-v3-system-search-p4-opt1",
+    # F2d retargeted the Search worker to the parallel_v1 generation and added
+    # the Archetype build worker; both mutate v3_derived, so quiescence must
+    # cover them. The opt1 name stays so a leftover container is still seen.
+    "edfinder-v3-system-search-p4-parallel-v1",
+    "edfinder-v3-system-archetype-p4-parallel-v1",
 )
 FINDER_MIGRATIONS = (
     "010_v3_system_search_body_type_counts.sql",
@@ -440,13 +445,45 @@ try:
     product_table_present = bool(product_present_rows and product_present_rows[0][0])
     receipt["derived_product_table_present"] = product_table_present
     if product_table_present:
+        # Migration 015 adds derived_product.published_at and the publication
+        # audit table to the 006 table. Detect each independently so this
+        # read-only action keeps working on a database where 015 is not yet
+        # applied (the expected state for most of the rollout).
+        publication_rows = psql(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute "
+            "WHERE attrelid = 'v3_meta.derived_product'::regclass "
+            "AND attname = 'published_at' AND attnum > 0 AND NOT attisdropped)::text "
+            "AS product_published_at_present, "
+            "(to_regclass('v3_meta.derived_product_publication_audit') IS NOT NULL)::text "
+            "AS product_publication_audit_present",
+            db_user,
+            db_name,
+        )
+        if (
+            len(publication_rows) != 1
+            or len(publication_rows[0]) != 2
+            or any(value not in ("true", "false") for value in publication_rows[0])
+        ):
+            raise RuntimeError("product publication presence query returned an unexpected shape")
+        published_at_present = publication_rows[0][0] == "true"
+        audit_present = publication_rows[0][1] == "true"
+        receipt["derived_product_publication_schema"] = {
+            "published_at_column_present": published_at_present,
+            "publication_audit_table_present": audit_present,
+        }
+        published_at_column = (
+            "p.published_at::text AS published_at, "
+            if published_at_present
+            else "NULL::text AS published_at, "
+        )
         product_rows = psql_json(
             "SELECT row_to_json(q)::text FROM ("
             "SELECT p.derived_generation_id::text AS derived_generation_id, "
             "g.generation_key, p.product_code, "
             "p.product_version, p.lifecycle_state, p.expected_rows::text, "
             "p.created_at::text AS created_at, p.validated_at::text AS validated_at, "
-            "p.failed_at::text AS failed_at, LEFT(p.failure,240) AS failure, "
+            + published_at_column
+            + "p.failed_at::text AS failed_at, LEFT(p.failure,240) AS failure, "
             "CASE WHEN p.validation_sha256 IS NULL THEN NULL "
             "ELSE encode(p.validation_sha256,'hex') END AS validation_sha256_hex "
             "FROM v3_meta.derived_product p JOIN v3_meta.derived_generation g "
@@ -462,8 +499,25 @@ try:
             }
             for row in product_rows
         ]
+        if audit_present:
+            receipt["derived_product_publication_audit"] = psql_json(
+                "SELECT row_to_json(q)::text FROM ("
+                "SELECT derived_generation_id::text AS derived_generation_id, "
+                "product_code, product_version, "
+                "encode(manifest_sha256,'hex') AS manifest_sha256_hex, "
+                "published_at::text AS published_at, actor "
+                "FROM v3_meta.derived_product_publication_audit "
+                "ORDER BY derived_generation_id, product_code) q",
+                db_user,
+                db_name,
+            )
+        else:
+            # null = table absent (pre-015); [] = table present with no rows.
+            receipt["derived_product_publication_audit"] = None
     else:
+        receipt["derived_product_publication_schema"] = None
         receipt["derived_products"] = None
+        receipt["derived_product_publication_audit"] = None
         failures.append("derived_product_table_missing")
 
     spatial_present_rows = psql(

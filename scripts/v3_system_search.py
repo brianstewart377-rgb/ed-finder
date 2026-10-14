@@ -27,6 +27,11 @@ PRODUCT_VERSION = 'v3-system-search-2'
 GENERATION_KEY = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
 SCHEMA_NAME = re.compile(r'v3_gen_[a-z][a-z0-9_]{0,30}\Z')
 Progress = Callable[[dict], None]
+EXPECTED_MANIFEST_SHA256 = re.compile(r'[0-9a-f]{64}\Z')
+
+
+class ExpectedManifestMismatch(ValueError):
+    """The computed or registered manifest differs from operator evidence."""
 
 
 @dataclass(frozen=True)
@@ -159,14 +164,34 @@ def _product(connection, generation_id: str):
     ).fetchone()
 
 
-def register_product(connection, generation_key: str) -> tuple[Generation, str, bytes]:
+def register_product(
+    connection,
+    generation_key: str,
+    expected_manifest_sha256: str | None = None,
+) -> tuple[Generation, str, bytes]:
+    if (
+        expected_manifest_sha256 is not None
+        and EXPECTED_MANIFEST_SHA256.fullmatch(expected_manifest_sha256) is None
+    ):
+        raise ExpectedManifestMismatch('expected_manifest_mismatch')
     generation = _generation(connection, generation_key)
     if generation.state not in {'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED'}:
         raise ValueError('generation cannot accept a Search product')
     manifest = product_manifest(generation)
     manifest_sha = _digest(manifest)
+    if (
+        expected_manifest_sha256 is not None
+        and manifest_sha.hex() != expected_manifest_sha256
+    ):
+        raise ExpectedManifestMismatch('expected_manifest_mismatch')
 
     existing = _product(connection, generation.identifier)
+    if (
+        existing is not None
+        and expected_manifest_sha256 is not None
+        and bytes(existing[3]).hex() != expected_manifest_sha256
+    ):
+        raise ExpectedManifestMismatch('expected_manifest_mismatch')
     if existing is None:
         with connection.transaction():
             connection.execute(
@@ -664,10 +689,13 @@ def run(
     poll_seconds: float = 5.0,
     max_chunks: int | None = None,
     progress: Progress | None = None,
+    expected_manifest_sha256: str | None = None,
 ) -> dict:
     if not isinstance(poll_seconds, (int, float)) or poll_seconds <= 0:
         raise ValueError('poll_seconds must be positive')
-    generation, state, manifest_sha = register_product(connection, generation_key)
+    generation, state, manifest_sha = register_product(
+        connection, generation_key, expected_manifest_sha256,
+    )
     total_seen = total_written = 0
 
     if state == 'READY':
@@ -720,6 +748,13 @@ def parse_args(argv=None):
     parser.add_argument('--follow', action='store_true')
     parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--max-chunks', type=int)
+    parser.add_argument(
+        '--expected-manifest-sha256',
+        type=lambda value: value
+        if EXPECTED_MANIFEST_SHA256.fullmatch(value)
+        else parser.error('--expected-manifest-sha256 must be 64 lowercase hex'),
+    )
+    parser.add_argument('--print-manifest-sha256', action='store_true')
     return parser.parse_args(argv)
 
 
@@ -732,6 +767,16 @@ def main(argv=None) -> int:
     try:
         import psycopg
         with psycopg.connect(dsn, autocommit=True) as connection:
+            if args.print_manifest_sha256:
+                generation = _generation(connection, args.generation_key)
+                manifest_sha = _digest(product_manifest(generation)).hex()
+                if (
+                    args.expected_manifest_sha256 is not None
+                    and manifest_sha != args.expected_manifest_sha256
+                ):
+                    raise ExpectedManifestMismatch('expected_manifest_mismatch')
+                print(manifest_sha)
+                return 0
             result = run(
                 connection, args.generation_key,
                 follow=args.follow,
@@ -740,7 +785,14 @@ def main(argv=None) -> int:
                 progress=lambda item: print(json.dumps(
                     {'status': 'PROGRESS', **item}, sort_keys=True
                 ), flush=True),
+                expected_manifest_sha256=args.expected_manifest_sha256,
             )
+    except ExpectedManifestMismatch:
+        print(
+            json.dumps({'status': 'FAILED', 'error': 'expected_manifest_mismatch'}),
+            file=sys.stderr,
+        )
+        return 65
     except Exception as exc:
         print(json.dumps({'status': 'FAILED', 'error': type(exc).__name__}), file=sys.stderr)
         return 1

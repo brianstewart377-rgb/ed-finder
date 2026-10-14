@@ -35,6 +35,42 @@ and now reject the old `gpt-5.6-sol` literal.
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
+The governed Finder build slice now retargets Search to the current published
+`ratings_v4_prod_p4_parallel_v1` generation and adds the wide Archetype build.
+Both actions are identity- and migration-pinned, require the combined capacity
+gate, bind registration to sealed manifest evidence, and finish only after
+reviewed validation plus a receipted `VACUUM (ANALYZE)` of the physical product
+table. The read-only lifecycle action now reports product publication
+timestamps and the database publication-audit rows independently of publisher
+receipts. No action was dispatched and no production system was accessed.
+
+The combined Finder capacity gate is now wired as a synchronous, read-only
+governed operation. Its trusted bundle is bound to the selected source SHA and
+the explicitly supplied F2d operator-code attestation, and its sealed receipt
+is retained for review before either product build can proceed.
+
+The capacity-measurement slice adds fixed, shared F2d evidence paths and
+canonical sealed-receipt loading; sealed, operator-identity-bound Archetype and
+Search footprint receipts; and a manual GitHub-hosted PostgreSQL 18 measurement
+workflow. Search is measured from three independent empty database states
+(pre-010, post-010, and minimum-text fixed cost), while the Archetype receipt
+records its measured text-free fixed cost for safe resume arithmetic. The
+workflow only uploads evidence for review; it does not access or change
+production.
+
+The first governed-action slice pins the complete F2d operator surface to a
+canonical content identity, adds matching fail-closed shell and Python identity
+helpers, and allowlists a detached read-only complete calibration start/status
+pair. The complete reader resumes only identity- and generation-bound chunk
+checkpoints, scores every Ratings system through the shared model SQL and
+`score_raw_system`, appends per-chunk tier counts to a digest-bound
+`per-chunk.jsonl` log (the production generation has ~200,000 canonical chunks,
+so the sealed receipt binds that log by length and SHA-256 rather than carrying
+it), and seals the per-key totals, chunk-plan identity and expected product
+manifest. A pure-standard-library converter verifies that receipt and
+emits the measured 60/76/88 fractions consumed by the disposable footprint
+measurement. No action was dispatched and no production system was accessed.
+
 The additive `GET /api/archetypes/system/{id64}/explanation` route now
 recomputes all eight archetype explanations on demand from the published
 Ratings vector and opportunity inputs. It serves only an exact product/model

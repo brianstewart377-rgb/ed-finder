@@ -24,7 +24,12 @@ PRODUCT_CODE = 'system_archetype'
 PRODUCT_VERSION = model.ARCHETYPE_VERSION
 GENERATION_KEY = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
 SCHEMA_NAME = re.compile(r'v3_gen_[a-z][a-z0-9_]{0,30}\Z')
+SHA256_HEX = re.compile(r'[0-9a-f]{64}\Z')
 Progress = Callable[[dict], None]
+
+
+class ExpectedManifestMismatchError(ValueError):
+    """The product manifest does not match the operator-approved identity."""
 
 
 @dataclass(frozen=True)
@@ -254,7 +259,14 @@ def _require_verified_search(connection, generation_id: str) -> None:
         raise ValueError('same-generation system_search product is not READY/VERIFIED')
 
 
-def register_product(connection, generation_key: str) -> tuple[Generation, str, bytes]:
+def register_product(
+    connection, generation_key: str, expected_manifest_sha256: str | None = None,
+) -> tuple[Generation, str, bytes]:
+    if (
+        expected_manifest_sha256 is not None
+        and SHA256_HEX.fullmatch(expected_manifest_sha256) is None
+    ):
+        raise ExpectedManifestMismatchError('expected_manifest_mismatch')
     generation = _generation(connection, generation_key)
     if generation.state not in {'BUILDING', 'VALIDATING', 'READY', 'PUBLISHED'}:
         raise ValueError('generation cannot accept an Archetype product')
@@ -262,6 +274,14 @@ def register_product(connection, generation_key: str) -> tuple[Generation, str, 
     manifest = product_manifest(generation)
     manifest_sha = _digest(manifest)
     existing = _product(connection, generation.identifier)
+    registered_manifest_sha = (
+        manifest_sha if existing is None else bytes(existing[3])
+    )
+    if (
+        expected_manifest_sha256 is not None
+        and registered_manifest_sha.hex() != expected_manifest_sha256
+    ):
+        raise ExpectedManifestMismatchError('expected_manifest_mismatch')
     if existing is None:
         with connection.transaction():
             connection.execute(
@@ -771,10 +791,13 @@ def run(
     connection, generation_key: str, *, follow: bool = False,
     poll_seconds: float = 5.0, max_chunks: int | None = None,
     progress: Progress | None = None,
+    expected_manifest_sha256: str | None = None,
 ) -> dict:
     if not isinstance(poll_seconds, (int, float)) or poll_seconds <= 0:
         raise ValueError('poll_seconds must be positive')
-    generation, state, manifest_sha = register_product(connection, generation_key)
+    generation, state, manifest_sha = register_product(
+        connection, generation_key, expected_manifest_sha256,
+    )
     if state not in {'BUILDING', 'READY'}:
         raise ValueError('Archetype product cannot be built from current state')
     total_seen = total_written = 0
@@ -837,6 +860,7 @@ def parse_args(argv=None):
     parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--max-chunks', type=int)
     parser.add_argument('--validate', action='store_true')
+    parser.add_argument('--expected-manifest-sha256')
     return parser.parse_args(argv)
 
 
@@ -855,16 +879,26 @@ def main(argv=None) -> int:
             if args.validate:
                 generation, _, manifest_sha = register_product(
                     connection, args.generation_key,
+                    args.expected_manifest_sha256,
                 )
                 result = validate_product(connection, generation, manifest_sha)
             else:
                 result = run(
                     connection, args.generation_key, follow=args.follow,
                     poll_seconds=args.poll_seconds, max_chunks=args.max_chunks,
+                    expected_manifest_sha256=args.expected_manifest_sha256,
                     progress=lambda item: print(json.dumps(
                         {'status': 'PROGRESS', **item}, sort_keys=True,
                     ), flush=True),
                 )
+    except ExpectedManifestMismatchError:
+        print(
+            json.dumps({
+                'status': 'FAILED', 'error': 'expected_manifest_mismatch',
+            }),
+            file=sys.stderr,
+        )
+        return 65
     except Exception as exc:
         print(
             json.dumps({'status': 'FAILED', 'error': type(exc).__name__}),

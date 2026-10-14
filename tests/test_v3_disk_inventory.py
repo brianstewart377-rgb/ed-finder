@@ -9,6 +9,7 @@ import sys
 import textwrap
 
 import pytest
+import yaml
 
 
 pytestmark = pytest.mark.unit
@@ -1213,7 +1214,15 @@ def test_v3_disk_inventory_shares_one_scan_budget_within_the_job_timeout(tmp_pat
     assert "- NON_SCAN_AND_RECEIPT_BUDGET_SECONDS" in source
     assert "DIRECTORY_SCAN_BUDGET_SECONDS" not in source
     assert 960 + 600 + 240 == 1800
-    assert "timeout-minutes: 40" in _read(WORKFLOW)
+    # The operator job's timeout must leave the 30-minute action budget room to
+    # emit its receipt. It was 40 minutes; the F2d build finalization (a receipted
+    # VACUUM (ANALYZE) of up to 120 minutes) raised it to 150, and the Archetype
+    # finalize (validation then VACUUM, each up to 120 minutes) to 270, which still
+    # bounds every allowlisted operation and keeps this budget inside the job.
+    workflow_jobs = yaml.safe_load(_read(WORKFLOW))["jobs"]
+    job_timeout_minutes = workflow_jobs["execute"]["timeout-minutes"]
+    assert job_timeout_minutes == 270
+    assert job_timeout_minutes * 60 >= 1800 + 240
     assert "class ScanBudget" in source
     assert "def call_timeout(" in source
     assert "scan_budget_exhausted" in source
