@@ -29,6 +29,16 @@ schema-compatible rollback boundary. The gate prefers recorded compatible
 artifacts and permits the same operation's authenticated, checksum-bound
 candidate as the first F2d rollback artifact after boundary and rollback-manifest
 validation; preflight and promotion receipts retain its source and image identity.
+Authenticated candidates defer image checks to promotion's candidate pull/verify
+step; recorded rollback artifacts retain immediate verification. Publication's
+bounded behavioural probes now require the exact READY-but-unpublished reason
+for both 503s and receipt the parsed detail and verification result. The
+publisher pins the active API DSN to the retained database and role, with the
+host restricted to the pinned PostgreSQL container name or its inspected IPv4
+address on the worker network, and independently checks the connected database
+and user before any write (refusal code 79). The standalone plan probe also
+refuses loaded checkout modules outside the operator-code manifest before
+connecting. Regression tests cover all four review findings.
 F2d operator operations now read their
 attested identity from trusted-main's target authority. The gate requires all
 six planned migrations and refuses explicitly while mandatory `016` remains

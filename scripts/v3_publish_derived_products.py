@@ -24,6 +24,8 @@ SCHEMA_VERSION = "ed-finder/v3-publish-derived-products-program/v1"
 PRODUCTS = ("system_search", "system_archetype")
 ACTOR_PATTERN = re.compile(r"[A-Za-z0-9._@:/-]{1,128}\Z")
 DATABASE_URL_ENV = "V3_PUBLISH_DERIVED_PRODUCTS_DATABASE_URL"
+DATABASE_NAME = "edfinder_v3_phase4c_full_20260827_r5"
+DATABASE_USER = "edfinder_v3"
 
 
 class PublicationRefusal(RuntimeError):
@@ -193,6 +195,13 @@ def publish_products(
             raise PublicationRefusal(77, "commit_handshake_files_already_exist")
         if connection.autocommit:
             raise PublicationRefusal(4, "publication_requires_transaction_connection")
+        # Verify the connected server too: a URI check alone cannot prove the
+        # database/session identity selected by libpq or the server.
+        database_identity = connection.execute(
+            "SELECT current_database(), current_user"
+        ).fetchone()
+        if database_identity != (DATABASE_NAME, DATABASE_USER):
+            raise PublicationRefusal(79, "database_target_identity_mismatch")
         connection.execute("SET LOCAL statement_timeout = '600s'")
         generation = connection.execute(
             """

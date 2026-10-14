@@ -56,6 +56,8 @@ class Connection:
 
     def execute(self, query, params=None):
         self.events.append((query, params))
+        if "current_database()" in query:
+            return Cursor([(publisher.DATABASE_NAME, publisher.DATABASE_USER)])
         if "g.generation_key" in query:
             return Cursor([("fixture", "PUBLISHED", 1)])
         if "FOR UPDATE" in query:
@@ -137,6 +139,36 @@ def test_success_probes_same_connection_then_handshake_then_commit(monkeypatch, 
     assert set(receipt["view_visibility"]["counts"].values()) == {10001}
     publisher.atomic_json(tmp_path / "receipt.json", receipt)
     assert load_sealed(tmp_path / "receipt.json") == receipt
+
+
+@pytest.mark.parametrize("database,user", [
+    ("other_database", "edfinder_v3"),
+    ("edfinder_v3_phase4c_full_20260827_r5", "other_user"),
+    ("other_database", "other_user"),
+])
+def test_connected_database_identity_refuses_before_any_publication(
+    monkeypatch, tmp_path, database, user,
+):
+    connection = Connection()
+    original_execute = connection.execute
+
+    def execute(query, params=None):
+        if "current_database()" in query:
+            connection.events.append((query, params))
+            return Cursor([(database, user)])
+        return original_execute(query, params)
+
+    connection.execute = execute
+    calls = stub_probe(monkeypatch)
+    monkeypatch.setattr(publisher, "_wait_for_decision", lambda *args: None)
+    receipt = invoke(connection, tmp_path)
+    assert receipt["exit_code"] == 79
+    assert receipt["status"] == "refused"
+    assert receipt["failures"] == ["database_target_identity_mismatch"]
+    assert not receipt["publication_performed"] and not receipt["db_writes_performed"]
+    assert not calls and not connection.pending and not connection.committed
+    assert not any("publish_derived_product(" in query for query, _ in connection.events)
+    assert not (tmp_path / "ready-to-commit.json").exists()
 
 
 def test_failed_probe_rolls_back_both_products_without_ready_file(monkeypatch, tmp_path):
@@ -326,6 +358,10 @@ def _database_invoke(state, directory, monkeypatch, *, probe_status="passed", de
     from psycopg.conninfo import make_conninfo
 
     observer, generation, key = state
+    # This fixture connects only to its disposable database and role; exercise
+    # the real session check against those explicit local target identities.
+    monkeypatch.setattr(publisher, "DATABASE_NAME", observer.info.dbname)
+    monkeypatch.setattr(publisher, "DATABASE_USER", observer.info.user)
 
     def run(connection, document, **kwargs):
         assert kwargs["allow_unpublished"]

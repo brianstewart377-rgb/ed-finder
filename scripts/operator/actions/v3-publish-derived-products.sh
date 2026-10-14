@@ -114,13 +114,48 @@ active_api_container() {
   printf '%s\n' "${matches[0]}"
 }
 
+# Refusal codes: 70 deployment lock; 71 product state; 72 already published;
+# 73 image/attestation; 74 behavioural probes; 75 code/model identity;
+# 76 maintenance; 77 commit handshake; 78 timeout; 79 database target identity.
 api_database_url() {
-  local api="$1" value count
-  value="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | sed -n 's/^DATABASE_URL=//p')"
+  local api="$1" value count network
+  value="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | sed -n 's/^DATABASE_URL=//p')" || return 79
   count="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | grep -c '^DATABASE_URL=' || true)"
-  [ "$count" -eq 1 ] || fail "active API does not expose exactly one DATABASE_URL"
-  case "$value" in postgresql://*|postgres://*) ;; *) fail "active API DATABASE_URL is not PostgreSQL" ;; esac
-  printf '%s' "$value"
+  [ "$count" -eq 1 ] || return 79
+  network="$(docker inspect -f "{{json (index .NetworkSettings.Networks \"$WORKER_NETWORK\")}}" "$POSTGRES_CONTAINER")" || return 79
+  # Host rule: the pinned container name or its inspected IPv4 address, with
+  # a verified attachment to WORKER_NETWORK. Never resolve arbitrary DNS.
+  # The DSN stays in the environment/private command substitution, not argv,
+  # diagnostics or receipts. Emit it only to the caller's private capture.
+  ACTIVE_API_DATABASE_URL="$value" "$PYTHON_BIN" - \
+    "$DATABASE_NAME" "$DATABASE_USER" "$POSTGRES_CONTAINER" "$network" <<'PY'
+import ipaddress, json, os, sys
+from urllib.parse import parse_qsl, unquote, urlsplit
+try:
+    value = os.environ['ACTIVE_API_DATABASE_URL']
+    if any(character in value for character in '\r\n\x00'):
+        raise ValueError
+    parsed = urlsplit(value)
+    network = json.loads(sys.argv[4])
+    address = str(ipaddress.IPv4Address(network['IPAddress']))
+    # libpq query parameters can override URI authority/path fields. Refuse
+    # target overrides and service indirection even when the URI looks pinned.
+    overrides = {'host', 'hostaddr', 'port', 'dbname', 'user', 'service', 'servicefile'}
+    if (
+        parsed.scheme not in {'postgres', 'postgresql'}
+        or unquote(parsed.path) != '/' + sys.argv[1]
+        or unquote(parsed.username or '') != sys.argv[2]
+        or parsed.hostname not in {sys.argv[3], address}
+        or parsed.port not in {None, 5432}
+        or parsed.fragment
+        or any(key.lower() in overrides for key, _ in parse_qsl(parsed.query))
+    ):
+        raise ValueError
+except (KeyError, TypeError, ValueError):
+    # Exception messages from URI parsing can contain credentials.
+    raise SystemExit(79) from None
+sys.stdout.write(value)
+PY
 }
 
 dense_anchor() {
@@ -195,7 +230,7 @@ body = {
     'generation': {'generation_key': key, 'derived_generation_id': identifier,
                    'publication_sequence': int(sequence), 'lifecycle_state': 'PUBLISHED'},
     'actor': actor, 'f2d_operator_code_sha256': identity,
-    'status': 'published' if code == 0 else 'refused' if 70 <= code <= 78 else 'failed',
+    'status': 'published' if code == 0 else 'refused' if 70 <= code <= 79 else 'failed',
     'exit_code': code, 'failures': [item] if item else [],
     'publication_performed': performed, 'db_writes_performed': performed,
 }
@@ -338,6 +373,12 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 opener = build_opener(ProxyHandler({}), NoRedirect())
 origin = 'http://127.0.0.1:58080'
+max_body = 64 * 1024
+# _current_derived_generation() names both READY, unpublished dependencies.
+expected_not_ready = (
+    'Finder ranking products are not available for the published generation '
+    '(system_archetype=READY-unpublished, system_search=READY-unpublished).'
+)
 pairs = [
     ('GET', '/api/archetypes/rankings?archetype=paradise&offset=9999&limit=1', None, 503),
     ('GET', '/api/archetypes/rankings?archetype=paradise&offset=9999&limit=2', None, 422),
@@ -346,21 +387,40 @@ pairs = [
 ]
 statuses = []
 for method, path, body, expected in pairs:
+    payload = b''
+    detail = None
+    reason_verified = None
     request = Request(origin + path, data=None if body is None else json.dumps(body).encode(),
                       headers={'Content-Type': 'application/json'}, method=method)
     try:
         with opener.open(request, timeout=15) as response:
             status = response.status
+            payload = response.read(max_body + 1)
     except HTTPError as exc:
-        status = exc.code
-        exc.close()
+        with exc:
+            status = exc.code
+            payload = exc.read(max_body + 1)
     except (URLError, OSError):
         status = None
+    if len(payload) > max_body:
+        status = None
+    else:
+        try:
+            parsed = json.loads(payload)
+            if isinstance(parsed, dict):
+                detail = parsed.get('detail')
+        except (ValueError, UnicodeError):
+            pass
+    if expected == 503:
+        reason_verified = detail == expected_not_ready
     statuses.append({'method': method, 'path': path, 'body': body,
-                     'status': status, 'expected_status': expected})
+                     'status': status, 'expected_status': expected,
+                     'detail': detail, 'reason_verified': reason_verified})
 with open(sys.argv[1], 'w') as output:
     json.dump(statuses, output, sort_keys=True)
-if any(row['status'] != row['expected_status'] for row in statuses):
+if any(row['status'] != row['expected_status']
+       or row['expected_status'] == 503 and row['reason_verified'] is not True
+       for row in statuses):
     raise SystemExit('behavioural_probe_pairs_failed')
 PY
 }
@@ -596,7 +656,7 @@ PY
 )" || refuse 21 plan_probe_statement_identity
   printf '"%s"\n' "$statements_sha" > "$RUN_DIR/statements-identity.json"
   local dsn
-  dsn="$(api_database_url "$API")" || refuse 4 active_api_database_url_unavailable
+  dsn="$(api_database_url "$API")" || refuse 79 database_target_identity_mismatch
   ENV_FILE="$RUN_DIR/publish.env"
   printf 'V3_PUBLISH_DERIVED_PRODUCTS_DATABASE_URL=%s\n' "$dsn" > "$ENV_FILE"
   printf 'F2D_OPERATOR_CODE_SHA256_ATTESTED=%s\n' "$F2D_IDENTITY" >> "$ENV_FILE"

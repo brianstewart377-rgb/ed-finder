@@ -926,11 +926,19 @@ def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
     monkeypatch.setattr(deployer, "verify_f2d_openapi_contract", lambda *_args: {})
     monkeypatch.setattr(deployer, "verify_f2d_rejections", lambda *_args: [])
 
-    if operation.endswith("image_failure"):
-        def fail_image_verification(*_args):
-            raise deployer.DeploymentError("synthetic_image_failure")
+    pulled_images = set()
+    image_verifications = []
 
-        monkeypatch.setattr(deployer, "verify_image", fail_image_verification)
+    def verify_image(image, sha, *_args):
+        image_verifications.append((image, sha, image in pulled_images))
+        if operation.endswith("image_failure"):
+            raise deployer.DeploymentError("synthetic_image_failure")
+        # First-F2d candidate digests exist only in the registry until promote
+        # pulls them. Preflight must not require these images to exist locally.
+        if not recorded and image not in pulled_images:
+            raise deployer.DeploymentError("synthetic_candidate_image_absent_locally")
+
+    monkeypatch.setattr(deployer, "verify_image", verify_image)
 
     def behavioural_probes(*_args):
         if operation == "promote_failure":
@@ -959,10 +967,15 @@ def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
     monkeypatch.setattr(deployer, "validate_candidate", authenticate)
     monkeypatch.setattr(deployer, "select_f2d_rollback", select)
 
-    def runner(*_args, **_kwargs):
+    def runner(argv, **_kwargs):
+        if argv[:2] == ["docker", "pull"]:
+            pulled_images.add(argv[2])
         return SimpleNamespace(stdout="", returncode=0)
 
-    if operation.endswith("failure"):
+    expects_failure = operation.endswith("failure") and not (
+        operation == "preflight_image_failure" and not recorded
+    )
+    if expects_failure:
         with pytest.raises(deployer.OperationFailed) as failed:
             deployer.promote(args, authority, runner)
         receipt = failed.value.receipt
@@ -975,13 +988,34 @@ def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
         selected_receipt = receipt["f2d_rollback_artifact"]
     else:
         receipt = deployer.promote(args, authority, runner)
-        assert receipt["status"] == ("preflight-passed" if operation == "preflight" else "accepted")
+        assert receipt["status"] == ("preflight-passed" if operation.startswith("preflight") else "accepted")
         selected_receipt = receipt["rollback"]
     assert len(authenticated) == len(selected) == 1
     source = "recorded_artifact" if recorded else "authenticated_candidate"
     assert selected_receipt["source"] == source
     assert selected_receipt["source_sha"] == expected_manifest["git_sha"]
     assert selected_receipt["images"] == expected_manifest["images"]
+    if not recorded:
+        assert selected_receipt["image_verification"] == "candidate-pull-verify-step-before-cutover"
+        if operation.startswith("preflight"):
+            assert image_verifications == []
+            assert pulled_images == set()
+        else:
+            assert image_verifications
+            assert all(was_pulled for _image, _sha, was_pulled in image_verifications)
+            if operation == "promote":
+                assert image_verifications == [
+                    (image, manifest["git_sha"], True) for image in manifest["images"].values()
+                ]
+    else:
+        assert image_verifications[0] == (
+            expected_manifest["images"]["backend"], expected_manifest["git_sha"], False,
+        )
+        if not operation.endswith("image_failure"):
+            assert image_verifications[:2] == [
+                (image, expected_manifest["git_sha"], False)
+                for image in expected_manifest["images"].values()
+            ]
     if operation == "promote_failure":
         assert receipt["rollback"]["source"] == source
         assert receipt["rollback"]["source_sha"] == expected_manifest["git_sha"]

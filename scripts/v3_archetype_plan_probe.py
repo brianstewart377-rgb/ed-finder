@@ -14,9 +14,11 @@ import sys
 import time
 from typing import Any, NoReturn
 
+from scripts.operator.lib import f2d_operator_identity
 from scripts.operator.lib.f2d_evidence import canonical_sha256, seal
 
 
+ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "ed-finder/v3-archetype-plan-probe/v1"
 ROW_BOUND = 10_001
 KNN_TIE_SLACK = 1_000
@@ -37,6 +39,36 @@ class PlanProbeRefusal(RuntimeError):
         self.exit_code = exit_code
         self.reason = reason
         super().__init__(reason)
+
+
+def refuse_unlisted_checkout_modules() -> None:
+    """Refuse a loaded repository module not covered by the operator manifest."""
+    root = ROOT.resolve()
+    listed = {
+        entry for entry in f2d_operator_identity.manifest_entries(ROOT)
+        if not entry.startswith("requirement:")
+    }
+    unlisted: list[str] = []
+    for module in tuple(sys.modules.values()):
+        filename = getattr(module, "__file__", None)
+        if not filename:
+            continue
+        try:
+            relative = Path(filename).resolve().relative_to(root).as_posix()
+        except (OSError, ValueError):
+            continue
+        if relative.endswith((".pyc", ".pyo")):
+            relative = (
+                relative.rsplit("__pycache__/", 1)[0]
+                + relative.rsplit("/", 1)[-1].split(".")[0] + ".py"
+            )
+        if relative not in listed:
+            unlisted.append(relative)
+    if unlisted:
+        raise ValueError(
+            "loaded checkout module is absent from F2d operator manifest: "
+            + ", ".join(sorted(set(unlisted)))
+        )
 
 
 def _refuse(exit_code: int, reason: str) -> NoReturn:
@@ -772,6 +804,11 @@ def main(argv: list[str] | None = None) -> int:
         print("plan probe identity refusal", file=sys.stderr)
         return 2
     try:
+        refuse_unlisted_checkout_modules()
+    except (f2d_operator_identity.OperatorIdentityError, ValueError):
+        print("plan probe identity refusal", file=sys.stderr)
+        return 2
+    try:
         document = json.loads(args.statements.read_text(encoding="utf-8"))
         dense_anchor_cell = json.loads(args.dense_anchor_cell)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -799,6 +836,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         import psycopg
 
+        refuse_unlisted_checkout_modules()
         with psycopg.connect(dsn, autocommit=True) as connection:
             connection.read_only = True
             connection.execute(

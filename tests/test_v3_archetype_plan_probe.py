@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import importlib.util
+import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -432,6 +435,49 @@ def test_statement_validation_refusal_uses_exit_21() -> None:
     with pytest.raises(probe.PlanProbeRefusal) as caught:
         probe.validate_statements_document({})
     assert caught.value.exit_code == 21
+
+
+def test_loaded_unlisted_checkout_module_refuses_before_connecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = tmp_path / "deploy/v3-production/f2d-operator-code.txt"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("deploy/v3-production/f2d-operator-code.txt\n", encoding="utf-8")
+    unlisted = tmp_path / "unlisted.py"
+    unlisted.write_text("loaded = True\n", encoding="utf-8")
+    specification = importlib.util.spec_from_file_location("f2d_unlisted_fixture", unlisted)
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    monkeypatch.setitem(sys.modules, specification.name, module)
+    # Isolate the checkout from pytest's own loaded repository test modules.
+    monkeypatch.setattr(probe, "ROOT", tmp_path, raising=False)
+    monkeypatch.setenv("F2D_OPERATOR_CODE_SHA256_ATTESTED", "a" * 64)
+    monkeypatch.setenv("V3_ARCHETYPE_PLAN_PROBE_DATABASE_URL", "postgresql://unused/test")
+    monkeypatch.setattr(probe, "validate_statements_document", lambda _document: None)
+    statements = tmp_path / "statements.json"
+    statements.write_text(json.dumps({}), encoding="utf-8")
+    connected: list[bool] = []
+
+    def connect(*_args, **_kwargs):
+        connected.append(True)
+        raise AssertionError("unlisted checkout code must refuse before connecting")
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=connect))
+    result = probe.main([
+        "--statements", str(statements),
+        "--statements-sha256", "b" * 64,
+        "--image-digest", "image@sha256:" + "c" * 64,
+        "--generation-key", "test", "--generation-id", "generation",
+        "--publication-sequence", "1",
+        "--search-final-insert-at", "2026-01-01T00:00:00+00:00",
+        "--archetype-final-insert-at", "2026-01-01T00:00:00+00:00",
+        "--dense-anchor-cell", "{}", "--output", str(tmp_path / "receipt.json"),
+    ])
+    assert result == 2
+    assert connected == []
+    assert "plan probe identity refusal" in capsys.readouterr().err
+    assert not (tmp_path / "receipt.json").exists()
 
 
 @pytest.fixture

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 from pathlib import Path
 import re
@@ -19,6 +20,10 @@ pytestmark = pytest.mark.operator
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "scripts/operator/actions/v3-publish-derived-products.sh"
 WORKFLOW = ROOT / ".github/workflows/v3-production-application-deploy.yml"
+EXPECTED_NOT_READY = (
+    "Finder ranking products are not available for the published generation "
+    "(system_archetype=READY-unpublished, system_search=READY-unpublished)."
+)
 
 
 def _source() -> str:
@@ -198,6 +203,7 @@ def test_refusal_codes_identify_each_go_live_gate() -> None:
         (72, "publication_already_happened"), (73, "active_api_digest_not_attested"),
         (74, "behavioural_probe_pairs"), (75, "product_manifest_code_or_model_identity"),
         (76, "build_final_receipts_or_live_maintenance"),
+        (79, "database_target_identity_mismatch"),
     ):
         assert f"refuse {code} {item}" in source
     assert "host_abort=77" in source
@@ -239,7 +245,10 @@ def test_probe_pairs_issue_exact_requests_and_record_every_status(
     def request(request, *, timeout):
         assert timeout == 15
         requests.append(request)
-        raise HTTPError(request.full_url, statuses[len(requests) - 1], "fixture", None, None)
+        raise HTTPError(
+            request.full_url, statuses[len(requests) - 1], "fixture", None,
+            io.BytesIO(json.dumps({"detail": EXPECTED_NOT_READY}).encode()),
+        )
 
     monkeypatch.setattr(urllib.request, "build_opener", lambda *_: SimpleNamespace(open=request))
     path = tmp_path / "statuses.json"
@@ -259,7 +268,66 @@ def test_probe_pairs_issue_exact_requests_and_record_every_status(
         {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 1},
         {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 2},
     ]
-    assert [row["status"] for row in json.loads(path.read_text())] == list(statuses)
+    rows = json.loads(path.read_text())
+    assert [row["status"] for row in rows] == list(statuses)
+    assert [row["detail"] for row in rows] == [EXPECTED_NOT_READY] * 4
+    assert [row["reason_verified"] for row in rows] == [True, None, True, None]
+
+
+@pytest.mark.parametrize("index", (0, 2))
+@pytest.mark.parametrize("payload", (
+    b'{"detail":"database connection failed"}',
+    b'{"detail":"Finder ranking products are not available for the published generation '
+    b'(system_archetype=MISSING, system_search=MISSING)."}',
+    b'{}', b'[]', b'not json', b'\xff',
+))
+def test_probe_pairs_refuse_unverified_not_ready_reason_before_write_worker(
+    index: int, payload: bytes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = []
+
+    def request(request, *, timeout):
+        current = len(requests)
+        requests.append(request)
+        body = payload if current == index else json.dumps({"detail": EXPECTED_NOT_READY}).encode()
+        raise HTTPError(request.full_url, (503, 422, 503, 422)[current], "fixture", None, io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *_: SimpleNamespace(open=request))
+    path = tmp_path / "statuses.json"
+    with pytest.raises(SystemExit, match="behavioural_probe_pairs_failed"):
+        _execute(_python("probe_pairs"), [path], monkeypatch)
+    rows = json.loads(path.read_text())
+    assert len(rows) == 4
+    assert rows[index]["status"] == 503
+    assert rows[index]["reason_verified"] is False
+    assert rows[2 - index]["reason_verified"] is True
+    flow = _function("run_operation")
+    assert flow.index("probe_pairs || refuse 74 behavioural_probe_pairs") < flow.index(
+        "timeout --signal=TERM --kill-after=30s 1800 docker run"
+    )
+
+
+def test_probe_pairs_refuse_oversized_response_with_bounded_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sizes = []
+
+    class Oversized(io.BytesIO):
+        def read(self, size=-1):
+            assert 0 < size <= 64 * 1024 + 1
+            sizes.append(size)
+            return b" " * size
+
+    def request(request, *, timeout):
+        status = 503 if "limit=1" in request.full_url or b'"size": 1' in (request.data or b'') else 422
+        raise HTTPError(request.full_url, status, "fixture", None, Oversized())
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *_: SimpleNamespace(open=request))
+    path = tmp_path / "statuses.json"
+    with pytest.raises(SystemExit, match="behavioural_probe_pairs_failed"):
+        _execute(_python("probe_pairs"), [path], monkeypatch)
+    assert len(sizes) == 4
+    assert all(row["status"] is None for row in json.loads(path.read_text()))
 
 
 @pytest.mark.parametrize("mismatch", (None, "search", "archetype", "checkout_model", "api_model"))
@@ -516,3 +584,67 @@ def test_partial_preflight_evidence_still_yields_sealed_failure_envelope(
     assert receipt["attestation"] == {"evidence_unreadable": True}
     assert envelope["exit_code"] == 73
     assert envelope["publication_performed"] is False
+
+
+@pytest.mark.parametrize("host,user,database,query,network,persisted", [
+    ("edfinder-v3-phase4c-full-20260827_r5-postgres", "edfinder_v3",
+     "edfinder_v3_phase4c_full_20260827_r5", "", {"IPAddress": "172.30.0.2"}, True),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?sslmode=require", {"IPAddress": "172.30.0.2"}, True),
+    ("wrong-postgres", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.3", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "wrong_user", "edfinder_v3_phase4c_full_20260827_r5",
+     "", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "wrong_database",
+     "", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?host=wrong-postgres", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?hostaddr=172.30.0.3", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?dbname=wrong_database", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?user=wrong_user", {"IPAddress": "172.30.0.2"}, False),
+    ("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+     "?service=other-target", {"IPAddress": "172.30.0.2"}, False),
+    ("edfinder-v3-phase4c-full-20260827_r5-postgres", "edfinder_v3",
+     "edfinder_v3_phase4c_full_20260827_r5", "", None, False),
+], ids=["container-name", "network-ip", "wrong-host", "wrong-ip", "wrong-user",
+        "wrong-database", "host-override", "hostaddr-override", "database-override",
+        "user-override", "service-override", "missing-network"])
+def test_api_dsn_is_bound_to_pinned_database_user_and_network_without_logging(
+    host, user, database, query, network, persisted, tmp_path,
+):
+    # All credentials here are synthetic. Exercise the actual shell function
+    # with Docker mocked; the DSN may leave it only into a private captured file.
+    dsn = f"postgresql://{user}:private-test-password@{host}/{database}{query}"
+    private = tmp_path / "dsn"
+    environment = {
+        **os.environ, "PYTHON_BIN": sys.executable,
+        "POSTGRES_CONTAINER": "edfinder-v3-phase4c-full-20260827_r5-postgres",
+        "WORKER_NETWORK": "edfinder-v3-phase4c-full-20260827_r5-network",
+        "DATABASE_NAME": "edfinder_v3_phase4c_full_20260827_r5",
+        "DATABASE_USER": "edfinder_v3", "TEST_DSN": dsn,
+        "TEST_NETWORK": json.dumps(network), "PRIVATE_DSN_FILE": str(private),
+    }
+    script = '''set -euo pipefail
+fail() { printf '%s\\n' "$*" >&2; exit 64; }
+docker() {
+  if [ "$4" = test-api ]; then
+    printf 'DATABASE_URL=%s\\n' "$TEST_DSN"
+  elif [ "$4" = "$POSTGRES_CONTAINER" ]; then
+    [[ "$3" == *"$WORKER_NETWORK"* ]] || return 91
+    printf '%s\\n' "$TEST_NETWORK"
+  else
+    return 91
+  fi
+}
+''' + _function("api_database_url") + '\napi_database_url test-api > "$PRIVATE_DSN_FILE"\n'
+    result = subprocess.run(["bash", "-c", script], env=environment,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == (0 if persisted else 79), result.stderr
+    assert result.stdout == ""
+    assert dsn not in result.stderr and "private-test-password" not in result.stderr
+    assert private.read_text() == (dsn if persisted else "")

@@ -791,6 +791,8 @@ def f2d_rollback_receipt(manifest: dict[str, Any], source: str) -> dict[str, Any
                  else "authenticated-candidate-schema-compatible-release"),
         "source": source, "source_sha": manifest["git_sha"],
         "images": manifest["images"], "schema_compatible": True,
+        **({"image_verification": "candidate-pull-verify-step-before-cutover"}
+           if source == "authenticated_candidate" else {}),
     }
 
 
@@ -2026,8 +2028,11 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                     receipt_dir, f2d_attestation, schema, candidate,
                 )
                 rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
-                for image in rollback_manifest["images"].values():
-                    verify_image(image, rollback_manifest["git_sha"], env, runner)
+                # The first F2d candidate may exist only in the registry. Its
+                # images are pulled and verified by promote before cutover.
+                if rollback_source == "recorded_artifact":
+                    for image in rollback_manifest["images"].values():
+                        verify_image(image, rollback_manifest["git_sha"], env, runner)
             verify_snapshot(protected_before, env, runner)
             verify_unrelated_snapshot(all_before, set(), env, runner)
             live_capacity = live_capacity_guard()
@@ -2096,8 +2101,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 receipt_dir, f2d_attestation, schema, candidate,
             )
             rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
-            for image in rollback_manifest["images"].values():
-                verify_image(image, rollback_manifest["git_sha"], env, runner)
+            if rollback_source == "recorded_artifact":
+                for image in rollback_manifest["images"].values():
+                    verify_image(image, rollback_manifest["git_sha"], env, runner)
         current_path = receipt_dir / "current.json"
         if args.mode == "bootstrap":
             if current_path.exists():
