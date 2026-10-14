@@ -205,7 +205,9 @@ def test_finalize_vacuum_is_the_only_direct_database_write_and_is_not_transactio
     assert "publish_derived_product" not in source
     assert "docker compose" not in source
     assert "docker restart" not in source
-    assert "docker stop" not in source
+    # The only stop allowed is of this action's own unproven worker; no
+    # application or other container is ever stopped.
+    assert source.count("docker stop") == source.count('docker stop --time 60 "$WORKER"') == 1
 
 
 def test_finalize_receipts_post_insert_stats_and_is_idempotent() -> None:

@@ -372,8 +372,14 @@ PY
   done
   if [ "$proof" != true ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    # A failed start must not leave an unproven worker running.
+    if [ "$(docker inspect -f '{{.State.Status}}' "$WORKER" 2>/dev/null || true)" = "running" ]; then
+      docker stop --time 60 "$WORKER" >/dev/null 2>&1 || true
+      [ "$(docker inspect -f '{{.State.Status}}' "$WORKER" 2>/dev/null || echo unknown)" != "running" ] \
+        || fail "unproven complete calibration worker could not be stopped"
+    fi
     emit_status "v3-archetype-calibration-complete-start"
-    fail "complete calibration worker did not prove a checkpoint while running"
+    fail "complete calibration worker did not prove this launch while running; the worker was stopped"
   fi
   emit_status "v3-archetype-calibration-complete-start"
 }

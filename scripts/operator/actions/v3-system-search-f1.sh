@@ -333,6 +333,21 @@ emit_receipt_status() {
   done
 }
 
+# Stop a launched worker whose launch could not be proven, and confirm it is
+# no longer running; refuse loudly if it cannot be stopped.
+stop_unproven_worker() {
+  local state
+  if docker inspect "$WORKER" >/dev/null 2>&1; then
+    state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
+    if [ "$state" = "running" ]; then
+      docker stop --time 60 "$WORKER" >/dev/null 2>&1 || true
+      state="$(docker inspect -f '{{.State.Status}}' "$WORKER" 2>/dev/null || echo unknown)"
+      [ "$state" != "running" ] \
+        || fail "unproven worker ${WORKER} could not be stopped and may still be writing"
+    fi
+  fi
+}
+
 start_operation() {
   require_target
   require_stage
@@ -416,8 +431,14 @@ start_operation() {
     [ "$worker_state" = "running" ] || break
     sleep 2
   done
-  [ "$proof" -gt "$baseline_chunks" ] \
-    || { docker logs --tail 80 "$WORKER" >&2 || true; fail "Search worker did not prove a chunk committed by this launch"; }
+  if [ "$proof" -le "$baseline_chunks" ]; then
+    docker logs --tail 80 "$WORKER" >&2 || true
+    # A failed start must not leave an unproven worker inserting in the
+    # background: stop it (an uncommitted chunk rolls back; committed chunks
+    # stay sealed for a later resume) before reporting the failure.
+    stop_unproven_worker
+    fail "Search worker did not prove a chunk committed by this launch; the worker was stopped"
+  fi
 
   printf 'operation=v3-system-search-f1-start\nresult=launched\n'
   printf 'source_sha=%s\ngeneration_key=%s\ngeneration_id=%s\n' \

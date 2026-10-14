@@ -544,6 +544,11 @@ def validate_archetype_footprint_receipt(receipt: object) -> dict[str, object]:
         raise ValueError("archetype footprint receipt is not capacity-gate eligible")
     if receipt.get("score_distribution_source") != "measured-histogram":
         raise ValueError("archetype footprint receipt is not from a measured histogram")
+    # On-disk sizes are specific to the PostgreSQL major that produced them;
+    # production is PostgreSQL 18 (same rule as the Search receipt validator).
+    version = receipt.get("server_version_num")
+    if isinstance(version, bool) or not isinstance(version, int) or version // 10000 != 18:
+        raise ValueError("archetype footprint receipt was not measured on PostgreSQL 18")
     for field in (
         "heap_bytes_per_row",
         "primary_key_bytes_per_row",

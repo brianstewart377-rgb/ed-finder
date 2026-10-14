@@ -1381,6 +1381,14 @@ def run_gate(
             "required_bytes": required,
         }
     )
+    # The database reads above can outlast the 15-minute freshness window; the
+    # operator action keeps rewriting the reading while the gate runs, so the
+    # comparison uses the freshest one rather than the one taken at launch.
+    try:
+        volume = _json_file(args.volume_reading)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        refuse(3, "precheck", f"volume reading refused: {type(exc).__name__}")
+    inputs["volume_reading"] = volume
     available_bytes = volume.get("avail_bytes")
     if isinstance(available_bytes, bool) or not isinstance(available_bytes, int):
         refuse(

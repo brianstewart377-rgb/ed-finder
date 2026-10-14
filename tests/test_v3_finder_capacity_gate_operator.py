@@ -370,3 +370,122 @@ def test_build_start_proof_requires_a_chunk_from_this_launch(action_path, table)
     assert '[ "$proof" -gt "$baseline_chunks" ] && break' in proof
     assert '[ "$proof" -ge 1 ]' not in proof
 
+
+def _function_source(action: str, name: str) -> str:
+    start = action.index(f"{name}() {{\n")
+    end = action.index("\n}\n", start) + 3
+    return action[start:end]
+
+
+@pytest.mark.parametrize(
+    "action_path",
+    [
+        "scripts/operator/actions/v3-system-archetype.sh",
+        "scripts/operator/actions/v3-system-search-f1.sh",
+    ],
+)
+@pytest.mark.parametrize("stops", [True, False])
+def test_unproven_worker_is_stopped_before_start_reports_failure(
+    tmp_path, action_path, stops
+) -> None:
+    action = (ROOT / action_path).read_text(encoding="utf-8")
+    start = action[action.index("start_operation() {"):action.index("status_operation() {")]
+    failure = start[start.index('if [ "$proof" -le "$baseline_chunks" ]; then'):]
+    assert failure.index("stop_unproven_worker") < failure.index("fail ")
+
+    state = tmp_path / "state"
+    state.write_text("running", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        '  inspect) if [ "$2" = "-f" ]; then cat "$STATE_FILE"; fi; exit 0 ;;\n'
+        '  stop) echo "$*" >> "$STOP_LOG"; '
+        '[ "$STOPS" = 1 ] && printf exited > "$STATE_FILE"; exit 0 ;;\n'
+        "esac\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    script = (
+        "set -euo pipefail\n"
+        "WORKER=edfinder-test-worker\n"
+        "fail() { printf 'FAIL: %s\\n' \"$*\" >&2; exit 64; }\n"
+        + _function_source(action, "stop_unproven_worker")
+        + "stop_unproven_worker\necho returned\n"
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "STATE_FILE": str(state),
+        "STOP_LOG": str(tmp_path / "stop.log"),
+        "STOPS": "1" if stops else "0",
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=env, timeout=10
+    )
+    assert "stop --time 60 edfinder-test-worker" in (tmp_path / "stop.log").read_text()
+    if stops:
+        assert result.returncode == 0, result.stderr
+        assert state.read_text() == "exited"
+    else:
+        assert result.returncode == 64
+        assert "could not be stopped and may still be writing" in result.stderr
+
+
+def test_complete_read_start_stops_an_unproven_worker_before_failing() -> None:
+    action = (
+        ROOT / "scripts/operator/actions/v3-archetype-calibration-complete.sh"
+    ).read_text(encoding="utf-8")
+    failure = action[action.index('  if [ "$proof" != true ]; then'):]
+    failure = failure[: failure.index("\n  fi\n") + 6]
+    assert failure.index('docker stop --time 60 "$WORKER"') < failure.index("did not prove this launch")
+
+
+@pytest.mark.parametrize("write_succeeds", [True, False])
+def test_volume_reading_is_refreshed_atomically_while_the_gate_runs(
+    tmp_path, write_succeeds
+) -> None:
+    action = (ROOT / "scripts/operator/actions/v3-finder-capacity-gate.sh").read_text(
+        encoding="utf-8"
+    )
+    run = action[action.index("run_operation() {"):]
+    assert run.index('refresh_volume_reading "$volume_file" &') < run.index("docker run --rm")
+    assert run.rindex('kill "$refresher"') > run.index("docker run --rm")
+
+    output = tmp_path / "volume-reading.json"
+    output.write_text("old\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    # Two loop iterations, then the fake sleep fails to end the loop.
+    (fake_bin / "sleep").write_text(
+        '#!/bin/sh\nn=$(cat "$COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$COUNT"; '
+        '[ "$n" -le 2 ]\n',
+        encoding="utf-8",
+    )
+    (fake_bin / "sleep").chmod(0o755)
+    script = (
+        "set -euo pipefail\n"
+        "fail() { exit 64; }\n"
+        'write_volume_reading() { [ "$WRITE_OK" = 1 ] || fail; '
+        'printf "new %s\\n" "$(cat "$COUNT")" > "$1"; }\n'
+        + _function_source(action, "refresh_volume_reading")
+        + f'refresh_volume_reading "{output}"\n'
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "COUNT": str(tmp_path / "count"),
+        "WRITE_OK": "1" if write_succeeds else "0",
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=env, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "volume-reading.json.next").exists()
+    # A failed refresh keeps the previous reading (which the gate's freshness
+    # check then judges); a successful one replaces it.
+    assert output.read_text() == ("new 2\n" if write_succeeds else "old\n")
+

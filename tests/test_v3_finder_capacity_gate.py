@@ -626,8 +626,9 @@ def test_failure_receipt_preserves_capacity_inputs_and_intermediates():
     assert [result["item"] for result in receipt["item_results"]] == ["a", "f"]
 
 
+@pytest.mark.parametrize("refreshed_mid_run", [False, True])
 def test_run_gate_pass_receipt_reports_all_inputs_and_intermediates(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, refreshed_mid_run
 ):
     from scripts import v3_archetype_calibration_complete as calibration
     from scripts.operator.lib import f2d_evidence
@@ -768,7 +769,13 @@ def test_run_gate_pass_receipt_reports_all_inputs_and_intermediates(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(gate.canonical_json(value), encoding="utf-8")
     volume_path = tmp_path / "volume.json"
-    volume_path.write_text(gate.canonical_json(volume), encoding="utf-8")
+    if refreshed_mid_run:
+        # The launch-time reading is 20 minutes old by the comparison (a long
+        # gate); the host rewrites it while the database reads run.
+        stale = {**volume, "read_at": (now - timedelta(minutes=20)).isoformat()}
+        volume_path.write_text(gate.canonical_json(stale), encoding="utf-8")
+    else:
+        volume_path.write_text(gate.canonical_json(volume), encoding="utf-8")
 
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(
@@ -798,7 +805,12 @@ def test_run_gate_pass_receipt_reports_all_inputs_and_intermediates(
             migration_011_sha if name.startswith("011") else migration_010_sha
         ),
     )
-    monkeypatch.setattr(gate, "_product_rows", lambda *_: {})
+    def product_rows(*_):
+        if refreshed_mid_run:
+            volume_path.write_text(gate.canonical_json(volume), encoding="utf-8")
+        return {}
+
+    monkeypatch.setattr(gate, "_product_rows", product_rows)
     monkeypatch.setattr(gate, "_sealed_chunks", lambda *_: ([], 0))
 
     modules = {
@@ -864,6 +876,8 @@ def test_run_gate_pass_receipt_reports_all_inputs_and_intermediates(
     assert receipt["required_bytes"] == 67
     assert receipt["available_bytes"] == 100
     assert receipt["headroom_bytes"] == 33
+    # The receipt records the reading actually compared.
+    assert receipt["inputs"]["volume_reading"]["read_at"] == now.isoformat()
     body = dict(receipt)
     seal = body.pop("content_sha256")
     assert seal == f2d_evidence.canonical_sha256(body)

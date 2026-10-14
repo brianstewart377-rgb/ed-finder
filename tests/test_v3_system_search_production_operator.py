@@ -70,7 +70,9 @@ def test_search_operator_is_bounded_and_cannot_publish_or_touch_canonical():
     assert "publish_derived_product(" not in source
     assert "docker compose" not in source
     assert "docker restart" not in source
-    assert "docker stop" not in source
+    # The only stop allowed is of this action's own unproven worker; no
+    # application or other container is ever stopped.
+    assert source.count("docker stop") == source.count('docker stop --time 60 "$WORKER"') == 1
     assert "TRUNCATE " not in source
     assert "DROP TABLE" not in source
     assert "DROP SCHEMA" not in source

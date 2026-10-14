@@ -448,6 +448,7 @@ def _measured_archetype_body(module):
     return {
         "capacity_gate_eligible": True,
         "score_distribution_source": "measured-histogram",
+        "server_version_num": 180004,
         "rows": rows,
         "row_count": rows,
         "heap_bytes": heap_bytes,
@@ -489,6 +490,18 @@ def test_archetype_receipt_validator_refuses_resealed_understated_costs(field):
     body = _measured_archetype_body(module)
     body[field] -= 1
     with pytest.raises(ValueError, match=f"{field} is not derived from its measurements"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+@pytest.mark.parametrize("version", [None, 170005, 190000, True, "180004"])
+def test_archetype_receipt_validator_requires_postgresql_18(version):
+    module = _load()
+    body = _measured_archetype_body(module)
+    if version is None:
+        del body["server_version_num"]
+    else:
+        body["server_version_num"] = version
+    with pytest.raises(ValueError, match="not measured on PostgreSQL 18"):
         module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
 
 
@@ -638,6 +651,7 @@ def test_final_migration_mode_smoke_on_disposable_postgresql_18(
     assert receipt["text_bytes_stored"] > 0
     # Real measurement output satisfies the validator's cost recomputation.
     module._require_costs_derive_from_measurements(receipt)
+    assert receipt["server_version_num"] // 10000 == 18
     assert receipt["archetype_fixed_bytes_per_row"] <= (
         receipt["heap_bytes_per_row"]
         + receipt["primary_key_bytes_per_row"]

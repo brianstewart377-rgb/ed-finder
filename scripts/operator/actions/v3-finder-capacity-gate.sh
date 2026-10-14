@@ -258,6 +258,18 @@ print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 PY
 }
 
+# The gate's database reads can outlast the program's 15-minute freshness
+# window, so keep replacing the reading (atomically, by rename in the same
+# directory) while the gate runs; the program re-reads it just before the
+# capacity comparison. A failed refresh leaves the older reading in place,
+# which the freshness check then refuses.
+refresh_volume_reading() {
+  local output="$1" next="$1.next"
+  while sleep 60; do
+    ( write_volume_reading "$next" ) && mv -f -- "$next" "$output" || rm -f -- "$next"
+  done
+}
+
 run_operation() {
   require_target
   require_stage
@@ -281,7 +293,8 @@ run_operation() {
   printf 'V3_FINDER_CAPACITY_GATE_DATABASE_URL=%s\n' "$dsn" > "$env_file"
   printf 'F2D_OPERATOR_CODE_SHA256_ATTESTED=%s\n' "$F2D_IDENTITY" >> "$env_file"
   chmod 600 "$env_file"
-  trap 'rm -f -- "$env_file"' EXIT
+  local refresher=""
+  trap 'rm -f -- "$env_file"; [ -z "$refresher" ] || kill "$refresher" 2>/dev/null || true' EXIT
 
   local -a state_mounts=()
   if [ -d "$COMPLETE_STATE_ROOT" ]; then
@@ -293,6 +306,9 @@ run_operation() {
   if [ -d "$ARCHETYPE_STATE_ROOT" ]; then
     state_mounts+=(--mount "type=bind,src=${ARCHETYPE_STATE_ROOT},dst=/state/archetype,readonly")
   fi
+
+  refresh_volume_reading "$volume_file" &
+  refresher=$!
 
   set +e
   timeout --signal=TERM 2700 docker run --rm \
@@ -328,6 +344,10 @@ run_operation() {
         --output /gate/receipt.json
     ' > "$output_file"
   exit_code=$?
+  kill "$refresher" 2>/dev/null || true
+  wait "$refresher" 2>/dev/null || true
+  refresher=""
+  rm -f -- "$volume_file.next"
   set -e
   rm -f -- "$env_file"
   trap - EXIT
