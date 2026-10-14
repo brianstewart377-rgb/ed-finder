@@ -344,12 +344,15 @@ prove it.
 
 The F2d image is the **minimum schema-compatible image**. Earlier images are
 incompatible with this applied set, and rollback targets are trimmed to the
-boundary image and later recorded compatible images. Promotion refuses if no
-compatible checksum-bound rollback artifact remains in the receipt store
-with its pinned images already available locally. An artifact may be recorded
-before it is deployed, so the first F2d release need not fall back to the old
-image. Recovery to a different artifact flags accepted-pointer reconciliation
-in the failure receipt. Rollback below the boundary requires a separately
+boundary image and later compatible images. The gate prefers a compatible
+checksum-bound artifact in the receipt store; if none exists, the same operation's
+authenticated, checksum-bound candidate may satisfy the requirement only when
+its backend image is in the trimmed target list and its manifest passes rollback
+validation against the current migration set, with pinned images available locally.
+Preflight and promotion receipts record the selected source (`recorded_artifact`
+or `authenticated_candidate`), git SHA and images. Recovery to a different
+artifact flags accepted-pointer reconciliation in the failure receipt.
+Rollback below the boundary requires a separately
 reviewed incident plan. After the release, capacity review and both build/validate
 pipelines precede paired product publication in one transaction.
 The generation pointer does not move.

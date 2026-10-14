@@ -738,12 +738,13 @@ def require_f2d_rollback_image(image: str, attestation: dict[str, Any]) -> None:
 
 def select_f2d_rollback(
     directory: Path, attestation: dict[str, Any], schema: dict[str, Any],
-) -> dict[str, Any]:
-    # Canonical immutable release artifacts must already be recorded in the
-    # root-owned receipt store, including a basename-bound checksum sidecar.
-    # A recorded artifact need not have been deployed. This permits the first
-    # F2d promotion to have a compatible recovery image without accepting the
-    # incompatible running image as a rollback target.
+    candidate: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    # Prefer immutable artifacts in the root-owned receipt store, verified with
+    # basename-bound checksum sidecars. If none is compatible, the same
+    # operation's already authenticated, checksum-bound candidate may provide
+    # the first F2d recovery image. Both sources must satisfy the rollback
+    # boundary and manifest validation; the incompatible running image cannot.
     paths = []
     for path in directory.glob("*.release.json"):
         paths.append(path)
@@ -770,8 +771,27 @@ def select_f2d_rollback(
                                        current_migration_set=schema["migration_set_identity"])
             except tool.ManifestError as exc:
                 raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
-            return manifest
+            return manifest, "recorded_artifact"
+    targets = trim_rollback_targets(
+        attestation["rollback_targets"], attestation["minimum_schema_compatible_image"],
+    )
+    if candidate["images"]["backend"] in targets:
+        try:
+            tool.validate_manifest(candidate, purpose="rollback",
+                                   current_migration_set=schema["migration_set_identity"])
+        except tool.ManifestError as exc:
+            raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
+        return candidate, "authenticated_candidate"
     raise DeploymentError("compatible_rollback_artifact_not_recorded")
+
+
+def f2d_rollback_receipt(manifest: dict[str, Any], source: str) -> dict[str, Any]:
+    return {
+        "kind": ("recorded-schema-compatible-release" if source == "recorded_artifact"
+                 else "authenticated-candidate-schema-compatible-release"),
+        "source": source, "source_sha": manifest["git_sha"],
+        "images": manifest["images"], "schema_compatible": True,
+    }
 
 
 def exact_host_guard(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -1939,6 +1959,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     env_files_read = False
     preflight_database_access_attempted = False
     preflight_database_access_performed = False
+    rollback_artifact: dict[str, Any] | None = None
 
     def mark_env_file_read() -> None:
         nonlocal env_files_read
@@ -2001,7 +2022,10 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             preflight_database_access_performed = True
             if f2d_release:
                 verify_f2d_generation(env, runner)
-                rollback_manifest = select_f2d_rollback(receipt_dir, f2d_attestation, schema)
+                rollback_manifest, rollback_source = select_f2d_rollback(
+                    receipt_dir, f2d_attestation, schema, candidate,
+                )
+                rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
                 for image in rollback_manifest["images"].values():
                     verify_image(image, rollback_manifest["git_sha"], env, runner)
             verify_snapshot(protected_before, env, runner)
@@ -2014,7 +2038,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 "manifest_sha256": candidate_sum, "migration_set_identity": schema["migration_set_identity"],
                 "images": candidate["images"],
                 "rollback_compatible": args.mode == "upgrade",
-                **({"accepted_release_schema_compatibility": f2d_attestation} if f2d_release else {}),
+                **({"accepted_release_schema_compatibility": f2d_attestation,
+                    "rollback": rollback_artifact}
+                   if f2d_release else {}),
                 "live_capacity": live_capacity,
                 "database_access_performed": True,
                 "env_files_read": True,
@@ -2033,6 +2059,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         )
         receipt = stopped_receipt(authority, [failure], operation=receipt_operation)
         receipt["env_files_read"] = env_files_read
+        if rollback_artifact is not None:
+            receipt["f2d_rollback_artifact"] = rollback_artifact
         if preflight_database_access_attempted:
             receipt.update(
                 database_access_performed=(
@@ -2064,7 +2092,10 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         database_verified = True
         if f2d_release:
             f2d_generation = verify_f2d_generation(env, runner)
-            rollback_manifest = select_f2d_rollback(receipt_dir, f2d_attestation, schema)
+            rollback_manifest, rollback_source = select_f2d_rollback(
+                receipt_dir, f2d_attestation, schema, candidate,
+            )
+            rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
             for image in rollback_manifest["images"].values():
                 verify_image(image, rollback_manifest["git_sha"], env, runner)
         current_path = receipt_dir / "current.json"
@@ -2244,9 +2275,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "private_keys_read": False,
         }
         if f2d_release:
-            receipt["rollback"] = {"kind": "recorded-schema-compatible-release",
-                                   "source_sha": rollback_manifest["git_sha"],
-                                   "images": rollback_manifest["images"], "schema_compatible": True}
+            receipt["rollback"] = rollback_artifact
         if _CANCELLATION_CONTROLLER is not None:
             _CANCELLATION_CONTROLLER.mark_commit_started()
         persist_accepted(receipt_dir, receipt, candidate_bytes)
@@ -2285,7 +2314,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                     smoke("http://" + external["active_origin_bind"], recovery_manifest["git_sha"])
                     smoke(external["public_origin"], recovery_manifest["git_sha"])
                     verify_snapshot(protected_before, env, runner)
-                    rollback = {"attempted": True, "status": "verified", "kind": "recorded-schema-compatible-release" if f2d_release else "prior-accepted-immutable-release", "source_sha": recovery_manifest["git_sha"], "schema_compatible": True}
+                    rollback = {"attempted": True, "status": "verified", "kind": "prior-accepted-immutable-release", "source_sha": recovery_manifest["git_sha"], "schema_compatible": True}
+                    if f2d_release:
+                        rollback.update(f2d_rollback_receipt(recovery_manifest, rollback_source))
                 else:
                     rollback = {"attempted": True, "status": "verified", "kind": "candidate-stage-removed"}
             except Exception as rollback_error:
@@ -2296,6 +2327,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "unrelated production container identity/state changed",
         }
         receipt = stopped_receipt(authority, [failure])
+        if rollback_artifact is not None:
+            receipt["f2d_rollback_artifact"] = rollback_artifact
         receipt.update(
             status="failed", source_sha=candidate["git_sha"], release_run_id=args.candidate_run_id,
             manifest_sha256=candidate_sum, migration_set_identity=schema["migration_set_identity"],

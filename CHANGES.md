@@ -25,7 +25,11 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 Adds the release-first Finder gate, grouped ranking/operator-code and rollback
 attestation validation, post-promotion bounded-request probes, and a minimum
-schema-compatible rollback boundary. F2d operator operations now read their
+schema-compatible rollback boundary. The gate prefers recorded compatible
+artifacts and permits the same operation's authenticated, checksum-bound
+candidate as the first F2d rollback artifact after boundary and rollback-manifest
+validation; preflight and promotion receipts retain its source and image identity.
+F2d operator operations now read their
 attested identity from trusted-main's target authority. The gate requires all
 six planned migrations and refuses explicitly while mandatory `016` remains
 unregistered. The existing accepted-release values are unchanged. No deployment,

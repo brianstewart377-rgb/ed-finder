@@ -279,19 +279,30 @@ def test_behavioural_probe_pairs_record_every_status_even_after_mismatch(deploye
         assert recorded["body"] == body
 
 
-def test_compatible_rollback_artifact_must_be_recorded(deployer, tmp_path, attestation):
+def rollback_fixture_manifest(image=MINIMUM, *, git_sha="a" * 40):
+    return {"git_sha": git_sha, "images": {"backend": image, "web": "registry.example/web@sha256:" + "1" * 64}}
+
+
+def record_rollback_fixture(directory, manifest):
+    body = json.dumps(manifest).encode()
+    checksum = hashlib.sha256(body).hexdigest()
+    path = directory / f"{manifest['git_sha']}-123-{checksum}.release.json"
+    path.write_bytes(body)
+    Path(str(path) + ".sha256").write_text(f"{checksum}  {path.name}\n")
+    return path
+
+
+def test_compatible_rollback_artifact_requires_recorded_or_compatible_candidate(deployer, tmp_path, attestation):
+    candidate = rollback_fixture_manifest(EARLIER)
     with pytest.raises(deployer.DeploymentError, match="^compatible_rollback_artifact_not_recorded$"):
-        deployer.select_f2d_rollback(tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64})
+        deployer.select_f2d_rollback(tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64}, candidate)
 
 
 @pytest.mark.parametrize("image", [MINIMUM, EARLIER])
 def test_recorded_rollback_artifact_respects_boundary(deployer, monkeypatch, tmp_path, attestation, image):
-    manifest = {"git_sha": "a" * 40, "images": {"backend": image, "web": "registry.example/web@sha256:" + "1" * 64}}
-    body = json.dumps(manifest).encode()
-    checksum = hashlib.sha256(body).hexdigest()
-    path = tmp_path / f"{manifest['git_sha']}-123-{checksum}.release.json"
-    path.write_bytes(body)
-    path.with_name(path.name + ".sha256").write_text(f"{checksum}  {path.name}\n")
+    manifest = rollback_fixture_manifest(image)
+    record_rollback_fixture(tmp_path, manifest)
+    candidate = rollback_fixture_manifest(EARLIER, git_sha="b" * 40)
     validated = []
 
     def validate_manifest(candidate, *, purpose, current_migration_set):
@@ -305,11 +316,155 @@ def test_recorded_rollback_artifact_respects_boundary(deployer, monkeypatch, tmp
     schema = {"migration_set_identity": "sha256:" + "0" * 64}
     if image == EARLIER:
         with pytest.raises(deployer.DeploymentError, match="^compatible_rollback_artifact_not_recorded$"):
-            deployer.select_f2d_rollback(tmp_path, attestation, schema)
+            deployer.select_f2d_rollback(tmp_path, attestation, schema, candidate)
+        assert validated == []
     else:
-        selected = deployer.select_f2d_rollback(tmp_path, attestation, schema)
+        selected, source = deployer.select_f2d_rollback(tmp_path, attestation, schema, candidate)
         assert selected == manifest
+        assert source == "recorded_artifact"
         assert validated == [manifest]
+
+
+@pytest.mark.parametrize("legacy_recorded", [False, True])
+def test_authenticated_candidate_satisfies_first_f2d_rollback_without_compatible_record(
+    deployer, monkeypatch, tmp_path, attestation, legacy_recorded,
+):
+    if legacy_recorded:
+        record_rollback_fixture(tmp_path, rollback_fixture_manifest(EARLIER, git_sha="b" * 40))
+    candidate = rollback_fixture_manifest()
+    validated = []
+    schema = {"migration_set_identity": "sha256:" + "0" * 64}
+
+    def validate_manifest(manifest, *, purpose, current_migration_set):
+        validated.append((manifest, purpose, current_migration_set))
+
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
+        validate_manifest=validate_manifest, ManifestError=ValueError,
+    ))
+    selected, source = deployer.select_f2d_rollback(tmp_path, attestation, schema, candidate)
+    assert selected is candidate
+    assert source == "authenticated_candidate"
+    assert validated == [(candidate, "rollback", schema["migration_set_identity"])]
+
+
+def test_recorded_compatible_rollback_is_preferred_to_authenticated_candidate(
+    deployer, monkeypatch, tmp_path, attestation,
+):
+    recorded = rollback_fixture_manifest(MINIMUM, git_sha="b" * 40)
+    record_rollback_fixture(tmp_path, recorded)
+    candidate = rollback_fixture_manifest(LATER)
+    validated = []
+
+    def validate_manifest(manifest, **_kwargs):
+        validated.append(manifest)
+        assert manifest == recorded
+
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
+        validate_manifest=validate_manifest, ManifestError=ValueError,
+    ))
+    selected, source = deployer.select_f2d_rollback(
+        tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64}, candidate,
+    )
+    assert selected == recorded
+    assert source == "recorded_artifact"
+    assert validated == [recorded]
+
+
+@pytest.mark.parametrize("image", [EARLIER, MINIMUM.replace("a" * 64, "f" * 64)])
+def test_authenticated_candidate_outside_trimmed_rollback_targets_refuses(
+    deployer, monkeypatch, tmp_path, attestation, image,
+):
+    # EARLIER is listed, but deliberately precedes the schema-compatible boundary.
+    attestation["rollback_targets"].insert(0, EARLIER)
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
+        validate_manifest=lambda *_args, **_kwargs: pytest.fail("incompatible candidate validated"),
+        ManifestError=ValueError,
+    ))
+    with pytest.raises(deployer.DeploymentError, match="^compatible_rollback_artifact_not_recorded$"):
+        deployer.select_f2d_rollback(
+            tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64},
+            rollback_fixture_manifest(image),
+        )
+
+
+@pytest.mark.parametrize("failure", ["rollback_ineligible", "current_schema_incompatible"])
+def test_authenticated_candidate_must_pass_real_rollback_manifest_validation(
+    deployer, tmp_path, attestation, failure,
+):
+    tool = deployer.manifest_tool()
+    candidate = tool.create_manifest(SimpleNamespace(
+        git_sha="a" * 40, backend_image=MINIMUM,
+        web_image=tool.IMAGE_REPOSITORIES["web"] + "@sha256:" + "1" * 64,
+        compatibility="exact", compatibility_evidence="Synthetic schema compatibility fixture",
+        compatible_migration_set=None, rollback_eligible=failure != "rollback_ineligible",
+        rollback_reason="Synthetic application rollback fixture",
+    ))
+    identity = candidate["migration_set"]["identity"]
+    if failure == "rollback_ineligible":
+        # This valid deployment manifest still must not be accepted for rollback.
+        tool.validate_manifest(candidate, purpose="deploy", current_migration_set=identity)
+    else:
+        identity = "sha256:" + "0" * 64
+    with pytest.raises(deployer.DeploymentError, match="^f2d_rollback_artifact_schema_incompatible$"):
+        deployer.select_f2d_rollback(tmp_path, attestation, {"migration_set_identity": identity}, candidate)
+
+
+@pytest.mark.parametrize("unsafe", ["manifest_symlink", "sidecar_symlink", "checksum_identity", "git_identity"])
+def test_unsafe_recorded_rollback_cannot_be_bypassed_by_authenticated_candidate(
+    deployer, monkeypatch, tmp_path, attestation, unsafe,
+):
+    recorded = rollback_fixture_manifest(LATER, git_sha="b" * 40)
+    path = record_rollback_fixture(tmp_path, recorded)
+    sidecar = Path(str(path) + ".sha256")
+    if unsafe in {"manifest_symlink", "sidecar_symlink"}:
+        unsafe_path = path if unsafe == "manifest_symlink" else sidecar
+        target = tmp_path / "unsafe-target"
+        unsafe_path.rename(target)
+        unsafe_path.symlink_to(target)
+        reason = "f2d_rollback_artifact_path_unsafe"
+    else:
+        if unsafe == "checksum_identity":
+            renamed = path.with_name(path.name.replace(hashlib.sha256(path.read_bytes()).hexdigest(), "0" * 64))
+        else:
+            renamed = path.with_name(path.name.replace("b" * 40, "c" * 40))
+        checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+        path.rename(renamed)
+        sidecar.unlink()
+        Path(str(renamed) + ".sha256").write_text(f"{checksum}  {renamed.name}\n")
+        reason = "f2d_rollback_artifact_identity_mismatch"
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
+        validate_manifest=lambda *_args, **_kwargs: pytest.fail("unsafe recorded artifact bypassed"),
+        ManifestError=ValueError,
+    ))
+    with pytest.raises(deployer.DeploymentError, match="^" + reason + "$"):
+        deployer.select_f2d_rollback(
+            tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64},
+            rollback_fixture_manifest(),
+        )
+
+
+def test_schema_incompatible_recorded_rollback_cannot_fall_back_to_candidate(
+    deployer, monkeypatch, tmp_path, attestation,
+):
+    recorded = rollback_fixture_manifest(LATER, git_sha="b" * 40)
+    record_rollback_fixture(tmp_path, recorded)
+    candidate = rollback_fixture_manifest()
+    validated = []
+
+    def validate_manifest(manifest, *, purpose, current_migration_set):
+        assert purpose == "rollback"
+        assert current_migration_set == "sha256:" + "0" * 64
+        validated.append(manifest)
+        raise ValueError("Synthetic incompatible recorded schema")
+
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
+        validate_manifest=validate_manifest, ManifestError=ValueError,
+    ))
+    with pytest.raises(deployer.DeploymentError, match="^f2d_rollback_artifact_schema_incompatible$"):
+        deployer.select_f2d_rollback(
+            tmp_path, attestation, {"migration_set_identity": "sha256:" + "0" * 64}, candidate,
+        )
+    assert validated == [recorded]
 
 
 def test_prior_runtime_cannot_bypass_f2d_boundary_with_manifest_compatibility(deployer, monkeypatch, attestation):
@@ -501,6 +656,7 @@ def test_probe_mismatch_uses_compatible_recovery_instead_of_incompatible_prior(d
     assert receipt["rollback"] == {
         "attempted": True, "status": "verified", "kind": "recorded-schema-compatible-release",
         "source_sha": recovery["git_sha"], "schema_compatible": True,
+        "source": "recorded_artifact", "images": recovery["images"],
     }
     restores = [(argv, env) for argv, env in commands if "up" in argv and "api-blue" in argv]
     assert len(restores) == 1
@@ -718,3 +874,119 @@ def test_staging_rejects_picked_and_galaxywide_hard_filters(deployer, monkeypatc
     else:
         with pytest.raises(deployer.DeploymentError, match="^f2d_hard_filter_rejection_failed$"):
             deployer.verify_f2d_rejections("http://127.0.0.1:58081")
+
+
+@pytest.mark.parametrize("operation", [
+    "preflight", "promote", "promote_failure", "preflight_image_failure", "promote_image_failure",
+])
+@pytest.mark.parametrize("recorded", [False, True])
+def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
+    deployer, monkeypatch, tmp_path, attestation, legacy_attestation, operation, recorded,
+):
+    from tests.test_v3_production_application_deployment import _cancellation_promote_setup
+
+    validate_candidate = deployer.validate_candidate
+    select_rollback = deployer.select_f2d_rollback
+    args, authority, receipt_dir, _snapshot = _cancellation_promote_setup(monkeypatch, tmp_path, deployer)
+    args.operation = "preflight" if operation.startswith("preflight") else "promote"
+    args.mode = "upgrade"
+    authority["accepted_release_schema_compatibility"] = legacy_attestation
+    tool = deployer.manifest_tool()
+    manifest = tool.create_manifest(SimpleNamespace(
+        git_sha="a" * 40, backend_image=MINIMUM,
+        web_image=tool.IMAGE_REPOSITORIES["web"] + "@sha256:" + "1" * 64,
+        compatibility="exact", compatibility_evidence="Synthetic caller compatibility fixture",
+        compatible_migration_set=None, rollback_eligible=True,
+        rollback_reason="Synthetic caller rollback fixture",
+    ))
+    body = json.dumps(manifest).encode()
+    checksum = hashlib.sha256(body).hexdigest()
+    args.candidate.write_bytes(body)
+    args.candidate_checksum.write_text(f"{checksum}  {args.candidate.name}\n")
+    schema = deployer.validate_schema_file(None, None)
+    schema.update(migration_set_identity=manifest["migration_set"]["identity"],
+                  migration_set_entries=complete_entries())
+    attestation.update(
+        source_sha=manifest["git_sha"], release_run_id=args.candidate_run_id,
+        manifest_sha256=checksum, images=manifest["images"],
+        compatible_migration_sets=[schema["migration_set_identity"]],
+    )
+    args.candidate_attestation = tmp_path / "f2d-release-attestation.json"
+    args.candidate_attestation.write_text(json.dumps(attestation))
+    prior_manifest = rollback_fixture_manifest(EARLIER, git_sha="c" * 40)
+    # Only the incompatible earlier release is present for the first F2d cutover.
+    record_rollback_fixture(receipt_dir, prior_manifest)
+    prior_receipt = {"active_slot": "blue", "source_sha": prior_manifest["git_sha"], "release_run_id": "321"}
+    monkeypatch.setattr(deployer, "load_current", lambda *_args: (prior_receipt, prior_manifest, args.candidate))
+    monkeypatch.setattr(deployer, "validate_prior_runtime", lambda *_args, **_kwargs: "blue")
+    monkeypatch.setattr(deployer, "registered_f2d_migrations", complete_entries)
+    monkeypatch.setattr(deployer, "verify_live_schema", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_f2d_generation", lambda *_args: generation())
+    monkeypatch.setattr(deployer, "verify_f2d_image_contract", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_f2d_openapi_contract", lambda *_args: {})
+    monkeypatch.setattr(deployer, "verify_f2d_rejections", lambda *_args: [])
+
+    if operation.endswith("image_failure"):
+        def fail_image_verification(*_args):
+            raise deployer.DeploymentError("synthetic_image_failure")
+
+        monkeypatch.setattr(deployer, "verify_image", fail_image_verification)
+
+    def behavioural_probes(*_args):
+        if operation == "promote_failure":
+            raise deployer.DeploymentError("synthetic_probe_failure")
+
+    monkeypatch.setattr(deployer, "f2d_behavioural_probes", behavioural_probes)
+    expected_manifest = deepcopy(manifest)
+    if recorded:
+        expected_manifest.update(git_sha="b" * 40, release_id="git-" + "b" * 40)
+        expected_manifest["images"]["backend"] = LATER
+        record_rollback_fixture(receipt_dir, expected_manifest)
+    authenticated = []
+    selected = []
+
+    def authenticate(*arguments):
+        result = validate_candidate(*arguments)
+        authenticated.append(result[0])
+        return result
+
+    def select(directory, candidate_attestation, current_schema, candidate):
+        assert candidate is authenticated[0]
+        assert candidate == manifest
+        selected.append(candidate)
+        return select_rollback(directory, candidate_attestation, current_schema, candidate)
+
+    monkeypatch.setattr(deployer, "validate_candidate", authenticate)
+    monkeypatch.setattr(deployer, "select_f2d_rollback", select)
+
+    def runner(*_args, **_kwargs):
+        return SimpleNamespace(stdout="", returncode=0)
+
+    if operation.endswith("failure"):
+        with pytest.raises(deployer.OperationFailed) as failed:
+            deployer.promote(args, authority, runner)
+        receipt = failed.value.receipt
+        if operation == "promote_failure":
+            assert receipt["failures"] == ["synthetic_probe_failure"]
+            assert receipt["rollback"]["status"] == "verified"
+        else:
+            assert receipt["failures"] == ["synthetic_image_failure"]
+            assert receipt["service_changes_performed"] is False
+        selected_receipt = receipt["f2d_rollback_artifact"]
+    else:
+        receipt = deployer.promote(args, authority, runner)
+        assert receipt["status"] == ("preflight-passed" if operation == "preflight" else "accepted")
+        selected_receipt = receipt["rollback"]
+    assert len(authenticated) == len(selected) == 1
+    source = "recorded_artifact" if recorded else "authenticated_candidate"
+    assert selected_receipt["source"] == source
+    assert selected_receipt["source_sha"] == expected_manifest["git_sha"]
+    assert selected_receipt["images"] == expected_manifest["images"]
+    if operation == "promote_failure":
+        assert receipt["rollback"]["source"] == source
+        assert receipt["rollback"]["source_sha"] == expected_manifest["git_sha"]
+        assert receipt["rollback"]["images"] == expected_manifest["images"]
+    if operation == "promote":
+        pointer = json.loads((receipt_dir / "current.json").read_text())
+        persisted = json.loads((receipt_dir / pointer["receipt_file"]).read_text())
+        assert persisted["rollback"] == receipt["rollback"]
