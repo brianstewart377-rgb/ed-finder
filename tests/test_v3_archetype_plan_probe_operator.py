@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 import pytest
 import yaml
@@ -190,3 +192,105 @@ def test_generator_is_stdin_safe_and_imports_only_deployed_ranking_modules() -> 
     assert "edfinder_api.ranking.profile" in source
     assert "edfinder_api.ranking.ranking_sql" in source
     assert "/work" not in source
+
+
+def _action_function(name: str) -> str:
+    source = _read(ACTION)
+    start = source.index(f"{name}() {{\n")
+    body_start = source.index("\n", start) + 1
+    following = re.search(r"^[A-Za-z_][A-Za-z0-9_]*\(\) \{", source[body_start:], re.MULTILINE)
+    return source[start:body_start + following.start()] if following else source[start:]
+
+
+@pytest.mark.parametrize(
+    ("host", "user", "database", "query", "network", "accepted"),
+    [
+        ("edfinder-v3-phase4c-full-20260827_r5-postgres", "edfinder_v3",
+         "edfinder_v3_phase4c_full_20260827_r5", "", {"IPAddress": "172.30.0.2"}, True),
+        ("172.30.0.2:5432", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+         "?sslmode=require", {"IPAddress": "172.30.0.2"}, True),
+        ("wrong-postgres", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+         "", {"IPAddress": "172.30.0.2"}, False),
+        ("172.30.0.3", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+         "", {"IPAddress": "172.30.0.2"}, False),
+        ("172.30.0.2", "wrong_user", "edfinder_v3_phase4c_full_20260827_r5",
+         "", {"IPAddress": "172.30.0.2"}, False),
+        ("172.30.0.2", "edfinder_v3", "wrong_database",
+         "", {"IPAddress": "172.30.0.2"}, False),
+        *[("172.30.0.2", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+           f"?{key}=other-target", {"IPAddress": "172.30.0.2"}, False)
+          for key in ("host", "hostaddr", "port", "dbname", "user", "service", "servicefile")],
+        ("172.30.0.2:5433", "edfinder_v3", "edfinder_v3_phase4c_full_20260827_r5",
+         "", {"IPAddress": "172.30.0.2"}, False),
+        ("edfinder-v3-phase4c-full-20260827_r5-postgres", "edfinder_v3",
+         "edfinder_v3_phase4c_full_20260827_r5", "", None, False),
+        ("edfinder-v3-phase4c-full-20260827_r5-postgres", "edfinder_v3",
+         "edfinder_v3_phase4c_full_20260827_r5", "", {"IPAddress": "::1"}, False),
+    ],
+    ids=["container-name", "network-ip-default-port", "wrong-host", "wrong-ip", "wrong-user",
+         "wrong-database", "host-override", "hostaddr-override", "port-override",
+         "database-override", "user-override", "service-override", "servicefile-override",
+         "wrong-port", "missing-network", "non-ipv4-network"],
+)
+def test_standalone_dsn_binds_database_user_and_network_without_logging(
+    host: str, user: str, database: str, query: str, network: dict | None,
+    accepted: bool, tmp_path: Path,
+) -> None:
+    # Synthetic credentials, a mocked Docker and private capture exercise the
+    # action's actual function without connecting to any database or host.
+    dsn = f"postgresql://{user}:private-test-password@{host}/{database}{query}"
+    private = tmp_path / "dsn"
+    environment = {
+        **os.environ, "PYTHON_BIN": sys.executable,
+        "POSTGRES_CONTAINER": "edfinder-v3-phase4c-full-20260827_r5-postgres",
+        "WORKER_NETWORK": "edfinder-v3-phase4c-full-20260827_r5-network",
+        "DATABASE_NAME": "edfinder_v3_phase4c_full_20260827_r5",
+        "DATABASE_USER": "edfinder_v3", "TEST_DSN": dsn,
+        "TEST_NETWORK": json.dumps(network), "PRIVATE_DSN_FILE": str(private),
+    }
+    script = '''set -euo pipefail
+fail() { printf '%s\\n' "$*" >&2; exit 64; }
+docker() {
+  if [ "$4" = test-api ]; then
+    printf 'DATABASE_URL=%s\\n' "$TEST_DSN"
+  elif [ "$4" = "$POSTGRES_CONTAINER" ]; then
+    [[ "$3" == *"$WORKER_NETWORK"* ]] || return 91
+    printf '%s\\n' "$TEST_NETWORK"
+  else
+    return 91
+  fi
+}
+''' + _action_function("api_database_url") + '\napi_database_url test-api > "$PRIVATE_DSN_FILE"\n'
+    result = subprocess.run(
+        ["bash", "-c", script], env=environment, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == (0 if accepted else 24), result.stderr
+    assert result.stdout == ""
+    assert dsn not in result.stderr and "private-test-password" not in result.stderr
+    assert private.read_text() == (dsn if accepted else "")
+
+
+def test_standalone_database_target_refusal_is_structured_and_precedes_worker(
+    tmp_path: Path,
+) -> None:
+    source = _read(ACTION)
+    # Refused DSNs never reach the worker or its credential environment file.
+    refusal = source.index('emit_result 24 "$run_dir"')
+    assert source.index('dsn="$(api_database_url "$api")"') < refusal
+    assert refusal < source.index('env_file="$run_dir/plan-probe.env"')
+    environment = {
+        **os.environ, "PYTHON_BIN": sys.executable, "REPO_ROOT": str(ROOT),
+        "F2D_IDENTITY": "b" * 64, "TEST_RUN_DIR": str(tmp_path),
+    }
+    script = _action_function("emit_result") + '\nemit_result 24 "$TEST_RUN_DIR"\n'
+    result = subprocess.run(
+        ["bash", "-c", script], env=environment, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "refused"
+    assert payload["exit_code"] == 24
+    assert payload["failures"] == ["database_target_identity_mismatch"]
+    assert payload["read_only"] is True
+    assert payload["db_writes_performed"] is False
+    assert payload["publication_performed"] is False

@@ -204,6 +204,7 @@ def test_refusal_codes_identify_each_go_live_gate() -> None:
         (74, "behavioural_probe_pairs"), (75, "product_manifest_code_or_model_identity"),
         (76, "build_final_receipts_or_live_maintenance"),
         (79, "database_target_identity_mismatch"),
+        (80, "postcommit_live_finder_verification"),
     ):
         assert f"refuse {code} {item}" in source
     assert "host_abort=77" in source
@@ -648,3 +649,131 @@ docker() {
     assert result.stdout == ""
     assert dsn not in result.stderr and "private-test-password" not in result.stderr
     assert private.read_text() == (dsn if persisted else "")
+
+
+def _live_identity_fixture(tmp_path: Path) -> dict:
+    identity = {
+        "derived_generation_id": "fixture-id", "publication_sequence": 1,
+        "ranking_version": "ranking-fixture-v1", "ranking_sha256": "a" * 64,
+        "archetype_version": "archetype-fixture-v1",
+        "archetype_manifest_sha256": "b" * 64, "archetype_model_sha256": "c" * 64,
+    }
+    _json(tmp_path / "attestation.json", {
+        key: identity[key] for key in ("ranking_version", "ranking_sha256")
+    })
+    _json(tmp_path / "products.json", [{
+        "product_code": "system_archetype",
+        "manifest": {"archetype_model_sha256": identity["archetype_model_sha256"]},
+    }])
+    _json(tmp_path / "postcommit.json", [{
+        "product_code": "system_archetype", "product_version": identity["archetype_version"],
+        "manifest_sha256": identity["archetype_manifest_sha256"],
+    }])
+    return identity
+
+
+@pytest.mark.parametrize("endpoint", (0, 1))
+@pytest.mark.parametrize("defect", (
+    None, "status", "empty-results", "malformed", "oversized", "unreachable",
+    "derived_generation_id", "publication_sequence", "ranking_version", "ranking_sha256",
+    "archetype_version", "archetype_manifest_sha256", "archetype_model_sha256",
+    "mismatch:derived_generation_id", "mismatch:publication_sequence", "mismatch:ranking_version",
+    "mismatch:ranking_sha256", "mismatch:archetype_version", "mismatch:archetype_manifest_sha256",
+    "mismatch:archetype_model_sha256",
+))
+def test_postcommit_live_finder_requires_results_and_complete_matching_identity(
+    endpoint: int, defect: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = _live_identity_fixture(tmp_path)
+    requests = []
+    read_sizes = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def read(self, size=-1):
+            assert 0 < size <= 64 * 1024 + 1
+            read_sizes.append(size)
+            return super().read(size)
+
+    def request(request, *, timeout):
+        assert timeout == 15
+        index = len(requests)
+        requests.append(request)
+        envelope = {"ranking": dict(identity), "results": [{"system_id64": "42"}]}
+        if index == endpoint and defect:
+            if defect == "unreachable":
+                raise OSError("fixture unavailable")
+            if defect == "status":
+                raise HTTPError(request.full_url, 503, "fixture", None, io.BytesIO(b"{}"))
+            if defect == "malformed":
+                return Response(b"not json")
+            if defect == "oversized":
+                return Response(b" " * (64 * 1024 + 1))
+            if defect == "empty-results":
+                envelope["results"] = []
+            elif defect.startswith("mismatch:"):
+                field = defect.split(":", 1)[1]
+                envelope["ranking"][field] = 2 if field == "publication_sequence" else "wrong"
+            else:
+                del envelope["ranking"][defect]
+        return Response(json.dumps(envelope).encode())
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *_: SimpleNamespace(open=request))
+    code = _python("verify_live_finder")
+    if defect:
+        with pytest.raises(SystemExit) as refusal:
+            _execute(code, [tmp_path, "fixture", "fixture-id", 1], monkeypatch)
+        assert refusal.value.code == 80
+    else:
+        _execute(code, [tmp_path, "fixture", "fixture-id", 1], monkeypatch)
+    assert [item.full_url for item in requests] == [
+        "http://127.0.0.1:58080/api/archetypes/rankings?archetype=paradise&offset=0&limit=1",
+        "http://127.0.0.1:58080/api/local/search",
+    ]
+    assert [item.get_method() for item in requests] == ["GET", "POST"]
+    assert json.loads(requests[1].data) == {
+        "galaxy_wide": True, "sort_by": "development", "from": 0, "size": 1,
+    }
+    evidence = json.loads((tmp_path / "live-finder.json").read_text())
+    assert evidence["generation"]["generation_key"] == "fixture"
+    assert evidence["expected_identity"] == identity
+    assert len(evidence["responses"]) == 2
+    assert bool(evidence["failures"]) == bool(defect)
+    healthy = evidence["responses"][1 - endpoint]
+    assert healthy["status"] == 200 and healthy["identity"] == identity
+    assert all(healthy["checks"].values())
+    if not defect:
+        assert all(row["identity"] == identity for row in evidence["responses"])
+    assert read_sizes
+
+
+def test_live_finder_failure_after_commit_is_receipted_as_published_unhealthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    checks = {"responses": [{"status": 200, "identity": {"archetype_model_sha256": None}}],
+              "failures": ["rankings:archetype_model_sha256"]}
+    _json(tmp_path / "live-finder.json", checks)
+    _execute(_python("write_result"), [tmp_path, 80, "postcommit_live_finder_verification",
+             "b" * 64, "github:tester/run-1", "true", "fixture", "fixture-id", 1], monkeypatch)
+    receipt = load_sealed(tmp_path / "action-receipt.json")
+    envelope = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == envelope["status"] == "published_unhealthy"
+    assert receipt["exit_code"] == envelope["exit_code"] == 80
+    assert receipt["live_finder_verification"] == checks
+    assert "rankings:archetype_model_sha256" in receipt["failures"]
+    assert receipt["publication_performed"] is True and receipt["db_writes_performed"] is True
+    assert envelope["publication_performed"] is True and envelope["db_writes_performed"] is True
+
+
+def test_live_finder_check_runs_after_database_verification_and_fails_protected_step() -> None:
+    flow = _function("run_operation")
+    assert flow.index("verify_postcommit") < flow.index("verify_live_finder") < flow.index('write_result 0 ""')
+    assert "verify_live_finder || refuse 80 postcommit_live_finder_verification" in flow
+    assert "verify_postcommit || refuse 80 postcommit_audit_verification" in flow
+    assert "exit \"$code\"" in _function("refuse")
+    assert "rollback" not in flow[flow.index("verify_postcommit"):].lower()
+    steps = _workflow()["jobs"]["production-operation"]["steps"]
+    step = next(step for step in steps if "< scripts/operator/actions/v3-publish-derived-products.sh" in step.get("run", ""))
+    assert "set -euo pipefail" in step["run"]
+    assert step.get("continue-on-error", False) is False

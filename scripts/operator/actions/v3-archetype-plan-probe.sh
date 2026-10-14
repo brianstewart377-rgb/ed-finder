@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Read-only ranking plan probe for the pinned F2d Finder products.
+# Exit 24: DATABASE_URL or connected database/user differs from the pinned target.
 set -euo pipefail
 
 ACTION="${1:-}"
@@ -106,13 +107,46 @@ active_api_container() {
 }
 
 api_database_url() {
-  local api="$1" value count
-  value="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | sed -n 's/^DATABASE_URL=//p')"
+  local api="$1" value count network
+  value="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | sed -n 's/^DATABASE_URL=//p')" || return 24
   count="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | grep -c '^DATABASE_URL=' || true)"
-  [ "$count" -eq 1 ] || fail "active API does not expose exactly one DATABASE_URL"
-  case "$value" in postgresql://*|postgres://*) ;; *) fail "active API DATABASE_URL is not PostgreSQL" ;; esac
-  printf '%s' "$value"
+  [ "$count" -eq 1 ] || return 24
+  network="$(docker inspect -f "{{json (index .NetworkSettings.Networks \"$WORKER_NETWORK\")}}" "$POSTGRES_CONTAINER")" || return 24
+  # Host rule: the pinned container name or its inspected IPv4 address, with
+  # a verified attachment to WORKER_NETWORK. Never resolve arbitrary DNS.
+  # The DSN stays in the environment/private command substitution, not argv,
+  # diagnostics or receipts. Emit it only to the caller's private capture.
+  ACTIVE_API_DATABASE_URL="$value" "$PYTHON_BIN" - \
+    "$DATABASE_NAME" "$DATABASE_USER" "$POSTGRES_CONTAINER" "$network" <<'PY'
+import ipaddress, json, os, sys
+from urllib.parse import parse_qsl, unquote, urlsplit
+try:
+    value = os.environ['ACTIVE_API_DATABASE_URL']
+    if any(character in value for character in '\r\n\x00'):
+        raise ValueError
+    parsed = urlsplit(value)
+    network = json.loads(sys.argv[4])
+    address = str(ipaddress.IPv4Address(network['IPAddress']))
+    # libpq query parameters can override URI authority/path fields. Refuse
+    # target overrides and service indirection even when the URI looks pinned.
+    overrides = {'host', 'hostaddr', 'port', 'dbname', 'user', 'service', 'servicefile'}
+    if (
+        parsed.scheme not in {'postgres', 'postgresql'}
+        or unquote(parsed.path) != '/' + sys.argv[1]
+        or unquote(parsed.username or '') != sys.argv[2]
+        or parsed.hostname not in {sys.argv[3], address}
+        or parsed.port not in {None, 5432}
+        or parsed.fragment
+        or any(key.lower() in overrides for key, _ in parse_qsl(parsed.query))
+    ):
+        raise ValueError
+except (KeyError, TypeError, ValueError):
+    # Exception messages from URI parsing can contain credentials.
+    raise SystemExit(24) from None
+sys.stdout.write(value)
+PY
 }
+
 
 require_products() {
   local rows
@@ -205,10 +239,10 @@ try:
     receipt = load_sealed(path)
 except ValueError:
     receipt = None
-status = 'passed' if exit_code == 0 else 'refused' if exit_code in {2,20,21,23} else 'failed'
+status = 'passed' if exit_code == 0 else 'refused' if exit_code in {2,20,21,23,24} else 'failed'
 failures = receipt.get('failures', []) if isinstance(receipt, dict) else []
 if exit_code and not failures:
-    failures = [f'plan_probe_exit_{exit_code}']
+    failures = ['database_target_identity_mismatch'] if exit_code == 24 else [f'plan_probe_exit_{exit_code}']
 payload = {
     'schema_version': 'ed-finder/operator-operation-result/v1',
     'operation': 'v3-archetype-plan-probe',
@@ -304,7 +338,10 @@ PY
     return 21
   fi
 
-  dsn="$(api_database_url "$api")"
+  if ! dsn="$(api_database_url "$api")"; then
+    emit_result 24 "$run_dir" "$image_reference" "$image_id" "$image_digest"
+    return 24
+  fi
   env_file="$run_dir/plan-probe.env"
   output_file="$run_dir/program-output.json"
   worker="edfinder-v3-plan-probe-${SOURCE_SHA:0:12}-$$"

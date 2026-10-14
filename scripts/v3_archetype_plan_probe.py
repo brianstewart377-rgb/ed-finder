@@ -22,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "ed-finder/v3-archetype-plan-probe/v1"
 ROW_BOUND = 10_001
 KNN_TIE_SLACK = 1_000
+DATABASE_NAME = "edfinder_v3_phase4c_full_20260827_r5"
+DATABASE_USER = "edfinder_v3"
+# Standalone action refusal code 24: connected database/role target mismatch.
+DATABASE_TARGET_REFUSAL = 24
 TARGET_RELATIONS = {"system_search", "system_archetype"}
 PRIMARY_INDEXES = {
     "system_search": "system_search_pkey",
@@ -274,6 +278,15 @@ def evaluate_plan_assertions(
     if kind in {"anchored_filtered_page", "anchored_score_page"}:
         default_bound = (candidate_count or 0) * generation_count
     for node in relation_nodes:
+        # The KNN position index does not lead with generation. Its tie-group
+        # work is checked below against (inner_limit + slack) * G instead.
+        if (
+            kind in {"anchored_knn_page", "anchored_knn_count"}
+            and node.get("Relation Name") == "system_search"
+            and node.get("Node Type") == "Index Scan"
+            and node.get("Index Name") == "system_search_position_gist"
+        ):
+            continue
         examined = _examined(node)
         add(
             f"examined_rows_bound:{node.get('Relation Name')}:{node.get('Alias', '')}",
@@ -299,18 +312,9 @@ def evaluate_plan_assertions(
             {"expected_index": index_name},
         )
         for node, path in window_entries:
-            required_type = "Index Only Scan" if kind == "picked_page" else {
-                "Index Only Scan",
-                "Index Scan",
-            }
-            type_passed = (
-                node.get("Node Type") == required_type
-                if isinstance(required_type, str)
-                else node.get("Node Type") in required_type
-            )
             add(
                 "picked_window_scan_type",
-                type_passed,
+                node.get("Node Type") == "Index Only Scan",
                 {"node": _node_observed(node)},
             )
             add(
@@ -343,12 +347,11 @@ def evaluate_plan_assertions(
                     ],
                 },
             )
-            if kind == "picked_page":
-                add(
-                    "picked_window_heap_fetches_zero",
-                    node.get("Heap Fetches") == 0,
-                    {"node": _node_observed(node)},
-                )
+            add(
+                "picked_window_heap_fetches_zero",
+                node.get("Heap Fetches") == 0,
+                {"node": _node_observed(node)},
+            )
         if kind == "picked_page":
             sorts = [node for node in nodes if node.get("Node Type") == "Sort"]
             sort_inputs = [
@@ -360,12 +363,41 @@ def evaluate_plan_assertions(
                 bool(sort_inputs) and any(value <= 10_000 for value in sort_inputs),
                 {"bound": 10_000, "input_rows": sort_inputs},
             )
-            fetches = [
-                node
-                for node in relation_nodes
-                if node.get("Relation Name") == "system_archetype"
-                and node.get("Alias") == "fetch"
-            ]
+            # The final archetype fetch joins the ranked page after its Limit;
+            # an alias alone must not mistake an inner window scan for it.
+            window_limits = {
+                id(ancestor)
+                for _node, path in window_entries
+                for ancestor in path[:-1]
+                if ancestor.get("Node Type") == "Limit"
+            }
+            fetches = []
+            for node, path in walked:
+                if (
+                    node.get("Relation Name") != "system_archetype"
+                    or node.get("Index Name") != PRIMARY_INDEXES["system_archetype"]
+                    or any(id(ancestor) in window_limits for ancestor in path[:-1])
+                ):
+                    continue
+                for position, ancestor in enumerate(path[:-1]):
+                    if ancestor.get("Node Type") != "Nested Loop":
+                        continue
+                    siblings = [
+                        child for child in ancestor.get("Plans") or []
+                        if child is not path[position + 1]
+                    ]
+                    if any(
+                        any(entry.get("Index Name") == index_name for entry, _ in _walk(sibling))
+                        and any(entry.get("Node Type") == "Limit" for entry, _ in _walk(sibling))
+                        for sibling in siblings
+                    ):
+                        fetches.append(node)
+                        break
+            add(
+                "picked_fetch_alias_matches_sql",
+                bool(fetches) and all(node.get("Alias") == "picked" for node in fetches),
+                {"expected_alias": "picked", "nodes": [_node_observed(node) for node in fetches]},
+            )
             fetch_rows = [_examined(node) for node in fetches]
             add(
                 "picked_fetch_rows_bound",
@@ -601,7 +633,7 @@ def _generation_rows(connection: Any) -> list[str]:
 
 
 def _candidate_count(
-    connection: Any, dense_anchor_cell: dict[str, Any]
+    connection: Any, dense_anchor_cell: dict[str, Any], *, generation_id: str,
 ) -> dict[str, Any]:
     coordinates = dense_anchor_cell.get("coordinates") or {}
     try:
@@ -617,7 +649,8 @@ def _candidate_count(
         """
         SELECT count(*)
         FROM v3_derived.system_search
-        WHERE position_ly <@ cube(
+        WHERE derived_generation_id = %s
+          AND position_ly <@ cube(
             array[%s::double precision - %s::double precision,
                   %s::double precision - %s::double precision,
                   %s::double precision - %s::double precision],
@@ -626,12 +659,14 @@ def _candidate_count(
                   %s::double precision + %s::double precision]
         )
         """,
-        (x, radius, y, radius, z, radius, x, radius, y, radius, z, radius),
+        (generation_id, x, radius, y, radius, z, radius,
+         x, radius, y, radius, z, radius),
     )
     row = cursor.fetchone()
     duration_ms = (time.monotonic() - started) * 1000
     return {
         "count": int(_row_value(row, "count", 0)),
+        "derived_generation_id": generation_id,
         "duration_ms": duration_ms,
         "radius_ly": radius,
         "coordinates": {"x": x, "y": y, "z": z},
@@ -714,7 +749,8 @@ def run_plan_probe(
         for item in statements
     )
     candidate_measurement = (
-        _candidate_count(connection, dense_anchor_cell) if needs_candidates else None
+        _candidate_count(connection, dense_anchor_cell, generation_id=generation_id)
+        if needs_candidates else None
     )
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -838,6 +874,12 @@ def main(argv: list[str] | None = None) -> int:
 
         refuse_unlisted_checkout_modules()
         with psycopg.connect(dsn, autocommit=True) as connection:
+            identity = connection.execute("SELECT current_database(), current_user").fetchone()
+            if identity is None or (
+                _row_value(identity, "current_database", 0) != DATABASE_NAME
+                or _row_value(identity, "current_user", 1) != DATABASE_USER
+            ):
+                _refuse(DATABASE_TARGET_REFUSAL, "database_target_identity_mismatch")
             connection.read_only = True
             connection.execute(
                 "SELECT set_config(%s, %s, false)",
@@ -856,7 +898,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"plan probe refusal: {exc.reason}", file=sys.stderr)
         return exc.exit_code
     except Exception as exc:
-        print(f"plan probe database error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Driver diagnostics can contain credentials from the DSN.
+        print(f"plan probe database error: {type(exc).__name__}", file=sys.stderr)
         return 4
     args.output.write_text(
         json.dumps(

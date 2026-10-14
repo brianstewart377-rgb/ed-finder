@@ -116,7 +116,8 @@ active_api_container() {
 
 # Refusal codes: 70 deployment lock; 71 product state; 72 already published;
 # 73 image/attestation; 74 behavioural probes; 75 code/model identity;
-# 76 maintenance; 77 commit handshake; 78 timeout; 79 database target identity.
+# 76 maintenance; 77 commit handshake; 78 timeout; 79 database target identity;
+# 80 published_unhealthy: committed publication failed postcommit verification.
 api_database_url() {
   local api="$1" value count network
   value="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$api" | sed -n 's/^DATABASE_URL=//p')" || return 79
@@ -230,7 +231,7 @@ body = {
     'generation': {'generation_key': key, 'derived_generation_id': identifier,
                    'publication_sequence': int(sequence), 'lifecycle_state': 'PUBLISHED'},
     'actor': actor, 'f2d_operator_code_sha256': identity,
-    'status': 'published' if code == 0 else 'refused' if 70 <= code <= 79 else 'failed',
+    'status': 'published' if code == 0 else 'published_unhealthy' if code == 80 and performed else 'refused' if 70 <= code <= 79 else 'failed',
     'exit_code': code, 'failures': [item] if item else [],
     'publication_performed': performed, 'db_writes_performed': performed,
 }
@@ -240,6 +241,7 @@ for filename, field in (
     ('image-first.json', 'image_digest_first'), ('image-last.json', 'image_digest_last'),
     ('probe-pairs.json', 'probe_pair_statuses'), ('maintenance.json', 'vacuum_analyze'),
     ('statements-identity.json', 'statements_sha256'), ('postcommit.json', 'postcommit'),
+    ('live-finder.json', 'live_finder_verification'),
 ):
     path = root / filename
     if path.is_file():
@@ -247,6 +249,8 @@ for filename, field in (
             body[field] = json.loads(path.read_text())
         except (OSError, ValueError):
             body[field] = {'evidence_unreadable': True}
+if code == 80:
+    body['failures'].extend((body.get('live_finder_verification') or {}).get('failures', []))
 program = None
 for filename in ('receipt.json', 'program-output.json'):
     try:
@@ -603,6 +607,83 @@ if len({row['published_at'] for row in rows}) != 1:
 PY
 }
 
+verify_live_finder() {
+  "$PYTHON_BIN" - "$RUN_DIR" "$TARGET_GENERATION_KEY" "$TARGET_GENERATION_ID" \
+    "$TARGET_PUBLICATION_SEQUENCE" <<'PY'
+from http.client import HTTPException
+import json, sys
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+root = Path(sys.argv[1])
+attestation = json.loads((root / 'attestation.json').read_text())
+products = {row['product_code']: row for row in json.loads((root / 'products.json').read_text())}
+published = {row['product_code']: row for row in json.loads((root / 'postcommit.json').read_text())}
+archetype = published['system_archetype']
+expected = {
+    'derived_generation_id': sys.argv[3], 'publication_sequence': int(sys.argv[4]),
+    'ranking_version': attestation['ranking_version'], 'ranking_sha256': attestation['ranking_sha256'],
+    'archetype_version': archetype['product_version'],
+    'archetype_manifest_sha256': archetype['manifest_sha256'],
+    'archetype_model_sha256': products['system_archetype']['manifest']['archetype_model_sha256'],
+}
+# RankingIdentity has UUID and sequence, not generation_key. The pinned key's
+# UUID/sequence were checked before publication and are compared here.
+opener = build_opener(ProxyHandler({}), NoRedirect())
+origin = 'http://127.0.0.1:58080'
+max_body = 64 * 1024
+pairs = [
+    ('rankings', 'GET', '/api/archetypes/rankings?archetype=paradise&offset=0&limit=1', None),
+    ('search', 'POST', '/api/local/search', {'galaxy_wide': True, 'sort_by': 'development', 'from': 0, 'size': 1}),
+]
+responses, failures = [], []
+for name, method, path, body in pairs:
+    status, payload, parsed = None, b'', None
+    request = Request(origin + path, data=None if body is None else json.dumps(body).encode(),
+                      headers={'Content-Type': 'application/json'}, method=method)
+    try:
+        with opener.open(request, timeout=15) as response:
+            status = response.status
+            payload = response.read(max_body + 1)
+    except HTTPError as exc:
+        with exc:
+            status = exc.code
+            try:
+                payload = exc.read(max_body + 1)
+            except (OSError, HTTPException):
+                pass
+    except (URLError, OSError, HTTPException):
+        pass
+    bounded = len(payload) <= max_body
+    if bounded:
+        try:
+            parsed = json.loads(payload)
+        except (ValueError, UnicodeError):
+            pass
+    envelope = parsed if isinstance(parsed, dict) else {}
+    ranking = envelope.get('ranking')
+    identity = {field: ranking.get(field) if isinstance(ranking, dict) else None for field in expected}
+    results = envelope.get('results')
+    checks = {'http_200': status == 200, 'bounded_body': bounded,
+              'json_envelope': isinstance(parsed, dict),
+              'results_served': isinstance(results, list) and len(results) == 1}
+    checks.update({field: type(identity[field]) is type(value) and identity[field] == value
+                   for field, value in expected.items()})
+    failures.extend(name + ':' + field for field, passed in checks.items() if not passed)
+    responses.append({'method': method, 'path': path, 'body': body, 'status': status,
+                      'expected_status': 200, 'identity': identity, 'checks': checks})
+evidence = {'generation': {'generation_key': sys.argv[2], 'derived_generation_id': sys.argv[3],
+                           'publication_sequence': int(sys.argv[4])},
+            'expected_identity': expected, 'responses': responses, 'failures': failures}
+(root / 'live-finder.json').write_text(json.dumps(evidence, sort_keys=True) + '\n')
+if failures:
+    raise SystemExit(80)
+PY
+}
+
 run_operation() {
   require_target
   require_stage
@@ -718,7 +799,10 @@ PY
   if [ "$code" -eq 0 ]; then COMMITTED=true; else detect_commit || true; fi
   [ "$host_abort" -eq 0 ] || refuse "$host_abort" host_commit_handshake_abort
   [ "$code" -eq 0 ] || refuse "$code" publication_program_refused_or_failed
-  verify_postcommit || refuse 4 postcommit_audit_verification
+  # COMMIT is irreversible here: failures report committed writes and never
+  # request rollback. The protected workflow propagates this nonzero exit.
+  verify_postcommit || refuse 80 postcommit_audit_verification
+  verify_live_finder || refuse 80 postcommit_live_finder_verification
   write_result 0 ""
 }
 

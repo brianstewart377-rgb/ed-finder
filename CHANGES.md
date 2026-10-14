@@ -39,6 +39,18 @@ address on the worker network, and independently checks the connected database
 and user before any write (refusal code 79). The standalone plan probe also
 refuses loaded checkout modules outside the operator-code manifest before
 connecting. Regression tests cover all four review findings.
+PR4b review round 3 fixes the deployed `picked` fetch-node recognition, applies
+the KNN generation/tie allowance without the generic row cap, requires zero-heap
+index-only windows for picked counts too, and measures bounding-box candidates
+for the target generation before multiplying by the generation count. The
+standalone probe now uses the publisher's pinned DSN binding and checks the
+connected database and role before any probe statement (refusal code 24).
+After commit, publication checks both live Finder endpoints for results and
+the generation, attested ranking identity, and all three Archetype product
+identities. A failed post-commit check records `published_unhealthy`, retains
+the committed publication/write flags, and exits 80 without rollback.
+Regression tests cover each of the six confirmed findings. These changes are
+code only; no deployment or production access was performed.
 F2d operator operations now read their
 attested identity from trusted-main's target authority. The gate requires all
 six planned migrations and refuses explicitly while mandatory `016` remains

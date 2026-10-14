@@ -16,6 +16,66 @@ from scripts import v3_archetype_plan_probe as probe
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize(
+    "database,user,expected_code",
+    [
+        ("edfinder_v3_phase4c_full_20260827_r5", "edfinder_v3", 0),
+        ("other_database", "edfinder_v3", 24),
+        ("edfinder_v3_phase4c_full_20260827_r5", "other_role", 24),
+    ],
+)
+def test_main_checks_connected_database_identity_before_probe_statements(
+    database: str, user: str, expected_code: int,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, *_args):
+            executed.append(query)
+            return SimpleNamespace(fetchone=lambda: (database, user))
+
+    connection = Connection()
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_a, **_k: connection))
+    monkeypatch.setattr(probe, "refuse_unlisted_checkout_modules", lambda: None)
+    monkeypatch.setattr(probe, "validate_statements_document", lambda _document: None)
+    monkeypatch.setattr(
+        probe, "run_plan_probe",
+        lambda *_a, **_k: executed.append("probe") or {"status": "passed"},
+    )
+    monkeypatch.setenv("F2D_OPERATOR_CODE_SHA256_ATTESTED", "a" * 64)
+    monkeypatch.setenv("V3_ARCHETYPE_PLAN_PROBE_DATABASE_URL", "postgresql://unused/test")
+    statements = tmp_path / "statements.json"
+    statements.write_text("{}", encoding="utf-8")
+    output = tmp_path / "receipt.json"
+    result = probe.main([
+        "--statements", str(statements),
+        "--statements-sha256", "b" * 64,
+        "--image-digest", "image@sha256:" + "c" * 64,
+        "--generation-key", "test", "--generation-id", "generation",
+        "--publication-sequence", "1",
+        "--search-final-insert-at", "2026-01-01T00:00:00+00:00",
+        "--archetype-final-insert-at", "2026-01-01T00:00:00+00:00",
+        "--dense-anchor-cell", "{}", "--output", str(output),
+    ])
+    assert result == expected_code
+    assert executed[0] == "SELECT current_database(), current_user"
+    if expected_code:
+        assert executed == ["SELECT current_database(), current_user"]
+        assert not hasattr(connection, "read_only")
+        assert not output.exists()
+    else:
+        assert executed[-1] == "probe"
+        assert connection.read_only is True
+        assert json.loads(output.read_text()) == {"status": "passed"}
+
+
 def _scan(
     relation: str,
     index: str | None,
@@ -77,7 +137,7 @@ def _picked_plan(*, heap_fetches: int = 0, search_rows: int = 1) -> list[dict]:
     fetch = _scan(
         "system_archetype",
         "system_archetype_pkey",
-        alias="fetch",
+        alias="picked",
         rows=1,
         loops=50,
     )
@@ -129,6 +189,121 @@ def test_conforming_picked_plan_passes_and_heap_fetch_fails() -> None:
         _picked_statement(), _picked_plan(heap_fetches=1), generation_count=1
     )
     assert _failed(assertions, "picked_window_heap_fetches_zero")
+
+
+def _deployed_picked_plan() -> list[dict]:
+    """PostgreSQL JSON shape for the CTEs/join emitted by build_ranked_query."""
+    window = _scan(
+        "system_archetype", "system_archetype_paradise_b_weighted",
+        node_type="Index Only Scan", alias="ar", rows=10_000, heap_fetches=0,
+    )
+    window.update({
+        "Parent Relationship": "Outer", "Schema": "v3_derived",
+        "Index Cond": "(derived_generation_id = $0)",
+    })
+    search = _scan("system_search", "system_search_pkey", alias="s", loops=10_000)
+    search.update({
+        "Parent Relationship": "Inner", "Schema": "v3_derived",
+        "Index Cond": "((derived_generation_id = $1) AND (system_id64 = ar.system_id64))",
+    })
+    picked = _scan("system_archetype", "system_archetype_pkey", alias="picked", loops=50)
+    picked.update({
+        "Parent Relationship": "Inner", "Schema": "v3_derived",
+        "Index Cond": "((derived_generation_id = $2) AND (system_id64 = page.system_id64))",
+    })
+    return _explain({
+        "Node Type": "Sort", "Actual Rows": 50, "Actual Loops": 1,
+        "Sort Key": ["page.selected_archetype_weighted_e4 DESC", "page.system_id64"],
+        "Plans": [{
+            "Node Type": "Nested Loop", "Join Type": "Inner",
+            "Actual Rows": 50, "Actual Loops": 1,
+            "Plans": [{
+                "Node Type": "Subquery Scan", "Alias": "page",
+                "Parent Relationship": "Outer", "Actual Rows": 50, "Actual Loops": 1,
+                "Plans": [{
+                    "Node Type": "Limit", "Plan Rows": 50,
+                    "Actual Rows": 50, "Actual Loops": 1,
+                    "Plans": [{
+                        "Node Type": "Sort", "Actual Rows": 50, "Actual Loops": 1,
+                        "Sort Key": ["ar.paradise_weighted_e4 DESC", "s.system_id64"],
+                        "Plans": [{
+                            "Node Type": "Nested Loop", "Join Type": "Inner",
+                            "Actual Rows": 10_000, "Actual Loops": 1,
+                            "Plans": [{
+                                "Node Type": "Limit", "Plan Rows": 10_000,
+                                "Actual Rows": 10_000, "Actual Loops": 1,
+                                "Plans": [window],
+                            }, search],
+                        }],
+                    }],
+                }],
+            }, picked],
+        }],
+    })
+
+
+def test_deployed_picked_page_fetch_is_outside_ranked_page_limit() -> None:
+    from ranking.profile import PROFILE_SPEC
+    from ranking.ranking_sql import build_ranked_query
+
+    sql, _params = build_ranked_query(
+        PROFILE_SPEC, picked_archetype="paradise", picked_economy=None,
+        hard_filters={}, reference_coords=None, limit=50, offset=0, min_score=60,
+    )
+    assert "JOIN v3_app.system_archetype picked ON picked.system_id64 = page.system_id64" in sql
+    plan = _deployed_picked_plan()
+    assertions = probe.evaluate_plan_assertions(_picked_statement(), plan, generation_count=1)
+    assert not _failed(assertions)
+    picked = plan[0]["Plan"]["Plans"][0]["Plans"][1]
+    picked["Actual Loops"] = 51
+    assertions = probe.evaluate_plan_assertions(_picked_statement(), plan, generation_count=1)
+    assert _failed(assertions, "picked_fetch_rows_bound")
+
+
+def test_picked_alias_inside_window_does_not_substitute_for_final_fetch() -> None:
+    plan = _deployed_picked_plan()
+    page = plan[0]["Plan"]["Plans"][0]["Plans"][0]
+    window = page["Plans"][0]["Plans"][0]["Plans"][0]["Plans"][0]["Plans"][0]
+    window["Alias"] = "picked"
+    plan[0]["Plan"]["Plans"][0]["Plans"].pop()
+    assertions = probe.evaluate_plan_assertions(_picked_statement(), plan, generation_count=1)
+    assert _failed(assertions, "picked_fetch_rows_bound")
+
+
+def test_picked_fetch_structural_match_cross_checks_emitted_alias() -> None:
+    plan = _deployed_picked_plan()
+    plan[0]["Plan"]["Plans"][0]["Plans"][1]["Alias"] = "fetch"
+    assertions = probe.evaluate_plan_assertions(_picked_statement(), plan, generation_count=1)
+    assert _failed(assertions, "picked_fetch_alias_matches_sql")
+
+
+@pytest.mark.parametrize(
+    "node_type,heap_fetches,expected_failure",
+    [("Index Only Scan", 0, None), ("Index Scan", 0, "picked_window_scan_type"),
+     ("Index Only Scan", 1, "picked_window_heap_fetches_zero"),
+     ("Index Only Scan", None, "picked_window_heap_fetches_zero")],
+)
+def test_picked_count_requires_index_only_and_zero_heap_fetches(
+    node_type: str, heap_fetches: int | None, expected_failure: str | None,
+) -> None:
+    statement = _picked_statement()
+    statement["kind"] = "picked_count"
+    plan = _explain({
+        "Node Type": "Aggregate", "Actual Rows": 1, "Actual Loops": 1,
+        "Plans": [{
+            "Node Type": "Limit", "Plan Rows": 10_001,
+            "Actual Rows": 10_001, "Actual Loops": 1,
+            "Plans": [_scan(
+                "system_archetype", "system_archetype_paradise_b_weighted",
+                node_type=node_type, alias="ar", rows=10_001, heap_fetches=heap_fetches,
+            )],
+        }],
+    })
+    assertions = probe.evaluate_plan_assertions(statement, plan, generation_count=1)
+    if expected_failure:
+        assert _failed(assertions, expected_failure)
+    else:
+        assert not _failed(assertions)
 
 
 @pytest.mark.parametrize("node_type", ["Seq Scan", "Bitmap Heap Scan", "Bitmap Index Scan"])
@@ -283,6 +458,84 @@ def test_anchored_knn_requires_gist_incremental_sort_and_generation_scaled_bound
         _knn_statement(), _knn_plan(10, incremental=False), generation_count=1
     )
     assert _failed(assertions, "anchored_knn_limit_incremental_sort_shape")
+
+
+@pytest.mark.parametrize("kind", ["anchored_knn_page", "anchored_knn_count"])
+def test_knn_tie_slack_replaces_generic_bound_for_gist_node(kind: str) -> None:
+    statement = _knn_statement()
+    statement["kind"] = kind
+    statement["expectations"]["inner_limit"] = 10_001
+    assertions = probe.evaluate_plan_assertions(statement, _knn_plan(10_501), generation_count=2)
+    assert not _failed(assertions)
+    assertions = probe.evaluate_plan_assertions(statement, _knn_plan(22_003), generation_count=2)
+    assert _failed(assertions, "anchored_knn_examined_rows_bound")
+
+
+def test_bounding_box_measurement_filters_target_generation_before_scaling() -> None:
+    class Connection:
+        def execute(self, sql, params):
+            assert "derived_generation_id = %s" in sql
+            assert "target-generation" not in sql
+            assert params == ("target-generation", 1.0, 500.0, 2.0, 500.0, 3.0, 500.0,
+                              1.0, 500.0, 2.0, 500.0, 3.0, 500.0)
+            # Two generations each hold ten candidates in this box.
+            rows = {"target-generation": 10, "other-generation": 10}
+            return SimpleNamespace(fetchone=lambda: (rows[params[0]],))
+
+    measurement = probe._candidate_count(
+        Connection(), {"coordinates": {"x": 1, "y": 2, "z": 3}},
+        generation_id="target-generation",
+    )
+    assert measurement["count"] == 10
+    assert measurement["derived_generation_id"] == "target-generation"
+    statement = {"name": "filtered", "kind": "anchored_filtered_page", "expectations": {}}
+    plan = _explain(_scan("system_search", "system_search_position_gist", rows=21))
+    assertions = probe.evaluate_plan_assertions(
+        statement, plan, generation_count=2, candidate_count=measurement["count"],
+    )
+    assert _failed(assertions, "examined_rows_bound:system_search:system_search")
+
+
+def test_probe_receipts_target_candidates_with_two_search_generations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    statement = {
+        "name": "filtered", "kind": "anchored_filtered_page", "expectations": {},
+        "sql": "SELECT 1", "params": [], "param_sql_types": [],
+    }
+    document = {"ranking_version": "test", "ranking_sha256": "a" * 64,
+                "statements": [statement]}
+    monkeypatch.setattr(probe, "_check_maintenance", lambda *_a, **_k: [])
+    monkeypatch.setattr(probe, "_require_published_products", lambda *_a: None)
+    monkeypatch.setattr(probe, "_generation_identity", lambda *_a: {})
+    monkeypatch.setattr(probe, "_generation_rows", lambda *_a: ["target", "other"])
+    monkeypatch.setattr(probe, "_explain", lambda *_a: _explain(
+        _scan("system_search", "system_search_position_gist", rows=21),
+    ))
+
+    class Connection:
+        autocommit = True
+
+        def execute(self, sql, params):
+            if "SELECT count(*)" not in sql:
+                return None
+            generations = {"target": 10, "other": 10}
+            count = (
+                generations[params[0]] if "derived_generation_id = %s" in sql
+                else sum(generations.values())
+            )
+            return SimpleNamespace(fetchone=lambda: (count,))
+
+    receipt = probe.run_plan_probe(
+        Connection(), document, generation_id="target",
+        search_final_insert_at="2026-01-01T00:00:00+00:00",
+        archetype_final_insert_at="2026-01-01T00:00:00+00:00",
+        dense_anchor_cell={"coordinates": {"x": 0, "y": 0, "z": 0}},
+    )
+    assert receipt["search_generations"]["count"] == 2
+    assert receipt["bounding_box_candidate_measurement"]["count"] == 10
+    assert receipt["status"] == "failed"
+    assert receipt["failures"][0]["observed"]["bound"] == 20
 
 
 @pytest.mark.parametrize(
