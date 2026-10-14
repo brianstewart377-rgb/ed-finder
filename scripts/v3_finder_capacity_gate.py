@@ -999,6 +999,34 @@ def _archetype_tier_entries_left(
     return entries
 
 
+def _ready_verified_search_product(
+    product: dict[str, Any] | None, expected_manifest_sha: str
+) -> bool:
+    """True when the Search product is already READY/VERIFIED for current code.
+
+    A READY Search product costs no further disk, but only when its registered
+    manifest is the one the current code builds. A READY product for another
+    manifest cannot complete the intended publication path, so the gate refuses
+    it instead of charging zero and letting the irreversible Archetype build
+    start on top of it.
+    """
+    if product is None or product["lifecycle_state"] != "READY":
+        return False
+    receipt = product["validation_receipt"]
+    if not (isinstance(receipt, dict) and receipt.get("status") == "VERIFIED"):
+        return False
+    if product["manifest_sha256"] != expected_manifest_sha:
+        refuse(
+            16,
+            "live_state",
+            "READY Search product manifest differs from the current code's manifest",
+            field="system_search.manifest_sha256",
+            expected=expected_manifest_sha,
+            actual=product["manifest_sha256"],
+        )
+    return True
+
+
 def _product_projection(
     *,
     connection: Any,
@@ -1310,10 +1338,7 @@ def run_gate(
     archetype_manifest_sha = complete["expected_product_manifest_sha256"]
 
     search_product = products.get("system_search")
-    if search_product is not None and search_product["lifecycle_state"] == "READY" and (
-        isinstance(search_product["validation_receipt"], dict)
-        and search_product["validation_receipt"].get("status") == "VERIFIED"
-    ):
+    if _ready_verified_search_product(search_product, search_manifest_sha):
         search_projection = fresh_projection(0, "product is READY with VERIFIED receipt")
     else:
         search_projection = _product_projection(

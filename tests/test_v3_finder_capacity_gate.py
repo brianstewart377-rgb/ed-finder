@@ -867,3 +867,35 @@ def test_run_gate_pass_receipt_reports_all_inputs_and_intermediates(
     body = dict(receipt)
     seal = body.pop("content_sha256")
     assert seal == f2d_evidence.canonical_sha256(body)
+
+
+def _search_product(state: str, status: str, manifest: str) -> dict:
+    return {
+        "lifecycle_state": state,
+        "validation_receipt": {"status": status},
+        "manifest_sha256": manifest,
+    }
+
+
+def test_ready_verified_search_product_counts_only_for_the_current_manifest():
+    current = "a" * 64
+    assert gate._ready_verified_search_product(
+        _search_product("READY", "VERIFIED", current), current
+    ) is True
+    # Not READY/VERIFIED: fall through to the normal projection.
+    assert gate._ready_verified_search_product(None, current) is False
+    assert gate._ready_verified_search_product(
+        _search_product("BUILDING", "VERIFIED", current), current
+    ) is False
+    assert gate._ready_verified_search_product(
+        _search_product("READY", "FAILED", current), current
+    ) is False
+
+    # A READY product for another manifest is refused, never charged zero.
+    with pytest.raises(gate.GateRefusal) as error:
+        gate._ready_verified_search_product(
+            _search_product("READY", "VERIFIED", "b" * 64), current
+        )
+    assert error.value.exit_code == 16
+    assert error.value.field == "system_search.manifest_sha256"
+

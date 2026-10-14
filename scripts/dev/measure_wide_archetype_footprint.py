@@ -562,7 +562,86 @@ def validate_archetype_footprint_receipt(receipt: object) -> dict[str, object]:
         value = receipt.get(field)
         if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
             raise ValueError(f"archetype footprint receipt {field} must be lowercase SHA-256")
+    _require_costs_derive_from_measurements(receipt)
     return receipt
+
+
+def _receipt_int(receipt: dict[str, object], field: str, *, minimum: int) -> int:
+    value = receipt.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"archetype footprint receipt {field} must be an integer >= {minimum}")
+    return value
+
+
+def _require_costs_derive_from_measurements(receipt: dict[str, object]) -> None:
+    """Recompute every gate cost from the receipt's raw measurements.
+
+    The capacity gate trusts these five per-row costs to size irreversible
+    builds, so a sealed receipt is accepted only when each one equals what the
+    measured rows, heap, stored text and per-index sizes produce (the same
+    arithmetic the measurement used), never on the strength of its seal alone.
+    """
+    rows = _receipt_int(receipt, "rows", minimum=1)
+    if receipt.get("row_count") != rows:
+        raise ValueError("archetype footprint receipt row_count must equal rows")
+    heap_bytes = _receipt_int(receipt, "heap_bytes", minimum=1)
+    text_bytes_stored = _receipt_int(receipt, "text_bytes_stored", minimum=0)
+
+    index_sizes = receipt.get("per_index_bytes")
+    if not isinstance(index_sizes, dict) or set(index_sizes) != FINAL_INDEX_NAMES:
+        raise ValueError(
+            "archetype footprint receipt per_index_bytes must name exactly the designed indexes"
+        )
+    for name, size in index_sizes.items():
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise ValueError(f"archetype footprint receipt per_index_bytes.{name} is invalid")
+    tier_bytes = sum(index_sizes[name] for name in TIER_INDEX_NAMES)
+    if receipt.get("tier_index_bytes") != tier_bytes:
+        raise ValueError("archetype footprint receipt tier_index_bytes does not sum the tier indexes")
+
+    seeded = receipt.get("seeded_fractions")
+    if not isinstance(seeded, dict) or set(seeded) != set(ARCHETYPE_KEYS):
+        raise ValueError("archetype footprint receipt seeded_fractions must cover every archetype")
+    tier_entries = 0
+    for key in ARCHETYPE_KEYS:
+        floors = seeded[key]
+        if not isinstance(floors, dict) or set(floors) != {"60", "76", "88"}:
+            raise ValueError(f"archetype footprint receipt seeded_fractions.{key} is malformed")
+        for floor, fraction in floors.items():
+            if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
+                raise ValueError(
+                    f"archetype footprint receipt seeded_fractions.{key}.{floor} is invalid"
+                )
+            # The measurement records count / rows; recover the exact count.
+            count = round(fraction * rows)
+            if count < 0 or count > rows or count / rows != fraction:
+                raise ValueError(
+                    f"archetype footprint receipt seeded_fractions.{key}.{floor} is not a row count"
+                )
+            tier_entries += count
+    if tier_entries <= 0 or receipt.get("sigma_all") != tier_entries / rows:
+        raise ValueError("archetype footprint receipt sigma_all does not match its tier counts")
+
+    expected = per_row_costs(
+        heap_bytes=heap_bytes,
+        primary_key_bytes=index_sizes["system_archetype_pkey"],
+        weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+        tier_index_bytes=tier_bytes,
+        rows=rows,
+        tier_entries=tier_entries,
+    )
+    expected["archetype_fixed_bytes_per_row"] = archetype_fixed_cost(
+        heap_bytes=heap_bytes,
+        text_bytes_stored=text_bytes_stored,
+        primary_key_bytes=index_sizes["system_archetype_pkey"],
+        weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+        rows=rows,
+    )
+    for field, value in expected.items():
+        if receipt.get(field) != value:
+            raise ValueError(
+                f"archetype footprint receipt {field} is not derived from its measurements"
+            )
 
 
 def capacity_gate_eligible(*, final_migration: bool, distribution_source: str) -> bool:

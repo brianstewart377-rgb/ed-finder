@@ -423,20 +423,93 @@ def test_archetype_fixed_cost_removes_variable_text_and_rounds_up():
         )
 
 
-def _eligible_archetype_receipt(module):
-    body = {
+def _measured_archetype_body(module):
+    """A receipt body whose costs are derived from consistent raw measurements."""
+    rows = 1_000
+    index_sizes = {name: 4_096 for name in module.TIER_INDEX_NAMES}
+    index_sizes["system_archetype_pkey"] = 22_000
+    index_sizes["system_archetype_summary_weighted"] = 31_000
+    counts = {"60": 168, "76": 20, "88": 2}
+    seeded = {
+        key: {floor: count / rows for floor, count in counts.items()}
+        for key in module.ARCHETYPE_KEYS
+    }
+    tier_entries = sum(counts.values()) * len(module.ARCHETYPE_KEYS)
+    tier_bytes = sum(index_sizes[name] for name in module.TIER_INDEX_NAMES)
+    heap_bytes, text_bytes = 104_000, 12_000
+    costs = module.per_row_costs(
+        heap_bytes=heap_bytes,
+        primary_key_bytes=index_sizes["system_archetype_pkey"],
+        weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+        tier_index_bytes=tier_bytes,
+        rows=rows,
+        tier_entries=tier_entries,
+    )
+    return {
         "capacity_gate_eligible": True,
         "score_distribution_source": "measured-histogram",
-        "heap_bytes_per_row": 100,
-        "primary_key_bytes_per_row": 20,
-        "weighted_index_bytes_per_row": 30,
-        "tier_index_bytes_per_row_per_unit_fraction": 40,
-        "archetype_fixed_bytes_per_row": 140,
+        "rows": rows,
+        "row_count": rows,
+        "heap_bytes": heap_bytes,
+        "text_bytes_stored": text_bytes,
+        "per_index_bytes": index_sizes,
+        "tier_index_bytes": tier_bytes,
+        "seeded_fractions": seeded,
+        "sigma_all": tier_entries / rows,
+        **costs,
+        "archetype_fixed_bytes_per_row": module.archetype_fixed_cost(
+            heap_bytes=heap_bytes,
+            text_bytes_stored=text_bytes,
+            primary_key_bytes=index_sizes["system_archetype_pkey"],
+            weighted_index_bytes=index_sizes["system_archetype_summary_weighted"],
+            rows=rows,
+        ),
         "migration_011_sha256": "1" * 64,
         "fractions_sha256": "2" * 64,
         "f2d_operator_code_sha256": "3" * 64,
     }
-    return module.f2d_evidence.seal(body)
+
+
+def _eligible_archetype_receipt(module):
+    return module.f2d_evidence.seal(_measured_archetype_body(module))
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "heap_bytes_per_row",
+        "primary_key_bytes_per_row",
+        "weighted_index_bytes_per_row",
+        "tier_index_bytes_per_row_per_unit_fraction",
+        "archetype_fixed_bytes_per_row",
+    ],
+)
+def test_archetype_receipt_validator_refuses_resealed_understated_costs(field):
+    module = _load()
+    body = _measured_archetype_body(module)
+    body[field] -= 1
+    with pytest.raises(ValueError, match=f"{field} is not derived from its measurements"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+
+
+def test_archetype_receipt_validator_refuses_inconsistent_raw_measurements():
+    module = _load()
+    body = _measured_archetype_body(module)
+    body["tier_index_bytes"] += 1
+    with pytest.raises(ValueError, match="tier_index_bytes does not sum"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    del body["per_index_bytes"]["system_archetype_pkey"]
+    with pytest.raises(ValueError, match="exactly the designed indexes"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    body["sigma_all"] = body["sigma_all"] / 2
+    with pytest.raises(ValueError, match="sigma_all does not match"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
+    body = _measured_archetype_body(module)
+    body["row_count"] += 1
+    with pytest.raises(ValueError, match="row_count must equal rows"):
+        module.validate_archetype_footprint_receipt(module.f2d_evidence.seal(body))
 
 
 def test_archetype_receipt_validator_requires_gate_fields_and_verifying_seal():
@@ -563,6 +636,8 @@ def test_final_migration_mode_smoke_on_disposable_postgresql_18(
         {key: value for key, value in receipt.items() if key != "content_sha256"}
     )
     assert receipt["text_bytes_stored"] > 0
+    # Real measurement output satisfies the validator's cost recomputation.
+    module._require_costs_derive_from_measurements(receipt)
     assert receipt["archetype_fixed_bytes_per_row"] <= (
         receipt["heap_bytes_per_row"]
         + receipt["primary_key_bytes_per_row"]
