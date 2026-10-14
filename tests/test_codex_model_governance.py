@@ -8,7 +8,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / ".github" / "workflows" / "codex-laptop.yml"
 DISPATCH = ROOT / ".github" / "workflows" / "codex-dispatch.yml"
-EXPECTED_CODEX_MODEL = "gpt-5.6-sol"
+EXPECTED_CODEX_MODEL = "gpt-6-astra"
 EXPECTED_CODEX_REASONING_EFFORT = "high"
 
 
@@ -90,7 +90,7 @@ def test_request_cannot_override_model_or_enable_a_fallback() -> None:
     assert not re.search(r"inputs\.(?:model|.*effort)|CODEX_(?:MODEL|.*EFFORT):", worker_text)
     assert all("${" not in command and "||" not in command for command in commands)
     assert worker_text.count("codex exec ") == 3  # two calls plus the help capability probe
-    assert "gpt-6-astra" not in worker_text
+    assert "gpt-5.6-sol" not in worker_text
     assert "REQUIRED_CODEX_REASONING_EFFORT='max'" not in worker_text
     assert 'model_reasoning_effort="max"' not in worker_text
     assert 'model_reasoning_effort="xhigh"' not in worker_text

@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-14 — Codex worker model pin moved to `gpt-6-astra`
+
+The Contabo Codex worker returns to `gpt-6-astra` (it left Astra on
+2026-09-04, #593, because Astra was not yet supported there). The worker's
+Codex CLI is now 0.162.1 (Astra needs 0.153.0 or newer), and a live check on
+the worker, signed in with its ChatGPT account, completed with
+`--model gpt-6-astra`. Effort stays `high`; the single-model governance
+contract and its test keep the same shape and now reject the old
+`gpt-5.6-sol` literal.
+
 ## 2026-10-13 — Finder F2d wide Archetype data layer
 
 The additive `GET /api/archetypes/system/{id64}/explanation` route now
