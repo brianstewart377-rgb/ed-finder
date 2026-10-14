@@ -86,7 +86,21 @@ def test_actions_and_dependency_install_match_the_postgresql_18_reference_lane()
     assert steps[1]["uses"] == SETUP_PYTHON
     assert steps[1]["with"]["python-version"] == "3.14"
     install = next(step for step in steps if step.get("name") == "Install measurement dependencies")
-    assert install["run"] == "python -m pip install -r apps/api/requirements.txt"
+    # requirements.txt excludes Psycopg (importer-only) but both footprint
+    # scripts import it at module load, so the job must install the pin that
+    # apps/api/pyproject.toml declares.
+    pyproject = (ROOT / "apps" / "api" / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"psycopg[binary]==3.3.4"' in pyproject
+    requirement_lines = [
+        line.split("#", 1)[0].strip().lower()
+        for line in (ROOT / "apps" / "api" / "requirements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert not any(line.startswith("psycopg") for line in requirement_lines)
+    assert install["run"] == (
+        "python -m pip install -r apps/api/requirements.txt 'psycopg[binary]==3.3.4'"
+    )
 
 
 def test_evidence_verification_and_artifact_contract() -> None:

@@ -276,10 +276,24 @@ start_operation() {
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
   dsn="$(api_database_url "$api")"
+
+  # A restart after a transient failure resumes the checkpoint; the earlier
+  # failure receipt describes the previous run, not this one. Keep it as
+  # history under a unique name so status reports the live worker rather
+  # than a stale failure for the whole resumed run.
+  if [ -e "$STATE_ROOT/failure-receipt.json" ] || [ -L "$STATE_ROOT/failure-receipt.json" ]; then
+    mv -- "$STATE_ROOT/failure-receipt.json" \
+      "$STATE_ROOT/failure-receipt.$(date -u +%Y%m%dT%H%M%SZ).$$.json"
+  fi
+
+  local launch_id
+  launch_id="$("$PYTHON_BIN" -c 'import uuid; print(uuid.uuid4().hex)')"
+  [[ "$launch_id" =~ ^[0-9a-f]{32}$ ]] || fail "could not generate a launch identifier"
   env_file="$STATE_ROOT/complete.env"
   umask 077
   printf 'V3_ARCHETYPE_COMPLETE_DATABASE_URL=%s\n' "$dsn" > "$env_file"
   printf 'F2D_OPERATOR_CODE_SHA256_ATTESTED=%s\n' "$F2D_IDENTITY" >> "$env_file"
+  printf 'V3_ARCHETYPE_COMPLETE_LAUNCH_ID=%s\n' "$launch_id" >> "$env_file"
   chmod 600 "$env_file"
   # The DSN file must not outlive a failed launch (set -e exits before the
   # explicit removal below when docker run fails).
@@ -328,14 +342,28 @@ start_operation() {
     fail "complete calibration worker did not remain running"
   fi
 
-  # Proof of life: the worker writes (or re-validates) the checkpoint right
-  # after its identity, image-model and generation checks pass. Wait for it so
-  # a worker that refuses inside the container fails this start, not a later
-  # status read.
+  # Proof of life: after its identity, image-model, generation and
+  # checkpoint-state checks pass, the worker writes this launch's identifier
+  # into the checkpoint. A checkpoint left by an earlier run does not carry
+  # it, so a resume is proven by this worker, not by the file existing. Wait
+  # for it so a worker that refuses inside the container fails this start,
+  # not a later status read.
   local proof=false
   for _ in $(seq 1 45); do
     worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
-    if [ -f "$STATE_ROOT/checkpoint.json" ] && [ "$worker_state" = "running" ]; then
+    if [ "$worker_state" = "running" ] && [ -f "$STATE_ROOT/checkpoint.json" ] \
+      && [ ! -L "$STATE_ROOT/checkpoint.json" ] \
+      && "$PYTHON_BIN" - "$STATE_ROOT/checkpoint.json" "$launch_id" <<'PY'
+import json
+import sys
+
+try:
+    checkpoint = json.load(open(sys.argv[1], encoding='utf-8'))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if isinstance(checkpoint, dict) and checkpoint.get('launch_id') == sys.argv[2] else 1)
+PY
+    then
       proof=true
       break
     fi

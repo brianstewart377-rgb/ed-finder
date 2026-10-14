@@ -178,6 +178,70 @@ def test_complete_restart_resumes_and_equals_fresh_run(tmp_path, monkeypatch):
         complete.run_complete(_Connection(), _args(altered_state), f2d_identity=identity)
 
 
+def test_resume_writes_this_launch_id_before_scoring_and_receipt_excludes_it(
+    tmp_path, monkeypatch,
+):
+    identity = compute_operator_code_sha256(ROOT)
+    monkeypatch.setattr(complete, '_generation', lambda *_args: _generation_row())
+    monkeypatch.setattr(complete, 'refuse_unlisted_checkout_modules', lambda: None)
+    reads: list[int] = []
+    probe = _fake_probe(reads)
+    monkeypatch.setattr(complete, '_load_scoring_modules', lambda: (probe, builder, model))
+
+    state = tmp_path / 'state'
+    monkeypatch.setenv(complete.LAUNCH_ID_ENV, 'a' * 32)
+    exit_code, _ = complete.run_complete(
+        _Connection(), _args(state, stop_after_chunks=1), f2d_identity=identity,
+    )
+    assert exit_code == 75
+    assert json.loads((state / 'checkpoint.json').read_text())['launch_id'] == 'a' * 32
+
+    # The resumed launch's identifier is on disk before any further chunk is
+    # read, so the start action's proof belongs to this worker, not the file
+    # an earlier run left behind.
+    monkeypatch.setenv(complete.LAUNCH_ID_ENV, 'b' * 32)
+    seen_at_first_read: list[str] = []
+
+    def read_chunk(connection, generation_id, ordinal):
+        seen_at_first_read.append(
+            json.loads((state / 'checkpoint.json').read_text())['launch_id']
+        )
+        return _fake_probe([])._read_chunk_rows(connection, generation_id, ordinal)
+
+    monkeypatch.setattr(probe, '_read_chunk_rows', read_chunk)
+    exit_code, resumed = complete.run_complete(
+        _Connection(), _args(state), f2d_identity=identity,
+    )
+    assert exit_code == 0
+    assert seen_at_first_read and seen_at_first_read[0] == 'b' * 32
+    assert 'launch_id' not in json.dumps(resumed)
+
+    monkeypatch.delenv(complete.LAUNCH_ID_ENV)
+    monkeypatch.setattr(probe, '_read_chunk_rows', _fake_probe([])._read_chunk_rows)
+    exit_code, fresh = complete.run_complete(
+        _Connection(), _args(tmp_path / 'fresh'), f2d_identity=identity,
+    )
+    assert exit_code == 0
+    assert resumed == fresh
+
+
+def test_start_proves_this_launch_and_moves_a_stale_failure_receipt_aside():
+    action = (
+        ROOT / 'scripts/operator/actions/v3-archetype-calibration-complete.sh'
+    ).read_text()
+    start = action[action.index('start_operation()'):action.index('status_operation()')]
+    launch = start.index('V3_ARCHETYPE_COMPLETE_LAUNCH_ID=%s')
+    rotate = start.index('mv -- "$STATE_ROOT/failure-receipt.json"')
+    run = start.index('docker run -d')
+    # The old failure receipt is preserved under a new name before the new
+    # worker launches, so status reports the live run instead of it.
+    assert rotate < run and launch < run
+    proof = start[start.index('local proof=false'):]
+    # Existence of a checkpoint is not proof: it must carry this launch's id.
+    assert "checkpoint.get('launch_id') == sys.argv[2]" in proof
+    assert '"$launch_id"' in proof
+
+
 def test_complete_receipt_totals_chunks_sigma_and_expected_manifest(
     tmp_path, monkeypatch,
 ):

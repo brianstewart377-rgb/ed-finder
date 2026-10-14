@@ -127,6 +127,8 @@ def _run_status_action(
     spatial_relation_absent: bool = False,
     database_size_query_failure: bool = False,
     unrelated_postgres_mount: bool = False,
+    pre_publication_migration: bool = False,
+    running_worker: str = "",
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -188,6 +190,10 @@ def _run_status_action(
                     exit 1 ;;
                 esac
               fi
+              if [ -n "$RUNNING_WORKER" ] && [ "$name" = "$RUNNING_WORKER" ]; then
+                printf 'running\\ttrue\\t0\\t2026-10-01T00:00:00Z\\n'
+                exit 0
+              fi
               printf 'exited\\tfalse\\t0\\t2026-10-01T00:00:00Z\\n'
               exit 0
             fi
@@ -227,10 +233,27 @@ def _run_status_action(
                   if [ "$DERIVED_PRODUCT_ABSENT" != '1' ]; then
                     printf 'v3_meta.derived_product\\n'
                   fi ;;
+                *'AS product_publication_audit_present'*)
+                  if [ "$PRE_PUBLICATION_MIGRATION" = '1' ]; then
+                    printf 'false\\tfalse\\n'
+                  else
+                    printf 'true\\ttrue\\n'
+                  fi ;;
                 *'FROM v3_meta.derived_product p'*)
+                  case "$sql" in
+                    *'p.published_at'*)
+                      if [ "$PRE_PUBLICATION_MIGRATION" = '1' ]; then
+                        printf '%s\\n' 'ERROR:  column p.published_at does not exist' >&2
+                        exit 1
+                      fi ;;
+                  esac
                   printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_archetype","product_version":"archetype-v1","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-04 00:00:00+00","validated_at":"2026-09-01 00:00:00+00","published_at":null,"failed_at":null,"failure":null,"validation_sha256_hex":"cafe"}'
                   printf '%s\\n' '{"derived_generation_id":"derived-id","generation_key":"ratings_v4_canned","product_code":"system_search","product_version":"search-v2","lifecycle_state":"READY","expected_rows":100,"created_at":"2026-08-03 00:00:00+00","validated_at":"2026-08-31 00:00:00+00","published_at":"2026-09-04 00:00:00+00","failed_at":null,"failure":null,"validation_sha256_hex":"beef"}' ;;
                 *'FROM v3_meta.derived_product_publication_audit'*)
+                  if [ "$PRE_PUBLICATION_MIGRATION" = '1' ]; then
+                    printf '%s\\n' 'ERROR:  relation "v3_meta.derived_product_publication_audit" does not exist' >&2
+                    exit 1
+                  fi
                   printf '%s\\n' '{"derived_generation_id":"derived-id","product_code":"system_search","product_version":"search-v2","manifest_sha256_hex":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","published_at":"2026-09-04 00:00:00+00","actor":"finder-product-publisher"}' ;;
                 *"to_regclass('v3_spatial.current_spatial_generation')"*)
                   if [ "$SPATIAL_RELATION_ABSENT" != '1' ]; then
@@ -306,6 +329,8 @@ def _run_status_action(
         "1" if database_size_query_failure else "0"
     )
     env["UNRELATED_POSTGRES_MOUNT"] = "1" if unrelated_postgres_mount else "0"
+    env["PRE_PUBLICATION_MIGRATION"] = "1" if pre_publication_migration else "0"
+    env["RUNNING_WORKER"] = running_worker
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -523,3 +548,50 @@ def test_v3_derived_lifecycle_status_attributes_footprint_proportionally(tmp_pat
         "size these on a disposable PostgreSQL 18 sample and extrapolate; see "
         "docs/operations/v3-finder-production-rollout-state.md"
     )
+
+
+def test_v3_derived_lifecycle_status_works_before_migration_015(tmp_path):
+    # Migration 006 created derived_product; 015 adds published_at and the
+    # publication audit table. Before 015 the action must still succeed.
+    result = _run_status_action(tmp_path, pre_publication_migration=True)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert receipt["status"] == "success"
+    assert receipt["derived_product_publication_schema"] == {
+        "published_at_column_present": False,
+        "publication_audit_table_present": False,
+    }
+    assert receipt["derived_product_publication_audit"] is None
+    assert {product["product_code"] for product in receipt["derived_products"]} == {
+        "system_archetype",
+        "system_search",
+    }
+
+
+def test_v3_derived_lifecycle_status_reports_publication_schema_after_015(tmp_path):
+    result = _run_status_action(tmp_path)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert receipt["derived_product_publication_schema"] == {
+        "published_at_column_present": True,
+        "publication_audit_table_present": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        "edfinder-v3-system-search-p4-parallel-v1",
+        "edfinder-v3-system-archetype-p4-parallel-v1",
+    ],
+)
+def test_v3_derived_lifecycle_status_sees_the_f2d_build_workers(tmp_path, worker):
+    result = _run_status_action(tmp_path, running_worker=worker)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    receipt = json.loads(result.stdout)
+    assert worker in {entry["name"] for entry in receipt["workers"]}
+    assert receipt["all_named_workers_stopped"] is False
+

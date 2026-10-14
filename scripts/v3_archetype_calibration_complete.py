@@ -43,6 +43,11 @@ from scripts.operator.lib import f2d_operator_identity  # noqa: E402
 COMPLETE_VERSION = 'v3-archetype-calibration-complete-1'
 DEFAULT_DATABASE_URL_ENV = 'V3_ARCHETYPE_COMPLETE_DATABASE_URL'
 DEFAULT_IDENTITY_ENV = 'F2D_OPERATOR_CODE_SHA256_ATTESTED'
+# Per-launch nonce from the operator start action. Written into the checkpoint
+# only after this run's identity, generation and checkpoint-state checks pass,
+# so the start action can tell a fresh proof from a checkpoint left by an
+# earlier run (a resume does not otherwise rewrite it until a chunk completes).
+LAUNCH_ID_ENV = 'V3_ARCHETYPE_COMPLETE_LAUNCH_ID'
 TIERS = ('S', 'A', 'B', 'C', 'D')
 CHECKPOINT_SCHEMA = 'ed-finder/v3-archetype-calibration-checkpoint/v1'
 RECEIPT_SCHEMA = 'ed-finder/v3-archetype-calibration-complete/v1'
@@ -651,6 +656,13 @@ def run_complete(
         chunk_plan=chunk_plan,
         keys=tuple(model.ARCHETYPE_KEYS),
     )
+    launch_id = os.environ.get(LAUNCH_ID_ENV, '').strip()
+    if launch_id:
+        # Proof of life for this launch. Progress-only field: the sealed
+        # receipt body never carries it.
+        checkpoint['launch_id'] = launch_id
+        checkpoint['updated_at'] = _utc_now()
+        _atomic_json(checkpoint_path, checkpoint)
     log_path = args.state_dir / PER_CHUNK_FILE
     processed_this_run = 0
     for index in range(next_index, len(chunk_plan)):

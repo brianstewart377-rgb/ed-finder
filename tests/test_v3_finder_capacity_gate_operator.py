@@ -315,3 +315,38 @@ def test_step0_capacity_evidence_is_bound_by_the_operator_code_manifest() -> Non
     assert "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json" in manifest
     evidence = (ROOT / "scripts/operator/lib/f2d_evidence.py").read_text()
     assert "2026-10-10-v3-derived-lifecycle-status-receipt.json" in evidence
+
+
+def test_archetype_finalize_bound_covers_validation_then_vacuum() -> None:
+    action = (ROOT / "scripts/operator/actions/v3-system-archetype.sh").read_text(
+        encoding="utf-8"
+    )
+    # Both sequential finalize phases carry their own two-hour bound.
+    assert "command=(timeout --signal=TERM 7200 docker run --rm)" in action
+    assert 'timeout --signal=TERM 7200 docker exec "$POSTGRES_CONTAINER"' in action
+    finalize = action[action.index("finalize_operation() {"):]
+    assert finalize.index("run_archetype_container") < finalize.index("VACUUM (ANALYZE)")
+
+    parsed = yaml.safe_load(_read(WORKFLOW))
+    execute_job = parsed["jobs"]["execute"]
+    step = next(
+        step for step in execute_job["steps"] if step.get("name") == "Finalize V3 Archetype build"
+    )
+    assert step["timeout-minutes"] * 60 >= 7200 + 7200
+    assert execute_job["timeout-minutes"] > step["timeout-minutes"]
+    # GitHub-hosted runners stop every job at six hours.
+    assert execute_job["timeout-minutes"] <= 360
+
+
+def test_search_and_archetype_status_use_the_start_privilege_boundary() -> None:
+    parsed = yaml.safe_load(_read(WORKFLOW))
+    steps = {step.get("name"): step for step in parsed["jobs"]["execute"]["steps"]}
+    for name in (
+        "Inspect V3 Search F1 status",
+        "Inspect V3 Archetype build status",
+        "Inspect V3 archetype calibration complete-read status",
+    ):
+        run = steps[name]["run"]
+        assert 'if [ \\"\\$(id -u)\\" -eq 0 ]; then exec bash -s -- status' in run
+        assert "exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- status" in run
+

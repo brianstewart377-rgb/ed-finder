@@ -52,8 +52,10 @@ jobs:
     name: Run allowlisted ed-new operation
     runs-on: ubuntu-latest
     environment: ed-new-operator
-    # Build finalization permits the receipted VACUUM (ANALYZE) up to 120 minutes.
-    timeout-minutes: 150
+    # Archetype build finalization runs validation (bounded at 120 minutes) and
+    # then the receipted VACUUM (ANALYZE) (bounded at 120 minutes) in sequence;
+    # its step allows 250 minutes, and this job keeps a margin around that.
+    timeout-minutes: 270
     steps:
       - name: Checkout request branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -488,7 +490,10 @@ jobs:
           [[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid F2d operator-code attestation" >&2; exit 64; }
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-v3-search-${source_sha}"
-          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; exec bash -s -- status '$stage' '$source_sha'"
+          # Same root-or-sudo boundary as start/finalize: the receipts live under the
+          # privileged user's ${HOME}/.local/state (0600) and status needs the
+          # Docker socket, so the plain SSH user would read a different state root.
+          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- status '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- status '$stage' '$source_sha'; else echo 'V3 Search status requires root or passwordless sudo for the bounded status read' >&2; exit 64; fi"
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             "$remote" < trusted-main/scripts/operator/actions/v3-system-search-f1.sh | tee "$RECEIPT"
 
@@ -596,13 +601,18 @@ jobs:
           [[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid F2d operator-code attestation" >&2; exit 64; }
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           stage="/var/tmp/edfinder-v3-archetype-build-${source_sha}"
-          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; exec bash -s -- status '$stage' '$source_sha'"
+          # Same root-or-sudo boundary as start/finalize: the receipts live under the
+          # privileged user's ${HOME}/.local/state (0600) and status needs the
+          # Docker socket, so the plain SSH user would read a different state root.
+          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- status '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- status '$stage' '$source_sha'; else echo 'V3 Archetype status requires root or passwordless sudo for the bounded status read' >&2; exit 64; fi"
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
             < trusted-main/scripts/operator/actions/v3-system-archetype.sh | tee "$RECEIPT"
 
       - name: Finalize V3 Archetype build
         if: steps.request.outputs.operation == 'v3-system-archetype-finalize'
-        timeout-minutes: 125
+        # Validation (timeout 7200 s) then VACUUM (ANALYZE) (timeout 7200 s) run
+        # sequentially in v3-system-archetype.sh, plus a small margin.
+        timeout-minutes: 250
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
