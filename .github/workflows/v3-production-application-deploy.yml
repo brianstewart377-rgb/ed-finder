@@ -25,6 +25,10 @@ on:
         description: Successful canonical immutable release run (not used by inventory)
         required: false
         type: string
+      f2d_release_attestation:
+        description: Reviewed candidate compatibility attestation JSON (required for F2d promotion)
+        required: false
+        type: string
       target_confirmation:
         description: Type ed-finder-prod/nb79a3d.mevnode.com
         required: true
@@ -257,6 +261,35 @@ jobs:
           if hashlib.sha256(manifest.read_bytes()).hexdigest() != fields[0]:
               raise SystemExit("Candidate checksum mismatch")
           PY
+      - name: Validate optional F2d candidate attestation
+        if: inputs.operation != 'publish-finder-products'
+        env:
+          F2D_RELEASE_ATTESTATION: ${{ inputs.f2d_release_attestation }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          import importlib.util, json, os, pathlib
+          raw = os.environ.get("F2D_RELEASE_ATTESTATION", "")
+          if not raw:
+              raise SystemExit(0)
+          spec = importlib.util.spec_from_file_location("deployer", "scripts/operator/v3_production_deploy.py")
+          deployer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(deployer)
+          if len(raw.encode()) > deployer.MAX_JSON:
+              raise SystemExit("F2d candidate attestation exceeds bound")
+          value = json.loads(raw)
+          deployer.validate_release_compatibility_shape(value)
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "candidate"
+          manifest = directory / "v3-application-release.json"
+          checksum = deployer.verify_checksum(manifest, pathlib.Path(str(manifest) + ".sha256"))
+          schema = {"migration_set_identity": json.loads(pathlib.Path("deploy/v3-production/target-authority.json").read_text())["schema_transition"]["to_migration_set_identity"]}
+          deployer.validate_f2d_attestation(value, json.loads(manifest.read_text()), checksum, os.environ["RELEASE_RUN_ID"], schema)
+          output = directory / "f2d-release-attestation.json"
+          with output.open("x", encoding="utf-8") as handle:
+              os.chmod(output, 0o600)
+              json.dump(value, handle, sort_keys=True)
+          PYCODE
       - name: Prepare sealed source-free operation bundle and pinned SSH trust
         if: inputs.operation != 'publish-finder-products'
         env:
@@ -293,6 +326,17 @@ jobs:
           if [ "$REQUESTED_OPERATION" = promote ]; then
             install -m 600 /dev/null "$BUNDLE/registry-token"
             printf '%s' "$REGISTRY_TOKEN" > "$BUNDLE/registry-token"
+          fi
+      - name: Stage F2d release gate authorities in the sealed bundle
+        if: inputs.operation != 'publish-finder-products'
+        env:
+          BUNDLE: ${{ runner.temp }}/v3-production-bundle
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$BUNDLE/sql/v3"
+          install -m 600 sql/v3/migration-manifest.txt "$BUNDLE/sql/v3/"
+          if [ -f "$RUNNER_TEMP/candidate/f2d-release-attestation.json" ]; then
+            install -m 600 "$RUNNER_TEMP/candidate/f2d-release-attestation.json" "$BUNDLE/artifacts/candidate/"
           fi
       - name: Execute exact production authority
         if: inputs.operation != 'publish-finder-products'

@@ -97,6 +97,106 @@ COMMIT;
 """.strip()
 
 
+# Owner decision 2026-10-14: 016 is mandatory even before registration.
+F2D_REQUIRED_MIGRATIONS = ("014", "010", "011", "013", "015", "016")
+F2D_ATTESTATION_FIELDS = frozenset({
+    "ranking_version", "ranking_sha256", "f2d_operator_code_sha256",
+    "minimum_schema_compatible_image", "rollback_targets",
+})
+BACKEND_IMAGE = re.compile(
+    r"ghcr\.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:[0-9a-f]{64}\Z"
+)
+F2D_GENERATION = {
+    "generation_key": "ratings_v4_prod_p4_parallel_v1",
+    "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+    "publication_sequence": 1,
+    "state": "PUBLISHED",
+}
+# Fixed, parameterized psql variables; no operator text becomes SQL syntax.
+F2D_GENERATION_SQL = r"""
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '10000ms';
+SELECT json_build_object(
+  'generation_key', g.generation_key,
+  'derived_generation_id', g.derived_generation_id::text,
+  'publication_sequence', p.publication_sequence,
+  'state', g.lifecycle_state,
+  'finder_products', COALESCE((
+    SELECT json_agg(product_code ORDER BY product_code)
+    FROM v3_meta.derived_product
+    WHERE derived_generation_id = :'generation_id'::uuid
+      AND product_code IN ('system_search', 'system_archetype')
+  ), '[]'::json)
+)::text
+FROM v3_meta.current_derived_generation p
+JOIN v3_meta.derived_generation g USING (derived_generation_id)
+WHERE p.singleton;
+COMMIT;
+""".strip()
+
+
+# Execute only the actual publication resolver's AST from the pinned image,
+# with an in-memory connection. No imports of application startup, real database
+# calls, product registration or publication are involved in this contract check.
+F2D_IMAGE_CONTRACT_PROGRAM = r"""
+import ast
+import asyncio
+import __future__
+import json
+from pathlib import Path
+from edfinder_api.ranking.profile import RANKING_VERSION, ranking_sha256
+
+class HTTPException(Exception):
+    def __init__(self, status_code, detail):
+        self.status_code = status_code
+        self.detail = detail
+
+source = Path('/app/local_search.py').read_text()
+if len(source) > 2 * 1024 * 1024:
+    raise SystemExit('publication resolver source exceeds bound')
+nodes = [node for node in ast.parse(source).body
+         if isinstance(node, ast.AsyncFunctionDef) and node.name == '_current_derived_generation']
+if len(nodes) != 1:
+    raise SystemExit('publication resolver absent')
+namespace = {'HTTPException': HTTPException,
+             '_REQUIRED_FINDER_PRODUCTS': ('system_search', 'system_archetype')}
+exec(compile(ast.Module(body=nodes, type_ignores=[]), '<image-publication-resolver>', 'exec',
+             flags=__future__.annotations.compiler_flag), namespace)
+
+class Connection:
+    def __init__(self, products):
+        self.products = products
+    async def fetchrow(self, *args):
+        return {'derived_generation_id': 'fixture', 'publication_sequence': 1}
+    async def fetch(self, *args):
+        return self.products
+
+async def verify():
+    products = [dict(product_code=code, lifecycle_state='READY', published_at=None,
+                     archetype_version='fixture', archetype_manifest_sha256='fixture',
+                     archetype_model_sha256='fixture', model_file_sha256='fixture')
+                for code in ('system_search', 'system_archetype')]
+    resolver = namespace['_current_derived_generation']
+    for rows in ([], products):
+        try:
+            await resolver(Connection(rows))
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise SystemExit('publication resolver refusal contract mismatch')
+        else:
+            raise SystemExit('publication resolver accepted unavailable products')
+    for product in products:
+        product['published_at'] = 'fixture'
+    resolved = await resolver(Connection(products))
+    if resolved.get('derived_generation_id') != 'fixture':
+        raise SystemExit('publication resolver published contract mismatch')
+
+asyncio.run(verify())
+print(json.dumps({'ranking_version': RANKING_VERSION, 'ranking_sha256': ranking_sha256(),
+                 'publication_gate': True}))
+""".strip()
+
+
 class DeploymentError(ValueError):
     pass
 
@@ -458,7 +558,7 @@ def validate_evidence_text(value: object, label: str) -> None:
 def validate_release_compatibility_shape(value: object) -> None:
     if (
         not isinstance(value, dict)
-        or set(value) != {
+        or set(value) - F2D_ATTESTATION_FIELDS != {
             "schema_version", "source_sha", "release_run_id", "manifest_sha256",
             "images", "compatible_migration_sets", "evidence",
         }
@@ -471,11 +571,207 @@ def validate_release_compatibility_shape(value: object) -> None:
         or any(not isinstance(image, str) for image in value["images"].values())
         or not isinstance(value.get("compatible_migration_sets"), list)
         or not value["compatible_migration_sets"]
+        or any(not isinstance(item, str) or not SHA256.fullmatch(item) for item in value["compatible_migration_sets"])
         or value["compatible_migration_sets"] != sorted(set(value["compatible_migration_sets"]))
-        or any(not SHA256.fullmatch(str(item)) for item in value["compatible_migration_sets"])
     ):
         raise DeploymentError("accepted release schema compatibility authority is invalid")
     validate_evidence_text(value.get("evidence"), "accepted release compatibility")
+    present = F2D_ATTESTATION_FIELDS.intersection(value)
+    if present and present != F2D_ATTESTATION_FIELDS:
+        missing = ",".join(sorted(F2D_ATTESTATION_FIELDS - present))
+        raise DeploymentError("f2d_attestation_partial_group:" + missing)
+    if not present:
+        return
+    version = value["ranking_version"]
+    if (
+        not isinstance(version, str) or not version.strip() or version != version.strip()
+        or len(version) > 128 or any(ord(char) < 32 for char in version)
+    ):
+        raise DeploymentError("f2d_attestation_invalid:ranking_version")
+    for field in ("ranking_sha256", "f2d_operator_code_sha256"):
+        if not isinstance(value[field], str) or not re.fullmatch(r"[0-9a-f]{64}", value[field]):
+            raise DeploymentError("f2d_attestation_invalid:" + field)
+    if not BACKEND_IMAGE.fullmatch(value["images"]["backend"]):
+        raise DeploymentError("f2d_attestation_invalid:images.backend")
+    minimum = value["minimum_schema_compatible_image"]
+    if not isinstance(minimum, str) or not BACKEND_IMAGE.fullmatch(minimum):
+        raise DeploymentError("f2d_attestation_invalid:minimum_schema_compatible_image")
+    targets = value["rollback_targets"]
+    if (
+        not isinstance(targets, list) or not 1 <= len(targets) <= 64
+        or any(not isinstance(image, str) or not BACKEND_IMAGE.fullmatch(image) for image in targets)
+        or len(set(targets)) != len(targets) or targets[0] != minimum
+    ):
+        raise DeploymentError("f2d_attestation_invalid:rollback_targets")
+
+
+def is_f2d_release(
+    candidate: dict[str, Any], schema: dict[str, Any], attestation: object = None,
+) -> bool:
+    # validate_candidate already proves candidate compatibility with this exact
+    # installed schema. 015 means every subsequent candidate needs this gate;
+    # removing an optional dispatch value cannot bypass it.
+    return attestation is not None or any(
+        Path(item["path"]).name.startswith("015_")
+        for item in schema.get("migration_set_entries", [])
+    )
+
+
+def registered_f2d_migrations() -> list[dict[str, str]]:
+    path = ROOT / "sql/v3/migration-manifest.txt"
+    try:
+        if path.is_symlink() or path.stat().st_size > MAX_JSON:
+            raise DeploymentError("f2d_migration_manifest_invalid")
+        payload = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise DeploymentError("f2d_migration_manifest_unavailable") from exc
+    if len(payload) > MAX_JSON:
+        raise DeploymentError("f2d_migration_manifest_invalid")
+    entries = []
+    for line in payload.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = line.split()
+        if (
+            len(parts) != 3 or not re.fullmatch(r"[0-9a-f]{64}", parts[0])
+            or not re.fullmatch(r"(?:r[0-9]+_v3/)?[0-9]{3}_[a-z0-9_]+\.sql", parts[1])
+            or not re.fullmatch(r"(?:v3/migrations/|r[0-9]+_v3/)[0-9]{3}_[a-z0-9_]+\.sql", parts[2])
+        ):
+            raise DeploymentError("f2d_migration_manifest_invalid")
+        entries.append({"ledger_name": parts[1], "path": "sql/" + parts[2],
+                        "mode": "auto", "sha256": parts[0]})
+    if not 1 <= len(entries) <= 512 or len({item["ledger_name"] for item in entries}) != len(entries):
+        raise DeploymentError("f2d_migration_manifest_invalid")
+    return entries
+
+
+def validate_f2d_migrations(
+    schema: dict[str, Any], registered_entries: list[dict[str, str]],
+) -> None:
+    applied = {item["ledger_name"]: item["sha256"] for item in schema["migration_set_entries"]}
+    required = []
+    for number in F2D_REQUIRED_MIGRATIONS:
+        matches = [item for item in registered_entries
+                   if Path(item["path"]).name.startswith(number + "_")
+                   and item["path"].startswith("sql/v3/migrations/")]
+        if len(matches) != 1:
+            raise DeploymentError("required_migration_not_registered:" + number)
+        required.append((number, matches[0]))
+    # Check registration first, so the intentional missing-016 stop is explicit.
+    for number, item in required:
+        if item["ledger_name"] not in applied:
+            raise DeploymentError("required_migration_not_applied:" + number)
+        if applied[item["ledger_name"]] != item["sha256"]:
+            raise DeploymentError("required_migration_hash_mismatch:" + number)
+
+
+def validate_f2d_attestation(
+    attestation: object, candidate: dict[str, Any], candidate_sum: str,
+    run_id: str, schema: dict[str, Any],
+) -> None:
+    if not isinstance(attestation, dict):
+        raise DeploymentError("f2d_release_attestation_required")
+    validate_release_compatibility_shape(attestation)
+    if not F2D_ATTESTATION_FIELDS.issubset(attestation):
+        raise DeploymentError("f2d_release_attestation_required")
+    if (
+        attestation["source_sha"] != candidate["git_sha"]
+        or attestation["release_run_id"] != run_id
+        or attestation["manifest_sha256"] != candidate_sum
+        or attestation["images"] != candidate["images"]
+        or schema["migration_set_identity"] not in attestation["compatible_migration_sets"]
+    ):
+        raise DeploymentError("f2d_release_attestation_identity_mismatch")
+
+
+def validate_f2d_boundary(
+    attestation: dict[str, Any], previous: dict[str, Any],
+) -> None:
+    minimum = previous.get("minimum_schema_compatible_image")
+    if minimum is None:
+        minimum = attestation["images"]["backend"]
+    if attestation["minimum_schema_compatible_image"] != minimum:
+        raise DeploymentError("f2d_minimum_schema_compatible_image_mismatch")
+
+
+def validate_f2d_generation(observed: object) -> None:
+    if not isinstance(observed, dict):
+        raise DeploymentError("f2d_current_generation_mismatch")
+    for field, expected in F2D_GENERATION.items():
+        if observed.get(field) != expected or type(observed.get(field)) is not type(expected):
+            raise DeploymentError("f2d_current_generation_mismatch:" + field)
+    if observed.get("finder_products") != []:
+        raise DeploymentError("finder_products_already_registered_on_parallel_v1")
+
+
+def verify_f2d_generation(env: dict[str, str], runner: Callable[..., Any]) -> dict[str, Any]:
+    result = runner(
+        ["docker", "exec", "-i", POSTGRES_CONTAINER, "psql", "-X", "--no-password",
+         "--tuples-only", "--no-align", "--quiet", "--set", "ON_ERROR_STOP=1",
+         "--set", "generation_id=" + F2D_GENERATION["derived_generation_id"],
+         "--username", DATABASE_USER, "--dbname", DATABASE_NAME],
+        env=env, input_text=F2D_GENERATION_SQL,
+    )
+    if len(result.stdout.encode()) > MAX_JSON:
+        raise DeploymentError("f2d_generation_response_invalid")
+    try:
+        observed = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise DeploymentError("f2d_generation_response_invalid") from exc
+    validate_f2d_generation(observed)
+    return observed
+
+
+def trim_rollback_targets(images: list[str], minimum: str) -> list[str]:
+    if minimum not in images:
+        raise DeploymentError("minimum_schema_compatible_image_not_recorded")
+    return images[images.index(minimum):]
+
+
+def require_f2d_rollback_image(image: str, attestation: dict[str, Any]) -> None:
+    targets = trim_rollback_targets(
+        attestation["rollback_targets"], attestation["minimum_schema_compatible_image"],
+    )
+    if image not in targets:
+        raise DeploymentError("f2d_rollback_image_incompatible")
+
+
+def select_f2d_rollback(
+    directory: Path, attestation: dict[str, Any], schema: dict[str, Any],
+) -> dict[str, Any]:
+    # Canonical immutable release artifacts must already be recorded in the
+    # root-owned receipt store, including a basename-bound checksum sidecar.
+    # A recorded artifact need not have been deployed. This permits the first
+    # F2d promotion to have a compatible recovery image without accepting the
+    # incompatible running image as a rollback target.
+    paths = []
+    for path in directory.glob("*.release.json"):
+        paths.append(path)
+        if len(paths) > 512:
+            raise DeploymentError("f2d_rollback_artifact_inventory_exceeds_bound")
+    tool = manifest_tool()
+    for image in reversed(attestation["rollback_targets"]):
+        for path in sorted(paths):
+            match = re.fullmatch(r"([0-9a-f]{40})-([1-9][0-9]{0,19})-([0-9a-f]{64})\.release\.json", path.name)
+            if not match:
+                continue
+            sidecar = Path(str(path) + ".sha256")
+            if path.is_symlink() or sidecar.is_symlink():
+                raise DeploymentError("f2d_rollback_artifact_path_unsafe")
+            checksum = verify_checksum(path, sidecar)
+            manifest = load_json(path, "F2d rollback artifact")
+            if checksum != match[3] or manifest.get("git_sha") != match[1]:
+                raise DeploymentError("f2d_rollback_artifact_identity_mismatch")
+            if manifest.get("images", {}).get("backend") != image:
+                continue
+            require_f2d_rollback_image(image, attestation)
+            try:
+                tool.validate_manifest(manifest, purpose="rollback",
+                                       current_migration_set=schema["migration_set_identity"])
+            except tool.ManifestError as exc:
+                raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
+            return manifest
+    raise DeploymentError("compatible_rollback_artifact_not_recorded")
 
 
 def exact_host_guard(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -1055,6 +1351,171 @@ def get(origin: str, path: str) -> tuple[int, bytes, str]:
         raise DeploymentError("origin request failed") from exc
 
 
+def post(origin: str, path: str, body: dict[str, Any]) -> tuple[int, bytes, str]:
+    request = urllib.request.Request(
+        origin + path, data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json",
+                 "User-Agent": "edfinder-v3-production-promote/1"},
+    )
+    try:
+        with urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), NoRedirect
+        ).open(request, timeout=10) as response:
+            return response.status, response.read(MAX_SMOKE + 1), response.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as exc:
+        with exc:
+            return exc.code, exc.read(MAX_SMOKE + 1), exc.headers.get("Content-Type", "")
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        raise DeploymentError("origin request failed") from exc
+
+
+def f2d_behavioural_probes(origin: str, outcomes: list[dict[str, Any]]) -> None:
+    pairs = [
+        ("GET", "/api/archetypes/rankings?archetype=paradise&offset=9999&limit=1", None, 503),
+        ("GET", "/api/archetypes/rankings?archetype=paradise&offset=9999&limit=2", None, 422),
+        ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 1}, 503),
+        ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 2}, 422),
+    ]
+    expected_not_ready = (
+        "Finder ranking products are not available for the published generation "
+        "(system_archetype=MISSING, system_search=MISSING)."
+    )
+    for method, path, body, expected in pairs:
+        reason_verified = None
+        try:
+            status, payload, _ = get(origin, path) if body is None else post(origin, path, body)
+            if len(payload) > MAX_SMOKE:
+                status = None
+            if expected == 503:
+                try:
+                    parsed = json.loads(payload)
+                    reason_verified = isinstance(parsed, dict) and parsed.get("detail") == expected_not_ready
+                except (ValueError, UnicodeError):
+                    reason_verified = False
+        except DeploymentError:
+            status = None
+        outcomes.append({"method": method, "path": path, "body": body,
+                         "status": status, "expected_status": expected,
+                         "not_ready_reason_verified": reason_verified})
+    if any(row["status"] != row["expected_status"]
+           or row["expected_status"] == 503 and row["not_ready_reason_verified"] is not True
+           for row in outcomes):
+        raise DeploymentError("behavioural_probe_pairs_failed")
+
+
+def verify_f2d_openapi_contract(origin: str) -> dict[str, Any]:
+    status, payload, _ = get(origin, "/openapi.json")
+    if status != 200 or len(payload) > MAX_SMOKE:
+        raise DeploymentError("f2d_openapi_contract_invalid:response")
+    try:
+        document = json.loads(payload)
+    except (ValueError, UnicodeError) as exc:
+        raise DeploymentError("f2d_openapi_contract_invalid:json") from exc
+    if not isinstance(document, dict):
+        raise DeploymentError("f2d_openapi_contract_invalid:document")
+
+    def resolve(value: object) -> dict[str, Any]:
+        seen: set[str] = set()
+        for _ in range(16):
+            if not isinstance(value, dict):
+                raise DeploymentError("f2d_openapi_contract_invalid:schema")
+            if "$ref" not in value:
+                return value
+            reference = value["$ref"]
+            if (
+                not isinstance(reference, str) or len(reference) > 512
+                or not reference.startswith("#/components/") or reference in seen
+            ):
+                raise DeploymentError("f2d_openapi_contract_invalid:reference")
+            seen.add(reference)
+            value = document
+            for component in reference[2:].split("/"):
+                component = component.replace("~1", "/").replace("~0", "~")
+                if not isinstance(value, dict) or component not in value:
+                    raise DeploymentError("f2d_openapi_contract_invalid:reference")
+                value = value[component]
+        raise DeploymentError("f2d_openapi_contract_invalid:reference_depth")
+
+    try:
+        paths = resolve(document.get("paths"))
+        ranking = resolve(resolve(paths["/api/archetypes/rankings"])["get"])
+        parameters = ranking["parameters"]
+        if not isinstance(parameters, list) or not 1 <= len(parameters) <= 128:
+            raise DeploymentError("f2d_openapi_contract_invalid:parameters")
+        query: dict[str, dict[str, Any]] = {}
+        for item in parameters:
+            parameter = resolve(item)
+            if parameter.get("in") != "query":
+                continue
+            name = parameter.get("name")
+            if not isinstance(name, str) or name in query:
+                raise DeploymentError("f2d_openapi_contract_invalid:parameters")
+            query[name] = resolve(parameter.get("schema"))
+        floor = query["min_score"]
+        if floor.get("type") != "integer" or floor.get("enum") != [60, 76, 88]:
+            raise DeploymentError("f2d_openapi_contract_invalid:min_score")
+        search = resolve(resolve(paths["/api/local/search"])["post"])
+        request = resolve(search["requestBody"])
+        body = resolve(request["content"]["application/json"]["schema"])
+        properties = resolve(body.get("properties"))
+        bounds = {
+            "ranking.limit": (query["limit"], 1, 500),
+            "ranking.offset": (query["offset"], 0, 9999),
+            "search.size": (resolve(properties["size"]), 1, 500),
+            "search.from": (resolve(properties["from"]), 0, 2_147_483_647),
+        }
+        recorded: dict[str, Any] = {"min_score": [60, 76, 88]}
+        for field, (schema, minimum, maximum) in bounds.items():
+            if (
+                schema.get("type") != "integer" or schema.get("minimum") != minimum
+                or schema.get("maximum") != maximum
+                or type(schema.get("minimum")) is not int or type(schema.get("maximum")) is not int
+            ):
+                raise DeploymentError("f2d_openapi_contract_invalid:" + field)
+            recorded[field] = {"minimum": minimum, "maximum": maximum}
+    except (KeyError, TypeError) as exc:
+        raise DeploymentError("f2d_openapi_contract_invalid:shape") from exc
+    return {"status": status, "contracts": recorded}
+
+
+def verify_f2d_image_contract(
+    slot: str, attestation: dict[str, Any], env: dict[str, str], runner: Callable[..., Any],
+) -> None:
+    container = CONTAINERS[f"api-{slot}"]
+    image = runner(["docker", "inspect", "--format", "{{.Config.Image}}", container], env=env).stdout.strip()
+    if image != attestation["images"]["backend"]:
+        raise DeploymentError("f2d_deployed_image_identity_mismatch")
+    result = runner(
+        ["docker", "exec", "-i", "--env", "PYTHONDONTWRITEBYTECODE=1", container,
+         "/app/.venv/bin/python", "-"], env=env, input_text=F2D_IMAGE_CONTRACT_PROGRAM,
+    )
+    if len(result.stdout.encode()) > MAX_JSON:
+        raise DeploymentError("f2d_deployed_ranking_identity_invalid")
+    try:
+        identity = json.loads(result.stdout)
+    except (ValueError, UnicodeError) as exc:
+        raise DeploymentError("f2d_deployed_ranking_identity_invalid") from exc
+    if identity != {"ranking_version": attestation["ranking_version"],
+                    "ranking_sha256": attestation["ranking_sha256"], "publication_gate": True}:
+        raise DeploymentError("f2d_deployed_ranking_identity_mismatch")
+
+
+def verify_f2d_rejections(origin: str) -> list[dict[str, Any]]:
+    requests = [
+        ("GET", "/api/archetypes/rankings?archetype=paradise&galaxy_region=1", None),
+        ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development",
+                                      "body_filters": {"elw_count": {"min": 1}}, "size": 1}),
+    ]
+    outcomes = []
+    for method, path, body in requests:
+        status, payload, _ = get(origin, path) if body is None else post(origin, path, body)
+        outcomes.append({"method": method, "path": path, "body": body,
+                         "status": status, "expected_status": 422})
+        if status != 422 or len(payload) > MAX_SMOKE:
+            raise DeploymentError("f2d_hard_filter_rejection_failed")
+    return outcomes
+
+
 def smoke(origin: str, sha: str) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
     bodies: dict[str, bytes] = {}
@@ -1152,7 +1613,11 @@ def validate_prior_runtime(
     receipt: dict[str, Any], manifest: dict[str, Any], schema: dict[str, Any],
     env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]],
     compatibility: dict[str, Any] | None = None,
+    *, allow_incompatible_running_image: bool = False,
 ) -> str:
+    if compatibility and "minimum_schema_compatible_image" in compatibility and not allow_incompatible_running_image:
+        validate_release_compatibility_shape(compatibility)
+        require_f2d_rollback_image(manifest["images"]["backend"], compatibility)
     slot = receipt.get("active_slot")
     recorded_migration_set = receipt.get("migration_set_identity")
     if slot not in SLOTS or not SHA256.fullmatch(str(recorded_migration_set or "")):
@@ -1492,6 +1957,19 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         )
         if not RUN_ID.fullmatch(args.candidate_run_id or ""):
             raise DeploymentError("authenticated candidate release run ID required")
+        attestation_path = getattr(args, "candidate_attestation", None)
+        if attestation_path is None:
+            adjacent = args.candidate.parent / "f2d-release-attestation.json"
+            if adjacent.exists() or adjacent.is_symlink():
+                attestation_path = adjacent
+        f2d_attestation = None if attestation_path is None else load_json(attestation_path, "F2d candidate attestation")
+        f2d_release = is_f2d_release(candidate, schema, f2d_attestation)
+        if f2d_release:
+            validate_f2d_migrations(schema, registered_f2d_migrations())
+            validate_f2d_attestation(f2d_attestation, candidate, candidate_sum, args.candidate_run_id, schema)
+            validate_f2d_boundary(f2d_attestation, authority["accepted_release_schema_compatibility"])
+            if args.mode != "upgrade":
+                raise DeploymentError("f2d_release_requires_receipt_backed_upgrade")
         protected = set(authority["preservation_contract"]["exact_containers"])
         protected_before = container_snapshot(protected, env, runner)
         all_before = all_container_snapshot(env, runner)
@@ -1512,6 +1990,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             prior_slot_for_preflight = validate_prior_runtime(
                 prior_for_preflight, prior_manifest_for_preflight, schema, env, runner,
                 authority["accepted_release_schema_compatibility"],
+                allow_incompatible_running_image=True,
             )
         verify_origin_ownership(args.mode, prior_slot_for_preflight, env, runner)
         verify_edge_routes_to_active_origin()
@@ -1520,6 +1999,11 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             preflight_database_access_attempted = True
             verify_live_schema(schema, env, runner)
             preflight_database_access_performed = True
+            if f2d_release:
+                verify_f2d_generation(env, runner)
+                rollback_manifest = select_f2d_rollback(receipt_dir, f2d_attestation, schema)
+                for image in rollback_manifest["images"].values():
+                    verify_image(image, rollback_manifest["git_sha"], env, runner)
             verify_snapshot(protected_before, env, runner)
             verify_unrelated_snapshot(all_before, set(), env, runner)
             live_capacity = live_capacity_guard()
@@ -1530,6 +2014,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 "manifest_sha256": candidate_sum, "migration_set_identity": schema["migration_set_identity"],
                 "images": candidate["images"],
                 "rollback_compatible": args.mode == "upgrade",
+                **({"accepted_release_schema_compatibility": f2d_attestation} if f2d_release else {}),
                 "live_capacity": live_capacity,
                 "database_access_performed": True,
                 "env_files_read": True,
@@ -1569,10 +2054,19 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     prior_receipt: dict[str, Any] | None = None
     prior_manifest: dict[str, Any] | None = None
     target_slot = "blue"
+    f2d_probe_statuses: list[dict[str, Any]] = []
+    f2d_generation: dict[str, Any] | None = None
+    f2d_image_contract: dict[str, Any] | None = None
+    rollback_manifest: dict[str, Any] | None = None
     try:
         live_capacity = live_capacity_guard()
         verify_live_schema(schema, env, runner)
         database_verified = True
+        if f2d_release:
+            f2d_generation = verify_f2d_generation(env, runner)
+            rollback_manifest = select_f2d_rollback(receipt_dir, f2d_attestation, schema)
+            for image in rollback_manifest["images"].values():
+                verify_image(image, rollback_manifest["git_sha"], env, runner)
         current_path = receipt_dir / "current.json"
         if args.mode == "bootstrap":
             if current_path.exists():
@@ -1583,6 +2077,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             prior_slot = validate_prior_runtime(
                 prior_receipt, prior_manifest, schema, env, runner,
                 authority["accepted_release_schema_compatibility"],
+                allow_incompatible_running_image=True,
             )
             if prior_manifest.get("git_sha") == candidate.get("git_sha"):
                 raise DeploymentError("candidate cannot be its own prior release")
@@ -1653,6 +2148,10 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         runner([*base, "up", "--detach", "--no-deps", "--force-recreate", "--pull", "never", *selected], env=release_env)
         wait_ready("http://" + external["staging_origin_bind"], candidate["git_sha"])
         staging_smoke = smoke("http://" + external["staging_origin_bind"], candidate["git_sha"])
+        if f2d_release:
+            verify_f2d_image_contract(target_slot, f2d_attestation, env, runner)
+            f2d_image_contract = verify_f2d_openapi_contract("http://" + external["staging_origin_bind"])
+            f2d_image_contract["hard_filter_rejections"] = verify_f2d_rejections("http://" + external["staging_origin_bind"])
         active_owner = LEGACY_ORIGIN if args.mode == "bootstrap" else CONTAINERS[
             f"web-{prior_slot}"
         ]
@@ -1669,6 +2168,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             staged_slots.add(prior_slot)
         validate_network(external, schema, staged_slots, env, runner)
 
+        if f2d_release:
+            # Recheck the release-first boundary immediately before switching.
+            verify_f2d_generation(env, runner)
         cutover_started = True
         if args.mode == "bootstrap":
             runner(["docker", "stop", LEGACY_ORIGIN], env=env)
@@ -1682,6 +2184,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             CONTAINERS[f"web-{target_slot}"], None, env, runner
         )
         active_smoke = smoke("http://" + external["active_origin_bind"], candidate["git_sha"])
+        if f2d_release:
+            f2d_behavioural_probes("http://" + external["active_origin_bind"], f2d_probe_statuses)
         public_smoke = smoke(external["public_origin"], candidate["git_sha"])
         verify_live_schema(schema, env, runner)
         verify_env_unchanged(Path(external["api_env_file"]), fingerprint)
@@ -1719,6 +2223,14 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "preserved_resources": protected_before, "staging_smoke": staging_smoke,
             "live_capacity": live_capacity,
             "active_smoke": active_smoke, "public_smoke": public_smoke,
+            **({"accepted_release_schema_compatibility": f2d_attestation,
+                "f2d_generation": f2d_generation, "f2d_image_contract": f2d_image_contract,
+                "f2d_behavioural_probes": f2d_probe_statuses,
+                "minimum_schema_compatible_image": f2d_attestation["minimum_schema_compatible_image"],
+                "rollback_targets": trim_rollback_targets(f2d_attestation["rollback_targets"], f2d_attestation["minimum_schema_compatible_image"]),
+                "incompatible_rollback_images": [prior_manifest["images"]["backend"]]
+                    if prior_manifest["images"]["backend"] not in f2d_attestation["rollback_targets"] else [],
+                } if f2d_release else {}),
             "rollback": {"kind": "none-first-promotion"} if prior_receipt is None else {
                 "kind": "prior-accepted-immutable-release", "source_sha": prior_receipt["source_sha"],
                 "release_run_id": prior_receipt["release_run_id"], "schema_compatible": True,
@@ -1731,6 +2243,10 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "env_files_read": True,
             "private_keys_read": False,
         }
+        if f2d_release:
+            receipt["rollback"] = {"kind": "recorded-schema-compatible-release",
+                                   "source_sha": rollback_manifest["git_sha"],
+                                   "images": rollback_manifest["images"], "schema_compatible": True}
         if _CANCELLATION_CONTROLLER is not None:
             _CANCELLATION_CONTROLLER.mark_commit_started()
         persist_accepted(receipt_dir, receipt, candidate_bytes)
@@ -1751,20 +2267,25 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                     rollback = {"attempted": True, "status": "verified", "kind": "first-cutover-abort-to-preserved-origin", "accepted_release_rollback": False}
                 elif cutover_started and prior_receipt is not None and prior_manifest is not None:
                     verify_live_schema(schema, env, runner)
+                    recovery_manifest = rollback_manifest if f2d_release else prior_manifest
+                    if f2d_release:
+                        require_f2d_rollback_image(recovery_manifest["images"]["backend"], f2d_attestation)
+                        for image in recovery_manifest["images"].values():
+                            verify_image(image, recovery_manifest["git_sha"], env, runner)
                     rollback_tool = manifest_tool()
                     rollback_tool.validate_manifest(
-                        prior_manifest,
+                        recovery_manifest,
                         purpose="rollback",
                         current_migration_set=schema["migration_set_identity"],
                     )
                     prior_slot = prior_receipt["active_slot"]
-                    prior_env = compose_env(external, prior_manifest, snapshot or Path(external["api_env_file"]), external["active_origin_bind"], env)
+                    prior_env = compose_env(external, recovery_manifest, snapshot or Path(external["api_env_file"]), external["active_origin_bind"], env)
                     runner([*base, "up", "--detach", "--no-deps", "--force-recreate", "--pull", "never", f"api-{prior_slot}", f"web-{prior_slot}"], env=prior_env)
-                    wait_ready("http://" + external["active_origin_bind"], prior_manifest["git_sha"])
-                    smoke("http://" + external["active_origin_bind"], prior_manifest["git_sha"])
-                    smoke(external["public_origin"], prior_manifest["git_sha"])
+                    wait_ready("http://" + external["active_origin_bind"], recovery_manifest["git_sha"])
+                    smoke("http://" + external["active_origin_bind"], recovery_manifest["git_sha"])
+                    smoke(external["public_origin"], recovery_manifest["git_sha"])
                     verify_snapshot(protected_before, env, runner)
-                    rollback = {"attempted": True, "status": "verified", "kind": "prior-accepted-immutable-release", "source_sha": prior_manifest["git_sha"], "schema_compatible": True}
+                    rollback = {"attempted": True, "status": "verified", "kind": "recorded-schema-compatible-release" if f2d_release else "prior-accepted-immutable-release", "source_sha": recovery_manifest["git_sha"], "schema_compatible": True}
                 else:
                     rollback = {"attempted": True, "status": "verified", "kind": "candidate-stage-removed"}
             except Exception as rollback_error:
@@ -1787,11 +2308,18 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             pulled_images_verified=pulled_images,
             service_changes_performed=None if mutation_started else False,
             service_changes_may_have_been_performed=mutation_started,
+            **({"accepted_release_pointer_reconciliation_required":
+                rollback.get("status") == "verified" and cutover_started
+                and rollback.get("source_sha") != prior_receipt.get("source_sha")}
+               if f2d_release and prior_receipt is not None else {}),
             protected_resources_changed=True if resource_drift else None if mutation_started else False,
             protected_resources_may_have_changed=mutation_started and not resource_drift,
             filesystem_writes_performed=True,
             env_files_read=True,
             rollback=rollback,
+            **({"accepted_release_schema_compatibility": f2d_attestation,
+                "f2d_behavioural_probes": f2d_probe_statuses,
+                "f2d_image_contract": f2d_image_contract} if f2d_release else {}),
         )
         try:
             receipt["durable_failure_receipt"] = persist_failure(
@@ -1829,6 +2357,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--candidate", type=Path)
     result.add_argument("--candidate-checksum", type=Path)
     result.add_argument("--candidate-run-id")
+    result.add_argument("--candidate-attestation", type=Path)
     result.add_argument("--registry-token-file", type=Path)
     result.add_argument("--registry-username")
     result.add_argument("--runtime-directory", type=Path)

@@ -212,7 +212,12 @@ newer dated source wins).
      disposable PostgreSQL 18, including a repeat of the wide-row footprint
      measurement with the final migration text
      (`scripts/dev/measure_wide_archetype_footprint.py`). **Progress
-     (2026-10-13): PR1 (#809) merged; PR2 adds migration `015`.** Prerequisites:
+     (2026-10-13): PR1 (#809) merged; PR2 adds migration `015`.**
+     **Progress (2026-10-14): PR4b parts D1 (plan probe), D2a (paired
+     publication) and D2b (release gate, attestation and rollback boundary) are
+     on branch `f2d/pr4b-probe-publish`; the release gate waits for mandatory
+     migration `016` registration and application. Code only; no deployment.**
+     Prerequisites:
      the owner's recorded answers to questions 5 and 6 of
      `docs/operations/v3-finder-capacity-decision-2026-10-10.md` (the
      exact-version rule for on-demand explanations; the **partial unique-entry**

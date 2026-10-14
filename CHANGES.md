@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-14 — Finder F2d release gate and identity attestation (PR4 D2b)
+
+Adds the release-first Finder gate, grouped ranking/operator-code and rollback
+attestation validation, post-promotion bounded-request probes, and a minimum
+schema-compatible rollback boundary. F2d operator operations now read their
+attested identity from trusted-main's target authority. The gate requires all
+six planned migrations and refuses explicitly while mandatory `016` remains
+unregistered. The existing accepted-release values are unchanged. No deployment,
+production access or production attestation was performed.
+
 ## 2026-10-14 — Finder F2d governed paired publication (PR4 D2a)
 
 Adds the protected `publish-finder-products` operation, the deployment-lock-held

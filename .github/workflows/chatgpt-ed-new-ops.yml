@@ -31,10 +31,6 @@ on:
           - v3-archetype-calibration-complete-status
           - v3-finder-capacity-gate
           - v3-archetype-plan-probe
-      f2d_operator_code_sha256_attested:
-        description: "Attested F2d operator-code SHA-256 (F2d governed actions only)"
-        required: false
-        type: string
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -74,7 +70,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_OPERATION: ${{ inputs.operation }}
-          INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ inputs.f2d_operator_code_sha256_attested }}
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
         run: |
@@ -100,21 +95,6 @@ jobs:
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
-          case "$operation" in
-            v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize)
-              [[ "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || {
-                echo "F2d operator-code attestation must be exactly 64 lowercase hexadecimal characters" >&2
-                exit 64
-              }
-              echo "f2d_operator_code_sha256_attested=$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              if [ -n "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" ]; then
-                echo "F2d operator-code attestation input is accepted only for F2d governed actions" >&2
-                exit 64
-              fi
-              ;;
-          esac
 
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -122,6 +102,23 @@ jobs:
           ref: main
           path: trusted-main
           persist-credentials: false
+
+      - name: Read accepted F2d operator-code attestation
+        id: f2d-identity
+        if: contains(fromJSON('["v3-archetype-calibration-complete-start", "v3-archetype-calibration-complete-status", "v3-finder-capacity-gate", "v3-archetype-plan-probe", "v3-system-search-f1-start", "v3-system-search-f1-status", "v3-system-search-f1-finalize", "v3-system-archetype-start", "v3-system-archetype-status", "v3-system-archetype-finalize"]'), steps.request.outputs.operation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          import json, os, pathlib, re
+          authority = json.loads(pathlib.Path("trusted-main/deploy/v3-production/target-authority.json").read_text())
+          compatibility = authority.get("accepted_release_schema_compatibility", {})
+          identity = compatibility.get("f2d_operator_code_sha256") if isinstance(compatibility, dict) else None
+          if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{64}", identity):
+              raise SystemExit("Accepted release has no valid F2d operator-code attestation")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("f2d_operator_code_sha256_attested=" + identity, file=output)
+          PYTHON
 
       - name: Prepare SSH
         shell: bash
@@ -465,7 +462,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -484,7 +481,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -507,7 +504,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -576,7 +573,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -595,7 +592,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -620,7 +617,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -729,7 +726,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -748,7 +745,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -816,7 +813,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-finder-capacity-gate-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -884,7 +881,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-plan-probe-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }

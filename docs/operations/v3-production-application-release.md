@@ -289,59 +289,70 @@ The F3 change (PR #777) repoints `POST /api/local/search` and
 `GET /api/archetypes/rankings` off legacy relations onto the published
 `v3_app.*` V3 projections. **Merging #777 is not authorization to promote it.**
 
-Fail-closed gate: the F3 endpoint cutover MUST NOT be promoted to production
-until the `system_search` **and** `system_archetype` derived products are built,
-`VERIFIED`, and published against the live published Ratings V4 generation
-`ratings_v4_prod_p4_parallel_v1`. The endpoints resolve the published generation
-and require both Finder products to be `READY` with `published_at IS NOT NULL`;
-if either is missing, unfinished, failed, or READY-but-unpublished, the Finder
-returns `503`, not results. Promoting the F3 image before the revised rollout
-gate is satisfied would therefore take the production Finder down.
+The F2d release gate replaces the former products-first gate. Deploy the
+bounded ranking image **before any Finder product exists on the target**, then
+build and publish products last. The endpoints require both products to be
+READY with `published_at IS NOT NULL`; until publication, Finder returns 503.
+Merging code does not authorize any production operation.
 
-**Schema prerequisite — application and validation remain outstanding.** This
-PR registers `010_v3_system_search_body_type_counts.sql`,
-`011_v3_system_archetype.sql`, `013_v3_system_search_parallel.sql`, and
-`015_v3_derived_product_publication.sql` after `014_v3_watchlist.sql` in the
-governed V3 manifest and authority. Migration
-`010` is rewritten to add its columns without inline checks and add its 18
-constraints as `NOT VALID` for bounded application. Migration `011` was
-registered but never applied to production, so it is rewritten in place as the
-one-wide-row-per-system archetype schema rather than followed by a corrective
-migration. Migration `015` extends the applied `006` lifecycle without
-rewriting it: products may be registered, built and validated on the current
-PUBLISHED generation, but remain invisible until their one-way, audited product
-publication. It also gates all three Finder views on READY-and-published
-products, protects later generation-pointer flips, and removes the unsafe old
-seven-argument generation publisher. Registration is not application: the
-currently registered pending set is
-`[014, 010, 011-rewritten, 013, 015]`; the governed purge code PR will register
-`016` and recut this authority again before the migration `plan`/review/`apply`
-step, because the runner applies every pending migration. Separate governed
-constraint validation follows the purge. The body-count columns created by
-`010`, the wide `system_archetype` relation and projections created by `011`,
-and the product-publication contract created by `015` are required by the F3
-queries and Finder product builders. The live
-`v3_meta.schema_migration` ledger must match the identity derived by
-`scripts/operator/v3_schema_identity.py` before the product build and cutover.
-(The disposable Cypress seed sidesteps this by executing the required
-migrations directly via
-`scripts/dev/seed_cypress_v3_generation.py`; that is acceptable only for the
-throwaway CI database, never the governed path.)
+A candidate compatible with the installed schema containing migration `015`,
+or carrying an F2d candidate attestation, enters this gate. Before promotion, it
+requires the exact current PUBLISHED generation
+`ratings_v4_prod_p4_parallel_v1`, UUID
+`cfc25d36-3bc7-4011-a465-d6460eaaf826`, sequence 1; the applied migration set
+`[014, 010, 011-rewritten, 013, 015, 016]` with exact manifest/ledger hashes;
+concrete ranking and operator-code identities; no `system_search` or
+`system_archetype` product rows **on that generation**; and a compatible
+rollback artifact. It does not require product READY, receipts, counts,
+`published_at` or publication audits. The retained READY Search product row on
+`opt1` does not block the gate.
 
-Outstanding before promotion (tracked in `docs/ROADMAP.md`): registration of
-`016`, the governed plan/apply, purge and separate constraint-validation steps;
-the revised release gate and release-first deployment; the capacity gate; and
-the Search and Archetype builds. Migration `015` deliberately allows both
-products to be attached to the already-current PUBLISHED
-`ratings_v4_prod_p4_parallel_v1` generation through their genuine
-build→validate pipelines. Neither builder publishes a product. After both are
-READY/VERIFIED, the governed product-publication action publishes Search and
-Archetype together in one transaction; the generation pointer does not move.
-Until that explicit launch, `published_at` is NULL, the publication-gated views
-hide both products, and Finder returns 503. The Cypress/Review Lab fixture uses
-the same lifecycle shape in its disposable database: it publishes its
-generation and then publishes both products in one transaction. Production
-parity is the governed gate, not that seed.
+**Schema prerequisite remains outstanding.** Migrations `014`, bounded `010`,
+rewritten wide-row `011`, `013` and product-publication `015` are registered;
+registration is not application. The governed purge code PR must register
+`016` before the governed plan/review/apply, purge and separate constraint
+validation can run. `016` is mandatory: while it is absent from the manifest,
+the release gate refuses with `required_migration_not_registered:016`. No purge
+migration or production attestation is supplied by PR4b.
+
+The accepted-release compatibility attestation adds `ranking_version`,
+`ranking_sha256`, `f2d_operator_code_sha256`,
+`minimum_schema_compatible_image` and `rollback_targets` (oldest to newest
+backend image digests, trimmed at the minimum). These
+fields are optional together for the existing accepted release; any partial
+group refuses. The protected preflight/promote request supplies the reviewed
+candidate JSON through `f2d_release_attestation`; it must bind the exact source,
+release run, manifest checksum, images and installed migration identity. The
+accepted promotion receipt retains it; a later reviewed authority update makes
+it available to operator actions. No values are invented by the workflow. The
+new accepted release must carry the concrete values from the built API and
+release source. Shape refusals name `f2d_attestation_partial_group:<fields>` or
+`f2d_attestation_invalid:<field>`. All F2d operations read the operator-code
+identity from `accepted_release_schema_compatibility` in the trusted-main
+`deploy/v3-production/target-authority.json`, refusing absent or malformed
+values; it is no longer a dispatch input. The publisher also reads the attested
+`images.backend` and ranking identities.
+
+Staging verifies the concrete OpenAPI bounds, hard-filter rejection, in-image
+ranking identity and publication resolver. After promotion, the active loopback
+origin must answer 503 with the missing-products reason for ranking
+`offset=9999&limit=1` and search `from=9999,size=1`, and 422 for the corresponding
+`limit=2` and `size=2` requests. Every status is recorded in the promotion
+receipt; any mismatch enters the governed rollback path. The deployed image
+digest binds the ranking identity to the attestation; OpenAPI alone cannot
+prove it.
+
+The F2d image is the **minimum schema-compatible image**. Earlier images are
+incompatible with this applied set, and rollback targets are trimmed to the
+boundary image and later recorded compatible images. Promotion refuses if no
+compatible checksum-bound rollback artifact remains in the receipt store
+with its pinned images already available locally. An artifact may be recorded
+before it is deployed, so the first F2d release need not fall back to the old
+image. Recovery to a different artifact flags accepted-pointer reconciliation
+in the failure receipt. Rollback below the boundary requires a separately
+reviewed incident plan. After the release, capacity review and both build/validate
+pipelines precede paired product publication in one transaction.
+The generation pointer does not move.
 
 ### Promotion hold (version-drift monitor)
 
@@ -358,6 +369,8 @@ mode; the `--expected-sha` post-deploy gate remains history-independent.
 
 Extending the hold requires a reviewed pull request that bumps
 `covers_main_sha` (and `expires_at` if needed). This is how each later deployable
-change is consciously acknowledged rather than silently covered. The hold must
-be removed in the same pull request that revises the application-release gate
-for the product-publication rollout in `docs/ROADMAP.md`.
+change is consciously acknowledged rather than silently covered. The code-only
+PR4b gate implementation leaves this hold in place: migration
+`016` and the governed rollout remain outstanding. Remove the hold with the
+reviewed production-release authorization; this implementation does not extend
+its coverage or expiry.
