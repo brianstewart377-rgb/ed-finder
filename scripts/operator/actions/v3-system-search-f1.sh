@@ -371,6 +371,11 @@ start_operation() {
   fi
 
   write_builder_env "$env_file" "$dsn" "$manifest_sha"
+  # Chunks a previous worker already committed are not proof for this launch:
+  # record them, and require this worker to commit at least one more.
+  local baseline_chunks
+  baseline_chunks="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
+  [[ "$baseline_chunks" =~ ^[0-9]+$ ]] || fail "Search baseline chunk query was invalid"
   docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
@@ -406,19 +411,19 @@ start_operation() {
   for _ in $(seq 1 30); do
     proof="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
     [[ "$proof" =~ ^[0-9]+$ ]] || fail "Search proof query was invalid"
-    [ "$proof" -ge 1 ] && break
+    [ "$proof" -gt "$baseline_chunks" ] && break
     worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
     [ "$worker_state" = "running" ] || break
     sleep 2
   done
-  [ "$proof" -ge 1 ] \
-    || { docker logs --tail 80 "$WORKER" >&2 || true; fail "Search worker did not prove a committed chunk"; }
+  [ "$proof" -gt "$baseline_chunks" ] \
+    || { docker logs --tail 80 "$WORKER" >&2 || true; fail "Search worker did not prove a chunk committed by this launch"; }
 
   printf 'operation=v3-system-search-f1-start\nresult=launched\n'
   printf 'source_sha=%s\ngeneration_key=%s\ngeneration_id=%s\n' \
     "$SOURCE_SHA" "$TARGET_GENERATION_KEY" "$TARGET_GENERATION_ID"
-  printf 'manifest_sha256=%s\nworker=%s\nworker_state=%s\nproof_chunks=%s\n' \
-    "$manifest_sha" "$WORKER" "$worker_state" "$proof"
+  printf 'manifest_sha256=%s\nworker=%s\nworker_state=%s\nproof_chunks=%s\nbaseline_chunks=%s\n' \
+    "$manifest_sha" "$WORKER" "$worker_state" "$proof" "$baseline_chunks"
   printf 'migration_006_sha256=%s\nmigration_010_sha256=%s\nmigration_015_sha256=%s\n' \
     "$MIGRATION_006_SHA" "$MIGRATION_010_SHA" "$MIGRATION_015_SHA"
   emit_receipt_status

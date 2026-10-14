@@ -350,3 +350,23 @@ def test_search_and_archetype_status_use_the_start_privilege_boundary() -> None:
         assert 'if [ \\"\\$(id -u)\\" -eq 0 ]; then exec bash -s -- status' in run
         assert "exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- status" in run
 
+
+@pytest.mark.parametrize(
+    ("action_path", "table"),
+    [
+        ("scripts/operator/actions/v3-system-archetype.sh", "archetype_build_chunk"),
+        ("scripts/operator/actions/v3-system-search-f1.sh", "search_build_chunk"),
+    ],
+)
+def test_build_start_proof_requires_a_chunk_from_this_launch(action_path, table) -> None:
+    action = (ROOT / action_path).read_text(encoding="utf-8")
+    start = action[action.index("start_operation() {"):action.index("status_operation() {")]
+    baseline = start.index("baseline_chunks=\"$(db_query")
+    launch = start.index("docker run -d")
+    assert baseline < launch
+    assert f"FROM v3_derived.{table}" in start[baseline:launch]
+    proof = start[launch:]
+    # A resumed build's earlier chunks are not proof for the new worker.
+    assert '[ "$proof" -gt "$baseline_chunks" ] && break' in proof
+    assert '[ "$proof" -ge 1 ]' not in proof
+

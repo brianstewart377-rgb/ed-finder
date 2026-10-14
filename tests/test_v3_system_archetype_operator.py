@@ -138,7 +138,7 @@ def test_start_writes_sealed_receipts_and_proves_a_committed_chunk() -> None:
     assert "v3_derived.archetype_build_chunk" in source
     assert "for _ in $(seq 1 30)" in source
     assert "sleep 2" in source
-    assert "Archetype worker did not prove a committed chunk" in source
+    assert "Archetype worker did not prove a chunk committed by this launch" in source
 
 
 def test_build_and_validation_containers_are_bounded_offline_and_read_only() -> None:
