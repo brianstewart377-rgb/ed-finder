@@ -328,6 +328,87 @@ jobs:
           tests/test_migration_applier_runtime.py
           tests/test_migration_ledger_baseline_runtime.py -v
 
+  # The V3 Finder derived-data tests (migrations 003-015, the Search and
+  # Archetype builders, product publication, the F2d operator programs and the
+  # V3 ranking/search/explanation routes) build their fixture generation through
+  # tests/ratings_v4_pg_fixture.py, which SKIPS unless
+  # RATINGS_V4_VALIDATION_DATABASE_URL names a local ratings_v4_validation
+  # database. Until this lane existed only tests/test_ratings_v4*.py received
+  # that URL (ratings-v4-freeze.yml), so every other fixture-backed module
+  # skipped silently in CI. This lane discovers those modules by the fixture
+  # they import, so a new fixture-backed test is covered without editing CI.
+  finder-derived-data:
+    name: Finder derived-data tests (PostgreSQL 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:18-alpine
+        env:
+          POSTGRES_USER:     edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB:       ratings_v4_validation
+        # Published on the isolated test port tests/helpers/db_isolation.py
+        # treats as default-safe, so the seed tests need no 5432 opt-in.
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: public.ecr.aws/docker/library/redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up CPython 3.14 for V3 application validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install pinned uv and frozen V3 backend test environment
+        run: |
+          python -m pip install uv==0.11.33
+          test "$(python -m uv --version | cut -d' ' -f1-2)" = "uv 0.11.33"
+          python -m uv lock --project apps/api --check
+          python -m uv sync --project apps/api --frozen --group test --no-install-project
+      - name: Assert V3 application runtime identity
+        run: apps/api/.venv/bin/python scripts/checks/assert_v3_python_runtime.py
+      - name: Attest the disposable PostgreSQL service container address
+        id: disposable
+        env:
+          SERVICE_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          # The footprint scripts accept a non-loopback server only when the
+          # orchestrator attests the exact address of ITS OWN service container,
+          # read here from the container the job started (not from the DSN).
+          address="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$SERVICE_ID")"
+          [[ "$address" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "service container address unresolved: '$address'" >&2; exit 1; }
+          echo "address=$address" >> "$GITHUB_OUTPUT"
+      - name: Run every validation-fixture-backed Finder test module
+        env:
+          RATINGS_V4_VALIDATION_DATABASE_URL: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
+          EDFINDER_DISPOSABLE_DSN: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
+          EDFINDER_DISPOSABLE_SERVER_ADDRESS: ${{ steps.disposable.outputs.address }}
+          PGPASSWORD: edfinder
+          DATABASE_URL: postgresql://edfinder:edfinder@127.0.0.1:55432/ratings_v4_validation
+          REDIS_URL:    redis://localhost:6379/15
+          CORS_ORIGINS: http://test
+          ADMIN_TOKEN:  test-admin-token
+          LOG_LEVEL:    WARNING
+          EDDN_SIMULATION_INGEST_ENABLED: "false"
+          PYTHONPATH: ${{ github.workspace }}/apps/api/src
+        run: |
+          set -euo pipefail
+          mapfile -t fixture_backed < <(
+            grep -lE 'RATINGS_V4_VALIDATION_DATABASE_URL|ratings_v4_pg_fixture|canonical_database' tests/test_*.py \
+              | grep -v '^tests/test_ratings_v4' | sort
+          )
+          printf 'Fixture-backed modules (%s):\n' "${#fixture_backed[@]}"
+          printf '  %s\n' "${fixture_backed[@]}"
+          [ "${#fixture_backed[@]}" -ge 10 ] || { echo "fixture-backed module discovery looks broken" >&2; exit 1; }
+          apps/api/.venv/bin/python -m pytest "${fixture_backed[@]}" -q -p no:warnings -rs
+
   canonical-safety:
     name: Canonical safety tests
     runs-on: ubuntu-latest

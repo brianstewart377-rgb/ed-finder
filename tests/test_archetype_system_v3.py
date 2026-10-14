@@ -103,16 +103,10 @@ def _build_ready_generation(database):
     connection, _, _, _ = database
     key, generation_id, snapshot = _ratings_generation(database)
 
+    # Seed order: Search built and validated before the Archetype registers,
+    # because the Archetype builder requires a READY/VERIFIED Search product.
     search_generation, _, search_manifest_sha = search_register_product(connection, key)
     search_build_available(connection, search_generation, search_manifest_sha)
-    archetype_generation, _, archetype_manifest_sha = (
-        archetype_builder.register_product(connection, key)
-    )
-    archetype_builder.build_available(
-        connection,
-        archetype_generation,
-        archetype_manifest_sha,
-    )
 
     seal_source(connection, generation_id, _eof_receipt(database))
     assert validate_generation(connection, generation_id)["status"] == "VERIFIED"
@@ -123,6 +117,14 @@ def _build_ready_generation(database):
             search_manifest_sha,
         )["status"]
         == "VERIFIED"
+    )
+    archetype_generation, _, archetype_manifest_sha = (
+        archetype_builder.register_product(connection, key)
+    )
+    archetype_builder.build_available(
+        connection,
+        archetype_generation,
+        archetype_manifest_sha,
     )
     assert (
         archetype_builder.validate_product(

@@ -70,8 +70,8 @@ def test_picked_floor_is_server_literal_and_uses_matching_columns(floor):
     sql, params = _picked_page("mining_hub", floor)
     assert f"ar.mining_hub_score >= {floor}" in sql
     assert "ar.mining_hub_weighted_e4" in sql
-    assert "fetch.mining_hub_tier AS selected_archetype_tier" in sql
-    assert "fetch.mining_hub_confidence_ppm / 1000000.0" in sql
+    assert "picked.mining_hub_tier AS selected_archetype_tier" in sql
+    assert "picked.mining_hub_confidence_ppm / 1000000.0" in sql
     assert floor not in params
 
 
@@ -95,7 +95,7 @@ def test_picked_page_has_all_four_bounded_stages_and_three_orders():
     assert "ORDER BY ar.paradise_weighted_e4 DESC" in sql
     assert sql.count("selected_archetype_weighted_e4 DESC") == 2
     assert "JOIN v3_app.system_search" in sql
-    assert "JOIN v3_app.system_archetype fetch" in sql
+    assert "JOIN v3_app.system_archetype picked" in sql
     assert params == [50, 75]
     _assert_no_legacy(sql)
 
