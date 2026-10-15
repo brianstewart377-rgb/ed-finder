@@ -20,6 +20,11 @@ import time
 
 DEFAULT_BATCH_PEAK_BYTES = 900_000_000  # below 016's strict 1 GB bound
 STATE_FILE = Path('/var/lib/ed-finder/v3-production/derived-purge-writer-state.json')
+INTEGRITY_FAILURES = frozenset((
+    'delete_pointer_changed', 'delete_published_survivor_count_drift',
+    'delete_retained_metadata_drift', 'delete_fk_or_index_failure',
+    'delete_loop_process_outcome_unknown', 'relation_or_index_evidence_invalid',
+))
 
 
 def delete_loop(gates, batch, remaining, failed_stop, stop_requested, *,
@@ -374,7 +379,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         measured = measurement(c, runtime, identity, report, report['wal_before'], peak)
         measured['competing_writer_wait'] = waited
         return measured
-    def boundary():
+    def boundary(*, final=False):
         observed = runtime.query(tx.PLAN_SQL)
         tx._targets(observed.get('targets'), failed=True)
         snapshot = observed['snapshot']
@@ -391,8 +396,11 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         if runtime.query(c.POINTER_IDENTITIES_SQL) != reviewed.get('pointer_identities'):
             raise ValueError('delete_pointer_changed')
         checks = runtime.query(tx.COMPLETION_STATE_SQL, {'plan_sha256': reviewed['plan_sha256']})
-        if any(checks.get(k) != 0 for k in ('invalid_foreign_keys', 'invalid_indexes', 'invalid_triggers')):
+        if (not isinstance(checks, dict) or any(checks.get(k) != 0
+                for k in ('invalid_foreign_keys', 'invalid_indexes', 'invalid_triggers'))):
             raise ValueError('delete_fk_or_index_failure')
+        if final:
+            report['fk_check'] = checks
         return observed
     # All ordinary preflight failures above and here leave new fences untouched.
     age_gate(c, tx, runtime, report, ids, relation, reviewed, wall_clock_seconds + 65)
@@ -400,23 +408,29 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     counts = {target['id']: target['payload_counts'][relation] for target in initial['targets']}
     report['rows_affected_cumulative'] = sum(target['payload_counts'][relation] for target in reviewed['targets']) - sum(counts.values())
     gates()
-    stop_evidence = []
     def fail(exc):
+        # Set local recovery evidence before any further DB/transport operation.
+        # It travels back from the loop process even if FAILED_STOP cannot commit.
+        report.update(failed_stop_attempted=True, failed_stop_recorded=None, integrity_failed=True)
         condition = str(exc)
+        integrity = condition in INTEGRITY_FAILURES
         # A definer refusal can be the first observer of pointer/count/index
         # drift. Re-read retained-data evidence before deciding to reopen writes.
         try:
             boundary()
-        except (ValueError, RuntimeError) as observed:
-            if str(observed) in ('delete_pointer_changed', 'delete_published_survivor_count_drift', 'delete_fk_or_index_failure'):
+        except Exception as observed:
+            # An unavailable integrity observation is never proof of safety.
+            integrity = True
+            if str(observed) in INTEGRITY_FAILURES:
                 condition = str(observed)
         cause = exc
         while cause is not None:
-            if str(cause) == 'delete_fk_or_index_failure':
-                condition = 'delete_fk_or_index_failure'
+            if str(cause) in INTEGRITY_FAILURES:
+                condition = str(cause)
+                integrity = True
                 break
             cause = cause.__cause__
-        integrity = condition in ('delete_pointer_changed', 'delete_published_survivor_count_drift', 'delete_fk_or_index_failure')
+        report['integrity_failed'] = integrity
         payload = {'condition': condition if re.fullmatch('[a-zA-Z0-9_]+', condition) else 'delete_batch_failed',
                    'integrity_failed': integrity, 'filesystem_free_bytes': report.get('filesystem_after', filesystem)['free_bytes'],
                    'wal_bytes': (report.get('wal_after') or {}).get('bytes'),
@@ -424,8 +438,14 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                    'wal_health': report.get('wal_after'), 'workers': report.get('workers'),
                    'autovacuum_ages': report.get('autovacuum_ages'), 'controller': report.get('runner_state'),
                    'competing_writer_wait': report.get('competing_writer_wait')}
-        recorded = tx.record_failed_stop(runtime.query, ids, payload, relation)
-        stop_evidence.append(recorded)
+        try:
+            recorded = tx.record_failed_stop(runtime.query, ids, payload, relation)
+            if not recorded:
+                raise ValueError('purge_failed_stop_outcome_unknown')
+        except Exception:
+            # Even a non-integrity stop has an unknown durable outcome here.
+            report['integrity_failed'] = True
+            raise
         report['failed_stop_recorded'] = recorded
     def remaining():
         # Seeded from this dispatch's exact database counts. Every decrement is
@@ -466,14 +486,20 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                 report['rows_affected_this_run'] = delete_loop(gates, batch, remaining, fail, stop.is_set,
                                                             budget_seconds=wall_clock_seconds,
                                                             controller_alive=controller_alive)
-                boundary()
+                boundary(final=True)
+                fresh_objects = runtime.query(c.OBJECTS_SQL)
+                if (not isinstance(fresh_objects, list) or not fresh_objects
+                        or any(obj.get('valid') is not True or type(obj.get('total_bytes')) is not int
+                               or obj['total_bytes'] < 0 for obj in fresh_objects)):
+                    raise ValueError('relation_or_index_evidence_invalid')
+                report['relation_bytes_after'] = fresh_objects
                 measured = gates()
                 sealed = {**measured, 'receipt_sha256': c.evidence.canonical_sha256(measured)}
                 tx.complete_relation(runtime.query, ids, relation, sealed)
                 report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('delete-'), 'implemented': False}
             run_loop_process(work, report, stop)
         except Exception as exc:
-            if not stop_evidence and not report.get('failed_stop_recorded'):
+            if not report.get('failed_stop_attempted'):
                 fail(exc)
             raise
         finally:
@@ -567,6 +593,13 @@ def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_seconds)
 
 
 def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
+    # The ledger alone cannot reveal a FAILED_STOP whose commit/transport failed.
+    # Apply the same fail-closed rule for ordinary cleanup and signal cleanup.
+    if automatic and (report.get('integrity_failed') is True or (
+            report.get('failed_stop_attempted') and not report.get('failed_stop_recorded'))):
+        report['integrity_failed'] = True
+        report['writer_restore'] = 'refused_integrity_failed_stop'
+        return
     state = runtime.state(allow_unresolved=True)
     if any(e['event_kind'] == 'REWRITE_STARTED' for e in state['unresolved']):
         raise ValueError('rewrite_resolution_requires_p2b2b')

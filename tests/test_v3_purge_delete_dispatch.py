@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 import importlib.util
+import os
 from pathlib import Path
+import signal
 from types import SimpleNamespace
 import time
 
@@ -324,6 +326,80 @@ def test_each_batch_has_fresh_gates_and_competing_writer_wait(monkeypatch):
     assert report['writer_fence']['verified'] is True
 
 
+def test_successful_delete_receipt_has_final_integrity_and_fresh_relation_sizes(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    query = model.runtime.query
+    observations = []
+    def observed(sql, *args, **kwargs):
+        result = query(sql, *args, **kwargs)
+        if sql == model.tx.COMPLETION_STATE_SQL:
+            result.update(snapshot=deepcopy(model.snapshot), targets=model.targets(), rewrites=[])
+            observations.append(('integrity', deepcopy(result)))
+        elif sql == model.c.OBJECTS_SQL:
+            # A fresh observation must preserve heap, index and TOAST evidence,
+            # even when DELETE leaves their physical sizes unchanged.
+            result = [
+                {**result[0], 'heap_bytes': model.relation_bytes - model.batch_count,
+                 'index_bytes': 200, 'total_bytes': model.relation_bytes + 300 - model.batch_count},
+                {'relation': 'v3_derived.system_search_pkey', 'kind': 'i', 'valid': True,
+                 'heap_bytes': 200, 'index_bytes': 0, 'total_bytes': 200},
+                {'relation': 'pg_toast.pg_toast_123', 'kind': 't', 'valid': True,
+                 'heap_bytes': 100, 'index_bytes': 0, 'total_bytes': 100},
+            ]
+            observations.append(('sizes', deepcopy(result)))
+        return result
+    model.runtime.query = observed
+    report = model.run()
+    integrity = [value for kind, value in observations if kind == 'integrity']
+    sizes = [value for kind, value in observations if kind == 'sizes']
+    assert report['status'] == 'success'
+    assert len(integrity) >= 2 and integrity[0] != integrity[-1]
+    assert report['fk_check'] == integrity[-1]
+    assert all(report['fk_check'][key] == 0 for key in
+               ('invalid_foreign_keys', 'invalid_indexes', 'invalid_triggers'))
+    assert len(sizes) >= 2 and sizes[0] != sizes[-1]
+    assert report['relation_bytes_before'] == sizes[0]
+    assert report['relation_bytes_after'] == sizes[-1]
+    assert observations[-1][0] == 'sizes'
+
+
+@pytest.mark.parametrize(('observation', 'failure'), (
+    ('integrity', 'unavailable'), ('integrity', 'missing'), ('integrity', 'invalid'),
+    ('sizes', 'unavailable'), ('sizes', 'missing'), ('sizes', 'empty'), ('sizes', 'invalid'),
+))
+def test_delete_cannot_succeed_without_final_integrity_and_size_observations(monkeypatch, observation, failure):
+    model = DispatchModel(monkeypatch)
+    query = model.runtime.query
+    def unavailable(sql, *args, **kwargs):
+        result = query(sql, *args, **kwargs)
+        expected = model.tx.COMPLETION_STATE_SQL if observation == 'integrity' else model.c.OBJECTS_SQL
+        if sql != expected or model.batch_count == 0:
+            return result
+        if failure == 'unavailable':
+            raise RuntimeError('final_observation_unavailable')
+        if observation == 'integrity':
+            if failure == 'missing':
+                del result['invalid_foreign_keys']
+            else:
+                result['invalid_indexes'] = 1
+            return result
+        if failure == 'missing':
+            return None
+        if failure == 'empty':
+            return []
+        return [{**result[0], 'valid': False}]
+    model.runtime.query = unavailable
+    with pytest.raises((ValueError, RuntimeError)):
+        model.run()
+    assert model.batch_count == 3
+    assert model.report['status'] == 'stopped'
+    assert model.report['result'] != 'relation_logically_empty_waiting_for_rewrite'
+    if observation == 'integrity':
+        assert model.report['fk_check'] is None
+    else:
+        assert model.report['relation_bytes_after'] is None
+
+
 def test_integrity_failure_preserves_original_stop_and_reports_016_ack_conflict(monkeypatch):
     model = DispatchModel(monkeypatch)
     model.integrity = 'survivors'
@@ -345,6 +421,87 @@ def test_integrity_failure_preserves_original_stop_and_reports_016_ack_conflict(
     assert model.mutations == mutations
     assert model.failures == original
     assert original[-1]['operational_payload']['integrity_failed'] is True
+
+
+@pytest.mark.parametrize('integrity', ('canonical', 'survivors', 'retained', 'fk', None))
+@pytest.mark.parametrize('sig', (None, signal.SIGINT, signal.SIGTERM, signal.SIGHUP))
+@pytest.mark.parametrize('committed', (False, True))
+def test_failed_stop_recording_error_never_reopens_writes(monkeypatch, integrity, sig, committed):
+    model = DispatchModel(monkeypatch)
+    if integrity in ('canonical', 'survivors', 'retained'):
+        model.integrity = integrity
+    if sig is not None:
+        model.on_batch = lambda: os.kill(os.getpid(), sig)
+    else:
+        model.failure_after_batch = 'workers'
+    query = model.runtime.query
+    def checks(sql, *args, **kwargs):
+        result = query(sql, *args, **kwargs)
+        if sql == model.tx.COMPLETION_STATE_SQL and model.batch_count and integrity == 'fk':
+            result['invalid_foreign_keys'] = 1
+        return result
+    model.runtime.query = checks
+    attempts = []
+    def unavailable(*args):
+        attempts.append(deepcopy(args[2]))
+        if committed:
+            model.failed_stop(*args)
+        raise RuntimeError('failed_stop_transport_failed')
+    model.tx.record_failed_stop = unavailable
+    with pytest.raises(RuntimeError, match='failed_stop_transport_failed'):
+        model.run()
+    assert len(attempts) == 1
+    assert attempts[0]['integrity_failed'] is (integrity is not None)
+    assert model.report['integrity_failed'] is True
+    assert model.report['failed_stop_recorded'] is None
+    assert model.report['status'] == 'stopped'
+    assert model.report['writer_fence']['enabled'] is True
+    assert model.report['writer_restore'] == 'refused_integrity_failed_stop'
+    assert model.writer and not model.open_batch
+    assert 'writer-restored' not in model.log
+    assert bool(model.failures) is committed
+
+
+@pytest.mark.parametrize('integrity', ('canonical', 'survivors', 'retained', 'fk', 'unknown'))
+def test_integrity_classification_survives_unavailable_failure_observation(monkeypatch, integrity):
+    model = DispatchModel(monkeypatch)
+    query = model.runtime.query
+    def unavailable(sql, *args, **kwargs):
+        if model.batch_count and sql == model.tx.PLAN_SQL:
+            raise RuntimeError('integrity_observation_unavailable')
+        return query(sql, *args, **kwargs)
+    model.runtime.query = unavailable
+    conditions = {'canonical': 'delete_pointer_changed', 'survivors': 'delete_published_survivor_count_drift',
+                  'retained': 'delete_retained_metadata_drift', 'fk': 'delete_fk_or_index_failure',
+                  'unknown': 'database_transport_failed'}
+    batch = model.tx.payload_batch
+    def failed(*args):
+        batch(*args)
+        raise ValueError(conditions[integrity])
+    model.tx.payload_batch = failed
+    with pytest.raises(ValueError, match=conditions[integrity]):
+        model.run()
+    assert model.report['integrity_failed'] is True
+    assert model.report['failed_stop_recorded']
+    assert model.failures[-1]['operational_payload']['integrity_failed'] is True
+    assert model.writer and 'writer-restored' not in model.log
+
+
+def test_failed_stop_recording_error_survives_real_loop_process_transport(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.integrity = 'retained'
+    model.failure_after_batch = 'workers'
+    real_loop = load('v3_purge_delete')
+    monkeypatch.setattr(model.d, 'run_loop_process', real_loop.run_loop_process)
+    def unavailable(*args):
+        raise RuntimeError('failed_stop_transport_failed')
+    model.tx.record_failed_stop = unavailable
+    with pytest.raises(real_loop.LoopFailure, match='failed_stop_transport_failed'):
+        model.run()
+    assert model.report['runner_state']['loop_exited'] is True
+    assert model.report['integrity_failed'] is True
+    assert model.report['failed_stop_recorded'] is None
+    assert model.writer and 'writer-restored' not in model.log
 
 
 def test_restore_dispatch_resolves_open_batch_before_writer_restore_and_is_idempotent(monkeypatch):

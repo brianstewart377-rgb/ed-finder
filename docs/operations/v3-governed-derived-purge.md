@@ -329,13 +329,17 @@ A batch monitor can cancel only that recorded backend through
 rechecks the gates. A failed gate records `FAILED_STOP` with its measurements
 and starts no further batch. Controller loss stops after at most the current
 batch. A wall-clock stop also preserves all committed batches; the next
-dispatch resumes from database counts. Only published-survivor drift, pointer
-change or FK/index failure sets `integrity_failed: true`.
+dispatch resumes from database counts. Published-survivor drift, pointer
+change, retained-metadata drift, FK/index failure, or an unknown integrity or
+FAILED_STOP recording outcome sets `integrity_failed: true`.
 
 When target rows reach zero, the receipt recommends `rewrite-<relation>` and
 leaves the autovacuum fence open. P2b2a refuses that rewrite with
 `mode_not_implemented_until_p2b2b`. Zero rows reclaim no physical disk by
 themselves and never satisfy `complete`.
+Successful delete receipts include the final boundary's validated integrity
+checks in `fk_check` and a fresh relation/index/TOAST size observation in
+`relation_bytes_after`. An unavailable observation stops completion.
 
 ## Exit, signals and writer restoration
 
@@ -346,6 +350,11 @@ host lease or restores writers while the loop is alive. After an
 integrity-failed `FAILED_STOP`, cleanup restores nothing: the writer fence
 remains open for owner review, while the durable ledger continues to block
 other mutators after the process exits.
+Cleanup also preserves the writer fence when local integrity evidence fails or
+is unknown, even if recording FAILED_STOP errors. The receipt reports
+`integrity_failed: true` and `failed_stop_recorded: null` when that commit is
+unproven. A recording error after a non-integrity stop is likewise an unknown
+outcome and refuses automatic restoration, including on INT, TERM or HUP.
 
 Restoration uses the exact prior role value in `WRITER_FENCE_ENABLED`: set
 `off`, or unset with `RESET`. `purge_set_writer_fence` commits that restoration
