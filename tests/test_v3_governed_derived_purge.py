@@ -606,6 +606,12 @@ def _operator_query(connection, calls=None):
                         results.append(rows[0][0])
                     if not cursor.nextset():
                         break
+            if statement == purge_transactions.BATCH_SQL:
+                assert len(results) == 2 and all(isinstance(result, dict) for result in results)
+                assert type(results[0].get('start_event')) is int and results[0]['start_event'] > 0
+                assert set(results[0]) == {'start_event'}
+                assert set(results[1]) == {'rows_affected'}
+                return {**results[0], **results[1]}
             assert len(results) == 1
             return results[0]
         except BaseException:
@@ -2032,3 +2038,111 @@ def test_operator_and_backup_sql_resolve_only_matching_record_and_live_backend(d
            VALUES(%s,'FAILED_STOP','system_search')''', (purge_id,),
     )
     assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'] == []
+
+
+@pytest.mark.parametrize('gate', ('floor', 'wal'))
+def test_failed_stop_after_committed_batch_preserves_counts_and_allows_resume(database, gate):
+    """A safety stop fences progress, without undoing an earlier small commit."""
+    connection = database[0]
+    purge_id = _authorize(database)[TARGETS[0][1]]
+    _writer_fence(connection, purge_id)
+    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
+                       (purge_id, 'system_search'))
+    assert _batch(connection, purge_id, 'system_search', size=3) == 3
+    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 9
+    unsafe = _receipt()
+    unsafe.update({'filesystem_free_bytes': 99_999_999_999} if gate == 'floor'
+                  else {'wal_healthy': False})
+    before_events = _count(connection, 'v3_meta.derived_generation_purge_event')
+    with pytest.raises(psycopg.Error):
+        with connection.transaction():
+            _start_batch(connection, purge_id, 'system_search', size=3, evidence=unsafe)
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == before_events
+    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 9
+    failure = {**unsafe, 'code': gate + '_gate_failed', 'integrity_failed': False}
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'FAILED_STOP', 'system_search', Jsonb(failure)))
+    assert connection.execute(
+        '''SELECT failure_evidence->'integrity_failed' FROM v3_meta.derived_generation_purge_event
+           WHERE purge_id=%s AND event_kind='FAILED_STOP' ORDER BY event_sequence DESC LIMIT 1''',
+        (purge_id,),
+    ).fetchone()[0] is False
+    # A new dispatch consumes the next database-selected range, not the old
+    # receipt's row count or a Python-side continuation cursor.
+    assert _batch(connection, purge_id, 'system_search', size=3) == 3
+    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 6
+    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+
+
+def test_abort_autovacuum_headroom_refuses_without_closing_fence_then_restores(database):
+    connection = database[0]
+    purge_id = _authorize(database)[TARGETS[0][1]]
+    _writer_fence(connection, purge_id)
+    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
+                       (purge_id, 'system_search'))
+    current_bytes = connection.execute(
+        "SELECT pg_total_relation_size('v3_derived.system_search'::regclass)",
+    ).fetchone()[0]
+    assert current_bytes > 0
+    inadequate = {**_receipt(), 'aborted': True, 'autovacuum_budget_bytes': current_bytes,
+                  'filesystem_free_bytes': 100_000_000_000 + current_bytes - 1}
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'FAILED_STOP', 'system_search', Jsonb(inadequate)))
+    events_before = _count(connection, 'v3_meta.derived_generation_purge_event')
+    with pytest.raises(psycopg.Error):
+        with connection.transaction():
+            connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,true)',
+                               (purge_id, 'system_search'))
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == events_before
+    assert connection.execute(
+        '''SELECT option_value FROM pg_class c,LATERAL pg_options_to_table(c.reloptions)
+           WHERE c.oid='v3_derived.system_search'::regclass AND option_name='autovacuum_enabled' ''',
+    ).fetchone()[0] == 'false'
+    _abort_autovacuum_fence(connection, purge_id, 'system_search')
+    assert connection.execute(
+        "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='AUTOVACUUM_RESTORED'",
+    ).fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='REWRITE_VERIFIED'",
+    ).fetchone()[0] == 0
+
+
+def test_delete_operator_adapter_observes_and_adopts_real_016_physical_fence(database):
+    connection = database[0]
+    requests = _authorize(database)
+    ids = [str(purge_id) for purge_id in requests.values()]
+    query = _operator_query(connection)
+    observed = purge_transactions.phase_state(query, ids, 'system_search')
+    assert observed['target_counts'] == {str(identity): 12 for identity in requests}
+    assert observed['autovacuum_fences'] == []
+    assert purge_transactions.autovacuum_fence(query, ids, 'system_search')['adopted'] is False
+    adopted = purge_transactions.autovacuum_fence(query, ids, 'system_search')
+    assert adopted['adopted'] is True
+    assert adopted['event']['relation_code'] == 'system_search'
+    assert adopted['event']['operational_payload']['heap']['xid_ceiling'] == 100_000_000
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == 3
+
+
+def test_delete_operator_payload_adapter_commits_start_and_small_batch_on_same_backend(database):
+    connection = database[0]
+    requests = _authorize(database)
+    ids = [str(purge_id) for purge_id in requests.values()]
+    purge_id = str(requests[TARGETS[0][1]])
+    query = _operator_query(connection)
+    purge_transactions.autovacuum_fence(query, ids, 'system_search')
+    _writer_fence(connection, purge_id)
+    result = purge_transactions.payload_batch(query, purge_id, 'system_search', 3, _receipt())
+    assert result['start_event'] > 0 and result['rows_affected'] == 3
+    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 9
+    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+    events = connection.execute(
+        '''SELECT event_kind,operational_payload FROM v3_meta.derived_generation_purge_event
+           WHERE purge_id=%s AND event_kind IN ('BATCH_STARTED','BATCH_COMMITTED')
+           ORDER BY event_sequence''', (purge_id,),
+    ).fetchall()
+    assert [event[0] for event in events] == ['BATCH_STARTED', 'BATCH_COMMITTED']
+    assert events[1][1]['start_event'] == result['start_event']
+    assert query(purge_transactions.BATCH_RANGE_SQL, {
+        'purge_id': purge_id, 'relation': 'system_search', 'start_event': str(result['start_event']),
+    }) == {'selected': 3, 'range_rows': 0}
+    assert purge_transactions.metadata_state(query, ids)['open_batches'] == []

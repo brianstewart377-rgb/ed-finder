@@ -33,6 +33,7 @@ EXPECTED_ACTIVE_ENTRIES = (
     "scripts/operator/lib/f2d_operator_identity.sh",
     "scripts/operator/lib/v3-purge-state.sh",
     "scripts/operator/lib/v3_generation_purge.py",
+    "scripts/operator/lib/v3_purge_delete.py",
     "scripts/operator/lib/v3_purge_state.py",
     "scripts/operator/lib/v3_purge_transactions.py",
     "scripts/v3_archetype_calibration_complete.py",

@@ -199,13 +199,13 @@ def test_p2b1_modes_are_implemented(mode):
 
 @pytest.mark.parametrize('mode', [
     f'{prefix}{relation}'
-    for prefix in ('delete-', 'rewrite-', 'abort-relation-')
+    for prefix in ('rewrite-',)
     for relation in ('system-search', 'economy-opportunity', 'body-mechanics',
                      'system-rating-vector')
-] + ['restore-services'])
-def test_p2b2_modes_have_explicit_failure_and_cannot_fall_through(mode):
+])
+def test_p2b2b_rewrite_modes_have_explicit_failure_and_cannot_fall_through(mode):
     module = _action_tool()
-    with pytest.raises(Exception, match='mode_not_implemented_until_p2b2'):
+    with pytest.raises(Exception, match='mode_not_implemented_until_p2b2b'):
         module.classify_mode(mode)
 
 
@@ -656,11 +656,13 @@ def test_shared_preflight_failure_never_reaches_a_mutation(monkeypatch, failure)
     assert report['db_writes_performed'] is False
     assert report['canonical_writes_performed'] is False
     assert report['service_changes_performed'] is False
+    assert report['wal_byte_delta'] is None
 
 
 @pytest.mark.parametrize('mode,expected', (
-    ('delete-system-search', 'mode_not_implemented_until_p2b2'),
-    ('restore-services', 'mode_not_implemented_until_p2b2'),
+    ('delete-system-search', 'sealed_verification_required'),
+    ('rewrite-system-search', 'mode_not_implemented_until_p2b2b'),
+    ('restore-services', 'sealed_verification_required'),
     ('delete-system-archetype', 'unknown_mode'),
 ))
 def test_cli_mode_refusal_is_json_only_and_precedes_all_host_access(mode, expected):
@@ -795,9 +797,12 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
             return [{'valid': True, 'path': 'base/heap', 'heap_bytes': 40, 'index_bytes': 20,
                      'total_bytes': 60}]
         if sql == module.WAL_SQL:
-            return {'archive_mode': 'on', 'archiver': {'failed_count': 0, 'last_failed_time': None,
+            return {'lsn': '0/10', 'archive_mode': 'on', 'archiver': {'failed_count': 0, 'last_failed_time': None,
                                                       'last_archived_time': None},
                     'slots': [], 'checkpoints': {}, 'temp_bytes': 0}
+        if sql == module.WAL_LSN_DIFF_SQL:
+            assert params == {'before_lsn': '0/10', 'after_lsn': '0/10'}
+            return {'wal_byte_delta': 0}
         if sql == module.AGES_SQL:
             return ages
         if sql == module.PROGRESS_SQL:
@@ -864,6 +869,7 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
     module.execute(mode, runtime, report, None if mode in ('plan', 'status') else plan,
                    verification=verification if mode == 'complete' else None)
     assert report['status'] == 'success'
+    assert report['wal_byte_delta'] == (None if mode == 'status' else 0)
     assert calls[0][0] == 'state'
     writes = [call for call in calls if call[0] == 'query' and call[2]]
     assert len(writes) == write_count
@@ -955,7 +961,7 @@ def test_status_stays_available_for_open_writer_fence_and_reports_recovery_first
     module.execute('status', runtime, report)
     assert report['result'] == 'unresolved_state_first'
     assert report['writer_fence']['role_defaults'] == ['default_transaction_read_only=on']
-    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': False}
+    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': True}
     assert not any(call[0] == 'query' and call[2] for call in calls)
 
 
@@ -987,7 +993,7 @@ def test_expired_autovacuum_fence_never_recommends_another_delete(remaining, exp
     deadlines = [{'relation_code': 'system_search', 'ceiling_exceeded': True}]
     result = module.next_mode(state, progress, counts, deadlines=deadlines)
     assert result['mode'] == expected
-    assert result['implemented'] is False
+    assert result['implemented'] is (not expected.startswith('rewrite-'))
 
 
 def test_sql_adapter_binds_sha256_parameter_names_used_by_later_phases(monkeypatch):
@@ -1170,7 +1176,7 @@ def test_authorized_status_advances_only_after_bound_sealed_empty_verification(t
     counts = {'targets': [{'payload_counts': dict.fromkeys(module.RELATIONS.values(), 1)}]}
     assert module.next_mode({'unresolved': []}, {'requests': requests, 'events': []}, counts,
                             verification=verification) == {
-        'mode': 'delete-system-search', 'implemented': False}
+        'mode': 'delete-system-search', 'implemented': True}
 
 
 @pytest.mark.parametrize('backend,locked', (('live', False), ('reused-pid', True), ('departed', True)))
@@ -1225,7 +1231,7 @@ def test_status_probe_failure_preserves_recovery_guidance_and_does_not_hide_data
     runtime.query = query
     with pytest.raises(RuntimeError, match='bounded_command_failed'):
         module.execute('status', runtime, report)
-    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': False}
+    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': True}
     assert report['purge_state']['unresolved'][0]['event_kind'] == 'WRITER_FENCE_ENABLED'
     assert report['backend_state'] == []
     assert report['status'] == 'stopped'
@@ -1281,10 +1287,12 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
 
 
 @pytest.mark.parametrize('changed', (
+    'deploy/v3-production/backup/pgbackrest-operation.sh',
     'scripts/operator/actions/v3-derived-generation-purge.sh',
     'scripts/operator/actions/v3-derived-lifecycle-status.sh',
     'scripts/operator/lib/f2d_evidence.py',
     'scripts/operator/lib/v3_generation_purge.py',
+    'scripts/operator/lib/v3_purge_delete.py',
     'scripts/operator/lib/v3_purge_state.py',
     'scripts/operator/lib/v3_purge_transactions.py',
     'scripts/operator/v3_schema_identity.py',
@@ -1292,10 +1300,12 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
 def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_path, changed):
     module = _action_tool()
     sources = (
+        'deploy/v3-production/backup/pgbackrest-operation.sh',
         'scripts/operator/actions/v3-derived-generation-purge.sh',
         'scripts/operator/actions/v3-derived-lifecycle-status.sh',
         'scripts/operator/lib/f2d_evidence.py',
         'scripts/operator/lib/v3_generation_purge.py',
+        'scripts/operator/lib/v3_purge_delete.py',
         'scripts/operator/lib/v3_purge_state.py',
         'scripts/operator/lib/v3_purge_transactions.py',
         'scripts/operator/v3_schema_identity.py',
@@ -1313,7 +1323,14 @@ def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_pat
         ('docker', 'context', 'show'): 'default',
         ('git', '-C', str(tmp_path), 'rev-parse', 'HEAD'): '1' * 40,
     }
-    monkeypatch.setattr(runtime, 'run', lambda argv: commands[tuple(argv)])
+    wrapper_relative = 'deploy/v3-production/backup/pgbackrest-operation.sh'
+    committed_blob = hashlib.sha256((tmp_path / wrapper_relative).read_bytes()).hexdigest()[:40]
+    commands[('git', '-C', str(tmp_path), 'rev-parse', '1' * 40 + ':' + wrapper_relative)] = committed_blob
+    def run(argv):
+        if len(argv) > 3 and argv[3] == 'hash-object':
+            return hashlib.sha256(Path(argv[-1]).read_bytes()).hexdigest()[:40]
+        return commands[tuple(argv)]
+    monkeypatch.setattr(runtime, 'run', run)
     docker_commands = {
         ('context', 'inspect', 'default'): json.dumps([
             {'Endpoints': {'docker': {'Host': 'unix:///var/run/docker.sock'}}}]),
@@ -1328,6 +1345,11 @@ def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_pat
     })
     path = tmp_path / changed
     path.write_bytes(path.read_bytes() + b'\n# changed source bytes\n')
+    if changed == wrapper_relative:
+        with pytest.raises(ValueError, match='backup_wrapper_committed_source_mismatch'):
+            runtime.guard()
+        assert report['script_sha256'] == original
+        return
     runtime.guard()
     assert report['source_git_sha'] == '1' * 40
     assert report['script_sha256'] != original
@@ -1342,3 +1364,121 @@ def test_authorize_rejects_script_drift_before_any_mutation(monkeypatch):
         module.execute('authorize', runtime, report, plan)
     assert not any(call[0] == 'query' and call[2] for call in calls)
     assert report['db_writes_performed'] is False
+
+
+def test_launcher_requires_python314_without_executing_python3_fallback(tmp_path):
+    fallback = tmp_path / 'python3'
+    marker = tmp_path / 'fallback-used'
+    fallback.write_text('#!/bin/bash\nprintf used > "$FALLBACK_MARKER"\n')
+    fallback.chmod(0o700)
+    result = subprocess.run(
+        ['/bin/bash', str(ROOT / 'scripts/operator/actions/v3-derived-generation-purge.sh'), 'plan'],
+        env={'PATH': str(tmp_path), 'FALLBACK_MARKER': str(marker)},
+        text=True, capture_output=True, check=False)
+    assert result.returncode == 1
+    assert json.loads(result.stdout)['failures'] == ['python314_required']
+    assert not marker.exists()
+
+
+def test_wal_delta_uses_parameterized_server_lsn_arithmetic():
+    module = _action_tool()
+    report = module.receipt('authorize')
+    report['wal_before'] = {'lsn': '1/FFFFFFF0'}
+    calls = []
+    def query(sql, params=None):
+        calls.append((sql, params))
+        if sql == module.WAL_SQL:
+            return {'lsn': '2/10'}
+        assert sql == module.WAL_LSN_DIFF_SQL
+        assert params == {'before_lsn': '1/FFFFFFF0', 'after_lsn': '2/10'}
+        return {'wal_byte_delta': 32}
+    module.finalize_wal_delta(SimpleNamespace(query=query), report)
+    assert report['wal_byte_delta'] == 32
+    assert 'pg_wal_lsn_diff' in calls[-1][0]
+    assert '1/FFFFFFF0' not in calls[-1][0]
+
+
+@pytest.mark.parametrize('before,after,delta', (
+    (None, '0/10', 0), ('0/10', None, 0), ('bad', '0/10', 0),
+    ('0/10', '0/20', None), ('0/10', '0/20', -1), ('0/10', '0/20', True),
+))
+def test_wal_delta_fails_closed_if_it_cannot_be_derived(before, after, delta):
+    module = _action_tool()
+    report = module.receipt('plan')
+    report['wal_before'] = {'lsn': before}
+    def query(sql, params=None):
+        if sql == module.WAL_SQL:
+            return {'lsn': after}
+        return {'wal_byte_delta': delta}
+    with pytest.raises(ValueError, match='wal_byte_delta_unavailable'):
+        module.finalize_wal_delta(SimpleNamespace(query=query), report)
+    assert report['status'] == 'stopped'
+    assert report['wal_byte_delta'] is None
+
+
+def test_backup_schedule_lock_is_nonblocking_and_held_for_entire_phase(tmp_path, monkeypatch):
+    module = _action_tool()
+    lock = tmp_path / 'backup.lock'
+    lock.touch(mode=0o600)
+    monkeypatch.setattr(module, 'BACKUP_SCHEDULE_LOCK', lock)
+    runtime = module.Runtime(module.receipt('authorize'))
+    monkeypatch.setattr(runtime, 'docker', lambda *args: 'PID COMMAND\n1 postgres')
+    with lock.open('r') as rival:
+        fcntl.flock(rival, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ValueError, match='backup_schedule_lock_held'), runtime.backup_lock():
+            pytest.fail('held backup lock admitted mutation')
+    with runtime.backup_lock(), lock.open('r') as rival:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(rival, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with lock.open('r') as rival:
+        fcntl.flock(rival, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize('processes,error', (
+    ('PID COMMAND\n123 pgbackrest --stanza=edfinder_v3 backup', 'backup_or_verify_process_active'),
+    ('PID COMMAND\n123 pgbackrest --stanza=edfinder_v3 verify', 'backup_or_verify_process_active'),
+    ('', 'backup_process_state_unknown'),
+    ('unrecognized-output', 'backup_process_state_unknown'),
+))
+def test_backup_process_gate_refuses_before_yield(tmp_path, monkeypatch, processes, error):
+    module = _action_tool()
+    monkeypatch.setattr(module, 'BACKUP_SCHEDULE_LOCK', tmp_path / 'backup.lock')
+    runtime = module.Runtime(module.receipt('complete'))
+    monkeypatch.setattr(runtime, 'docker', lambda *args: processes)
+    with pytest.raises(ValueError, match=error), runtime.backup_lock():
+        pytest.fail('backup gate failure admitted mutation')
+    assert runtime.report['db_writes_performed'] is False
+
+
+@pytest.mark.parametrize('mode', ('authorize', 'complete'))
+def test_single_transaction_mutators_hold_backup_lock_through_dispatch(monkeypatch, capsys, mode):
+    from contextlib import contextmanager
+    module = _action_tool()
+    calls = []
+    monkeypatch.setattr(module, 'authenticated_plan', lambda *args, **kwargs: {})
+    monkeypatch.setattr(module, 'authenticated_verification', lambda *args: {})
+    monkeypatch.setattr(module.Runtime, 'guard', lambda self: None)
+    monkeypatch.setattr(module.Runtime, 'state', lambda self: {'unresolved': []})
+    @contextmanager
+    def lease(self):
+        calls.append('lease-acquired')
+        yield
+        calls.append('lease-released')
+    @contextmanager
+    def backup_lock(self):
+        calls.append('backup-acquired')
+        yield
+        calls.append('backup-released')
+    monkeypatch.setattr(module.Runtime, 'lease', lease)
+    monkeypatch.setattr(module.Runtime, 'backup_lock', backup_lock)
+    def execute(mode, runtime, report, *args, **kwargs):
+        assert calls == ['lease-acquired', 'backup-acquired']
+        calls.append('execute')
+        report['status'] = 'success'
+    monkeypatch.setattr(module, 'execute', execute)
+    args = [mode, '--plan=unused', '--plan-sha256=' + '1' * 64]
+    if mode == 'complete':
+        args += ['--verification=unused', '--verification-sha256=' + '2' * 64]
+    assert module.main(args) == 0
+    assert calls == ['lease-acquired', 'backup-acquired', 'execute', 'backup-released', 'lease-released']
+    assert json.loads(capsys.readouterr().out)['status'] == 'success'

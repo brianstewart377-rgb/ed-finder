@@ -21,6 +21,18 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-15 — Bounded purge deletes and writer-fence recovery (P2b2a)
+
+Extended the governed purge action with bounded, resumable delete dispatches,
+per-batch disk/WAL/worker/controller checks, recorded-backend cancellation and
+batch recovery through migration 016. Added exact-prior writer-fence restore,
+signal cleanup ordering, acknowledged integrity-failure recovery and budgeted
+autovacuum abort. The API stays running under the selected read-only fence.
+The launcher requires CPython 3.14, source identity covers the backup wrapper,
+and successful receipts derive WAL deltas through PostgreSQL. Physical rewrites
+and their independent monitor remain P2b2b; workflow wiring and the disposable
+1% rehearsal remain P2c/P2d. No production operation is included.
+
 ## 2026-10-15 — Purge plans and single-transaction phases (P2b1)
 
 Added the governed purge action's closed mode allowlist, sealed read-only plan

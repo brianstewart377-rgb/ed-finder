@@ -126,6 +126,143 @@ SELECT jsonb_build_object('completed_ids',jsonb_agg(purge_id),'verified',count(d
  'snapshot_verified',1 / CASE WHEN v3_meta.purge_snapshot()=%(snapshot)s::jsonb THEN 1 ELSE 0 END)
  FROM completed;""", write=True)
 
+# Every identifier is fixed here. The relation code is only a bound value;
+# 016 owns its translation into the physical relation and all payload writes.
+PHASE_STATE_SQL = _session("""WITH requests AS (
+ SELECT * FROM v3_meta.derived_generation_purge_request WHERE purge_id IN
+ (SELECT value::uuid FROM jsonb_array_elements_text(%(purge_ids)s::jsonb))
+), events AS (
+ SELECT e.* FROM v3_meta.derived_generation_purge_event e JOIN requests p USING(purge_id)
+), opened AS (
+ SELECT e.* FROM events e WHERE e.event_kind IN
+ ('BATCH_STARTED','REWRITE_STARTED','AUTOVACUUM_DISABLED','SERVICES_QUIESCED')
+ AND NOT EXISTS (SELECT 1 FROM events z WHERE z.purge_id=e.purge_id
+ AND z.relation_code IS NOT DISTINCT FROM e.relation_code AND z.event_sequence>e.event_sequence
+ AND ((e.event_kind='BATCH_STARTED' AND z.event_kind IN ('BATCH_COMMITTED','BATCH_ROLLED_BACK'))
+ OR (e.event_kind='REWRITE_STARTED' AND z.event_kind IN ('REWRITE_VERIFIED','REWRITE_ROLLED_BACK'))
+ OR (e.event_kind='AUTOVACUUM_DISABLED' AND z.event_kind='AUTOVACUUM_RESTORED')
+ OR (e.event_kind='SERVICES_QUIESCED' AND z.event_kind='SERVICES_RESTORED')))
+), relation AS (
+ SELECT CASE %(relation)s WHEN 'system_search' THEN 'v3_derived.system_search'::regclass
+ WHEN 'economy_opportunity' THEN 'v3_derived.economy_opportunity'::regclass
+ WHEN 'body_mechanics' THEN 'v3_derived.body_mechanics'::regclass
+ WHEN 'system_rating_vector' THEN 'v3_derived.system_rating_vector'::regclass END AS oid
+)
+SELECT jsonb_build_object(
+ 'open_events',COALESCE((SELECT jsonb_agg(to_jsonb(e) || jsonb_build_object('backend_alive',
+ EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.pid=e.backend_pid AND a.backend_start=e.backend_start)))
+ FROM opened e),'[]'::jsonb),
+ 'writer_fence',(SELECT to_jsonb(e) FROM events e WHERE event_kind IN
+ ('WRITER_FENCE_ENABLED','WRITER_FENCE_RESTORED') ORDER BY event_sequence DESC LIMIT 1),
+ 'integrity_failures',COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM events e
+ WHERE event_kind='FAILED_STOP' AND failure_evidence->'integrity_failed'='true'::jsonb),'[]'::jsonb),
+ 'target_counts',(SELECT jsonb_object_agg(p.derived_generation_id::text,CASE %(relation)s
+ WHEN 'system_search' THEN (SELECT count(*) FROM v3_derived.system_search x WHERE x.derived_generation_id=p.derived_generation_id)
+ WHEN 'economy_opportunity' THEN (SELECT count(*) FROM v3_derived.economy_opportunity x WHERE x.derived_generation_id=p.derived_generation_id)
+ WHEN 'body_mechanics' THEN (SELECT count(*) FROM v3_derived.body_mechanics x WHERE x.derived_generation_id=p.derived_generation_id)
+ WHEN 'system_rating_vector' THEN (SELECT count(*) FROM v3_derived.system_rating_vector x WHERE x.derived_generation_id=p.derived_generation_id)
+ END) FROM requests p),
+ 'relation_bytes',(SELECT pg_total_relation_size(oid) FROM relation),
+ 'vacuum_running',EXISTS(SELECT 1 FROM pg_stat_progress_vacuum WHERE relid IN
+ ((SELECT oid FROM relation),(SELECT reltoastrelid FROM pg_class WHERE oid=(SELECT oid FROM relation)))),
+ 'ages',(SELECT jsonb_agg(jsonb_build_object('scope',CASE WHEN c.oid=r.oid THEN 'heap' ELSE 'toast' END,
+ 'xid_age',age(c.relfrozenxid)::bigint,'mxid_age',mxid_age(c.relminmxid)::bigint))
+ FROM relation r JOIN pg_class c ON c.oid IN (r.oid,(SELECT reltoastrelid FROM pg_class WHERE oid=r.oid))));""")
+AUTOVACUUM_SQL = _session("""WITH changed AS MATERIALIZED (
+ SELECT v3_meta.purge_set_relation_autovacuum(%(purge_id)s::uuid,%(relation)s,%(enabled)s::boolean)
+) SELECT jsonb_build_object('autovacuum_enabled',%(enabled)s::boolean) FROM changed;""", write=True)
+WRITER_SET_SQL = _session("""WITH changed AS MATERIALIZED (
+ SELECT v3_meta.purge_set_writer_fence(%(purge_id)s::uuid,%(enabled)s::boolean)
+) SELECT jsonb_build_object('enabled',%(enabled)s::boolean) FROM changed;""", write=True)
+WRITER_RECYCLE_SQL = _session("""SELECT jsonb_build_object('sessions_recycled',
+ v3_meta.purge_recycle_writer_sessions(%(purge_id)s::uuid,%(enabled)s::boolean));""", write=True)
+WRITER_VERIFY_SQL = _session("""WITH verified AS MATERIALIZED (
+ SELECT v3_meta.purge_verify_writer_fence(%(purge_id)s::uuid,%(enabled)s::boolean,%(observed)s)
+) SELECT jsonb_build_object('enabled',%(enabled)s::boolean,'verified',true) FROM verified;""", write=True)
+BATCH_SQL = (_session("""SELECT jsonb_build_object('start_event',v3_meta.purge_start_payload_batch(
+ %(purge_id)s::uuid,%(relation)s,%(max_rows)s::integer,%(evidence)s::jsonb));""", write=True)
+ + '\n' + _session("""SELECT jsonb_build_object('rows_affected',v3_meta.purge_derived_payload_batch(
+ %(purge_id)s::uuid,%(relation)s,%(max_rows)s::integer));""", write=True))
+CANCEL_BATCH_SQL = _session("""WITH condition AS MATERIALIZED (
+ SELECT set_config('v3.purge_cancel_condition',%(condition)s,true)
+) SELECT jsonb_build_object('cancelled',v3_meta.cancel_purge_batch(%(purge_id)s::uuid,%(relation)s))
+ FROM condition;""", write=True)
+ROLLBACK_BATCH_SQL = _session("""SELECT jsonb_build_object('event_sequence',v3_meta.purge_record_event(
+ %(purge_id)s::uuid,'BATCH_ROLLED_BACK',%(relation)s,%(evidence)s::jsonb));""", write=True)
+BATCH_RANGE_SQL = _session("""WITH started AS (
+ SELECT e.*,p.derived_generation_id FROM v3_meta.derived_generation_purge_event e
+ JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
+ WHERE e.purge_id=%(purge_id)s::uuid AND e.event_sequence=%(start_event)s::bigint
+ AND e.event_kind='BATCH_STARTED' AND e.relation_code=%(relation)s
+), bounds AS (
+ SELECT *,ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(
+ CASE WHEN jsonb_typeof(operational_payload->'low')='array' THEN operational_payload->'low' ELSE '[]'::jsonb END)
+ WITH ORDINALITY ORDER BY ordinality) AS low,
+ ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(
+ CASE WHEN jsonb_typeof(operational_payload->'high')='array' THEN operational_payload->'high' ELSE '[]'::jsonb END)
+ WITH ORDINALITY ORDER BY ordinality) AS high FROM started
+)
+SELECT jsonb_build_object('selected',(b.operational_payload->>'selected')::bigint,
+ 'range_rows',CASE %(relation)s
+ WHEN 'system_search' THEN (SELECT count(*) FROM v3_derived.system_search x
+ WHERE x.derived_generation_id=b.derived_generation_id AND x.system_id64>=b.low[1] AND x.system_id64<=b.high[1])
+ WHEN 'economy_opportunity' THEN (SELECT count(*) FROM v3_derived.economy_opportunity x
+ WHERE x.derived_generation_id=b.derived_generation_id
+ AND (x.system_id64,x.body_pk,x.economy_ordinal)>=(b.low[1],b.low[2],b.low[3]::smallint)
+ AND (x.system_id64,x.body_pk,x.economy_ordinal)<=(b.high[1],b.high[2],b.high[3]::smallint))
+ WHEN 'body_mechanics' THEN (SELECT count(*) FROM v3_derived.body_mechanics x
+ WHERE x.derived_generation_id=b.derived_generation_id
+ AND (x.system_id64,x.body_pk)>=(b.low[1],b.low[2])
+ AND (x.system_id64,x.body_pk)<=(b.high[1],b.high[2]))
+ WHEN 'system_rating_vector' THEN (SELECT count(*) FROM v3_derived.system_rating_vector x
+ WHERE x.derived_generation_id=b.derived_generation_id AND x.system_id64>=b.low[1] AND x.system_id64<=b.high[1])
+ END) FROM bounds b;""")
+RELATION_BYTES_SQL = _session("""SELECT jsonb_build_object('relation_bytes',pg_total_relation_size(
+ CASE %(relation)s WHEN 'system_search' THEN 'v3_derived.system_search'::regclass
+ WHEN 'economy_opportunity' THEN 'v3_derived.economy_opportunity'::regclass
+ WHEN 'body_mechanics' THEN 'v3_derived.body_mechanics'::regclass
+ WHEN 'system_rating_vector' THEN 'v3_derived.system_rating_vector'::regclass END));""")
+RELATION_EMPTY_SQL = _session("""WITH verified AS MATERIALIZED (
+ SELECT v3_meta.complete_derived_payload_relation(value::uuid,%(relation)s,%(receipt)s::jsonb)
+ FROM jsonb_array_elements_text(%(purge_ids)s::jsonb)
+) SELECT jsonb_build_object('logically_empty',true,'verified',count(*)) FROM verified;""", write=True)
+RELATION_FAILURE_SQL = _session("""WITH recorded AS MATERIALIZED (
+ SELECT v3_meta.purge_record_event(value::uuid,'FAILED_STOP',%(relation)s,%(evidence)s::jsonb) AS event
+ FROM jsonb_array_elements_text(%(purge_ids)s::jsonb)
+) SELECT jsonb_build_object('failed_stop_events',jsonb_agg(event)) FROM recorded;""", write=True)
+
+# pg_stat_activity backend identity is an owner-only observation, matching the
+# existing progress/competing-writer read boundary. Recovery must not inspect a
+# payload heap: a future rewrite can hold ACCESS EXCLUSIVE while recovery needs
+# to authenticate its backend and cancel it. This query is strictly read-only.
+_RECOVERY_STATE_READ = """BEGIN READ ONLY;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='45min';
+WITH requests AS (
+ SELECT purge_id FROM v3_meta.derived_generation_purge_request WHERE purge_id IN
+ (SELECT value::uuid FROM jsonb_array_elements_text(%(purge_ids)s::jsonb))
+), events AS (
+ SELECT e.* FROM v3_meta.derived_generation_purge_event e JOIN requests p USING(purge_id)
+), opened AS (
+ SELECT e.* FROM events e WHERE e.event_kind IN
+ ('BATCH_STARTED','REWRITE_STARTED','AUTOVACUUM_DISABLED','SERVICES_QUIESCED')
+ AND NOT EXISTS (SELECT 1 FROM events z WHERE z.purge_id=e.purge_id
+ AND z.relation_code IS NOT DISTINCT FROM e.relation_code AND z.event_sequence>e.event_sequence
+ AND ((e.event_kind='BATCH_STARTED' AND z.event_kind IN ('BATCH_COMMITTED','BATCH_ROLLED_BACK'))
+ OR (e.event_kind='REWRITE_STARTED' AND z.event_kind IN ('REWRITE_VERIFIED','REWRITE_ROLLED_BACK'))
+ OR (e.event_kind='AUTOVACUUM_DISABLED' AND z.event_kind='AUTOVACUUM_RESTORED')
+ OR (e.event_kind='SERVICES_QUIESCED' AND z.event_kind='SERVICES_RESTORED')))
+)
+SELECT jsonb_build_object(
+ 'open_events',COALESCE((SELECT jsonb_agg(to_jsonb(e) || jsonb_build_object('backend_alive',
+ EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.pid=e.backend_pid AND a.backend_start=e.backend_start)))
+ FROM opened e),'[]'::jsonb),
+ 'writer_fence',(SELECT to_jsonb(e) FROM events e WHERE event_kind IN
+ ('WRITER_FENCE_ENABLED','WRITER_FENCE_RESTORED') ORDER BY event_sequence DESC LIMIT 1),
+ 'integrity_failures',COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM events e
+ WHERE event_kind='FAILED_STOP' AND failure_evidence->'integrity_failed'='true'::jsonb),'[]'::jsonb));
+COMMIT;"""
+
 
 class PurgeTransactionError(ValueError):
     """A safe error code and non-secret observations for the outer receipt."""
@@ -363,3 +500,237 @@ def complete(query, reviewed_plan: dict, completion_receipt: dict, *, purge_ids,
             or result.get('snapshot') != reviewed_plan['snapshot'] or result.get('snapshot_verified') != 1):
         raise PurgeTransactionError('purge_completion_postcondition_unknown', waited)
     return {**result, 'competing_writer_wait': waited}
+
+
+def _relation(relation: str) -> str:
+    if relation not in RELATIONS:
+        raise PurgeTransactionError('purge_relation_invalid')
+    return relation
+
+
+def phase_state(query, purge_ids, relation: str) -> dict:
+    result = _result(query, PHASE_STATE_SQL,
+                     {'purge_ids': _json(_ids(purge_ids)), 'relation': _relation(relation)})
+    if (not isinstance(result.get('open_events'), list)
+            or not isinstance(result.get('integrity_failures'), list)
+            or not isinstance(result.get('ages'), list)
+            or not isinstance(result.get('target_counts'), dict)
+            or set(result['target_counts']) != set(TARGET_IDS)
+            or any(type(n) is not int or n < 0 for n in result['target_counts'].values())
+            or type(result.get('relation_bytes')) is not int or result['relation_bytes'] < 0
+            or type(result.get('vacuum_running')) is not bool):
+        raise PurgeTransactionError('purge_phase_state_invalid')
+    return {**result, **metadata_state(query, purge_ids)}
+
+
+def metadata_state(query, purge_ids) -> dict:
+    result = _result(query, _RECOVERY_STATE_READ, {'purge_ids': _json(_ids(purge_ids))})
+    if (not isinstance(result.get('open_events'), list)
+            or not isinstance(result.get('integrity_failures'), list)
+            or any(not isinstance(event, dict) for event in result['open_events'])):
+        raise PurgeTransactionError('purge_recovery_state_invalid')
+    for key, kind in (('open_batches', 'BATCH_STARTED'), ('open_rewrites', 'REWRITE_STARTED'),
+                      ('autovacuum_fences', 'AUTOVACUUM_DISABLED'), ('quiesced_services', 'SERVICES_QUIESCED')):
+        result[key] = [event for event in result['open_events'] if event.get('event_kind') == kind]
+    return result
+
+
+def autovacuum_fence(query, purge_ids, relation: str) -> dict:
+    """Adopt the existing physical fence only after checking its ledgered ages."""
+    ids = _ids(purge_ids)
+    state = phase_state(query, ids, relation)
+    if any(e['relation_code'] != relation for e in state['autovacuum_fences']):
+        raise PurgeTransactionError('different_relation_autovacuum_fence_open')
+    if state['vacuum_running']:
+        raise PurgeTransactionError('purge_relation_autovacuum_running')
+    existing = state['autovacuum_fences']
+    if existing:
+        options = existing[-1]['operational_payload']
+        for age in state['ages']:
+            recorded = options.get(age['scope'], {})
+            if any(type(age.get(key + '_age')) is not int
+                   or type(recorded.get(key + '_ceiling')) is not int
+                   or age[key + '_age'] >= recorded[key + '_ceiling'] for key in ('xid', 'mxid')):
+                raise PurgeTransactionError('purge_autovacuum_age_ceiling_exceeded', {'ages': state['ages']})
+        return {'adopted': True, 'event': existing[-1], 'ages': state['ages']}
+    result = _result(query, AUTOVACUUM_SQL,
+                     {'purge_id': ids[0], 'relation': _relation(relation), 'enabled': 'false'}, write=True)
+    return {**result, 'adopted': False}
+
+
+def writer_fence(query, purge_id: str, enabled: bool, probe, *, purge_ids=None) -> dict:
+    """Each adapter call commits: catalog change, recycle, fresh login, verify.
+
+    probe must create a fresh application-role login and return its observed
+    default_transaction_read_only. SET ROLE is never an application login.
+    """
+    if type(enabled) is not bool:
+        raise PurgeTransactionError('purge_writer_fence_enable_invalid')
+    if purge_ids is not None:
+        state = metadata_state(query, purge_ids)
+        event = state['writer_fence']
+        expected_kind = 'WRITER_FENCE_ENABLED' if enabled else 'WRITER_FENCE_RESTORED'
+        if (event and event['event_kind'] == expected_kind
+                and event['operational_payload'].get('verified') is True):
+            return {'enabled': enabled, 'verified': True, 'adopted': True}
+        if not enabled and event is None:
+            return {'enabled': False, 'verified': True, 'already_restored': True}
+    params = {'purge_id': str(UUID(purge_id)), 'enabled': str(enabled).lower()}
+    _result(query, WRITER_SET_SQL, params, write=True)
+    recycled = _result(query, WRITER_RECYCLE_SQL, params, write=True)
+    observed = probe()
+    if observed != ('on' if enabled else 'off'):
+        raise PurgeTransactionError('purge_writer_fence_fresh_probe_failed')
+    verified = _result(query, WRITER_VERIFY_SQL, {**params, 'observed': observed}, write=True)
+    return {**verified, **recycled, 'adopted': False}
+
+
+def payload_batch(query, purge_id: str, relation: str, max_rows: int, evidence: dict) -> dict:
+    if type(max_rows) is not int or not 1 <= max_rows <= 100_000:
+        raise PurgeTransactionError('purge_batch_limit_invalid')
+    waited = evidence.get('competing_writer_wait')
+    if waited is None:
+        waited = wait_for_competing_writers(query)
+    elif (not isinstance(waited, dict) or waited.get('maximum_seconds') != WRITER_WAIT_SECONDS
+          or type(waited.get('elapsed_seconds')) not in (int, float)
+          or not 0 <= waited['elapsed_seconds'] <= WRITER_WAIT_SECONDS
+          or type(waited.get('attempts')) is not int or not 1 <= waited['attempts'] <= WRITER_WAIT_SECONDS + 1
+          or type(waited.get('background_writer_observed')) is not bool
+          or type(waited.get('remaining_competing_writers')) is not int
+          or waited['remaining_competing_writers'] != 0):
+        raise PurgeTransactionError('purge_batch_competing_writer_wait_invalid')
+    result = _write_after_wait(query, BATCH_SQL, {
+        'purge_id': str(UUID(purge_id)), 'relation': _relation(relation), 'max_rows': str(max_rows),
+        'evidence': _json({**evidence, 'competing_writer_wait': waited}),
+    }, waited, 'batch')
+    if type(result.get('rows_affected')) is not int or not 0 <= result['rows_affected'] <= max_rows:
+        raise PurgeTransactionError('purge_batch_postcondition_unknown', waited)
+    return {**result, 'competing_writer_wait': waited}
+
+
+def cancel_batch(query, purge_id: str, relation: str, condition='owner_cancel') -> dict:
+    if condition not in ('owner_cancel', 'controller_loss', 'free_space_floor',
+                         'wal_archiver_failure', 'wal_retention', 'wal_filesystem'):
+        raise PurgeTransactionError('purge_cancel_condition_invalid')
+    return _result(query, CANCEL_BATCH_SQL, {'purge_id': str(UUID(purge_id)),
+                   'relation': _relation(relation), 'condition': condition}, write=True)
+
+
+def resolve_batches(query, purge_ids, relation=None, *, cancel=True,
+                    clock=time.monotonic, sleep=time.sleep, maximum_seconds=65) -> dict:
+    """016 atomically records every committed delete with BATCH_COMMITTED.
+
+    Therefore a departed backend with an open start is rollback evidence; its
+    recorded key range was never committed. Never synthesize a committed event.
+    """
+    if relation is not None:
+        _relation(relation)
+    state = metadata_state(query, purge_ids)
+    if state['open_rewrites']:
+        raise PurgeTransactionError('rewrite_resolution_requires_p2b2b')
+    resolved = []
+    for event in state['open_batches']:
+        if relation is not None and event['relation_code'] != relation:
+            raise PurgeTransactionError('different_relation_batch_open')
+        started = clock()
+        cancellation_attempted = False
+        while event['backend_alive']:
+            if cancel and not cancellation_attempted:
+                cancellation_attempted = True
+                try:
+                    cancel_batch(query, event['purge_id'], event['relation_code'])
+                except Exception:
+                    # A completing batch can win the cancellation race. Only
+                    # fresh ledger/backend evidence may resolve that outcome.
+                    pass
+            if clock() - started >= maximum_seconds:
+                raise PurgeTransactionError('purge_batch_backend_did_not_exit')
+            sleep(0.25)
+            current = metadata_state(query, purge_ids)
+            event = next((e for e in current['open_batches']
+                          if e['event_sequence'] == event['event_sequence']), None)
+            if event is None:
+                break
+        if event is not None:
+            evidence = _result(query, BATCH_RANGE_SQL, {
+                'purge_id': event['purge_id'], 'relation': _relation(event['relation_code']),
+                'start_event': str(event['event_sequence']),
+            })
+            if (type(evidence.get('selected')) is not int or evidence['selected'] < 0
+                    or type(evidence.get('range_rows')) is not int
+                    or evidence['range_rows'] != evidence['selected']):
+                failure = {'condition': 'batch_range_evidence_inconsistent', 'integrity_failed': False,
+                           'start_event': event['event_sequence'], 'recorded_key_range': {
+                               'low': event['operational_payload'].get('low'),
+                               'high': event['operational_payload'].get('high')}, **evidence}
+                record_failed_stop(query, purge_ids, failure, event['relation_code'])
+                raise PurgeTransactionError('batch_range_evidence_inconsistent', failure)
+            result = _result(query, ROLLBACK_BATCH_SQL, {
+                'purge_id': event['purge_id'], 'relation': event['relation_code'],
+                'evidence': _json({'recovered': True, 'start_event': event['event_sequence'],
+                                   'low': event['operational_payload'].get('low'),
+                                   'high': event['operational_payload'].get('high'),
+                                   'backend_departed': True, 'selected': evidence['selected'],
+                                   'range_rows': evidence['range_rows'],
+                                   'resolution_evidence': 'departed_backend_atomic_commit_receipt_and_intact_key_range'}),
+            }, write=True)
+            resolved.append(result['event_sequence'])
+    return {'resolved_batch_events': resolved}
+
+
+def record_failed_stop(query, purge_ids, evidence: dict, relation=None) -> dict:
+    # The physical phase is shared by both requests. A single event is enough
+    # for 016's plan-wide stop and gives the owner one exact acknowledgement.
+    ids = [_ids(purge_ids)[0]]
+    if relation is None:
+        return _result(query, FAILED_STOP_SQL, {'purge_ids': _json(ids),
+                       'evidence': _json(evidence)}, write=True)
+    _relation(relation)
+    return _result(query, RELATION_FAILURE_SQL, {'purge_ids': _json(ids),
+                   'relation': relation, 'evidence': _json(evidence)}, write=True)
+
+
+def acknowledge_failure(query, purge_ids, sequence: int) -> dict:
+    if type(sequence) is not int or sequence <= 0:
+        raise PurgeTransactionError('purge_failed_stop_acknowledgement_invalid')
+    return record_failed_stop(query, purge_ids, {'integrity_failed': False,
+                              'acknowledge_failed_stop': sequence, 'recovery_authorized': True})
+
+
+def abort_relation(query, purge_ids, relation: str, evidence: dict) -> dict:
+    ids = _ids(purge_ids)
+    _relation(relation)
+    state = metadata_state(query, ids)
+    if not any(e['relation_code'] == relation for e in state['autovacuum_fences']):
+        return {'aborted': True, 'already_restored': True, 'waiting_for_rewrite': True}
+    if state['open_batches'] or state['open_rewrites']:
+        raise PurgeTransactionError('purge_abort_open_operation')
+    size = _result(query, RELATION_BYTES_SQL, {'relation': relation}).get('relation_bytes')
+    if type(size) is not int or size < 0:
+        raise PurgeTransactionError('purge_relation_bytes_invalid')
+    budget = evidence.get('autovacuum_budget_bytes')
+    free = evidence.get('filesystem_free_bytes')
+    if type(budget) is not int or budget < size or type(free) is not int:
+        raise PurgeTransactionError('purge_abort_budget_invalid', {'relation_bytes': size})
+    needed = 100_000_000_000 + budget
+    if free < needed:
+        raise PurgeTransactionError('purge_abort_headroom_insufficient',
+                                    {'required_bytes': needed, 'shortfall_bytes': needed - free})
+    # 016's dedicated restoration requires this budgeted-abort evidence. Its
+    # AUTOVACUUM_RESTORED payload is immutable prior options, so the measured
+    # aborted:true receipt necessarily resides on this preceding FAILED_STOP.
+    receipt = record_failed_stop(query, ids, {**evidence, 'aborted': True,
+                                             'integrity_failed': False}, relation)
+    result = _result(query, AUTOVACUUM_SQL, {'purge_id': ids[0], 'relation': relation,
+                                            'enabled': 'true'}, write=True)
+    return {**result, **receipt, 'aborted': True, 'waiting_for_rewrite': True}
+
+
+def complete_relation(query, purge_ids, relation: str, receipt: dict) -> dict:
+    return _result(query, RELATION_EMPTY_SQL, {'purge_ids': _json(_ids(purge_ids)),
+                   'relation': _relation(relation), 'receipt': _json(receipt)}, write=True)
+
+
+# Stable descriptive aliases for the phase controller.
+run_payload_batch = payload_batch
+logical_empty = complete_relation
