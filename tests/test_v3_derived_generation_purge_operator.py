@@ -285,7 +285,8 @@ def _sealed_plan(module, path, *, age=0, **changes):
     now = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
     body = module.receipt('plan')
     body.update(status='success', reviewed_plan={'plan_sha256': '1' * 64},
-                created_at=(now - timedelta(seconds=age)).isoformat(), **changes)
+                created_at=(now - timedelta(seconds=age)).isoformat())
+    body.update(changes)
     value = module.evidence.seal(body)
     path.write_text(json.dumps(value))
     return now, value
@@ -1458,7 +1459,7 @@ def test_single_transaction_mutators_hold_backup_lock_through_dispatch(monkeypat
     monkeypatch.setattr(module, 'authenticated_plan', lambda *args, **kwargs: {})
     monkeypatch.setattr(module, 'authenticated_verification', lambda *args: {})
     monkeypatch.setattr(module.Runtime, 'guard', lambda self: None)
-    monkeypatch.setattr(module.Runtime, 'state', lambda self: {'unresolved': []})
+    monkeypatch.setattr(module.Runtime, 'state', lambda self, **kwargs: {'unresolved': []})
     @contextmanager
     def lease(self):
         calls.append('lease-acquired')
@@ -1482,3 +1483,84 @@ def test_single_transaction_mutators_hold_backup_lock_through_dispatch(monkeypat
     assert module.main(args) == 0
     assert calls == ['lease-acquired', 'backup-acquired', 'execute', 'backup-released', 'lease-released']
     assert json.loads(capsys.readouterr().out)['status'] == 'success'
+
+
+@pytest.mark.parametrize('budget', (True, 0, -1, 1.5, '1000', None, 2**63))
+def test_authenticated_plan_refuses_invalid_optional_autovacuum_budget(tmp_path, budget):
+    module = _action_tool()
+    path = tmp_path / 'plan.json'
+    now, plan = _sealed_plan(module, path, reviewed_plan={
+        'plan_sha256': '1' * 64,
+        'delete': {'system_search': {'batch_limit': 1000, 'autovacuum_budget_bytes': budget}},
+    })
+    with pytest.raises(ValueError, match='autovacuum_budget_invalid'):
+        module.authenticated_plan(path, plan['content_sha256'], now=now)
+
+
+@pytest.mark.parametrize('configuration', ({'batch_limit': 1000},
+                                         {'batch_limit': 1000, 'autovacuum_budget_bytes': 1_000_000}))
+def test_authenticated_plan_keeps_optional_rehearsal_budget_without_default(tmp_path, configuration):
+    module = _action_tool()
+    path = tmp_path / 'plan.json'
+    reviewed = {'plan_sha256': '1' * 64, 'delete': {'system_search': configuration}}
+    now, plan = _sealed_plan(module, path, reviewed_plan=reviewed)
+    result = module.authenticated_plan(path, plan['content_sha256'], now=now)
+    assert result['reviewed_plan'] == reviewed
+
+
+def test_generated_plan_does_not_invent_rehearsal_budget(monkeypatch):
+    module = _action_tool()
+    report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'plan')
+    module.execute('plan', runtime, report)
+    assert report['reviewed_plan']['delete'] == {
+        code: {'batch_limit': 1000} for code in module.RELATIONS.values()}
+
+
+@pytest.mark.parametrize('mode', ('plan', 'authorize', 'complete', 'verify-system-archetype-empty'))
+@pytest.mark.parametrize('kind', ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'))
+@pytest.mark.parametrize('open_batch', (False, True))
+def test_regular_dispatch_refuses_orphaned_application_fence_before_host_access(mode, kind, open_batch):
+    module = _action_tool()
+    report = module.receipt(mode)
+    unresolved = [{'event_kind': kind}]
+    if open_batch:
+        unresolved.append({'event_kind': 'BATCH_STARTED'})
+    state = {'unresolved': unresolved, 'failures': ['purge_unresolved_' + kind]}
+    runtime = SimpleNamespace(state=lambda **kwargs: state)
+    with pytest.raises(ValueError, match='orphaned_writer_fence_requires_restore_services'):
+        module.execute(mode, runtime, report)
+    assert report['purge_state'] is state
+    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': True}
+    assert report['db_writes_performed'] is False
+    assert report['service_changes_performed'] is False
+
+
+@pytest.mark.parametrize('failure', ('purge_unresolved_FAILED_STOP', 'purge_host_lease_held',
+                                   'purge_unresolved_REWRITE_STARTED'))
+def test_regular_dispatch_preserves_other_p2a_refusals(failure):
+    module = _action_tool()
+    report = module.receipt('authorize')
+    runtime = SimpleNamespace(state=lambda **kwargs: {'unresolved': [], 'failures': [failure]})
+    with pytest.raises(ValueError, match=failure):
+        module.execute('authorize', runtime, report)
+    assert report['db_writes_performed'] is False
+
+
+@pytest.mark.parametrize('mode', ('authorize', 'complete', 'delete-system-search', 'abort-relation-system-search'))
+@pytest.mark.parametrize('kind', ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'))
+def test_cli_refuses_orphaned_application_fence_before_acquiring_dispatch_lease(monkeypatch, capsys, mode, kind):
+    module = _action_tool()
+    monkeypatch.setattr(module, 'authenticated_plan', lambda *args, **kwargs: {})
+    monkeypatch.setattr(module, 'authenticated_verification', lambda *args, **kwargs: {})
+    monkeypatch.setattr(module.Runtime, 'guard', lambda self: None)
+    monkeypatch.setattr(module.Runtime, 'state', lambda self, **kwargs: {
+        'unresolved': [{'event_kind': kind}], 'failures': ['purge_unresolved_' + kind]})
+    monkeypatch.setattr(module.Runtime, 'lease', lambda self: pytest.fail('orphaned fence acquired lease'))
+    arguments = [mode, '--plan=unused', '--plan-sha256=' + '1' * 64]
+    if mode != 'authorize':
+        arguments += ['--verification=unused', '--verification-sha256=' + '2' * 64]
+    assert module.main(arguments) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report['failures'] == ['orphaned_writer_fence_requires_restore_services']
+    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': True}
+    assert report['db_writes_performed'] is False

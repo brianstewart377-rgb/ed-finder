@@ -242,10 +242,6 @@ class DispatchModel:
         event = {'event_kind': 'FAILED_STOP', 'event_sequence': 100 + len(self.failures),
                  'purge_id': self.ids[0], 'relation_code': relation,
                  'operational_payload': deepcopy(payload)}
-        if 'acknowledge_failed_stop' in payload:
-            for previous in self.failures:
-                if previous['event_sequence'] == payload['acknowledge_failed_stop']:
-                    previous['operational_payload']['integrity_failed'] = False
         self.failures.append(event)
         return event
 
@@ -260,6 +256,7 @@ class DispatchModel:
 
     def run(self, mode='delete-system-search', **kwargs):
         report = self.c.receipt(mode)
+        self.report = report
         self.d.dispatch(self.c, mode, self.runtime, report, self.plan, self.proof,
                         controller_pid=123, controller_run_id='456', **kwargs)
         return report
@@ -323,9 +320,11 @@ def test_each_batch_has_fresh_gates_and_competing_writer_wait(monkeypatch):
     assert model.log.count('exact-boundary-counts') == 2
     assert 'database-counts' not in model.log
     assert model.log.index('relation-logically-empty') < model.log.index('writer-restored')
+    assert report['writer_fence']['enabled'] is False
+    assert report['writer_fence']['verified'] is True
 
 
-def test_integrity_failure_leaves_writer_fence_open_and_restore_requires_exact_ack(monkeypatch):
+def test_integrity_failure_preserves_original_stop_and_reports_016_ack_conflict(monkeypatch):
     model = DispatchModel(monkeypatch)
     model.integrity = 'survivors'
     with pytest.raises(ValueError, match='delete_published_survivor_count_drift'):
@@ -338,10 +337,14 @@ def test_integrity_failure_leaves_writer_fence_open_and_restore_requires_exact_a
     assert model.writer
     with pytest.raises(ValueError, match='acknowledgement_required'):
         model.run('restore-services', acknowledge_failed_stop=failed_sequence + 1)
-    report = model.run('restore-services', acknowledge_failed_stop=failed_sequence)
-    assert report['writer_restore']['acknowledge_failed_stop'] == failed_sequence
-    assert not model.writer
-    assert any(e['operational_payload'].get('acknowledge_failed_stop') == failed_sequence for e in model.failures)
+    original = deepcopy(model.failures)
+    mutations = list(model.mutations)
+    with pytest.raises(ValueError, match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
+        model.run('restore-services', acknowledge_failed_stop=failed_sequence)
+    assert model.writer
+    assert model.mutations == mutations
+    assert model.failures == original
+    assert original[-1]['operational_payload']['integrity_failed'] is True
 
 
 def test_restore_dispatch_resolves_open_batch_before_writer_restore_and_is_idempotent(monkeypatch):
@@ -350,11 +353,14 @@ def test_restore_dispatch_resolves_open_batch_before_writer_restore_and_is_idemp
     model.auto = 'system_search'
     first = model.run('restore-services')
     assert first['status'] == 'success'
+    assert first['writer_fence']['enabled'] is False
+    assert first['writer_fence']['verified'] is True
     assert model.log.index('batch-backend-cancelled-and-gone') < model.log.index('batch-rolled-back')
     assert model.log.index('batch-rolled-back') < model.log.index('writer-restored')
     mutations = list(model.mutations)
     second = model.run('restore-services')
     assert second['status'] == 'success'
+    assert second['writer_fence']['enabled'] is False
     assert model.mutations == mutations
     assert model.auto == 'system_search'
 
@@ -362,6 +368,7 @@ def test_restore_dispatch_resolves_open_batch_before_writer_restore_and_is_idemp
 def test_abort_dispatch_reports_shortfall_before_releasing_autovacuum(monkeypatch):
     model = DispatchModel(monkeypatch)
     model.auto = 'system_search'
+    model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = model.relation_bytes
     model.free = model.c.FREE_FLOOR_BYTES + model.relation_bytes - 1
     with pytest.raises(ValueError, match='abort_autovacuum_headroom_shortfall'):
         model.run('abort-relation-system-search')
@@ -372,7 +379,89 @@ def test_abort_dispatch_reports_shortfall_before_releasing_autovacuum(monkeypatc
     assert report['abort_headroom']['shortfall_bytes'] == 0
     assert report['abort_headroom']['autovacuum_budget_bytes'] >= model.relation_bytes
     assert model.auto is None
-    assert report['next_admissible_mode']['mode'] == 'rewrite-system-search'
+    assert report['next_admissible_mode']['mode'] == 'delete-system-search'
+    assert model.log.index('autovacuum-restored-aborted') < model.log.index('database-counts')
+
+
+@pytest.mark.parametrize('budget', (None, True, False, 0, -1, 1.5, '3000000000', 2**63))
+def test_abort_requires_valid_measured_plan_budget_before_any_mutation(monkeypatch, budget):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    if budget is not None:
+        model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = budget
+    with pytest.raises(ValueError, match='autovacuum_budget_not_measured'):
+        model.run('abort-relation-system-search')
+    assert model.mutations == []
+    assert model.auto == 'system_search'
+
+
+@pytest.mark.parametrize('budget', (1, 4_000_000_000))
+def test_abort_uses_larger_of_rehearsal_budget_and_current_size(monkeypatch, budget):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = budget
+    required = model.c.FREE_FLOOR_BYTES + max(budget, model.relation_bytes)
+    model.free = required - 1
+    with pytest.raises(ValueError, match='abort_autovacuum_headroom_shortfall'):
+        model.run('abort-relation-system-search')
+    assert model.mutations == []
+    model.free = required
+    report = model.run('abort-relation-system-search')
+    assert report['abort_headroom']['required_bytes'] == required
+    assert report['abort_headroom']['autovacuum_budget_bytes'] == max(budget, model.relation_bytes)
+
+
+@pytest.mark.parametrize(('counts', 'expected'), (
+    ((0, 0), 'rewrite-system-search'), ((0, 2), 'delete-system-search'),
+    ((None, None), 'status'), ((0, None), 'status'), ((None, 2), 'delete-system-search'),
+    ((-1, 0), 'status'), ((False, 0), 'status'),
+))
+def test_abort_guidance_uses_both_fresh_target_counts(monkeypatch, counts, expected):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = model.relation_bytes
+    query = model.runtime.query
+    def observed(sql, *args, **kwargs):
+        if sql == model.c.STATUS_RELATION_SQL['system_search']:
+            assert model.auto is None
+            return {'targets': dict(zip(model.ids, counts, strict=True))}
+        return query(sql, *args, **kwargs)
+    model.runtime.query = observed
+    report = model.run('abort-relation-system-search')
+    assert report['next_admissible_mode']['mode'] == expected
+    assert report['rows_remaining'] == dict(zip(model.ids, counts, strict=True))
+
+
+def test_abort_with_unavailable_fresh_counts_recommends_status(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = model.relation_bytes
+    query = model.runtime.query
+    def locked(sql, *args, **kwargs):
+        if sql == model.c.STATUS_RELATION_SQL['system_search']:
+            raise RuntimeError('database_lock_timeout')
+        return query(sql, *args, **kwargs)
+    model.runtime.query = locked
+    assert model.run('abort-relation-system-search')['next_admissible_mode']['mode'] == 'status'
+
+
+@pytest.mark.parametrize('mode', ('delete-system-search', 'abort-relation-system-search'))
+@pytest.mark.parametrize('open_batch', (False, True))
+def test_lost_dispatch_writer_fence_requires_explicit_restoration(monkeypatch, mode, open_batch):
+    model = DispatchModel(monkeypatch)
+    model.writer = True
+    model.open_batch = open_batch
+    model.auto = 'system_search'
+    # Includes death after final commit, with no open BATCH_STARTED.
+    model.counts = dict.fromkeys(model.ids, 0)
+    with pytest.raises(ValueError, match='orphaned_writer_fence_requires_restore_services'):
+        model.run(mode)
+    assert model.mutations == []
+    assert model.writer
+    assert model.report['next_admissible_mode']['mode'] == 'restore-services'
+    restored = model.run('restore-services')
+    assert restored['writer_fence']['enabled'] is False
+    assert not model.writer
 
 
 def test_stop_request_during_batch_waits_for_commit_before_restoring_writer(monkeypatch):

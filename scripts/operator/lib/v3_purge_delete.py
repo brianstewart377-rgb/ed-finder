@@ -220,8 +220,10 @@ def run_loop_process(work, report, stop):
 
 def admission(mode, unresolved, ids, relation):
     kinds = {event['event_kind'] for event in unresolved}
-    if mode != 'restore-services' and 'BATCH_STARTED' in kinds and 'WRITER_FENCE_ENABLED' in kinds:
-        raise ValueError('open_batch_and_writer_fence_requires_restore_services')
+    # Admission runs before this dispatch opens any fence. A prior dispatch's
+    # writer fence is recovery work even if its final batch already committed.
+    if mode != 'restore-services' and kinds & {'WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'}:
+        raise ValueError('orphaned_writer_fence_requires_restore_services')
     for event in unresolved:
         if event['purge_id'] not in ids:
             raise ValueError('different_purge_fence_open')
@@ -250,6 +252,8 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     if plan is None:
         raise ValueError('authenticated_plan_required')
     reviewed = plan['reviewed_plan']
+    relation = None if mode == 'restore-services' else c.RELATIONS[
+        mode.removeprefix('delete-').removeprefix('abort-relation-')]
     ids = tx.get_purge_ids(runtime.query, reviewed['plan_sha256'])
     requests = tx._requests(runtime.query, ids, reviewed)
     report.update(purge_id=ids, reviewed_plan_sha256=reviewed['plan_sha256'])
@@ -257,11 +261,18 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     if proof['status'] != 'proven':
         raise ValueError('sealed_verification_required')
     report['system_archetype_verification'] = proof
-    relation = None if mode == 'restore-services' else c.RELATIONS[
-        mode.removeprefix('delete-').removeprefix('abort-relation-')]
     report['relation'] = relation
     state = runtime.state(allow_unresolved=True)
+    if mode != 'restore-services' and any(e['event_kind'] in ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED')
+                                        for e in state['unresolved']):
+        report['next_admissible_mode'] = {'mode': 'restore-services', 'implemented': True}
     admission(mode, state['unresolved'], ids, relation)
+    if mode.startswith('abort-relation-'):
+        # Only a rehearsal-backed authenticated plan may supply this optional
+        # budget. Current relation size is a lower bound, never a substitute.
+        budget = reviewed.get('delete', {}).get(relation, {}).get('autovacuum_budget_bytes')
+        if type(budget) is not int or not 0 < budget <= 2**63 - 1:
+            raise ValueError('autovacuum_budget_not_measured')
     identity = runtime.query(c.IDENTITY_SQL)
     defaults = identity.get('role_defaults')
     if (not isinstance(defaults, list) or any(v not in ('default_transaction_read_only=off',
@@ -297,7 +308,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         # 016 records the budgeted abort in FAILED_STOP before restoring its
         # exact prior heap/TOAST options. No logical completion is synthesized.
         current_bytes = sum(obj['total_bytes'] for obj in objects if obj['relation'] == 'v3_derived.' + relation)
-        budget = max(current_bytes, reviewed.get('delete', {}).get(relation, {}).get('autovacuum_budget_bytes', current_bytes))
+        budget = max(budget, current_bytes)
         measured = measurement(c, runtime, identity, report, report['wal_before'], 0)
         measured.update(autovacuum_budget_bytes=budget, aborted=True)
         report['abort_headroom'] = {**measured, 'required_bytes': c.FREE_FLOOR_BYTES + budget,
@@ -305,7 +316,22 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         if measured['filesystem_free_bytes'] < c.FREE_FLOOR_BYTES + budget:
             raise ValueError('abort_autovacuum_headroom_shortfall')
         report['result'] = tx.abort_relation(runtime.query, ids, relation, measured)
-        report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('abort-relation-'), 'implemented': False}
+        # An aborted relation may still hold target rows. Guidance is based on
+        # a new count after restoration, never the plan or pre-abort counts.
+        report['next_admissible_mode'] = {'mode': 'status', 'reason': 'relation_counts_not_proven'}
+        try:
+            observed = runtime.query(c.STATUS_RELATION_SQL[relation]).get('targets')
+        except RuntimeError:
+            observed = None
+        target_ids = [target[0] for target in c.TARGETS.values()]
+        if isinstance(observed, dict):
+            report['rows_remaining'] = {key: observed.get(key) for key in target_ids}
+            counts = [observed.get(key) for key in target_ids]
+            valid = [count for count in counts if type(count) is int and count >= 0]
+            if any(valid):
+                report['next_admissible_mode'] = {'mode': 'delete-' + mode.removeprefix('abort-relation-'), 'implemented': True}
+            elif len(valid) == len(target_ids):
+                report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('abort-relation-'), 'implemented': False}
         c.finalize_wal_delta(runtime, report)
         report['status'] = 'success'
         return
@@ -540,13 +566,17 @@ def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
         sequences = {e['event_sequence'] for e in failures}
         if acknowledgement not in sequences or len(sequences) != 1:
             raise ValueError('integrity_failed_stop_acknowledgement_required')
-        tx.record_failed_stop(runtime.query, ids, {'acknowledge_failed_stop': acknowledgement,
-                             'integrity_failed': False, 'recovery': 'restore-services'})
+        # Immutable 016 cannot put an acknowledgement in its dedicated writer
+        # restore payload. Refuse rather than append a synthetic FAILED_STOP.
+        raise ValueError('integrity_failed_stop_acknowledgement_payload_unsupported_016')
     # Resolve before even sampling the restore's LSN, with exact PID+start guard.
     tx.resolve_batches(runtime.query, ids)
     if report.get('wal_before') is None:
         report['wal_before'] = runtime.query(c.WAL_SQL)
+    restored = {}
     for purge_id in ids:
-        tx.writer_fence(runtime.query, purge_id, False, lambda: fresh_probe(runtime, c), purge_ids=ids)
+        restored.update(tx.writer_fence(runtime.query, purge_id, False,
+                                        lambda: fresh_probe(runtime, c), purge_ids=ids))
+    report['writer_fence'] = {**(report.get('writer_fence') or {}), **restored, 'enabled': False, 'verified': True}
     report['writer_restore'] = {'verified': True, 'acknowledge_failed_stop': acknowledgement}
     report['result'] = 'writer_fence_restored'

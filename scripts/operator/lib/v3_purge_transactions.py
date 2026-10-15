@@ -325,11 +325,32 @@ def collect_plan(query, source_git_sha: str, actor: str, reason: str) -> dict:
 
 def seal_plan(query, plan_body: dict) -> dict:
     """Reseal after adding observations such as the autovacuum measurement."""
+    validate_delete_plan_budgets(plan_body)
     body = {k: v for k, v in plan_body.items() if k != 'plan_sha256'}
     digest = _result(query, PLAN_HASH_SQL, {'plan': _json(body)}).get('plan_sha256')
     if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
         raise PurgeTransactionError('purge_plan_digest_invalid')
     return {**body, 'plan_sha256': digest}
+
+
+def validate_delete_plan_budgets(reviewed_plan: dict) -> None:
+    """Validate optional rehearsal inputs without creating a release budget.
+
+    P2d may supply ``delete[relation].autovacuum_budget_bytes`` from its
+    rehearsal. Ordinary read-only plan observations cannot derive that bound,
+    so missing budgets remain missing in the authenticated plan.
+    """
+    configuration = reviewed_plan.get('delete', {})
+    if (not isinstance(configuration, dict) or any(
+            relation not in RELATIONS or not isinstance(config, dict)
+            for relation, config in configuration.items())):
+        raise PurgeTransactionError('purge_delete_plan_configuration_invalid')
+    for config in configuration.values():
+        if 'autovacuum_budget_bytes' not in config:
+            continue
+        budget = config['autovacuum_budget_bytes']
+        if type(budget) is not int or not 0 < budget <= 2**63 - 1:
+            raise PurgeTransactionError('autovacuum_budget_invalid')
 
 
 def wait_for_competing_writers(query, *, clock=time.monotonic, sleep=time.sleep) -> dict:
@@ -693,8 +714,12 @@ def record_failed_stop(query, purge_ids, evidence: dict, relation=None) -> dict:
 def acknowledge_failure(query, purge_ids, sequence: int) -> dict:
     if type(sequence) is not int or sequence <= 0:
         raise PurgeTransactionError('purge_failed_stop_acknowledgement_invalid')
-    return record_failed_stop(query, purge_ids, {'integrity_failed': False,
-                              'acknowledge_failed_stop': sequence, 'recovery_authorized': True})
+    # 016 accepts acknowledgements only through another FAILED_STOP. Its
+    # dedicated writer restoration functions cannot record the required restore
+    # payload, and the generic recorder refuses WRITER_FENCE_RESTORED. Preserve
+    # the original integrity stop until separate repair authority resolves this
+    # contract; an acknowledgement must never masquerade as another failure.
+    raise PurgeTransactionError('integrity_failed_stop_acknowledgement_payload_unsupported_016')
 
 
 def abort_relation(query, purge_ids, relation: str, evidence: dict) -> dict:

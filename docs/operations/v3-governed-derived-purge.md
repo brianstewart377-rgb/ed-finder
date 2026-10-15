@@ -283,6 +283,13 @@ with `backend_start`. A different relation's open batch or autovacuum fence
 refuses the dispatch. An open writer/service fence from an interrupted
 controller requires `restore-services` before a new delete dispatch.
 
+This restoration requirement applies even when no batch remains open, and to
+every non-restoration mutating mode: `authorize`, `complete`, `delete-`,
+`abort-relation-`, and future `rewrite-` dispatches. A new dispatch never adopts
+a writer or service fence left by another dispatch. Restore the interrupted
+dispatch first; aborting an autovacuum fence cannot leave application writes
+disabled.
+
 The action opens or adopts the relation's `AUTOVACUUM_DISABLED` fence through
 016, preserving the ledgered prior heap and TOAST settings. Adoption remeasures
 XID and MultiXact ages against the original ceilings; it never resets the
@@ -351,6 +358,8 @@ returns the `python314_required` receipt before host/database access. Script
 identity includes the committed pgBackRest wrapper so local drift refuses
 admission. Each successful non-status receipt derives `wal_byte_delta` from its
 before/after LSNs with `pg_wal_lsn_diff`; an unprovable delta fails closed.
+After verified restoration, the receipt's canonical `writer_fence` reports the
+restored state; `writer_restore` retains restoration details.
 
 ## Interrupted dispatch: restore-services
 
@@ -365,35 +374,53 @@ a rollback. An open `REWRITE_STARTED` refuses with
 `rewrite_resolution_requires_p2b2b`; physical rewrite recovery belongs to the
 next PR.
 
-After an integrity-failed stop, supply
-`--acknowledge-failed-stop=<event-sequence>` only after the owner has reviewed
-that event's evidence. Without the exact sequence restoration refuses. The
-recovery `FAILED_STOP` record and receipt retain the acknowledgement. Acknowledgement grants no data
-repair or pointer-change authority. The trap never supplies it automatically.
-The two committed restoration steps and fresh-role verification above apply;
-already verified restoration is a safe no-op. Under option (b) there are no
-stopped services to restart. Quiesced-service restoration remains refused until
-a future owner decision and implementation select option (a).
+After an integrity-failed stop, restoration requires owner review and the exact
+`--acknowledge-failed-stop=<event-sequence>`. There is currently a blocking
+contract conflict: design section 4.2 requires the acknowledgement in the
+restore event payload, while immutable migration 016's dedicated writer
+restoration functions accept no payload. Its generic recorder refuses
+`WRITER_FENCE_RESTORED`; `SERVICES_RESTORED` requires an actual quiesced-service
+record and cannot substitute for writer restoration. In addition, 016's
+recovery guard recognizes acknowledgement only in a later `FAILED_STOP`.
+Restoration stops with
+`integrity_failed_stop_acknowledgement_payload_unsupported_016` after validating
+the exact acknowledgement; do not append a synthetic `FAILED_STOP` to
+manufacture acknowledgement. No migration change is authorized here.
+
+The original integrity `FAILED_STOP` remains untouched. P2a continues to refuse
+other mutators on that event even after owner acknowledgement: an integrity
+failure needs separately reviewed repair authority. Acknowledgement grants no
+data repair or pointer-change authority, and the trap never supplies it
+automatically. For restoration without an integrity failure, the two committed
+steps and fresh-role verification above apply; already verified restoration is
+a safe no-op. Under option (b) there are no stopped services to restart.
+Quiesced-service restoration remains refused until a future owner decision and
+implementation select option (a).
 
 ## Abandoning a relation: abort-relation
 
 `abort-relation-<relation>` releases only that relation's autovacuum fence after
-its authenticated plan/proof and recovery gates pass. Measure free space and
-the current heap-plus-index bytes first. Required headroom is the 100 GB floor
-plus the relation's rehearsal-based autovacuum budget, with the budget never
-below its current heap-plus-index bytes. If that does not fit, the receipt
-reports the shortfall and leaves the fence open; free space must be added before
-retrying.
+its authenticated plan/proof and recovery gates pass. The authenticated plan's
+optional `reviewed_plan.delete[relation].autovacuum_budget_bytes` must carry a
+valid rehearsal-derived measurement. The plan generator supplies no default: abort
+is unavailable until P2d's rehearsal figures are included in the reviewed plan,
+and missing evidence refuses with `autovacuum_budget_not_measured`. Invalid
+values fail plan validation with `autovacuum_budget_invalid`. Measure free space
+and the current heap-plus-index bytes first. Required headroom is the 100 GB floor plus
+`max(autovacuum_budget_bytes, current heap-plus-index bytes)`. If that does not
+fit, the receipt reports the shortfall and leaves the fence open; free space
+must be added before retrying.
 
 After that gate, the action restores the exact ledgered heap and TOAST
 `autovacuum_enabled` states through `purge_set_relation_autovacuum` and appends
 `AUTOVACUUM_RESTORED`. The preceding budgeted `FAILED_STOP` carries
 `aborted: true` and measured headroom. The
-relation remains physically unreclaimed. An emptied relation stays logically
-empty and `status` reports it as waiting for rewrite; if the owner abandons a
-partially deleted relation, its remaining target rows still require deletion
-before rewrite. `complete` continues to refuse. P2b2b's rewrite must establish a new autovacuum fence when adopting an
-aborted relation, then verify the physical rewrite before restoring it.
+relation remains physically unreclaimed. Fresh counts for both targets determine
+the receipt's next mode: `delete-<relation>` when target rows remain,
+`rewrite-<relation>` only when both counts are zero, and `status` when counts
+are unproven. `complete` continues to refuse. P2b2b's rewrite must establish a
+new autovacuum fence when adopting an aborted relation, then verify the
+physical rewrite before restoring it.
 
 
 016 has two additional recovery constraints that this action preserves. Its
@@ -404,8 +431,6 @@ the prerequisite `FAILED_STOP` instead of that closing event. Likewise,
 `BATCH_COMMITTED` is appended only atomically by `purge_derived_payload_batch`;
 recovery cannot invent it. A departed backend with a still-open start proves
 that delete did not commit, and recovery records `BATCH_ROLLED_BACK`. The
-recorded key range is checked before that resolution. Finally, the dedicated
-writer-restoration functions have no acknowledgement-payload argument; the
-acknowledgement is recorded in a separate recovery `FAILED_STOP` and in the
-receipt, rather than injected into `WRITER_FENCE_RESTORED`. The action changes
-no 016 function or grant.
+recorded key range is checked before that resolution. The writer-restoration
+acknowledgement conflict is described above; it must not be worked around with
+a synthetic failure event. The action changes no 016 function or grant.

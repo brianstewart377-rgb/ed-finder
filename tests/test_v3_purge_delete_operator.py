@@ -132,6 +132,18 @@ def test_admission_adopts_only_matching_relation_and_keeps_rewrite_refused():
                         ['one', 'two'], None)
 
 
+@pytest.mark.parametrize('mode', ('delete-system-search', 'abort-relation-system-search',
+                                  'authorize', 'complete', 'rewrite-system-search'))
+@pytest.mark.parametrize('kind', ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'))
+@pytest.mark.parametrize('open_batch', (False, True))
+def test_prior_dispatch_writer_or_service_fence_always_requires_restoration(mode, kind, open_batch):
+    events = [{'purge_id': 'one', 'relation_code': None, 'event_kind': kind}]
+    if open_batch:
+        events.append({'purge_id': 'one', 'relation_code': 'system_search', 'event_kind': 'BATCH_STARTED'})
+    with pytest.raises(ValueError, match='orphaned_writer_fence_requires_restore_services'):
+        purge.admission(mode, events, ['one', 'two'], 'system_search')
+
+
 def test_restore_resolves_batch_before_restoring_writer_and_is_idempotent():
     trace = []
     restored = set()
@@ -142,12 +154,16 @@ def test_restore_resolves_batch_before_restoring_writer_and_is_idempotent():
         if purge_id not in restored:
             trace.append('restore:' + purge_id)
             restored.add(purge_id)
+        return {'enabled': False, 'verified': True, 'sessions_recycled': 3}
     tx = SimpleNamespace(resolve_batches=lambda *_: trace.append('resolved_batch'), writer_fence=writer_fence)
-    report = {'wal_before': {}}
+    report = {'wal_before': {}, 'writer_fence': {'application_role': 'edfinder_v3',
+                                               'enabled': True, 'verified': True}}
     purge.restore(SimpleNamespace(), tx, runtime, report, ['one', 'two'], None)
     purge.restore(SimpleNamespace(), tx, runtime, report, ['one', 'two'], None)
     assert trace == ['resolved_batch', 'restore:one', 'restore:two', 'resolved_batch']
     assert report['writer_restore']['verified'] is True
+    assert report['writer_fence'] == {'application_role': 'edfinder_v3', 'enabled': False,
+                                      'verified': True, 'sessions_recycled': 3}
 
 
 def test_integrity_failure_never_auto_restores_and_requires_exact_acknowledgement():
@@ -166,9 +182,10 @@ def test_integrity_failure_never_auto_restores_and_requires_exact_acknowledgemen
         with pytest.raises(ValueError, match='acknowledgement_required'):
             purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], acknowledgement)
     assert trace == []
-    purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], 17)
-    assert trace[0]['acknowledge_failed_stop'] == 17
-    assert trace[1:] == ['resolved_batch', 'restored']
+    with pytest.raises(ValueError, match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
+        purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], 17)
+    assert trace == []
+    assert runtime.state()['unresolved'] == [failure]
 
 
 @pytest.mark.parametrize('relation', ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector'))

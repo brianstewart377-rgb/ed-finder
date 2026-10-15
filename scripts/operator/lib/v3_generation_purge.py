@@ -140,6 +140,7 @@ def authenticated_plan(path, expected_sha, *, now=None, require_fresh=True):
         raise ValueError('plan_expired_or_future')
     if not isinstance(plan.get('reviewed_plan'), dict):
         raise ValueError('plan_database_contract_missing')
+    _load('v3_purge_transactions').validate_delete_plan_budgets(plan['reviewed_plan'])
     return plan
 
 
@@ -865,6 +866,19 @@ def _snapshot_fields(report, observed):
     report['rows_remaining'] = {target['id']: target['payload_counts'] for target in observed['targets']}
 
 
+def admission_state(runtime, report, *, allow_unresolved=False):
+    """Observe P2a without hiding recovery guidance behind its refusal."""
+    state = runtime.state(allow_unresolved=True)
+    report['purge_state'] = state
+    if any(event['event_kind'] in ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED')
+           for event in state['unresolved']):
+        report['next_admissible_mode'] = {'mode': 'restore-services', 'implemented': True}
+        raise ValueError('orphaned_writer_fence_requires_restore_services')
+    if not allow_unresolved and state.get('failures'):
+        raise ValueError(','.join(state['failures']))
+    return state
+
+
 def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
             verification=None, phase_options=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
@@ -874,7 +888,8 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         return
     transactions = _load('v3_purge_transactions')
     # First observation on mutating modes is P2a admission, before taking lease.
-    state = runtime.state(allow_unresolved=mode == 'status')
+    state = (runtime.state(allow_unresolved=True) if mode == 'status'
+             else admission_state(runtime, report))
     report['purge_state'] = state
     if mode == 'status':
         progress = runtime.query(PROGRESS_SQL)
@@ -1107,7 +1122,10 @@ def main(argv=None):
         runtime = Runtime(report)
         runtime.guard()
         if phase_mode:
-            runtime.state(allow_unresolved=True)
+            if mode == 'restore-services':
+                runtime.state(allow_unresolved=True)
+            else:
+                admission_state(runtime, report, allow_unresolved=True)
             with runtime.lease():
                 with runtime.backup_lock():
                     execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason,
@@ -1115,7 +1133,7 @@ def main(argv=None):
         elif mode in ('authorize', 'complete', 'verify-system-archetype-empty'):
             # Check first, then take the lease and recheck under it. The second
             # check knows it owns the lease, so cannot mistake itself for a rival.
-            runtime.state()
+            admission_state(runtime, report)
             with runtime.lease():
                 if mode in ('authorize', 'complete'):
                     with runtime.backup_lock():

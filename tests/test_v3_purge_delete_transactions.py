@@ -204,9 +204,47 @@ def test_shared_plan_failure_has_one_exact_acknowledgement_sequence():
         calls.append(json.loads(params['evidence']))
         return {'failed_stop_events': [17 if len(calls) == 1 else 18]}
     assert tool.record_failed_stop(query, IDS, {'integrity_failed': True})['failed_stop_events'] == [17]
-    tool.acknowledge_failure(query, IDS, 17)
-    assert calls[1]['acknowledge_failed_stop'] == 17
-    assert calls[1]['integrity_failed'] is False
+    with pytest.raises(tool.PurgeTransactionError,
+                       match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
+        tool.acknowledge_failure(query, IDS, 17)
+    assert calls == [{'integrity_failed': True}]
+
+
+@pytest.mark.parametrize('sequence', (None, False, 0, -1, '17'))
+def test_invalid_failed_stop_acknowledgement_never_reaches_database(sequence):
+    def query(*_args, **_kwargs):
+        pytest.fail('acknowledgement cannot synthesize an event')
+    with pytest.raises(tool.PurgeTransactionError, match='purge_failed_stop_acknowledgement_invalid'):
+        tool.acknowledge_failure(query, IDS, sequence)
+
+
+@pytest.mark.parametrize('budget', (None, False, True, 0, -1, 1.5, '4096', 2**63))
+def test_invalid_optional_autovacuum_budget_is_rejected_before_plan_digest(budget):
+    def query(*_args, **_kwargs):
+        pytest.fail('invalid rehearsal budget must not be authenticated')
+    with pytest.raises(tool.PurgeTransactionError, match='autovacuum_budget_invalid'):
+        tool.seal_plan(query, {'delete': {'system_search': {'autovacuum_budget_bytes': budget}}})
+
+
+@pytest.mark.parametrize('budget', (None, 1, 4096, 2**63 - 1))
+def test_optional_rehearsal_budget_is_authenticated_exactly_without_default(budget):
+    configuration = {'batch_limit': 1000}
+    if budget is not None:
+        configuration['autovacuum_budget_bytes'] = budget
+    reviewed = {'delete': {'system_search': configuration}}
+    def query(sql, params=None, *, write=False):
+        assert sql == tool.PLAN_HASH_SQL and not write
+        assert json.loads(params['plan']) == reviewed
+        return {'plan_sha256': 'a' * 64}
+    result = tool.seal_plan(query, reviewed)
+    assert result == {**reviewed, 'plan_sha256': 'a' * 64}
+    assert ('autovacuum_budget_bytes' in result['delete']['system_search']) is (budget is not None)
+
+
+@pytest.mark.parametrize('configuration', (None, [], {'unknown_relation': {}}, {'system_search': None}))
+def test_optional_budget_configuration_rejects_unknown_or_malformed_relations(configuration):
+    with pytest.raises(tool.PurgeTransactionError, match='purge_delete_plan_configuration_invalid'):
+        tool.validate_delete_plan_budgets({'delete': configuration})
 
 
 def test_budgeted_abort_records_measured_evidence_before_dedicated_restoration():
