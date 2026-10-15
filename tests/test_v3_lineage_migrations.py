@@ -156,7 +156,9 @@ def test_016_installs_the_governed_ledger_and_recovery_functions():
         "cancel_purge_rewrite", "cancel_purge_batch",
     ):
         assert f"CREATE FUNCTION v3_meta.{function}(" in source
-    assert "SET LOCAL createrole_self_grant = 'set';\nCREATE ROLE v3_derived_purge_executor" in source
+    assert re.search(r"IF NOT EXISTS \(SELECT 1 FROM pg_roles WHERE rolname='v3_derived_purge_executor'\) THEN"
+                     r".*?SET LOCAL createrole_self_grant = 'set';\s+CREATE ROLE v3_derived_purge_executor",
+                     source, re.DOTALL)
     assert "m.set_option AND NOT m.inherit_option" in source
     assert "GRANT MAINTAIN ON" in source
     assert "SET search_path=pg_catalog" in source

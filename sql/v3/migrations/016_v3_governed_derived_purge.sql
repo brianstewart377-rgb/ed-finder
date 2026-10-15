@@ -4,12 +4,39 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- The role is deliberately created here, not adopted if a role already exists.
--- PostgreSQL 18 gives a non-superuser creator SET, without INHERIT, at creation.
-SET LOCAL createrole_self_grant = 'set';
-CREATE ROLE v3_derived_purge_executor NOLOGIN NOINHERIT;
+-- Roles are cluster-wide; another database may already have installed 016.
+-- Adopt only the same restricted capability, never repair an unsafe role.
 DO $$
+DECLARE
+    executor pg_roles%ROWTYPE;
+    has_password boolean;
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='v3_derived_purge_executor') THEN
+        -- PostgreSQL 18 gives a non-superuser creator SET, without INHERIT,
+        -- only at creation; it cannot grant itself that membership afterward.
+        SET LOCAL createrole_self_grant = 'set';
+        CREATE ROLE v3_derived_purge_executor NOLOGIN NOINHERIT;
+    END IF;
+    SELECT * INTO STRICT executor FROM pg_roles WHERE rolname='v3_derived_purge_executor';
+    IF executor.rolcanlogin OR executor.rolsuper OR executor.rolcreaterole
+       OR executor.rolcreatedb OR executor.rolreplication OR executor.rolbypassrls
+       OR executor.rolinherit OR executor.rolconnlimit NOT IN (-1,0) THEN
+        RAISE EXCEPTION 'unsafe v3_derived_purge_executor attributes: requires NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS NOINHERIT and CONNECTION LIMIT -1 or 0';
+    END IF;
+    -- pg_roles masks passwords. Non-superuser creators may not read pg_authid;
+    -- skip only that check, explicitly, rather than requiring superuser access.
+    BEGIN
+        SELECT rolpassword IS NOT NULL INTO STRICT has_password
+        FROM pg_authid WHERE oid=executor.oid;
+        IF has_password THEN
+            RAISE EXCEPTION 'unsafe v3_derived_purge_executor password: requires NULL';
+        END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'v3_derived_purge_executor password check skipped: pg_authid is not readable';
+    END;
+    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member=executor.oid) THEN
+        RAISE EXCEPTION 'unsafe v3_derived_purge_executor membership: must not be a member of any role';
+    END IF;
     IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AND NOT EXISTS (
         SELECT 1 FROM pg_auth_members m
         JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles c ON c.oid=m.member

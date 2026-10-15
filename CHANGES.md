@@ -23,6 +23,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ## 2026-10-15 — Governed derived purge capability registered (P1)
 
+Migration `016` safely adopts a cluster-wide executor already installed by
+another database only after checking its restricted role attributes, password
+when readable, absence of memberships in other roles, and the non-superuser
+creator's SET-only membership. Each database still installs its own grants and
+revokes. Disposable PostgreSQL 18 regressions cover reuse across databases and
+atomic refusal of unsafe existing roles; fixture cleanup preserves shared roles.
+The manifest and target schema identity are regenerated for these migration
+bytes; this registration performs no production operation.
+
 Migration `016` installs an append-only purge request/event ledger, fail-closed
 bounded payload functions for only the two never-published rejected generations,
 and the restricted executor role with autovacuum and application writer-fence

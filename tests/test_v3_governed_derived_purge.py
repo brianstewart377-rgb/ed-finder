@@ -1,8 +1,8 @@
 """Governed purge capability on disposable PostgreSQL 18, never production.
 
 The canonical_database import also makes CI's PG18 discovery select this file.
-Roles are cluster objects: serialize their lifecycle and remove only roles this
-fixture created, before the randomly named disposable database is dropped.
+Roles are cluster objects: serialize their lifecycle, adopt existing roles,
+and remove only roles this fixture created if no other database needs them.
 """
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
@@ -71,7 +71,7 @@ EVENT_KINDS = {
 
 @contextmanager
 def installed_purge(connection, *, creator='superuser', apply_chain=False, application_present=True):
-    """Install 016 while owning the entire lifecycle of its test-only roles."""
+    """Install 016 without assuming that cluster roles belong to this database."""
     assert connection.info.server_version >= 180000, 'purge validation requires PostgreSQL 18'
     base_dsn = os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']
     cleanup_dsn = make_conninfo(base_dsn, dbname=connection.info.dbname)
@@ -79,34 +79,44 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
     lock_connection.execute('SELECT pg_advisory_lock(764016099)')
     created_application = False
     executor_was_absent = False
+    granted_membership = False
+    application_state = None
     application_connection = None
     try:
         assert connection.execute(
             'SELECT rolsuper FROM pg_roles WHERE rolname=current_user',
         ).fetchone()[0], 'the disposable PG18 fixture must be administered by its test superuser'
-        for name in (APPLICATION, EXECUTOR):
-            assert not connection.execute(
-                'SELECT 1 FROM pg_roles WHERE rolname=%s', (name,),
-            ).fetchone(), f'test refuses to adopt existing cluster role {name}'
-        executor_was_absent = True
-        if application_present:
+        executor_was_absent = not connection.execute(
+            'SELECT 1 FROM pg_roles WHERE rolname=%s', (EXECUTOR,),
+        ).fetchone()
+        application_state = connection.execute(
+            '''SELECT rolpassword,
+                      (SELECT option_value FROM pg_db_role_setting s,
+                       LATERAL pg_options_to_table(s.setconfig)
+                       WHERE s.setrole=r.oid AND s.setdatabase=0
+                         AND option_name='default_transaction_read_only')
+               FROM pg_authid r WHERE rolname=%s''', (APPLICATION,),
+        ).fetchone()
+        if application_present and application_state is None:
             connection.execute('CREATE ROLE edfinder_v3 LOGIN CREATEROLE')
             created_application = True
+        elif application_present:
+            connection.execute('ALTER ROLE edfinder_v3 RESET default_transaction_read_only')
         if creator == 'non_superuser':
             assert application_present
-            database_name = connection.execute('SELECT current_database()').fetchone()[0]
-            connection.execute(sql.SQL('GRANT CREATE ON DATABASE {} TO edfinder_v3').format(
-                sql.Identifier(database_name),
-            ))
-            for schema_name, in connection.execute(
-                "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'v3_%'",
-            ).fetchall():
-                connection.execute(sql.SQL('GRANT ALL ON SCHEMA {} TO edfinder_v3 WITH GRANT OPTION').format(
-                    sql.Identifier(schema_name),
-                ))
-                connection.execute(sql.SQL('GRANT ALL ON ALL TABLES IN SCHEMA {} TO edfinder_v3 WITH GRANT OPTION').format(
-                    sql.Identifier(schema_name),
-                ))
+            assert connection.execute(
+                'SELECT NOT rolsuper AND rolcanlogin AND rolcreaterole FROM pg_roles WHERE rolname=%s',
+                (APPLICATION,),
+            ).fetchone()[0], 'non-superuser validation needs a LOGIN CREATEROLE application role without SUPERUSER'
+            if not executor_was_absent and not connection.execute(
+                'SELECT 1 FROM pg_auth_members WHERE roleid=%s::regrole AND member=%s::regrole',
+                (EXECUTOR, APPLICATION),
+            ).fetchone():
+                # Test-superuser setup only: simulate a role originally created
+                # by this app owner. 016 itself must never repair membership.
+                connection.execute('GRANT v3_derived_purge_executor TO edfinder_v3 WITH INHERIT FALSE, SET TRUE')
+                granted_membership = True
+            _grant_application_create(connection)
             # Change session authorization as well: SET ROLE executor must be
             # checked against the non-superuser creator's new membership, not
             # the test administrator's superuser ability to assume any role.
@@ -138,17 +148,53 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
             connection.rollback()
             connection.execute('RESET SESSION AUTHORIZATION')
             connection.execute('RESET ROLE')
+            if application_state is not None:
+                password, read_only = application_state
+                connection.execute(sql.SQL('ALTER ROLE edfinder_v3 PASSWORD {}').format(sql.Literal(password)))
+                if read_only is None:
+                    connection.execute('ALTER ROLE edfinder_v3 RESET default_transaction_read_only')
+                else:
+                    connection.execute(sql.SQL('ALTER ROLE edfinder_v3 SET default_transaction_read_only={}').format(
+                        sql.Literal(read_only),
+                    ))
+            elif created_application:
+                # A role retained because of another database's dependencies
+                # must not retain a test's interrupted writer fence/password.
+                connection.execute('ALTER ROLE edfinder_v3 RESET default_transaction_read_only')
+                connection.execute('ALTER ROLE edfinder_v3 PASSWORD NULL')
+            if granted_membership:
+                connection.execute('REVOKE v3_derived_purge_executor FROM edfinder_v3')
             for name in (EXECUTOR, APPLICATION):
                 exists = connection.execute('SELECT 1 FROM pg_roles WHERE rolname=%s', (name,)).fetchone()
                 if exists and ((name == EXECUTOR and executor_was_absent) or
                                (name == APPLICATION and created_application)):
                     connection.execute(sql.SQL('DROP OWNED BY {} CASCADE').format(sql.Identifier(name)))
-                    connection.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(name)))
+                    try:
+                        connection.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(name)))
+                    except psycopg.errors.DependentObjectsStillExist:
+                        # DROP OWNED is database-local. Another test database
+                        # may still depend on this cluster role; leave it there.
+                        pass
         finally:
             if application_connection is not None:
                 connection.close()
             lock_connection.execute('SELECT pg_advisory_unlock(764016099)')
             lock_connection.close()
+
+
+def _grant_application_create(connection):
+    connection.execute(sql.SQL('GRANT CREATE ON DATABASE {} TO edfinder_v3').format(
+        sql.Identifier(connection.info.dbname),
+    ))
+    for schema_name, in connection.execute(
+        "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'v3_%'",
+    ).fetchall():
+        connection.execute(sql.SQL('GRANT ALL ON SCHEMA {} TO edfinder_v3 WITH GRANT OPTION').format(
+            sql.Identifier(schema_name),
+        ))
+        connection.execute(sql.SQL('GRANT ALL ON ALL TABLES IN SCHEMA {} TO edfinder_v3 WITH GRANT OPTION').format(
+            sql.Identifier(schema_name),
+        ))
 
 
 @pytest.fixture(params=('superuser', 'non_superuser'))
@@ -162,12 +208,164 @@ def database(request):
 def test_fresh_superuser_manifest_install_does_not_require_the_production_application_role():
     with canonical_database() as data:
         connection = data[0]
+        application_before = connection.execute('SELECT oid FROM pg_roles WHERE rolname=%s', (APPLICATION,)).fetchone()
         with installed_purge(connection, apply_chain=True, application_present=False):
-            assert connection.execute('SELECT 1 FROM pg_roles WHERE rolname=%s', (APPLICATION,)).fetchone() is None
+            assert connection.execute('SELECT oid FROM pg_roles WHERE rolname=%s', (APPLICATION,)).fetchone() == application_before
             assert connection.execute('SELECT rolcanlogin FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone() == (False,)
             assert connection.execute(
                 "SELECT to_regclass('v3_meta.derived_generation_purge_request') IS NOT NULL",
             ).fetchone()[0]
+
+
+def _remaining_manifest():
+    return [ROOT / 'sql' / line.split()[2]
+            for line in (ROOT / 'sql/v3/migration-manifest.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#') and line.split()[1] != '001_v3_baseline.sql']
+
+
+@pytest.mark.parametrize('creator', ('superuser', 'non_superuser'))
+def test_second_database_full_manifest_adopts_same_executor_and_installs_local_privileges(creator):
+    with canonical_database() as first:
+        with installed_purge(first[0], creator=creator, apply_chain=True) as installed:
+            role_before = installed.execute('SELECT oid FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone()
+            with canonical_database() as second:
+                connection = second[0]
+                notices = []
+                connection.add_notice_handler(lambda diagnostic: notices.append(diagnostic.message_primary))
+                if creator == 'non_superuser':
+                    _grant_application_create(connection)
+                for migration in _remaining_manifest():
+                    # The canonical fixture's identity/journal tables belong to
+                    # its administrator; install their migrations as that owner.
+                    # The derived lineage (including 016) belongs to the app.
+                    if creator == 'non_superuser' and migration.name in (*CHAIN, PURGE_MIGRATION):
+                        connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                    connection.execute(migration.read_text())
+                    connection.execute('RESET SESSION AUTHORIZATION')
+                assert connection.execute('SELECT oid FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone() == role_before
+                if creator == 'non_superuser':
+                    assert any('password check skipped: pg_authid is not readable' in notice for notice in notices)
+                    connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                connection.execute('SET ROLE v3_derived_purge_executor')
+                for relation in RELATIONS:
+                    assert connection.execute('SELECT has_table_privilege(current_user,%s,%s)',
+                                              ('v3_derived.' + relation, 'MAINTAIN')).fetchone()[0]
+                    assert not connection.execute('SELECT has_table_privilege(current_user,%s,%s)',
+                                                  ('v3_derived.' + relation, 'INSERT,UPDATE,DELETE,TRUNCATE')).fetchone()[0]
+                assert connection.execute(
+                    "SELECT has_function_privilege(current_user,'v3_meta.purge_derived_payload_batch(uuid,text,integer)','EXECUTE')",
+                ).fetchone()[0]
+                assert connection.execute('SELECT count(*) FROM v3_meta.derived_generation_purge_request').fetchone() == (0,)
+
+
+def test_full_manifest_before_and_after_purge_fixture_preserves_cluster_role():
+    with canonical_database() as before:
+        connection = before[0]
+        # Hold the fixture's cluster-role lock across all three databases.
+        with psycopg.connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True) as lock:
+            lock.execute('SELECT pg_advisory_lock(764016099)')
+            created_executor = not connection.execute(
+                'SELECT 1 FROM pg_roles WHERE rolname=%s', (EXECUTOR,),
+            ).fetchone()
+            try:
+                for migration in _remaining_manifest():
+                    connection.execute(migration.read_text())
+                oid = connection.execute('SELECT oid FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone()
+            finally:
+                lock.execute('SELECT pg_advisory_unlock(764016099)')
+        try:
+            with canonical_database() as purge:
+                with installed_purge(purge[0], apply_chain=True):
+                    assert purge[0].execute('SELECT oid FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone() == oid
+            with canonical_database() as after:
+                for migration in _remaining_manifest():
+                    after[0].execute(migration.read_text())
+                assert after[0].execute('SELECT oid FROM pg_roles WHERE rolname=%s', (EXECUTOR,)).fetchone() == oid
+        finally:
+            if created_executor:
+                connection.execute(sql.SQL('DROP OWNED BY {} CASCADE').format(sql.Identifier(EXECUTOR)))
+                try:
+                    connection.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(EXECUTOR)))
+                except psycopg.errors.DependentObjectsStillExist:
+                    pass
+
+
+def _schema_state(connection):
+    """Include grants, function bodies, triggers and ledger in rollback evidence."""
+    return (
+        connection.execute(
+            '''SELECT n.nspname,c.relname,c.relkind,c.relowner,c.relacl::text
+               FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+               WHERE n.nspname LIKE 'v3_%' ORDER BY n.nspname,c.relname''',
+        ).fetchall(),
+        connection.execute(
+            '''SELECT p.oid,pg_get_functiondef(p.oid),p.proacl::text
+               FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+               WHERE n.nspname LIKE 'v3_%' ORDER BY p.oid''',
+        ).fetchall(),
+        connection.execute(
+            '''SELECT t.oid,pg_get_triggerdef(t.oid) FROM pg_trigger t
+               JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+               WHERE n.nspname LIKE 'v3_%' ORDER BY t.oid''',
+        ).fetchall(),
+        connection.execute('SELECT * FROM v3_meta.schema_migration ORDER BY migration_name').fetchall(),
+    )
+
+
+@pytest.mark.parametrize('unsafe', (
+    'LOGIN', 'SUPERUSER', 'CREATEROLE', 'CREATEDB', 'REPLICATION', 'BYPASSRLS',
+    'INHERIT', 'CONNECTION LIMIT 1', "PASSWORD 'fixture-only-password'", 'membership',
+))
+def test_unsafe_existing_executor_fails_closed_and_rolls_back_database(unsafe):
+    with canonical_database() as first:
+        with installed_purge(first[0], apply_chain=True):
+            with canonical_database() as second:
+                connection = second[0]
+                for migration in CHAIN:
+                    connection.execute((MIGRATIONS / migration).read_text())
+                before = _schema_state(connection)
+                message = 'membership' if unsafe == 'membership' else 'password' if unsafe.startswith('PASSWORD') else 'attributes'
+                # Alter cluster state only in this transaction. The failed
+                # migration rolls it back too, preserving other databases.
+                with pytest.raises(psycopg.errors.RaiseException, match=f'unsafe {EXECUTOR} {message}'):
+                    with connection.transaction():
+                        if unsafe == 'membership':
+                            parent = sql.Identifier('purge_parent_' + uuid4().hex)
+                            connection.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(parent))
+                            connection.execute(sql.SQL('GRANT {} TO {}').format(parent, sql.Identifier(EXECUTOR)))
+                        else:
+                            connection.execute(sql.SQL('ALTER ROLE {} {}').format(
+                                sql.Identifier(EXECUTOR), sql.SQL(unsafe),
+                            ))
+                        connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
+                assert _schema_state(connection) == before
+                assert connection.execute("SELECT to_regclass('v3_meta.derived_generation_purge_request')").fetchone() == (None,)
+
+
+@pytest.mark.parametrize('membership', ('missing', 'no_set', 'inherit'))
+def test_adoption_never_repairs_non_superuser_creator_membership(membership):
+    with canonical_database() as first:
+        with installed_purge(first[0], creator='non_superuser', apply_chain=True):
+            with canonical_database() as second:
+                connection = second[0]
+                _grant_application_create(connection)
+                connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                for migration in CHAIN:
+                    connection.execute((MIGRATIONS / migration).read_text())
+                connection.execute('RESET SESSION AUTHORIZATION')
+                before = _schema_state(connection)
+                with pytest.raises(psycopg.errors.RaiseException, match='purge creator needs SET without INHERIT'):
+                    with connection.transaction():
+                        connection.execute('REVOKE v3_derived_purge_executor FROM edfinder_v3')
+                        if membership != 'missing':
+                            options = 'SET FALSE, INHERIT FALSE' if membership == 'no_set' else 'SET TRUE, INHERIT TRUE'
+                            connection.execute(sql.SQL('GRANT v3_derived_purge_executor TO edfinder_v3 WITH {}').format(
+                                sql.SQL(options),
+                            ))
+                        connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                        connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
+                connection.execute('RESET SESSION AUTHORIZATION')
+                assert _schema_state(connection) == before
 
 
 def _count(connection, relation, generation_id=None):
@@ -312,15 +510,25 @@ def _application_worker(connection):
     connection.execute('RESET ROLE')
     test_password = uuid4().hex
     connection.execute(sql.SQL('ALTER ROLE edfinder_v3 PASSWORD {}').format(sql.Literal(test_password)))
-    if connection.execute('SELECT rolsuper FROM pg_roles WHERE rolname=current_user').fetchone()[0]:
+    granted_membership = False
+    if connection.execute('SELECT rolsuper FROM pg_roles WHERE rolname=current_user').fetchone()[0] and not connection.execute(
+        'SELECT 1 FROM pg_auth_members WHERE roleid=%s::regrole AND member=%s::regrole', (EXECUTOR, APPLICATION),
+    ).fetchone():
         connection.execute('GRANT v3_derived_purge_executor TO edfinder_v3 WITH SET TRUE, INHERIT FALSE')
+        granted_membership = True
     app_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
                            dbname=connection.info.dbname, user=APPLICATION, password=test_password)
     connection.execute('SET ROLE v3_derived_purge_executor')
-    with psycopg.connect(app_dsn, autocommit=True) as worker:
-        worker.execute('SET ROLE v3_derived_purge_executor')
-        worker.execute('SET default_transaction_read_only=off')
-        yield worker
+    try:
+        with psycopg.connect(app_dsn, autocommit=True) as worker:
+            worker.execute('SET ROLE v3_derived_purge_executor')
+            worker.execute('SET default_transaction_read_only=off')
+            yield worker
+    finally:
+        if granted_membership:
+            connection.execute('RESET ROLE')
+            connection.execute('REVOKE v3_derived_purge_executor FROM edfinder_v3')
+            connection.execute('SET ROLE v3_derived_purge_executor')
 
 
 def _wait_for_database_operation(connection, worker, future, kind):
