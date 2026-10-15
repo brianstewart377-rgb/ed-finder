@@ -81,10 +81,34 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "011_v3_system_archetype.sql",
         "013_v3_system_search_parallel.sql",
         "015_v3_derived_product_publication.sql",
+        "016_v3_governed_derived_purge.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
         assert hashlib.sha256(source).hexdigest() == entry["sha256"]
+
+
+def test_registered_transition_covers_the_installed_prefix_and_every_pending_step():
+    module = _load()
+    identity = _load_path(IDENTITY, "registered_transition_identity")
+    deployer = _load_path(DEPLOYER, "registered_transition_deployer")
+    authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
+    desired = module.desired_entries(ROOT)
+    installed_count = next(
+        index + 1 for index, entry in enumerate(desired)
+        if entry["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql"
+    )
+    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == [
+        "014", "010", "011", "013", "015", "016",
+    ]
+    reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
+    transition = authority["schema_transition"]
+    assert transition["from_migration_set_identity"] == reachable[0]
+    assert transition["to_migration_set_identity"] == reachable[-1]
+    assert set(reachable) <= set(
+        authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
+    )
+    assert deployer.validate_authority(authority) == []
 
 
 def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
@@ -110,6 +134,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "011_v3_system_archetype.sql",
         "013_v3_system_search_parallel.sql",
         "015_v3_derived_product_publication.sql",
+        "016_v3_governed_derived_purge.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
@@ -312,6 +337,30 @@ def test_transition_binds_live_prefix_target_identity_and_every_rollback_prefix(
         module.inspect_schema_transition(
             deployer, authority, authority["external_authority"], desired, target_path,
             desired[:7],
+        )
+
+
+@pytest.mark.parametrize("omitted_migration", ["014", "010", "011", "013", "015", "016"])
+def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, omitted_migration):
+    module = _load()
+    deployer = _load_path(DEPLOYER, "committed_prefix_deployer")
+    identity = _load_path(IDENTITY, "committed_prefix_identity")
+    desired = module.desired_entries(ROOT)
+    target_path = tmp_path / "target-schema.json"
+    _write_identity(target_path, identity, desired)
+    authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
+    count = next(index + 1 for index, entry in enumerate(desired)
+                 if entry["ledger_name"].startswith(omitted_migration + "_"))
+    omitted_identity = identity.migration_set_identity(desired[:count])
+    authority["accepted_release_schema_compatibility"]["compatible_migration_sets"].remove(
+        omitted_identity
+    )
+    installed_count = next(index + 1 for index, entry in enumerate(desired)
+                           if entry["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql")
+    with pytest.raises(module.MigrationError, match="omits a transition prefix"):
+        module.inspect_schema_transition(
+            deployer, authority, authority["external_authority"], desired,
+            target_path, desired[:installed_count],
         )
 
 

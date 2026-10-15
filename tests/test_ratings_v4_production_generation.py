@@ -223,3 +223,31 @@ def test_full_artifact_runner_builds_then_idempotently_resumes(tmp_path):
         assert second['resumed'] is True
         assert second['chunks_seen'] == 0
         assert second['derived_generation_id'] == first['derived_generation_id']
+
+
+def test_governed_purge_preserves_ready_mutation_and_building_write_guards(database):
+    import psycopg
+    from tests.test_v3_governed_derived_purge import installed_purge
+
+    connection, canonical, metadata, records, _ = database
+    ready, _ = build_ready(database)
+    with installed_purge(connection):
+        building = new_generation(database)
+        assert write_chunk(connection, building, 0, canonical, metadata, records)
+        connection.execute(
+            'UPDATE v3_derived.body_mechanics SET rings=rings WHERE derived_generation_id=%s',
+            (building,),
+        )
+        for generation in (building, ready):
+            with pytest.raises(psycopg.errors.RaiseException):
+                connection.execute(
+                    'DELETE FROM v3_derived.economy_opportunity WHERE derived_generation_id=%s',
+                    (generation,),
+                )
+        with pytest.raises(psycopg.errors.RaiseException):
+            connection.execute(
+                'UPDATE v3_derived.body_mechanics SET rings=rings WHERE derived_generation_id=%s',
+                (ready,),
+            )
+        with pytest.raises(psycopg.errors.RaiseException):
+            connection.execute('TRUNCATE v3_derived.economy_opportunity')

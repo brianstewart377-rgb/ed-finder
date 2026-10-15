@@ -308,12 +308,11 @@ rollback artifact. It does not require product READY, receipts, counts,
 `opt1` does not block the gate.
 
 **Schema prerequisite remains outstanding.** Migrations `014`, bounded `010`,
-rewritten wide-row `011`, `013` and product-publication `015` are registered;
-registration is not application. The governed purge code PR must register
-`016` before the governed plan/review/apply, purge and separate constraint
-validation can run. `016` is mandatory: while it is absent from the manifest,
-the release gate refuses with `required_migration_not_registered:016`. No purge
-migration or production attestation is supplied by PR4b.
+rewritten wide-row `011`, `013`, product-publication `015` and governed-purge
+`016` are now registered; registration is not application, and the governed
+plan/review/apply, P2 operator actions/rehearsal, purge and separate constraint
+validation remain outstanding. The release gate requires the exact registered
+`016` hash in the applied ledger. No production attestation is supplied by P1.
 
 The accepted-release compatibility attestation adds `ranking_version`,
 `ranking_sha256`, `f2d_operator_code_sha256`,
@@ -373,7 +372,7 @@ mode; the `--expected-sha` post-deploy gate remains history-independent.
 Extending the hold requires a reviewed pull request that bumps
 `covers_main_sha` (and `expires_at` if needed). This is how each later deployable
 change is consciously acknowledged rather than silently covered. The code-only
-PR4b gate implementation leaves this hold in place: migration
+PR4b gate implementation leaves this hold in place: application of migration
 `016` and the governed rollout remain outstanding. Remove the hold with the
 reviewed production-release authorization; this implementation does not extend
 its coverage or expiry.

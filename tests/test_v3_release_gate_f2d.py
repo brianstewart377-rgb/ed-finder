@@ -66,11 +66,12 @@ def registered_entries():
 
 
 def complete_entries():
-    # The future migration is deliberately synthetic: no production identity is invented.
-    return [*registered_entries(), {
-        "path": "sql/v3/migrations/016_fixture_governed_purge.sql",
-        "ledger_name": "016_fixture_governed_purge.sql", "mode": "auto", "sha256": "f" * 64,
-    }]
+    return registered_entries()
+
+
+def entries_without_016():
+    return [entry for entry in registered_entries()
+            if not entry["ledger_name"].startswith("016_")]
 
 
 def generation():
@@ -127,13 +128,13 @@ def test_release_gate_has_one_exact_required_migration_set(deployer):
     assert deployer.F2D_REQUIRED_MIGRATIONS == ("014", "010", "011", "013", "015", "016")
 
 
-def test_current_manifest_refuses_missing_016_by_name(deployer):
-    entries = registered_entries()
+def test_fixture_manifest_without_016_refuses_missing_016_by_name(deployer):
+    entries = entries_without_016()
     with pytest.raises(deployer.DeploymentError, match="^required_migration_not_registered:016$"):
         deployer.validate_f2d_migrations({"migration_set_entries": entries}, entries)
 
 
-def test_fixture_manifest_and_exact_ledger_with_all_six_pass(deployer):
+def test_current_manifest_and_exact_ledger_with_all_six_pass(deployer):
     entries = complete_entries()
     deployer.validate_f2d_migrations({"migration_set_entries": deepcopy(entries)}, entries)
 
@@ -526,7 +527,7 @@ def promotion_fixture(deployer, monkeypatch, tmp_path, attestation, *, registere
     args, authority, receipt_dir, _snapshot = support._cancellation_promote_setup(monkeypatch, tmp_path, deployer)
     args.mode = "upgrade"
     schema = deployer.validate_schema_file(None, None)
-    schema["migration_set_entries"] = complete_entries() if registered else registered_entries()
+    schema["migration_set_entries"] = complete_entries() if registered else entries_without_016()
     candidate, checksum, candidate_bytes = deployer.validate_candidate(None, None, None)
     candidate["images"]["backend"] = MINIMUM
     attestation.update(
@@ -549,8 +550,8 @@ def promotion_fixture(deployer, monkeypatch, tmp_path, attestation, *, registere
     monkeypatch.setattr(deployer, "manifest_tool", lambda: SimpleNamespace(
         validate_manifest=lambda *_args, **_kwargs: None, ManifestError=ValueError,
     ))
-    if registered:
-        monkeypatch.setattr(deployer, "registered_f2d_migrations", complete_entries)
+    monkeypatch.setattr(deployer, "registered_f2d_migrations",
+                        complete_entries if registered else entries_without_016)
     recovery = {
         "git_sha": "d" * 40,
         "images": {"backend": LATER, "web": "registry.example/web@sha256:" + "3" * 64},

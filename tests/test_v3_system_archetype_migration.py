@@ -312,3 +312,29 @@ def test_insert_guard_allows_attachment_to_published_generation(database):
         "base_stateNOTIN('BUILDING','VALIDATING','READY','PUBLISHED')"
         in compact.replace(' ', '')
     )
+
+
+def test_governed_purge_leaves_archetype_guard_definitions_unchanged(database):
+    from tests.test_v3_governed_derived_purge import installed_purge
+
+    connection = database[0]
+    before = connection.execute(
+        '''SELECT p.proname,pg_get_functiondef(p.oid) FROM pg_proc p
+           JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE n.nspname='v3_derived' AND p.proname IN
+             ('guard_system_archetype_insert','reject_system_archetype_mutation')
+           ORDER BY p.proname''',
+    ).fetchall()
+    with installed_purge(connection):
+        after = connection.execute(
+            '''SELECT p.proname,pg_get_functiondef(p.oid) FROM pg_proc p
+               JOIN pg_namespace n ON n.oid=p.pronamespace
+               WHERE n.nspname='v3_derived' AND p.proname IN
+                 ('guard_system_archetype_insert','reject_system_archetype_mutation')
+               ORDER BY p.proname''',
+        ).fetchall()
+        assert len(before) == 2
+        assert after == before
+        generation_id, system_id64 = _archetype_generation(database)[0]
+        _insert_wide_row(connection, _valid_row(generation_id, system_id64))
+        test_product_rows_and_receipts_are_insert_only(database)

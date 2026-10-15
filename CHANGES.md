@@ -21,6 +21,21 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-15 — Governed derived purge capability registered (P1)
+
+Migration `016` installs an append-only purge request/event ledger, fail-closed
+bounded payload functions for only the two never-published rejected generations,
+and the restricted executor role with autovacuum and application writer-fence
+recovery support. It preserves manifests, products, receipts, publication
+history and the published generation; installation performs no purge or rewrite.
+The V3 manifest, target authority and every compatible transition prefix now
+register `[014, 010, 011-rewritten, 013, 015, 016]`; the F2d release gate accepts
+registration and still requires the exact applied ledger hashes. Lifecycle
+status adds read-only role, writer-default and WAL/archive/slot facts for later
+preflight evidence. Disposable PostgreSQL 18 tests cover the capability; operator
+actions, protected workflow and crash rehearsal remain P2. Code only: no
+production access, deployment or migration application.
+
 ## 2026-10-14 — Finder F2d release gate and identity attestation (PR4 D2b)
 
 Adds the release-first Finder gate, grouped ranking/operator-code and rollback
