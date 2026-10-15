@@ -553,6 +553,21 @@ def _abort_autovacuum_fence(connection, purge_id, relation):
 
 
 @contextmanager
+def _fresh_purge_controller(connection):
+    """Retire the application session exempted by the fence's recycle step."""
+    if connection.info.user != APPLICATION:
+        yield connection
+        return
+    app_dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
+    connection.close()
+    with psycopg.connect(app_dsn, autocommit=True) as controller:
+        assert controller.execute('SHOW default_transaction_read_only').fetchone()[0] == 'on'
+        controller.execute('SET ROLE v3_derived_purge_executor')
+        controller.execute('SET default_transaction_read_only=off')
+        yield controller
+
+
+@contextmanager
 def _application_worker(connection):
     connection.execute('RESET ROLE')
     test_password = uuid4().hex
@@ -570,6 +585,7 @@ def _application_worker(connection):
         with psycopg.connect(app_dsn, autocommit=True) as worker:
             worker.execute('SET ROLE v3_derived_purge_executor')
             worker.execute('SET default_transaction_read_only=off')
+            worker.execute("SET statement_timeout='20s'")
             yield worker
     finally:
         if granted_membership:
@@ -578,7 +594,36 @@ def _application_worker(connection):
             connection.execute('SET ROLE v3_derived_purge_executor')
 
 
+@contextmanager
+def _running_operation(worker, command, parameters=None):
+    """Cancel and join before releasing a blocker or closing the worker."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.execute, command, parameters)
+        try:
+            yield future
+        finally:
+            if not future.done():
+                worker.cancel()
+            try:
+                future.result(timeout=10)
+            except psycopg.errors.QueryCanceled:
+                pass
+            except TimeoutError:
+                worker.close()
+                raise
+
+
 def _wait_for_database_operation(connection, worker, future, kind):
+    # Activity fields are hidden from the executor for other login roles.
+    # Observe as the fixture login; cancellation still runs as the executor.
+    connection.execute('RESET ROLE')
+    try:
+        _observe_database_operation(connection, worker, future, kind)
+    finally:
+        connection.execute('SET ROLE v3_derived_purge_executor')
+
+
+def _observe_database_operation(connection, worker, future, kind):
     deadline = monotonic() + 10
     while monotonic() < deadline:
         if future.done():
@@ -592,6 +637,8 @@ def _wait_for_database_operation(connection, worker, future, kind):
             'rewrite': 'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_cluster WHERE pid=%s)',
             'waiting_rewrite': '''SELECT EXISTS(SELECT 1 FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
                 WHERE a.pid=%s AND a.state='active' AND a.wait_event_type='Lock'
+                  AND l.locktype='relation'
+                  AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
                   AND l.relation='v3_derived.system_search'::regclass
                   AND l.mode='AccessExclusiveLock' AND NOT l.granted)''',
             'analyze': 'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_analyze WHERE pid=%s)',
@@ -781,11 +828,29 @@ def test_writer_fence_cannot_open_new_cycle_until_restore_is_verified(database):
     first, second = (ids[identifier] for _, identifier in TARGETS)
     _writer_fence(connection, first)
     connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,false)', (first,))
+    connection.execute('RESET ROLE')
+    opening = connection.execute(
+        "SELECT (v3_meta.purge_open_event(%s,NULL,'WRITER_FENCE_ENABLED',ARRAY['WRITER_FENCE_RESTORED'])).event_sequence",
+        (first,),
+    ).fetchone()[0]
+    assert opening is not None
+    assert connection.execute(
+        """SELECT option_value FROM pg_db_role_setting s, LATERAL pg_options_to_table(s.setconfig)
+           WHERE s.setrole='edfinder_v3'::regrole AND option_name='default_transaction_read_only'
+             AND s.setdatabase IN (0,(SELECT oid FROM pg_database WHERE datname=current_database()))""",
+    ).fetchall() == []
+    connection.execute('SET ROLE v3_derived_purge_executor')
     before = _count(connection, 'v3_meta.derived_generation_purge_event')
     connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,true)', (second,))
     assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
     connection.execute('SELECT v3_meta.purge_recycle_writer_sessions(%s,false)', (second,))
     connection.execute('SELECT v3_meta.purge_verify_writer_fence(%s,false,%s)', (second, 'off'))
+    connection.execute('RESET ROLE')
+    assert connection.execute(
+        "SELECT (v3_meta.purge_open_event(%s,NULL,'WRITER_FENCE_ENABLED',ARRAY['WRITER_FENCE_RESTORED'])).event_sequence",
+        (first,),
+    ).fetchone()[0] is None
+    connection.execute('SET ROLE v3_derived_purge_executor')
     original = connection.execute(
         "SELECT operational_payload->'prior' FROM v3_meta.derived_generation_purge_event WHERE event_kind='WRITER_FENCE_ENABLED' ORDER BY event_sequence LIMIT 1",
     ).fetchone()[0]
@@ -910,35 +975,35 @@ def test_cancel_batch_signals_only_recorded_backend_and_rolls_back_payload(datab
     connection = database[0]
     purge_id = _authorize(database)[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
-    connection.execute('RESET ROLE')
-    connection.execute(
-        '''CREATE FUNCTION v3_meta.test_delay_purge_receipt() RETURNS trigger LANGUAGE plpgsql AS $$
-           BEGIN PERFORM pg_sleep(30); RETURN NEW; END $$''',
-    )
-    connection.execute(
-        '''CREATE TRIGGER test_delay_purge_receipt BEFORE INSERT ON v3_meta.derived_generation_purge_event
-           FOR EACH ROW WHEN (NEW.event_kind='BATCH_COMMITTED')
-           EXECUTE FUNCTION v3_meta.test_delay_purge_receipt()''',
-    )
-    connection.execute('SET ROLE v3_derived_purge_executor')
-    with _application_worker(connection) as worker:
-        _start_batch(worker, purge_id, 'system_search', size=3)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(worker.execute, 'SELECT v3_meta.purge_derived_payload_batch(%s,%s,%s)',
-                                 (purge_id, 'system_search', 3))
-            _wait_for_database_operation(connection, worker, future, 'batch')
-            assert connection.execute('SELECT v3_meta.cancel_purge_batch(%s,%s)',
-                                      (purge_id, 'system_search')).fetchone()[0]
-            with pytest.raises(psycopg.errors.QueryCanceled):
-                future.result(timeout=10)
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
-    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
-    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                       (purge_id, 'BATCH_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
-    assert connection.execute(
-        "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_CANCEL_REQUESTED'",
-    ).fetchone()[0] == 1
+    with _fresh_purge_controller(connection) as connection:
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+        connection.execute('RESET ROLE')
+        connection.execute(
+            '''CREATE FUNCTION v3_meta.test_delay_purge_receipt() RETURNS trigger LANGUAGE plpgsql AS $$
+               BEGIN PERFORM pg_sleep(30); RETURN NEW; END $$''',
+        )
+        connection.execute(
+            '''CREATE TRIGGER test_delay_purge_receipt BEFORE INSERT ON v3_meta.derived_generation_purge_event
+               FOR EACH ROW WHEN (NEW.event_kind='BATCH_COMMITTED')
+               EXECUTE FUNCTION v3_meta.test_delay_purge_receipt()''',
+        )
+        connection.execute('SET ROLE v3_derived_purge_executor')
+        with _application_worker(connection) as worker:
+            _start_batch(worker, purge_id, 'system_search', size=3)
+            with _running_operation(worker, 'SELECT v3_meta.purge_derived_payload_batch(%s,%s,%s)',
+                                    (purge_id, 'system_search', 3)) as future:
+                _wait_for_database_operation(connection, worker, future, 'batch')
+                assert connection.execute('SELECT v3_meta.cancel_purge_batch(%s,%s)',
+                                          (purge_id, 'system_search')).fetchone()[0]
+                with pytest.raises(psycopg.errors.QueryCanceled):
+                    future.result(timeout=10)
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
+        assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+        connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                           (purge_id, 'BATCH_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
+        assert connection.execute(
+            "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_CANCEL_REQUESTED'",
+        ).fetchone()[0] == 1
 
 
 @pytest.mark.parametrize('command', (
@@ -951,23 +1016,22 @@ def test_cancel_rewrite_waiting_for_relation_lock_rolls_back_and_resolves(databa
     ids = _authorize(database)
     purge_id = ids[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
-    for request_id in ids.values():
-        assert _batch(connection, request_id, 'system_search') == 12
-    connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
-                       (purge_id, 'system_search', Jsonb(_receipt())))
-    before = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
-    with _application_worker(connection) as worker:
-        worker.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                       (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
-        with _application_worker(connection) as blocker:
-            with blocker.transaction():
-                blocker.execute('LOCK TABLE v3_derived.system_search IN ACCESS SHARE MODE')
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    # Whitespace and case normalization must still identify the
-                    # fixed command, before PostgreSQL exposes a progress row.
-                    future = pool.submit(worker.execute, command)
-                    try:
+    with _fresh_purge_controller(connection) as connection:
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+        for request_id in ids.values():
+            assert _batch(connection, request_id, 'system_search') == 12
+        connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                           (purge_id, 'system_search', Jsonb(_receipt())))
+        before = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
+        with _application_worker(connection) as worker:
+            worker.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                           (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
+            with _application_worker(connection) as blocker:
+                with blocker.transaction():
+                    blocker.execute('LOCK TABLE v3_derived.system_search IN ACCESS SHARE MODE')
+                    with _running_operation(worker, command) as future:
+                        # Whitespace and case normalization must still identify the
+                        # fixed command, before PostgreSQL exposes a progress row.
                         _wait_for_database_operation(connection, worker, future, 'waiting_rewrite')
                         assert not connection.execute(
                             'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_cluster WHERE pid=%s)',
@@ -977,24 +1041,46 @@ def test_cancel_rewrite_waiting_for_relation_lock_rolls_back_and_resolves(databa
                                                   (purge_id, 'system_search')).fetchone()[0]
                         with pytest.raises(psycopg.errors.QueryCanceled):
                             future.result(timeout=10)
-                    finally:
-                        if not future.done():
-                            worker.cancel()
-    assert connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0] == before
-    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
-    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                       (purge_id, 'REWRITE_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
-    assert connection.execute(
-        '''SELECT event_kind FROM v3_meta.derived_generation_purge_event
-           WHERE purge_id=%s AND event_kind IN ('REWRITE_STARTED','REWRITE_CANCEL_REQUESTED','REWRITE_ROLLED_BACK')
-           ORDER BY event_sequence''', (purge_id,),
-    ).fetchall() == [('REWRITE_STARTED',), ('REWRITE_CANCEL_REQUESTED',), ('REWRITE_ROLLED_BACK',)]
+        assert connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0] == before
+        assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+        connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                           (purge_id, 'REWRITE_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
+        assert connection.execute(
+            '''SELECT event_kind FROM v3_meta.derived_generation_purge_event
+               WHERE purge_id=%s AND event_kind IN ('REWRITE_STARTED','REWRITE_CANCEL_REQUESTED','REWRITE_ROLLED_BACK')
+               ORDER BY event_sequence''', (purge_id,),
+        ).fetchall() == [('REWRITE_STARTED',), ('REWRITE_CANCEL_REQUESTED',), ('REWRITE_ROLLED_BACK',)]
+        connection.execute('RESET ROLE')
+        assert connection.execute(
+            '''SELECT (v3_meta.purge_open_event(
+                   %s,'system_search','REWRITE_STARTED',ARRAY['REWRITE_VERIFIED','REWRITE_ROLLED_BACK'])).event_sequence IS NULL''',
+            (purge_id,),
+        ).fetchone()[0]
+
+
+def test_controller_failure_cancels_waiting_rewrite_and_closes_worker_and_blocker(database):
+    connection = database[0]
+    with pytest.raises(RuntimeError, match='injected controller failure'):
+        with _application_worker(connection) as worker, _application_worker(connection) as blocker:
+            pids = [worker.info.backend_pid, blocker.info.backend_pid]
+            with blocker.transaction():
+                blocker.execute('LOCK TABLE v3_derived.system_search IN ACCESS SHARE MODE')
+                with _running_operation(worker, 'VACUUM (FULL) v3_derived.system_search') as future:
+                    _wait_for_database_operation(connection, worker, future, 'waiting_rewrite')
+                    raise RuntimeError('injected controller failure')
+    assert worker.closed and blocker.closed
+    with pytest.raises(psycopg.errors.QueryCanceled):
+        future.result(timeout=10)
     connection.execute('RESET ROLE')
-    assert connection.execute(
-        '''SELECT (v3_meta.purge_open_event(
-               %s,'system_search','REWRITE_STARTED',ARRAY['REWRITE_VERIFIED','REWRITE_ROLLED_BACK'])).event_sequence IS NULL''',
-        (purge_id,),
-    ).fetchone()[0]
+    deadline = monotonic() + 10
+    while connection.execute(
+        'SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=ANY(%s))', (pids,),
+    ).fetchone()[0]:
+        assert monotonic() < deadline, 'worker or blocker backend survived cleanup'
+        sleep(0.01)
+    # No opaque backend or abandoned writing transaction may poison the next
+    # authorization in the same database after controller cleanup.
+    assert len(_authorize(database)) == 2
 
 
 @pytest.mark.parametrize('operation', ('rewrite', 'analyze'))
@@ -1003,50 +1089,50 @@ def test_cancel_rewrite_or_trailing_analyze_preserves_relation_and_recovers(data
     ids = _authorize(database)
     purge_id = ids[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
-    for request_id in ids.values():
-        assert _batch(connection, request_id, 'system_search') == 12
-    connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
-                       (purge_id, 'system_search', Jsonb(_receipt())))
-    connection.execute('RESET ROLE')
-    connection.execute(
-        '''CREATE FUNCTION v3_meta.test_slow_rewrite_key(value_ bigint) RETURNS bigint
-           LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN PERFORM pg_sleep(0.1); RETURN value_; END $$''',
-    )
-    connection.execute(
-        'CREATE INDEX test_slow_rewrite_key ON v3_derived.system_search (v3_meta.test_slow_rewrite_key(system_id64))',
-    )
-    connection.execute('SET ROLE v3_derived_purge_executor')
-    with _application_worker(connection) as worker:
-        worker.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                       (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
-        before = worker.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
-        if operation == 'analyze':
-            worker.execute('VACUUM (FULL) v3_derived.system_search')
-        command = 'VACUUM (FULL) v3_derived.system_search' if operation == 'rewrite' else 'ANALYZE v3_derived.system_search'
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(worker.execute, command)
-            _wait_for_database_operation(connection, worker, future, operation)
-            assert connection.execute('SELECT v3_meta.cancel_purge_rewrite(%s,%s)',
-                                      (purge_id, 'system_search')).fetchone()[0]
-            with pytest.raises(psycopg.errors.QueryCanceled):
-                future.result(timeout=10)
-    after = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
-    assert (after == before) is (operation == 'rewrite')
-    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 0
-    connection.execute('RESET ROLE')
-    connection.execute('DROP INDEX v3_derived.test_slow_rewrite_key')
-    connection.execute('DROP FUNCTION v3_meta.test_slow_rewrite_key(bigint)')
-    connection.execute('SET ROLE v3_derived_purge_executor')
-    if operation == 'rewrite':
-        connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                           (purge_id, 'REWRITE_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
-    else:
-        connection.execute('ANALYZE v3_derived.system_search')
-        connection.execute('SELECT pg_stat_force_next_flush()')
-        connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                           (purge_id, 'REWRITE_VERIFIED', 'system_search', Jsonb({**_receipt(), 'recovered': True})))
+    with _fresh_purge_controller(connection) as connection:
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+        for request_id in ids.values():
+            assert _batch(connection, request_id, 'system_search') == 12
+        connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                           (purge_id, 'system_search', Jsonb(_receipt())))
+        connection.execute('RESET ROLE')
+        connection.execute(
+            '''CREATE FUNCTION v3_meta.test_slow_rewrite_key(value_ bigint) RETURNS bigint
+               LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN PERFORM pg_sleep(0.1); RETURN value_; END $$''',
+        )
+        connection.execute(
+            'CREATE INDEX test_slow_rewrite_key ON v3_derived.system_search (v3_meta.test_slow_rewrite_key(system_id64))',
+        )
+        connection.execute('SET ROLE v3_derived_purge_executor')
+        with _application_worker(connection) as worker:
+            worker.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                           (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
+            before = worker.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
+            if operation == 'analyze':
+                worker.execute('VACUUM (FULL) v3_derived.system_search')
+            command = 'VACUUM (FULL) v3_derived.system_search' if operation == 'rewrite' else 'ANALYZE v3_derived.system_search'
+            with _running_operation(worker, command) as future:
+                _wait_for_database_operation(connection, worker, future, operation)
+                assert connection.execute('SELECT v3_meta.cancel_purge_rewrite(%s,%s)',
+                                          (purge_id, 'system_search')).fetchone()[0]
+                with pytest.raises(psycopg.errors.QueryCanceled):
+                    future.result(timeout=10)
+        after = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
+        assert (after == before) is (operation == 'rewrite')
+        assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 0
+        connection.execute('RESET ROLE')
+        connection.execute('DROP INDEX v3_derived.test_slow_rewrite_key')
+        connection.execute('DROP FUNCTION v3_meta.test_slow_rewrite_key(bigint)')
+        connection.execute('SET ROLE v3_derived_purge_executor')
+        if operation == 'rewrite':
+            connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                               (purge_id, 'REWRITE_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
+        else:
+            connection.execute('ANALYZE v3_derived.system_search')
+            connection.execute('SELECT pg_stat_force_next_flush()')
+            connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                               (purge_id, 'REWRITE_VERIFIED', 'system_search', Jsonb({**_receipt(), 'recovered': True})))
 
 
 @pytest.mark.parametrize('fault', ('disk', 'wal', 'filesystem', 'workers', 'stale', 'future'))
@@ -1098,15 +1184,16 @@ def test_competing_transaction_with_an_assigned_xid_blocks_the_next_batch(databa
     connection = database[0]
     purge_id = _authorize(database)[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
-    with _application_worker(connection) as writer:
-        with writer.transaction():
-            writer.execute('SELECT pg_current_xact_id()')
-            with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction'):
-                with connection.transaction():
-                    _start_batch(connection, purge_id, 'system_search')
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
-    assert _batch(connection, purge_id, 'system_search', size=3) == 3
+    with _fresh_purge_controller(connection) as connection:
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+        with _application_worker(connection) as writer:
+            with writer.transaction():
+                writer.execute('SELECT pg_current_xact_id()')
+                with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction'):
+                    with connection.transaction():
+                        _start_batch(connection, purge_id, 'system_search')
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
+        assert _batch(connection, purge_id, 'system_search', size=3) == 3
 
 
 def test_inactive_physical_replication_slot_refuses_phase_and_is_cleaned_up(database):
@@ -1139,28 +1226,20 @@ def test_active_vacuum_progress_refuses_phase_before_disabling_autovacuum(databa
     connection = database[0]
     purge_id = _authorize(database)[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    before = _count(connection, 'v3_meta.derived_generation_purge_event')
-    with _application_worker(connection) as worker:
-        worker.execute("SET vacuum_cost_delay='100ms'")
-        worker.execute('SET vacuum_cost_limit=1')
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(worker.execute,
-                                 'VACUUM (DISABLE_PAGE_SKIPPING, INDEX_CLEANUP ON) v3_derived.system_search')
-            try:
+    with _fresh_purge_controller(connection) as connection:
+        before = _count(connection, 'v3_meta.derived_generation_purge_event')
+        with _application_worker(connection) as worker:
+            worker.execute("SET vacuum_cost_delay='100ms'")
+            worker.execute('SET vacuum_cost_limit=1')
+            with _running_operation(worker,
+                                    'VACUUM (DISABLE_PAGE_SKIPPING, INDEX_CLEANUP ON) v3_derived.system_search') as future:
                 _wait_for_database_operation(connection, worker, future, 'vacuum')
                 with pytest.raises(psycopg.errors.RaiseException, match='vacuum active on purge relation'):
                     with connection.transaction():
                         connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
                                            (purge_id, 'system_search'))
-            finally:
-                if not future.done():
-                    worker.cancel()
-                try:
-                    future.result(timeout=10)
-                except psycopg.errors.QueryCanceled:
-                    pass
-    assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
+        assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
 
 
 def test_autovacuum_age_ceiling_rechecks_between_committed_batches(database):
@@ -1289,16 +1368,15 @@ def test_departed_batch_client_is_resolved_from_durable_start_then_resumes(datab
     connection = database[0]
     purge_id = _authorize(database)[TARGETS[0][1]]
     _writer_fence(connection, purge_id)
-    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
-    test_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=connection.info.dbname)
-    with psycopg.connect(test_dsn, autocommit=True) as departed:
-        departed.execute('SET ROLE v3_derived_purge_executor')
-        _start_batch(departed, purge_id, 'system_search', size=3)
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
-    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
-                       (purge_id, 'BATCH_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
-    assert _batch(connection, purge_id, 'system_search', size=3) == 3
-    assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 9
+    with _fresh_purge_controller(connection) as connection:
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+        with _application_worker(connection) as departed:
+            _start_batch(departed, purge_id, 'system_search', size=3)
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
+        connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                           (purge_id, 'BATCH_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
+        assert _batch(connection, purge_id, 'system_search', size=3) == 3
+        assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 9
 
 
 def test_survivor_and_pointer_drift_and_wrong_dependency_stop_before_deletion(database):
@@ -1579,10 +1657,12 @@ def test_executor_cannot_mutate_payload_or_ledger_directly(database, operation):
             'DISABLE TRIGGER': sql.SQL('ALTER TABLE {} DISABLE TRIGGER ALL'),
         }
         if operation == 'UPDATE':
-            # Ledger/audit schemas have different keys; select any real column.
+            # Select an ordinary column: PostgreSQL rejects assignments to
+            # GENERATED ALWAYS columns before it checks executor privileges.
             column = connection.execute(
                 '''SELECT attname FROM pg_attribute WHERE attrelid=%s::regclass
-                   AND attnum>0 AND NOT attisdropped ORDER BY attnum LIMIT 1''', (relation,),
+                   AND attnum>0 AND NOT attisdropped AND attidentity='' AND attgenerated=''
+                   ORDER BY attnum LIMIT 1''', (relation,),
             ).fetchone()[0]
             statement = sql.SQL('UPDATE {} SET {}={}').format(qualified, sql.Identifier(column), sql.Identifier(column))
         else:
