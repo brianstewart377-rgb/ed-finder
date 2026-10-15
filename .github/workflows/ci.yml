@@ -342,8 +342,9 @@ jobs:
     runs-on: ubuntu-latest
     # The purge PG18 suites (migration 016, P2a-P2b) pushed this lane to the
     # old 30-minute limit; main pushes were cancelled at 30:00. The pytest
-    # step below has its own 45-minute bound so a hang still fails visibly.
-    timeout-minutes: 50
+    # step below has its own 45-minute bound (plus a 60 s kill-after), so a
+    # hang still fails visibly; 60 minutes leaves room for setup before it.
+    timeout-minutes: 60
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres:18-alpine
