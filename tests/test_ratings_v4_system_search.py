@@ -226,3 +226,23 @@ def test_existing_search_manifest_rejects_changed_builder_identity(database, mon
     monkeypatch.setattr(v3_system_search, 'code_identity', lambda: changed)
     with pytest.raises(ValueError, match='manifest differs'):
         register_product(connection, key)
+
+
+def test_governed_purge_preserves_search_insert_and_receipt_guards(database):
+    import psycopg
+    from psycopg import sql
+    from tests.test_v3_governed_derived_purge import installed_purge
+
+    connection = database[0]
+    with installed_purge(connection):
+        key, _, _, _ = _ratings_generation(database)
+        generation, _, manifest_sha = register_product(connection, key)
+        assert build_available(connection, generation, manifest_sha)['chunks_written'] == 3
+        for relation in ('system_search', 'search_build_chunk'):
+            for template in (
+                'UPDATE v3_derived.{} SET derived_generation_id=derived_generation_id',
+                'DELETE FROM v3_derived.{}',
+                'TRUNCATE v3_derived.{}',
+            ):
+                with pytest.raises(psycopg.errors.RaiseException):
+                    connection.execute(sql.SQL(template).format(sql.Identifier(relation)))

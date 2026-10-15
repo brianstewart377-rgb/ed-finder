@@ -134,3 +134,60 @@ def test_004_never_touches_canonical_truth():
         assert forbidden not in source, forbidden
     # Derived data is generated, never hand-written into canonical relations.
     assert "INSERT INTO v3_gen" not in source
+
+
+def test_governed_purge_is_registered_immediately_after_product_publication():
+    assert _entries()[-2:] == [
+        ("015_v3_derived_product_publication.sql",
+         "sql/v3/migrations/015_v3_derived_product_publication.sql"),
+        ("016_v3_governed_derived_purge.sql",
+         "sql/v3/migrations/016_v3_governed_derived_purge.sql"),
+    ]
+
+
+def test_016_installs_the_governed_ledger_and_recovery_functions():
+    source = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    for relation in ("derived_generation_purge_request", "derived_generation_purge_event"):
+        assert f"CREATE TABLE v3_meta.{relation}" in source
+    for function in (
+        "begin_derived_generation_purge", "purge_derived_payload_batch",
+        "complete_derived_payload_relation", "complete_derived_generation_purge",
+        "purge_set_relation_autovacuum", "purge_set_writer_fence",
+        "cancel_purge_rewrite", "cancel_purge_batch",
+    ):
+        assert f"CREATE FUNCTION v3_meta.{function}(" in source
+    assert re.search(r"IF NOT EXISTS \(SELECT 1 FROM pg_roles WHERE rolname='v3_derived_purge_executor'\) THEN"
+                     r".*?SET LOCAL createrole_self_grant = 'set';\s+CREATE ROLE v3_derived_purge_executor",
+                     source, re.DOTALL)
+    assert "m.set_option AND NOT m.inherit_option" in source
+    assert "GRANT MAINTAIN ON" in source
+    assert "SET search_path=pg_catalog" in source
+
+
+def test_016_only_installs_capability_and_leaves_archetype_guards_intact():
+    source = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    # Functions run only when later invoked; DO blocks execute at installation
+    # and remain in the checked text so they cannot hide a payload mutation.
+    top_level = re.sub(
+        r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    top_level = re.sub(r"--[^\n]*", "", top_level)
+    assert not re.search(r"\b(?:DELETE\s+FROM|VACUUM)\b", top_level, re.IGNORECASE)
+    assert not re.search(r"\b(?:SELECT|CALL)\s+v3_meta\.(?:begin_derived_generation_purge|purge_derived_payload_batch)",
+                         top_level, re.IGNORECASE)
+    assert not re.search(r"(?:CREATE|DROP)\s+TRIGGER[^;]*ON\s+v3_derived\.(?:system_archetype|archetype_build_chunk)",
+                         source, re.IGNORECASE)
+
+
+def test_016_event_enum_contains_every_design_recovery_event_and_no_other_kind():
+    source = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    enum = re.search(r"event_kind text NOT NULL CHECK\(event_kind IN \((.*?)\)\)", source, re.DOTALL)
+    assert enum is not None
+    assert set(re.findall(r"'([A-Z_]+)'", enum.group(1))) == {
+        "AUTHORIZED", "BATCH_STARTED", "BATCH_COMMITTED", "BATCH_ROLLED_BACK",
+        "RELATION_LOGICALLY_EMPTY", "REWRITE_STARTED", "REWRITE_VERIFIED", "REWRITE_ROLLED_BACK",
+        "COMPLETED", "FAILED_STOP", "SERVICES_QUIESCED", "SERVICES_RESTORED",
+        "AUTOVACUUM_DISABLED", "AUTOVACUUM_RESTORED", "WRITER_FENCE_ENABLED", "WRITER_FENCE_RESTORED",
+        "REWRITE_CANCEL_REQUESTED", "BATCH_CANCEL_REQUESTED",
+    }

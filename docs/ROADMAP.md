@@ -269,6 +269,11 @@ newer dated source wins).
      `UPDATE`, `TRUNCATE` and all metadata/receipt retention fail-closed; the
      protected plan/authorize/delete/rewrite/status workflow; disposable
      PostgreSQL 18 crash/lock/WAL tests. Code only; it performs no purge.
+     **Progress (2026-10-15): P1 installs and registers migration `016` with
+     its append-only ledger, fail-closed payload capability, executor role and
+     recovery fence functions; the complete six-migration transition and every
+     compatible prefix are registered. Operator actions, protected workflow and
+     disposable crash rehearsal remain P2; no purge or production apply has run.**
   2. Only then: governed migration `plan` → review → `apply` of
      `[014, 010, 011-rewritten, 013, 015, 016]`.
   P. The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`,

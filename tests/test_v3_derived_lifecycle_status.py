@@ -129,6 +129,10 @@ def _run_status_action(
     unrelated_postgres_mount: bool = False,
     pre_publication_migration: bool = False,
     running_worker: str = "",
+    application_read_only: str = "unset",
+    wal_other_filesystem: bool = False,
+    wal_inspection_failure: bool = False,
+    slot_overflow: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     source = _read(ACTION)
     body = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit(
@@ -198,6 +202,19 @@ def _run_status_action(
               exit 0
             fi
             if [ "$1" = 'exec' ] && [ "$2" = "$postgres" ] && [ "$3" = 'sh' ]; then
+              if [ "$4" = '-c' ]; then
+                if [ "$WAL_INSPECTION_FAILURE" = '1' ]; then
+                  printf '%s\\n' 'cannot stat pg_wal' >&2
+                  exit 1
+                fi
+                printf '42\\n'
+                if [ "$WAL_OTHER_FILESYSTEM" = '1' ]; then
+                  printf '43\\n'
+                else
+                  printf '42\\n'
+                fi
+                exit 0
+              fi
               printf 'edfinder_v3\\tedfinder_v3_db\\n'
               exit 0
             fi
@@ -212,8 +229,30 @@ def _run_status_action(
                 previous="$argument"
               done
               case "$sql" in
+                'BEGIN READ ONLY; SET LOCAL statement_timeout = '*'; COMMIT;') ;;
+                *)
+                  printf '%s\\n' 'query missing bounded read-only transaction' >&2
+                  exit 3 ;;
+              esac
+              case "$sql" in
                 *"current_setting('server_version')"*)
                   printf 'edfinder_v3\\tedfinder_v3_db\\t18.4\\t180004\\n' ;;
+                *'FROM pg_roles WHERE rolname = current_user'*)
+                  printf '%s\\n' '{"name":"edfinder_v3","rolsuper":false,"rolcreaterole":true,"rolcanlogin":true}' ;;
+                *'FROM pg_db_role_setting'*)
+                  printf '{"name":"edfinder_v3","default_transaction_read_only":"%s"}\\n' "$APPLICATION_READ_ONLY" ;;
+                *'FROM pg_stat_archiver'*)
+                  printf '%s\\n' '{"data_directory":"/var/lib/postgresql/data/pgdata","archive_mode":"on","failed_count":2,"last_failed_time":"2026-10-10 09:00:00+00","last_archived_time":"2026-10-10 10:00:00+00"}' ;;
+                *'FROM pg_replication_slots'*)
+                  if [ "$SLOT_OVERFLOW" = '1' ]; then
+                    i=0
+                    while [ "$i" -lt 101 ]; do
+                      printf '{"slot_name":"slot_%s","slot_type":"physical","database":null,"wal_status":"reserved","active":true}\\n' "$i"
+                      i=$((i + 1))
+                    done
+                  else
+                    printf '%s\\n' '{"slot_name":"physical_standby","slot_type":"physical","database":null,"wal_status":"extended","active":false}'
+                  fi ;;
                 *'FROM v3_meta.schema_migration'*)
                   printf '%s\\n' '{"migration_name":"011_v3_system_archetype.sql","migration_sha256_hex":"aa11","applied_at":"2026-09-01 00:00:00+00"}'
                   printf '%s\\n' '{"migration_name":"013_v3_system_search_parallel.sql","migration_sha256_hex":"aa13","applied_at":"2026-09-02 00:00:00+00"}'
@@ -331,6 +370,10 @@ def _run_status_action(
     env["UNRELATED_POSTGRES_MOUNT"] = "1" if unrelated_postgres_mount else "0"
     env["PRE_PUBLICATION_MIGRATION"] = "1" if pre_publication_migration else "0"
     env["RUNNING_WORKER"] = running_worker
+    env["APPLICATION_READ_ONLY"] = application_read_only
+    env["WAL_OTHER_FILESYSTEM"] = "1" if wal_other_filesystem else "0"
+    env["WAL_INSPECTION_FAILURE"] = "1" if wal_inspection_failure else "0"
+    env["SLOT_OVERFLOW"] = "1" if slot_overflow else "0"
     return subprocess.run(
         [sys.executable, str(program)],
         capture_output=True,
@@ -421,6 +464,74 @@ def test_v3_derived_lifecycle_status_preserves_json_safe_failure_text(tmp_path):
         if generation["generation_key"] == "ratings_v4_partial"
     )
     assert partial["failure"] == "phase one\nretry\tpending"
+
+
+@pytest.mark.parametrize("setting", ["unset", "off", "on"])
+def test_v3_derived_lifecycle_status_reports_role_defaults(tmp_path, setting):
+    result = _run_status_action(tmp_path, application_read_only=setting)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    postgres = json.loads(result.stdout)["postgres"]
+    assert postgres["migration_role"] == {
+        "name": "edfinder_v3",
+        "rolsuper": False,
+        "rolcreaterole": True,
+        "rolcanlogin": True,
+    }
+    assert postgres["application_role"] == {
+        "name": "edfinder_v3",
+        "default_transaction_read_only": setting,
+    }
+
+
+@pytest.mark.parametrize("other_filesystem", [False, True])
+def test_v3_derived_lifecycle_status_reports_wal_topology(tmp_path, other_filesystem):
+    result = _run_status_action(tmp_path, wal_other_filesystem=other_filesystem)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    wal = json.loads(result.stdout)["postgres"]["wal"]
+    assert wal == {
+        "pg_wal_on_data_filesystem": not other_filesystem,
+        "archive_mode": "on",
+        "failed_count": 2,
+        "last_failed_time": "2026-10-10 09:00:00+00",
+        "last_archived_time": "2026-10-10 10:00:00+00",
+        "replication_slots": [{
+            "slot_name": "physical_standby",
+            "slot_type": "physical",
+            "database": None,
+            "wal_status": "extended",
+            "active": False,
+        }],
+    }
+
+
+@pytest.mark.parametrize("setting", ["unknown", ""])
+def test_v3_derived_lifecycle_status_refuses_invalid_role_setting(tmp_path, setting):
+    result = _run_status_action(tmp_path, application_read_only=setting)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["query_error"] == "application_role_setting_invalid"
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
+
+
+def test_v3_derived_lifecycle_status_refuses_unobserved_wal_filesystem(tmp_path):
+    result = _run_status_action(tmp_path, wal_inspection_failure=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["query_error"] == "wal_filesystem_inspection_failed"
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
+
+
+def test_v3_derived_lifecycle_status_refuses_truncated_slot_report(tmp_path):
+    result = _run_status_action(tmp_path, slot_overflow=True)
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["query_error"] == "replication_slot_report_limit_exceeded"
+    assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
 
 
 def test_v3_derived_lifecycle_status_treats_no_such_object_as_absent(tmp_path):

@@ -27,6 +27,10 @@ from typing import Any
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+# The production API DATABASE_URL role from the schema database identity and
+# F2d actions; target-authority.json does not name a role directly. This is
+# independent of the container's migration login.
+APPLICATION_DATABASE_ROLE = "edfinder_v3"
 STATEMENT_TIMEOUT_MS = 20000
 PROCESS_TIMEOUT_SECONDS = 30
 
@@ -338,6 +342,82 @@ try:
                 "server_version_num": as_int(postgres_rows[0][3]),
             }
         )
+
+    role_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT rolname AS name, rolsuper, rolcreaterole, rolcanlogin "
+        "FROM pg_roles WHERE rolname = current_user) q",
+        db_user,
+        db_name,
+    )
+    if len(role_rows) != 1:
+        raise RuntimeError("migration_role_missing")
+    receipt["postgres"]["migration_role"] = role_rows[0]
+    application_role_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT r.rolname AS name, "
+        "COALESCE((SELECT split_part(option, '=', 2) "
+        "FROM pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) option "
+        "WHERE s.setrole = r.oid AND s.setdatabase IN "
+        "(0, (SELECT oid FROM pg_database WHERE datname = current_database())) "
+        "AND option LIKE 'default_transaction_read_only=%' "
+        "ORDER BY s.setdatabase DESC LIMIT 1), 'unset') "
+        "AS default_transaction_read_only "
+        "FROM pg_roles r WHERE r.rolname = 'edfinder_v3') q",
+        db_user,
+        db_name,
+    )
+    if (
+        len(application_role_rows) != 1
+        or application_role_rows[0].get("name") != APPLICATION_DATABASE_ROLE
+        or application_role_rows[0].get("default_transaction_read_only")
+        not in ("on", "off", "unset")
+    ):
+        raise RuntimeError("application_role_setting_invalid")
+    receipt["postgres"]["application_role"] = application_role_rows[0]
+
+    wal_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT current_setting('data_directory') AS data_directory, "
+        "current_setting('archive_mode') AS archive_mode, "
+        "failed_count, last_failed_time::text AS last_failed_time, "
+        "last_archived_time::text AS last_archived_time FROM pg_stat_archiver) q",
+        db_user,
+        db_name,
+    )
+    if len(wal_rows) != 1 or not isinstance(wal_rows[0].get("data_directory"), str):
+        raise RuntimeError("wal_topology_output_invalid")
+    wal = wal_rows[0]
+    data_directory = wal.pop("data_directory")
+    if not data_directory.startswith("/"):
+        raise RuntimeError("postgres_data_directory_invalid")
+    # Follow symlinks on both paths: pg_wal can be linked to another volume.
+    # Pass the catalog path as an argument, never as shell command text.
+    filesystem_result = run(
+        [
+            "docker", "exec", POSTGRES_CONTAINER, "sh", "-c",
+            'stat -Lc "%d" -- "$1" "$1/pg_wal"', "sh", data_directory,
+        ]
+    )
+    devices = filesystem_result.stdout.splitlines()
+    if (
+        filesystem_result.returncode != 0
+        or len(devices) != 2
+        or any(not device.isdecimal() for device in devices)
+    ):
+        raise RuntimeError("wal_filesystem_inspection_failed")
+    wal["pg_wal_on_data_filesystem"] = devices[0] == devices[1]
+    slot_rows = psql_json(
+        "SELECT row_to_json(q)::text FROM ("
+        "SELECT slot_name, slot_type, database, wal_status, active "
+        "FROM pg_replication_slots ORDER BY slot_name LIMIT 101) q",
+        db_user,
+        db_name,
+    )
+    if len(slot_rows) > 100:
+        raise RuntimeError("replication_slot_report_limit_exceeded")
+    wal["replication_slots"] = slot_rows
+    receipt["postgres"]["wal"] = wal
 
     migration_rows = psql_json(
         "SELECT row_to_json(q)::text FROM ("

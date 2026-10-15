@@ -36,11 +36,11 @@ UNAVAILABLE = (
 )
 
 
-def test_watchlist_registration_has_through_012_014_010_011_013_015_tail():
+def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
     document = identity.build(ROOT)
     entries = document['migration_set_entries']
-    before = entries[:-5]
-    tail = entries[-5:]
+    before = entries[:-6]
+    tail = entries[-6:]
     assert before[-1]['ledger_name'] == '012_v3_spatial_pyramid_decouple.sql'
     assert [entry['ledger_name'] for entry in tail] == [
         MIGRATION,
@@ -48,6 +48,7 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_tail():
         '011_v3_system_archetype.sql',
         '013_v3_system_search_parallel.sql',
         '015_v3_derived_product_publication.sql',
+        '016_v3_governed_derived_purge.sql',
     ]
     applied, pending = migrate.plan_migrations(entries, before)
     assert applied == before and pending == tail

@@ -21,6 +21,40 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-15 — Governed derived purge capability registered (P1)
+
+Migration `016` safely adopts a cluster-wide executor already installed by
+another database only after checking its restricted role attributes, password
+when readable, absence of memberships in other roles, and the non-superuser
+creator's SET-only membership. Adoption also rejects every other incoming member
+and any creator membership with ADMIN, INHERIT or no SET, including when the
+creator is a superuser. Each database still installs its own grants and revokes.
+PostgreSQL 18's implicit non-superuser creation ADMIN grant must be removed by an
+authorized administrator before that role can be adopted in another database.
+Rewrite cancellation authenticates a lock-waiting `VACUUM FULL` by its recorded
+backend identity, bounded command and exact ungranted relation lock. Verified
+rewrites reject repeated starts and new autovacuum fences. Service quiescence
+allows one open record and restoration requires its exact container set; writer
+and autovacuum fences preserve the recorded prior state across retries, and a
+writer fence stays open until restoration is verified. Disposable PostgreSQL 18
+regressions cover these recovery rules, reuse across databases and atomic
+refusal of unsafe existing roles; fixture cleanup preserves shared roles.
+The manifest and target schema identity are regenerated for these migration
+bytes; this registration performs no production operation.
+
+Migration `016` installs an append-only purge request/event ledger, fail-closed
+bounded payload functions for only the two never-published rejected generations,
+and the restricted executor role with autovacuum and application writer-fence
+recovery support. It preserves manifests, products, receipts, publication
+history and the published generation; installation performs no purge or rewrite.
+The V3 manifest, target authority and every compatible transition prefix now
+register `[014, 010, 011-rewritten, 013, 015, 016]`; the F2d release gate accepts
+registration and still requires the exact applied ledger hashes. Lifecycle
+status adds read-only role, writer-default and WAL/archive/slot facts for later
+preflight evidence. Disposable PostgreSQL 18 tests cover the capability; operator
+actions, protected workflow and crash rehearsal remain P2. Code only: no
+production access, deployment or migration application.
+
 ## 2026-10-14 — Finder F2d release gate and identity attestation (PR4 D2b)
 
 Adds the release-first Finder gate, grouped ranking/operator-code and rollback
