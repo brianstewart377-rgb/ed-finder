@@ -414,7 +414,7 @@ run_archetype_container() {
       set -eu
       /usr/local/bin/python -m pip install --quiet --disable-pip-version-check --no-input --no-index \
         --find-links /work/.v3-archetype-wheelhouse --target /tmp/v3-archetype-deps \
-        "psycopg[binary]==3.3.4" 1>&2
+        --require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2
       export PYTHONPATH="/tmp/v3-archetype-deps:/work:/work/apps/api/src"
       cd /work
       /app/.venv/bin/python -c "from pathlib import Path; from scripts.v3_archetype_calibration_complete import require_image_model_match; require_image_model_match(Path(\"/app/shared_contracts/v3_system_archetype_model.py\"))"
@@ -535,7 +535,7 @@ start_operation() {
       set -eu
       /usr/local/bin/python -m pip install --quiet --disable-pip-version-check --no-input --no-index \
         --find-links /work/.v3-archetype-wheelhouse --target /tmp/v3-archetype-deps \
-        "psycopg[binary]==3.3.4" 1>&2
+        --require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2
       export PYTHONPATH="/tmp/v3-archetype-deps:/work:/work/apps/api/src"
       cd /work
       /app/.venv/bin/python -c "from pathlib import Path; from scripts.v3_archetype_calibration_complete import require_image_model_match; require_image_model_match(Path(\"/app/shared_contracts/v3_system_archetype_model.py\"))"

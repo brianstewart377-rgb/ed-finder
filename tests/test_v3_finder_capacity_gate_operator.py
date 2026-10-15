@@ -141,7 +141,7 @@ def test_action_runs_the_gate_in_a_bounded_read_only_container() -> None:
     assert 'if [ -d "$COMPLETE_STATE_ROOT" ]' in source
     assert 'if [ -d "$SEARCH_STATE_ROOT" ]' in source
     assert 'if [ -d "$ARCHETYPE_STATE_ROOT" ]' in source
-    assert '"psycopg[binary]==3.3.4" 1>&2' in source
+    assert '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2' in source
     assert "--no-index" in source
     assert "--find-links /work/.v3-probe-wheelhouse" in source
     assert "--target /tmp/v3-capacity-gate-deps" in source
@@ -203,33 +203,122 @@ def test_gate_program_is_read_only() -> None:
     assert "default_transaction_read_only" in source
 
 
-def test_ops_workflow_allowlists_attestation_only_for_f2d_actions() -> None:
+F2D_OPERATIONS = (
+    "v3-archetype-calibration-complete-start",
+    "v3-archetype-calibration-complete-status",
+    "v3-finder-capacity-gate",
+    "v3-archetype-plan-probe",
+    "v3-system-search-f1-start",
+    "v3-system-search-f1-status",
+    "v3-system-search-f1-finalize",
+    "v3-system-archetype-start",
+    "v3-system-archetype-status",
+    "v3-system-archetype-finalize",
+)
+
+
+def test_ops_workflow_reads_attestation_only_for_f2d_actions() -> None:
     workflow = _read(WORKFLOW)
     parsed = yaml.safe_load(workflow)
     # PyYAML's YAML 1.1 resolver treats the unquoted Actions key `on` as true.
     inputs = parsed[True]["workflow_dispatch"]["inputs"]
     operation_options = inputs["operation"]["options"]
+    steps = parsed["jobs"]["execute"]["steps"]
+    identity_index, identity_step = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "f2d-identity"
+    )
+    trusted_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Checkout trusted operator implementation"
+    )
+    assert trusted_index < identity_index
+    assert steps[trusted_index]["with"]["ref"] == "main"
+    assert steps[trusted_index]["with"]["path"] == "trusted-main"
+    assert "f2d_operator_code_sha256_attested" not in inputs
+    assert "INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" not in workflow
+    assert "steps.request.outputs.f2d_operator_code_sha256_attested" not in workflow
+    condition = identity_step["if"]
+    governed_operations = json.loads(condition.split("fromJSON('", 1)[1].split("')", 1)[0])
+    assert set(governed_operations) == set(F2D_OPERATIONS)
+    consumers = [
+        step for step in steps
+        if "F2D_OPERATOR_CODE_SHA256_ATTESTED" in step.get("env", {})
+    ]
+    assert len(consumers) == len(F2D_OPERATIONS)
+    for operation in F2D_OPERATIONS:
+        assert operation_options.count(operation) == 1
+        matching = [step for step in consumers if step.get("if") == (
+            f"steps.request.outputs.operation == '{operation}'"
+        )]
+        assert len(matching) == 1
+        assert matching[0]["env"]["F2D_OPERATOR_CODE_SHA256_ATTESTED"] == (
+            "${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}"
+        )
+        assert identity_index < steps.index(matching[0])
 
-    assert operation_options.count("v3-finder-capacity-gate") == 1
-    assert "f2d_operator_code_sha256_attested" in inputs
-    assert inputs["f2d_operator_code_sha256_attested"]["required"] is False
-    assert "|v3-finder-capacity-gate|" in workflow
-    assert (
-        '[[ "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]]'
-        in workflow
+
+@pytest.mark.parametrize(
+    "compatibility",
+    [
+        {},
+        None,
+        [],
+        {"f2d_operator_code_sha256": None},
+        {"f2d_operator_code_sha256": 123},
+        {"f2d_operator_code_sha256": ""},
+        {"f2d_operator_code_sha256": "a" * 63},
+        {"f2d_operator_code_sha256": "a" * 65},
+        {"f2d_operator_code_sha256": "A" * 64},
+        {"f2d_operator_code_sha256": "g" * 64},
+        {"f2d_operator_code_sha256": "a" * 64 + "\n"},
+    ],
+)
+def test_ops_workflow_refuses_missing_or_invalid_accepted_attestation(
+    tmp_path: Path, compatibility: object,
+) -> None:
+    result, output = _run_workflow_attestation(tmp_path, compatibility)
+    assert result.returncode != 0
+    assert "Accepted release has no valid F2d operator-code attestation" in result.stderr
+    assert not output.exists()
+
+
+def test_ops_workflow_reads_identity_from_trusted_main_authority(tmp_path: Path) -> None:
+    result, output = _run_workflow_attestation(
+        tmp_path, {"f2d_operator_code_sha256": "a" * 64},
     )
-    governed_operations = (
-        "v3-finder-capacity-gate",
-        "v3-system-search-f1-start",
-        "v3-system-search-f1-status",
-        "v3-system-search-f1-finalize",
-        "v3-system-archetype-start",
-        "v3-system-archetype-status",
-        "v3-system-archetype-finalize",
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == "f2d_operator_code_sha256_attested=" + "a" * 64 + "\n"
+
+
+def _run_workflow_attestation(
+    tmp_path: Path, compatibility: object,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    steps = yaml.safe_load(_read(WORKFLOW))["jobs"]["execute"]["steps"]
+    step = next(step for step in steps if step.get("id") == "f2d-identity")
+    authority_path = tmp_path / "trusted-main/deploy/v3-production/target-authority.json"
+    authority_path.parent.mkdir(parents=True)
+    authority_path.write_text(json.dumps({
+        "accepted_release_schema_compatibility": compatibility,
+    }))
+    # An attacker-controlled request checkout cannot supply the attestation.
+    decoy = tmp_path / "deploy/v3-production/target-authority.json"
+    decoy.parent.mkdir(parents=True)
+    decoy.write_text(json.dumps({
+        "accepted_release_schema_compatibility": {"f2d_operator_code_sha256": "b" * 64},
+    }))
+    output = tmp_path / "github-output"
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    governed_case = "|".join(governed_operations)
-    assert governed_case in workflow
-    assert "accepted only for F2d governed actions" in workflow
+    return result, output
 
 
 def test_ops_workflow_wires_f2d_build_operations() -> None:
@@ -287,7 +376,7 @@ def test_ops_workflow_stages_runs_and_uploads_capacity_gate_receipt() -> None:
     assert 'stage="/var/tmp/edfinder-v3-capacity-gate-${source_sha}"' in workflow
     assert ".v3-capacity-gate-source-sha" in workflow
     assert ".v3-probe-wheelhouse" in workflow
-    assert "psycopg[binary]==3.3.4" in workflow
+    assert "--require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt" in workflow
     assert "bash -s -- run '$stage' '$source_sha'" in workflow
     assert "sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED" in workflow
     assert (
@@ -611,3 +700,55 @@ def test_running_worker_is_verified_before_any_receipt_is_written(
     )
     assert expected in result.stdout, result.stdout + result.stderr
 
+
+
+@pytest.mark.parametrize(
+    ("action", "install_count"),
+    (
+        ("v3-archetype-calibration-complete.sh", 1),
+        ("v3-finder-capacity-gate.sh", 1),
+        ("v3-system-search-f1.sh", 2),
+        ("v3-system-archetype.sh", 2),
+        ("v3-archetype-plan-probe.sh", 1),
+        ("v3-publish-derived-products.sh", 1),
+    ),
+)
+def test_every_f2d_install_authenticates_offline_wheel_bytes(action, install_count):
+    source = _read(ROOT / "scripts/operator/actions" / action)
+    commands = re.findall(r"python -m pip install .*?1>&2", source, re.DOTALL)
+    assert len(commands) == install_count
+    for command in commands:
+        assert "--no-index" in command
+        assert "--find-links /work/.v3-" in command
+        assert "--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt" in command
+        assert "psycopg[binary]" not in command
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "expected_downloads", "checkout_prefix"),
+    (
+        ("chatgpt-ed-new-ops.yml", 8, "trusted-main/"),
+        ("v3-production-application-deploy.yml", 1, ""),
+    ),
+)
+def test_every_f2d_staging_download_authenticates_target_wheels(
+    workflow_name, expected_downloads, checkout_prefix,
+):
+    workflow = yaml.load(
+        _read(ROOT / ".github/workflows" / workflow_name), Loader=yaml.BaseLoader,
+    )
+    downloads = []
+    for job in workflow["jobs"].values():
+        for step in job.get("steps", []):
+            run = step.get("run", "").replace("\\\n", " ")
+            downloads.extend(
+                line for line in run.splitlines()
+                if "pip download" in line and re.search(r"\.v3-(?:probe|search|archetype)-wheelhouse", line)
+            )
+    assert len(downloads) == expected_downloads
+    for command in downloads:
+        assert "--require-hashes" in command
+        assert f"-r {checkout_prefix}deploy/v3-production/f2d-wheels.txt" in command
+        assert "--only-binary=:all:" in command
+        assert "--platform manylinux2014_x86_64 --python-version 3.14 --implementation cp" in command
+        assert "psycopg[binary]" not in command

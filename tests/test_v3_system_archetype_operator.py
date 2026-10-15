@@ -152,7 +152,7 @@ def test_build_and_validation_containers_are_bounded_offline_and_read_only() -> 
     assert source.count("--read-only") >= 2
     assert source.count("--tmpfs /tmp:rw,nosuid,size=2g") >= 2
     assert 'dst=/work,readonly' in source
-    assert '"psycopg[binary]==3.3.4" 1>&2' in source
+    assert '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2' in source
     assert "--no-index" in source
     assert "--find-links /work/.v3-archetype-wheelhouse" in source
     assert "--target /tmp/v3-archetype-deps" in source

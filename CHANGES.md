@@ -21,6 +21,66 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-14 — Finder F2d release gate and identity attestation (PR4 D2b)
+
+Adds the release-first Finder gate, grouped ranking/operator-code and rollback
+attestation validation, post-promotion bounded-request probes, and a minimum
+schema-compatible rollback boundary. The gate prefers recorded compatible
+artifacts and permits the same operation's authenticated, checksum-bound
+candidate as the first F2d rollback artifact after boundary and rollback-manifest
+validation; preflight and promotion receipts retain its source and image identity.
+Authenticated candidates defer image checks to promotion's candidate pull/verify
+step; recorded rollback artifacts retain immediate verification. Publication's
+bounded behavioural probes now require the exact READY-but-unpublished reason
+for both 503s and receipt the parsed detail and verification result. The
+publisher pins the active API DSN to the retained database and role, with the
+host restricted to the pinned PostgreSQL container name or its inspected IPv4
+address on the worker network, and independently checks the connected database
+and user before any write (refusal code 79). The standalone plan probe also
+refuses loaded checkout modules outside the operator-code manifest before
+connecting. Regression tests cover all four review findings.
+PR4b review round 3 fixes the deployed `picked` fetch-node recognition, applies
+the KNN generation/tie allowance without the generic row cap, requires zero-heap
+index-only windows for picked counts too, and measures bounding-box candidates
+for the target generation before multiplying by the generation count. The
+standalone probe now uses the publisher's pinned DSN binding and checks the
+connected database and role before any probe statement (refusal code 24).
+After commit, publication checks both live Finder endpoints for results and
+the generation, attested ranking identity, and all three Archetype product
+identities. A failed post-commit check records `published_unhealthy`, retains
+the committed publication/write flags, and exits 80 without rollback.
+Regression tests cover each of the six confirmed findings. These changes are
+code only; no deployment or production access was performed.
+PR4b review round 4 scopes `first-f2d-cutover-empty-finder-products` to the
+currently accepted release lacking an F2d attestation group. Later upgrades use
+`accepted-f2d-release-allowed-product-states`: keep the exact pinned generation,
+allow BUILDING only unpublished and READY only VERIFIED (published or
+unpublished), and refuse FAILED. Preflight and promotion receipts record the
+rule and observed lifecycle, validation and publication states; post-promotion
+bounded-request probes expect 200 after paired publication and the exact 503
+reason during rollout. The choice uses accepted-release authority, independent
+of optional dispatch attestation. F2d now authenticates the complete CPython
+3.14 manylinux x86_64 Psycopg wheel graph through manifest-listed
+`deploy/v3-production/f2d-wheels.txt`, hash-checked staging downloads and offline
+installs in all six actions. The disposable capacity measurement uses the same
+lock. Regression tests cover accepted later upgrades, first-cutover refusal,
+failed products, rollout states, wheel hashes and every F2d install/download.
+F2d operator operations now read their
+attested identity from trusted-main's target authority. The gate requires all
+six planned migrations and refuses explicitly while mandatory `016` remains
+unregistered. The existing accepted-release values are unchanged. No deployment,
+production access or production attestation was performed.
+
+## 2026-10-14 — Finder F2d governed paired publication (PR4 D2a)
+
+Adds the protected `publish-finder-products` operation, the deployment-lock-held
+host action, and the paired publication transaction. The publisher checks bounded
+view visibility, runs the deployed-image plan probe on its own connection before
+commit, and waits for the host's repeated image-digest check. Sealed receipts
+record preflights, maintenance, probe evidence and audit timestamps. The action
+refuses until D2b supplies the accepted release's ranking and operator-code
+attestation. No action was dispatched and no production system was accessed.
+
 ## 2026-10-14 — Codex worker model pin moved to `gpt-6.1-sol`
 
 The Contabo Codex worker moves from `gpt-5.6-sol` to `gpt-6.1-sol`. The
@@ -34,6 +94,16 @@ owner chose 6.1 Sol over GPT-6 Astra to limit credit use. Effort stays
 and now reject the old `gpt-5.6-sol` literal.
 
 ## 2026-10-13 — Finder F2d wide Archetype data layer
+
+The governed read-only Archetype plan probe now generates all 80 ranking page
+and count statements from the attested running API image, executes them with
+production statistics under generic-plan settings, and seals complete
+per-statement plan evidence. Its assertion module is connection-driven so the
+later product publisher can run the same checks inside its own transaction;
+the standalone action validates build maintenance receipts, product
+publication, the image digest, and the densest current spatial window before
+starting a bounded read-only worker. No action was dispatched and no production
+system was accessed.
 
 The governed Finder build slice now retargets Search to the current published
 `ratings_v4_prod_p4_parallel_v1` generation and adds the wide Archetype build.

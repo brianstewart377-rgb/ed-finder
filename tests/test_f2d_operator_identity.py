@@ -15,13 +15,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SHELL_HELPER = REPO_ROOT / "scripts/operator/lib/f2d_operator_identity.sh"
 EXPECTED_ACTIVE_ENTRIES = (
     "deploy/v3-production/f2d-operator-code.txt",
+    "deploy/v3-production/f2d-wheels.txt",
     "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json",
     "requirement:psycopg[binary]==3.3.4",
     "scripts/dev/convert_calibration_histogram.py",
     "scripts/dev/measure_search_footprint.py",
     "scripts/dev/measure_wide_archetype_footprint.py",
     "scripts/operator/actions/v3-archetype-calibration-complete.sh",
+    "scripts/operator/actions/v3-archetype-plan-probe.sh",
     "scripts/operator/actions/v3-finder-capacity-gate.sh",
+    "scripts/operator/actions/v3-publish-derived-products.sh",
     "scripts/operator/actions/v3-system-archetype.sh",
     "scripts/operator/actions/v3-system-search-f1.sh",
     "scripts/operator/lib/f2d_evidence.py",
@@ -29,7 +32,10 @@ EXPECTED_ACTIVE_ENTRIES = (
     "scripts/operator/lib/f2d_operator_identity.sh",
     "scripts/v3_archetype_calibration_complete.py",
     "scripts/v3_archetype_calibration_probe.py",
+    "scripts/v3_archetype_plan_probe.py",
     "scripts/v3_finder_capacity_gate.py",
+    "scripts/v3_plan_probe_statements.py",
+    "scripts/v3_publish_derived_products.py",
     "scripts/v3_system_archetype.py",
     "scripts/v3_system_archetype_model.py",
     "scripts/v3_system_search.py",
@@ -45,7 +51,6 @@ EXPECTED_ACTIVE_ENTRIES = (
 )
 PLANNED_ACTION_COMMENTS = (
     "scripts/operator/actions/v3-publish-derived-products.sh",
-    "scripts/operator/actions/v3-archetype-plan-probe.sh",
 )
 
 
@@ -81,8 +86,9 @@ def test_committed_manifest_is_complete_sorted_and_names_planned_actions() -> No
     assert list(EXPECTED_ACTIVE_ENTRIES) == sorted(EXPECTED_ACTIVE_ENTRIES)
     assert len(EXPECTED_ACTIVE_ENTRIES) == len(set(EXPECTED_ACTIVE_ENTRIES))
     for planned_path in PLANNED_ACTION_COMMENTS:
-        assert f"# {planned_path}" in text
-        assert planned_path not in identity.manifest_entries(REPO_ROOT)
+        # D2a has landed: this formerly planned action must be active exactly once.
+        assert text.splitlines().count(planned_path) == 1
+        assert planned_path in identity.manifest_entries(REPO_ROOT)
 
 
 def test_python_uses_canonical_json_pairs(checkout: Path) -> None:

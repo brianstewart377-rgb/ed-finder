@@ -16,6 +16,13 @@ the roadmap.
 registration facts, are repository/workflow facts, not a new production
 inspection.
 
+**Repository progress (2026-10-14):** PR4b parts D1 (plan probe), D2a (paired
+publication) and D2b (release gate, attestation and rollback boundary) are on
+branch `f2d/pr4b-probe-publish`. The release gate waits for mandatory `016`
+registration and application; while unregistered it refuses with
+`required_migration_not_registered:016`. This is code progress only, not a
+production operation or a new accepted-release attestation.
+
 ## Verified production state (read-only inspection, 2026-10-04) and current repository status
 
 Derived generations and the registered migrations:

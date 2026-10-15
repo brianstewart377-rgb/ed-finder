@@ -1922,3 +1922,268 @@ def test_controlled_cancellation_terminates_and_reaps_active_bounded_child(tmp_p
     assert process.returncode == 78, (stdout, stderr)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+def test_finder_publication_is_protected_and_does_not_require_a_release_run():
+    workflow = _workflow()
+    options = workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"]
+    assert options == ["inventory", "preflight", "promote", "publish-finder-products"]
+    assert workflow["concurrency"] == {
+        "group": "v3-production-application-authority", "cancel-in-progress": "false",
+    }
+    prepare = workflow["jobs"]["prepare"]
+    protected = workflow["jobs"]["production-operation"]
+    assert prepare["if"] == "inputs.operation != 'inventory'"
+    assert protected["needs"] == ["guard", "prepare"]
+    assert protected["if"] == "inputs.operation != 'inventory'"
+    assert protected["environment"] == "v3-production"
+    authority_gate = next(
+        step for step in prepare["steps"]
+        if step.get("name") == "Stop before credentials or SSH while production authority is blocked"
+    )
+    assert "if" not in authority_gate
+    assert authority_gate["run"] == (
+        "python scripts/operator/v3_production_deploy.py --operation authority-gate"
+    )
+    for job in (prepare, protected):
+        for step in job["steps"]:
+            name = step.get("name", "")
+            if (
+                "candidate" in name.lower() or "bounded release run ID" in name
+                or name in (
+                    "Authenticate canonical release and verify candidate",
+                    "Prepare sealed source-free operation bundle and pinned SSH trust",
+                    "Execute exact production authority",
+                )
+            ):
+                assert step["if"] == "inputs.operation != 'publish-finder-products'", name
+
+
+def test_finder_publication_stages_exact_main_with_production_credentials_and_attestation():
+    protected = _workflow()["jobs"]["production-operation"]
+    steps = protected["steps"]
+    publication = [
+        step for step in steps
+        if step.get("if") == "inputs.operation == 'publish-finder-products'"
+    ]
+    assert len(publication) == 4
+    identity, prepare, stage, execute = publication
+    names = [step.get("name", "") for step in steps]
+    assert names.index("Revalidate exact current main after production approval") < names.index(identity["name"])
+    assert names.index(identity["name"]) < names.index(prepare["name"]) < names.index(stage["name"]) < names.index(execute["name"])
+    assert "--operation authority-gate" in identity["run"]
+    assert "deploy/v3-production/target-authority.json" in identity["run"]
+    assert 'authority.get("accepted_release_schema_compatibility", {})' in identity["run"]
+    assert 'compatibility.get("f2d_operator_code_sha256")' in identity["run"]
+    assert 're.fullmatch(r"[0-9a-f]{64}", identity)' in identity["run"]
+    assert 'raise SystemExit("Accepted release has no valid F2d operator-code attestation")' in identity["run"]
+    assert "secrets." not in json.dumps(identity)
+    for step in (prepare, stage, execute):
+        encoded = json.dumps(step)
+        assert "ED_NEW_OPERATOR_" not in encoded
+        assert "secrets.V3_PRODUCTION_" in encoded
+        assert step["env"]["SSH_HOST"] == "${{ secrets.V3_PRODUCTION_HOST }}"
+        assert step["env"]["SSH_PORT"] == "${{ secrets.V3_PRODUCTION_PORT }}"
+        assert "git rev-parse HEAD" in step["run"]
+        assert '"$source_sha" = "$EXPECTED_SOURCE_SHA"' in step["run"]
+    assert prepare["env"]["SSH_KEY"] == "${{ secrets.V3_PRODUCTION_SSH_KEY }}"
+    assert prepare["env"]["SSH_KNOWN_HOSTS"] == "${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}"
+    assert "ssh-keygen -F" in prepare["run"]
+    assert "ssh-keyscan" not in json.dumps(publication)
+    assert '.v3-publish-source-sha' in prepare["run"]
+    assert "--only-binary=:all:" in prepare["run"]
+    assert "--dest .v3-probe-wheelhouse --require-hashes -r deploy/v3-production/f2d-wheels.txt" in prepare["run"]
+    assert "--platform manylinux2014_x86_64 --python-version 3.14 --implementation cp" in prepare["run"]
+    assert '/var/tmp/edfinder-v3-publish-${source_sha}' in stage["run"]
+    assert '[ -L' in stage["run"]
+    assert 'stage marker mismatch' in stage["run"]
+    assert 'incoming="${stage}.incoming-${RUN_ID}-${RUN_ATTEMPT}"' in stage["run"]
+    assert 'tar --no-same-owner --no-same-permissions' in stage["run"]
+    assert "mv '$incoming' '$stage'" in stage["run"]
+    for step in (stage, execute):
+        assert "StrictHostKeyChecking=yes" in step["run"]
+        assert "BatchMode=yes" in step["run"]
+        assert "UserKnownHostsFile=~/.ssh/known_hosts" in step["run"]
+        assert "~/.ssh/v3_production_key" in step["run"]
+    assert execute["env"]["ACTOR"] == "github:${{ github.actor }}/run-${{ github.run_id }}"
+    assert execute["env"]["F2D_OPERATOR_CODE_SHA256_ATTESTED"] == (
+        "${{ steps.publication-identity.outputs.f2d_operator_code_sha256_attested }}"
+    )
+    assert "export F2D_OPERATOR_CODE_SHA256_ATTESTED=" in execute["run"]
+    assert 'sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED' in execute["run"]
+    assert "bash -s -- run '$stage' '$source_sha' '$ACTOR'" in execute["run"]
+    assert "< scripts/operator/actions/v3-publish-derived-products.sh" in execute["run"]
+    assert 'tee "$RECEIPT"' in execute["run"]
+    assert "DATABASE_URL" not in json.dumps(publication)
+    upload = next(step for step in steps if step.get("name") == "Upload Finder product publication operation receipt")
+    assert upload["if"] == "always() && inputs.operation == 'publish-finder-products'"
+    assert upload["with"]["name"] == "v3-publish-derived-products-operation"
+    assert upload["with"]["retention-days"] == "90"
+
+
+def test_f2d_candidate_attestation_and_manifest_staging_stay_in_protected_job():
+    workflow = _workflow()
+    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["f2d_release_attestation"]
+    assert declaration["required"] == "false"
+    assert declaration["type"] == "string"
+    protected = workflow["jobs"]["production-operation"]
+    assert protected["environment"] == "v3-production"
+    assert protected["needs"] == ["guard", "prepare"]
+    steps = protected["steps"]
+    names = [step.get("name") for step in steps]
+    validate = next(step for step in steps if step.get("name") == "Validate optional F2d candidate attestation")
+    stage = next(step for step in steps if step.get("name") == "Stage F2d release gate authorities in the sealed bundle")
+    assert names.index("Revalidate exact current main after production approval") < steps.index(validate)
+    assert names.index("Reauthenticate candidate in the protected production job") < steps.index(validate)
+    assert steps.index(validate) < names.index("Prepare sealed source-free operation bundle and pinned SSH trust")
+    assert names.index("Prepare sealed source-free operation bundle and pinned SSH trust") < steps.index(stage)
+    assert steps.index(stage) < names.index("Execute exact production authority")
+    for step in (validate, stage):
+        assert step["if"] == "inputs.operation != 'publish-finder-products'"
+        assert "secrets." not in json.dumps(step)
+        assert "${{" not in step["run"]
+        for name, job in workflow["jobs"].items():
+            if name != "production-operation":
+                assert step["name"] not in [other.get("name") for other in job["steps"]]
+    assert validate["env"] == {
+        "F2D_RELEASE_ATTESTATION": "${{ inputs.f2d_release_attestation }}",
+        "RELEASE_RUN_ID": "${{ inputs.release_run_id }}",
+    }
+    assert 'raw = os.environ.get("F2D_RELEASE_ATTESTATION", "")' in validate["run"]
+    assert 'len(raw.encode()) > deployer.MAX_JSON' in validate["run"]
+    assert stage["env"]["BUNDLE"] == "${{ runner.temp }}/v3-production-bundle"
+
+
+def _f2d_workflow_attestation_fixture(tmp_path):
+    # Entirely synthetic local evidence; import the real validator through the
+    # same relative path as the protected workflow without accessing a host.
+    (tmp_path / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+    directory = tmp_path / "candidate"
+    directory.mkdir()
+    images = {
+        "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:" + "b" * 64,
+        "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "c" * 64,
+    }
+    manifest = directory / "v3-application-release.json"
+    manifest.write_text(json.dumps({"git_sha": "a" * 40, "images": images}))
+    checksum = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    manifest.with_suffix(".json.sha256").write_text(checksum + "  " + manifest.name + "\n")
+    authority = tmp_path / "deploy/v3-production/target-authority.json"
+    authority.parent.mkdir(parents=True)
+    authority.write_text(json.dumps({
+        "schema_transition": {"to_migration_set_identity": "sha256:" + "d" * 64},
+    }))
+    attestation = {
+        "schema_version": _load_deployer().RELEASE_COMPATIBILITY_SCHEMA,
+        "source_sha": "a" * 40,
+        "release_run_id": "12345",
+        "manifest_sha256": checksum,
+        "images": images,
+        "compatible_migration_sets": ["sha256:" + "d" * 64],
+        "evidence": "Synthetic workflow fixture",
+        "ranking_version": "fixture-ranking-v1",
+        "ranking_sha256": "e" * 64,
+        "f2d_operator_code_sha256": "f" * 64,
+        "minimum_schema_compatible_image": images["backend"],
+        "rollback_targets": [images["backend"]],
+    }
+    return directory, attestation
+
+
+def _run_f2d_workflow_attestation(tmp_path, raw):
+    step = next(
+        step for step in _workflow()["jobs"]["production-operation"]["steps"]
+        if step.get("name") == "Validate optional F2d candidate attestation"
+    )
+    return subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path,
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path),
+             "F2D_RELEASE_ATTESTATION": raw, "RELEASE_RUN_ID": "12345"},
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_f2d_candidate_attestation_workflow_skips_absent_optional_value(tmp_path):
+    result = _run_f2d_workflow_attestation(tmp_path, "")
+    assert result.returncode == 0, result.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_f2d_candidate_attestation_workflow_writes_bound_private_evidence(tmp_path):
+    directory, attestation = _f2d_workflow_attestation_fixture(tmp_path)
+    result = _run_f2d_workflow_attestation(tmp_path, json.dumps(attestation))
+    assert result.returncode == 0, result.stderr
+    output = directory / "f2d-release-attestation.json"
+    assert json.loads(output.read_text()) == attestation
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    # A repeated execution may not overwrite evidence already staged for use.
+    repeated = _run_f2d_workflow_attestation(tmp_path, json.dumps(attestation))
+    assert repeated.returncode != 0
+    assert json.loads(output.read_text()) == attestation
+
+
+@pytest.mark.parametrize("invalid", [
+    "malformed", "partial", "source_sha", "release_run_id", "manifest_sha256",
+    "images", "schema", "sidecar",
+])
+def test_f2d_candidate_attestation_workflow_refuses_unbound_evidence(tmp_path, invalid):
+    directory, attestation = _f2d_workflow_attestation_fixture(tmp_path)
+    expected = "f2d_release_attestation_identity_mismatch"
+    if invalid == "malformed":
+        raw = "{invalid-json"
+        expected = "JSONDecodeError"
+    else:
+        if invalid == "partial":
+            attestation.pop("ranking_sha256")
+            expected = "f2d_attestation_partial_group"
+        elif invalid == "source_sha":
+            attestation["source_sha"] = "0" * 40
+        elif invalid == "release_run_id":
+            attestation["release_run_id"] = "99999"
+        elif invalid == "manifest_sha256":
+            attestation["manifest_sha256"] = "0" * 64
+        elif invalid == "images":
+            attestation["images"]["web"] = "ghcr.io/example/web@sha256:" + "0" * 64
+        elif invalid == "schema":
+            attestation["compatible_migration_sets"] = ["sha256:" + "0" * 64]
+        else:
+            (directory / "v3-application-release.json.sha256").write_text(
+                "0" * 64 + "  v3-application-release.json\n"
+            )
+            expected = "manifest checksum mismatch"
+        raw = json.dumps(attestation)
+    result = _run_f2d_workflow_attestation(tmp_path, raw)
+    assert result.returncode != 0
+    assert expected in result.stderr
+    assert not (directory / "f2d-release-attestation.json").exists()
+
+
+@pytest.mark.parametrize("with_attestation", [False, True])
+def test_f2d_workflow_stages_manifest_and_optional_attestation_privately(tmp_path, with_attestation):
+    directory, attestation = _f2d_workflow_attestation_fixture(tmp_path)
+    migration_manifest = tmp_path / "sql/v3/migration-manifest.txt"
+    migration_manifest.parent.mkdir(parents=True)
+    migration_manifest.write_text("# Synthetic migration manifest\n")
+    if with_attestation:
+        result = _run_f2d_workflow_attestation(tmp_path, json.dumps(attestation))
+        assert result.returncode == 0, result.stderr
+    bundle = tmp_path / "bundle"
+    (bundle / "artifacts/candidate").mkdir(parents=True)
+    step = next(
+        step for step in _workflow()["jobs"]["production-operation"]["steps"]
+        if step.get("name") == "Stage F2d release gate authorities in the sealed bundle"
+    )
+    result = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path,
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path), "BUNDLE": str(bundle)},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    staged_manifest = bundle / "sql/v3/migration-manifest.txt"
+    assert staged_manifest.read_bytes() == migration_manifest.read_bytes()
+    assert stat.S_IMODE(staged_manifest.stat().st_mode) == 0o600
+    staged_attestation = bundle / "artifacts/candidate/f2d-release-attestation.json"
+    assert staged_attestation.exists() is with_attestation
+    if with_attestation:
+        assert staged_attestation.read_bytes() == (directory / staged_attestation.name).read_bytes()
+        assert stat.S_IMODE(staged_attestation.stat().st_mode) == 0o600

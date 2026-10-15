@@ -30,10 +30,7 @@ on:
           - v3-archetype-calibration-complete-start
           - v3-archetype-calibration-complete-status
           - v3-finder-capacity-gate
-      f2d_operator_code_sha256_attested:
-        description: "Attested F2d operator-code SHA-256 (F2d governed actions only)"
-        required: false
-        type: string
+          - v3-archetype-plan-probe
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -73,7 +70,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_OPERATION: ${{ inputs.operation }}
-          INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ inputs.f2d_operator_code_sha256_attested }}
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
         run: |
@@ -94,26 +90,11 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-derived-lifecycle-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-derived-lifecycle-status) ;;
             v3-disk-inventory) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
-          case "$operation" in
-            v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize)
-              [[ "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || {
-                echo "F2d operator-code attestation must be exactly 64 lowercase hexadecimal characters" >&2
-                exit 64
-              }
-              echo "f2d_operator_code_sha256_attested=$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              if [ -n "$INPUT_F2D_OPERATOR_CODE_SHA256_ATTESTED" ]; then
-                echo "F2d operator-code attestation input is accepted only for F2d governed actions" >&2
-                exit 64
-              fi
-              ;;
-          esac
 
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -121,6 +102,23 @@ jobs:
           ref: main
           path: trusted-main
           persist-credentials: false
+
+      - name: Read accepted F2d operator-code attestation
+        id: f2d-identity
+        if: contains(fromJSON('["v3-archetype-calibration-complete-start", "v3-archetype-calibration-complete-status", "v3-finder-capacity-gate", "v3-archetype-plan-probe", "v3-system-search-f1-start", "v3-system-search-f1-status", "v3-system-search-f1-finalize", "v3-system-archetype-start", "v3-system-archetype-status", "v3-system-archetype-finalize"]'), steps.request.outputs.operation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          import json, os, pathlib, re
+          authority = json.loads(pathlib.Path("trusted-main/deploy/v3-production/target-authority.json").read_text())
+          compatibility = authority.get("accepted_release_schema_compatibility", {})
+          identity = compatibility.get("f2d_operator_code_sha256") if isinstance(compatibility, dict) else None
+          if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{64}", identity):
+              raise SystemExit("Accepted release has no valid F2d operator-code attestation")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("f2d_operator_code_sha256_attested=" + identity, file=output)
+          PYTHON
 
       - name: Prepare SSH
         shell: bash
@@ -426,9 +424,11 @@ jobs:
           rm -rf trusted-main/.v3-search-wheelhouse trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-search-wheelhouse trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-search-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-search-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Search F1
         if: steps.request.outputs.operation == 'v3-system-search-f1-start' || steps.request.outputs.operation == 'v3-system-search-f1-status' || steps.request.outputs.operation == 'v3-system-search-f1-finalize'
@@ -464,7 +464,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -483,7 +483,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -506,7 +506,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-search-f1-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -537,9 +537,11 @@ jobs:
           rm -rf trusted-main/.v3-archetype-wheelhouse trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-archetype-wheelhouse trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-archetype-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-archetype-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Archetype build
         if: steps.request.outputs.operation == 'v3-system-archetype-start' || steps.request.outputs.operation == 'v3-system-archetype-status' || steps.request.outputs.operation == 'v3-system-archetype-finalize'
@@ -575,7 +577,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -594,7 +596,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -619,7 +621,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-system-archetype-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -650,7 +652,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main and run V3 archetype calibration probe
         if: steps.request.outputs.operation == 'v3-archetype-calibration-probe'
@@ -692,7 +695,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 archetype complete read
         if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status'
@@ -728,7 +732,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -747,7 +751,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -778,7 +782,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Finder capacity gate
         if: steps.request.outputs.operation == 'v3-finder-capacity-gate'
@@ -815,7 +820,7 @@ jobs:
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-finder-capacity-gate-operation.txt
-          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.request.outputs.f2d_operator_code_sha256_attested }}
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
@@ -832,5 +837,74 @@ jobs:
         with:
           name: v3-finder-capacity-gate-operation
           path: ${{ runner.temp }}/v3-finder-capacity-gate-operation.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Prepare trusted V3 archetype plan probe bundle and dependencies
+        if: steps.request.outputs.operation == 'v3-archetype-plan-probe'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          printf '%s\n' "$source_sha" > trusted-main/.v3-plan-probe-source-sha
+          rm -rf trusted-main/.v3-probe-wheelhouse
+          mkdir -p trusted-main/.v3-probe-wheelhouse
+          python -m pip download --disable-pip-version-check --only-binary=:all: \
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
+
+      - name: Stage trusted main for V3 archetype plan probe
+        if: steps.request.outputs.operation == 'v3-archetype-plan-probe'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid GitHub run ID" >&2; exit 64; }
+          [[ "$RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "Invalid GitHub run attempt" >&2; exit 64; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-plan-probe-${source_sha}"
+          stage_state="$(ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; if [ -L '$stage' ]; then echo 'Trusted plan-probe stage is a symlink' >&2; exit 64; elif [ -d '$stage' ]; then [ ! -L '$stage/.v3-plan-probe-source-sha' ] && [ \"\$(cat '$stage/.v3-plan-probe-source-sha' 2>/dev/null || true)\" = '$source_sha' ] || { echo 'Trusted plan-probe stage marker mismatch' >&2; exit 64; }; printf present; elif [ -e '$stage' ]; then echo 'Trusted plan-probe stage is not a directory' >&2; exit 64; else printf absent; fi")"
+          if [ "$stage_state" = "present" ]; then
+            exit 0
+          fi
+          [ "$stage_state" = "absent" ] || { echo "Unexpected trusted stage state" >&2; exit 64; }
+          incoming="${stage}.incoming-${RUN_ID}-${RUN_ATTEMPT}"
+          tar -C trusted-main --exclude=.git -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; [ ! -e '$incoming' ] && [ ! -L '$incoming' ]; mkdir '$incoming'; if tar --no-same-owner --no-same-permissions -C '$incoming' -xf - && [ \"\$(cat '$incoming/.v3-plan-probe-source-sha' 2>/dev/null || true)\" = '$source_sha' ] && [ ! -e '$stage' ] && [ ! -L '$stage' ]; then mv '$incoming' '$stage'; else rm -rf -- '$incoming'; exit 64; fi"
+
+      - name: Run V3 archetype plan probe
+        if: steps.request.outputs.operation == 'v3-archetype-plan-probe'
+        timeout-minutes: 35
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-archetype-plan-probe-operation.txt
+          F2D_OPERATOR_CODE_SHA256_ATTESTED: ${{ steps.f2d-identity.outputs.f2d_operator_code_sha256_attested }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          [[ "$F2D_OPERATOR_CODE_SHA256_ATTESTED" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid F2d operator-code attestation" >&2; exit 64; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          stage="/var/tmp/edfinder-v3-plan-probe-${source_sha}"
+          remote="export F2D_OPERATOR_CODE_SHA256_ATTESTED='$F2D_OPERATOR_CODE_SHA256_ATTESTED'; if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- run '$stage' '$source_sha'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED bash -s -- run '$stage' '$source_sha'; else echo 'V3 archetype plan probe requires root or passwordless sudo for the bounded read-only run' >&2; exit 64; fi"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
+            < trusted-main/scripts/operator/actions/v3-archetype-plan-probe.sh | tee "$RECEIPT"
+
+      - name: Upload V3 archetype plan probe receipt
+        if: always() && steps.request.outputs.operation == 'v3-archetype-plan-probe'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-archetype-plan-probe-operation
+          path: ${{ runner.temp }}/v3-archetype-plan-probe-operation.txt
           if-no-files-found: warn
           retention-days: 90

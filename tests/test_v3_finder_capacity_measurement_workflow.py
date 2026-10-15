@@ -99,7 +99,8 @@ def test_actions_and_dependency_install_match_the_postgresql_18_reference_lane()
     ]
     assert not any(line.startswith("psycopg") for line in requirement_lines)
     assert install["run"] == (
-        "python -m pip install -r apps/api/requirements.txt 'psycopg[binary]==3.3.4'"
+        "python -m pip install -r apps/api/requirements.txt\n"
+        "python -m pip install --require-hashes -r deploy/v3-production/f2d-wheels.txt\n"
     )
 
 
