@@ -9,9 +9,11 @@ SET LOCAL statement_timeout = '60s';
 DO $$
 DECLARE
     executor pg_roles%ROWTYPE;
+    executor_exists boolean := true;
     has_password boolean;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='v3_derived_purge_executor') THEN
+        executor_exists := false;
         -- PostgreSQL 18 gives a non-superuser creator SET, without INHERIT,
         -- only at creation; it cannot grant itself that membership afterward.
         SET LOCAL createrole_self_grant = 'set';
@@ -43,6 +45,17 @@ BEGIN
         WHERE r.rolname='v3_derived_purge_executor' AND c.rolname=current_user
           AND m.set_option AND NOT m.inherit_option
     ) THEN RAISE EXCEPTION 'purge creator needs SET without INHERIT'; END IF;
+    -- Adoption validates every incoming grant, including separate grants by
+    -- different grantors. A superuser creator needs no membership at all.
+    -- Fresh non-superuser creation has PostgreSQL's implicit bootstrap ADMIN
+    -- grant; do not mistake that unavoidable creation behavior for adoption.
+    IF executor_exists AND EXISTS (
+        SELECT 1 FROM pg_auth_members
+        WHERE roleid=executor.oid AND (
+            member<>current_user::regrole OR NOT set_option OR inherit_option OR admin_option)
+    ) THEN
+        RAISE EXCEPTION 'unsafe v3_derived_purge_executor incoming membership: only the purge creator may be a member, with SET TRUE, INHERIT FALSE and ADMIN FALSE';
+    END IF;
     IF EXISTS (SELECT 1 FROM pg_class WHERE oid IN (
         'v3_derived.system_search'::regclass,'v3_derived.economy_opportunity'::regclass,
         'v3_derived.body_mechanics'::regclass,'v3_derived.system_rating_vector'::regclass)
@@ -377,7 +390,8 @@ WHERE p.plan_sha256=(SELECT plan_sha256 FROM v3_meta.derived_generation_purge_re
 AND (opening_<>'BATCH_STARTED' OR e.purge_id=purge_) AND e.relation_code IS NOT DISTINCT FROM code_ AND e.event_kind=opening_
 AND NOT EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event c
  WHERE c.purge_id=e.purge_id AND c.relation_code IS NOT DISTINCT FROM e.relation_code
- AND c.event_sequence>e.event_sequence AND c.event_kind=ANY(closing_))
+ AND c.event_sequence>e.event_sequence AND c.event_kind=ANY(closing_)
+ AND (opening_<>'WRITER_FENCE_ENABLED' OR c.operational_payload->'verified'='true'::jsonb))
 ORDER BY e.event_sequence DESC LIMIT 1
 $$;
 CREATE FUNCTION v3_meta.purge_assert_phase(purge_ uuid, code_ text) RETURNS void
@@ -468,6 +482,11 @@ BEGIN
     relation_ := v3_meta.purge_relation(code_);
     SELECT reltoastrelid INTO toast_ FROM pg_class WHERE oid=relation_;
     SELECT * INTO e FROM v3_meta.purge_open_event(purge_,code_,'AUTOVACUUM_DISABLED',ARRAY['AUTOVACUUM_RESTORED']);
+    IF NOT enabled_ AND EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event x
+        JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
+        WHERE p.plan_sha256=r.plan_sha256 AND x.relation_code=code_ AND x.event_kind='REWRITE_VERIFIED') THEN
+        RAISE EXCEPTION 'rewrite already verified for purge relation; no new autovacuum fence';
+    END IF;
     IF enabled_ THEN
         IF e.event_sequence IS NULL THEN RETURN; END IF;
         PERFORM v3_meta.purge_assert_recovery_safe(purge_);
@@ -840,6 +859,11 @@ BEGIN
         SELECT * INTO e FROM v3_meta.purge_open_event(purge_,code_,'REWRITE_STARTED',ARRAY['REWRITE_VERIFIED','REWRITE_ROLLED_BACK']);
         SELECT relfilenode INTO node_ FROM pg_class WHERE oid=relation_;
         IF kind_='REWRITE_STARTED' THEN
+            IF EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event x
+                JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
+                WHERE p.plan_sha256=r.plan_sha256 AND x.relation_code=code_ AND x.event_kind='REWRITE_VERIFIED') THEN
+                RAISE EXCEPTION 'rewrite already verified for purge relation; no new rewrite';
+            END IF;
             PERFORM v3_meta.purge_assert_recovery_safe(purge_);
             PERFORM v3_meta.purge_assert_phase(purge_,code_);
             PERFORM v3_meta.purge_assert_fences(purge_,code_,false);
@@ -888,12 +912,16 @@ BEGIN
         -- A successful batch closes its record atomically. A departed backend
         -- with an open record therefore cannot have committed its delete.
     ELSIF kind_ IN ('SERVICES_QUIESCED','SERVICES_RESTORED') THEN
+        IF code_ IS NOT NULL THEN RAISE EXCEPTION 'service recovery is not relation scoped'; END IF;
         IF payload_->'containers' IS NULL OR jsonb_typeof(payload_->'containers')<>'array' THEN
             RAISE EXCEPTION 'exact container set required';
         END IF;
+        SELECT * INTO e FROM v3_meta.purge_open_event(purge_,NULL,'SERVICES_QUIESCED',ARRAY['SERVICES_RESTORED']);
+        IF kind_='SERVICES_QUIESCED' AND e.event_sequence IS NOT NULL THEN
+            RAISE EXCEPTION 'services already quiesced; restore the recorded container set first';
+        END IF;
         IF kind_='SERVICES_RESTORED' THEN
             PERFORM v3_meta.purge_assert_recovery_safe(purge_);
-            SELECT * INTO e FROM v3_meta.purge_open_event(purge_,NULL,'SERVICES_QUIESCED',ARRAY['SERVICES_RESTORED']);
             IF e.event_sequence IS NULL OR e.operational_payload->'containers' IS DISTINCT FROM payload_->'containers' THEN
                 RAISE EXCEPTION 'restore container set mismatch';
             END IF;
@@ -941,7 +969,20 @@ BEGIN
     END IF;
     IF rewrite_ THEN
         IF NOT EXISTS (SELECT 1 FROM pg_stat_progress_cluster WHERE pid=e.backend_pid AND relid=e.relation_oid)
-          AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_analyze WHERE pid=e.backend_pid AND relid=e.relation_oid) THEN
+          AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_analyze WHERE pid=e.backend_pid AND relid=e.relation_oid)
+          -- VACUUM FULL has no progress row while acquiring its initial lock.
+          -- Authenticate the bounded command AND its actual pending lock; text
+          -- alone (including a comment containing VACUUM) is never sufficient.
+          AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a
+            JOIN pg_locks l ON l.pid=a.pid
+            WHERE a.pid=e.backend_pid AND a.backend_start=e.backend_start
+              AND a.datname=current_database() AND a.state='active'
+              AND a.backend_type='client backend' AND a.wait_event_type='Lock'
+              AND octet_length(a.query)<=1024
+              AND btrim(regexp_replace(lower(left(a.query,1024)),'[[:space:]]+',' ','g'))
+                ~ ('^vacuum ([(] *full( *, *analyze)? *[)]|full) v3_derived[.]'||code_||' *;?$')
+              AND l.locktype='relation' AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND l.relation=e.relation_oid AND l.mode='AccessExclusiveLock' AND NOT l.granted) THEN
             RAISE EXCEPTION 'recorded backend is not rewriting or analyzing recorded relation';
         END IF;
     ELSE

@@ -26,9 +26,19 @@ Pre-cutover history remains available in Git history and dated/archive documents
 Migration `016` safely adopts a cluster-wide executor already installed by
 another database only after checking its restricted role attributes, password
 when readable, absence of memberships in other roles, and the non-superuser
-creator's SET-only membership. Each database still installs its own grants and
-revokes. Disposable PostgreSQL 18 regressions cover reuse across databases and
-atomic refusal of unsafe existing roles; fixture cleanup preserves shared roles.
+creator's SET-only membership. Adoption also rejects every other incoming member
+and any creator membership with ADMIN, INHERIT or no SET, including when the
+creator is a superuser. Each database still installs its own grants and revokes.
+PostgreSQL 18's implicit non-superuser creation ADMIN grant must be removed by an
+authorized administrator before that role can be adopted in another database.
+Rewrite cancellation authenticates a lock-waiting `VACUUM FULL` by its recorded
+backend identity, bounded command and exact ungranted relation lock. Verified
+rewrites reject repeated starts and new autovacuum fences. Service quiescence
+allows one open record and restoration requires its exact container set; writer
+and autovacuum fences preserve the recorded prior state across retries, and a
+writer fence stays open until restoration is verified. Disposable PostgreSQL 18
+regressions cover these recovery rules, reuse across databases and atomic
+refusal of unsafe existing roles; fixture cleanup preserves shared roles.
 The manifest and target schema identity are regenerated for these migration
 bytes; this registration performs no production operation.
 

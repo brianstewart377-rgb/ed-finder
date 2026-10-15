@@ -129,6 +129,17 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
                 connection.execute((MIGRATIONS / name).read_text())
         connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
         if creator == 'non_superuser':
+            if executor_was_absent:
+                # PostgreSQL creates an unavoidable bootstrap-granted ADMIN
+                # row beside createrole_self_grant's SET-only row. For later
+                # adoption tests, the test administrator provisions a clean
+                # SET-only graph on this fixture-created role. Never repair
+                # an executor that already existed before this fixture.
+                with psycopg.connect(cleanup_dsn, autocommit=True) as administrator:
+                    administrator.execute('REVOKE v3_derived_purge_executor FROM edfinder_v3 CASCADE')
+                    administrator.execute(
+                        'GRANT v3_derived_purge_executor TO edfinder_v3 WITH SET TRUE, INHERIT FALSE, ADMIN FALSE',
+                    )
             test_password = uuid4().hex
             connection.execute(sql.SQL('ALTER ROLE edfinder_v3 PASSWORD {}').format(sql.Literal(test_password)))
             application_connection = psycopg.connect(
@@ -246,6 +257,10 @@ def test_second_database_full_manifest_adopts_same_executor_and_installs_local_p
                 if creator == 'non_superuser':
                     assert any('password check skipped: pg_authid is not readable' in notice for notice in notices)
                     connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                assert connection.execute(
+                    '''SELECT member=current_user::regrole,set_option,inherit_option,admin_option
+                       FROM pg_auth_members WHERE roleid=%s::regrole''', (EXECUTOR,),
+                ).fetchall() == ([(True, True, False, False)] if creator == 'non_superuser' else [])
                 connection.execute('SET ROLE v3_derived_purge_executor')
                 for relation in RELATIONS:
                     assert connection.execute('SELECT has_table_privilege(current_user,%s,%s)',
@@ -338,6 +353,38 @@ def test_unsafe_existing_executor_fails_closed_and_rolls_back_database(unsafe):
                                 sql.Identifier(EXECUTOR), sql.SQL(unsafe),
                             ))
                         connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
+                assert _schema_state(connection) == before
+                assert connection.execute("SELECT to_regclass('v3_meta.derived_generation_purge_request')").fetchone() == (None,)
+
+
+@pytest.mark.parametrize('creator', ('superuser', 'non_superuser'))
+@pytest.mark.parametrize('unsafe', ('extra_member', 'creator_admin'))
+def test_existing_executor_refuses_unsafe_incoming_memberships(creator, unsafe):
+    with canonical_database() as first:
+        with installed_purge(first[0], creator=creator, apply_chain=True):
+            with canonical_database() as second:
+                connection = second[0]
+                if creator == 'non_superuser':
+                    _grant_application_create(connection)
+                    connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                for migration in CHAIN:
+                    connection.execute((MIGRATIONS / migration).read_text())
+                creating_role = connection.execute('SELECT current_user').fetchone()[0]
+                connection.execute('RESET SESSION AUTHORIZATION')
+                before = _schema_state(connection)
+                with pytest.raises(psycopg.errors.RaiseException, match=f'unsafe {EXECUTOR} incoming membership'):
+                    with connection.transaction():
+                        member = creating_role
+                        if unsafe == 'extra_member':
+                            member = 'purge_extra_' + uuid4().hex
+                            connection.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(sql.Identifier(member)))
+                        connection.execute(sql.SQL(
+                            'GRANT v3_derived_purge_executor TO {} WITH SET TRUE, INHERIT FALSE, ADMIN {}',
+                        ).format(sql.Identifier(member), sql.SQL('TRUE' if unsafe == 'creator_admin' else 'FALSE')))
+                        if creator == 'non_superuser':
+                            connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
+                        connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
+                connection.execute('RESET SESSION AUTHORIZATION')
                 assert _schema_state(connection) == before
                 assert connection.execute("SELECT to_regclass('v3_meta.derived_generation_purge_request')").fetchone() == (None,)
 
@@ -543,6 +590,10 @@ def _wait_for_database_operation(connection, worker, future, kind):
                   AND l.relation='v3_derived.system_search'::regclass
                   AND l.mode='RowExclusiveLock' AND l.granted)''',
             'rewrite': 'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_cluster WHERE pid=%s)',
+            'waiting_rewrite': '''SELECT EXISTS(SELECT 1 FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+                WHERE a.pid=%s AND a.state='active' AND a.wait_event_type='Lock'
+                  AND l.relation='v3_derived.system_search'::regclass
+                  AND l.mode='AccessExclusiveLock' AND NOT l.granted)''',
             'analyze': 'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_analyze WHERE pid=%s)',
             'vacuum': 'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_vacuum WHERE pid=%s)',
         }[kind]
@@ -674,13 +725,75 @@ def test_autovacuum_fence_restores_exact_heap_and_toast_prior_options(database, 
     connection.execute('SET ROLE v3_derived_purge_executor')
     connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
     assert all(value == 'false' for _, value in options())
+    disabled = connection.execute(
+        "SELECT operational_payload FROM v3_meta.derived_generation_purge_event WHERE event_kind='AUTOVACUUM_DISABLED'",
+    ).fetchall()
+    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+    assert connection.execute(
+        "SELECT operational_payload FROM v3_meta.derived_generation_purge_event WHERE event_kind='AUTOVACUUM_DISABLED'",
+    ).fetchall() == disabled
     with pytest.raises(psycopg.Error):
         with connection.transaction():
             connection.execute('SELECT v3_meta.complete_derived_generation_purge(%s,%s)',
                                (purge_id, Jsonb(_receipt())))
     _abort_autovacuum_fence(connection, purge_id, 'system_search')
     assert options() == before
+    assert connection.execute(
+        "SELECT operational_payload FROM v3_meta.derived_generation_purge_event WHERE event_kind='AUTOVACUUM_RESTORED'",
+    ).fetchall() == disabled
     connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,true)', (purge_id, 'system_search'))
+
+
+def test_services_quiesce_requires_one_open_record_and_exact_restore_set(database):
+    connection = database[0]
+    ids = _authorize(database)
+    first, second = (ids[identifier] for _, identifier in TARGETS)
+    containers = {'containers': ['api', 'worker']}
+    smaller = {'containers': ['api']}
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                       (first, 'SERVICES_QUIESCED', Jsonb(containers)))
+    before = _count(connection, 'v3_meta.derived_generation_purge_event')
+    for request_id in (first, second):
+        with pytest.raises(psycopg.errors.RaiseException, match='services already quiesced'):
+            with connection.transaction():
+                connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                                   (request_id, 'SERVICES_QUIESCED', Jsonb(smaller)))
+        with pytest.raises(psycopg.errors.RaiseException, match='restore container set mismatch'):
+            with connection.transaction():
+                connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                                   (request_id, 'SERVICES_RESTORED', Jsonb(smaller)))
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                       (second, 'SERVICES_RESTORED', Jsonb(containers)))
+    assert connection.execute(
+        "SELECT purge_id,operational_payload FROM v3_meta.derived_generation_purge_event WHERE event_kind='SERVICES_RESTORED'",
+    ).fetchall() == [(first, containers)]
+    # Once the exact set is restored, a new quiesce cycle may start.
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                       (second, 'SERVICES_QUIESCED', Jsonb(smaller)))
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,NULL,%s)',
+                       (second, 'SERVICES_RESTORED', Jsonb(smaller)))
+
+
+def test_writer_fence_cannot_open_new_cycle_until_restore_is_verified(database):
+    connection = database[0]
+    ids = _authorize(database)
+    first, second = (ids[identifier] for _, identifier in TARGETS)
+    _writer_fence(connection, first)
+    connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,false)', (first,))
+    before = _count(connection, 'v3_meta.derived_generation_purge_event')
+    connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,true)', (second,))
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
+    connection.execute('SELECT v3_meta.purge_recycle_writer_sessions(%s,false)', (second,))
+    connection.execute('SELECT v3_meta.purge_verify_writer_fence(%s,false,%s)', (second, 'off'))
+    original = connection.execute(
+        "SELECT operational_payload->'prior' FROM v3_meta.derived_generation_purge_event WHERE event_kind='WRITER_FENCE_ENABLED' ORDER BY event_sequence LIMIT 1",
+    ).fetchone()[0]
+    restored = connection.execute(
+        "SELECT operational_payload->'prior' FROM v3_meta.derived_generation_purge_event WHERE event_kind='WRITER_FENCE_RESTORED' ORDER BY event_sequence DESC LIMIT 1",
+    ).fetchone()[0]
+    assert restored == original
+    _writer_fence(connection, second)
 
 
 @pytest.mark.parametrize('prior', (None, 'off', 'on'))
@@ -826,6 +939,62 @@ def test_cancel_batch_signals_only_recorded_backend_and_rolls_back_payload(datab
     assert connection.execute(
         "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_CANCEL_REQUESTED'",
     ).fetchone()[0] == 1
+
+
+@pytest.mark.parametrize('command', (
+    'VACUUM (FULL, ANALYZE) v3_derived.system_search',
+    '  VaCuUm\n(FULL)  v3_derived.system_search; ',
+    'VACUUM FULL v3_derived.system_search',
+))
+def test_cancel_rewrite_waiting_for_relation_lock_rolls_back_and_resolves(database, command):
+    connection = database[0]
+    ids = _authorize(database)
+    purge_id = ids[TARGETS[0][1]]
+    _writer_fence(connection, purge_id)
+    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+    for request_id in ids.values():
+        assert _batch(connection, request_id, 'system_search') == 12
+    connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                       (purge_id, 'system_search', Jsonb(_receipt())))
+    before = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
+    with _application_worker(connection) as worker:
+        worker.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
+        with _application_worker(connection) as blocker:
+            with blocker.transaction():
+                blocker.execute('LOCK TABLE v3_derived.system_search IN ACCESS SHARE MODE')
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    # Whitespace and case normalization must still identify the
+                    # fixed command, before PostgreSQL exposes a progress row.
+                    future = pool.submit(worker.execute, command)
+                    try:
+                        _wait_for_database_operation(connection, worker, future, 'waiting_rewrite')
+                        assert not connection.execute(
+                            'SELECT EXISTS(SELECT 1 FROM pg_stat_progress_cluster WHERE pid=%s)',
+                            (worker.info.backend_pid,),
+                        ).fetchone()[0]
+                        assert connection.execute('SELECT v3_meta.cancel_purge_rewrite(%s,%s)',
+                                                  (purge_id, 'system_search')).fetchone()[0]
+                        with pytest.raises(psycopg.errors.QueryCanceled):
+                            future.result(timeout=10)
+                    finally:
+                        if not future.done():
+                            worker.cancel()
+    assert connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0] == before
+    assert _count(connection, 'v3_derived.system_search', SURVIVOR) == 12
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'REWRITE_ROLLED_BACK', 'system_search', Jsonb({'recovered': True})))
+    assert connection.execute(
+        '''SELECT event_kind FROM v3_meta.derived_generation_purge_event
+           WHERE purge_id=%s AND event_kind IN ('REWRITE_STARTED','REWRITE_CANCEL_REQUESTED','REWRITE_ROLLED_BACK')
+           ORDER BY event_sequence''', (purge_id,),
+    ).fetchall() == [('REWRITE_STARTED',), ('REWRITE_CANCEL_REQUESTED',), ('REWRITE_ROLLED_BACK',)]
+    connection.execute('RESET ROLE')
+    assert connection.execute(
+        '''SELECT (v3_meta.purge_open_event(
+               %s,'system_search','REWRITE_STARTED',ARRAY['REWRITE_VERIFIED','REWRITE_ROLLED_BACK'])).event_sequence IS NULL''',
+        (purge_id,),
+    ).fetchone()[0]
 
 
 @pytest.mark.parametrize('operation', ('rewrite', 'analyze'))
@@ -1271,6 +1440,39 @@ def test_all_payload_relations_purge_child_first_preserving_receipts_and_complet
     assert connection.execute(
         "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='COMPLETED'",
     ).fetchone()[0] == 2
+
+
+def test_verified_rewrite_retries_do_not_open_rewrite_or_autovacuum_fence(database):
+    connection = database[0]
+    ids = _authorize(database)
+    purge_id = ids[TARGETS[0][1]]
+    _writer_fence(connection, purge_id)
+    connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
+    for target_id in ids.values():
+        assert _batch(connection, target_id, 'system_search') == 12
+    connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                       (purge_id, 'system_search', Jsonb(_receipt())))
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
+    connection.execute('VACUUM (FULL, ANALYZE) v3_derived.system_search')
+    connection.execute('SELECT pg_stat_force_next_flush()')
+    connection.execute('SELECT pg_stat_clear_snapshot()')
+    connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                       (purge_id, 'REWRITE_VERIFIED', 'system_search', Jsonb(_receipt())))
+    before = _count(connection, 'v3_meta.derived_generation_purge_event')
+    for request_id in ids.values():
+        with pytest.raises(psycopg.errors.RaiseException, match='rewrite already verified'):
+            with connection.transaction():
+                connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
+                                   (request_id, 'system_search'))
+        with pytest.raises(psycopg.errors.RaiseException, match='rewrite already verified'):
+            with connection.transaction():
+                connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                                   (request_id, 'REWRITE_STARTED', 'system_search', Jsonb(_receipt())))
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == before
+    assert connection.execute(
+        "SELECT event_kind,count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind IN ('REWRITE_STARTED','AUTOVACUUM_DISABLED') GROUP BY event_kind ORDER BY event_kind",
+    ).fetchall() == [('AUTOVACUUM_DISABLED', 1), ('REWRITE_STARTED', 1)]
 
 
 @pytest.mark.parametrize('interruption', ('before_rewrite', 'after_rewrite_before_receipt'))
