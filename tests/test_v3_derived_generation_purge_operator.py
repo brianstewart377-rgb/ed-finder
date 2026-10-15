@@ -372,6 +372,59 @@ def test_runtime_storage_checks_actual_devices_before_accepting_free_space(monke
         runtime.storage(identity, objects)
 
 
+@pytest.mark.parametrize('tablespace,location,other_device', (
+    ('pg_default', '', False),
+    ('work', '/external/temp', False),
+    ('work', '/external/temp', True),
+))
+def test_empty_temp_tablespaces_checks_database_default_device(
+        tmp_path, monkeypatch, tablespace, location, other_device):
+    module = _action_tool()
+    runtime = module.Runtime(module.receipt('plan'))
+    device = tmp_path.stat().st_dev
+    observed = []
+    def docker(*args, **kwargs):
+        if args[:2] == ('exec', module.CONTAINER):
+            assert args[2:7] == ('stat', '-L', '-c', '%d', '--')
+            observed.append(args[-1])
+            return str(device + 1 if other_device and args[-1] == location else device)
+        assert not other_device, 'unproved placement reached free-space acceptance'
+        assert args == ('inspect', '-f', '{{json .Mounts}}', module.CONTAINER)
+        return json.dumps([{'Source': str(tmp_path), 'Destination': '/data'}])
+    monkeypatch.setattr(runtime, 'docker', docker)
+    identity = {'data_directory': '/data', 'temp_tablespaces': '',
+                'database_tablespace': tablespace,
+                'tablespaces': [{'name': tablespace, 'location': location}]}
+    objects = [{'path': 'base/1/heap'}]
+    if other_device:
+        with pytest.raises(ValueError, match='tablespace_or_wal_filesystem_mismatch'):
+            runtime.storage(identity, objects)
+    else:
+        assert runtime.storage(identity, objects)['free_bytes'] > 0
+        assert runtime.report['data_mount']['temp_devices'] == [device]
+    assert (location or '/data') in observed
+
+
+@pytest.mark.parametrize('tablespace,locations', (
+    (None, []),
+    ('missing', []),
+    ('work', [{'name': 'work', 'location': ''}]),
+    ('work', [{'name': 'work', 'location': None}]),
+    ('work', [{'name': 'work', 'location': 'relative/path'}]),
+))
+def test_empty_temp_tablespaces_requires_proven_database_default(monkeypatch, tablespace, locations):
+    module = _action_tool()
+    runtime = module.Runtime(module.receipt('plan'))
+    def docker(*args, **kwargs):
+        assert args[:2] == ('exec', module.CONTAINER), 'unproved placement reached free-space acceptance'
+        return '42'
+    monkeypatch.setattr(runtime, 'docker', docker)
+    with pytest.raises(ValueError, match='tablespace_or_wal_filesystem_mismatch'):
+        runtime.storage({'data_directory': '/data', 'temp_tablespaces': '',
+                         'database_tablespace': tablespace, 'tablespaces': locations},
+                        [{'path': 'base/1/heap'}])
+
+
 def test_lease_contention_refuses_without_changing_existing_lease(tmp_path, monkeypatch):
     module = _action_tool()
     lease = tmp_path / 'lease'
@@ -932,7 +985,9 @@ def test_floor_filesystem_must_match_container_data_device(tmp_path, monkeypatch
         {'Source': str(tmp_path), 'Destination': '/data'},
     ]))
     with pytest.raises(ValueError, match='host_data_mount_device_mismatch'):
-        runtime.storage({'data_directory': '/data', 'temp_tablespaces': '', 'tablespaces': []},
+        runtime.storage({'data_directory': '/data', 'temp_tablespaces': '',
+                         'database_tablespace': 'pg_default',
+                         'tablespaces': [{'name': 'pg_default', 'location': ''}]},
                         [{'path': 'base/1/heap'}])
 
 
@@ -1159,4 +1214,64 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
     report = json.loads(capsys.readouterr().out)
     assert report['failures'] == ['sealed_verification_required']
     assert report['host'] is None
+    assert report['db_writes_performed'] is False
+
+
+@pytest.mark.parametrize('changed', (
+    'scripts/operator/actions/v3-derived-generation-purge.sh',
+    'scripts/operator/lib/f2d_evidence.py',
+    'scripts/operator/lib/v3_generation_purge.py',
+    'scripts/operator/lib/v3_purge_state.py',
+    'scripts/operator/lib/v3_purge_transactions.py',
+))
+def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_path, changed):
+    module = _action_tool()
+    sources = (
+        'scripts/operator/actions/v3-derived-generation-purge.sh',
+        'scripts/operator/lib/f2d_evidence.py',
+        'scripts/operator/lib/v3_generation_purge.py',
+        'scripts/operator/lib/v3_purge_state.py',
+        'scripts/operator/lib/v3_purge_transactions.py',
+    )
+    for relative in sources:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(relative.encode())
+    monkeypatch.setattr(module, 'ROOT', tmp_path)
+    report = module.receipt('plan')
+    runtime = module.Runtime(report)
+    commands = {
+        ('hostname', '-s'): module.HOST,
+        ('hostname', '-f'): module.FQDN,
+        ('docker', 'context', 'show'): 'default',
+        ('git', '-C', str(tmp_path), 'rev-parse', 'HEAD'): '1' * 40,
+    }
+    monkeypatch.setattr(runtime, 'run', lambda argv: commands[tuple(argv)])
+    docker_commands = {
+        ('context', 'inspect', 'default'): json.dumps([
+            {'Endpoints': {'docker': {'Host': 'unix:///var/run/docker.sock'}}}]),
+        ('inspect', '-f', '{{.State.Running}}', module.CONTAINER): 'true',
+    }
+    monkeypatch.setattr(runtime, 'docker', lambda *argv: docker_commands[argv])
+    runtime.guard()
+    original = report['script_sha256']
+    assert original == module.evidence.canonical_sha256({
+        relative: hashlib.sha256((tmp_path / relative).read_bytes()).hexdigest()
+        for relative in sorted(sources)
+    })
+    path = tmp_path / changed
+    path.write_bytes(path.read_bytes() + b'\n# changed source bytes\n')
+    runtime.guard()
+    assert report['source_git_sha'] == '1' * 40
+    assert report['script_sha256'] != original
+
+
+def test_authorize_rejects_script_drift_before_any_mutation(monkeypatch):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, 'authorize')
+    plan['script_sha256'] = '9' * 64
+    assert plan['source_git_sha'] == report['source_git_sha']
+    with pytest.raises(ValueError, match='plan_source_or_script_changed'):
+        module.execute('authorize', runtime, report, plan)
+    assert not any(call[0] == 'query' and call[2] for call in calls)
     assert report['db_writes_performed'] is False

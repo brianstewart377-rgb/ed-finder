@@ -200,6 +200,8 @@ SELECT jsonb_build_object(
  'postmaster_started_epoch',floor(extract(epoch FROM pg_postmaster_start_time()))::bigint,
  'data_directory',NULL,
  'temp_tablespaces',current_setting('temp_tablespaces'),
+ 'database_tablespace',(SELECT t.spcname FROM pg_database d JOIN pg_tablespace t ON t.oid=d.dattablespace
+  WHERE d.datname=current_database()),
  'tablespaces',(SELECT jsonb_agg(jsonb_build_object('name',spcname,'location',pg_tablespace_location(oid))) FROM pg_tablespace),
  'migration_sha256',(SELECT encode(migration_sha256,'hex') FROM v3_meta.schema_migration
   WHERE migration_name='016_v3_governed_derived_purge.sql'),
@@ -420,10 +422,14 @@ class Runtime:
         self.report['source_git_sha'] = sha
         self.report['workflow_run_id'] = os.environ.get('GITHUB_RUN_ID') or None
         self.report['script_sha256'] = evidence.canonical_sha256({
-            str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in (Path(__file__), ROOT / 'scripts/operator/actions/v3-derived-generation-purge.sh',
-                         Path(__file__).with_name('v3_purge_transactions.py'),
-                         Path(__file__).with_name('v3_purge_state.py'))})
+            relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+            for relative in sorted((
+                'scripts/operator/actions/v3-derived-generation-purge.sh',
+                'scripts/operator/lib/f2d_evidence.py',
+                'scripts/operator/lib/v3_generation_purge.py',
+                'scripts/operator/lib/v3_purge_state.py',
+                'scripts/operator/lib/v3_purge_transactions.py',
+            ))})
 
     @contextmanager
     def lease(self):
@@ -519,8 +525,17 @@ class Runtime:
                 raise ValueError('relation_path_invalid')
             obj['device'] = self.device(directory + '/' + path)
         temps = next(csv.reader([identity['temp_tablespaces']], skipinitialspace=True))
-        spaces = {item['name']: item['location'] or directory for item in identity['tablespaces']}
-        temp_devices = [self.device(spaces[name]) for name in temps] if temps else [device]
+        # An empty setting (or list entry) uses this database's default
+        # tablespace, which can live outside the data directory.
+        spaces = {item['name']: item['location'] for item in identity['tablespaces']}
+        temp_devices = []
+        for name in temps or ['']:
+            name = name or identity.get('database_tablespace')
+            location = directory if name in ('pg_default', 'pg_global') else spaces.get(name)
+            try:
+                temp_devices.append(self.device(location))
+            except (ValueError, RuntimeError, OSError):
+                raise ValueError('tablespace_or_wal_filesystem_mismatch') from None
         wal_device = self.device(directory + '/pg_wal')
         check_placement(device, objects, temp_devices, wal_device)
         mounts = json.loads(self.docker('inspect', '-f', '{{json .Mounts}}', CONTAINER))
