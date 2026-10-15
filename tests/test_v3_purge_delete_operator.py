@@ -372,3 +372,33 @@ def test_real_loop_process_hard_exit_reports_unknown_outcome_after_join():
     assert report['runner_state']['loop_exited'] is True
     with pytest.raises(ProcessLookupError):
         os.kill(report['runner_state']['loop_pid'], 0)
+
+
+@pytest.mark.parametrize('late', ['stop', 'budget', 'controller'])
+def test_delete_loop_rechecks_stop_conditions_after_slow_gates(late):
+    """A condition that trips while gates() runs must prevent the next batch."""
+    state = {'now': 0.0, 'stop': False, 'lost': False}
+    failures = []
+
+    def gates():
+        state['now'] += 10.0
+        if late == 'stop':
+            state['stop'] = True
+        elif late == 'controller':
+            state['lost'] = True
+        else:
+            state['now'] += 1000.0
+        return {}
+
+    def controller_alive():
+        if state['lost']:
+            raise ValueError('controller_lost')
+
+    expected = {'stop': 'delete_stop_requested', 'budget': 'delete_wall_clock_budget_exhausted',
+                'controller': 'controller_lost'}[late]
+    with pytest.raises(ValueError, match=expected):
+        purge.delete_loop(gates, lambda measured: pytest.fail('batch started after a stop condition'),
+                          lambda: 5, failures.append, lambda: state['stop'],
+                          budget_seconds=300, clock=lambda: state['now'],
+                          controller_alive=controller_alive)
+    assert [str(exc) for exc in failures] == [expected]

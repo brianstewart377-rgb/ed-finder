@@ -23,7 +23,7 @@ STATE_FILE = Path('/var/lib/ed-finder/v3-production/derived-purge-writer-state.j
 
 
 def delete_loop(gates, batch, remaining, failed_stop, stop_requested, *,
-                budget_seconds=300, clock=time.monotonic):
+                budget_seconds=300, clock=time.monotonic, controller_alive=None):
     """Gate each transaction and resume only from fresh database counts."""
     started = clock()
     affected = 0
@@ -34,6 +34,15 @@ def delete_loop(gates, batch, remaining, failed_stop, stop_requested, *,
             if clock() - started >= budget_seconds:
                 raise ValueError('delete_wall_clock_budget_exhausted')
             measured = gates()
+            # gates() can take minutes (worker probe, competing-writer wait).
+            # Re-check every stop condition immediately before the batch so a
+            # lost controller or spent budget never starts one more delete.
+            if stop_requested():
+                raise ValueError('delete_stop_requested')
+            if clock() - started >= budget_seconds:
+                raise ValueError('delete_wall_clock_budget_exhausted')
+            if controller_alive is not None:
+                controller_alive()
             count = batch(measured)
             if type(count) is not int or count <= 0:
                 raise ValueError('delete_batch_progress_invalid')
@@ -347,10 +356,12 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                                 'controller_start_ticks': controller_start, 'launcher_pid': launcher_pid, 'loop_pid': None})
     stop = multiprocessing.get_context('fork').Event()
     fenced = False
-    def gates():
+    def controller_alive():
         if (controller_identity(controller_pid, controller_run_id) != controller_start
                 or controller_identity(launcher_pid, controller_run_id) != launcher_start):
             raise ValueError('controller_lost')
+    def gates():
+        controller_alive()
         if stop.is_set():
             raise ValueError('delete_stop_requested')
         age_gate(c, tx, runtime, report, ids, relation, reviewed, wall_clock_seconds + 65)
@@ -453,7 +464,8 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
             fenced = True
             def work():
                 report['rows_affected_this_run'] = delete_loop(gates, batch, remaining, fail, stop.is_set,
-                                                            budget_seconds=wall_clock_seconds)
+                                                            budget_seconds=wall_clock_seconds,
+                                                            controller_alive=controller_alive)
                 boundary()
                 measured = gates()
                 sealed = {**measured, 'receipt_sha256': c.evidence.canonical_sha256(measured)}
