@@ -57,8 +57,8 @@ PUBLISHED_ID = 'cfc25d36-3bc7-4011-a465-d6460eaaf826'
 PUBLISHED_KEY = 'ratings_v4_prod_p4_parallel_v1'
 
 
-def _load(name):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + '.py'))
+def _load(name, path=None):
+    spec = importlib.util.spec_from_file_location(name, path or Path(__file__).with_name(name + '.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -66,6 +66,7 @@ def _load(name):
 
 evidence = _load('f2d_evidence')
 purge_state = _load('v3_purge_state')
+schema_identity = _load('v3_schema_identity', ROOT / 'scripts/operator/v3_schema_identity.py')
 
 
 def classify_mode(mode):
@@ -191,6 +192,13 @@ def read_sql(body):
     return ("SET ROLE v3_derived_purge_executor; SET default_transaction_read_only=off; "
             "BEGIN READ ONLY; SET LOCAL lock_timeout='5s'; "
             "SET LOCAL statement_timeout='45min'; " + body + '; COMMIT;')
+
+
+MIGRATION_LEDGER_SQL = read_sql("""
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+ 'ledger_name',migration_name,'sha256',encode(migration_sha256,'hex'))
+ ORDER BY applied_at,migration_name),'[]'::jsonb) FROM v3_meta.schema_migration
+""")
 
 
 IDENTITY_SQL = read_sql("""
@@ -425,10 +433,12 @@ class Runtime:
             relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
             for relative in sorted((
                 'scripts/operator/actions/v3-derived-generation-purge.sh',
+                'scripts/operator/actions/v3-derived-lifecycle-status.sh',
                 'scripts/operator/lib/f2d_evidence.py',
                 'scripts/operator/lib/v3_generation_purge.py',
                 'scripts/operator/lib/v3_purge_state.py',
                 'scripts/operator/lib/v3_purge_transactions.py',
+                'scripts/operator/v3_schema_identity.py',
             ))})
 
     @contextmanager
@@ -555,14 +565,18 @@ class Runtime:
         return filesystem
 
 
-def validate_identity(identity, report):
-    manifest = ROOT / 'sql/v3/migration-manifest.txt'
-    registrations = [line.split() for line in manifest.read_text().splitlines()
-                     if line.strip() and not line.startswith('#')]
-    matching = [fields for fields in registrations if len(fields) == 3 and fields[1] == MIGRATION]
-    if matching != [[MIGRATION_SHA256, MIGRATION, 'v3/migrations/' + MIGRATION]] or hashlib.sha256(
-            (ROOT / 'sql/v3/migrations' / MIGRATION).read_bytes()).hexdigest() != MIGRATION_SHA256:
+def validate_identity(identity, report, *, runtime=None):
+    """Reuse the verified sql/v3/migration-manifest.txt lineage and pin 016."""
+    try:
+        entries = schema_identity.derive_entries(ROOT)
+    except schema_identity.SchemaIdentityError:
+        raise ValueError('committed_migration_hash_mismatch') from None
+    matching = [entry for entry in entries if entry['ledger_name'] == MIGRATION]
+    if matching != [{'ledger_name': MIGRATION, 'sha256': MIGRATION_SHA256, 'mode': 'auto',
+                     'path': 'sql/v3/migrations/' + MIGRATION}]:
         raise ValueError('committed_migration_hash_mismatch')
+    if runtime is not None:
+        require_reviewed_migration_ledger(runtime, entries)
     report['migration_live_sha256'] = identity.get('migration_sha256')
     if (identity.get('database') != DATABASE or identity.get('session_user') != USER or
             identity.get('current_user') != 'v3_derived_purge_executor' or
@@ -579,6 +593,14 @@ def validate_identity(identity, report):
     defaults = identity.get('role_defaults')
     if not isinstance(defaults, list) or any(v != 'default_transaction_read_only=off' for v in defaults):
         raise ValueError('application_role_already_read_only_or_unknown')
+    return entries
+
+
+def require_reviewed_migration_ledger(runtime, entries):
+    """Require the entire reviewed lineage, in the migration runner's order."""
+    expected = [{key: entry[key] for key in ('ledger_name', 'sha256')} for entry in entries]
+    if runtime.query(MIGRATION_LEDGER_SQL) != expected:
+        raise ValueError('live_migration_ledger_unreviewed')
 
 
 def age_sample(runtime):
@@ -789,7 +811,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         report['postmaster_started_epoch'] = identity.get('postmaster_started_epoch')
         identity['data_directory'] = runtime.data_directory()
     if mode != 'status':
-        validate_identity(identity, report)
+        entries = validate_identity(identity, report, runtime=runtime)
     else:
         # Status must remain available with an open read-only writer fence.
         modified = {**identity, 'role_defaults': []}
@@ -884,6 +906,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         report.update(wal_after=fresh_wal, archive_status=fresh_wal['archiver'],
                       replication_slots=fresh_wal['slots'], checkpoint_counters=fresh_wal['checkpoints'],
                       temp_bytes=fresh_wal['temp_bytes'])
+        require_reviewed_migration_ledger(runtime, entries)
 
     if mode != 'plan':
         if plan is None:
@@ -906,6 +929,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
             raise ValueError('plan_snapshot_changed_during_measurement')
         reviewed.update(autovacuum=auto['configuration'], extra_payload_counts=extra_counts,
                         pointer_identities=pointer_identities)
+        require_reviewed_migration_ledger(runtime, entries)
         report['reviewed_plan'] = transactions.seal_plan(runtime.query, reviewed)
         report['reviewed_plan_sha256'] = report['reviewed_plan']['plan_sha256']
         refresh_phase_gates()

@@ -593,6 +593,9 @@ def _preflight_runtime(module, monkeypatch, failure):
         assert write is False, 'preflight failure reached a database mutation'
         if sql == module.IDENTITY_SQL:
             return identity
+        if sql == module.MIGRATION_LEDGER_SQL:
+            return [{key: entry[key] for key in ('ledger_name', 'sha256')}
+                    for entry in module.schema_identity.derive_entries(ROOT)]
         if "'snapshot',v3_meta.purge_snapshot()" in sql:
             return observed
         if sql == module.OBJECTS_SQL:
@@ -779,6 +782,9 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
             if open_fence:
                 identity['role_defaults'] = ['default_transaction_read_only=on']
             return identity
+        if sql == module.MIGRATION_LEDGER_SQL:
+            return [{key: entry[key] for key in ('ledger_name', 'sha256')}
+                    for entry in module.schema_identity.derive_entries(ROOT)]
         if sql in (transactions.PLAN_SQL, module.STATUS_METADATA_SQL):
             return observe()
         if sql in module.STATUS_RELATION_SQL.values():
@@ -865,6 +871,9 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
     assert report['canonical_writes_performed'] is False
     assert report['publication_performed'] is False
     assert report['service_changes_performed'] is False
+    ledger_reads = [call for call in calls if call[0] == 'query' and call[1] == module.MIGRATION_LEDGER_SQL]
+    assert len(ledger_reads) == {'plan': 3, 'status': 0, 'authorize': 2,
+                                 'verify-system-archetype-empty': 1, 'complete': 2}[mode]
     if mode == 'status':
         assert report['next_admissible_mode'] == {'mode': 'verify-system-archetype-empty', 'implemented': True,
                                                 'reason': 'system_archetype_empty_not_proven'}
@@ -884,6 +893,60 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
     if mode == 'complete':
         assert report['fk_check'] is True
         assert report['completion_receipt']['receipt_sha256']
+
+
+@pytest.mark.parametrize('mode', ('plan', 'authorize', 'complete'))
+@pytest.mark.parametrize('drift', ('extra', 'missing', 'checksum', 'guard-checksum', 'reordered'))
+@pytest.mark.parametrize('observation', (1, 2))
+def test_unreviewed_live_migration_ledger_stops_before_seal_or_mutation(
+        monkeypatch, mode, drift, observation):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, mode)
+    original_query = runtime.query
+    ledger_reads = 0
+
+    def query(sql, params=None, *, write=False):
+        nonlocal ledger_reads
+        result = original_query(sql, params, write=write)
+        if sql == module.MIGRATION_LEDGER_SQL:
+            ledger_reads += 1
+            if ledger_reads == observation:
+                if drift == 'extra':
+                    result.append({'ledger_name': '017_unreviewed.sql', 'sha256': 'f' * 64})
+                elif drift == 'missing':
+                    result.pop(0)  # Keep 016 present: its checksum alone is insufficient.
+                elif drift == 'checksum':
+                    result[0]['sha256'] = 'f' * 64
+                elif drift == 'guard-checksum':
+                    result[-1]['sha256'] = 'f' * 64
+                else:
+                    result[0], result[1] = result[1], result[0]
+        return result
+
+    runtime.query = query
+    verification = {'purge_id': [module.TARGETS[key][0] for key in module.TARGETS],
+                    'reviewed_plan_sha256': plan['reviewed_plan']['plan_sha256'],
+                    'content_sha256': '7' * 64}
+    with pytest.raises(ValueError, match='^live_migration_ledger_unreviewed$'):
+        module.execute(mode, runtime, report, None if mode == 'plan' else plan,
+                       verification=verification if mode == 'complete' else None)
+    assert ledger_reads == observation
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+    if mode == 'plan':
+        # collect_plan hashes its initial observation; the final reviewed plan
+        # must never be sealed or recorded after ledger drift is discovered.
+        assert report.get('reviewed_plan') is None
+        hash_sql = module._load('v3_purge_transactions').PLAN_HASH_SQL
+        assert sum(call[0] == 'query' and call[1] == hash_sql for call in calls) == observation - 1
+    assert report['db_writes_performed'] is False
+    assert report['status'] == 'stopped'
+
+
+def test_live_migration_ledger_uses_the_migration_runner_order():
+    module = _action_tool()
+    assert 'ORDER BY applied_at,migration_name' in module.MIGRATION_LEDGER_SQL
+    assert module.MIGRATION_LEDGER_SQL.startswith('SET ROLE v3_derived_purge_executor;')
+    assert 'BEGIN READ ONLY;' in module.MIGRATION_LEDGER_SQL
 
 
 def test_status_stays_available_for_open_writer_fence_and_reports_recovery_first(monkeypatch):
@@ -1219,19 +1282,23 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
 
 @pytest.mark.parametrize('changed', (
     'scripts/operator/actions/v3-derived-generation-purge.sh',
+    'scripts/operator/actions/v3-derived-lifecycle-status.sh',
     'scripts/operator/lib/f2d_evidence.py',
     'scripts/operator/lib/v3_generation_purge.py',
     'scripts/operator/lib/v3_purge_state.py',
     'scripts/operator/lib/v3_purge_transactions.py',
+    'scripts/operator/v3_schema_identity.py',
 ))
 def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_path, changed):
     module = _action_tool()
     sources = (
         'scripts/operator/actions/v3-derived-generation-purge.sh',
+        'scripts/operator/actions/v3-derived-lifecycle-status.sh',
         'scripts/operator/lib/f2d_evidence.py',
         'scripts/operator/lib/v3_generation_purge.py',
         'scripts/operator/lib/v3_purge_state.py',
         'scripts/operator/lib/v3_purge_transactions.py',
+        'scripts/operator/v3_schema_identity.py',
     )
     for relative in sources:
         path = tmp_path / relative
