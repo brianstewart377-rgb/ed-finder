@@ -21,6 +21,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -402,7 +403,12 @@ def purge_state_tool() -> Any:
         raise DeploymentError("purge_state_helper_unavailable")
     module = importlib.util.module_from_spec(spec)
     # Admission itself must not create a __pycache__ before the fence passes.
-    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
     return module
 
 

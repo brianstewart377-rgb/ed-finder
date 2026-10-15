@@ -111,13 +111,35 @@ def test_deployer_shared_check_uses_only_pinned_readonly_connection(monkeypatch)
     assert kwargs["env"] == {"DOCKER_CONTEXT": "default"}
 
 
-def test_loading_admission_helper_does_not_write_bytecode(monkeypatch, tmp_path):
-    deployer = load_deployer()
+@pytest.mark.parametrize("module_name", ("v3_production_deploy", "v3_production_migrate"))
+@pytest.mark.parametrize("bytecode_disabled", (False, True))
+@pytest.mark.parametrize("load_fails", (False, True))
+def test_loading_admission_helper_does_not_write_bytecode(
+    monkeypatch, tmp_path, module_name, bytecode_disabled, load_fails,
+):
+    spec = importlib.util.spec_from_file_location(
+        "purge_loader_test", ROOT / f"scripts/operator/{module_name}.py"
+    )
+    assert spec and spec.loader
+    operator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(operator)
     helper = tmp_path / "scripts/operator/lib/v3_purge_state.py"
     helper.parent.mkdir(parents=True)
-    helper.write_text("loaded = True\n")
-    monkeypatch.setattr(deployer, "ROOT", tmp_path)
-    assert deployer.purge_state_tool().loaded is True
+    helper.write_text("raise RuntimeError('helper failed')\n" if load_fails else "loaded = True\n")
+    monkeypatch.setattr(operator, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "dont_write_bytecode", bytecode_disabled)
+
+    def load_helper():
+        if module_name == "v3_production_deploy":
+            return operator.purge_state_tool()
+        return operator._load("v3_purge_state", helper)
+
+    if load_fails:
+        with pytest.raises(RuntimeError, match="helper failed"):
+            load_helper()
+    else:
+        assert load_helper().loaded is True
+    assert sys.dont_write_bytecode is bytecode_disabled
     assert sorted(path.name for path in helper.parent.iterdir()) == [helper.name]
 
 

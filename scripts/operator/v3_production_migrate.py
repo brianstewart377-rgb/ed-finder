@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,7 +52,12 @@ def _load(module_name: str, path: Path) -> Any:
         raise MigrationError(f"{module_name} is unavailable")
     module = importlib.util.module_from_spec(spec)
     # Avoid creating __pycache__ before the read-only production entry fence.
-    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
     return module
 
 
