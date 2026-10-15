@@ -340,7 +340,10 @@ jobs:
   finder-derived-data:
     name: Finder derived-data tests (PostgreSQL 18)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The purge PG18 suites (migration 016, P2a-P2b) pushed this lane to the
+    # old 30-minute limit; main pushes were cancelled at 30:00. The pytest
+    # step below has its own 45-minute bound so a hang still fails visibly.
+    timeout-minutes: 50
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres:18-alpine
@@ -407,7 +410,8 @@ jobs:
           printf 'Fixture-backed modules (%s):\n' "${#fixture_backed[@]}"
           printf '  %s\n' "${fixture_backed[@]}"
           [ "${#fixture_backed[@]}" -ge 10 ] || { echo "fixture-backed module discovery looks broken" >&2; exit 1; }
-          apps/api/.venv/bin/python -m pytest "${fixture_backed[@]}" -q -p no:warnings -rs
+          timeout --signal=INT --kill-after=60s 45m \
+            apps/api/.venv/bin/python -m pytest "${fixture_backed[@]}" -q -p no:warnings -rs --durations=25
 
   canonical-safety:
     name: Canonical safety tests
