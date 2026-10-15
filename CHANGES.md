@@ -21,6 +21,18 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-15 — Purge plans and single-transaction phases (P2b1)
+
+Added the governed purge action's closed mode allowlist, sealed read-only plan
+and status receipts, authenticated authorization, zero-row dependency proof,
+and completion gates through migration 016's functions. Shared preflight
+checks pin the host/runtime/schema, workers, pointers, storage and WAL health,
+backup wrapper, writer-fence authority and host lease. Single-transaction
+phases wait boundedly for competing backend XIDs without changing 016's
+production check. Added local operator contracts and disposable PostgreSQL 18
+coverage. Delete/rewrite loops and recovery remain P2b2; protected workflow
+wiring and rehearsal remain P2c/P2d. No production operation is included.
+
 ## 2026-10-15 — Purge entry fences and ledger-aware backups (P2a)
 
 Added one read-only purge-ledger/host-lease admission check across production
