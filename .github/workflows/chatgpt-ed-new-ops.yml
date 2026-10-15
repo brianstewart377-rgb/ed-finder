@@ -424,9 +424,11 @@ jobs:
           rm -rf trusted-main/.v3-search-wheelhouse trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-search-wheelhouse trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-search-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-search-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Search F1
         if: steps.request.outputs.operation == 'v3-system-search-f1-start' || steps.request.outputs.operation == 'v3-system-search-f1-status' || steps.request.outputs.operation == 'v3-system-search-f1-finalize'
@@ -535,9 +537,11 @@ jobs:
           rm -rf trusted-main/.v3-archetype-wheelhouse trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-archetype-wheelhouse trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-archetype-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-archetype-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Archetype build
         if: steps.request.outputs.operation == 'v3-system-archetype-start' || steps.request.outputs.operation == 'v3-system-archetype-status' || steps.request.outputs.operation == 'v3-system-archetype-finalize'
@@ -648,7 +652,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main and run V3 archetype calibration probe
         if: steps.request.outputs.operation == 'v3-archetype-calibration-probe'
@@ -690,7 +695,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 archetype complete read
         if: steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status'
@@ -776,7 +782,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 Finder capacity gate
         if: steps.request.outputs.operation == 'v3-finder-capacity-gate'
@@ -844,7 +851,8 @@ jobs:
           rm -rf trusted-main/.v3-probe-wheelhouse
           mkdir -p trusted-main/.v3-probe-wheelhouse
           python -m pip download --disable-pip-version-check --only-binary=:all: \
-            --dest trusted-main/.v3-probe-wheelhouse 'psycopg[binary]==3.3.4'
+            --platform manylinux2014_x86_64 --python-version 3.14 --implementation cp \
+            --dest trusted-main/.v3-probe-wheelhouse --require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt
 
       - name: Stage trusted main for V3 archetype plan probe
         if: steps.request.outputs.operation == 'v3-archetype-plan-probe'

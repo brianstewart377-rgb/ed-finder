@@ -185,7 +185,7 @@ def test_probe_operation_is_allowlisted_through_trusted_main():
     assert "Upload V3 archetype calibration probe receipt" in workflow
     assert ".v3-probe-source-sha" in workflow
     assert ".v3-probe-wheelhouse" in workflow
-    assert "psycopg[binary]==3.3.4" in workflow
+    assert "--require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt" in workflow
     assert "stage=\"/var/tmp/edfinder-v3-probe-${source_sha}\"" in workflow
     assert "bash -s -- run '$stage' '$source_sha'" in workflow
     script = "trusted-main/scripts/operator/actions/v3-archetype-calibration-probe.sh"
@@ -225,7 +225,7 @@ def test_complete_read_operations_are_allowlisted_and_use_a_trusted_bundle():
 
     assert ".v3-archetype-complete-source-sha" in workflow
     assert ".v3-probe-wheelhouse" in workflow
-    assert "psycopg[binary]==3.3.4" in workflow
+    assert "--require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt" in workflow
     assert 'stage="/var/tmp/edfinder-v3-archetype-complete-${source_sha}"' in workflow
     assert "bash -s -- start '$stage' '$source_sha'" in workflow
     assert "bash -s -- status '$stage' '$source_sha'" in workflow

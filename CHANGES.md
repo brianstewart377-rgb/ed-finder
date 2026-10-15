@@ -51,6 +51,20 @@ identities. A failed post-commit check records `published_unhealthy`, retains
 the committed publication/write flags, and exits 80 without rollback.
 Regression tests cover each of the six confirmed findings. These changes are
 code only; no deployment or production access was performed.
+PR4b review round 4 scopes `first-f2d-cutover-empty-finder-products` to the
+currently accepted release lacking an F2d attestation group. Later upgrades use
+`accepted-f2d-release-allowed-product-states`: keep the exact pinned generation,
+allow BUILDING only unpublished and READY only VERIFIED (published or
+unpublished), and refuse FAILED. Preflight and promotion receipts record the
+rule and observed lifecycle, validation and publication states; post-promotion
+bounded-request probes expect 200 after paired publication and the exact 503
+reason during rollout. The choice uses accepted-release authority, independent
+of optional dispatch attestation. F2d now authenticates the complete CPython
+3.14 manylinux x86_64 Psycopg wheel graph through manifest-listed
+`deploy/v3-production/f2d-wheels.txt`, hash-checked staging downloads and offline
+installs in all six actions. The disposable capacity measurement uses the same
+lock. Regression tests cover accepted later upgrades, first-cutover refusal,
+failed products, rollout states, wheel hashes and every F2d install/download.
 F2d operator operations now read their
 attested identity from trusted-main's target authority. The gate requires all
 six planned migrations and refuses explicitly while mandatory `016` remains

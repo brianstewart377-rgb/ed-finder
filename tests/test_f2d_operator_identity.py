@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SHELL_HELPER = REPO_ROOT / "scripts/operator/lib/f2d_operator_identity.sh"
 EXPECTED_ACTIVE_ENTRIES = (
     "deploy/v3-production/f2d-operator-code.txt",
+    "deploy/v3-production/f2d-wheels.txt",
     "docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json",
     "requirement:psycopg[binary]==3.3.4",
     "scripts/dev/convert_calibration_histogram.py",

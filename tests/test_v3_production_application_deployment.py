@@ -1992,7 +1992,8 @@ def test_finder_publication_stages_exact_main_with_production_credentials_and_at
     assert "ssh-keyscan" not in json.dumps(publication)
     assert '.v3-publish-source-sha' in prepare["run"]
     assert "--only-binary=:all:" in prepare["run"]
-    assert "--dest .v3-probe-wheelhouse 'psycopg[binary]==3.3.4'" in prepare["run"]
+    assert "--dest .v3-probe-wheelhouse --require-hashes -r deploy/v3-production/f2d-wheels.txt" in prepare["run"]
+    assert "--platform manylinux2014_x86_64 --python-version 3.14 --implementation cp" in prepare["run"]
     assert '/var/tmp/edfinder-v3-publish-${source_sha}' in stage["run"]
     assert '[ -L' in stage["run"]
     assert 'stage marker mismatch' in stage["run"]

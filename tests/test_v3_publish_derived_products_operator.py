@@ -128,7 +128,7 @@ def test_worker_is_bounded_and_keeps_dsn_off_command_line() -> None:
         "--tmpfs /tmp",
         "dst=/work,readonly",
         "dst=/publish",
-        '"psycopg[binary]==3.3.4"',
+        '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt',
         "--no-index",
         "--find-links /work/.v3-probe-wheelhouse",
         '--env-file "$ENV_FILE"',

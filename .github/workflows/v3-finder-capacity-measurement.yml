@@ -61,9 +61,11 @@ jobs:
 
       - name: Install measurement dependencies
         # apps/api/requirements.txt deliberately excludes Psycopg (importer-only),
-        # but both footprint scripts import it at module load. Same pin as
-        # apps/api/pyproject.toml and deploy/v3-production/f2d-operator-code.txt.
-        run: python -m pip install -r apps/api/requirements.txt 'psycopg[binary]==3.3.4'
+        # but both footprint scripts import it at module load. Authenticate
+        # the same F2d wheel bytes used by the production operator actions.
+        run: |
+          python -m pip install -r apps/api/requirements.txt
+          python -m pip install --require-hashes -r deploy/v3-production/f2d-wheels.txt
 
       - name: Attest the disposable PostgreSQL service container address
         id: disposable

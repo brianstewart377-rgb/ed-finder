@@ -122,7 +122,12 @@ SELECT json_build_object(
   'publication_sequence', p.publication_sequence,
   'state', g.lifecycle_state,
   'finder_products', COALESCE((
-    SELECT json_agg(product_code ORDER BY product_code)
+    SELECT json_agg(json_build_object(
+      'product_code', product_code,
+      'lifecycle_state', lifecycle_state,
+      'validation_status', validation_receipt ->> 'status',
+      'published_at', published_at
+    ) ORDER BY product_code)
     FROM v3_meta.derived_product
     WHERE derived_generation_id = :'generation_id'::uuid
       AND product_code IN ('system_search', 'system_archetype')
@@ -694,17 +699,59 @@ def validate_f2d_boundary(
         raise DeploymentError("f2d_minimum_schema_compatible_image_mismatch")
 
 
-def validate_f2d_generation(observed: object) -> None:
+def f2d_generation_rule(accepted_release: object = None) -> str:
+    # The release being replaced is authority, never the candidate dispatch.
+    # Only the first F2d cutover must precede product registration (design 8.1).
+    if accepted_release is not None:
+        validate_release_compatibility_shape(accepted_release)
+        if F2D_ATTESTATION_FIELDS.issubset(accepted_release):
+            return "accepted-f2d-release-allowed-product-states"
+    return "first-f2d-cutover-empty-finder-products"
+
+
+def validate_f2d_generation(observed: object, accepted_release: object = None) -> None:
     if not isinstance(observed, dict):
         raise DeploymentError("f2d_current_generation_mismatch")
     for field, expected in F2D_GENERATION.items():
         if observed.get(field) != expected or type(observed.get(field)) is not type(expected):
             raise DeploymentError("f2d_current_generation_mismatch:" + field)
-    if observed.get("finder_products") != []:
-        raise DeploymentError("finder_products_already_registered_on_parallel_v1")
+    products = observed.get("finder_products")
+    if f2d_generation_rule(accepted_release) == "first-f2d-cutover-empty-finder-products":
+        if products != []:
+            raise DeploymentError("finder_products_already_registered_on_parallel_v1")
+        return
+    if not isinstance(products, list) or len(products) > 2:
+        raise DeploymentError("f2d_finder_products_invalid")
+    seen = set()
+    for product in products:
+        if not isinstance(product, dict) or set(product) != {
+            "product_code", "lifecycle_state", "validation_status", "published_at",
+        }:
+            raise DeploymentError("f2d_finder_products_invalid")
+        code = product["product_code"]
+        if not isinstance(code, str) or code not in {"system_search", "system_archetype"} or code in seen:
+            raise DeploymentError("f2d_finder_products_invalid")
+        seen.add(code)
+        published_at = product["published_at"]
+        if published_at is not None and (not isinstance(published_at, str) or not published_at.strip()):
+            raise DeploymentError("f2d_finder_products_invalid")
+        state = product["lifecycle_state"]
+        if state == "FAILED":
+            raise DeploymentError("f2d_finder_product_failed:" + code)
+        if state == "READY":
+            if product["validation_status"] != "VERIFIED":
+                raise DeploymentError("f2d_finder_product_validation_unverified:" + code)
+        elif state == "BUILDING":
+            if published_at is not None:
+                raise DeploymentError("f2d_finder_product_building_published:" + code)
+        else:
+            raise DeploymentError("f2d_finder_product_state_invalid:" + code)
 
 
-def verify_f2d_generation(env: dict[str, str], runner: Callable[..., Any]) -> dict[str, Any]:
+def verify_f2d_generation(
+    env: dict[str, str], runner: Callable[..., Any], accepted_release: object = None,
+    receipt_observation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     result = runner(
         ["docker", "exec", "-i", POSTGRES_CONTAINER, "psql", "-X", "--no-password",
          "--tuples-only", "--no-align", "--quiet", "--set", "ON_ERROR_STOP=1",
@@ -718,7 +765,9 @@ def verify_f2d_generation(env: dict[str, str], runner: Callable[..., Any]) -> di
         observed = json.loads(result.stdout.strip())
     except json.JSONDecodeError as exc:
         raise DeploymentError("f2d_generation_response_invalid") from exc
-    validate_f2d_generation(observed)
+    if isinstance(observed, dict) and receipt_observation is not None:
+        receipt_observation.update(observed)
+    validate_f2d_generation(observed, accepted_release)
     return observed
 
 
@@ -1391,16 +1440,31 @@ def post(origin: str, path: str, body: dict[str, Any]) -> tuple[int, bytes, str]
         raise DeploymentError("origin request failed") from exc
 
 
-def f2d_behavioural_probes(origin: str, outcomes: list[dict[str, Any]]) -> None:
+def f2d_behavioural_probes(
+    origin: str, outcomes: list[dict[str, Any]], generation: dict[str, Any] | None = None,
+) -> None:
+    # Match the actual publication resolver, including a later rollout's
+    # unfinished products. Once both are published, valid bounds must return 200.
+    products = {row["product_code"]: row for row in (generation or {}).get("finder_products", [])}
+    unavailable = []
+    for code in ("system_archetype", "system_search"):
+        product = products.get(code)
+        if product is None:
+            unavailable.append(code + "=MISSING")
+        elif product["lifecycle_state"] != "READY":
+            unavailable.append(code + "=" + product["lifecycle_state"])
+        elif product["published_at"] is None:
+            unavailable.append(code + "=READY-unpublished")
+    valid_status = 503 if unavailable else 200
     pairs = [
-        ("GET", "/api/archetypes/rankings?archetype=paradise&offset=9999&limit=1", None, 503),
+        ("GET", "/api/archetypes/rankings?archetype=paradise&offset=9999&limit=1", None, valid_status),
         ("GET", "/api/archetypes/rankings?archetype=paradise&offset=9999&limit=2", None, 422),
-        ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 1}, 503),
+        ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 1}, valid_status),
         ("POST", "/api/local/search", {"galaxy_wide": True, "sort_by": "development", "from": 9999, "size": 2}, 422),
     ]
     expected_not_ready = (
         "Finder ranking products are not available for the published generation "
-        "(system_archetype=MISSING, system_search=MISSING)."
+        "(" + ", ".join(unavailable) + ")."
     )
     for method, path, body, expected in pairs:
         reason_verified = None
@@ -1962,6 +2026,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     preflight_database_access_attempted = False
     preflight_database_access_performed = False
     rollback_artifact: dict[str, Any] | None = None
+    f2d_generation: dict[str, Any] = {}
+    generation_rule: str | None = None
 
     def mark_env_file_read() -> None:
         nonlocal env_files_read
@@ -1991,6 +2057,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             validate_f2d_migrations(schema, registered_f2d_migrations())
             validate_f2d_attestation(f2d_attestation, candidate, candidate_sum, args.candidate_run_id, schema)
             validate_f2d_boundary(f2d_attestation, authority["accepted_release_schema_compatibility"])
+            generation_rule = f2d_generation_rule(authority["accepted_release_schema_compatibility"])
             if args.mode != "upgrade":
                 raise DeploymentError("f2d_release_requires_receipt_backed_upgrade")
         protected = set(authority["preservation_contract"]["exact_containers"])
@@ -2023,7 +2090,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             verify_live_schema(schema, env, runner)
             preflight_database_access_performed = True
             if f2d_release:
-                verify_f2d_generation(env, runner)
+                f2d_generation = verify_f2d_generation(
+                    env, runner, authority["accepted_release_schema_compatibility"], f2d_generation,
+                )
                 rollback_manifest, rollback_source = select_f2d_rollback(
                     receipt_dir, f2d_attestation, schema, candidate,
                 )
@@ -2044,7 +2113,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 "images": candidate["images"],
                 "rollback_compatible": args.mode == "upgrade",
                 **({"accepted_release_schema_compatibility": f2d_attestation,
-                    "rollback": rollback_artifact}
+                    "rollback": rollback_artifact, "f2d_generation": f2d_generation,
+                    "f2d_generation_rule": generation_rule}
                    if f2d_release else {}),
                 "live_capacity": live_capacity,
                 "database_access_performed": True,
@@ -2064,6 +2134,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         )
         receipt = stopped_receipt(authority, [failure], operation=receipt_operation)
         receipt["env_files_read"] = env_files_read
+        if generation_rule is not None:
+            receipt.update(f2d_generation=f2d_generation, f2d_generation_rule=generation_rule)
         if rollback_artifact is not None:
             receipt["f2d_rollback_artifact"] = rollback_artifact
         if preflight_database_access_attempted:
@@ -2088,7 +2160,6 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     prior_manifest: dict[str, Any] | None = None
     target_slot = "blue"
     f2d_probe_statuses: list[dict[str, Any]] = []
-    f2d_generation: dict[str, Any] | None = None
     f2d_image_contract: dict[str, Any] | None = None
     rollback_manifest: dict[str, Any] | None = None
     try:
@@ -2096,7 +2167,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         verify_live_schema(schema, env, runner)
         database_verified = True
         if f2d_release:
-            f2d_generation = verify_f2d_generation(env, runner)
+            f2d_generation = verify_f2d_generation(
+                env, runner, authority["accepted_release_schema_compatibility"], f2d_generation,
+            )
             rollback_manifest, rollback_source = select_f2d_rollback(
                 receipt_dir, f2d_attestation, schema, candidate,
             )
@@ -2206,8 +2279,10 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         validate_network(external, schema, staged_slots, env, runner)
 
         if f2d_release:
-            # Recheck the release-first boundary immediately before switching.
-            verify_f2d_generation(env, runner)
+            # Recheck the applicable product-state rule immediately before switching.
+            f2d_generation = verify_f2d_generation(
+                env, runner, authority["accepted_release_schema_compatibility"], f2d_generation,
+            )
         cutover_started = True
         if args.mode == "bootstrap":
             runner(["docker", "stop", LEGACY_ORIGIN], env=env)
@@ -2222,7 +2297,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         )
         active_smoke = smoke("http://" + external["active_origin_bind"], candidate["git_sha"])
         if f2d_release:
-            f2d_behavioural_probes("http://" + external["active_origin_bind"], f2d_probe_statuses)
+            f2d_behavioural_probes("http://" + external["active_origin_bind"], f2d_probe_statuses, f2d_generation)
         public_smoke = smoke(external["public_origin"], candidate["git_sha"])
         verify_live_schema(schema, env, runner)
         verify_env_unchanged(Path(external["api_env_file"]), fingerprint)
@@ -2261,7 +2336,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "live_capacity": live_capacity,
             "active_smoke": active_smoke, "public_smoke": public_smoke,
             **({"accepted_release_schema_compatibility": f2d_attestation,
-                "f2d_generation": f2d_generation, "f2d_image_contract": f2d_image_contract,
+                "f2d_generation": f2d_generation, "f2d_generation_rule": generation_rule,
+                "f2d_image_contract": f2d_image_contract,
                 "f2d_behavioural_probes": f2d_probe_statuses,
                 "minimum_schema_compatible_image": f2d_attestation["minimum_schema_compatible_image"],
                 "rollback_targets": trim_rollback_targets(f2d_attestation["rollback_targets"], f2d_attestation["minimum_schema_compatible_image"]),
@@ -2358,6 +2434,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             rollback=rollback,
             **({"accepted_release_schema_compatibility": f2d_attestation,
                 "f2d_behavioural_probes": f2d_probe_statuses,
+                "f2d_generation": f2d_generation, "f2d_generation_rule": generation_rule,
                 "f2d_image_contract": f2d_image_contract} if f2d_release else {}),
         )
         try:

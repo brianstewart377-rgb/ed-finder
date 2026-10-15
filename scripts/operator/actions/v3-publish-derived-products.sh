@@ -756,7 +756,7 @@ PY
     --entrypoint /bin/sh "$IMAGE_DIGEST" -lc '
       set -eu
       /usr/local/bin/python -m pip install --quiet --disable-pip-version-check --no-input --no-index \
-        --find-links /work/.v3-probe-wheelhouse --target /tmp/v3-publish-deps "psycopg[binary]==3.3.4" 1>&2
+        --find-links /work/.v3-probe-wheelhouse --target /tmp/v3-publish-deps --require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2
       export PYTHONPATH="/tmp/v3-publish-deps:/work:/work/apps/api/src"
       cd /work
       exec /app/.venv/bin/python scripts/v3_publish_derived_products.py \

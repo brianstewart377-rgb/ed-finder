@@ -428,7 +428,7 @@ def test_action_pins_target_and_runs_a_bounded_read_only_detached_worker():
     assert 'dst=/state' in action
     assert '--env-file "$env_file"' in action
     assert 'V3_ARCHETYPE_COMPLETE_DATABASE_URL=%s' in action
-    assert 'psycopg[binary]==3.3.4' in action
+    assert '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt' in action
     assert '--no-index' in action
     assert '--find-links /work/.v3-probe-wheelhouse' in action
     assert "sealed_read('receipt.json')" in action

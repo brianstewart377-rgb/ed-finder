@@ -114,7 +114,7 @@ def test_action_runs_bounded_read_only_worker_with_env_file_dsn() -> None:
         "--tmpfs /tmp",
         'dst=/work,readonly',
         'dst=/gate"',
-        '"psycopg[binary]==3.3.4"',
+        '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt',
         "--no-index",
         "--find-links /work/.v3-probe-wheelhouse",
         "--target /tmp/v3-plan-probe-deps",

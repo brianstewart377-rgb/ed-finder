@@ -81,9 +81,8 @@ def test_search_operator_is_bounded_and_cannot_publish_or_touch_canonical():
 def test_search_worker_dependencies_are_offline_and_pinned():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     source = ACTION.read_text(encoding="utf-8")
-    requirement = "psycopg[binary]==3.3.4"
-    assert requirement in workflow
-    assert requirement in source
+    assert "--require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt" in workflow
+    assert "--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt" in source
     assert "--only-binary=:all:" in workflow
     assert ".v3-search-wheelhouse" in workflow
     assert ".v3-search-wheelhouse" in source

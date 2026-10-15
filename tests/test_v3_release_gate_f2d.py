@@ -626,15 +626,28 @@ def test_promote_accepts_complete_fixture_and_persists_all_behavioural_statuses(
     assert persisted["accepted_release_schema_compatibility"] == attestation
 
 
+@pytest.mark.parametrize("operation", ["preflight", "promote"])
+@pytest.mark.parametrize("explicit_dispatch", [False, True])
 @pytest.mark.parametrize("product", ["system_search", "system_archetype"])
-def test_promote_refuses_existing_target_product_before_mutation(deployer, monkeypatch, tmp_path, attestation, product):
+def test_promote_refuses_existing_target_product_before_mutation(
+    deployer, monkeypatch, tmp_path, attestation, product, operation, explicit_dispatch,
+):
     args, authority, _directory, runner, commands, observed, _recovery = promotion_fixture(
         deployer, monkeypatch, tmp_path, attestation,
     )
-    observed["finder_products"] = [product]
+    args.operation = operation
+    if not explicit_dispatch:
+        args.candidate_attestation.rename(args.candidate.parent / "f2d-release-attestation.json")
+        args.candidate_attestation = None
+    authority["accepted_release_schema_compatibility"] = {
+        key: value for key, value in attestation.items() if key not in FIELDS
+    }
+    observed["finder_products"] = [finder_product(product)]
     with pytest.raises(deployer.OperationFailed) as failed:
         deployer.promote(args, authority, runner)
     assert failed.value.receipt["failures"] == ["finder_products_already_registered_on_parallel_v1"]
+    assert failed.value.receipt["f2d_generation"] == observed
+    assert failed.value.receipt["f2d_generation_rule"] == "first-f2d-cutover-empty-finder-products"
     assert not any("up" in argv or "pull" in argv or "stop" in argv for argv, _env in commands)
 
 
@@ -1024,3 +1037,132 @@ def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
         pointer = json.loads((receipt_dir / "current.json").read_text())
         persisted = json.loads((receipt_dir / pointer["receipt_file"]).read_text())
         assert persisted["rollback"] == receipt["rollback"]
+
+
+def finder_product(code, state="READY", *, published=True, validation="VERIFIED"):
+    return {"product_code": code, "lifecycle_state": state,
+            "validation_status": validation,
+            "published_at": "2026-10-14T12:00:00+00:00" if published else None}
+
+
+@pytest.mark.parametrize("operation", ["preflight", "promote"])
+@pytest.mark.parametrize("explicit_dispatch", [False, True])
+def test_later_f2d_upgrade_accepts_published_products_and_receipts_states(
+    deployer, monkeypatch, tmp_path, attestation, operation, explicit_dispatch,
+):
+    args, authority, directory, runner, _commands, observed, _recovery = promotion_fixture(
+        deployer, monkeypatch, tmp_path, attestation,
+    )
+    args.operation = operation
+    if not explicit_dispatch:
+        args.candidate_attestation.rename(args.candidate.parent / "f2d-release-attestation.json")
+        args.candidate_attestation = None
+    observed["finder_products"] = [finder_product(code) for code in ("system_search", "system_archetype")]
+    monkeypatch.setattr(deployer, "get", lambda _origin, path: (
+        (200, json.dumps(openapi_document()).encode(), "application/json") if path == "/openapi.json"
+        else (422 if "limit=2" in path or "galaxy_region=1" in path else 200, b"{}", "application/json")))
+    monkeypatch.setattr(deployer, "post", lambda _origin, _path, body: (
+        422 if body.get("size") == 2 or "body_filters" in body else 200, b"{}", "application/json"))
+    receipt = deployer.promote(args, authority, runner)
+    assert receipt["status"] == ("preflight-passed" if operation == "preflight" else "accepted")
+    assert receipt["f2d_generation"] == observed
+    assert receipt["f2d_generation_rule"] == "accepted-f2d-release-allowed-product-states"
+    if operation == "promote":
+        assert [row["status"] for row in receipt["f2d_behavioural_probes"]] == [200, 422, 200, 422]
+        pointer = json.loads((directory / "current.json").read_text())
+        persisted = json.loads((directory / pointer["receipt_file"]).read_text())
+        assert persisted["f2d_generation"] == observed
+
+
+@pytest.mark.parametrize("operation", ["preflight", "promote"])
+@pytest.mark.parametrize("product", ["system_search", "system_archetype"])
+def test_later_f2d_upgrade_refuses_failed_product_and_receipts_states(
+    deployer, monkeypatch, tmp_path, attestation, operation, product,
+):
+    args, authority, _directory, runner, commands, observed, _recovery = promotion_fixture(
+        deployer, monkeypatch, tmp_path, attestation,
+    )
+    args.operation = operation
+    observed["finder_products"] = [finder_product(product, "FAILED", published=False, validation=None)]
+    with pytest.raises(deployer.OperationFailed) as failed:
+        deployer.promote(args, authority, runner)
+    receipt = failed.value.receipt
+    assert receipt["failures"] == ["f2d_finder_product_failed:" + product]
+    assert receipt["f2d_generation"] == observed
+    assert receipt["f2d_generation_rule"] == "accepted-f2d-release-allowed-product-states"
+    assert not any("up" in argv or "pull" in argv or "stop" in argv for argv, _env in commands)
+
+
+@pytest.mark.parametrize("state,published,validation", [
+    ("BUILDING", False, None), ("READY", False, "VERIFIED"), ("READY", True, "VERIFIED"),
+])
+def test_later_generation_allows_only_rollout_or_verified_ready_products(
+    deployer, attestation, state, published, validation,
+):
+    observed = generation()
+    observed["finder_products"] = [finder_product("system_search", state, published=published, validation=validation)]
+    deployer.validate_f2d_generation(observed, attestation)
+
+
+@pytest.mark.parametrize("state,published,validation,reason", [
+    ("FAILED", False, None, "f2d_finder_product_failed:system_search"),
+    ("BUILDING", True, None, "f2d_finder_product_building_published:system_search"),
+    ("READY", False, None, "f2d_finder_product_validation_unverified:system_search"),
+    ("READY", True, "FAILED", "f2d_finder_product_validation_unverified:system_search"),
+    ("OTHER", False, None, "f2d_finder_product_state_invalid:system_search"),
+])
+def test_later_generation_names_disallowed_product_state(
+    deployer, attestation, state, published, validation, reason,
+):
+    observed = generation()
+    observed["finder_products"] = [finder_product("system_search", state, published=published, validation=validation)]
+    with pytest.raises(deployer.DeploymentError, match="^" + reason + "$"):
+        deployer.validate_f2d_generation(observed, attestation)
+
+
+@pytest.mark.parametrize("products", [None, {}, ["system_search"], [{}],
+    [finder_product("ratings_v4")], [finder_product("system_search"), finder_product("system_search")],
+    [{"product_code": "system_search", "lifecycle_state": "BUILDING", "validation_status": None}],
+])
+def test_later_generation_refuses_malformed_product_observation(deployer, attestation, products):
+    observed = generation()
+    observed["finder_products"] = products
+    with pytest.raises(deployer.DeploymentError, match="^f2d_finder_products_invalid$"):
+        deployer.validate_f2d_generation(observed, attestation)
+
+
+def test_generation_query_records_lifecycle_validation_and_publication(deployer):
+    sql = " ".join(deployer.F2D_GENERATION_SQL.split())
+    assert "'product_code', product_code" in sql
+    assert "'lifecycle_state', lifecycle_state" in sql
+    assert "'validation_status', validation_receipt ->> 'status'" in sql
+    assert "'published_at', published_at" in sql
+
+
+@pytest.mark.parametrize("state,reason", [
+    ("BUILDING", "system_archetype=BUILDING"),
+    ("READY", "system_archetype=READY-unpublished"),
+])
+def test_later_rollout_probes_verify_exact_unpublished_reason(deployer, monkeypatch, state, reason):
+    observed = generation()
+    observed["finder_products"] = [
+        finder_product("system_search"),
+        finder_product("system_archetype", state, published=False,
+                       validation=None if state == "BUILDING" else "VERIFIED"),
+    ]
+    payload = json.dumps({"detail": "Finder ranking products are not available for the published "
+                         f"generation ({reason})."}).encode()
+    statuses = iter([503, 422, 503, 422])
+    monkeypatch.setattr(deployer, "get", lambda *_args: (next(statuses), payload, "application/json"))
+    monkeypatch.setattr(deployer, "post", lambda *_args: (next(statuses), payload, "application/json"))
+    outcomes = []
+    deployer.f2d_behavioural_probes("http://127.0.0.1:58080", outcomes, observed)
+    assert [row["not_ready_reason_verified"] for row in outcomes] == [True, None, True, None]
+
+
+def test_later_generation_retains_exact_generation_requirement(deployer, attestation):
+    observed = generation()
+    observed["finder_products"] = [finder_product("system_search"), finder_product("system_archetype")]
+    observed["publication_sequence"] = 2
+    with pytest.raises(deployer.DeploymentError, match="^f2d_current_generation_mismatch:publication_sequence$"):
+        deployer.validate_f2d_generation(observed, attestation)

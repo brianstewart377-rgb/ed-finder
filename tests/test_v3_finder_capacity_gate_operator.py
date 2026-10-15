@@ -141,7 +141,7 @@ def test_action_runs_the_gate_in_a_bounded_read_only_container() -> None:
     assert 'if [ -d "$COMPLETE_STATE_ROOT" ]' in source
     assert 'if [ -d "$SEARCH_STATE_ROOT" ]' in source
     assert 'if [ -d "$ARCHETYPE_STATE_ROOT" ]' in source
-    assert '"psycopg[binary]==3.3.4" 1>&2' in source
+    assert '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2' in source
     assert "--no-index" in source
     assert "--find-links /work/.v3-probe-wheelhouse" in source
     assert "--target /tmp/v3-capacity-gate-deps" in source
@@ -376,7 +376,7 @@ def test_ops_workflow_stages_runs_and_uploads_capacity_gate_receipt() -> None:
     assert 'stage="/var/tmp/edfinder-v3-capacity-gate-${source_sha}"' in workflow
     assert ".v3-capacity-gate-source-sha" in workflow
     assert ".v3-probe-wheelhouse" in workflow
-    assert "psycopg[binary]==3.3.4" in workflow
+    assert "--require-hashes -r trusted-main/deploy/v3-production/f2d-wheels.txt" in workflow
     assert "bash -s -- run '$stage' '$source_sha'" in workflow
     assert "sudo -n --preserve-env=F2D_OPERATOR_CODE_SHA256_ATTESTED" in workflow
     assert (
@@ -700,3 +700,55 @@ def test_running_worker_is_verified_before_any_receipt_is_written(
     )
     assert expected in result.stdout, result.stdout + result.stderr
 
+
+
+@pytest.mark.parametrize(
+    ("action", "install_count"),
+    (
+        ("v3-archetype-calibration-complete.sh", 1),
+        ("v3-finder-capacity-gate.sh", 1),
+        ("v3-system-search-f1.sh", 2),
+        ("v3-system-archetype.sh", 2),
+        ("v3-archetype-plan-probe.sh", 1),
+        ("v3-publish-derived-products.sh", 1),
+    ),
+)
+def test_every_f2d_install_authenticates_offline_wheel_bytes(action, install_count):
+    source = _read(ROOT / "scripts/operator/actions" / action)
+    commands = re.findall(r"python -m pip install .*?1>&2", source, re.DOTALL)
+    assert len(commands) == install_count
+    for command in commands:
+        assert "--no-index" in command
+        assert "--find-links /work/.v3-" in command
+        assert "--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt" in command
+        assert "psycopg[binary]" not in command
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "expected_downloads", "checkout_prefix"),
+    (
+        ("chatgpt-ed-new-ops.yml", 8, "trusted-main/"),
+        ("v3-production-application-deploy.yml", 1, ""),
+    ),
+)
+def test_every_f2d_staging_download_authenticates_target_wheels(
+    workflow_name, expected_downloads, checkout_prefix,
+):
+    workflow = yaml.load(
+        _read(ROOT / ".github/workflows" / workflow_name), Loader=yaml.BaseLoader,
+    )
+    downloads = []
+    for job in workflow["jobs"].values():
+        for step in job.get("steps", []):
+            run = step.get("run", "").replace("\\\n", " ")
+            downloads.extend(
+                line for line in run.splitlines()
+                if "pip download" in line and re.search(r"\.v3-(?:probe|search|archetype)-wheelhouse", line)
+            )
+    assert len(downloads) == expected_downloads
+    for command in downloads:
+        assert "--require-hashes" in command
+        assert f"-r {checkout_prefix}deploy/v3-production/f2d-wheels.txt" in command
+        assert "--only-binary=:all:" in command
+        assert "--platform manylinux2014_x86_64 --python-version 3.14 --implementation cp" in command
+        assert "psycopg[binary]" not in command
