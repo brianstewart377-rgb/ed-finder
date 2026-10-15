@@ -30,6 +30,8 @@ from scripts.ratings_v4.production_generation import (  # noqa: E402
 from scripts.v3_system_search import (  # noqa: E402
     build_available, register_product,
 )
+from scripts.operator.lib import v3_purge_transactions as purge_transactions  # noqa: E402
+from scripts.operator.lib import v3_generation_purge as purge_operator  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 MIGRATIONS = ROOT / 'sql/v3/migrations'
@@ -128,6 +130,15 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
             for name in ('012_v3_spatial_pyramid_decouple.sql', '013_v3_system_search_parallel.sql'):
                 connection.execute((MIGRATIONS / name).read_text())
         connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
+        # The fixture bulk-loads canonical/metadata rows before these tests.
+        # Their automatic ANALYZE can acquire an XID even though no competing
+        # application writer exists. 016 deliberately rejects *every* other
+        # backend_xid, including an autovacuum worker's; do not relax that
+        # production check to hide this disposable-database scheduling race.
+        connection.execute('RESET SESSION AUTHORIZATION')
+        _suppress_fixture_automatic_maintenance(connection)
+        if creator == 'non_superuser':
+            connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
         if creator == 'non_superuser':
             if executor_was_absent:
                 # PostgreSQL creates an unavoidable bootstrap-granted ADMIN
@@ -191,6 +202,50 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
                 connection.close()
             lock_connection.execute('SELECT pg_advisory_unlock(764016099)')
             lock_connection.close()
+
+
+def _suppress_fixture_automatic_maintenance(connection):
+    """Keep background workers out; explicit VACUUM/ANALYZE tests still run.
+
+    Preserve the purge tables' unset autovacuum_enabled defaults so the fence
+    restoration tests continue exercising the real unset and false cases.
+    These fresh disposable tables cannot approach anti-wraparound thresholds.
+    """
+    assert connection.info.dbname.startswith('v4_test_')
+    for schema, table, toast in connection.execute(
+        '''SELECT n.nspname,c.relname,c.reltoastrelid<>0 FROM pg_class c
+           JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname LIKE 'v3_%' AND c.relkind='r'
+           ORDER BY n.nspname,c.relname''',
+    ).fetchall():
+        if schema == 'v3_derived' and table in RELATIONS:
+            options = '''autovacuum_analyze_threshold=2147483647,
+                autovacuum_analyze_scale_factor=0,
+                autovacuum_vacuum_threshold=2147483647,
+                autovacuum_vacuum_scale_factor=0'''
+            if toast:
+                options += ''',toast.autovacuum_vacuum_threshold=2147483647,
+                    toast.autovacuum_vacuum_scale_factor=0'''
+        else:
+            options = 'autovacuum_enabled=false'
+            if toast:
+                options += ',toast.autovacuum_enabled=false'
+        connection.execute(sql.SQL('ALTER TABLE {} SET ({})').format(
+            sql.Identifier(schema, table), sql.SQL(options),
+        ))
+    # A worker already selected before its table's options changed is allowed
+    # to finish, never canceled. Retain 016's predicate and fail on a fixed
+    # deadline rather than retrying an arbitrary failed mutation.
+    deadline = monotonic() + 10
+    while connection.execute(
+        '''SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+           WHERE datname=current_database() AND pid<>pg_backend_pid()
+             AND (backend_xid IS NOT NULL OR
+                  (backend_type='client backend' AND state IS NULL)))''',
+    ).fetchone()[0]:
+        if monotonic() >= deadline:
+            pytest.fail('disposable purge fixture still has a competing backend after 10 seconds')
+        sleep(0.05)
 
 
 def _grant_application_create(connection):
@@ -526,6 +581,167 @@ def _receipt():
     }
 
 
+def _operator_query(connection, calls=None):
+    """Run the operator's exact bounded SQL on this disposable database.
+
+    ClientCursor binds values safely while supporting the fixed multi-statement
+    transaction used by psql in production. Return evidence only after COMMIT,
+    matching the production adapter's successful-exit contract.
+    """
+    def query(statement, parameters=None, *, write=False):
+        # Runtime starts a fresh psql login for each query. Reusing the fixture
+        # connection must not leave the previous query's executor SET ROLE in
+        # force for the deliberately owner-role competing-writer observation.
+        connection.execute('RESET ROLE')
+        if calls is not None:
+            calls.append({'write': write, 'statement': statement})
+        results = []
+        try:
+            with psycopg.ClientCursor(connection) as cursor:
+                cursor.execute(statement, parameters)
+                while True:
+                    if cursor.description is not None:
+                        rows = cursor.fetchall()
+                        assert len(rows) == 1 and len(rows[0]) == 1
+                        results.append(rows[0][0])
+                    if not cursor.nextset():
+                        break
+            assert len(results) == 1
+            return results[0]
+        except BaseException:
+            connection.rollback()
+            raise
+    return query
+
+
+def test_operator_plan_and_status_observation_sql_is_readonly_under_executor(database):
+    connection = database[0]
+    _seed(database)
+    calls = []
+    query = _operator_query(connection, calls)
+    identity = query(purge_operator.IDENTITY_SQL)
+    assert identity['database'] == connection.info.dbname
+    assert identity['current_user'] == EXECUTOR
+    assert identity['data_directory'] is None
+    assert identity['application_role'] == APPLICATION
+    assert identity['version'] >= 180000
+    objects = query(purge_operator.OBJECTS_SQL)
+    assert isinstance(objects, list) and objects
+    assert {'v3_derived.' + relation for relation in RELATIONS} <= {
+        item['relation'] for item in objects
+    }
+    assert all(item['path'] and item['total_bytes'] >= 0 for item in objects)
+    ages = query(purge_operator.AGES_SQL)
+    assert int(ages['xid_next']) > 0
+    assert {item['relation_code'] for item in ages['objects']} == set(RELATIONS)
+    assert all(item['xid_limit'] > 0 and item['mxid_limit'] > 0 for item in ages['objects'])
+    wal = query(purge_operator.WAL_SQL)
+    assert wal['lsn'] and wal['bytes'] is None
+    assert isinstance(wal['archiver'], dict)
+    assert isinstance(wal['slots'], list) and isinstance(wal['replication'], list)
+    pointers = query(purge_operator.POINTER_IDENTITIES_SQL)
+    assert pointers['derived']['derived_generation_id'] == str(SURVIVOR)
+    assert pointers['derived']['generation_key'] == 'ratings_v4_prod_p4_parallel_v1'
+    assert all(pointers[k]['publication_sequence'] > 0 for k in ('canonical', 'derived', 'spatial'))
+    summary_oid = connection.execute(
+        """SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='v3_app' AND c.relname='system_archetype_summary'""",
+    ).fetchone()[0]
+    assert connection.execute(
+        """SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='v3_derived' AND c.relname='system_archetype_summary'""",
+    ).fetchone() is None
+    # 016 grants the executor no v3_app access. The direct payload check must
+    # work with that unchanged privilege boundary, including unpublished rows.
+    assert not connection.execute(
+        "SELECT has_schema_privilege(current_user,'v3_app','USAGE')",
+    ).fetchone()[0]
+    assert not connection.execute(
+        "SELECT has_table_privilege(current_user,%s,'SELECT')", (summary_oid,),
+    ).fetchone()[0]
+    extra = query(purge_operator.EXTRA_COUNTS_SQL)
+    assert set(extra) == {str(identifier) for _, identifier in TARGETS} | {str(SURVIVOR)}
+    exclusions = {'cluster_run', 'cluster', 'cluster_member', 'system_archetype'}
+    assert all(set(counts) == exclusions for counts in extra.values())
+    assert all(not any(counts.values()) for counts in extra.values())
+    excluded_counts = query(purge_transactions.EXCLUSIONS_SQL)
+    assert set(excluded_counts) == exclusions and not any(excluded_counts.values())
+    progress = query(purge_operator.PROGRESS_SQL)
+    assert progress['requests'] == []
+    assert progress['relation_progress'] == [] and progress['events'] == []
+    metadata = query(purge_operator.STATUS_METADATA_SQL)
+    assert metadata['snapshot']['derived']['derived_generation_id'] == str(SURVIVOR)
+    assert metadata['snapshot']['survivors'] is None
+    assert {target['id'] for target in metadata['targets']} == {str(identifier) for _, identifier in TARGETS}
+    assert not any(call['write'] for call in calls)
+    assert all('BEGIN READ ONLY' in call['statement'] for call in calls)
+    assert _count(connection, 'v3_meta.derived_generation_purge_request') == 0
+
+
+def test_status_relation_sql_isolates_access_exclusive_lock_timeout(database):
+    connection = database[0]
+    _seed(database)
+    expected = {
+        relation: {
+            'targets': {str(identifier): _count(connection, 'v3_derived.' + relation, identifier)
+                        for _, identifier in TARGETS},
+            'survivors': _count(connection, 'v3_derived.' + relation, SURVIVOR),
+        } for relation in RELATIONS
+    }
+    query = _operator_query(connection)
+    assert set(purge_operator.STATUS_RELATION_SQL) == set(RELATIONS)
+    lock_dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
+    with psycopg.connect(lock_dsn, autocommit=True) as rewrite:
+        # VACUUM FULL holds this same relation lock. A catalog-only status
+        # observation must remain useful while its optional count probe waits.
+        with rewrite.transaction():
+            rewrite.execute('LOCK TABLE v3_derived.system_search IN ACCESS EXCLUSIVE MODE')
+            assert query(purge_operator.STATUS_METADATA_SQL)['snapshot']['survivors'] is None
+            assert query(purge_operator.PROGRESS_SQL)['requests'] == []
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                query(purge_operator.STATUS_RELATION_SQL['system_search'])
+            for relation in RELATIONS[1:]:
+                observed = query(purge_operator.STATUS_RELATION_SQL[relation])
+                assert observed['targets'] == expected[relation]['targets']
+                assert observed['survivors'] == expected[relation]['survivors']
+                assert observed['total_bytes'] > 0
+    # A timed-out read leaves no failed transaction or false cached count.
+    observed = query(purge_operator.STATUS_RELATION_SQL['system_search'])
+    assert observed['targets'] == expected['system_search']['targets']
+    assert observed['survivors'] == expected['system_search']['survivors']
+    assert observed['total_bytes'] > 0
+
+
+def test_operator_sql_layer_plans_authorizes_verifies_and_refuses_early_completion(database):
+    connection = database[0]
+    _seed(database)
+    calls = []
+    query = _operator_query(connection, calls)
+    plan = purge_transactions.collect_plan(query, 'b' * 40, 'disposable-fixture', 'operator SQL validation')
+    assert {(target['key'], target['state']) for target in plan['targets']} == {
+        ('ratings_v4_prod_p4', 'BUILDING'), ('ratings_v4_prod_p4_opt1', 'VALIDATING'),
+    }
+    assert plan['snapshot']['derived']['derived_generation_id'] == str(SURVIVOR)
+    assert all(plan['snapshot']['survivors'].values())
+    assert not any(call['write'] for call in calls)
+    assert _count(connection, 'v3_meta.derived_generation_purge_request') == 0
+    authorized = purge_transactions.authorize(query, plan)
+    ids = authorized['purge_ids']
+    assert len(ids) == 2
+    assert authorized['snapshot'] == plan['snapshot']
+    assert authorized['competing_writer_wait']['remaining_competing_writers'] == 0
+    calls.clear()
+    empty = purge_transactions.verify_empty(query, purge_ids=ids)
+    assert empty['empty'] is True and not any(empty['counts'].values())
+    assert not any(call['write'] for call in calls)
+    events_before = _count(connection, 'v3_meta.derived_generation_purge_event')
+    with pytest.raises(purge_transactions.PurgeTransactionError, match='purge_completion_preconditions_failed'):
+        purge_transactions.complete(query, plan, _receipt(), purge_ids=ids)
+    assert not any(call['write'] for call in calls)
+    assert _count(connection, 'v3_meta.derived_generation_purge_event') == events_before
+    assert all(_count(connection, 'v3_derived.' + relation, TARGETS[0][1]) > 0 for relation in RELATIONS)
+
+
 def _writer_fence(connection, purge_id):
     connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,true)', (purge_id,))
     connection.execute('SELECT v3_meta.purge_recycle_writer_sessions(%s,true)', (purge_id,))
@@ -769,6 +985,7 @@ def test_autovacuum_fence_restores_exact_heap_and_toast_prior_options(database, 
                ORDER BY c.oid''',
         ).fetchall()
     before = options()
+    assert all(value == prior for _, value in before)
     connection.execute('SET ROLE v3_derived_purge_executor')
     connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
     assert all(value == 'false' for _, value in options())
@@ -1433,6 +1650,11 @@ def test_any_excluded_cluster_or_archetype_target_payload_stops_authorization(da
             (generation_id,),
         ).fetchone()[0]
         _insert_wide_row(connection, _valid_row(generation_id, system_id64))
+    query = _operator_query(connection)
+    # The stable application views hide unpublished generations. Both helper
+    # queries must still observe and reject direct target payload rows.
+    assert query(purge_operator.EXTRA_COUNTS_SQL)[str(generation_id)][exclusion] == 1
+    assert query(purge_transactions.EXCLUSIONS_SQL)[exclusion] == 1
     plan = _plan(connection)
     connection.execute('SET ROLE v3_derived_purge_executor')
     with pytest.raises(psycopg.errors.RaiseException, match='cluster or archetype'):
@@ -1514,6 +1736,18 @@ def test_all_payload_relations_purge_child_first_preserving_receipts_and_complet
         connection.execute('SELECT v3_meta.complete_derived_generation_purge(%s,%s)',
                            (request_id, Jsonb(_receipt())))
         assert _count(connection, 'v3_meta.derived_generation_purge_event') == count
+    # Exercise P2b1's exact completion SQL after real child-first deletion,
+    # physical rewrites, ANALYZE, and verified restoration of every fence.
+    # This is an idempotent completion; no synthetic rewrite receipt is used.
+    reviewed_plan = connection.execute(
+        'SELECT reviewed_plan FROM v3_meta.derived_generation_purge_request LIMIT 1',
+    ).fetchone()[0]
+    completed = purge_transactions.complete(
+        _operator_query(connection), reviewed_plan, _receipt(),
+        purge_ids=[str(identifier) for identifier in ids.values()],
+    )
+    assert set(completed['completed_ids']) == {str(identifier) for identifier in ids.values()}
+    assert completed['competing_writer_wait']['remaining_competing_writers'] == 0
     assert {relation: _count(connection, relation) for relation in RETAINED} == retained
     assert connection.execute(
         "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='COMPLETED'",

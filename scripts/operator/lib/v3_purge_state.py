@@ -100,11 +100,14 @@ def _read(executor: Callable[[str], str], sql: str) -> dict:
     return value
 
 
-def check(executor: Callable[[str], str], *, bootstrap: bool = False) -> dict:
+def check(executor: Callable[[str], str], *, bootstrap: bool = False,
+          lease_held_by_caller: bool = False) -> dict:
     report = {'status': 'clear', 'failures': [], 'lease': 'unknown',
               'ledger_present': None, 'unresolved': [], 'bootstrap': False}
     try:
-        report['lease'] = lease_state()
+        # Only the purge controller uses this after acquiring this very inode.
+        # All existing mutator callers continue to probe the lease themselves.
+        report['lease'] = 'held_by_caller' if lease_held_by_caller else lease_state()
         if report['lease'] == 'held':
             report['failures'].append('purge_host_lease_held')
     except (OSError, ValueError):
