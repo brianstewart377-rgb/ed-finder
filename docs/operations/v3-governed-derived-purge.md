@@ -114,6 +114,12 @@ role itself, or a `CREATEROLE` role with `ADMIN OPTION` on it. Although 016 can
 be installed by a different superuser, that alone does not satisfy this plan
 gate; the action reports and refuses such an owner.
 
+The fixed read-only status progress query also uses the connection owner so
+`pg_stat_activity` exposes the recorded backend's PID and `backend_start`
+together; the executor's view can mask the start time. Payload probes remain
+under the executor. Status observes workers through Docker alone, avoiding the
+lifecycle action's additional relation-size probes during a rewrite.
+
 The competing-writer observation also uses a fixed owner `BEGIN READ ONLY`
 query: the executor lacks `pg_read_all_stats`, so other roles' session state
 and backend classification are masked (PostgreSQL 18 exposes backend XIDs to
@@ -154,7 +160,12 @@ is:
 1. `status` reports unresolved ledger state first. An open batch, rewrite,
    service, writer, or autovacuum fence remains durable even if its backend or
    runner has died. P2b1 cannot resolve those records; use the later reviewed
-   P2b2 recovery modes. Unknown state refuses mutation.
+   P2b2 recovery modes. Unknown state refuses mutation. Recovery mode and
+   recorded backend identity come from a metadata-only snapshot before any
+   payload counts or sizes are probed. Each relation is then probed separately;
+   a relation locked by a live recorded `REWRITE_STARTED` backend, or whose
+   probe reaches the lock timeout, reports `null` with a reason. A live
+   `VACUUM FULL` therefore cannot prevent recovery status from being reported.
 2. `plan` takes fresh read-only evidence for the two exact rejected generations
    and the retained published generation. It checks worker quiescence,
    pointers, row counts, sizes, data/WAL/tablespace filesystem placement,
@@ -167,17 +178,23 @@ is:
    requests and both `FAILED` transitions commit together; no payload is
    deleted. It then checks unchanged pointers and published counts.
 4. `verify-system-archetype-empty --plan PATH --plan-sha256 SHA256` checks the
-   three cluster relations, the wide `system_archetype` table and its summary
-   view again. A target row stops the purge with `FAILED_STOP` evidence; it
-   never grants a deletion path for those relations.
+   three cluster relations and the wide `v3_derived.system_archetype` table
+   again. A target row stops the purge with `FAILED_STOP` evidence; it never
+   grants a deletion path for those relations. Retain its sealed successful
+   receipt and `content_sha256` as the exclusion-verification proof.
    This and `complete` authenticate the original immutable receipt without
    expiring it during a multi-day purge; only `authorize` admits a plan no older
-   than one hour. All live phase gates still run again.
+   than one hour. The verification receipt likewise has no freshness expiry;
+   all live phase gates still run again.
 5. P2b2 must subsequently delete and verify the four relations in dependency
    order: Search, opportunity, mechanics, rating vector. Each relation needs a
-   separate verified physical rewrite and restored fences. P2b1 deliberately
-   refuses these modes.
-6. `complete --plan PATH --plan-sha256 SHA256` refuses until every target
+   separate verified physical rewrite and restored fences. Every P2b2
+   destructive mode must require `--verification PATH --verification-sha256
+   SHA256`, authenticating the sealed successful exclusion-verification
+   receipt against the immutable reviewed-plan identity and both current
+   ledger purge IDs. P2b1 deliberately refuses these modes.
+6. `complete --plan PATH --plan-sha256 SHA256 --verification PATH
+   --verification-sha256 SHA256` requires that same proof and refuses until every target
    payload count is zero, pointers and exact published counts match the plan,
    FKs are valid, fences are closed, and all four relations have
    `REWRITE_VERIFIED` evidence. It passes the completion receipt to migration
@@ -197,7 +214,13 @@ Receipts are JSON-only, use the canonical F2d content seal, and include the
 design's source/migration identities, targets, pointers, workers, row counts,
 storage/WAL/freeze facts, timeouts, transaction outcome and explicit write
 flags. Unproven outcomes are `null`. `status` also reports the next admissible
-mode, open-fence deadlines and observable backup skips. Neither a receipt nor
+mode, open-fence deadlines and observable backup skips. Its optional
+`--verification PATH --verification-sha256 SHA256` inputs authenticate the
+exclusion-verification proof against `reviewed_plan_sha256` and both purge IDs
+in the current ledger requests. Without that proof,
+`system_archetype_verification.status` is `not_proven`, and after authorization
+the next admissible mode remains `verify-system-archetype-empty` rather than
+advancing to deletion. Neither a receipt nor
 a successful read-only mode substitutes for the remaining owner execution
 gates, protected workflow, or disposable crash rehearsal.
 
@@ -213,10 +236,15 @@ refreshed after long count scans before a transaction writes. Backup skip
 observations cover at most the latest 1,000 journal entries in seven days;
 unavailable journal evidence is `null`.
 
-016 has no dedicated exclusion-verification function and does not include the
-archetype summary view in its internal exclusion assertion. The action counts
-all five exclusions itself and uses the public `purge_record_event` function
-for authenticated `FAILED_STOP` records. It never supplies an archetype or
+016 has no dedicated exclusion-verification function or event kind suitable
+for successful exclusion verification: its existing kinds represent failures,
+recovery, or phases with their own mandatory verifiers. The action therefore
+uses the sealed successful receipt above without modifying 016. It counts the
+four exclusions directly and uses the public `purge_record_event` function for
+authenticated `FAILED_STOP` records. The summary view is
+`v3_app.system_archetype_summary`; 016 grants the executor no access to
+`v3_app`, so the action omits the view count and retains the direct target-row
+check against `v3_derived.system_archetype`. It never supplies an archetype or
 cluster deletion capability. Completion relies on 016's `REWRITE_VERIFIED`
 events, whose verifier already proves the rewritten filenode and trailing
 `ANALYZE`; P2b1 does not synthesize those events.

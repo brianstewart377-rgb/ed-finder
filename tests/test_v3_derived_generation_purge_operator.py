@@ -232,7 +232,9 @@ def test_action_bash_syntax_and_restricted_sql_contract():
     assert 'lock_timeout' in source and 'statement_timeout' in source
     assert '016_v3_governed_derived_purge.sql' in source
     assert 'sql/v3/migration-manifest.txt' in source
-    assert 'nb79a3d.mevnode.com' in source and 'ed-finder-prod' in source
+    purge_operator = _action_tool()
+    assert purge_operator.FQDN == 'nb79a3d.mevnode.com'
+    assert purge_operator.HOST == 'ed-finder-prod'
     assert 'begin_derived_generation_purge' in source
     assert 'complete_derived_generation_purge' in source
 
@@ -687,7 +689,7 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
                 'payload_counts': dict.fromkeys(transactions.RELATIONS, 0)}
                for identity_, key, state in sorted(transactions.TARGET_IDENTITIES)]
     published = {'key': module.PUBLISHED_KEY, 'state': 'PUBLISHED', 'manifest_sha256': '5' * 64}
-    extra_codes = ('cluster_run', 'cluster', 'cluster_member', 'system_archetype', 'system_archetype_summary')
+    extra_codes = ('cluster_run', 'cluster', 'cluster_member', 'system_archetype')
     extra_counts = {identity_: dict.fromkeys(extra_codes, 0) for identity_ in transactions.TARGET_IDS}
     extra_counts[module.PUBLISHED_ID] = dict.fromkeys(extra_codes, 7)
     pointer_identities = {**snapshot, 'canonical': {**snapshot['canonical'], 'generation_key': 'canonical-key'},
@@ -724,8 +726,12 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
             if open_fence:
                 identity['role_defaults'] = ['default_transaction_read_only=on']
             return identity
-        if sql == transactions.PLAN_SQL:
+        if sql in (transactions.PLAN_SQL, module.STATUS_METADATA_SQL):
             return observe()
+        if sql in module.STATUS_RELATION_SQL.values():
+            code = next(code for code, query_sql in module.STATUS_RELATION_SQL.items() if sql == query_sql)
+            return {'targets': {target['id']: target['payload_counts'][code] for target in targets},
+                    'survivors': snapshot['survivors'][code], 'total_bytes': 60}
         if sql == module.OBJECTS_SQL:
             return [{'valid': True, 'path': 'base/heap', 'heap_bytes': 40, 'index_bytes': 20,
                      'total_bytes': 60}]
@@ -736,7 +742,7 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
         if sql == module.AGES_SQL:
             return ages
         if sql == module.PROGRESS_SQL:
-            return {'requests': [{'purge_id': identity_} for identity_ in ids],
+            return {'requests': [{'purge_id': identity_, 'plan_sha256': '6' * 64} for identity_ in ids],
                     'events': [], 'backends': []}
         if sql == module.EXTRA_COUNTS_SQL:
             return extra_counts
@@ -745,8 +751,7 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
         if sql == transactions.PLAN_HASH_SQL:
             return {'plan_sha256': '6' * 64}
         if sql == transactions.EXCLUSIONS_SQL:
-            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype',
-                                  'system_archetype_summary'), 0)
+            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0)
         if sql == transactions.COMPETING_WRITER_SQL:
             return {'competing_writers': 0, 'background_writers': 0}
         if sql == transactions.AUTHORIZE_SQL:
@@ -782,6 +787,7 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
                                                   'used_bytes': 50_000_000_000,
                                                   'free_bytes': 150_000_000_000},
                               data_directory=lambda: '/data', workers=workers,
+                              status_workers=workers,
                               docker=lambda *args, **kwargs: '10 /data/pg_wal',
                               run=lambda *args, **kwargs: json.dumps({'MESSAGE': 'SKIP: active purge backend'}))
     monkeypatch.setattr(module, 'check_wrapper', lambda: ('a' * 64, 'a' * 64))
@@ -794,7 +800,10 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
 def test_successful_controller_phases_keep_truthful_evidence_and_transaction_flags(monkeypatch, mode, write_count):
     module = _action_tool()
     report, runtime, plan, calls = _successful_phase(module, monkeypatch, mode)
-    module.execute(mode, runtime, report, None if mode in ('plan', 'status') else plan)
+    verification = {'purge_id': list(module.TARGETS[key][0] for key in module.TARGETS),
+                    'reviewed_plan_sha256': plan['reviewed_plan']['plan_sha256'], 'content_sha256': '7' * 64}
+    module.execute(mode, runtime, report, None if mode in ('plan', 'status') else plan,
+                   verification=verification if mode == 'complete' else None)
     assert report['status'] == 'success'
     assert calls[0][0] == 'state'
     writes = [call for call in calls if call[0] == 'query' and call[2]]
@@ -804,7 +813,9 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
     assert report['publication_performed'] is False
     assert report['service_changes_performed'] is False
     if mode == 'status':
-        assert report['next_admissible_mode']['implemented'] is False
+        assert report['next_admissible_mode'] == {'mode': 'verify-system-archetype-empty', 'implemented': True,
+                                                'reason': 'system_archetype_empty_not_proven'}
+        assert report['system_archetype_verification']['status'] == 'not_proven'
         assert report['workers'][0]['running'] is False
         assert len(report['skipped_scheduled_backups']['records']) == 1
     elif mode == 'verify-system-archetype-empty':
@@ -923,3 +934,229 @@ def test_floor_filesystem_must_match_container_data_device(tmp_path, monkeypatch
     with pytest.raises(ValueError, match='host_data_mount_device_mismatch'):
         runtime.storage({'data_directory': '/data', 'temp_tablespaces': '', 'tablespaces': []},
                         [{'path': 'base/1/heap'}])
+
+
+def _verification_receipt(module, tmp_path, **changes):
+    body = {
+        'operation': 'v3-derived-generation-purge', 'phase': 'verify-system-archetype-empty',
+        'status': 'success', 'created_at': '2020-01-01T00:00:00+00:00',
+        'reviewed_plan_sha256': 'a' * 64,
+        'purge_id': ['49a0c00d-e722-4209-afd8-9d62b877e30a',
+                     '403b2d43-820c-414a-ad57-0d4de0ca3e82'],
+        'result': {'empty': True, 'counts': dict.fromkeys(
+            ('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0),
+            'database_writes': False},
+        **changes,
+    }
+    proof = module.evidence.seal(body)
+    path = tmp_path / 'verification.json'
+    path.write_text(json.dumps(proof))
+    return path, proof
+
+
+def test_authenticated_verification_accepts_durable_old_receipt_and_exact_ledger_binding(tmp_path):
+    module = _action_tool()
+    path, proof = _verification_receipt(module, tmp_path)
+    authenticated = module.authenticated_verification(path, proof['content_sha256'])
+    assert authenticated == proof
+    requests = [{'purge_id': purge_id, 'plan_sha256': proof['reviewed_plan_sha256']}
+                for purge_id in reversed(proof['purge_id'])]
+    assert module.verification_gate(authenticated, requests) == {
+        'status': 'proven', 'content_sha256': proof['content_sha256'],
+        'reviewed_plan_sha256': proof['reviewed_plan_sha256'], 'purge_ids': proof['purge_id']}
+
+
+@pytest.mark.parametrize('expected', ('b' * 64, '', '../verification.json'))
+def test_authenticated_verification_requires_the_expected_external_sha256(tmp_path, expected):
+    module = _action_tool()
+    path, _proof = _verification_receipt(module, tmp_path)
+    with pytest.raises(ValueError, match='verification_expected_sha256_'):
+        module.authenticated_verification(path, expected)
+
+
+def test_authenticated_verification_rejects_tampered_content_seal(tmp_path):
+    module = _action_tool()
+    path, proof = _verification_receipt(module, tmp_path)
+    tampered = {**proof, 'reviewed_plan_sha256': 'b' * 64}
+    path.write_text(json.dumps(tampered))
+    with pytest.raises(ValueError, match='content_sha256 mismatch'):
+        module.authenticated_verification(path, proof['content_sha256'])
+
+
+@pytest.mark.parametrize(('field', 'value'), (
+    ('operation', 'other-operation'),
+    ('phase', 'authorize'),
+    ('status', 'stopped'),
+    ('result', {'empty': False, 'counts': {'system_archetype': 1}, 'database_writes': False}),
+    ('result', {'empty': True, 'counts': {'cluster_run': 0, 'cluster': 0, 'cluster_member': 0,
+                                       'system_archetype': 1}, 'database_writes': False}),
+    ('result', {'empty': True, 'counts': {'system_archetype': 0}, 'database_writes': False}),
+    ('result', {'empty': True, 'counts': {'cluster_run': 0, 'cluster': 0, 'cluster_member': 0,
+                                       'system_archetype': 0}, 'database_writes': True}),
+    ('result', {'empty': 1, 'counts': {'cluster_run': 0, 'cluster': 0, 'cluster_member': 0,
+                                    'system_archetype': 0}, 'database_writes': False}),
+    ('result', {'empty': True, 'counts': {'cluster_run': False, 'cluster': 0, 'cluster_member': 0,
+                                       'system_archetype': 0}, 'database_writes': False}),
+))
+def test_authenticated_verification_requires_successful_exact_empty_check(tmp_path, field, value):
+    module = _action_tool()
+    path, proof = _verification_receipt(module, tmp_path, **{field: value})
+    with pytest.raises(ValueError, match='verification_not_successful'):
+        module.authenticated_verification(path, proof['content_sha256'])
+
+
+@pytest.mark.parametrize('mismatch', ('foreign_plan', 'mixed_request_plans', 'partial_receipt_ids',
+                                      'different_receipt_ids', 'partial_requests', 'duplicate_receipt_ids'))
+def test_verification_gate_rejects_proof_for_another_plan_or_request_pair(tmp_path, mismatch):
+    module = _action_tool()
+    path, proof = _verification_receipt(module, tmp_path)
+    proof = module.authenticated_verification(path, proof['content_sha256'])
+    requests = [{'purge_id': purge_id, 'plan_sha256': proof['reviewed_plan_sha256']}
+                for purge_id in proof['purge_id']]
+    if mismatch == 'foreign_plan':
+        proof['reviewed_plan_sha256'] = 'b' * 64
+    elif mismatch == 'mixed_request_plans':
+        requests[1]['plan_sha256'] = 'b' * 64
+    elif mismatch == 'partial_receipt_ids':
+        proof['purge_id'] = proof['purge_id'][:1]
+    elif mismatch == 'different_receipt_ids':
+        proof['purge_id'] = [proof['purge_id'][0], '00000000-0000-0000-0000-000000000000']
+    elif mismatch == 'partial_requests':
+        requests = requests[:1]
+    else:
+        proof['purge_id'] = [proof['purge_id'][0]] * 2
+    with pytest.raises(ValueError, match='verification_request_plan_mismatch'):
+        module.verification_gate(proof, requests)
+
+
+@pytest.mark.parametrize('verification', (None, {'status': 'not_proven'}))
+def test_authorized_status_requires_empty_verification_before_first_delete(verification):
+    module = _action_tool()
+    state = {'unresolved': []}
+    progress = {'requests': [{'purge_id': 'first'}, {'purge_id': 'second'}], 'events': []}
+    counts = {'targets': [{'payload_counts': dict.fromkeys(module.RELATIONS.values(), 1)}]}
+    assert module.next_mode(state, progress, counts, verification=verification) == {
+        'mode': 'verify-system-archetype-empty', 'implemented': True,
+        'reason': 'system_archetype_empty_not_proven'}
+    assert module.verification_gate(None, progress['requests']) == {
+        'status': 'not_proven', 'reason': 'sealed_verification_path_and_sha256_required'}
+
+
+def test_authorized_status_advances_only_after_bound_sealed_empty_verification(tmp_path):
+    module = _action_tool()
+    path, proof = _verification_receipt(module, tmp_path)
+    requests = [{'purge_id': purge_id, 'plan_sha256': proof['reviewed_plan_sha256']}
+                for purge_id in proof['purge_id']]
+    verification = module.verification_gate(
+        module.authenticated_verification(path, proof['content_sha256']), requests)
+    counts = {'targets': [{'payload_counts': dict.fromkeys(module.RELATIONS.values(), 1)}]}
+    assert module.next_mode({'unresolved': []}, {'requests': requests, 'events': []}, counts,
+                            verification=verification) == {
+        'mode': 'delete-system-search', 'implemented': False}
+
+
+@pytest.mark.parametrize('backend,locked', (('live', False), ('reused-pid', True), ('departed', True)))
+def test_status_reports_recovery_before_independent_locked_relation_probes(monkeypatch, backend, locked):
+    module = _action_tool()
+    report, runtime, _plan, calls = _successful_phase(module, monkeypatch, 'status')
+    opened = {'event_kind': 'REWRITE_STARTED', 'event_sequence': 9,
+              'relation_code': 'system_search', 'purge_id': 'request'}
+    recorded = {**opened, 'backend_pid': 123, 'backend_start': '2026-10-15T12:00:00+00:00'}
+    backends = [] if backend == 'departed' else [{'pid': 123, 'backend_start': (
+        recorded['backend_start'] if backend == 'live' else '2026-10-15T13:00:00+00:00')}]
+    original_query = runtime.query
+    def query(sql, params=None, *, write=False):
+        assert sql not in (module._load('v3_purge_transactions').PLAN_SQL, module.OBJECTS_SQL)
+        if sql == module.PROGRESS_SQL:
+            return {'requests': [{'purge_id': 'request', 'plan_sha256': '6' * 64}],
+                    'events': [recorded], 'backends': backends}
+        if sql in module.STATUS_RELATION_SQL.values():
+            # Recovery evidence exists before the first potentially blocking SQL.
+            assert report['purge_state']['unresolved'] == [opened]
+            assert report['backend_state'] == backends
+            assert report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': False}
+            if sql == module.STATUS_RELATION_SQL['system_search']:
+                assert locked, 'the live rewrite relation must never be probed'
+                raise RuntimeError('database_lock_timeout')
+        return original_query(sql, params, write=write)
+    runtime.query = query
+    runtime.state = lambda **_: {'unresolved': [opened]}
+    runtime.workers = lambda: pytest.fail('status must not run lifecycle relation-size probes')
+    module.execute('status', runtime, report)
+    assert report['status'] == 'success'
+    assert report['result'] == 'unresolved_state_first'
+    assert report['relation_probes']['system_search']['reason'] == ('lock_timeout' if locked else 'open_rewrite_backend')
+    assert report['relation_probes']['system_search']['targets'] is None
+    assert report['relation_bytes_before']['system_search'] is None
+    assert report['survivors_before']['system_search'] is None
+    assert all(target['payload_counts']['system_search'] is None for target in report['targets'])
+    for code in ('economy_opportunity', 'body_mechanics', 'system_rating_vector'):
+        assert report['relation_probes'][code]['reason'] is None
+        assert report['relation_bytes_before'][code] == 60
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+
+
+def test_status_probe_failure_preserves_recovery_guidance_and_does_not_hide_database_errors(monkeypatch):
+    module = _action_tool()
+    report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'status', open_fence=True)
+    original_query = runtime.query
+    def query(sql, params=None, *, write=False):
+        if sql in module.STATUS_RELATION_SQL.values():
+            raise RuntimeError('bounded_command_failed')
+        return original_query(sql, params, write=write)
+    runtime.query = query
+    with pytest.raises(RuntimeError, match='bounded_command_failed'):
+        module.execute('status', runtime, report)
+    assert report['next_admissible_mode'] == {'mode': 'restore-services', 'implemented': False}
+    assert report['purge_state']['unresolved'][0]['event_kind'] == 'WRITER_FENCE_ENABLED'
+    assert report['backend_state'] == []
+    assert report['status'] == 'stopped'
+
+
+@pytest.mark.parametrize('sqlstate,expected', (('55P03', 'database_lock_timeout'), ('42501', 'bounded_command_failed')))
+def test_psql_lock_timeout_is_identified_by_sqlstate_without_leaking_diagnostics(monkeypatch, sqlstate, expected):
+    module = _action_tool()
+    report = module.receipt('status')
+    runtime = module.Runtime(report)
+    def run(argv, **kwargs):
+        assert 'VERBOSITY=sqlstate' in argv
+        return SimpleNamespace(returncode=3, stdout='', stderr=f'psql:<stdin>:2: ERROR:  {sqlstate}\nprivate diagnostics')
+    monkeypatch.setattr(module.subprocess, 'run', run)
+    with pytest.raises(RuntimeError, match='^' + expected + '$'):
+        runtime.query(module.STATUS_RELATION_SQL['system_search'])
+    assert report['db_writes_performed'] is False
+
+
+def test_status_worker_inventory_uses_docker_without_lifecycle_sql(monkeypatch):
+    module = _action_tool()
+    runtime = module.Runtime(module.receipt('status'))
+    calls = []
+    def docker(*argv):
+        calls.append(argv)
+        return json.dumps({'Names': 'edfinder-v3-system-search-p4-opt1', 'State': 'running'})
+    monkeypatch.setattr(runtime, 'docker', docker)
+    runtime.status_workers()
+    assert calls == [('container', 'ls', '--all', '--format', '{{json .}}')]
+    workers = runtime.report['workers']
+    assert len(workers) == 6
+    assert next(worker for worker in workers if worker['name'] == 'edfinder-v3-system-search-p4-opt1')['running'] is True
+    assert all(worker['running'] is False for worker in workers if not worker['exists'])
+
+
+def test_complete_requires_verification_proof_before_any_mutation(monkeypatch):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, 'complete')
+    with pytest.raises(ValueError, match='sealed_verification_required'):
+        module.execute('complete', runtime, report, plan)
+    assert report['system_archetype_verification']['status'] == 'not_proven'
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+    assert report['db_writes_performed'] is False
+
+
+def test_cli_complete_requires_external_verification_before_host_access(capsys):
+    module = _action_tool()
+    assert module.main(['complete']) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report['failures'] == ['sealed_verification_required']
+    assert report['host'] is None
+    assert report['db_writes_performed'] is False

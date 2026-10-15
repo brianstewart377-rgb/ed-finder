@@ -54,6 +54,45 @@ def test_digest_is_obtained_from_postgres_and_kept_distinct_from_outer_seal():
     assert '::text' in tool.PLAN_HASH_SQL
 
 
+@pytest.mark.parametrize(('field', 'bound'), (('actor', 256), ('reason', 2048)))
+@pytest.mark.parametrize('value', ('', ' leading', 'trailing ', '\toperator', 'operator\n',
+                                 'over_bound', 'padded_to_over_bound'))
+def test_plan_rejects_raw_unbounded_or_unstripped_attribution_before_query(field, bound, value):
+    if value == 'over_bound':
+        value = 'x' * (bound + 1)
+    elif value == 'padded_to_over_bound':
+        value = ' ' * bound + 'x'
+    attribution = {'actor': 'operator', 'reason': 'reviewed purge', field: value}
+    def query(*_args, **_kwargs):
+        pytest.fail('invalid raw attribution must be rejected before SQL or sealing')
+    with pytest.raises(tool.PurgeTransactionError, match='actor_source_or_reason_invalid'):
+        tool.collect_plan(query, 'd' * 40, **attribution)
+
+
+def test_plan_preserves_attribution_at_exact_raw_bounds_in_the_sealed_body():
+    attribution = {'actor': 'a' * 256, 'reason': 'r' * 2048}
+    def query(sql, params=None, *, write=False):
+        assert not write
+        if sql == tool.PLAN_SQL:
+            return plan()
+        assert sql == tool.PLAN_HASH_SQL
+        body = json.loads(params['plan'])
+        assert {field: body[field] for field in attribution} == attribution
+        return {'plan_sha256': 'c' * 64}
+    result = tool.collect_plan(query, 'd' * 40, **attribution)
+    assert {field: result[field] for field in attribution} == attribution
+
+
+def test_exclusions_check_direct_archetype_rows_without_ungranted_summary_view():
+    assert ('FROM v3_derived.system_archetype WHERE derived_generation_id '
+            'IN (SELECT id FROM targets)') in tool.EXCLUSIONS_SQL
+    assert 'system_archetype_summary' not in tool.EXCLUSIONS_SQL
+    assert 'v3_app.' not in tool.EXCLUSIONS_SQL
+    counts = dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0)
+    assert tool.verify_empty(lambda *_args, **_kwargs: counts) == {
+        'empty': True, 'counts': counts, 'database_writes': False}
+
+
 @pytest.mark.parametrize('failure', ('targets', 'snapshot', 'workers', 'digest'))
 def test_authorize_preflight_failure_never_calls_write(failure):
     reviewed = plan()
@@ -116,7 +155,7 @@ def test_exclusions_positive_count_fails_read_only_without_authorized_requests()
     def query(sql, params=None, *, write=False):
         assert not write
         return {'cluster_run': 0, 'cluster': 0, 'cluster_member': 0,
-                'system_archetype': 1, 'system_archetype_summary': 1}
+                'system_archetype': 1}
     with pytest.raises(tool.PurgeTransactionError, match='unexpected_excluded_payload') as exc:
         tool.verify_empty(query)
     assert exc.value.evidence['integrity_failed'] is True
@@ -135,7 +174,7 @@ def test_verify_empty_records_integrity_failure_only_for_two_authenticated_reque
         if sql == tool.EXCLUSIONS_SQL:
             assert not write
             return {'cluster_run': 0, 'cluster': 0, 'cluster_member': 1,
-                    'system_archetype': 0, 'system_archetype_summary': 0}
+                    'system_archetype': 0}
         assert sql == tool.FAILED_STOP_SQL and write
         evidence = json.loads(params['evidence'])
         assert evidence['integrity_failed'] is True
@@ -156,8 +195,7 @@ def test_completion_refuses_before_write_when_no_rewrite_evidence_exists():
                                   'plan_sha256': reviewed['plan_sha256'],
                                   'frozen_snapshot': reviewed['snapshot']} for identity in ids]}
         if sql == tool.EXCLUSIONS_SQL:
-            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype',
-                                  'system_archetype_summary'), 0)
+            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0)
         assert sql == tool.COMPLETION_STATE_SQL
         return {'targets': [{**t, 'state': 'FAILED', 'payload_counts': dict.fromkeys(tool.RELATIONS, 0)}
                             for t in reviewed['targets']],
@@ -220,8 +258,7 @@ def test_late_host_gate_failure_precedes_wait_and_writes(phase):
                                   'plan_sha256': reviewed['plan_sha256'],
                                   'frozen_snapshot': reviewed['snapshot']} for identity in ids]}
         if sql == tool.EXCLUSIONS_SQL:
-            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype',
-                                  'system_archetype_summary'), 0)
+            return dict.fromkeys(('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0)
         assert sql == tool.COMPLETION_STATE_SQL
         return {'targets': [{**t, 'state': 'FAILED', 'payload_counts': dict.fromkeys(tool.RELATIONS, 0)}
                             for t in reviewed['targets']],
@@ -244,7 +281,7 @@ def test_late_host_gate_failure_precedes_wait_and_writes(phase):
 def test_failed_stop_transport_failure_preserves_observed_integrity_evidence():
     ids = list(tool.TARGET_IDS)
     counts = {'cluster_run': 0, 'cluster': 0, 'cluster_member': 1,
-              'system_archetype': 0, 'system_archetype_summary': 0}
+              'system_archetype': 0}
     def query(sql, params=None, *, write=False):
         if sql == tool.REQUESTS_SQL:
             return {'requests': [{'purge_id': identity, 'derived_generation_id': identity,

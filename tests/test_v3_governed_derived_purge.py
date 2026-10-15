@@ -643,15 +643,73 @@ def test_operator_plan_and_status_observation_sql_is_readonly_under_executor(dat
     assert pointers['derived']['derived_generation_id'] == str(SURVIVOR)
     assert pointers['derived']['generation_key'] == 'ratings_v4_prod_p4_parallel_v1'
     assert all(pointers[k]['publication_sequence'] > 0 for k in ('canonical', 'derived', 'spatial'))
+    summary_oid = connection.execute(
+        """SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='v3_app' AND c.relname='system_archetype_summary'""",
+    ).fetchone()[0]
+    assert connection.execute(
+        """SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='v3_derived' AND c.relname='system_archetype_summary'""",
+    ).fetchone() is None
+    # 016 grants the executor no v3_app access. The direct payload check must
+    # work with that unchanged privilege boundary, including unpublished rows.
+    assert not connection.execute(
+        "SELECT has_schema_privilege(current_user,'v3_app','USAGE')",
+    ).fetchone()[0]
+    assert not connection.execute(
+        "SELECT has_table_privilege(current_user,%s,'SELECT')", (summary_oid,),
+    ).fetchone()[0]
     extra = query(purge_operator.EXTRA_COUNTS_SQL)
     assert set(extra) == {str(identifier) for _, identifier in TARGETS} | {str(SURVIVOR)}
+    exclusions = {'cluster_run', 'cluster', 'cluster_member', 'system_archetype'}
+    assert all(set(counts) == exclusions for counts in extra.values())
     assert all(not any(counts.values()) for counts in extra.values())
+    excluded_counts = query(purge_transactions.EXCLUSIONS_SQL)
+    assert set(excluded_counts) == exclusions and not any(excluded_counts.values())
     progress = query(purge_operator.PROGRESS_SQL)
     assert progress['requests'] == []
     assert progress['relation_progress'] == [] and progress['events'] == []
+    metadata = query(purge_operator.STATUS_METADATA_SQL)
+    assert metadata['snapshot']['derived']['derived_generation_id'] == str(SURVIVOR)
+    assert metadata['snapshot']['survivors'] is None
+    assert {target['id'] for target in metadata['targets']} == {str(identifier) for _, identifier in TARGETS}
     assert not any(call['write'] for call in calls)
     assert all('BEGIN READ ONLY' in call['statement'] for call in calls)
     assert _count(connection, 'v3_meta.derived_generation_purge_request') == 0
+
+
+def test_status_relation_sql_isolates_access_exclusive_lock_timeout(database):
+    connection = database[0]
+    _seed(database)
+    expected = {
+        relation: {
+            'targets': {str(identifier): _count(connection, 'v3_derived.' + relation, identifier)
+                        for _, identifier in TARGETS},
+            'survivors': _count(connection, 'v3_derived.' + relation, SURVIVOR),
+        } for relation in RELATIONS
+    }
+    query = _operator_query(connection)
+    assert set(purge_operator.STATUS_RELATION_SQL) == set(RELATIONS)
+    lock_dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
+    with psycopg.connect(lock_dsn, autocommit=True) as rewrite:
+        # VACUUM FULL holds this same relation lock. A catalog-only status
+        # observation must remain useful while its optional count probe waits.
+        with rewrite.transaction():
+            rewrite.execute('LOCK TABLE v3_derived.system_search IN ACCESS EXCLUSIVE MODE')
+            assert query(purge_operator.STATUS_METADATA_SQL)['snapshot']['survivors'] is None
+            assert query(purge_operator.PROGRESS_SQL)['requests'] == []
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                query(purge_operator.STATUS_RELATION_SQL['system_search'])
+            for relation in RELATIONS[1:]:
+                observed = query(purge_operator.STATUS_RELATION_SQL[relation])
+                assert observed['targets'] == expected[relation]['targets']
+                assert observed['survivors'] == expected[relation]['survivors']
+                assert observed['total_bytes'] > 0
+    # A timed-out read leaves no failed transaction or false cached count.
+    observed = query(purge_operator.STATUS_RELATION_SQL['system_search'])
+    assert observed['targets'] == expected['system_search']['targets']
+    assert observed['survivors'] == expected['system_search']['survivors']
+    assert observed['total_bytes'] > 0
 
 
 def test_operator_sql_layer_plans_authorizes_verifies_and_refuses_early_completion(database):
@@ -1592,6 +1650,11 @@ def test_any_excluded_cluster_or_archetype_target_payload_stops_authorization(da
             (generation_id,),
         ).fetchone()[0]
         _insert_wide_row(connection, _valid_row(generation_id, system_id64))
+    query = _operator_query(connection)
+    # The stable application views hide unpublished generations. Both helper
+    # queries must still observe and reject direct target payload rows.
+    assert query(purge_operator.EXTRA_COUNTS_SQL)[str(generation_id)][exclusion] == 1
+    assert query(purge_transactions.EXCLUSIONS_SQL)[exclusion] == 1
     plan = _plan(connection)
     connection.execute('SET ROLE v3_derived_purge_executor')
     with pytest.raises(psycopg.errors.RaiseException, match='cluster or archetype'):

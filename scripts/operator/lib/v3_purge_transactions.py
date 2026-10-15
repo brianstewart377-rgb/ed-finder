@@ -75,8 +75,10 @@ SELECT jsonb_build_object(
  'cluster_run',(SELECT count(*) FROM v3_spatial.cluster_run WHERE derived_generation_id IN (SELECT id FROM targets)),
  'cluster',(SELECT count(*) FROM v3_spatial.cluster WHERE derived_generation_id IN (SELECT id FROM targets)),
  'cluster_member',(SELECT count(*) FROM v3_spatial.cluster_member WHERE derived_generation_id IN (SELECT id FROM targets)),
- 'system_archetype',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id IN (SELECT id FROM targets)),
- 'system_archetype_summary',(SELECT count(*) FROM v3_derived.system_archetype_summary WHERE derived_generation_id IN (SELECT id FROM targets)))"""
+ 'system_archetype',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id IN (SELECT id FROM targets)))"""
+# The summary is a v3_app view; 016 deliberately grants this executor access
+# only to v3_meta/v3_derived/v3_spatial. The direct target-row check above proves
+# the underlying archetype payload is empty without broadening those grants.
 EXCLUSIONS_SQL = _session(_EXCLUSIONS + ';')
 AUTHORIZE_SQL = _session("""WITH authorized AS MATERIALIZED (
  SELECT v3_meta.begin_derived_generation_purge(%(plan)s::jsonb) AS ids
@@ -169,8 +171,9 @@ def collect_plan(query, source_git_sha: str, actor: str, reason: str) -> dict:
     plan_sha256 authenticates 016's reviewed_plan, content_sha256 seals the outer
     receipt used by the operator's path plus expected-SHA authentication.
     """
-    if (not re.fullmatch('[0-9a-f]{40}', source_git_sha) or not 1 <= len(actor.strip()) <= 256
-            or not 1 <= len(reason.strip()) <= 2048):
+    if (not re.fullmatch('[0-9a-f]{40}', source_git_sha)
+            or not isinstance(actor, str) or not 1 <= len(actor) <= 256 or actor != actor.strip()
+            or not isinstance(reason, str) or not 1 <= len(reason) <= 2048 or reason != reason.strip()):
         raise PurgeTransactionError('purge_plan_actor_source_or_reason_invalid')
     observed = _result(query, PLAN_SQL)
     _targets(observed.get('targets'))
@@ -313,8 +316,7 @@ def verify_empty(query, *, purge_ids=()) -> dict:
     if purge_ids:
         _requests(query, purge_ids)
     counts = _result(query, EXCLUSIONS_SQL)
-    if (set(counts) != {'cluster_run', 'cluster', 'cluster_member', 'system_archetype',
-                       'system_archetype_summary'}
+    if (set(counts) != {'cluster_run', 'cluster', 'cluster_member', 'system_archetype'}
             or any(type(n) is not int or n < 0 for n in counts.values())):
         raise PurgeTransactionError('purge_exclusion_count_invalid')
     if any(counts.values()):

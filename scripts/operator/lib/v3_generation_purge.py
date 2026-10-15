@@ -1,7 +1,8 @@
 """P2b1 governed purge controller: fixed SQL, sealed evidence, no payload DML.
 
-The owner-only P2a read-only state probe is reused unchanged in substance; all
-other database sessions start by dropping to 016's executor capability.
+The owner-only P2a read-only state probe is reused unchanged in substance;
+progress also uses a fixed owner read to observe backend identities. Other
+database sessions start by dropping to 016's executor capability.
 """
 from __future__ import annotations
 
@@ -95,6 +96,7 @@ def receipt(mode):
         'writer_fence', 'autovacuum', 'purge_state', 'progress', 'next_admissible_mode',
         'skipped_scheduled_backups', 'installed_wrapper_sha256', 'expected_wrapper_sha256',
         'pointer_identities', 'extra_payload_counts', 'autovacuum_ages',
+        'system_archetype_verification', 'relation_probes',
     ))
     result.update(
         schema_version='ed-finder/derived-generation-purge/v1',
@@ -144,6 +146,37 @@ def check_wrapper(expected_path=WRAPPER, installed_path=INSTALLED_WRAPPER):
     if actual != expected:
         raise ValueError('installed_backup_wrapper_hash_mismatch')
     return expected, actual
+
+
+def authenticated_verification(path, expected_sha):
+    """Authenticate durable proof; ledger binding is checked when it is used."""
+    if not isinstance(expected_sha, str) or re.fullmatch('[0-9a-f]{64}', expected_sha) is None:
+        raise ValueError('verification_expected_sha256_invalid')
+    if Path(path).stat().st_size > MAX_OUTPUT:
+        raise ValueError('verification_size_exceeded')
+    proof = evidence.load_sealed(path)
+    if proof['content_sha256'] != expected_sha:
+        raise ValueError('verification_expected_sha256_mismatch')
+    if (proof.get('operation') != 'v3-derived-generation-purge'
+            or proof.get('phase') != 'verify-system-archetype-empty'
+            or proof.get('status') != 'success'
+            or evidence.canonical_json(proof.get('result')) != evidence.canonical_json({'empty': True, 'counts': dict.fromkeys(
+                ('cluster_run', 'cluster', 'cluster_member', 'system_archetype'), 0),
+                'database_writes': False})):
+        raise ValueError('verification_not_successful')
+    return proof
+
+
+def verification_gate(proof, requests):
+    if proof is None:
+        return {'status': 'not_proven', 'reason': 'sealed_verification_path_and_sha256_required'}
+    if (len(requests) != 2 or len({row['plan_sha256'] for row in requests}) != 1
+            or proof.get('reviewed_plan_sha256') != requests[0]['plan_sha256']
+            or not isinstance(proof.get('purge_id'), list) or len(proof['purge_id']) != 2
+            or set(proof['purge_id']) != {row['purge_id'] for row in requests}):
+        raise ValueError('verification_request_plan_mismatch')
+    return {'status': 'proven', 'content_sha256': proof['content_sha256'],
+            'reviewed_plan_sha256': proof['reviewed_plan_sha256'], 'purge_ids': proof['purge_id']}
 
 
 def check_placement(data_device, objects, temp_devices, wal_device):
@@ -233,7 +266,9 @@ SELECT jsonb_build_object('lsn',pg_current_wal_lsn()::text,
  'temp_bytes',(SELECT temp_bytes FROM pg_stat_database WHERE datname=current_database()))
 """)
 
-PROGRESS_SQL = read_sql("""
+# Like the P2a probe, this fixed owner read is needed to see the recorded
+# backend's full identity; SET ROLE masks other sessions' backend_start.
+PROGRESS_SQL = "BEGIN READ ONLY; SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'; " + """
 SELECT jsonb_build_object('requests',COALESCE((SELECT jsonb_agg(to_jsonb(r)) FROM
  (SELECT purge_id,derived_generation_id,generation_key,plan_sha256,created_at FROM v3_meta.derived_generation_purge_request) r),'[]'::jsonb),
  'relation_progress',COALESCE((SELECT jsonb_agg(to_jsonb(p)) FROM (
@@ -250,7 +285,7 @@ SELECT jsonb_build_object('requests',COALESCE((SELECT jsonb_agg(to_jsonb(r)) FRO
  'backends',COALESCE((SELECT jsonb_agg(jsonb_build_object('pid',pid,'backend_start',backend_start,
  'backend_type',backend_type,'state',state,'backend_xid',backend_xid::text)) FROM pg_stat_activity
  WHERE datname=current_database() AND pid<>pg_backend_pid()),'[]'::jsonb))
-""")
+""" + '; COMMIT;'
 
 POINTER_IDENTITIES_SQL = read_sql("""
 SELECT jsonb_build_object(
@@ -270,9 +305,39 @@ SELECT jsonb_object_agg(id::text,jsonb_build_object(
  'cluster_run',(SELECT count(*) FROM v3_spatial.cluster_run WHERE derived_generation_id=id),
  'cluster',(SELECT count(*) FROM v3_spatial.cluster WHERE derived_generation_id=id),
  'cluster_member',(SELECT count(*) FROM v3_spatial.cluster_member WHERE derived_generation_id=id),
- 'system_archetype',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id=id),
- 'system_archetype_summary',(SELECT count(*) FROM v3_derived.system_archetype_summary WHERE derived_generation_id=id))) FROM ids
+ 'system_archetype',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id=id))) FROM ids
 """)
+
+# Status never calls purge_snapshot(): that function scans all payload heaps.
+# Catalog/ledger metadata is available even while a heap is being rewritten.
+STATUS_METADATA_SQL = read_sql("""
+SELECT jsonb_build_object('targets',(SELECT jsonb_agg(jsonb_build_object(
+ 'id',derived_generation_id,'key',generation_key,'state',lifecycle_state,
+ 'manifest_sha256',encode(manifest_sha256,'hex')) ORDER BY derived_generation_id)
+ FROM v3_meta.derived_generation WHERE derived_generation_id IN
+ ('49a0c00d-e722-4209-afd8-9d62b877e30a','403b2d43-820c-414a-ad57-0d4de0ca3e82')),
+ 'snapshot',jsonb_build_object(
+ 'canonical',(SELECT to_jsonb(p) FROM v3_meta.current_canonical_generation p WHERE singleton),
+ 'derived',(SELECT to_jsonb(p) FROM v3_meta.current_derived_generation p WHERE singleton),
+ 'spatial',(SELECT to_jsonb(p) FROM v3_spatial.current_spatial_generation p WHERE singleton),
+ 'retained',NULL,'survivors',NULL,
+ 'schema_ledger_sha256',(SELECT encode(sha256(convert_to(COALESCE(jsonb_agg(
+ jsonb_build_array(migration_name,encode(migration_sha256,'hex')) ORDER BY migration_name)::text,'[]'),'UTF8')),'hex')
+ FROM v3_meta.schema_migration)))
+""")
+# Identifiers come exclusively from the committed enum, never request text.
+# Acquire the heap lock before invoking size functions (which can otherwise
+# wait independently of lock_timeout), then release it after this one probe.
+STATUS_RELATION_SQL = {code: read_sql(
+    f"LOCK TABLE v3_derived.{code} IN ACCESS SHARE MODE; "
+    "SELECT jsonb_build_object('targets',(SELECT jsonb_object_agg(id::text,"
+    f"(SELECT count(*) FROM v3_derived.{code} WHERE derived_generation_id=id)) "
+    "FROM unnest(ARRAY['49a0c00d-e722-4209-afd8-9d62b877e30a'::uuid,"
+    "'403b2d43-820c-414a-ad57-0d4de0ca3e82'::uuid]) id),"
+    f"'survivors',(SELECT count(*) FROM v3_derived.{code} WHERE "
+    "derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826'),"
+    f"'total_bytes',pg_total_relation_size('v3_derived.{code}'::regclass))"
+) for code in RELATIONS.values()}
 
 
 class Runtime:
@@ -294,6 +359,10 @@ class Runtime:
         except (OSError, subprocess.TimeoutExpired):
             raise RuntimeError('bounded_command_failed') from None
         if result.returncode and not allow_failure:
+            # psql's SQLSTATE-only diagnostics allow a bounded, safe recovery
+            # signal without exposing server errors or command output.
+            if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+55P03\b', result.stderr):
+                raise RuntimeError('database_lock_timeout')
             raise RuntimeError('bounded_command_failed')
         if len(result.stdout.encode()) > MAX_OUTPUT:
             raise RuntimeError('command_output_bound_exceeded')
@@ -322,6 +391,7 @@ class Runtime:
         body = self.docker('exec', '-i', CONTAINER, 'psql', '-X', '--no-psqlrc', '--no-password',
                            '--username', USER, '--dbname', DATABASE, '--host', '/var/run/postgresql',
                            '--tuples-only', '--no-align', '--quiet', '--set', 'ON_ERROR_STOP=1',
+                           '--set', 'VERBOSITY=sqlstate',
                            '--file=-', input='\n'.join(assignments) + '\n' + sql,
                            timeout=2 if "'competing_writers'" in sql else 2760)
         try:
@@ -401,6 +471,19 @@ class Runtime:
             raise ValueError('worker_state_unknown')
         self.report['workers'] = workers
         return result.get('all_named_workers_stopped') is True
+
+    def status_workers(self):
+        # The lifecycle action also probes relation sizes, which can block on
+        # VACUUM FULL. Status needs only Docker's worker observation here.
+        names = ('edfinder-ratings-v4-prod-p4', 'edfinder-ratings-v4-prod-p4-opt1',
+                 'edfinder-ratings-v4-prod-p4-parallel-v1', 'edfinder-v3-system-search-p4-opt1',
+                 'edfinder-v3-system-search-p4-parallel-v1', 'edfinder-v3-system-archetype-p4-parallel-v1')
+        rows = self.docker('container', 'ls', '--all', '--format', '{{json .}}')
+        containers = [json.loads(row) for row in rows.splitlines() if row]
+        indexed = {row['Names']: row for row in containers}
+        self.report['workers'] = [dict(name=name, exists=name in indexed,
+                                       running=indexed[name]['State'] == 'running' if name in indexed else False)
+                                  for name in names]
 
     def device(self, path):
         if not isinstance(path, str) or not path.startswith('/') or '\x00' in path:
@@ -594,7 +677,12 @@ def status_deadlines(ages, state, progress):
     return result
 
 
-def next_mode(state, progress, counts, deadlines=()):
+def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
+    def empty(code):
+        if counts is None or any(t['payload_counts'].get(code) is None for t in counts['targets']):
+            return None
+        return all(t['payload_counts'][code] == 0 for t in counts['targets'])
+
     kinds = {event['event_kind'] for event in state['unresolved']}
     if 'FAILED_STOP' in kinds:
         return {'mode': 'status', 'reason': 'owner_integrity_review_required'}
@@ -606,22 +694,55 @@ def next_mode(state, progress, counts, deadlines=()):
         if rows:
             code = rows[0]['relation_code']
             relation = next(name for name, value in RELATIONS.items() if value == code)
-            if kind == 'AUTOVACUUM_DISABLED' and all(t['payload_counts'][code] == 0 for t in counts['targets']):
+            if kind == 'AUTOVACUUM_DISABLED' and empty(code) is True:
                 prefix = 'rewrite-'
             elif kind == 'AUTOVACUUM_DISABLED' and any(d['relation_code'] == code and d['ceiling_exceeded'] for d in deadlines):
                 prefix = 'abort-relation-'
+            elif kind == 'AUTOVACUUM_DISABLED' and empty(code) is None:
+                return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
             return {'mode': prefix + relation, 'implemented': False}
     if not progress['requests']:
         return {'mode': 'plan', 'reason': 'fresh_plan_before_authorize'}
     if all(any(event['purge_id'] == request['purge_id'] and event['event_kind'] == 'COMPLETED'
                for event in progress['events']) for request in progress['requests']):
         return {'mode': 'status', 'reason': 'completed'}
+    if not verification or verification['status'] != 'proven':
+        return {'mode': 'verify-system-archetype-empty', 'implemented': True,
+                'reason': 'system_archetype_empty_not_proven'}
     verified = {event['relation_code'] for event in progress['events'] if event['event_kind'] == 'REWRITE_VERIFIED'}
     for name, code in RELATIONS.items():
         if code not in verified:
-            return {'mode': ('rewrite-' if all(t['payload_counts'][code] == 0 for t in counts['targets']) else 'delete-') + name,
+            if empty(code) is None:
+                return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
+            return {'mode': ('rewrite-' if empty(code) else 'delete-') + name,
                     'implemented': False}
     return {'mode': 'complete', 'implemented': True}
+
+
+def status_counts(runtime, report, state, progress):
+    """Independent probes never let one rewritten heap hide recovery evidence."""
+    opened = {row['event_sequence'] for row in state['unresolved'] if row['event_kind'] == 'REWRITE_STARTED'}
+    live = {event['relation_code']: event for event in progress['events']
+            if event['event_sequence'] in opened and any(
+                backend['pid'] == event['backend_pid'] and backend['backend_start'] == event['backend_start']
+                for backend in progress['backends'])}
+    probes = {}
+    report['relation_probes'] = probes
+    for code, sql in STATUS_RELATION_SQL.items():
+        probe = dict(targets=None, survivors=None, total_bytes=None, reason=None)
+        probes[code] = probe
+        if code in live:
+            event = live[code]
+            probe.update(reason='open_rewrite_backend', backend_pid=event['backend_pid'],
+                         backend_start=event['backend_start'])
+            continue
+        try:
+            probe.update(runtime.query(sql))
+        except RuntimeError as exc:
+            if str(exc) != 'database_lock_timeout':
+                raise
+            probe['reason'] = 'lock_timeout'
+    return probes
 
 
 def _snapshot_fields(report, observed):
@@ -634,11 +755,20 @@ def _snapshot_fields(report, observed):
     report['rows_remaining'] = {target['id']: target['payload_counts'] for target in observed['targets']}
 
 
-def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge'):
+def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
+            verification=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
     transactions = _load('v3_purge_transactions')
     # First observation on mutating modes is P2a admission, before taking lease.
     state = runtime.state(allow_unresolved=mode == 'status')
+    report['purge_state'] = state
+    if mode == 'status':
+        progress = runtime.query(PROGRESS_SQL)
+        report['progress'] = progress
+        report['backend_state'] = progress['backends']
+        # Populate recovery guidance before any payload lock or scan.
+        report['next_admissible_mode'] = next_mode(state, progress)
+        report['system_archetype_verification'] = verification_gate(verification, progress['requests'])
     identity = runtime.query(IDENTITY_SQL)
     if mode != 'status':
         report['postmaster_started_epoch'] = identity.get('postmaster_started_epoch')
@@ -650,7 +780,14 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         modified = {**identity, 'role_defaults': []}
         validate_identity(modified, report)
         report['writer_fence']['role_defaults'] = identity['role_defaults']
-    observed = runtime.query(transactions.PLAN_SQL)
+    observed = runtime.query(STATUS_METADATA_SQL if mode == 'status' else transactions.PLAN_SQL)
+    if mode == 'status':
+        probes = status_counts(runtime, report, state, progress)
+        for target in observed['targets']:
+            target['payload_counts'] = {code: probe['targets'].get(target['id']) if probe['targets'] is not None else None
+                                        for code, probe in probes.items()}
+        observed['snapshot']['survivors'] = {code: probe['survivors'] for code, probe in probes.items()}
+        report['relation_bytes_before'] = {code: probe['total_bytes'] for code, probe in probes.items()}
     _snapshot_fields(report, observed)
     if observed['snapshot']['derived'].get('derived_generation_id') != PUBLISHED_ID:
         raise ValueError('published_generation_identity_mismatch')
@@ -660,16 +797,14 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
     if published.get('key') != PUBLISHED_KEY or published.get('state') != 'PUBLISHED':
         raise ValueError('published_generation_identity_mismatch')
     if mode == 'status':
-        progress = runtime.query(PROGRESS_SQL)
-        report['progress'] = progress
         ages = age_sample(runtime)
         report['autovacuum_ages'] = ages
         report['autovacuum'] = status_deadlines(ages, state, progress)
-        report['next_admissible_mode'] = next_mode(state, progress, observed, report['autovacuum'])
-        report['backend_state'] = progress['backends']
+        report['next_admissible_mode'] = next_mode(state, progress, observed, report['autovacuum'],
+                                                 verification=report['system_archetype_verification'])
         report['pointer_identities'] = runtime.query(POINTER_IDENTITIES_SQL)
         report['rows_affected_cumulative'] = progress.get('relation_progress')
-        runtime.workers()
+        runtime.status_workers()
         try:
             journal = runtime.run(['journalctl', '--no-pager', '--output=json', '--since=-7days', '--lines=1000',
                                    '--unit=edfinder-v3-pgbackrest@full.service', '--unit=edfinder-v3-pgbackrest@diff.service',
@@ -776,6 +911,10 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
             if mode == 'verify-system-archetype-empty':
                 result = transactions.verify_empty(runtime.query, purge_ids=ids)
             else:
+                report['system_archetype_verification'] = verification_gate(verification, [
+                    {'purge_id': purge_id, 'plan_sha256': reviewed['plan_sha256']} for purge_id in ids])
+                if report['system_archetype_verification']['status'] != 'proven':
+                    raise ValueError('sealed_verification_required')
                 completion = {}
                 def fresh_completion():
                     refresh_phase_gates()
@@ -817,12 +956,21 @@ def main(argv=None):
         parser.add_argument('--plan-sha256')
         parser.add_argument('--actor', default='governed-operator')
         parser.add_argument('--reason', default='Owner-authorized governed purge')
+        parser.add_argument('--verification')
+        parser.add_argument('--verification-sha256')
         args = parser.parse_args(argv)
         report = receipt(args.mode)
         mode = classify_mode(args.mode)
         if platform.python_implementation() != 'CPython' or sys.version_info[:2] != (3, 14):
             raise ValueError('python314_required')
         plan = None
+        verification = None
+        if args.verification or args.verification_sha256:
+            if mode not in ('status', 'complete') or not args.verification or not args.verification_sha256:
+                raise ValueError('verification_arguments_not_admitted_for_mode')
+            verification = authenticated_verification(args.verification, args.verification_sha256)
+        if mode == 'complete' and verification is None:
+            raise ValueError('sealed_verification_required')
         if mode in ('authorize', 'verify-system-archetype-empty', 'complete'):
             if not args.plan or not args.plan_sha256:
                 raise ValueError('authenticated_plan_required')
@@ -836,9 +984,9 @@ def main(argv=None):
             # check knows it owns the lease, so cannot mistake itself for a rival.
             runtime.state()
             with runtime.lease():
-                execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason)
+                execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason, verification=verification)
         else:
-            execute(mode, runtime, report, actor=args.actor, reason=args.reason)
+            execute(mode, runtime, report, actor=args.actor, reason=args.reason, verification=verification)
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
         # Only our own finite error codes escape. Commands, SQL diagnostics,
         # environment and arbitrary parser/request text never become receipts.
