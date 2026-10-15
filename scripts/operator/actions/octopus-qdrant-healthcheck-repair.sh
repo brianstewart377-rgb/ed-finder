@@ -10,6 +10,7 @@ BACKUP=""
 EDIT_COMMITTED=false
 QDRANT_RECREATED=false
 WEB_STARTED=false
+PURGE_STATE_REPORT=""
 EXPECTED_HEALTHCHECK='test: ["CMD-SHELL", "while read -r _ local _ state _; do if [ $$state = 0A ]; then case $$local in *:18BD) exit 0;; esac; fi; done < /proc/net/tcp; while read -r _ local _ state _; do if [ $$state = 0A ]; then case $$local in *:18BD) exit 0;; esac; fi; done < /proc/net/tcp6; exit 1"]'
 
 if command -v python3.14 >/dev/null 2>&1; then
@@ -27,7 +28,7 @@ fi
 
 receipt() {
   local status="$1" reason="$2"
-  "$PYTHON_BIN" - "$status" "$reason" "$BACKUP" "$QDRANT_RECREATED" "$WEB_STARTED" <<'PY'
+  "$PYTHON_BIN" - "$status" "$reason" "$BACKUP" "$QDRANT_RECREATED" "$WEB_STARTED" "$PURGE_STATE_REPORT" <<'PY'
 import json
 import sys
 
@@ -39,7 +40,9 @@ print(json.dumps({
     "compose_backup": sys.argv[3] or None,
     "qdrant_recreated": sys.argv[4] == "true",
     "web_started": sys.argv[5] == "true",
-    "db_access_performed": False,
+    "db_access_performed": bool(sys.argv[6]),
+    "failures": json.loads(sys.argv[6]).get("failures", []) if sys.argv[6] else [],
+    "purge_state": json.loads(sys.argv[6]) if sys.argv[6] else None,
     "db_writes_performed": False,
     "volume_configuration_modified": False,
     "migrations_performed": False,
@@ -71,6 +74,14 @@ host_identity_matches "$(hostname -s)" || stop "unexpected_host"
 [ -d "$OCTOPUS_DIR" ] || stop "octopus_directory_missing"
 [ -f "$COMPOSE_FILE" ] || stop "compose_file_missing"
 command -v docker >/dev/null 2>&1 || stop "docker_missing"
+# Trusted-main streaming supplies this helper before the action. The repair
+# changes host configuration and starts containers, so it shares the V3 fence.
+declare -F v3_purge_state_check >/dev/null || stop "purge_state_helper_missing"
+if PURGE_STATE_REPORT="$(v3_purge_state_check)"; then
+  :
+else
+  stop "purge_state_refused"
+fi
 docker compose version >/dev/null 2>&1 || stop "docker_compose_missing"
 
 # Validate the rendered service identity without displaying interpolated values.

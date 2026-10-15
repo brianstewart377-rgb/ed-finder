@@ -223,7 +223,7 @@ import json, os, sys
 from pathlib import Path
 from scripts.operator.lib.f2d_evidence import canonical_json, load_sealed, seal
 (directory, code, item, identity, actor, committed, key, identifier, sequence) = sys.argv[1:]
-root = Path(directory)
+root = Path(directory) if directory else None
 code = int(code)
 performed = committed == 'true'
 body = {
@@ -243,8 +243,8 @@ for filename, field in (
     ('statements-identity.json', 'statements_sha256'), ('postcommit.json', 'postcommit'),
     ('live-finder.json', 'live_finder_verification'),
 ):
-    path = root / filename
-    if path.is_file():
+    path = root / filename if root is not None else None
+    if path is not None and path.is_file():
         try:
             body[field] = json.loads(path.read_text())
         except (OSError, ValueError):
@@ -253,6 +253,8 @@ if code == 80:
     body['failures'].extend((body.get('live_finder_verification') or {}).get('failures', []))
 program = None
 for filename in ('receipt.json', 'program-output.json'):
+    if root is None:
+        break
     try:
         program = load_sealed(root / filename)
         break
@@ -265,12 +267,13 @@ if program:
     for field in ('published_at', 'audit_rows', 'view_visibility'):
         body[field] = program.get(field)
 receipt = seal(body)
-path = root / 'action-receipt.json'
-temporary = path.with_suffix('.tmp')
-fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, 'w') as output:
-    output.write(canonical_json(receipt) + '\n')
-os.replace(temporary, path)
+if root is not None:
+    path = root / 'action-receipt.json'
+    temporary = path.with_suffix('.tmp')
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as output:
+        output.write(canonical_json(receipt) + '\n')
+    os.replace(temporary, path)
 print(canonical_json({
     'schema_version': 'ed-finder/operator-operation-result/v1',
     'operation': 'v3-publish-derived-products', 'status': body['status'],
@@ -687,6 +690,25 @@ PY
 run_operation() {
   require_target
   require_stage
+  # An early refusal emits the normal receipt without creating RUN_DIR or
+  # opening the deployment lock. The helper performs fixed read-only SQL.
+  # shellcheck source=../lib/v3-purge-state.sh
+  source "$REPO_ROOT/scripts/operator/lib/v3-purge-state.sh"
+  local purge_state purge_failure
+  if ! purge_state="$(v3_purge_state_check)"; then
+    purge_failure="$("$PYTHON_BIN" -I -S - "$purge_state" <<'PY'
+import json, sys
+try:
+    failures = json.loads(sys.argv[1])['failures']
+    if not isinstance(failures, list) or not failures or not all(isinstance(item, str) for item in failures):
+        raise ValueError
+    print(','.join(failures))
+except (ValueError, KeyError, TypeError):
+    print('purge_state_query_failed')
+PY
+)"
+    refuse 79 "$purge_failure"
+  fi
   require_generation
   umask 077
   RUN_DIR="$STATE_ROOT/runs/$(date -u +%Y%m%dT%H%M%SZ)-$$"

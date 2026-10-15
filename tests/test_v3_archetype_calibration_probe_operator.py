@@ -70,6 +70,10 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
             with log_path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(args) + "\\n")
 
+            if "derived_generation_purge_event" in joined:
+                print(json.dumps({{"database": "edfinder_v3_phase4c_full_20260827_r5",
+                    "read_only": "on", "ledger_present": True, "unresolved": []}}))
+                raise SystemExit(0)
             if args[:2] == ["context", "show"]:
                 print("default")
                 raise SystemExit(0)
@@ -122,6 +126,10 @@ def _run_action(
     stage = Path(f"/var/tmp/edfinder-v3-probe-{source_sha}")
     stage.mkdir(mode=0o700)
     (stage / "scripts").mkdir()
+    helper_dir = stage / "scripts/operator/lib"
+    helper_dir.mkdir(parents=True)
+    for helper_name in ("v3-purge-state.sh", "v3_purge_state.py"):
+        shutil.copyfile(ROOT / "scripts/operator/lib" / helper_name, helper_dir / helper_name)
     (stage / ".v3-probe-wheelhouse").mkdir()
     (stage / ".v3-probe-source-sha").write_text(
         f"{source_sha}\n", encoding="utf-8"

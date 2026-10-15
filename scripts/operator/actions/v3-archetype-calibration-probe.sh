@@ -28,6 +28,18 @@ fail() {
   exit 64
 }
 
+# Read-only preflight precedes every operation lock, host write and container change.
+require_purge_clear() {
+  local helper="$REPO_ROOT/scripts/operator/lib/v3-purge-state.sh"
+  if [ ! -f "$helper" ] || [ -L "$helper" ]; then
+    printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["purge_state_helper_missing"]}\n' "$1"
+    exit 78
+  fi
+  # shellcheck source=../lib/v3-purge-state.sh
+  source "$helper"
+  v3_purge_require_clear "$1"
+}
+
 require_target() {
   command -v docker >/dev/null 2>&1 || fail "docker is unavailable"
   PYTHON_BIN="$(command -v python3.14 || true)"
@@ -86,6 +98,7 @@ require_generation() {
 
 run_operation() {
   require_target
+  require_purge_clear "v3-archetype-calibration-probe-run"
   [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] || fail "trusted main bundle path is required"
   [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "trusted main SHA is invalid"
   case "$REPO_ROOT" in /var/tmp/edfinder-v3-probe-"$SOURCE_SHA") ;; *) fail "trusted main bundle path is outside reviewed staging namespace" ;; esac

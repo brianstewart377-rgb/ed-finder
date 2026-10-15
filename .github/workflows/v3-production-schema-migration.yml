@@ -111,13 +111,14 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
           BUNDLE: ${{ runner.temp }}/v3-production-migration-bundle
           TARGET_IDENTITY: ${{ runner.temp }}/target-schema-identity.json
+          OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
           [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || exit 64
           [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || exit 64
           test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh "$BUNDLE"
-          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" \
+          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/operator/lib" "$BUNDLE/scripts/release" \
             "$BUNDLE/deploy/v3-production" "$BUNDLE/sql/v3/migrations" "$BUNDLE/sql/r1_v3" \
             "$BUNDLE/artifacts/schema"
           install -m 600 /dev/null ~/.ssh/v3_production_key
@@ -131,6 +132,12 @@ jobs:
             "$BUNDLE/scripts/operator/"
           install -m 700 scripts/operator/actions/v3-production-migrate.sh \
             "$BUNDLE/scripts/operator/actions/"
+          install -m 600 scripts/operator/lib/v3_purge_state.py "$BUNDLE/scripts/operator/lib/"
+          install -m 600 scripts/operator/v3_production_migration_plan.py "$BUNDLE/scripts/operator/"
+          if [ "$OPERATION" = apply ]; then
+            install -m 600 "$RUNNER_TEMP/reviewed-plan/v3-production-migration.json" \
+              "$BUNDLE/artifacts/schema/reviewed-plan.json"
+          fi
           install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
           install -m 600 deploy/v3-production/target-authority.json "$BUNDLE/deploy/v3-production/"
           install -m 600 sql/v3/migration-manifest.txt "$BUNDLE/sql/v3/"
@@ -163,7 +170,7 @@ jobs:
           tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_production_key -p "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
-            "set -eu; umask 077; work=\"\$(mktemp -d)\"; child=''; cleanup() { rm -rf -- \"\$work\"; }; cancel() { trap '' HUP INT TERM; if [ -n \"\$child\" ]; then kill -TERM \"\$child\" 2>/dev/null || true; set +e; wait \"\$child\"; child_status=\$?; set -e; exit \"\$child_status\"; fi; exit 143; }; trap cleanup EXIT; trap cancel HUP INT TERM; chmod 700 \"\$work\"; tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C \"\$work\"; chmod 700 \"\$work\"; cd \"\$work\"; bash scripts/operator/actions/v3-production-migrate.sh --operation '$OPERATION' --root \"\$work\" --candidate-schema-identity \"\$work/artifacts/schema/target-schema-identity.json\" --source-sha '$SOURCE_SHA' --workflow-run-id '$WORKFLOW_RUN_ID' & child=\$!; wait \"\$child\"" \
+            "set -eu; umask 077; work=\"\$(mktemp -d)\"; child=''; cleanup() { rm -rf -- \"\$work\"; }; cancel() { trap '' HUP INT TERM; if [ -n \"\$child\" ]; then kill -TERM \"\$child\" 2>/dev/null || true; set +e; wait \"\$child\"; child_status=\$?; set -e; exit \"\$child_status\"; fi; exit 143; }; trap cleanup EXIT; trap cancel HUP INT TERM; chmod 700 \"\$work\"; tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C \"\$work\"; chmod 700 \"\$work\"; cd \"\$work\"; bash scripts/operator/actions/v3-production-migrate.sh --operation '$OPERATION' --root \"\$work\" --candidate-schema-identity \"\$work/artifacts/schema/target-schema-identity.json\" --reviewed-plan \"\$work/artifacts/schema/reviewed-plan.json\" --source-sha '$SOURCE_SHA' --workflow-run-id '$WORKFLOW_RUN_ID' & child=\$!; wait \"\$child\"" \
             > "$remote_receipt"
           pipeline_status=("${PIPESTATUS[@]}")
           set -e

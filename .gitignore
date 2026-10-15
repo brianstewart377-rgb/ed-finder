@@ -203,3 +203,8 @@ chrome-artifact/
 artifacts/firefox-fail-*/
 artifacts/review-lab-fail/
 /review-report-artifact*/
+
+# Governed production purge admission helpers are committed operator code.
+!scripts/operator/lib/
+!scripts/operator/lib/v3_purge_state.py
+!scripts/operator/lib/v3-purge-state.sh

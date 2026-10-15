@@ -1686,3 +1686,115 @@ def test_unknown_request_relation_and_batch_limits_fail_closed(database):
                                    (uuid4(), relation, batch_size))
     assert _count(connection, 'v3_meta.derived_generation_purge_request') == 0
     assert _count(connection, 'v3_meta.derived_generation_purge_event') == 0
+
+
+def _fence_sql_rows(connection, statement):
+    """Execute the exact multi-statement psql text, retaining its SELECT result."""
+    cursor = connection.execute(statement, prepare=False)
+    rows = []
+    while True:
+        if cursor.description is not None:
+            rows = cursor.fetchall()
+        if not cursor.nextset():
+            return rows
+
+
+@pytest.mark.parametrize(('opening', 'closing'), (
+    ('BATCH_STARTED', 'BATCH_ROLLED_BACK'),
+    ('REWRITE_STARTED', 'REWRITE_ROLLED_BACK'),
+    ('SERVICES_QUIESCED', 'SERVICES_RESTORED'),
+    ('WRITER_FENCE_ENABLED', 'WRITER_FENCE_RESTORED'),
+    ('AUTOVACUUM_DISABLED', 'AUTOVACUUM_RESTORED'),
+    ('FAILED_STOP', None),
+))
+def test_operator_fixed_sql_reports_every_real_016_state_and_verified_restoration(database, opening, closing):
+    from scripts.operator.lib.v3_purge_state import STATE_SQL
+
+    connection = database[0]
+    purge_id = _authorize(database)[TARGETS[0][1]]
+    connection.execute('RESET ROLE')
+    relation = None if opening in ('SERVICES_QUIESCED', 'WRITER_FENCE_ENABLED') else 'system_search'
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event
+           (purge_id,event_kind,relation_code,failure_evidence)
+           VALUES(%s,%s,%s,%s)''',
+        (purge_id, opening, relation, Jsonb({'integrity_failed': True}) if opening == 'FAILED_STOP' else None),
+    )
+    observed = _fence_sql_rows(connection, STATE_SQL)[0][0]
+    assert observed['read_only'] == 'on'
+    assert [row['event_kind'] for row in observed['unresolved']] == [opening]
+    if closing is None:
+        # An integrity failure remains a fence even after a recovery acknowledgement.
+        sequence = observed['unresolved'][0]['event_sequence']
+        connection.execute(
+            '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,operational_payload)
+               VALUES(%s,'FAILED_STOP',%s)''',
+            (purge_id, Jsonb({'acknowledge_failed_stop': sequence})),
+        )
+        assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'] == observed['unresolved']
+        return
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           VALUES(%s,%s,%s)''', (purge_id, closing, relation),
+    )
+    if opening == 'WRITER_FENCE_ENABLED':
+        # 016 counts only verified=true, never a missing/false/string true value.
+        assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved']
+        for verified in (False, 'true'):
+            connection.execute(
+                '''INSERT INTO v3_meta.derived_generation_purge_event
+                   (purge_id,event_kind,relation_code,operational_payload) VALUES(%s,%s,%s,%s)''',
+                (purge_id, closing, relation, Jsonb({'verified': verified})),
+            )
+            assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved']
+        connection.execute(
+            '''INSERT INTO v3_meta.derived_generation_purge_event
+               (purge_id,event_kind,operational_payload) VALUES(%s,%s,%s)''',
+            (purge_id, closing, Jsonb({'verified': True})),
+        )
+    assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'] == []
+
+
+def test_operator_and_backup_sql_resolve_only_matching_record_and_live_backend(database):
+    from scripts.operator.lib.v3_purge_state import STATE_SQL
+
+    connection = database[0]
+    ids = _authorize(database)
+    connection.execute('RESET ROLE')
+    source = (ROOT / 'deploy/v3-production/backup/pgbackrest-operation.sh').read_text()
+    backup_sql = source.split("<<'SQL'\n", 1)[1].split('\nSQL', 1)[0]
+    purge_id, other_id = ids.values()
+    # PID plus backend_start, not PID alone, authenticates a live record.
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event
+           (purge_id,event_kind,relation_code,backend_pid,backend_start)
+           SELECT %s,'BATCH_STARTED','system_search',pid,backend_start
+           FROM pg_stat_activity WHERE pid=pg_backend_pid()''', (purge_id,),
+    )
+    assert len(_fence_sql_rows(connection, backup_sql)) == 1
+    # Another request's closure must not close this batch (even on the same plan).
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           VALUES(%s,'BATCH_COMMITTED','system_search')''', (other_id,),
+    )
+    assert len(_fence_sql_rows(connection, backup_sql)) == 1
+    assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'][0]['purge_id'] == str(purge_id)
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           VALUES(%s,'BATCH_ROLLED_BACK','system_search')''', (purge_id,),
+    )
+    assert _fence_sql_rows(connection, backup_sql) == []
+    # Dead backend identity never suppresses scheduled backups, but still fences mutators.
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event
+           (purge_id,event_kind,relation_code,backend_pid,backend_start)
+           SELECT %s,'REWRITE_STARTED','system_search',pid,backend_start-interval '1 second'
+           FROM pg_stat_activity WHERE pid=pg_backend_pid()''', (purge_id,),
+    )
+    assert _fence_sql_rows(connection, backup_sql) == []
+    assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'][0]['event_kind'] == 'REWRITE_STARTED'
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           VALUES(%s,'FAILED_STOP','system_search')''', (purge_id,),
+    )
+    assert _fence_sql_rows(connection, STATE_SQL)[0][0]['unresolved'] == []

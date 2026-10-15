@@ -28,6 +28,18 @@ fail() {
   exit 64
 }
 
+# Read-only preflight precedes every operation lock, host write and container change.
+require_purge_clear() {
+  local helper="$REPO_ROOT/scripts/operator/lib/v3-purge-state.sh"
+  if [ ! -f "$helper" ] || [ -L "$helper" ]; then
+    printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["purge_state_helper_missing"]}\n' "$1"
+    exit 78
+  fi
+  # shellcheck source=../lib/v3-purge-state.sh
+  source "$helper"
+  v3_purge_require_clear "$1"
+}
+
 require_target() {
   command -v docker >/dev/null 2>&1 || fail "docker is unavailable"
   command -v python3.14 >/dev/null 2>&1 || fail "python3.14 is unavailable"
@@ -137,6 +149,7 @@ resolve_or_create_spatial_generation() {
 
 build_operation() {
   require_target
+  require_purge_clear "v3-spatial-pyramid-build"
   [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] || fail "trusted main bundle path is required"
   [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "trusted main SHA is invalid"
   case "$REPO_ROOT" in /var/tmp/edfinder-v3-spatial-pyramid-"$SOURCE_SHA") ;; *) fail "trusted main bundle path is outside reviewed staging namespace" ;; esac
@@ -285,6 +298,7 @@ PY
 # variables (`:'name'`, safely quoted) rather than interpolated SQL text.
 publish_operation() {
   require_target
+  require_purge_clear "v3-spatial-pyramid-publish"
   [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] || fail "trusted main bundle path is required"
   [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "trusted main SHA is invalid"
   case "$REPO_ROOT" in /var/tmp/edfinder-v3-spatial-pyramid-"$SOURCE_SHA") ;; *) fail "trusted main bundle path is outside reviewed staging namespace" ;; esac

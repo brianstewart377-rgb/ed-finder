@@ -21,6 +21,17 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-15 — Purge entry fences and ledger-aware backups (P2a)
+
+Added one read-only purge-ledger/host-lease admission check across production
+mutators, with the exact authenticated-plan prefix exception only for schema
+apply bootstrapping 016. The standalone pgBackRest wrapper skips live recorded
+purge backends and fails closed on unavailable ledger evidence. A single new
+trusted-main operator choice atomically installs and verifies that wrapper only
+after 016, without changing timers or units. Added local contract tests and
+PG18 ledger-query tests, plus the installation-order runbook. No production
+operation, purge action/workflow, or rehearsal is included.
+
 ## 2026-10-15 — Governed derived purge capability registered (P1)
 
 Migration `016` safely adopts a cluster-wide executor already installed by

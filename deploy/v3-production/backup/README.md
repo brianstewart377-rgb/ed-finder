@@ -18,9 +18,18 @@ This schedule is **not** part of that promotion: it is a separate host operation
 | `edfinder-v3-backup-diff.timer` | `/etc/systemd/system/edfinder-v3-backup-diff.timer` |
 | `edfinder-v3-backup-verify.timer` | `/etc/systemd/system/edfinder-v3-backup-verify.timer` |
 
-Install by copying the script to the runtime directory with mode `0700`, the units
-to `/etc/systemd/system/`, then `systemctl daemon-reload` and
-`systemctl enable --now edfinder-v3-backup-{full,diff,verify}.timer`.
+For an existing schedule, update only the wrapper through the allowlisted
+`v3-backup-wrapper-install` operation in `chatgpt-ed-new-ops.yml`. Apply migration
+`016_v3_governed_derived_purge.sql` first: the installer refuses unless both its
+migration-ledger entry and the purge-event relation exist. The action streams
+trusted-main code with its source SHA, verifies the committed wrapper SHA-256,
+holds the schedule lock, refuses active backup/verify processes, and atomically
+renames a mode-`0700` temporary file into the fixed destination. It re-reads the
+installed hash and emits a receipt with both hashes and explicit write flags.
+Commit that receipt before making a purge plan. It changes no timer or unit.
+
+Initial schedule installation is a separate governed host operation; the wrapper
+installer does not authorize installing units or enabling timers.
 
 ## Schedule
 
@@ -44,6 +53,17 @@ is untrue:
 - the retained PostgreSQL container exists;
 - another scheduled operation does not already hold the host lock;
 - no `pgbackrest` backup or verify process is already running in the container.
+
+Before starting any backup or verify it also queries the operating database
+through `docker exec`, with pinned `--username edfinder_v3` and
+`--dbname edfinder_v3_phase4c_full_20260827_r5`. The fixed read-only SQL reuses
+migration 016's open-event definition. An unresolved `BATCH_STARTED` or
+`REWRITE_STARTED` causes `SKIP` only while both its recorded PID and
+`backend_start` still match a live backend in that database. Each skipped open
+record is logged with its purge ID, event sequence, relation and backend identity.
+A dead backend or no open record lets the schedule continue. A missing ledger
+relation or any query error exits nonzero before starting a backup or verify.
+The SQL is embedded because installed timer jobs have no repository checkout.
 
 It then requires pgBackRest itself to report `status: ok` before starting.
 

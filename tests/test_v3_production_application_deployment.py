@@ -1630,6 +1630,9 @@ def _cancellation_promote_setup(monkeypatch, tmp_path, deployer):
     monkeypatch.setattr(deployer, "exact_host_guard", lambda _runner: None)
     monkeypatch.setattr(deployer, "secure_path", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(deployer, "docker_context_guard", lambda *_args: None)
+    # Cancellation tests start after the read-only purge admission gate.
+    # Its failure and ordering contracts are exercised separately.
+    monkeypatch.setattr(deployer, "require_purge_clear", lambda *_args: {})
     monkeypatch.setattr(deployer, "validate_compose", lambda *_args: None)
     monkeypatch.setattr(deployer, "validate_schema_file", lambda *_args: schema)
     monkeypatch.setattr(deployer, "validate_network", lambda *_args: None)
