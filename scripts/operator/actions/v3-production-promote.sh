@@ -82,4 +82,37 @@ else
 fi
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ "$operation" = promote ]; then
+    # The Python deployer repeats this fence for direct callers. Both guards
+    # precede its application-secret, host-lock and container-change paths.
+    [ "$(hostname)" = ed-finder-prod ] && [ "$(hostname -f)" = nb79a3d.mevnode.com ] || {
+        stopped_runtime_receipt unexpected_production_host
+        exit 78
+    }
+    # shellcheck source=../lib/v3-purge-state.sh
+    source "$SCRIPT_DIR/../lib/v3-purge-state.sh"
+    if ! purge_state="$(v3_purge_state_check)"; then
+        "$PYTHON_BIN" -I -S - "$purge_state" <<'PY'
+import json, sys
+try:
+    failures = json.loads(sys.argv[1])['failures']
+    if not isinstance(failures, list) or not failures or not all(isinstance(item, str) for item in failures):
+        raise ValueError
+except (ValueError, KeyError, TypeError):
+    failures = ['purge_state_query_failed']
+print(json.dumps({
+    'schema_version': 'ed-finder/v3-production-deployment-receipt/v1',
+    'operation': 'production-promotion', 'status': 'stopped',
+    'target': {'production': True, 'hostname': 'ed-finder-prod', 'fqdn': 'nb79a3d.mevnode.com'},
+    'failures': failures, 'database_access_performed': True,
+    'database_writes_performed': False, 'migrations_performed': False,
+    'application_data_writes_performed': False, 'image_pulls_performed': False,
+    'service_changes_performed': False, 'edge_recreated': False,
+    'protected_resources_changed': False, 'filesystem_writes_performed': False,
+    'env_files_read': False, 'env_contents_recorded': False, 'private_keys_read': False,
+}, sort_keys=True))
+PY
+        exit 78
+    fi
+fi
 exec "$PYTHON_BIN" -I -S "$SCRIPT_DIR/../v3_production_deploy.py" "$@"

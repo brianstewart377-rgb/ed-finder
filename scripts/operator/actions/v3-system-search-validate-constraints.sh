@@ -58,6 +58,7 @@ MIGRATION_VERIFIED=false
 VALIDATED_BEFORE=0
 QUEUED_CONSTRAINTS=()
 CATALOG_VALIDATION_LAUNCHED=false
+PURGE_STATE_REPORT=""
 
 emit_start_receipt() {
   local status="$1" result="$2" failure="${3:-}"
@@ -67,7 +68,7 @@ emit_start_receipt() {
 import json
 import sys
 
-status, result, migration_sha, verified, validated, queued, launched, failure, lock_timeout, statement_timeout = sys.argv[1:]
+status, result, migration_sha, verified, validated, queued, launched, failure, lock_timeout, statement_timeout, purge_report = sys.argv[1:]
 receipt = {
     "schema_version": "ed-finder/operator-operation-result/v1",
     "operation": "v3-system-search-validate-constraints-start",
@@ -88,12 +89,13 @@ receipt = {
     "publication_performed": False,
     "canonical_writes_performed": False,
     "service_changes_performed": False,
-    "failures": [failure] if failure else [],
+    "failures": (json.loads(purge_report).get("failures", []) if failure == "purge_state_refused" else ([failure] if failure else [])),
+    "purge_state": json.loads(purge_report) if purge_report else None,
 }
 print(json.dumps(receipt, separators=(",", ":")))
 ' "$status" "$result" "$MIGRATION_SHA" "$MIGRATION_VERIFIED" \
     "$VALIDATED_BEFORE" "$queued" "$CATALOG_VALIDATION_LAUNCHED" "$failure" \
-    "$LOCK_TIMEOUT" "$STATEMENT_TIMEOUT"
+    "$LOCK_TIMEOUT" "$STATEMENT_TIMEOUT" "$PURGE_STATE_REPORT"
 }
 
 stop_start() {
@@ -211,6 +213,14 @@ parse_constraint_state() {
 start_operation() {
   : "$TABLE" "$RUN_DIR"
   require_target || stop_start unexpected_target_or_runtime
+  # The trusted-main stream supplies the shared read-only check. Never use the
+  # host checkout as an implicit fallback for a streamed production mutator.
+  declare -F v3_purge_state_check >/dev/null || stop_start purge_state_helper_missing
+  if PURGE_STATE_REPORT="$(v3_purge_state_check)"; then
+    :
+  else
+    stop_start purge_state_refused
+  fi
 
   local ledger_sha state active sql name
   if ! ledger_sha="$(db_query "BEGIN READ ONLY; SELECT encode(migration_sha256,'hex') FROM v3_meta.schema_migration WHERE migration_name='${MIGRATION_NAME}'; COMMIT;")"; then

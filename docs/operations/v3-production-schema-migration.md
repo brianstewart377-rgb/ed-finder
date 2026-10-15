@@ -39,6 +39,16 @@ Every one of these is a stop, not a warning:
 - a second operation while the production deployment lock is held, so a schema
   change can never overlap a promotion.
 
+## Purge-state entry fence
+
+`apply` checks the shared read-only purge ledger and host lease before taking
+its deployment lock, then rechecks before DDL. Missing ledger refuses except
+when the live prefix exactly matches the authenticated plan's recorded prefix
+and its complete pending suffix ends in 016; an already-applied 016 never gets
+this exception. The authenticated plan is copied into the operation bundle,
+so apply never substitutes its fresh observation for the reviewed prefix.
+See [purge fences and wrapper install order](v3-governed-derived-purge.md).
+
 ## Operations
 
 ```bash

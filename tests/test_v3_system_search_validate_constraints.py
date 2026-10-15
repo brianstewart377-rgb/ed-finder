@@ -120,6 +120,10 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
                 stream.write(json.dumps({{"args": args, "stdin": stdin}}) + "\\n")
 
             marker = Path(os.environ["TEST_DOCKER_MARKER"])
+            if "derived_generation_purge_event" in joined:
+                print(json.dumps({{"database": "edfinder_v3_phase4c_full_20260827_r5",
+                    "read_only": "on", "ledger_present": True, "unresolved": []}}))
+                raise SystemExit(0)
             if args[:2] == ["context", "show"]:
                 print("default")
                 raise SystemExit(0)
@@ -254,7 +258,8 @@ def _run_action(
         }
     )
     result = subprocess.run(
-        ["bash", str(ACTION), operation],
+        ["bash", "-c", 'source "$1"; source "$2" "$3"', "stream-test",
+         str(ROOT / "scripts/operator/lib/v3-purge-state.sh"), str(ACTION), operation],
         capture_output=True,
         text=True,
         env=env,
@@ -282,7 +287,11 @@ def test_constraint_validation_operations_are_allowlisted_through_trusted_main()
         "trusted-main/scripts/operator/actions/"
         "v3-system-search-validate-constraints.sh"
     )
-    assert workflow.count(script_path) == 2
+    assert workflow.count(script_path) == 1  # Read-only status streams directly.
+    assert '< "$RUNNER_TEMP/v3-purge-fenced-actions/v3-system-search-validate-constraints.sh"' in workflow
+    assert 'cat trusted-main/scripts/operator/lib/v3-purge-state.sh' in workflow
+    assert 'cat "trusted-main/scripts/operator/actions/$action.sh"' in workflow
+    assert 'v3-system-search-validate-constraints' in workflow.split("for action in ", 1)[1].split("; do", 1)[0]
     assert "'cd /opt/ed-finder && bash -s -- start'" in workflow
     assert "'cd /opt/ed-finder && bash -s -- status'" in workflow
     assert "Upload V3 Search constraint validation receipt" in workflow

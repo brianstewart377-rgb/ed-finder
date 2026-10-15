@@ -311,7 +311,7 @@ jobs:
           test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh
           install -d -m 700 "$BUNDLE"
-          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" "$BUNDLE/deploy/v3-production" "$BUNDLE/artifacts/candidate"
+          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/operator/lib" "$BUNDLE/scripts/release" "$BUNDLE/deploy/v3-production" "$BUNDLE/artifacts/candidate"
           install -m 600 /dev/null ~/.ssh/v3_production_key
           printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
           install -m 600 /dev/null ~/.ssh/known_hosts
@@ -320,6 +320,7 @@ jobs:
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
           install -m 700 scripts/operator/v3_production_deploy.py "$BUNDLE/scripts/operator/"
           install -m 700 scripts/operator/actions/v3-production-promote.sh "$BUNDLE/scripts/operator/actions/"
+          install -m 600 scripts/operator/lib/v3_purge_state.py scripts/operator/lib/v3-purge-state.sh "$BUNDLE/scripts/operator/lib/"
           install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
           install -m 600 deploy/v3-production/compose.yml deploy/v3-production/target-authority.json "$BUNDLE/deploy/v3-production/"
           install -m 600 "$RUNNER_TEMP/candidate/v3-application-release.json" "$RUNNER_TEMP/candidate/v3-application-release.json.sha256" "$BUNDLE/artifacts/candidate/"

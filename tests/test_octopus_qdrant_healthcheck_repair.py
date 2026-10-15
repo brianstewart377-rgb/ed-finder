@@ -56,7 +56,10 @@ def test_ed_new_workflow_allowlists_and_routes_repair_operation():
     assert source.count(f"          - {OPERATION}\n") == 1
     assert "host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair" in source
     assert f"steps.request.outputs.operation == '{OPERATION}'" in source
-    assert f"trusted-main/scripts/operator/actions/{OPERATION}.sh" in source
+    assert f'< "$RUNNER_TEMP/v3-purge-fenced-actions/{OPERATION}.sh"' in source
+    assert 'cat trusted-main/scripts/operator/lib/v3-purge-state.sh' in source
+    assert 'cat "trusted-main/scripts/operator/actions/$action.sh"' in source
+    assert OPERATION in source.split("for action in ", 1)[1].split("; do", 1)[0]
     assert "ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS" in source
     assert "StrictHostKeyChecking=yes" in source
     assert "UserKnownHostsFile=~/.ssh/known_hosts" in source
@@ -89,7 +92,9 @@ def test_repair_action_has_fail_closed_scope_and_guards():
 
     assert ".env" not in source
     assert "password" not in source.lower()
-    assert '"db_access_performed": False' in source
+    assert '"db_access_performed": bool(sys.argv[6])' in source
+    assert '"db_writes_performed": False' in source
+    assert '"failures": json.loads(sys.argv[6]).get("failures", [])' in source
     assert '"volume_configuration_modified": False' in source
 
 

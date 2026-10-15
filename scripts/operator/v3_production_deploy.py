@@ -21,6 +21,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -392,6 +393,44 @@ def manifest_tool() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def purge_state_tool() -> Any:
+    """Load the shared fence under the deployment launcher's isolated Python."""
+    path = ROOT / "scripts/operator/lib/v3_purge_state.py"
+    spec = importlib.util.spec_from_file_location("v3_purge_state", path)
+    if spec is None or spec.loader is None:
+        raise DeploymentError("purge_state_helper_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    # Admission itself must not create a __pycache__ before the fence passes.
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def require_purge_clear(
+    env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> dict[str, Any]:
+    tool = purge_state_tool()
+
+    def execute(sql: str) -> str:
+        return runner(
+            ["docker", "exec", POSTGRES_CONTAINER, "psql", "-X", "--no-psqlrc",
+             "--no-password", "--tuples-only", "--no-align", "--quiet",
+             "--set", "ON_ERROR_STOP=1", "--username", DATABASE_USER,
+             "--dbname", DATABASE_NAME, "--host", "/var/run/postgresql",
+             "--command", sql],
+            env=env,
+        ).stdout
+
+    try:
+        return tool.check(execute)
+    except tool.PurgeStateError as exc:
+        raise DeploymentError(str(exc)) from exc
 
 
 def stopped_receipt(
@@ -1999,6 +2038,16 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     )
     env = base_env(external)
     exact_host_guard(runner)
+    docker_context_guard(env, runner)
+    if args.operation == "promote":
+        # Before reading application secrets, opening the deployment lock,
+        # creating receipts, pulling an image or changing any container.
+        try:
+            require_purge_clear(env, runner)
+        except DeploymentError as exc:
+            receipt = stopped_receipt(authority, [str(exc)])
+            receipt.update(database_access_performed=True, filesystem_writes_performed=False)
+            raise OperationFailed(receipt) from exc
     secure_path(Path(external["api_env_file"]), external["api_env_owner_uid"], external["api_env_mode"], directory=False)
     receipt_dir = Path(external["receipt_directory"])
     secure_path(receipt_dir, external["receipt_owner_uid"], external["receipt_mode"], directory=True)
@@ -2010,7 +2059,6 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         schema_path, external["schema_identity_owner_uid"],
         external["schema_identity_mode"], directory=False,
     )
-    docker_context_guard(env, runner)
     validate_compose(args.compose, authority, env, runner)
     schema = validate_schema_file(schema_path, external["schema_identity_sha256"])
     network_slots: set[str] = set()

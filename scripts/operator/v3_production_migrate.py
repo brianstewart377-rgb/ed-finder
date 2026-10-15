@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,7 +51,13 @@ def _load(module_name: str, path: Path) -> Any:
     if spec is None or spec.loader is None:
         raise MigrationError(f"{module_name} is unavailable")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Avoid creating __pycache__ before the read-only production entry fence.
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
     return module
 
 
@@ -157,6 +164,67 @@ def plan_migrations(
                 f"live ledger hash mismatch for {applied['ledger_name']}"
             )
     return live, desired[len(live):]
+
+
+PURGE_MIGRATION = "016_v3_governed_derived_purge.sql"
+
+
+def purge_bootstrap_allowed(
+    desired: list[dict[str, str]], live: list[dict[str, str]],
+    reviewed_plan: dict[str, Any],
+) -> bool:
+    """Only the authenticated plan's *exact* prefix can bootstrap absent 016.
+
+    The workflow authenticates provenance before copying the plan into its sealed
+    operation bundle. Never replace its recorded prefix with a newly read prefix.
+    """
+    prefix = reviewed_plan.get("applied_before")
+    suffix = reviewed_plan.get("pending")
+    expected_prefix = [
+        {"ledger_name": entry["ledger_name"], "sha256": entry["sha256"]}
+        for entry in desired[:len(live)]
+    ]
+    return (
+        live == prefix == expected_prefix
+        and isinstance(suffix, list) and bool(suffix)
+        and suffix == desired[len(live):]
+        and suffix[-1]["ledger_name"] == PURGE_MIGRATION
+        and all(entry["ledger_name"] != PURGE_MIGRATION for entry in live)
+    )
+
+
+def require_purge_clear(
+    deployer: Any, env: dict[str, str], runner: Callable[..., Any], *,
+    desired: list[dict[str, str]], live: list[dict[str, str]],
+    reviewed_plan: dict[str, Any],
+) -> dict[str, Any]:
+    tool = _load("v3_purge_state", ROOT / "scripts/operator/lib/v3_purge_state.py")
+
+    def query(sql: str) -> str:
+        return runner([
+            "docker", "exec", deployer.POSTGRES_CONTAINER, "psql", "-X", "--no-psqlrc",
+            "--no-password", "--username", deployer.DATABASE_USER,
+            "--dbname", deployer.DATABASE_NAME, "--host", POSTGRES_SOCKET,
+            "--tuples-only", "--no-align", "--quiet", "--set", "ON_ERROR_STOP=1",
+            "--command", sql,
+        ], env=env).stdout.strip()
+
+    return tool.check(query, bootstrap=purge_bootstrap_allowed(desired, live, reviewed_plan))
+
+
+def reviewed_apply_plan(
+    path: Path | None, authority: dict[str, Any], desired: list[dict[str, str]],
+    source_sha: str,
+) -> dict[str, Any]:
+    if path is None:
+        raise MigrationError("purge_bootstrap_requires_authenticated_plan")
+    verifier = _load("v3_production_migration_plan", ROOT / "scripts/operator/v3_production_migration_plan.py")
+    plan = verifier.load_json(path, "authenticated migration plan")
+    run_id = str(plan.get("workflow_run_id", ""))
+    if not RUN_ID.fullmatch(run_id):
+        raise MigrationError("authenticated migration plan run ID is invalid")
+    verifier.validate_receipt(plan, authority, desired, run_id=run_id, source_sha=source_sha)
+    return plan
 
 
 def terminal_commit_span(text: str, label: str) -> tuple[int, int]:
@@ -486,6 +554,7 @@ def _main(deployer: Any, cancellation_controller: Any | None = None) -> int:
     parser.add_argument("--authority", type=Path, default=DEFAULT_AUTHORITY)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--candidate-schema-identity", type=Path)
+    parser.add_argument("--reviewed-plan", type=Path)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--workflow-run-id", required=True)
     arguments = parser.parse_args()
@@ -528,6 +597,12 @@ def _main(deployer: Any, cancellation_controller: Any | None = None) -> int:
         database_access = True
         applied = live
         applied, pending = plan_migrations(desired, live)
+        if arguments.operation == "apply":
+            reviewed_plan = reviewed_apply_plan(arguments.reviewed_plan, authority, desired, source_sha)
+            require_purge_clear(
+                deployer, env, deployer.run_command, desired=desired, live=live,
+                reviewed_plan=reviewed_plan,
+            )
         target, identity_before, identity_install_pending = inspect_schema_transition(
             deployer, authority, external, desired,
             arguments.candidate_schema_identity, live,
@@ -576,6 +651,10 @@ def _main(deployer: Any, cancellation_controller: Any | None = None) -> int:
         # promotion. A reviewed plan is evidence, not permission to use stale state.
         live = live_ledger(deployer, env, deployer.run_command)
         applied, pending = plan_migrations(desired, live)
+        require_purge_clear(
+            deployer, env, deployer.run_command, desired=desired, live=live,
+            reviewed_plan=reviewed_plan,
+        )
         target, identity_before, identity_install_pending = inspect_schema_transition(
             deployer, authority, external, desired,
             arguments.candidate_schema_identity, live,

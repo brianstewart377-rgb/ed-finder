@@ -46,6 +46,18 @@ fail() {
   exit 64
 }
 
+# Read-only preflight precedes every operation lock, host write and container change.
+require_purge_clear() {
+  local helper="$REPO_ROOT/scripts/operator/lib/v3-purge-state.sh"
+  if [ ! -f "$helper" ] || [ -L "$helper" ]; then
+    printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["purge_state_helper_missing"]}\n' "$1"
+    exit 78
+  fi
+  # shellcheck source=../lib/v3-purge-state.sh
+  source "$helper"
+  v3_purge_require_clear "$1"
+}
+
 require_target() {
   command -v docker >/dev/null 2>&1 || fail "docker is unavailable"
   PYTHON_BIN="$(command -v python3.14 || true)"
@@ -469,6 +481,7 @@ existing_worker_state() {
 
 start_operation() {
   require_target
+  require_purge_clear "v3-system-archetype-start"
   require_stage
   require_archetype_schema
   require_generation
@@ -599,6 +612,7 @@ status_operation() {
 
 finalize_operation() {
   require_target
+  require_purge_clear "v3-system-archetype-finalize"
   require_stage
   require_archetype_schema
   require_generation
