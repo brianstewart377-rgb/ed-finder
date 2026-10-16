@@ -40,9 +40,21 @@ def test_manual_scale_choices_and_self_hosted_concurrency():
     assert "environment" not in job
 
 
+def test_job_env_uses_only_job_level_contexts():
+    # GitHub rejects the whole dispatch when job-level env names a context
+    # (runner, env, steps, job) that is only available inside steps.
+    job_env = workflow()["jobs"]["rehearse"]["env"]
+    assert "REHEARSAL_OUTPUT_DIR" not in job_env
+    for value in job_env.values():
+        for context in ("runner.", "env.", "steps.", "job."):
+            assert "${{ " + context not in value
+
+
 def test_first_step_preflights_before_checkout_and_checkout_pins_main_sha():
     job_steps = steps()
     first = job_steps[0]["run"]
+    assert '>> "$GITHUB_ENV"' in first
+    assert first.index('>> "$GITHUB_ENV"') < first.index('"$DISPATCH_REF" = refs/heads/main')
     assert '"$DISPATCH_REF" = refs/heads/main' in first
     assert "docker info" in first
     assert "docker context inspect" in first
@@ -77,7 +89,8 @@ def test_cleanup_always_scopes_run_and_verifies_absence_and_retains_artifacts():
     assert "docker volume rm" in cleanup["run"]
     assert cleanup["run"].count('[ -z "$(docker') == 2
     upload = steps()[-1]
-    assert upload["if"] == "always()"
+    assert upload["if"] == "always() && env.REHEARSAL_OUTPUT_DIR != ''"
+    assert upload["with"]["path"] == "${{ env.REHEARSAL_OUTPUT_DIR }}/"
     assert upload["uses"] == "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     assert upload["with"]["retention-days"] == "180"
 
@@ -127,6 +140,7 @@ state_path.write_text(json.dumps(state))
         "FREE_BYTES": str(free_bytes), "EXISTING": existing, "ENDPOINT": endpoint,
         "REACHABLE": "1" if reachable else "0", "DISPATCH_REF": "refs/heads/main",
         "REHEARSAL_SCALE": "smoke", "REHEARSAL_RUN_ID": "123-1", "DOCKER_HOST": "",
+        "RUNNER_TEMP": str(tmp_path), "GITHUB_ENV": str(tmp_path / "github_env"),
     }
     return env, state
 
@@ -141,6 +155,19 @@ def test_disk_refusal_executes_real_preflight(tmp_path, scale, free_bytes, accep
     env["REHEARSAL_SCALE"] = scale
     result = subprocess.run(["bash", "-c", steps()[0]["run"]], env=env, capture_output=True, text=True)
     assert (result.returncode == 0) is accepted, result.stderr
+    exported = (tmp_path / "github_env").read_text()
+    assert exported == f"REHEARSAL_OUTPUT_DIR={tmp_path}/v3-purge-rehearsal-123-1\n"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"REHEARSAL_RUN_ID": "../escape"}, {"REHEARSAL_RUN_ID": ""}, {"RUNNER_TEMP": ""},
+])
+def test_preflight_refuses_bad_run_id_or_missing_runner_temp(tmp_path, overrides):
+    env, _ = _shell_runner(tmp_path)
+    env.update(overrides)
+    result = subprocess.run(["bash", "-c", steps()[0]["run"]], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not (tmp_path / "github_env").exists()
 
 
 @pytest.mark.parametrize("overrides", [
