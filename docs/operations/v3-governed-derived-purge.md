@@ -273,9 +273,11 @@ controller PID/start identity bind action liveness to the polling controller.
 ## P2d rehearsal
 
 Implementation base: `ebe88b78ec66f9eeacc1576a5d3b535a312be166` (merged P2c,
-PR #822). Owner decision 2026-10-16 selects the Contabo self-hosted runners for a
-**disposable** PostgreSQL 18 rehearsal. Contabo hosts exactly three Codex runners
-and is not production. Use [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml)
+PR #822). Owner decision 2026-10-16 selects Contabo for a **disposable**
+PostgreSQL 18 rehearsal. Contabo is not production. The rehearsal runs only on
+the dedicated `purge-rehearsal` runner (its own `rehearsal` user, the only
+`docker` group member, no default labels); the three Codex runners have no
+Docker access and cannot receive the job. Use [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml)
 on current `main`, first with `scale: smoke` (about 0.05%), then with
 `scale: one_percent` (about 2 million systems). This is manual dispatch only;
 merging the harness never dispatches it. It has no secrets, production target,
@@ -287,7 +289,7 @@ elevation, have no existing rehearsal container (including stopped containers),
 and have at least **5 GB** free on the Docker data root for smoke or **40 GB** for
 one_percent. These are admission minima, not proof that the complete dataset
 fits. Every rehearsal has its own labeled container and volume. A global
-concurrency group prevents overlapping dispatches across the three runners;
+concurrency group prevents overlapping dispatches;
 cancellation of an earlier run is disabled. The 720-minute job limit bounds
 seeding, deletes, rewrites and crash recovery. The final `if: always()` cleanup
 removes only this run's labeled containers and volumes and verifies their
