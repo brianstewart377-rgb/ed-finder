@@ -1,0 +1,131 @@
+"""The actual harness migration and seed SQL against a fresh disposable PG18 DB.
+
+``canonical_database`` validates the local CI service identity before any test
+connection is opened. The manifest is loaded into a second, empty random DB,
+so no fixture schema or rows hide missing seed prerequisites. This adds one
+small 200-system seed to the existing Finder PG18 discovery lane.
+"""
+from contextlib import contextmanager
+import json
+from uuid import uuid4
+
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+
+from scripts.operator.lib import v3_purge_transactions as transactions
+from scripts.rehearsal import v3_derived_purge_rehearsal as rehearsal
+from tests.ratings_v4_pg_fixture import canonical_database
+
+
+@contextmanager
+def fresh_harness_database():
+    """Serialize cluster roles and remove only our own database/capability."""
+    with canonical_database() as canonical:
+        administrator = canonical[0]
+        assert 180000 <= administrator.info.server_version < 190000
+        assert administrator.execute('SELECT rolsuper FROM pg_roles WHERE rolname=current_user').fetchone()[0]
+        database = 'v4_test_purge_seed_' + uuid4().hex
+        created = False
+        executor_was_absent = False
+        administrator.execute('SELECT pg_advisory_lock(764016099)')
+        try:
+            executor_was_absent = administrator.execute(
+                'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
+            ).fetchone() is None
+            administrator.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
+            created = True
+            with psycopg.connect(make_conninfo(administrator.info.dsn, password=administrator.info.password, dbname=database), autocommit=True) as connection:
+                yield connection
+        finally:
+            if created:
+                administrator.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(database)))
+            if executor_was_absent and administrator.execute(
+                    'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
+            ).fetchone():
+                # All grants from this test were in the now-dropped database.
+                # An unrelated database dependency means this role must remain.
+                try:
+                    administrator.execute('DROP ROLE v3_derived_purge_executor')
+                except psycopg.errors.DependentObjectsStillExist:
+                    pass
+            administrator.execute('SELECT pg_advisory_unlock(764016099)')
+
+
+def _sql_adapter(connection):
+    def execute(statement, parameters=None):
+        outputs = []
+        with psycopg.ClientCursor(connection) as cursor:
+            cursor.execute(statement, parameters)
+            while True:
+                if cursor.description is not None:
+                    for row in cursor.fetchall():
+                        value = row[0]
+                        outputs.append(json.dumps(value, default=str) if isinstance(value, (dict, list)) else str(value))
+                if not cursor.nextset():
+                    break
+        return '\n'.join(outputs)
+    return execute
+
+
+def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp_path):
+    with fresh_harness_database() as connection:
+        harness = rehearsal.Harness('tiny', 'pg18-seed-test', tmp_path)
+        harness.sql = _sql_adapter(connection)
+        harness.migrate()
+        manifest = [line.split()[:2] for line in
+                    (rehearsal.ROOT / 'sql/v3/migration-manifest.txt').read_text().splitlines()
+                    if line.strip() and not line.startswith('#')]
+        ledger = connection.execute(
+            "SELECT encode(migration_sha256,'hex'),migration_name FROM v3_meta.schema_migration",
+        ).fetchall()
+        assert sorted(ledger) == sorted(tuple(entry) for entry in manifest)
+        assert manifest[-1][1] == rehearsal.controller.MIGRATION
+
+        harness.seed()
+        identities = {key: identity for key, (identity, _) in rehearsal.controller.TARGETS.items()}
+        identities[rehearsal.controller.PUBLISHED_KEY] = rehearsal.controller.PUBLISHED_ID
+        for relation in rehearsal.RELATIONS:
+            actual = dict(connection.execute(sql.SQL(
+                'SELECT derived_generation_id::text,count(*) FROM v3_derived.{} GROUP BY derived_generation_id',
+            ).format(sql.Identifier(relation))).fetchall())
+            expected = {identity: harness.counts[relation][key]
+                        for key, identity in identities.items() if harness.counts[relation][key]}
+            assert actual == expected
+        states = dict(connection.execute(
+            'SELECT generation_key,lifecycle_state FROM v3_meta.derived_generation',
+        ).fetchall())
+        assert states == {'ratings_v4_prod_p4': 'BUILDING', 'ratings_v4_prod_p4_opt1': 'VALIDATING',
+                          'ratings_v4_prod_p4_parallel_v1': 'PUBLISHED'}
+        assert connection.execute(
+            'SELECT derived_generation_id::text,publication_sequence FROM v3_meta.current_derived_generation',
+        ).fetchall() == [(rehearsal.controller.PUBLISHED_ID, 1)]
+        assert connection.execute(
+            'SELECT publication_sequence FROM v3_meta.current_canonical_generation',
+        ).fetchone() == (4,)
+        assert connection.execute(
+            '''SELECT p.publication_sequence,s.lifecycle_state FROM v3_spatial.current_spatial_generation p
+               JOIN v3_spatial.spatial_generation s USING(spatial_generation_id)''',
+        ).fetchone() == (1, 'PUBLISHED')
+
+        def query(statement, parameters=None, *, write=False):
+            assert not write
+            connection.execute('RESET ROLE')
+            try:
+                return json.loads(harness.sql(statement, parameters))
+            finally:
+                connection.execute('RESET ROLE')
+        exclusions = query(transactions.EXCLUSIONS_SQL)
+        assert exclusions == {'cluster_run': 0, 'cluster': 0, 'cluster_member': 0, 'system_archetype': 0}
+        # This is the same plan collection/hash SQL the real action runs, and
+        # requires all three published pointers plus both target manifests.
+        plan = transactions.collect_plan(query, 'a' * 40, 'pg18-rehearsal-test', 'Synthetic seed verification')
+        assert plan['snapshot']['spatial']['publication_sequence'] == 1
+        assert plan['snapshot']['derived']['derived_generation_id'] == rehearsal.controller.PUBLISHED_ID
+        assert {target['key'] for target in plan['targets']} == set(rehearsal.controller.TARGETS)
+        for target in plan['targets']:
+            assert target['payload_counts'] == {
+                relation: harness.counts[relation][target['key']] for relation in rehearsal.RELATIONS}
+        assert plan['snapshot']['survivors'] == {
+            relation: harness.counts[relation][rehearsal.controller.PUBLISHED_KEY]
+            for relation in rehearsal.RELATIONS}

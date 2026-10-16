@@ -1,0 +1,129 @@
+name: V3 derived purge rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: 'Disposable scale: smoke (~0.05%) or one_percent (~2 million systems)'
+        type: choice
+        required: true
+        default: smoke
+        options: [smoke, one_percent]
+
+permissions:
+  contents: read
+
+# The three Contabo runners share Docker storage. Never overlap rehearsals.
+concurrency:
+  group: v3-derived-purge-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    runs-on: [self-hosted, Linux, X64]
+    # Twelve hours bounds seeding, measured deletes, rewrites and crash recovery
+    # at 1%; the harness also bounds each database statement and subprocess.
+    timeout-minutes: 720
+    env:
+      REHEARSAL_SCALE: ${{ inputs.scale }}
+      REHEARSAL_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      REHEARSAL_OUTPUT_DIR: ${{ runner.temp }}/v3-purge-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Refuse unsafe runner or insufficient disposable storage
+        shell: bash
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [ "$DISPATCH_REF" = refs/heads/main ] || { echo 'Dispatch trusted main only' >&2; exit 64; }
+          case "$REHEARSAL_SCALE" in
+            smoke) required_bytes=5000000000 ;;
+            one_percent) required_bytes=40000000000 ;;
+            *) echo 'Unknown rehearsal scale' >&2; exit 64 ;;
+          esac
+          # Reach the local daemon as the runner user; remote Docker is refused.
+          endpoint="$(docker context inspect default --format '{{.Endpoints.docker.Host}}')"
+          case "${DOCKER_HOST:-$endpoint}" in
+            unix:///var/run/docker.sock) ;;
+            *) echo 'A local Unix Docker endpoint is required' >&2; exit 65 ;;
+          esac
+          [ "$endpoint" = unix:///var/run/docker.sock ] || { echo 'Default Docker context must use the local socket' >&2; exit 65; }
+          [ -z "${DOCKER_CONTEXT:-}" ] || [ "$DOCKER_CONTEXT" = default ] || exit 65
+          export DOCKER_HOST=unix:///var/run/docker.sock
+          unset DOCKER_CONTEXT
+          docker info >/dev/null
+          existing="$(docker ps -aq --filter label=io.ed-finder.purge-rehearsal=true)"
+          [ -z "$existing" ] || { echo 'Another rehearsal container exists; inspect it first' >&2; exit 65; }
+          docker_root="$(docker info --format '{{.DockerRootDir}}')"
+          [ -d "$docker_root" ] || { echo 'Cannot inspect Docker data root' >&2; exit 65; }
+          free_bytes="$(df -PB1 -- "$docker_root" | awk 'NR == 2 {print $4}')"
+          [[ "$free_bytes" =~ ^[0-9]+$ ]] || { echo 'Cannot measure Docker free bytes' >&2; exit 65; }
+          [ "$free_bytes" -ge "$required_bytes" ] || { echo "Insufficient Docker disk: $free_bytes < $required_bytes bytes" >&2; exit 65; }
+          printf 'Docker free bytes: %s; required: %s\n' "$free_bytes" "$required_bytes"
+
+      - name: Checkout exact dispatched main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable current main source
+        shell: bash
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+          [ "$current_main" = "$DISPATCH_SHA" ] || { echo 'Main moved; dispatch again' >&2; exit 65; }
+          [ "$(git rev-parse HEAD)" = "$DISPATCH_SHA" ] || exit 65
+          mkdir -p "$REHEARSAL_OUTPUT_DIR"
+          printf '%s\n' "$DISPATCH_SHA" > "$REHEARSAL_OUTPUT_DIR/source-sha.txt"
+
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Install disposable database client
+        run: python -m pip install 'psycopg[binary]==3.3.4'
+
+      - name: Run real purge action and crash rehearsals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/rehearsal/v3_derived_purge_rehearsal.py \
+            --scale "$REHEARSAL_SCALE" \
+            --run-id "$REHEARSAL_RUN_ID" \
+            --output-dir "$REHEARSAL_OUTPUT_DIR"
+
+      - name: Remove own disposable containers and volumes and verify absence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REHEARSAL_RUN_ID" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || exit 64
+          export DOCKER_HOST=unix:///var/run/docker.sock
+          unset DOCKER_CONTEXT
+          project_filter=label=io.ed-finder.purge-rehearsal=true
+          run_filter="label=io.ed-finder.purge-rehearsal.run-id=$REHEARSAL_RUN_ID"
+          containers="$(docker ps -aq --filter "$project_filter" --filter "$run_filter")"
+          if [ -n "$containers" ]; then
+            while IFS= read -r container; do docker rm -f "$container"; done <<< "$containers"
+          fi
+          volumes="$(docker volume ls -q --filter "$project_filter" --filter "$run_filter")"
+          if [ -n "$volumes" ]; then
+            while IFS= read -r volume; do docker volume rm "$volume"; done <<< "$volumes"
+          fi
+          [ -z "$(docker ps -aq --filter "$project_filter" --filter "$run_filter")" ] || exit 65
+          [ -z "$(docker volume ls -q --filter "$project_filter" --filter "$run_filter")" ] || exit 65
+          echo 'Own rehearsal containers and volumes are absent'
+
+      - name: Retain sealed rehearsal receipt and raw measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-purge-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REHEARSAL_OUTPUT_DIR }}/
+          retention-days: 180
+          if-no-files-found: warn

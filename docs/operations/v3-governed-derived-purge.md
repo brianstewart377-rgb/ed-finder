@@ -1,12 +1,12 @@
-# V3 governed derived purge (through P2c)
+# V3 governed derived purge (through P2d)
 
 This runbook covers the P2a entry fences and installed backup wrapper, and the
 P2b1 read-only and single-transaction purge action, P2b2a bounded delete
 and recovery phases, P2b2b physical rewrite and its independent monitor, and the
-P2c protected dispatch workflow. The
+P2c protected dispatch workflow and P2d disposable rehearsal. The
 [governed purge design](../development/v3-governed-derived-purge-design.md)
 remains the execution-gate authority. The approximately 1% disposable PostgreSQL
-18 rehearsal remains P2d, and the protected workflow does not itself satisfy
+18 rehearsal must pass and be reviewed; the protected workflow does not itself satisfy
 the design's owner execution gates. No production operation follows from merging
 this code.
 
@@ -210,17 +210,19 @@ order, reviewing each receipt before approving the next phase:
 6. `complete` with both artifact pairs. Review its completion receipt: zero
    target rows alone do not establish reclamation or completion.
 
-P2d's rehearsal figures must be present in the reviewed plan **before** any
-delete, rewrite, or abort dispatch can run. The current plan producer supplies
-no measured rewrite allowance, rewrite peak/timeout or autovacuum-release budget,
-so these phases remain fail-closed until P2d integrates the rehearsal evidence
-into plan generation before sealing. Per relation, review the cadence and
-`delete[relation].rows_per_second`, `rewrite_allowance_seconds`, and
-`autovacuum_budget_bytes`, plus `rewrite[relation].rewrite_peak_bytes` and
-`statement_timeout_ms`; JSON relation keys use underscores. A conservative
-throughput fallback is not a rehearsal measurement. Do not edit a downloaded
-artifact: changing it invalidates its seal and authenticated run provenance.
-P2c neither performs P2d nor supplies substitute production figures.
+P2d's reviewed rehearsal figures must be present in the sealed plan **before**
+any delete, rewrite, or abort dispatch can run. The action's plan mode now accepts
+a reviewed sealed rehearsal receipt and its explicit content SHA as described
+below. The protected workflow does not yet transport that rehearsal artifact to
+its plan invocation, so its default plan still has no measured rewrite allowance,
+rewrite peak/timeout or autovacuum-release budget and destructive dispatch stays
+fail-closed. Adding governed artifact staging is a separate dispatch integration;
+do not bypass the protected workflow or edit a downloaded plan. Per relation,
+review `delete[relation].rows_per_second`, `rows_per_second_source`,
+`rewrite_allowance_seconds`, `autovacuum_budget_bytes`, and `batch_peak_bytes`,
+plus `rewrite[relation].rewrite_peak_bytes` and `statement_timeout_ms`; JSON
+relation keys use underscores. A conservative throughput fallback is not a
+rehearsal measurement.
 
 On interruption, inspect `status` first. An open writer/service fence requires
 `restore-services`, using both artifact pairs, before a fresh destructive phase;
@@ -267,6 +269,123 @@ after controller loss. The ops read-only source tree is removed after its
 action exits.
 No repository credential is sent to the host. `GITHUB_RUN_ID` and the remote
 controller PID/start identity bind action liveness to the polling controller.
+
+## P2d rehearsal
+
+Implementation base: `ebe88b78ec66f9eeacc1576a5d3b535a312be166` (merged P2c,
+PR #822). Owner decision 2026-10-16 selects the Contabo self-hosted runners for a
+**disposable** PostgreSQL 18 rehearsal. Contabo hosts exactly three Codex runners
+and is not production. Use [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml)
+on current `main`, first with `scale: smoke` (about 0.05%), then with
+`scale: one_percent` (about 2 million systems). This is manual dispatch only;
+merging the harness never dispatches it. It has no secrets, production target,
+SSH transport, or deployment step. The workflow pins the dispatched main SHA
+and refuses if main has advanced before source verification.
+
+Before checkout, the runner must reach its local Docker daemon without privilege
+elevation, have no existing rehearsal container (including stopped containers),
+and have at least **5 GB** free on the Docker data root for smoke or **40 GB** for
+one_percent. These are admission minima, not proof that the complete dataset
+fits. Every rehearsal has its own labeled container and volume. A global
+concurrency group prevents overlapping dispatches across the three runners;
+cancellation of an earlier run is disabled. The 720-minute job limit bounds
+seeding, deletes, rewrites and crash recovery. The final `if: always()` cleanup
+removes only this run's labeled containers and volumes and verifies their
+absence. If a runner dies before cleanup, a later dispatch refuses the leftover
+container; inspect its run identity and evidence before removing it through a
+reviewed runner-maintenance procedure. Cleanup does not touch unrelated Docker
+resources.
+
+The harness applies the committed migration manifest through 016 and creates
+synthetic BUILDING and VALIDATING targets plus a published survivor. It derives
+the four payload relations' generation proportions from the committed
+[2026-10-10 lifecycle receipt](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json),
+records that receipt's SHA, and leaves archetype/cluster target tables empty.
+The real purge action runs in a separate disposable-marker override path;
+ordinary invocation never enables that override. It requires both `--rehearsal-container` and a 64-hex-character
+`--rehearsal-token`, and independently refuses production host identities. The
+adapter accepts only the local default Unix Docker socket, a unique
+`edfinder-purge-rehearsal-<32 hex>` name matching the container hostname,
+`network=none`, no published ports, binds, devices or privileged mode, and a
+single same-token dedicated `<container>-data` volume at `/var/lib/postgresql`.
+Every execution is pinned to the inspected immutable container ID. The fixed
+`edfinder_purge_rehearsal` database must carry the matching disposable-token
+comment; arbitrary URLs and DSNs are not accepted. Rehearsal plans are marked
+and cannot be consumed by the production adapter. A local subprocess watchdog
+replaces systemd in this disposable environment; delete/rewrite/recovery SQL
+is shared with the real action. The **100 GB action floor remains unchanged**:
+meeting the workflow's 40/5 GB minimum alone cannot admit a purge phase.
+
+Review the uploaded artifact (retained **180 days**) for:
+
+- Exact source SHA, pinned image digest, migration identities, production
+  proportion, requested scale, per-generation row counts, and effective server
+  settings. The synthetic `archive_mode=on` with `archive_command=/bin/true`
+  exercises the action's archive-health checks without retaining an archive;
+  it provides no backup or recovery evidence. Autovacuum
+  must remain enabled outside each action's own maintenance fence.
+- Delete rows and statement durations, rows per second, each batch's data-volume
+  free-space samples (WAL and temporary growth included), rewrite duration and
+  peak growth, and published survivor counts. A sampled peak below 1 GB is
+  required for each batch; a larger peak requires a smaller bound and a new run.
+  Sampling is an empirical bound and may miss growth shorter than its interval.
+- Raw and production-extrapolated figures, and the owner's **1.5× disk-peak
+  margin**. Planning throughput uses sustained delete dispatch elapsed time,
+  including safety checks; actual batch statement durations and throughput are
+  retained separately. Whole-relation rewrite peaks and
+  durations are extrapolated by the recorded proportion. The finite rewrite
+  allowance is twice the extrapolated measured duration (at least 60 seconds);
+  it is a controller budget, not an outage guarantee. Batch reservation stays
+  tied to the measured batch bound, rather than multiplying by dataset scale.
+- The explicit autovacuum budget source. The harness uses the design's lower
+  bound of current heap-plus-index bytes where a separate equivalent-delete
+  autovacuum experiment is impractical; review that limitation before accepting
+  a production abort budget.
+- Every crash-scenario result: client loss before and after batch commit,
+  independent-monitor cancellation, `pg_terminate_backend`, PostgreSQL restart
+  during rewrite, and wrapper loss after rewrite commit before verification.
+  Evidence must prove one complete old or new filenode state, valid indexes,
+  unchanged published rows, recovered ANALYZE and no double rewrite. Require
+  JSON boolean `gate_10_crash_rehearsal_passed: true`; a partial or failed run
+  never authorizes a shared-table rewrite. Each scenario uses a fresh marked
+  fixture based on smoke proportions (100,000 systems), including during a
+  one-percent run. The three external mid-rewrite scenarios augment only the
+  published rating-vector payload to 2,000,000 rows, with corresponding build
+  chunks, so physical copying can be observed; other payloads remain sparse.
+  Each result records `crash_scale` and `crash_fixture_row_counts` explicitly.
+  Whole-relation performance and disk estimates come from the separate requested
+  scale journey, whose counts are unchanged. Tiny local checks keep tiny crash
+  fixtures without augmentation. If a short rewrite finishes before active PG18 progress is
+  observed, the scenario fails instead of treating a timing guess as a crash.
+
+Smoke is a harness check and never production planning authority. Only a
+successful, reviewed `one_percent` receipt with all six crash scenarios passed
+can feed a production plan. Review the empirical estimates against fresh
+production storage/WAL and writer-fence facts under the design's execution
+gates. A rehearsal receipt does not authorize a production operation.
+
+The plan-mode integration accepts both `--rehearsal-receipt <reviewed-path>` and
+`--rehearsal-receipt-sha256 <content_sha256>` on
+`scripts/operator/actions/v3-derived-generation-purge.sh plan`. These are an
+integration contract for governed plan staging, not a manual production
+invocation. The SHA is the sealed JSON's `content_sha256`, not a bytewise file
+hash. The action verifies the `f2d_evidence.py` seal, explicit SHA, schema,
+source and lifecycle identities, one-percent proportion, raw/derived arithmetic,
+and crash gate before copying figures into the plan and sealing that plan.
+Missing arguments, smoke receipts, a false crash gate, changed bytes or
+inconsistent derived figures refuse admission.
+
+For each relation the action records
+`rows_per_second_source: reviewed_rehearsal:<content_sha256>` and populates the
+plan's measured throughput, rewrite allowance, autovacuum budget, batch limit
+and reservation, rewrite peak, and statement timeout. The receipt retains raw
+and margin-applied figures separately. Raw batch/rewrite peaks enter the plan;
+production controllers apply the 1.5× margin at admission, exactly once.
+The autovacuum lower-bound budget already carries its recorded margin.
+The protected production workflow currently has no rehearsal artifact transport
+input. Until a reviewed staging integration supplies these plan options while
+preserving workflow artifact provenance, production destructive dispatch remains
+blocked. Do not supply an edited plan or an unreviewed synthetic estimate.
 
 ## Action modes and receipt order
 
