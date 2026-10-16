@@ -69,8 +69,8 @@
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
       "sha256:66db7a1ddb5d68d6d76e9ba320a742e8d2195df19a09ff988bf8ba96d3d3976d",
       "sha256:7511a66d438a6413153be3d5515622e007c58ee722c2c5ae39d6ed2adc3e6684",
+      "sha256:7b5ccb2d15894da081f26e62a789df00993afaa78134b05328f5fb575435a609",
       "sha256:b13fd4c2f4cb1a43a74efd8506526e12a0572d3f39dfae85647ff617e0f7d91d",
-      "sha256:b43b8f457075b89c0d1c5dc40fe30e743f76fa4fac8ad09f61647bc273f6a4c7",
       "sha256:cf97b0ab6f8ec2a64cdc15c97a46c5d4ba6115ca35d5c470e3b8d62d84abbc93"
     ],
     "evidence": "Release run 36196769987 and accepted promotion run 36197361462 bind source bed755b944eb6cb226e1726b2a51582ba9fa9bdb, the recorded backend/web digests and release-file SHA256 4034f55e2f552e3219d88c66639cc70835bd28b77084ca1a4ff00530b0fade1a. The app-only upgrade performed no migrations; its receipts reported installed through-012 identity sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe and migrations_performed=false. The sealed release also recorded canonical application identity sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf. git grep of apps/api/src at bed755b9 confirms ratings_v4.py reads the derived pointer/manifest and system_rating_vector/body_mechanics, with no derived payload DELETE or publication/purge-function call. It reads none of the Search/archetype relations or new watchlist relations. Thus 014's new empty tables, 010's Search columns/view, rewritten wide-row 011, 013's scheduler tables and 015's additive product-publication metadata/guards/views remain compatible. Migration 016 adds only new meta ledger relations/functions and a NOLOGIN executor role and tightens payload DELETE guards no running code uses; existing payload SELECTs and application writes elsewhere are unaffected. Installation invokes no purge or writer/autovacuum fence. The operator commits one migration per transaction, so all reachable through-012, through-014, through-010, through-011, through-013, through-015 and through-016 identities remain attested, alongside the sealed release identity. Compatibility evidence only; no production application is claimed."
@@ -79,14 +79,22 @@
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
     "from_schema_identity_sha256": "4cae7d2be2e1909d468b82c6802b265118303cc0fe1c257c2f6c9e963f3a39f5",
     "from_migration_set_identity": "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
-    "to_migration_set_identity": "sha256:b43b8f457075b89c0d1c5dc40fe30e743f76fa4fac8ad09f61647bc273f6a4c7",
-    "evidence": "Reviewed transition from installed through-012 to through-012-014-010-011-013-015-016, preserving installed order and byte hashes under the exact-prefix gate. Pending set: [014, 010, 011-rewritten, 013, 015, 016]. Each migration owns BEGIN/COMMIT; its ledger row commits atomically. Migration 010 adds columns metadata-only and 18 enforced checks NOT VALID, avoiding an initial 198.5M-row scan under ACCESS EXCLUSIVE; validation is separate. Never-applied 011 is rewritten as one wide archetype row per system; 011/013 create new empty relations/indexes. Migration 015 permits products on a PUBLISHED generation, adds audited one-way product publication, gated Finder views and pointer guards, and drops the unsafe seven-argument generation publisher. Migration 016 installs the append-only purge ledger, NOLOGIN executor, bounded functions and recovery fences and narrows payload DELETE guards; installation invokes no purge, payload DELETE or VACUUM. scripts/operator/v3_schema_identity.py reproduces installed checksum 4cae7d2be2e1909d468b82c6802b265118303cc0fe1c257c2f6c9e963f3a39f5 and target checksum 82d3c9a92ebdbb133d6668fa209d4a8a37ccc7e4b8a5a6ff8f5bd733f205839f with migration-set identity sha256:b43b8f457075b89c0d1c5dc40fe30e743f76fa4fac8ad09f61647bc273f6a4c7. Accepted bed755b9 is compatible with both endpoints and every intermediate prefix: its ratings reads are unchanged and it uses no derived DELETE or purge function. If 014 is applied alone first, recut the authority from through-012-014 before further apply. Registration only: exact-head acceptance, reviewed governed plan and separate apply remain required."
+    "to_migration_set_identity": "sha256:7b5ccb2d15894da081f26e62a789df00993afaa78134b05328f5fb575435a609",
+    "evidence": "Reviewed transition from installed through-012 to through-012-014-010-011-013-015-016, preserving exact-prefix order and hashes. Pending set: [014, 010, 011-rewritten, 013, 015, 016]. Each migration owns BEGIN/COMMIT; its ledger commits atomically. 010 adds metadata-only columns and 18 NOT VALID checks, avoiding an initial 198.5M-row ACCESS EXCLUSIVE scan; validation is separate. Never-applied 011 is one wide archetype row per system; 011/013 create empty relations/indexes. 015 adds audited product publication on PUBLISHED generations, gated Finder views/pointer guards and removes the unsafe generation publisher. 016 installs the append-only purge ledger, NOLOGIN executor and bounded recovery fences; installation invokes no purge, DELETE or VACUUM. Its amendment records an optional exact same-plan integrity FAILED_STOP acknowledgement in WRITER_FENCE_RESTORED. A terminal committed rewrite additionally requires the exact start event, departed recorded backend and clear rewrite/analyze progress; other mutators retain the integrity fence. scripts/operator/v3_schema_identity.py reproduces installed checksum 4cae7d2be2e1909d468b82c6802b265118303cc0fe1c257c2f6c9e963f3a39f5 and target checksum 13c2014224a414ad35e3e594e305f70cb719439c982d40a3781c5976883b8d48 with migration-set identity sha256:7b5ccb2d15894da081f26e62a789df00993afaa78134b05328f5fb575435a609. Accepted bed755b9 remains compatible with both endpoints and every intermediate prefix: its ratings reads are unchanged and it calls no purge or derived DELETE. If 014 is applied alone, recut from through-012-014 before further apply. Registration only; exact-head acceptance, reviewed plan and separate apply remain required."
   },
   "application_contract": {
     "compose_project": "edfinder-v3-production",
     "compose_sha256": "a06a5f0c237b0433457b5f15632fa28cf922768df4cbc4b5936c9f1759a288f4",
-    "slots": ["blue", "green"],
-    "services": ["api-blue", "web-blue", "api-green", "web-green"],
+    "slots": [
+      "blue",
+      "green"
+    ],
+    "services": [
+      "api-blue",
+      "web-blue",
+      "api-green",
+      "web-green"
+    ],
     "containers": [
       "edfinder-v3-production-api-blue",
       "edfinder-v3-production-web-blue",
@@ -94,9 +102,21 @@
       "edfinder-v3-production-web-green"
     ],
     "per_active_slot_limits": {
-      "api": {"cpus": "2.00", "memory": "4096m", "pids": 512},
-      "web": {"cpus": "1.00", "memory": "1024m", "pids": 256},
-      "logs": {"driver": "json-file", "max_size": "20m", "max_files": 3}
+      "api": {
+        "cpus": "2.00",
+        "memory": "4096m",
+        "pids": 512
+      },
+      "web": {
+        "cpus": "1.00",
+        "memory": "1024m",
+        "pids": 256
+      },
+      "logs": {
+        "driver": "json-file",
+        "max_size": "20m",
+        "max_files": 3
+      }
     },
     "named_volumes": [],
     "database_lifecycle": "external-retained-never-managed",
@@ -110,8 +130,21 @@
       "edfinder-v3-support-redis",
       "edfinder-v3-support-nats"
     ],
-    "container_name_patterns": ["^octopus(?:-|$)", "(?:^|-)pg(?:-|$)", "bench", "lab"],
-    "never_compose_services": ["postgres", "redis", "valkey", "nats", "edge", "proxy", "octopus"],
+    "container_name_patterns": [
+      "^octopus(?:-|$)",
+      "(?:^|-)pg(?:-|$)",
+      "bench",
+      "lab"
+    ],
+    "never_compose_services": [
+      "postgres",
+      "redis",
+      "valkey",
+      "nats",
+      "edge",
+      "proxy",
+      "octopus"
+    ],
     "never_recreate_or_remove": true
   },
   "external_authority": {
@@ -127,7 +160,7 @@
     "api_env_owner_uid": 0,
     "api_env_mode": "0600",
     "schema_identity_file": "/etc/ed-finder/v3-production/schema-identity.json",
-    "schema_identity_sha256": "82d3c9a92ebdbb133d6668fa209d4a8a37ccc7e4b8a5a6ff8f5bd733f205839f",
+    "schema_identity_sha256": "13c2014224a414ad35e3e594e305f70cb719439c982d40a3781c5976883b8d48",
     "schema_identity_owner_uid": 0,
     "schema_identity_mode": "0600",
     "active_origin_bind": "127.0.0.1:58080",

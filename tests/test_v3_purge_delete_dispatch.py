@@ -413,7 +413,7 @@ def test_empty_relation_with_insufficient_rewrite_horizon_recommends_rewrite(mon
     with pytest.raises(ValueError, match='autovacuum_fence_deadline_unsafe'):
         model.run()
     assert model.mutations == []
-    assert model.report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': False}
+    assert model.report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': True}
 
 
 def test_delete_rechecks_full_horizon_immediately_before_adopting_fence(monkeypatch):
@@ -504,7 +504,7 @@ def test_delete_cannot_succeed_without_final_integrity_and_size_observations(mon
         assert model.report['relation_bytes_after'] is None
 
 
-def test_integrity_failure_preserves_original_stop_and_reports_016_ack_conflict(monkeypatch):
+def test_integrity_failure_requires_exact_owner_acknowledgement_before_writer_restore(monkeypatch):
     model = DispatchModel(monkeypatch)
     model.integrity = 'survivors'
     with pytest.raises(ValueError, match='delete_published_survivor_count_drift'):
@@ -518,13 +518,26 @@ def test_integrity_failure_preserves_original_stop_and_reports_016_ack_conflict(
     with pytest.raises(ValueError, match='acknowledgement_required'):
         model.run('restore-services', acknowledge_failed_stop=failed_sequence + 1)
     original = deepcopy(model.failures)
-    mutations = list(model.mutations)
-    with pytest.raises(ValueError, match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
-        model.run('restore-services', acknowledge_failed_stop=failed_sequence)
-    assert model.writer
-    assert model.mutations == mutations
+    acknowledged = []
+    def acknowledge(query, ids, sequence):
+        assert ids == model.ids and sequence == failed_sequence
+        acknowledged.append(sequence)
+        return {'acknowledge_failed_stop': sequence}
+    model.tx.acknowledge_failure = acknowledge
+    restore_fence = model.tx.writer_fence
+    def fence(query, purge_id, enabled, probe, **kwargs):
+        assert not enabled and kwargs['acknowledge_failed_stop'] == failed_sequence
+        assert acknowledged == [failed_sequence]
+        return restore_fence(query, purge_id, enabled, probe, **kwargs)
+    model.tx.writer_fence = fence
+    result = model.run('restore-services', acknowledge_failed_stop=failed_sequence)
+    assert result['status'] == 'success'
+    assert result['writer_restore'] == {'verified': True, 'acknowledge_failed_stop': failed_sequence}
+    assert not model.writer and 'writer-restored' in model.mutations
     assert model.failures == original
     assert original[-1]['operational_payload']['integrity_failed'] is True
+    with pytest.raises(ValueError, match='integrity_failed_stop_requires_restore_services_acknowledgement'):
+        model.run()
 
 
 @pytest.mark.parametrize('integrity', ('canonical', 'survivors', 'retained', 'fk', None))
@@ -832,3 +845,14 @@ def test_dispatch_requires_reviewed_per_relation_batch_limit_before_any_mutation
     with pytest.raises(ValueError, match='delete_plan_batch_limit'):
         model.run()
     assert model.mutations == []
+
+
+def test_restore_services_validates_supplied_acknowledgement_without_open_failure(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.writer = True
+    def acknowledge(*args):
+        raise ValueError('purge_failed_stop_acknowledgement_invalid')
+    model.tx.acknowledge_failure = acknowledge
+    with pytest.raises(ValueError, match='purge_failed_stop_acknowledgement_invalid'):
+        model.run('restore-services', acknowledge_failed_stop=999)
+    assert model.writer and 'writer-restored' not in model.log

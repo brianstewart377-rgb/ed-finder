@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# P2b2a local entry point. No workflow/dispatch or deployment authority is added.
+# P2b2b local entry point. No workflow/dispatch or deployment authority is added.
 set -euo pipefail
 if command -v python3.14 >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3.14)"

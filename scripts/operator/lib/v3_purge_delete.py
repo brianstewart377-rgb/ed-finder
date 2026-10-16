@@ -291,8 +291,9 @@ def admission(mode, unresolved, ids, relation):
         if event['purge_id'] not in ids:
             raise ValueError('different_purge_fence_open')
         kind = event['event_kind']
-        if kind == 'REWRITE_STARTED':
-            raise ValueError('rewrite_resolution_requires_p2b2b')
+        if kind == 'REWRITE_STARTED' and mode != 'restore-services':
+            if not mode.startswith('rewrite-') or event['relation_code'] != relation:
+                raise ValueError('different_relation_rewrite_open')
         if kind == 'SERVICES_QUIESCED':
             raise ValueError('quiesce_mode_not_authorized_option_b_only')
         if mode == 'restore-services':
@@ -353,7 +354,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     report['wal_before'] = c.measure_wal(runtime, identity['data_directory'])
     tx.resolve_batches(runtime.query, ids, relation)
     if mode == 'restore-services':
-        restore(c, tx, runtime, report, ids, acknowledge_failed_stop)
+        restore(c, tx, runtime, report, ids, acknowledge_failed_stop, reviewed=reviewed)
         report['wal_after'] = c.measure_wal(runtime, identity['data_directory'])
         c.finalize_wal_delta(runtime, report)
         report['status'] = 'success'
@@ -395,7 +396,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
             if any(valid):
                 report['next_admissible_mode'] = {'mode': 'delete-' + mode.removeprefix('abort-relation-'), 'implemented': True}
             elif len(valid) == len(target_ids):
-                report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('abort-relation-'), 'implemented': False}
+                report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('abort-relation-'), 'implemented': True}
         c.finalize_wal_delta(runtime, report)
         report['status'] = 'success'
         return
@@ -549,7 +550,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                 measured = gates()
                 sealed = {**measured, 'receipt_sha256': c.evidence.canonical_sha256(measured)}
                 tx.complete_relation(runtime.query, ids, relation, sealed)
-                report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('delete-'), 'implemented': False}
+                report['next_admissible_mode'] = {'mode': 'rewrite-' + mode.removeprefix('delete-'), 'implemented': True}
             run_loop_process(work, report, stop)
         except Exception as exc:
             if not report.get('failed_stop_attempted'):
@@ -561,7 +562,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
             stop.set()
             runtime.deadline = max(runtime.deadline, time.monotonic() + 120)
             tx.resolve_batches(runtime.query, ids, relation)
-            restore(c, tx, runtime, report, ids, None, automatic=True)
+            restore(c, tx, runtime, report, ids, None, automatic=True, reviewed=reviewed)
             backup_skips(runtime, report)
     report['result'] = 'relation_logically_empty_waiting_for_rewrite'
     c.finalize_wal_delta(runtime, report)
@@ -635,7 +636,7 @@ def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_rows, di
     def refuse(code):
         report['next_admissible_mode'] = {
             'mode': ('rewrite-' if remaining_rows == 0 else 'abort-relation-') + mode_relation,
-            'implemented': remaining_rows != 0,
+            'implemented': True,
         }
         raise ValueError(code)
     config = reviewed.get('delete', {}).get(relation, {})
@@ -678,7 +679,7 @@ def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_rows, di
                 refuse('autovacuum_fence_deadline_unsafe')
 
 
-def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
+def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False, reviewed=None):
     # The ledger alone cannot reveal a FAILED_STOP whose commit/transport failed.
     # Apply the same fail-closed rule for ordinary cleanup and signal cleanup.
     if automatic and (report.get('integrity_failed') is True or (
@@ -688,7 +689,8 @@ def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
         return
     state = runtime.state(allow_unresolved=True)
     if any(e['event_kind'] == 'REWRITE_STARTED' for e in state['unresolved']):
-        raise ValueError('rewrite_resolution_requires_p2b2b')
+        c._load('v3_purge_rewrite_dispatch').resolve(c, tx, runtime, report, ids, reviewed, cancel=True)
+        state = runtime.state(allow_unresolved=True)
     failures = [e for e in state['unresolved'] if e['event_kind'] == 'FAILED_STOP']
     if failures:
         if automatic:
@@ -697,9 +699,8 @@ def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
         sequences = {e['event_sequence'] for e in failures}
         if acknowledgement not in sequences or len(sequences) != 1:
             raise ValueError('integrity_failed_stop_acknowledgement_required')
-        # Immutable 016 cannot put an acknowledgement in its dedicated writer
-        # restore payload. Refuse rather than append a synthetic FAILED_STOP.
-        raise ValueError('integrity_failed_stop_acknowledgement_payload_unsupported_016')
+    if acknowledgement is not None:
+        tx.acknowledge_failure(runtime.query, ids, acknowledgement)
     # Resolve before even sampling the restore's LSN, with exact PID+start guard.
     tx.resolve_batches(runtime.query, ids)
     if report.get('wal_before') is None:
@@ -707,7 +708,8 @@ def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):
     restored = {}
     for purge_id in ids:
         restored.update(tx.writer_fence(runtime.query, purge_id, False,
-                                        lambda: fresh_probe(runtime, c), purge_ids=ids))
+                                        lambda: fresh_probe(runtime, c), purge_ids=ids,
+                                        **({'acknowledge_failed_stop': acknowledgement} if acknowledgement is not None else {})))
     report['writer_fence'] = {**(report.get('writer_fence') or {}), **restored, 'enabled': False, 'verified': True}
     report['writer_restore'] = {'verified': True, 'acknowledge_failed_stop': acknowledgement}
     report['result'] = 'writer_fence_restored'

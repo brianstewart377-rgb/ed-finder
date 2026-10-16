@@ -1,13 +1,12 @@
-# V3 governed derived purge (P2a / P2b1 / P2b2a)
+# V3 governed derived purge (through P2b2b)
 
 This runbook covers the P2a entry fences and installed backup wrapper, and the
 P2b1 read-only and single-transaction purge action, and P2b2a bounded delete
-and recovery phases. The
+and recovery phases plus P2b2b physical rewrite and its independent monitor. The
 [governed purge design](../development/v3-governed-derived-purge-design.md)
 remains the execution-gate authority. This code provides no protected purge
-workflow, rehearsal, or production execution authorization. Physical rewrite
-and its independent systemd monitor remain P2b2b, the protected workflow remains
-P2c, and the 1% rehearsal remains P2d. No production operation follows from
+workflow, rehearsal, or production execution authorization. The protected workflow
+remains P2c, and the 1% rehearsal remains P2d. No production operation follows from
 merging it.
 
 All governed production mutators first read the operating database's purge
@@ -148,13 +147,15 @@ workers. None of this adds a PostgreSQL restore/PITR recovery route.
 `scripts/operator/actions/v3-derived-generation-purge.sh` delegates fixed SQL
 and receipt handling to `scripts/operator/lib/v3_generation_purge.py` and the
 transaction adapter `scripts/operator/lib/v3_purge_transactions.py`, extended
-by `scripts/operator/lib/v3_purge_delete.py` for delete/recovery orchestration.
+by `scripts/operator/lib/v3_purge_delete.py` for delete/recovery orchestration,
+`v3_purge_rewrite.py` and `v3_purge_rewrite_dispatch.py` for rewrite/recovery,
+and `v3_purge_rewrite_monitor.py` for the independent watchdog. All three new
+files participate in both the purge script hash and F2d operator-code identity.
 Implemented modes are `plan`, `status`, `authorize`,
 `verify-system-archetype-empty`, `complete`, `restore-services`, and the four
-relations’ `delete-` and `abort-relation-` modes. The four exact relation names
+relations’ `delete-`, `rewrite-` and `abort-relation-` modes. The four exact relation names
 are `system-search`, `economy-opportunity`, `body-mechanics`, and
-`system-rating-vector`. Their `rewrite-` modes fail with
-`mode_not_implemented_until_p2b2b`; every other mode is unknown and fails closed.
+`system-rating-vector`. Every other mode is unknown and fails closed.
 These are action contracts for later governed dispatch, not an instruction to
 run them manually against production.
 
@@ -164,7 +165,7 @@ is:
 1. `status` reports unresolved ledger state first. An open batch, rewrite,
    service, writer, or autovacuum fence remains durable even if its backend or
    runner has died. Use the recovery procedures below for an interrupted batch
-   or writer fence; an open rewrite remains refused until P2b2b. Unknown state
+   or writer fence, including an open rewrite. Unknown state
    refuses mutation. Recovery mode and
    recorded backend identity come from a metadata-only snapshot before any
    payload counts or sizes are probed. Each relation is then probed separately;
@@ -194,8 +195,7 @@ is:
 5. Delete the four relations in dependency order: Search, opportunity,
    mechanics, rating vector. Migration 016 enforces that dependency order. Each
    relation still needs a separate verified physical rewrite and restored
-   autovacuum fence before progressing to the next relation; P2b2a deliberately
-   stops at that rewrite boundary. Every destructive mode requires
+   autovacuum fence before progressing to the next relation. Every destructive mode requires
    `--verification PATH --verification-sha256
    SHA256`, authenticating the sealed successful exclusion-verification
    receipt against the immutable reviewed-plan identity and both current
@@ -284,8 +284,8 @@ refuses the dispatch. An open writer/service fence from an interrupted
 controller requires `restore-services` before a new delete dispatch.
 
 This restoration requirement applies even when no batch remains open, and to
-every non-restoration mutating mode: `authorize`, `complete`, `delete-`,
-`abort-relation-`, and future `rewrite-` dispatches. A new dispatch never adopts
+every new mutating phase: `authorize`, `complete`, `delete-`,
+`abort-relation-`, and new `rewrite-` phases. A new phase never adopts
 a writer or service fence left by another dispatch. Restore the interrupted
 dispatch first; aborting an autovacuum fence cannot leave application writes
 disabled.
@@ -355,8 +355,7 @@ change, retained-metadata drift, FK/index failure, or an unknown integrity or
 FAILED_STOP recording outcome sets `integrity_failed: true`.
 
 When target rows reach zero, the receipt recommends `rewrite-<relation>` and
-leaves the autovacuum fence open. P2b2a refuses that rewrite with
-`mode_not_implemented_until_p2b2b`. Zero rows reclaim no physical disk by
+leaves the autovacuum fence open. Dispatch the separately reviewed rewrite next. Zero rows reclaim no physical disk by
 themselves and never satisfy `complete`.
 Successful delete receipts include the final boundary's validated integrity
 checks in `fk_check` and a fresh relation/index/TOAST size observation in
@@ -400,22 +399,28 @@ batch before restoring writers: cancel the exact recorded live backend through
 016, wait until it is gone, then check the recorded key range and its closing ledger event. A successful
 batch records `BATCH_COMMITTED` in the delete transaction itself; an open start
 whose recorded backend has departed is therefore resolved as `BATCH_ROLLED_BACK`. It never assumes a missing client means
-a rollback. An open `REWRITE_STARTED` refuses with
-`rewrite_resolution_requires_p2b2b`; physical rewrite recovery belongs to the
-next PR.
+a rollback. An open `REWRITE_STARTED` is cancelled through
+`cancel_purge_rewrite`, awaited until its exact backend is gone and neither
+progress view shows the relation, then resolved by the rewrite procedure below
+before writer restoration.
 
 After an integrity-failed stop, restoration requires owner review and the exact
-`--acknowledge-failed-stop=<event-sequence>`. There is currently a blocking
-contract conflict: design section 4.2 requires the acknowledgement in the
-restore event payload, while immutable migration 016's dedicated writer
-restoration functions accept no payload. Its generic recorder refuses
-`WRITER_FENCE_RESTORED`; `SERVICES_RESTORED` requires an actual quiesced-service
-record and cannot substitute for writer restoration. In addition, 016's
-recovery guard recognizes acknowledgement only in a later `FAILED_STOP`.
-Restoration stops with
-`integrity_failed_stop_acknowledgement_payload_unsupported_016` after validating
-the exact acknowledgement; do not append a synthetic `FAILED_STOP` to
-manufacture acknowledgement. No migration change is authorized here.
+`--acknowledge-failed-stop=<event-sequence>`. The amended, unapplied migration
+016 accepts the optional acknowledgement only on writer restoration. It must
+name an existing `FAILED_STOP` with `integrity_failed: true` belonging to the
+same plan (including a sibling request); missing, non-integrity, wrong-kind,
+wrong-plan or enable-path acknowledgements refuse. The dedicated
+`purge_set_writer_fence(uuid,boolean,bigint)` records it in
+`WRITER_FENCE_RESTORED.operational_payload`; session recycling and fresh-login
+verification preserve that payload. No synthetic failure or service event is
+used. For a terminal failure after a committed rewrite, the acknowledgement
+must also bind that relation's exact `start_event`; 016 proves its recorded
+PID plus `backend_start` is gone and neither progress view shows maintenance
+before permitting writer restoration. This resolves the earlier mismatch where
+P2a treated `FAILED_STOP` as terminal but 016 still required rewrite verification
+or rollback. It supplies no `REWRITE_VERIFIED` or autovacuum restoration and
+keeps the original integrity stop intact. The trap never supplies owner
+acknowledgement.
 
 The original integrity `FAILED_STOP` remains untouched. P2a continues to refuse
 other mutators on that event even after owner acknowledgement: an integrity
@@ -448,9 +453,9 @@ After that gate, the action restores the exact ledgered heap and TOAST
 relation remains physically unreclaimed. Fresh counts for both targets determine
 the receipt's next mode: `delete-<relation>` when target rows remain,
 `rewrite-<relation>` only when both counts are zero, and `status` when counts
-are unproven. `complete` continues to refuse. P2b2b's rewrite must establish a
-new autovacuum fence when adopting an aborted relation, then verify the
-physical rewrite before restoring it.
+are unproven. `complete` continues to refuse until verified physical rewrites
+exist. Rewrite establishes a new autovacuum fence when adopting an aborted
+relation, then verifies the physical rewrite before restoring it.
 
 
 016 has two additional recovery constraints that this action preserves. Its
@@ -461,6 +466,104 @@ the prerequisite `FAILED_STOP` instead of that closing event. Likewise,
 `BATCH_COMMITTED` is appended only atomically by `purge_derived_payload_batch`;
 recovery cannot invent it. A departed backend with a still-open start proves
 that delete did not commit, and recovery records `BATCH_ROLLED_BACK`. The
-recorded key range is checked before that resolution. The writer-restoration
-acknowledgement conflict is described above; it must not be worked around with
-a synthetic failure event. The action changes no 016 function or grant.
+recorded key range is checked before that resolution. Owner acknowledgement
+uses only the dedicated 016 writer-restoration amendment described above; no
+grant or data-mutation guard is broadened.
+
+
+## Physical rewrite and recovery
+
+Use the same authenticated plan and sealed exclusion proof as deletion. The
+four relations follow the same FK order: Search, opportunity, mechanics,
+rating vector. Both target counts must be zero, logical completion must be
+ledgered, and no batch or different relation's autovacuum fence may remain open.
+An existing autovacuum fence is adopted with its original age ceilings; an
+aborted fence is re-established through 016 with exactly the delete age and
+remaining-horizon checks. Writer mode remains option (b), verified read-only.
+The host purge lease and pgBackRest schedule lock cover the entire dispatch,
+backend, recovery and restoration. The persistent maintenance client inherits
+both lock descriptors so they remain held if the wrapper disappears; the
+monitor itself holds neither lock.
+
+Before dispatch, P2d must supply and seal
+`reviewed_plan.rewrite[relation].rewrite_peak_bytes` and
+`statement_timeout_ms`. Relation keys use underscores. There is no default for
+either field: missing peak refuses with `rewrite_peak_not_measured`, and missing
+timeout with `rewrite_statement_timeout_not_measured`. The pre-start free bytes
+must cover 100,000,000,000 plus 1.5 times that measured peak. The installed
+wrapper hash and heap/index/TOAST/temp/WAL placement are rechecked. The plan's
+existing delete `rewrite_allowance_seconds` must also cover the age horizon;
+it does not substitute for the measured peak or statement timeout.
+
+The physical phase has exactly three steps:
+
+1. Commit `REWRITE_STARTED` through 016 on the maintenance backend, recording
+   the relation OID, original filenode, heap/index/total sizes, PID and
+   `backend_start`.
+2. Start the independent monitor and wait for its readiness handshake, then
+   issue the one fixed `VACUUM (FULL, ANALYZE)` command on that same backend
+   under `v3_derived_purge_executor`. It runs outside a transaction, with a
+   five-second lock timeout and the reviewed per-relation statement timeout.
+3. After backend exit, verify changed filenode, `last_analyze` later than the
+   start, exact published counts, pointers and retained metadata, valid FKs,
+   indexes/triggers and measured sizes. Append `REWRITE_VERIFIED` through 016;
+   its verifier restores the exact prior heap/TOAST autovacuum options.
+
+A verified retry opens no new rewrite or autovacuum fence. An unresolved start
+is observed through metadata before touching the heap. Re-dispatch refuses
+while its recorded backend or either `pg_stat_progress_cluster` or
+`pg_stat_progress_analyze` shows the relation. Once idle, an unchanged filenode
+closes with `REWRITE_ROLLED_BACK` and permits a fresh normal rewrite. A changed
+filenode causes recovered `ANALYZE`, verification that its timestamp trails the
+start, and `REWRITE_VERIFIED` with `recovered: true`; it never runs a second
+`VACUUM FULL`. A failed verification of a changed filenode records `FAILED_STOP`
+with `rewrite_committed: true` and `integrity_failed: true`, preserving the
+writer fence. Unknown integrity evidence likewise cannot reopen writes.
+
+On INT, TERM or HUP, the trap cancels only the recorded backend through 016,
+waits for it and both progress views to clear, and performs that same filenode
+resolution before restoring writers. `restore-services` uses this identical
+resolution. Existing orphan writer/service fences still require
+`restore-services` before a new destructive phase. A matching `rewrite-R` may
+first perform recovery only when its exact same-plan start and verified writer
+fence remain open: it refuses an active backend, resolves an idle start and
+restores the old writer fence before returning or starting any fresh phase.
+Other relations, services and integrity stops cannot use that narrow recovery
+entry. After an integrity stop,
+automatic cleanup never restores writers; owner acknowledgement permits only
+writer restoration, while P2a continues to block every other mutator pending
+separately reviewed repair authority.
+
+## Independent rewrite monitor
+
+The action launches a transient root-owned `systemd-run` unit named
+`edfinder-v3-purge-rewrite-<start-event>`, using exact CPython 3.14. Its config
+and readiness handshake live under root-owned mode-0700
+`/run/edfinder-v3-purge-monitors`; files are mode 0600. Source and its ancestors
+must be root-owned and not group/world writable, and the unit verifies the
+hashed script identity. A root-owned installed source tree is therefore an
+execution prerequisite; this coding change installs nothing. The monitor is
+pinned to the container ID, backend PID and `backend_start`, with PID/start-tick
+identities for both wrapper and controller. It owns no lease and survives
+controller disappearance.
+
+Every 250 ms, with bounded database/host probes, it checks data-filesystem free
+bytes against the 100 GB floor, physical `pg_wal` bytes and placement, slot
+health, both archiver predicates (start `failed_count` must not rise, and
+`last_failed_time` must not be newer than `last_archived_time`), and controller
+liveness. No independent WAL-growth ceiling is imposed: WAL shares the monitored
+filesystem and the owner floor applies. On a breach or controller loss it calls only
+`v3_meta.cancel_purge_rewrite`; 016 authenticates the recorded backend and
+appends `REWRITE_CANCEL_REQUESTED` with the condition. Cancellation is retried
+until the backend exits, including the short pre-VACUUM idle window. Other
+observations are read-only. The unit never signals another backend and exits
+when the exact recorded backend disappears. It removes its config/handshake
+on exit. Failure to establish readiness prevents VACUUM from starting.
+
+The additional PG18 rewrite and monitor tests are isolated in
+`tests/test_v3_purge_rewrite_pg18.py` and
+`tests/test_v3_purge_rewrite_monitor_pg18.py` so their maintenance cost is visible rather
+than hidden in the existing long purge module. They use disposable fixtures
+and cover committed/rolled-back recovery, recovered ANALYZE and completion.
+The fixture's catalog-maintenance suppression and bounded writer drain keep
+background catalog autovacuum from racing 016's unchanged XID check.

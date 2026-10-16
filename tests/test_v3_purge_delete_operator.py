@@ -223,15 +223,19 @@ def test_launcher_joins_writer_before_cleanup_and_releasing_lease(tmp_path, moni
         fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def test_admission_adopts_only_matching_relation_and_keeps_rewrite_refused():
+def test_admission_adopts_only_matching_relation_and_allows_rewrite_recovery():
     opened = {'purge_id': 'one', 'relation_code': 'system_search',
               'event_kind': 'AUTOVACUUM_DISABLED'}
     purge.admission('delete-system-search', [opened], ['one', 'two'], 'system_search')
     with pytest.raises(ValueError, match='different_relation_fence_open'):
         purge.admission('delete-body-mechanics', [opened], ['one', 'two'], 'body_mechanics')
-    with pytest.raises(ValueError, match='rewrite_resolution_requires_p2b2b'):
-        purge.admission('restore-services', [{**opened, 'event_kind': 'REWRITE_STARTED'}],
-                        ['one', 'two'], None)
+    purge.admission('restore-services', [{**opened, 'event_kind': 'REWRITE_STARTED'}],
+                    ['one', 'two'], None)
+    purge.admission('rewrite-system-search', [{**opened, 'event_kind': 'REWRITE_STARTED'}],
+                    ['one', 'two'], 'system_search')
+    with pytest.raises(ValueError, match='different_relation_rewrite_open'):
+        purge.admission('delete-system-search', [{**opened, 'event_kind': 'REWRITE_STARTED'}],
+                        ['one', 'two'], 'system_search')
 
 
 @pytest.mark.parametrize('mode', ('delete-system-search', 'abort-relation-system-search',
@@ -272,21 +276,29 @@ def test_integrity_failure_never_auto_restores_and_requires_exact_acknowledgemen
     failure = {'event_kind': 'FAILED_STOP', 'event_sequence': 17}
     trace = []
     runtime = SimpleNamespace(state=lambda **_: {'unresolved': [failure]}, query=object())
+    def acknowledge(query, ids, sequence):
+        if sequence != 17:
+            raise ValueError('purge_failed_stop_acknowledgement_invalid')
+        trace.append('acknowledged:17')
+    def writer(*args, **kwargs):
+        assert kwargs['acknowledge_failed_stop'] == 17
+        trace.append('restored')
+        return {'verified': True}
     tx = SimpleNamespace(
         resolve_batches=lambda *_: trace.append('resolved_batch'),
-        writer_fence=lambda *_, **kwargs: trace.append('restored'),
+        writer_fence=writer, acknowledge_failure=acknowledge,
         record_failed_stop=lambda *args: trace.append(args[-1]),
     )
     report = {'wal_before': {}}
     purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], None, automatic=True)
     assert trace == [] and report['writer_restore'] == 'refused_integrity_failed_stop'
     for acknowledgement in (None, 16, 18):
-        with pytest.raises(ValueError, match='acknowledgement_required'):
+        with pytest.raises(ValueError, match='acknowledgement_(required|invalid)'):
             purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], acknowledgement)
     assert trace == []
-    with pytest.raises(ValueError, match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
-        purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], 17)
-    assert trace == []
+    purge.restore(SimpleNamespace(), tx, runtime, report, ['one'], 17)
+    assert trace == ['acknowledged:17', 'resolved_batch', 'restored']
+    assert report['writer_restore'] == {'verified': True, 'acknowledge_failed_stop': 17}
     assert runtime.state()['unresolved'] == [failure]
 
 

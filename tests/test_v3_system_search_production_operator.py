@@ -178,10 +178,10 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
         '016_v3_governed_derived_purge.sql',
     ]
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
-    assert transition["to_migration_set_identity"] == "sha256:b43b8f457075b89c0d1c5dc40fe30e743f76fa4fac8ad09f61647bc273f6a4c7"
+    assert transition["to_migration_set_identity"] == "sha256:7b5ccb2d15894da081f26e62a789df00993afaa78134b05328f5fb575435a609"
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
-    assert authority["external_authority"]["schema_identity_sha256"] == "82d3c9a92ebdbb133d6668fa209d4a8a37ccc7e4b8a5a6ff8f5bd733f205839f"
+    assert authority["external_authority"]["schema_identity_sha256"] == "13c2014224a414ad35e3e594e305f70cb719439c982d40a3781c5976883b8d48"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
     reachable = {
         module.migration_set_identity(entries[:prefix_length])

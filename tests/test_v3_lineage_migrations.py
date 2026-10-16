@@ -191,3 +191,27 @@ def test_016_event_enum_contains_every_design_recovery_event_and_no_other_kind()
         "AUTOVACUUM_DISABLED", "AUTOVACUUM_RESTORED", "WRITER_FENCE_ENABLED", "WRITER_FENCE_RESTORED",
         "REWRITE_CANCEL_REQUESTED", "BATCH_CANCEL_REQUESTED",
     }
+
+
+def test_016_writer_restore_acknowledgement_is_scoped_and_durable():
+    source = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    assert "acknowledge_failed_stop_ bigint DEFAULT NULL" in source
+    assert "p.plan_sha256=r.plan_sha256 AND e.event_sequence=acknowledge_failed_stop_" in source
+    assert "e.event_kind='FAILED_STOP' AND e.failure_evidence->'integrity_failed'='true'::jsonb" in source
+    assert "ack.event_kind IN ('FAILED_STOP','WRITER_FENCE_RESTORED')" in source
+    assert "purge_assert_recovery_safe(purge_,acknowledge_failed_stop_)" in source
+    assert "jsonb_build_object('acknowledge_failed_stop',acknowledge_failed_stop_)" in source
+    assert "v3_meta.purge_set_writer_fence(uuid,boolean,bigint)" in source
+    assert "RAISE EXCEPTION 'integrity failure stops purge'" in source
+
+
+def test_016_acknowledged_failed_rewrite_restore_retains_backend_and_progress_guards():
+    source = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    recovery = source.split("CREATE FUNCTION v3_meta.purge_assert_recovery_safe(", 1)[1].split("END $$;", 1)[0]
+    assert "z.event_sequence=acknowledge_failed_stop_" in recovery
+    assert "z.failure_evidence->'integrity_failed'='true'::jsonb" in recovery
+    assert "z.failure_evidence->'rewrite_committed'='true'::jsonb" in recovery
+    assert "z.failure_evidence->>'start_event'=e.event_sequence::text" in recovery
+    assert "a.pid=e.backend_pid AND a.backend_start=e.backend_start" in recovery
+    assert "pg_stat_progress_cluster WHERE relid=e.relation_oid" in recovery
+    assert "pg_stat_progress_analyze WHERE relid=e.relation_oid" in recovery

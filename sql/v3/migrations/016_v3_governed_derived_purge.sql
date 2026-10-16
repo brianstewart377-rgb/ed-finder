@@ -443,27 +443,48 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'unauthorized purge id'; END IF;
     RETURN r;
 END $$;
-CREATE FUNCTION v3_meta.purge_assert_recovery_safe(purge_ uuid) RETURNS void
+CREATE FUNCTION v3_meta.purge_assert_recovery_safe(purge_ uuid, acknowledge_failed_stop_ bigint DEFAULT NULL) RETURNS void
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE r v3_meta.derived_generation_purge_request;
 BEGIN
     r:=v3_meta.purge_recovery_request(purge_);
+    IF acknowledge_failed_stop_ IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM v3_meta.derived_generation_purge_event e
+        JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
+        WHERE p.plan_sha256=r.plan_sha256 AND e.event_sequence=acknowledge_failed_stop_
+          AND e.event_kind='FAILED_STOP' AND e.failure_evidence->'integrity_failed'='true'::jsonb) THEN
+        RAISE EXCEPTION 'acknowledgement must name the exact integrity failure';
+    END IF;
     IF EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event e
         JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
         WHERE p.plan_sha256=r.plan_sha256 AND e.event_kind IN ('BATCH_STARTED','REWRITE_STARTED')
         AND NOT EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event z
             WHERE z.purge_id=e.purge_id AND z.relation_code=e.relation_code AND z.event_sequence>e.event_sequence
             AND ((e.event_kind='BATCH_STARTED' AND z.event_kind IN ('BATCH_COMMITTED','BATCH_ROLLED_BACK'))
-              OR (e.event_kind='REWRITE_STARTED' AND z.event_kind IN ('REWRITE_VERIFIED','REWRITE_ROLLED_BACK'))))) THEN
+              OR (e.event_kind='REWRITE_STARTED' AND z.event_kind IN ('REWRITE_VERIFIED','REWRITE_ROLLED_BACK'))
+              -- Owner acknowledgement can restore writers after an integrity
+              -- stop on a committed rewrite, but never beside its backend or
+              -- a maintenance operation. This grants no rewrite verification,
+              -- autovacuum restoration, or further purge authority.
+              OR (e.event_kind='REWRITE_STARTED' AND z.event_kind='FAILED_STOP'
+                  AND z.event_sequence=acknowledge_failed_stop_
+                  AND z.failure_evidence->'integrity_failed'='true'::jsonb
+                  AND z.failure_evidence->'rewrite_committed'='true'::jsonb
+                  AND z.failure_evidence->>'start_event'=e.event_sequence::text
+                  AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a
+                      WHERE a.pid=e.backend_pid AND a.backend_start=e.backend_start)
+                  AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_cluster WHERE relid=e.relation_oid)
+                  AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_analyze WHERE relid=e.relation_oid))))) THEN
         RAISE EXCEPTION 'resolve open destructive operation before recovery';
     END IF;
     IF EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event e
         JOIN v3_meta.derived_generation_purge_request p USING(purge_id)
         WHERE p.plan_sha256=r.plan_sha256 AND e.event_kind='FAILED_STOP'
         AND e.failure_evidence->'integrity_failed'='true'::jsonb
+        AND e.event_sequence IS DISTINCT FROM acknowledge_failed_stop_
         AND NOT EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event ack
             JOIN v3_meta.derived_generation_purge_request ap ON ap.purge_id=ack.purge_id
-            WHERE ap.plan_sha256=r.plan_sha256 AND ack.event_kind='FAILED_STOP'
+            WHERE ap.plan_sha256=r.plan_sha256 AND ack.event_kind IN ('FAILED_STOP','WRITER_FENCE_RESTORED')
             AND ack.event_sequence>e.event_sequence
             AND ack.operational_payload->>'acknowledge_failed_stop'=e.event_sequence::text)) THEN
         RAISE EXCEPTION 'integrity failure needs separately acknowledged recovery';
@@ -559,12 +580,16 @@ END $$;
 
 -- APPLICATION_ROLE is a single constant, never a caller-supplied role name.
 -- Both catalog scopes are preserved; database-specific defaults override global.
-CREATE FUNCTION v3_meta.purge_set_writer_fence(purge_ uuid, enabled_ boolean) RETURNS void
+CREATE FUNCTION v3_meta.purge_set_writer_fence(
+    purge_ uuid, enabled_ boolean, acknowledge_failed_stop_ bigint DEFAULT NULL) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE application_role CONSTANT text := 'edfinder_v3';
         e v3_meta.derived_generation_purge_event; prior_ jsonb; setting_ text; scope_ text;
 BEGIN
     IF enabled_ IS NULL THEN RAISE EXCEPTION 'writer fence enable must be boolean'; END IF;
+    IF enabled_ AND acknowledge_failed_stop_ IS NOT NULL THEN
+        RAISE EXCEPTION 'acknowledgement is only valid for writer restoration';
+    END IF;
     IF enabled_ THEN PERFORM v3_meta.purge_assert_request(purge_);
     ELSE PERFORM v3_meta.purge_recovery_request(purge_); END IF;
     SELECT * INTO e FROM v3_meta.purge_open_event(purge_,NULL,'WRITER_FENCE_ENABLED',ARRAY['WRITER_FENCE_RESTORED']);
@@ -584,8 +609,8 @@ BEGIN
         INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,operational_payload)
             VALUES(purge_,'WRITER_FENCE_ENABLED',jsonb_build_object('role',application_role,'prior',prior_,'verified',false));
     ELSE
+        PERFORM v3_meta.purge_assert_recovery_safe(purge_,acknowledge_failed_stop_);
         IF e.event_sequence IS NULL THEN RETURN; END IF;
-        PERFORM v3_meta.purge_assert_recovery_safe(purge_);
         FOREACH scope_ IN ARRAY ARRAY['global','database'] LOOP
             setting_ := e.operational_payload->'prior'->>scope_;
             IF setting_ IS NOT NULL AND setting_<>'off' THEN RAISE EXCEPTION 'invalid ledgered writer prior value'; END IF;
@@ -595,7 +620,9 @@ BEGIN
                      ELSE 'SET default_transaction_read_only = off' END);
         END LOOP;
         INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,operational_payload)
-            VALUES(e.purge_id,'WRITER_FENCE_RESTORED',e.operational_payload || jsonb_build_object('verified',false));
+            VALUES(e.purge_id,'WRITER_FENCE_RESTORED',e.operational_payload || jsonb_build_object('verified',false)
+                || CASE WHEN acknowledge_failed_stop_ IS NULL THEN '{}'::jsonb ELSE
+                    jsonb_build_object('acknowledge_failed_stop',acknowledge_failed_stop_) END);
     END IF;
 END $$;
 
@@ -1083,7 +1110,7 @@ GRANT EXECUTE ON FUNCTION v3_meta.purge_snapshot(),
     v3_meta.complete_derived_payload_relation(uuid,text,jsonb),
     v3_meta.complete_derived_generation_purge(uuid,jsonb),
     v3_meta.purge_set_relation_autovacuum(uuid,text,boolean),
-    v3_meta.purge_set_writer_fence(uuid,boolean),
+    v3_meta.purge_set_writer_fence(uuid,boolean,bigint),
     v3_meta.purge_recycle_writer_sessions(uuid,boolean),
     v3_meta.purge_verify_writer_fence(uuid,boolean,text),
     v3_meta.purge_record_event(uuid,text,text,jsonb),

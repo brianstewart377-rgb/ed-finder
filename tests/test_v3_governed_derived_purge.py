@@ -131,7 +131,8 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
                 connection.execute((MIGRATIONS / name).read_text())
         connection.execute((MIGRATIONS / PURGE_MIGRATION).read_text())
         # The fixture bulk-loads canonical/metadata rows before these tests.
-        # Their automatic ANALYZE can acquire an XID even though no competing
+        # Their automatic ANALYZE, and catalog maintenance after the migration
+        # DDL or a rewrite, can acquire an XID even though no competing
         # application writer exists. 016 deliberately rejects *every* other
         # backend_xid, including an autovacuum worker's; do not relax that
         # production check to hide this disposable-database scheduling race.
@@ -210,12 +211,26 @@ def _suppress_fixture_automatic_maintenance(connection):
     Preserve the purge tables' unset autovacuum_enabled defaults so the fence
     restoration tests continue exercising the real unset and false cases.
     These fresh disposable tables cannot approach anti-wraparound thresholds.
+    Migration/rewrite DDL also schedules maintenance of pg_class, pg_attribute
+    and the other database-local catalogs. Suppressing only application tables
+    leaves those workers racing later negative assertions in purge_assert_phase.
+    Never alter shared catalogs, whose options affect other test databases.
     """
     assert connection.info.dbname.startswith('v4_test_')
+    with connection.transaction():
+        # Only this fixture's superuser setup connection may change the fresh
+        # database's catalog reloptions; the setting ends with this transaction.
+        connection.execute("SET LOCAL allow_system_table_mods=on")
+        _set_fixture_maintenance_options(connection)
+    _wait_for_fixture_maintenance(connection)
+
+
+def _set_fixture_maintenance_options(connection):
     for schema, table, toast in connection.execute(
         '''SELECT n.nspname,c.relname,c.reltoastrelid<>0 FROM pg_class c
            JOIN pg_namespace n ON n.oid=c.relnamespace
-           WHERE n.nspname LIKE 'v3_%' AND c.relkind='r'
+           WHERE (n.nspname LIKE 'v3_%' OR n.nspname='pg_catalog')
+             AND c.relkind='r' AND NOT c.relisshared
            ORDER BY n.nspname,c.relname''',
     ).fetchall():
         if schema == 'v3_derived' and table in RELATIONS:
@@ -233,18 +248,22 @@ def _suppress_fixture_automatic_maintenance(connection):
         connection.execute(sql.SQL('ALTER TABLE {} SET ({})').format(
             sql.Identifier(schema, table), sql.SQL(options),
         ))
+
+
+def _wait_for_fixture_maintenance(connection):
     # A worker already selected before its table's options changed is allowed
     # to finish, never canceled. Retain 016's predicate and fail on a fixed
     # deadline rather than retrying an arbitrary failed mutation.
     deadline = monotonic() + 10
-    while connection.execute(
-        '''SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+    while competing := connection.execute(
+        '''SELECT pid,backend_type,state,backend_xid::text,left(query,200)
+           FROM pg_stat_activity
            WHERE datname=current_database() AND pid<>pg_backend_pid()
              AND (backend_xid IS NOT NULL OR
-                  (backend_type='client backend' AND state IS NULL)))''',
-    ).fetchone()[0]:
+                  (backend_type='client backend' AND state IS NULL))''',
+    ).fetchall():
         if monotonic() >= deadline:
-            pytest.fail('disposable purge fixture still has a competing backend after 10 seconds')
+            pytest.fail(f'disposable purge fixture still has competing backends after 10 seconds: {competing!r}')
         sleep(0.05)
 
 
@@ -1713,6 +1732,7 @@ def test_all_payload_relations_purge_child_first_preserving_receipts_and_complet
         connection.execute(sql.SQL('VACUUM (FULL, ANALYZE) v3_derived.{}').format(sql.Identifier(relation)))
         connection.execute('SELECT pg_stat_force_next_flush()')
         connection.execute('SELECT pg_stat_clear_snapshot()')
+        _wait_for_fixture_maintenance(connection)
         assert connection.execute('SELECT relfilenode FROM pg_class WHERE oid=%s::regclass',
                                   ('v3_derived.' + relation,)).fetchone()[0] != before
         connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
@@ -1775,10 +1795,14 @@ def test_verified_rewrite_retries_do_not_open_rewrite_or_autovacuum_fence(databa
     connection.execute('VACUUM (FULL, ANALYZE) v3_derived.system_search')
     connection.execute('SELECT pg_stat_force_next_flush()')
     connection.execute('SELECT pg_stat_clear_snapshot()')
+    _wait_for_fixture_maintenance(connection)
     connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
                        (purge_id, 'REWRITE_VERIFIED', 'system_search', Jsonb(_receipt())))
     before = _count(connection, 'v3_meta.derived_generation_purge_event')
     for request_id in ids.values():
+        # A shared-catalog worker may have been selected in this database by
+        # another fixture's role DDL; its options must remain cluster-wide.
+        _wait_for_fixture_maintenance(connection)
         with pytest.raises(psycopg.errors.RaiseException, match='rewrite already verified'):
             with connection.transaction():
                 connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
@@ -1827,6 +1851,7 @@ def test_rewrite_recovery_uses_recorded_filenode_and_requires_trailing_analyze(d
     connection.execute('ANALYZE v3_derived.system_search')
     connection.execute('SELECT pg_stat_force_next_flush()')
     connection.execute('SELECT pg_stat_clear_snapshot()')
+    _wait_for_fixture_maintenance(connection)
     if interruption == 'after_rewrite_before_receipt':
         connection.execute('RESET ROLE')
         connection.execute(
