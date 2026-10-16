@@ -202,3 +202,15 @@ def test_only_a_proven_nonintegrity_budget_stop_can_resume(tmp_path, missing):
         assert observed['failures'] == ['delete_wall_clock_budget_exhausted']
         with pytest.raises(RuntimeError, match='real_action_refused'):
             instance.action('delete-system-search')
+
+
+def test_refused_action_records_its_own_identifier_failure_codes(tmp_path):
+    instance = harness.Harness('tiny', 'refused-test', tmp_path)
+    sealed = evidence.seal({'status': 'stopped', 'failures': [
+        'bounded_command_failed', 'purge_unresolved_AUTOVACUUM_DISABLED,purge_unresolved_WRITER_FENCE_ENABLED',
+        'SELECT secret FROM t', {'not': 'a code'}, 'x' * 121]})
+    instance.command = lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=json.dumps(sealed))
+    with pytest.raises(RuntimeError, match='real_action_refused_plan'):
+        instance.action('plan')
+    assert instance.refused_action == {'mode': 'plan', 'report': '001-plan.json', 'failures': [
+        'bounded_command_failed', 'purge_unresolved_AUTOVACUUM_DISABLED,purge_unresolved_WRITER_FENCE_ENABLED']}

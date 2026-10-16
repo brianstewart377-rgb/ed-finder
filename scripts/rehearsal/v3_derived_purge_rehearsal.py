@@ -336,7 +336,7 @@ class Harness:
             codes = report.get('failures') if isinstance(report.get('failures'), list) else []
             self.refused_action = {'mode': mode, 'report': path.name, 'failures': [
                 code for code in codes if isinstance(code, str)
-                and re.fullmatch('[a-z0-9_,]{1,120}', code)][:20]}
+                and re.fullmatch('[A-Za-z0-9_,]{1,120}', code)][:20]}
             raise RuntimeError('real_action_refused_' + mode.replace('-', '_'))
         peak = batch_peak_growth(batch_observations) if mode.startswith('delete-') else maximum_drawdown(samples)
         return report, path, duration, peak, len(samples)
