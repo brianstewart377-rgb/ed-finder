@@ -23,6 +23,8 @@ on:
           - v3-system-archetype-finalize
           - v3-spatial-status
           - v3-derived-lifecycle-status
+          - v3-derived-purge-plan
+          - v3-derived-purge-status
           - v3-disk-inventory
           - v3-backup-wrapper-install
           - v3-system-search-validate-constraints-start
@@ -92,6 +94,7 @@ jobs:
           fi
           case "$operation" in
             host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-derived-lifecycle-status) ;;
+            v3-derived-purge-plan|v3-derived-purge-status) ;;
             v3-disk-inventory) ;;
             v3-backup-wrapper-install) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
@@ -961,3 +964,63 @@ jobs:
           path: ${{ runner.temp }}/v3-archetype-plan-probe-operation.txt
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Prepare trusted read-only derived purge bundle
+        if: contains(fromJSON('["v3-derived-purge-plan", "v3-derived-purge-status"]'), steps.request.outputs.operation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/v3-derived-purge-read-only-bundle"
+          install -d -m 700 "$bundle"
+          git -C trusted-main archive HEAD scripts/operator scripts/release deploy/v3-production sql | tar -xf - -C "$bundle"
+          # The action independently authenticates HEAD and the committed backup
+          # wrapper blob. Keep Git objects, without remotes, credentials or hooks.
+          cp -R trusted-main/.git "$bundle/.git"
+          rm -f "$bundle/.git/config"
+          rm -rf "$bundle/.git/hooks"
+
+      - name: Run read-only derived purge plan or status
+        if: contains(fromJSON('["v3-derived-purge-plan", "v3-derived-purge-status"]'), steps.request.outputs.operation)
+        timeout-minutes: 90
+        shell: bash
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RUN_ID: ${{ github.run_id }}
+          RECEIPT: ${{ runner.temp }}/v3-derived-purge-read-only.json
+        run: |
+          set -euo pipefail
+          # This independent mapping is the only route from an ops choice to a
+          # purge argument. No mutating purge mode is admitted here.
+          case "$OPERATION" in
+            v3-derived-purge-plan) mode=plan ;;
+            v3-derived-purge-status) mode=status ;;
+            *) exit 64 ;;
+          esac
+          [ "$SSH_HOST" = nb79a3d.mevnode.com ] || exit 64
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || exit 64
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 64
+          [[ "$RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || exit 64
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          bundle="$RUNNER_TEMP/v3-derived-purge-read-only-bundle"
+          # Extract and execute only trusted main. Root ownership also satisfies
+          # the action's secure-source contract. SSH stays attached until exit.
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -c"
+          remote_script='set -euo pipefail; umask 077; install -d -m 700 /run/edfinder-v3-purge-source; work="$(mktemp -d /run/edfinder-v3-purge-source/read-only.XXXXXXXX)"; trap '\''rm -rf -- "$work"'\'' EXIT; tar --no-same-owner --no-same-permissions --no-overwrite-dir -xf - -C "$work"; chmod 700 "$work"; [ "$(git -C "$work" rev-parse HEAD)" = "$2" ] || exit 64; export GITHUB_RUN_ID="$3"; bash "$work/scripts/operator/actions/v3-derived-generation-purge.sh" "$1"'
+          printf -v quoted_script '%q' "$remote_script"
+          remote="$remote $quoted_script -- '$mode' '$source_sha' '$RUN_ID'; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -c $quoted_script -- '$mode' '$source_sha' '$RUN_ID'; else echo 'Derived purge read-only inspection requires root or passwordless sudo' >&2; exit 64; fi"
+          tar -C "$bundle" -cf - . | ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" | tee "$RECEIPT"
+
+      - name: Upload read-only derived purge receipt
+        if: always() && contains(fromJSON('["v3-derived-purge-plan", "v3-derived-purge-status"]'), steps.request.outputs.operation)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-purge-read-only
+          path: ${{ runner.temp }}/v3-derived-purge-read-only.json
+          if-no-files-found: error
+          retention-days: 180

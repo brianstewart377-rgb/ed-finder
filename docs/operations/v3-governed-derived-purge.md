@@ -1,13 +1,14 @@
-# V3 governed derived purge (through P2b2b)
+# V3 governed derived purge (through P2c)
 
 This runbook covers the P2a entry fences and installed backup wrapper, and the
-P2b1 read-only and single-transaction purge action, and P2b2a bounded delete
-and recovery phases plus P2b2b physical rewrite and its independent monitor. The
+P2b1 read-only and single-transaction purge action, P2b2a bounded delete
+and recovery phases, P2b2b physical rewrite and its independent monitor, and the
+P2c protected dispatch workflow. The
 [governed purge design](../development/v3-governed-derived-purge-design.md)
-remains the execution-gate authority. This code provides no protected purge
-workflow, rehearsal, or production execution authorization. The protected workflow
-remains P2c, and the 1% rehearsal remains P2d. No production operation follows from
-merging it.
+remains the execution-gate authority. The approximately 1% disposable PostgreSQL
+18 rehearsal remains P2d, and the protected workflow does not itself satisfy
+the design's owner execution gates. No production operation follows from merging
+this code.
 
 All governed production mutators first read the operating database's purge
 ledger and non-blockingly probe `/run/lock/edfinder-v3-derived-purge.lock`.
@@ -52,7 +53,7 @@ After the required code has merged and execution gates permit the operation:
    holds the schedule lease through the atomic rename and installed hash check.
 4. Only then obtain and commit the later purge plan. That plan and each
    destructive phase must verify the installed wrapper hash against the pinned
-   source. P2b1 supplies the action described below; workflow wiring remains P2c.
+   source. Dispatch the action only through the protected workflow described below.
 
 The standalone installed wrapper uses pinned local `psql` credentials by role
 name, never a password argument or environment file. Before backup/verify it
@@ -142,6 +143,131 @@ Existing accepted-release attestations are not silently regenerated: the normal
 reviewed attestation gate remains required before executing those changed
 workers. None of this adds a PostgreSQL restore/PITR recovery route.
 
+## Protected workflow dispatch runbook
+
+Use [V3 production derived purge](../../.github/workflows/v3-production-derived-purge.yml)
+on `main` for every governed phase. It accepts manual dispatch only and requires
+the protected `v3-production` environment approval. After approval it re-fetches
+`main` and refuses unless the dispatched commit is still the exact current head.
+If `main` moves while approval is pending, start a new dispatch from its current
+head and review the resulting source identity. Inputs never select a host, path,
+SQL statement, or arbitrary relation.
+
+The [operations workflow](../../.github/workflows/chatgpt-ed-new-ops.yml) also
+offers `v3-derived-purge-plan` and `v3-derived-purge-status`. These invoke only
+the read-only `plan` and `status` modes. An ops plan is diagnostic evidence;
+later protected phases accept plan artifacts only from successful `plan` runs
+of the dedicated purge workflow. No mutating purge mode is available in ops.
+
+| Input | Meaning and admission |
+| --- | --- |
+| `mode` | One literal choice from the action's closed list: `plan`, `status`, `authorize`, `verify-system-archetype-empty`, the four `delete-`, four `rewrite-`, four `abort-relation-` choices, `restore-services`, or `complete`. Relation suffixes are only `system-search`, `economy-opportunity`, `body-mechanics`, and `system-rating-vector`. |
+| `confirm_target` | Must equal `ed-finder-prod/nb79a3d.mevnode.com` exactly. |
+| `plan_run_id` | Digits-only ID of the successful dedicated-workflow `plan` run on `main`. Required for every mode except `plan` and `status`. |
+| `plan_sha256` | The plan receipt's 64-character lowercase hexadecimal `content_sha256`, reviewed with that run's artifact. Required with `plan_run_id`; this is the external receipt seal, distinct from the nested database `plan_sha256`. |
+| `verification_run_id` | Digits-only ID of the successful dedicated-workflow `verify-system-archetype-empty` run on `main`. Required for delete, rewrite, abort, `restore-services`, and `complete`. |
+| `verification_sha256` | The successful exclusion-verification receipt's 64-character lowercase hexadecimal `content_sha256`. Required with `verification_run_id`. |
+| `acknowledge_failed_stop` | Optional digits-only ledger event sequence, admitted only for `restore-services`. After owner review it acknowledges the exact integrity-failed stop for writer restoration; it authorizes no repair or continuation past that stop. |
+| `wall_clock_seconds` | Required integer delete-loop budget, 1–1800 seconds. Leave blank for every other mode. It is not a rewrite timeout or a maintenance-window estimate. |
+
+For each imported artifact the workflow authenticates GitHub's run identity,
+the same repository and workflow, `main`, successful completion and producing
+mode. The receipt's `source_git_sha` must equal that successful source run's
+`head_sha`; its seal must equal the supplied SHA-256. A copied or
+edited receipt, an ops-workflow artifact, a failed run, or the wrong producing
+mode is refused. The fixed artifact names are `v3-derived-purge-plan` and
+`v3-derived-purge-verification`, each containing `receipt.json`. Keep the reviewed
+plan run ID and seal, then the verification run ID and seal, with the operator's
+phase record. Only `authorize` requires the plan's source SHA to equal the current
+execution SHA. After authorization, later phases and recovery retain the
+original immutable plan and exclusion proof even if `main` advances; each new
+dispatch still executes exact current `main`. This preserves recovery access
+without substituting a new plan for the existing ledger requests.
+
+After installation and all design execution gates have passed, dispatch in this
+order, reviewing each receipt before approving the next phase:
+
+1. `plan` in the dedicated workflow. Review its complete sealed receipt,
+   exact targets/source/schema identities, stopped workers, unchanged pointers,
+   published counts, storage/WAL evidence and freeze-age horizon. Retain the run
+   ID and `content_sha256`.
+2. `authorize` with that `plan_run_id` and `plan_sha256`. Authorization requires
+   a plan no older than one hour from the exact current execution head; an expired
+   plan or a source change needs a fresh plan and review.
+   This marks both immutable targets `FAILED` without deleting payload.
+3. `verify-system-archetype-empty` with the same plan inputs. Review and retain
+   its successful sealed artifact, run ID and `content_sha256`. An archetype or
+   cluster target row stops the purge; there is no delete mode for those tables.
+4. `delete-system-search`, repeating that same mode as needed until both target
+   counts are zero; then `rewrite-system-search`. Supply both authenticated
+   artifact pairs to every dispatch. Review verified physical reclamation and
+   restored autovacuum before advancing.
+5. `delete-economy-opportunity`, then `rewrite-economy-opportunity`; next
+   `delete-body-mechanics`, then `rewrite-body-mechanics`; finally
+   `delete-system-rating-vector`, then `rewrite-system-rating-vector`. Repeat
+   bounded deletes where needed, always completing and reviewing one relation's
+   rewrite before starting the next relation.
+6. `complete` with both artifact pairs. Review its completion receipt: zero
+   target rows alone do not establish reclamation or completion.
+
+P2d's rehearsal figures must be present in the reviewed plan **before** any
+delete, rewrite, or abort dispatch can run. The current plan producer supplies
+no measured rewrite allowance, rewrite peak/timeout or autovacuum-release budget,
+so these phases remain fail-closed until P2d integrates the rehearsal evidence
+into plan generation before sealing. Per relation, review the cadence and
+`delete[relation].rows_per_second`, `rewrite_allowance_seconds`, and
+`autovacuum_budget_bytes`, plus `rewrite[relation].rewrite_peak_bytes` and
+`statement_timeout_ms`; JSON relation keys use underscores. A conservative
+throughput fallback is not a rehearsal measurement. Do not edit a downloaded
+artifact: changing it invalidates its seal and authenticated run provenance.
+P2c neither performs P2d nor supplies substitute production figures.
+
+On interruption, inspect `status` first. An open writer/service fence requires
+`restore-services`, using both artifact pairs, before a fresh destructive phase;
+the action cancels and resolves any recorded batch or rewrite before restoring
+writers. Supply `acknowledge_failed_stop` only after the owner's explicit review
+of the exact integrity-failed event. To abandon an autovacuum fence, use the
+matching `abort-relation-<relation>` with both artifact pairs after restoring any
+orphan writer fence. Abort requires its rehearsal-derived release budget and
+sufficient headroom; it leaves the relation unreclaimed and `complete` blocked.
+Resume from fresh status/count evidence and a reviewed plan through the matching
+delete or rewrite path. The detailed recovery rules below remain mandatory.
+
+The workflow holds `v3-production-application-authority` concurrency and the
+job's `chatgpt-ed-new-ops` concurrency with cancellation disabled. It polls and
+waits for the remote action to exit, including budget expiry or `FAILED_STOP`,
+so those fences remain held for the entire phase. The host purge lease and
+durable ledger independently protect against runner or SSH loss. Only the
+independent rewrite monitor may outlive the controller, as described below.
+Every run tees its JSON receipt and attempts receipt upload even on failure;
+missing receipt files fail the upload, and retention is 180 days. Retain and
+review those receipts before proceeding. The general artifact is
+`v3-derived-purge-receipt`, containing `receipt.json`; only successful plan and
+exclusion-verification runs publish the corresponding reusable sealed artifact.
+
+The job timeout is 180 minutes. A delete loop admits at most 1800 seconds
+(30 minutes), its longest statement/batch allowance is 2700 seconds (45 minutes),
+and the remaining 105 minutes allow preflight, cleanup and bounded recovery
+queries. Rewrite plans are admitted only with per-relation
+`statement_timeout_ms` at most 7,200,000 (120 minutes), leaving 60 minutes for
+preflight, recovery and writer restoration. A larger reviewed rewrite timeout
+is refused before SSH; it requires a reviewed workflow budget change, not a
+free-text dispatch override. These are controller limits, not rehearsal throughput
+or outage estimates.
+
+Delivery follows the schema migration workflow's bounded source-bundle precedent:
+a bounded `git archive` of the committed operator/release helpers, production
+authority and migrations, plus a credential-free `.git` tree, is sent as a tar
+bundle over pinned SSH from trusted `main`. The action verifies the Git SHA and
+committed backup-wrapper blob; the sealed JSON artifacts retain their separate
+content authentication. The protected bundle is extracted into a root-owned
+temporary `/run/edfinder-v3-purge-source.XXXXXXXX` tree; that tree remains until
+reboot so an independent rewrite monitor can still verify and load its source
+after controller loss. The ops read-only source tree is removed after its
+action exits.
+No repository credential is sent to the host. `GITHUB_RUN_ID` and the remote
+controller PID/start identity bind action liveness to the polling controller.
+
 ## Action modes and receipt order
 
 `scripts/operator/actions/v3-derived-generation-purge.sh` delegates fixed SQL
@@ -156,8 +282,8 @@ Implemented modes are `plan`, `status`, `authorize`,
 relations’ `delete-`, `rewrite-` and `abort-relation-` modes. The four exact relation names
 are `system-search`, `economy-opportunity`, `body-mechanics`, and
 `system-rating-vector`. Every other mode is unknown and fails closed.
-These are action contracts for later governed dispatch, not an instruction to
-run them manually against production.
+These are action contracts for the protected dispatch above, not an instruction
+to run them manually against production.
 
 After installation and execution prerequisites have been satisfied, the order
 is:
@@ -259,7 +385,7 @@ events, whose verifier already proves the rewritten filenode and trailing
 
 ## P2b2a delete dispatch and stopping
 
-The protected workflow and disposable rehearsal remain prerequisites for later
+The protected workflow and disposable rehearsal are prerequisites for later
 production execution. The following describes the action contract for reviewed
 execution; it does not authorize a manual production invocation.
 

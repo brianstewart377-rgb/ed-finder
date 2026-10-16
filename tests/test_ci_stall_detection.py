@@ -62,6 +62,7 @@ CHECKED_WORKFLOWS = (
     'v3-finder-capacity-measurement.yml',
     'v3-live-checkpoint-control.yml',
     'v3-production-application-deploy.yml',
+    'v3-production-derived-purge.yml',
     'v3-production-schema-migration.yml',
     'v3-production-schema-contract-diagnostic.yml',
     'v3-spatial-pyramid.yml',

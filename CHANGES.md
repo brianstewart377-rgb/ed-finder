@@ -21,6 +21,20 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-16 — Protected governed purge dispatch (P2c)
+
+Added the manual, `v3-production`-protected derived-purge workflow with a closed
+phase choice list, literal production-target confirmation, post-approval exact
+`main` checks, both production/operator concurrency fences, pinned SSH trust,
+authenticated sealed plan and exclusion-verification artifacts, and 180-day
+receipts. Its controller waits for the remote action to exit and bounds delete
+and rewrite timeouts; a trusted-main source bundle preserves the independent
+rewrite monitor's source after controller loss. The ops workflow gains only
+read-only purge plan/status choices. Added workflow contract coverage and the
+dispatch/recovery runbook. The P2d disposable rehearsal and its sealed planning
+figures remain required before destructive phases; no workflow was dispatched
+and no production operation is included.
+
 ## 2026-10-16 — Purge physical rewrites and durable owner acknowledgement (P2b2b)
 
 Added the four guarded rewrite dispatches, a backend-lifetime systemd watchdog,
