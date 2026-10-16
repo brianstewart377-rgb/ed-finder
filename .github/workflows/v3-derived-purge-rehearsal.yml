@@ -27,7 +27,6 @@ jobs:
     env:
       REHEARSAL_SCALE: ${{ inputs.scale }}
       REHEARSAL_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      REHEARSAL_OUTPUT_DIR: ${{ runner.temp }}/v3-purge-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Refuse unsafe runner or insufficient disposable storage
         shell: bash
@@ -35,6 +34,11 @@ jobs:
           DISPATCH_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          # The runner context is unavailable in job-level env, so the
+          # per-run output directory is exported here, before any refusal.
+          [[ "$REHEARSAL_RUN_ID" =~ ^[0-9]+-[0-9]+$ ]] || { echo 'Unexpected rehearsal run id' >&2; exit 64; }
+          { [ -n "${RUNNER_TEMP:-}" ] && [ -d "$RUNNER_TEMP" ]; } || { echo 'Runner temp directory is unavailable' >&2; exit 65; }
+          printf 'REHEARSAL_OUTPUT_DIR=%s\n' "$RUNNER_TEMP/v3-purge-rehearsal-$REHEARSAL_RUN_ID" >> "$GITHUB_ENV"
           [ "$DISPATCH_REF" = refs/heads/main ] || { echo 'Dispatch trusted main only' >&2; exit 64; }
           case "$REHEARSAL_SCALE" in
             smoke) required_bytes=5000000000 ;;
@@ -120,7 +124,7 @@ jobs:
           echo 'Own rehearsal containers and volumes are absent'
 
       - name: Retain sealed rehearsal receipt and raw measurements
-        if: always()
+        if: always() && env.REHEARSAL_OUTPUT_DIR != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: v3-derived-purge-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
