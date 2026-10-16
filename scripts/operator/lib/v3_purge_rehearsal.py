@@ -127,7 +127,7 @@ def install(c, report, name, token):
                                source_git_sha=self.run(['git', '-C', str(c.ROOT), 'rev-parse', 'HEAD']),
                                script_sha256=c.script_identity())
 
-        def fault(self, scenario, *, pause=True):
+        def fault(self, scenario, *, pause=True, proof=None):
             if os.environ.get('ED_PURGE_REHEARSAL_FAULT') != scenario:
                 return
             raw = os.environ.get('ED_PURGE_REHEARSAL_FAULT_FILE', '')
@@ -138,7 +138,7 @@ def install(c, report, name, token):
                 raise ValueError('rehearsal_fault_path_unsafe')
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, 'w') as stream:
-                json.dump({'scenario': scenario, 'pid': os.getpid()}, stream)
+                json.dump({'scenario': scenario, 'pid': os.getpid(), **(proof or {})}, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             if pause:
@@ -148,11 +148,16 @@ def install(c, report, name, token):
         def query(self, sql, params=None, *, write=False):
             is_batch = sql == c._load('v3_purge_transactions').BATCH_SQL
             self._rehearsal_batch = is_batch
+            rewrite = c._load('v3_purge_rewrite')
+            self._rehearsal_verification = (
+                sql == rewrite.EVENT_SQL and (params or {}).get('kind') == 'REWRITE_VERIFIED'
+                and (params or {}).get('relation') == 'system_rating_vector')
             started = time.monotonic()
             try:
                 result = super().query(sql, params, write=write)
             finally:
                 self._rehearsal_batch = False
+                self._rehearsal_verification = False
                 self.report.setdefault('statement_durations', []).append({
                     'statement_sha256': c.hashlib.sha256(sql.encode()).hexdigest(),
                     'kind': 'payload_batch' if is_batch else 'query',
@@ -183,6 +188,26 @@ def install(c, report, name, token):
 
         def docker(self, *argv, **kwargs):
             scenario = os.environ.get('ED_PURGE_REHEARSAL_FAULT')
+            if (getattr(self, '_rehearsal_verification', False) and 'input' in kwargs
+                    and scenario == 'rewrite_verified_transaction_failure'):
+                before, final = kwargs['input'].rsplit('COMMIT;', 1)
+                # Execute the actual ledger insert, then fail its transaction
+                # before COMMIT. psql exits on SQLSTATE 22012, rolling back the
+                # insert. Only then pause the wrapper so its cleanup cannot
+                # recover the deliberately unresolved rewrite before inspection.
+                kwargs['input'] = before + 'SELECT 1 / 0;\nCOMMIT;' + final
+                outcome = super().docker(*argv, **kwargs, allow_failure=True, return_result=True)
+                try:
+                    attempted = json.loads(outcome.stdout)
+                except ValueError:
+                    raise ValueError('rehearsal_verification_insert_not_observed') from None
+                if (not outcome.returncode or not re.search(r'\bERROR:\s+22012\b', outcome.stderr)
+                        or type(attempted.get('event_sequence')) is not int
+                        or attempted['event_sequence'] <= 0):
+                    raise ValueError('rehearsal_verification_rollback_not_observed')
+                self.fault(scenario, proof={'verification_event_sequence': attempted['event_sequence'],
+                                           'verification_transaction_sqlstate': '22012'})
+                raise ValueError('rehearsal_fault_not_interrupted')
             if (getattr(self, '_rehearsal_batch', False) and 'input' in kwargs
                     and scenario in ('batch_client_before_commit', 'batch_client_after_commit')):
                 self.fault(scenario, pause=False)

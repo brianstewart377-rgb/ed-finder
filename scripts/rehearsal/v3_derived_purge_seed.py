@@ -103,7 +103,7 @@ UPDATE v3_meta.derived_generation SET lifecycle_state='READY',validated_at=now()
  validation_receipt='{"status":"VERIFIED","synthetic":true}'
 WHERE derived_generation_id=%(generation)s::uuid;
 SELECT v3_meta.publish_derived_generation(%(generation)s::uuid,NULL,0,
- 'a7076522-54cd-52f3-a291-4e5406bea230',4,'disposable-rehearsal','synthetic seed');
+ 'a7076522-54cd-52f3-a291-4e5406bea230',4,'disposable-rehearsal','synthetic seed',ARRAY[]::text[]);
 """
 
 SEARCH_PRODUCT = """

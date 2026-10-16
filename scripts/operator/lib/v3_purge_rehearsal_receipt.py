@@ -19,7 +19,11 @@ SCHEMA = 'ed-finder/derived-purge-rehearsal/v1'
 RELATIONS = ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector')
 CRASH_SCENARIOS = ('batch_client_before_commit', 'batch_client_after_commit',
                    'rewrite_monitor_cancel', 'rewrite_terminate_backend',
-                   'rewrite_postgres_restart', 'wrapper_after_rewrite_commit')
+                   'rewrite_postgres_restart', 'wrapper_after_rewrite_commit',
+                   'rewrite_verified_transaction_failure')
+HARNESS_FILES = ('scripts/rehearsal/v3_derived_purge_rehearsal.py',
+                 'scripts/rehearsal/v3_derived_purge_seed.py',
+                 'scripts/rehearsal/v3_purge_crashes.py')
 LIFECYCLE_RECEIPT = ROOT / 'docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json'
 MAX_RECEIPT_BYTES = 8 * 1024 * 1024
 
@@ -39,6 +43,26 @@ def _evidence():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def code_identity():
+    """Bind measurements to the executed action, harness, and verified lineage.
+
+    Reuse the action's identity rather than maintaining a second source list.
+    A Git SHA alone cannot authenticate the files a rehearsal actually ran.
+    """
+    spec = importlib.util.spec_from_file_location(
+        'purge_rehearsal_controller_identity', Path(__file__).with_name('v3_generation_purge.py'))
+    controller = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(controller)
+    return {
+        'script_sha256': controller.script_identity(),
+        'rehearsal_script_sha256': _evidence().canonical_sha256({
+            relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+            for relative in HARNESS_FILES}),
+        'migration_set_identity': controller.schema_identity.migration_set_identity(
+            controller.schema_identity.derive_entries(ROOT)),
+    }
 
 
 def _positive(value):
@@ -106,6 +130,13 @@ def validate(value, *, production=True):
     if (not isinstance(value.get('source_git_sha'), str)
             or re.fullmatch('[0-9a-f]{40}', value['source_git_sha']) is None):
         raise ValueError('rehearsal_source_invalid')
+    for field in ('script_sha256', 'rehearsal_script_sha256'):
+        if (not isinstance(value.get(field), str)
+                or re.fullmatch('[0-9a-f]{64}', value[field]) is None):
+            raise ValueError('rehearsal_' + field + '_invalid')
+    if (not isinstance(value.get('migration_set_identity'), str)
+            or re.fullmatch('sha256:[0-9a-f]{64}', value['migration_set_identity']) is None):
+        raise ValueError('rehearsal_migration_set_identity_invalid')
     if (not isinstance(value.get('image_digest'), str)
             or re.fullmatch(r'(?:[a-z0-9./_-]+(?::[a-z0-9._-]+)?)?@sha256:[0-9a-f]{64}', value['image_digest']) is None):
         raise ValueError('rehearsal_image_not_pinned')
@@ -161,6 +192,9 @@ def validate(value, *, production=True):
             raise ValueError('rehearsal_cleanup_not_verified')
         if value.get('lifecycle_receipt_sha256') != hashlib.sha256(LIFECYCLE_RECEIPT.read_bytes()).hexdigest():
             raise ValueError('rehearsal_lifecycle_proportions_unbound')
+        for field, expected in code_identity().items():
+            if value[field] != expected:
+                raise ValueError('rehearsal_' + field + '_mismatch')
     return value
 
 
@@ -196,6 +230,8 @@ def apply_to_plan(reviewed, rehearsal):
         rewrite[relation] = {key: measured[key] for key in ('rewrite_peak_bytes', 'statement_timeout_ms')}
     reviewed.update(delete=delete, rewrite=rewrite, rehearsal={
         'content_sha256': rehearsal['content_sha256'], 'source_git_sha': rehearsal['source_git_sha'],
+        **{field: rehearsal[field] for field in (
+            'script_sha256', 'rehearsal_script_sha256', 'migration_set_identity')},
         'scale': rehearsal['scale'], 'gate_10_crash_rehearsal_passed': True,
         'production_proportion': rehearsal['production_proportion'], 'disk_peak_margin': 1.5,
         'margin_application': 'raw_peaks_passed_to_controller_margin_applied_at_admission',

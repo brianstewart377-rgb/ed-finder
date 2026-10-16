@@ -301,6 +301,9 @@ synthetic BUILDING and VALIDATING targets plus a published survivor. It derives
 the four payload relations' generation proportions from the committed
 [2026-10-10 lifecycle receipt](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json),
 records that receipt's SHA, and leaves archetype/cluster target tables empty.
+The survivor uses the current generation-publication function installed by 015.
+Measurement and crash polling use a dedicated read-only observer login, separate
+from the application role recycled when the writer fence changes.
 The real purge action runs in a separate disposable-marker override path;
 ordinary invocation never enables that override. It requires both `--rehearsal-container` and a 64-hex-character
 `--rehearsal-token`, and independently refuses production host identities. The
@@ -343,7 +346,11 @@ Review the uploaded artifact (retained **180 days**) for:
   a production abort budget.
 - Every crash-scenario result: client loss before and after batch commit,
   independent-monitor cancellation, `pg_terminate_backend`, PostgreSQL restart
-  during rewrite, and wrapper loss after rewrite commit before verification.
+  during rewrite, wrapper loss after rewrite commit before verification, and
+  failure inside the verification transaction after the rewrite has committed.
+  The last case must leave the original `REWRITE_STARTED` identity unresolved,
+  refuse completion, and recover from the changed relfilenode without rewriting
+  again when dispatched anew.
   Evidence must prove one complete old or new filenode state, valid indexes,
   unchanged published rows, recovered ANALYZE and no double rewrite. Require
   JSON boolean `gate_10_crash_rehearsal_passed: true`; a partial or failed run
@@ -359,7 +366,7 @@ Review the uploaded artifact (retained **180 days**) for:
   observed, the scenario fails instead of treating a timing guess as a crash.
 
 Smoke is a harness check and never production planning authority. Only a
-successful, reviewed `one_percent` receipt with all six crash scenarios passed
+successful, reviewed `one_percent` receipt with all seven crash scenarios passed
 can feed a production plan. Review the empirical estimates against fresh
 production storage/WAL and writer-fence facts under the design's execution
 gates. A rehearsal receipt does not authorize a production operation.
@@ -370,10 +377,13 @@ The plan-mode integration accepts both `--rehearsal-receipt <reviewed-path>` and
 integration contract for governed plan staging, not a manual production
 invocation. The SHA is the sealed JSON's `content_sha256`, not a bytewise file
 hash. The action verifies the `f2d_evidence.py` seal, explicit SHA, schema,
-source and lifecycle identities, one-percent proportion, raw/derived arithmetic,
+source and lifecycle identities, the executing action's script hash plus the
+rehearsal harness hashes, the exact migration-set identity, one-percent
+proportion, raw/derived arithmetic,
 and crash gate before copying figures into the plan and sealing that plan.
-Missing arguments, smoke receipts, a false crash gate, changed bytes or
-inconsistent derived figures refuse admission.
+The recorded script and migration-set identities must match the code running
+the plan. Missing arguments, stale identities, smoke receipts, a false crash
+gate, changed bytes or inconsistent derived figures refuse admission.
 
 For each relation the action records
 `rows_per_second_source: reviewed_rehearsal:<content_sha256>` and populates the

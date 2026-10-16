@@ -15,6 +15,8 @@ def _snapshot(*, node=10, target_rows=0, verified=0, starts=0):
                 'oid': 123, 'relfilenode': node, 'kind': 'r', 'catalog_relations': 1,
                 'target_rows': target_rows, 'invalid_indexes': 0, 'invalid_foreign_keys': 0,
                 'invalid_triggers': 0, 'rewrite_verifications': verified, 'rewrite_starts': starts,
+                'rewrite_start': {'event_sequence': 42, 'relation_oid': 123, 'relfilenode_before': 10},
+                'rewrite_verified': {'recovered': True, 'relation_oid': 123, 'relfilenode_after': node},
                 'last_analyze': '2026-10-16T00:00:02+00:00',
                 'last_rewrite_start': '2026-10-16T00:00:01+00:00',
                 'monitor_cancellations': 0, 'committed_rows': 100,
@@ -90,7 +92,7 @@ def test_prepare_uses_real_action_order_and_child_relations_before_vector():
         def action(self, mode):
             calls.append(mode)
             return {'content_sha256': 'a' * 64}, Path('/proof'), 0, 0, 0
-        def sql(self, statement, params):
+        def observe(self, statement, params):
             assert params['published']
             return '0'
     fixture = Harness()
@@ -108,6 +110,7 @@ def test_external_interruptions_require_progress_and_target_only_observed_backen
     progress = {'pid': 321, 'phase': 'seq scanning heap'}
     monkeypatch.setattr(tool, '_wait', lambda probe, process, **kwargs: progress)
     harness = SimpleNamespace(container='disposable', sql=lambda sql, params=None: calls.append((sql, params)) or 't',
+                              observe=lambda sql: '1',
                               docker=lambda *args: calls.append(args))
     process = SimpleNamespace(wait=lambda timeout: calls.append(('wait', timeout)), returncode=1)
     marker = tmp_path / 'ready'
@@ -148,6 +151,57 @@ def test_unrelated_hook_pid_is_not_accepted(tmp_path, monkeypatch):
                         SimpleNamespace(pid=123, poll=lambda: 1), marker)
 
 
+def test_verification_rollback_requires_observed_insert_failure_before_wrapper_is_killed(tmp_path, monkeypatch):
+    scenario = 'rewrite_verified_transaction_failure'
+    marker = tmp_path / 'fault.json'
+    marker.write_text(json.dumps({'scenario': scenario, 'pid': 456,
+                                 'verification_transaction_sqlstate': '22012',
+                                 'verification_event_sequence': 43}))
+    calls = []
+    monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
+    monkeypatch.setattr(tool, '_kill', lambda process: calls.append('kill-wrapper-group'))
+    result = tool._interrupt(SimpleNamespace(), scenario, SimpleNamespace(pid=123, poll=lambda: None), marker)
+    assert result['verification_transaction_rolled_back'] is True
+    assert result['verification_event_sequence_attempted'] == 43
+    assert calls == ['kill-wrapper-group']
+
+
+@pytest.mark.parametrize('proof', [{}, {'verification_transaction_sqlstate': '08006',
+                                       'verification_event_sequence': 43},
+                                  {'verification_transaction_sqlstate': '22012',
+                                   'verification_event_sequence': 0}])
+def test_verification_failure_hook_without_rollback_proof_is_rejected(tmp_path, monkeypatch, proof):
+    scenario = 'rewrite_verified_transaction_failure'
+    marker = tmp_path / 'fault.json'
+    marker.write_text(json.dumps({'scenario': scenario, 'pid': 456, **proof}))
+    monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
+    with pytest.raises(RuntimeError, match='fault_point_not_observed'):
+        tool._interrupt(SimpleNamespace(), scenario, SimpleNamespace(pid=123, poll=lambda: 1), marker)
+
+
+@pytest.mark.parametrize('damage', ['unchanged_node', 'lost_oid', 'lost_before_node', 'verified_insert_committed',
+                                  'status_hides_open_rewrite', 'complete_succeeds'])
+def test_verification_rollback_requires_durable_identity_status_and_completion_refusal(tmp_path, damage):
+    before = _snapshot()
+    interrupted = _snapshot(node=11, starts=1)
+    opened = {'event_kind': 'REWRITE_STARTED', 'relation_code': tool.RELATION, 'event_sequence': 42}
+    if damage == 'unchanged_node':
+        interrupted['relation']['relfilenode'] = 10
+    elif damage == 'lost_oid':
+        interrupted['relation']['rewrite_start']['relation_oid'] = None
+    elif damage == 'lost_before_node':
+        interrupted['relation']['rewrite_start']['relfilenode_before'] = None
+    elif damage == 'verified_insert_committed':
+        interrupted['relation']['rewrite_verifications'] = 1
+    status = {'purge_state': {'unresolved': [] if damage == 'status_hides_open_rewrite' else [opened]}}
+    refusal = {'status': 'stopped', 'purge_state': {'unresolved': [opened]}}
+    harness = SimpleNamespace(output=tmp_path, action=lambda mode: (status,), action_argv=lambda mode: [mode],
+                              command=lambda *args, **kwargs: SimpleNamespace(
+                                  returncode=0 if damage == 'complete_succeeds' else 1, stdout=json.dumps(refusal)))
+    with pytest.raises(ValueError, match='crash_'):
+        tool._unresolved_verification(harness, before, interrupted)
+
+
 @pytest.mark.parametrize('scale,expected', [('tiny', 'tiny'), ('smoke', 'smoke'), ('one_percent', 'smoke')])
 def test_suite_uses_fresh_fixture_for_every_scenario_and_records_all_failures(tmp_path, monkeypatch, scale, expected):
     fixtures = []
@@ -161,7 +215,7 @@ def test_suite_uses_fresh_fixture_for_every_scenario_and_records_all_failures(tm
     monkeypatch.setattr(tool, 'run_scenario', fail)
     results = tool.run_crashes(factory, scale, '123-1', tmp_path)
     assert set(results) == set(tool.CRASH_SCENARIOS)
-    assert len(fixtures) == len({fixture.output for fixture in fixtures}) == 6
+    assert len(fixtures) == len({fixture.output for fixture in fixtures}) == len(tool.CRASH_SCENARIOS)
     assert all(fixture.scale == expected for fixture in fixtures)
     assert all(result['passed'] is False and result['cleanup_verified'] is True for result in results.values())
     assert all((fixture.output / 'crash-result.json').is_file() for fixture in fixtures)
@@ -188,8 +242,10 @@ def test_scenario_uses_dispatch_recovery_and_verified_noop_retry(tmp_path, monke
         interrupted['relation']['target_rows'] = 90
     if scenario == 'rewrite_postgres_restart':
         interrupted['relation']['postmaster_started'] = '2026-10-16T00:01:00+00:00'
-    if scenario == 'wrapper_after_rewrite_commit':
+    if scenario in ('wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure'):
         interrupted['relation']['relfilenode'] = 11
+    if scenario == 'rewrite_verified_transaction_failure':
+        interrupted['relation']['rewrite_starts'] = 1
     recovered = _snapshot(node=11, verified=1, starts=1)
     observed = iter([before, interrupted, recovered, deepcopy(recovered)])
     monkeypatch.setattr(tool, 'snapshot', lambda harness: next(observed))
@@ -197,19 +253,52 @@ def test_scenario_uses_dispatch_recovery_and_verified_noop_retry(tmp_path, monke
     monkeypatch.setattr(tool, '_interrupt', lambda *args: {'observed_fault_point': scenario})
     process = SimpleNamespace(poll=lambda: 1)
     monkeypatch.setattr(tool.subprocess, 'Popen', lambda *args, **kwargs: process)
+    opened = {'event_sequence': 42, 'event_kind': 'REWRITE_STARTED', 'relation_code': tool.RELATION}
+    def action(mode):
+        calls.append(mode)
+        return {'purge_state': {'unresolved': [opened]}}, Path('/status'), 0, 0, 0
     harness = SimpleNamespace(output=tmp_path, environment={}, scale='smoke',
                               counts={tool.RELATION: {tool.controller.PUBLISHED_KEY: 100}},
                               action_argv=lambda mode: ['real-purge-action', mode],
-                              action=lambda mode: calls.append(mode), sql=lambda *args: '0',
+                              action=action, observe=lambda *args: '0',
+                              command=lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=json.dumps({
+                                  'status': 'stopped', 'purge_state': {'unresolved': [opened]}})),
                               plan_batch_limit=lambda relation: 10)
     result = tool.run_scenario(harness, scenario)
     assert result['passed'] is True
     assert result['recovered_analyze_verified'] is True
     assert result['no_double_rewrite'] is True
     assert calls[0] == ('prepare', {'delete_vector': not is_batch})
-    assert calls[1] == 'restore-services'
+    assert calls[1] == ('status' if scenario == 'rewrite_verified_transaction_failure' else 'restore-services')
     assert calls[-3:] == ['rewrite-system-rating-vector', 'rewrite-system-rating-vector', 'complete']
     assert ('delete-system-rating-vector' in calls) is is_batch
+
+
+@pytest.mark.parametrize('damage', ['missing_recovered_flag', 'wrong_oid', 'wrong_after_node', 'new_rewrite_start'])
+def test_failed_verification_recovery_must_use_changed_node_and_recovered_event(tmp_path, monkeypatch, damage):
+    before = _snapshot()
+    interrupted = _snapshot(node=11, starts=1)
+    recovered = _snapshot(node=11, verified=1, starts=1)
+    verified = recovered['relation']['rewrite_verified']
+    if damage == 'missing_recovered_flag':
+        verified['recovered'] = False
+    elif damage == 'wrong_oid':
+        verified['relation_oid'] = 124
+    elif damage == 'wrong_after_node':
+        verified['relfilenode_after'] = 12
+    else:
+        recovered['relation']['rewrite_starts'] = 2
+    observed = iter([before, interrupted, recovered, deepcopy(recovered)])
+    monkeypatch.setattr(tool, 'snapshot', lambda harness: next(observed))
+    monkeypatch.setattr(tool, '_prepare', lambda *args, **kwargs: None)
+    monkeypatch.setattr(tool, '_interrupt', lambda *args: {})
+    monkeypatch.setattr(tool, '_unresolved_verification', lambda *args: {})
+    monkeypatch.setattr(tool.subprocess, 'Popen', lambda *args, **kwargs: SimpleNamespace(poll=lambda: 1))
+    harness = SimpleNamespace(output=tmp_path, environment={}, scale='tiny',
+                              counts={tool.RELATION: {tool.controller.PUBLISHED_KEY: 100}},
+                              action_argv=lambda mode: [mode], action=lambda mode: None)
+    with pytest.raises(ValueError, match='crash_verification_recovery_repeated_or_not_recovered'):
+        tool.run_scenario(harness, 'rewrite_verified_transaction_failure')
 
 
 @pytest.mark.parametrize('progress,active', [
@@ -230,7 +319,7 @@ def test_only_external_crash_survivor_vectors_augmented_and_measurement_untouche
     assert measurement.counts is counts
     assert counts[tool.RELATION][tool.controller.PUBLISHED_KEY] == 100
     expected = deepcopy(counts)
-    if scenario.startswith('rewrite_'):
+    if scenario in ('rewrite_monitor_cancel', 'rewrite_terminate_backend', 'rewrite_postgres_restart'):
         expected[tool.RELATION][tool.controller.PUBLISHED_KEY] = 2_000_000
     assert actual == expected
     assert crash.counts is not counts

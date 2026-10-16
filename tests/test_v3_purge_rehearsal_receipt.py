@@ -28,6 +28,7 @@ def example_receipt(**updates):
         measured['delete_seconds'] = measured['deleted_rows'] / 10_000
         per_relation[relation] = tool.relation_figures(measured, proportion)
     body = {'schema_version': tool.SCHEMA, 'operation': 'v3-derived-purge-rehearsal',
+            **tool.code_identity(),
             'status': 'success', 'source_git_sha': 'a' * 40, 'scale': 'one_percent',
             'production_proportion': proportion,
             'image_digest': 'postgres:18@sha256:' + 'b' * 64,
@@ -70,6 +71,39 @@ def test_valid_reviewed_receipt_authenticates_and_binds_plan_without_double_marg
         assert plan['rewrite'][relation] == {'rewrite_peak_bytes': 20100, 'statement_timeout_ms': 400_000}
     assert plan['snapshot'] == {'retained': 'preserved'}
     assert plan['rehearsal']['gate_10_crash_rehearsal_passed'] is True
+    for field, identity in tool.code_identity().items():
+        assert plan['rehearsal'][field] == identity
+
+
+def test_receipt_records_the_exact_action_script_identity():
+    from scripts.operator.lib import v3_generation_purge as controller
+    assert tool.code_identity()['script_sha256'] == controller.script_identity()
+    assert tool.code_identity()['migration_set_identity'] == controller.schema_identity.migration_set_identity(
+        controller.schema_identity.derive_entries())
+
+
+@pytest.mark.parametrize('field', ('script_sha256', 'rehearsal_script_sha256', 'migration_set_identity'))
+def test_reviewed_receipt_refuses_changed_executed_code_or_migrations(tmp_path, field):
+    stale = ('sha256:' if field == 'migration_set_identity' else '') + '0' * 64
+    value = example_receipt(**{field: stale})
+    with pytest.raises(ValueError, match='rehearsal_' + field + '_mismatch'):
+        tool.load_reviewed(write_receipt(tmp_path, value), value['content_sha256'])
+    with pytest.raises(ValueError, match='rehearsal_' + field + '_mismatch'):
+        tool.apply_to_plan({}, value)
+
+
+@pytest.mark.parametrize('relative', tool.HARNESS_FILES)
+def test_harness_identity_covers_every_executed_harness_file(monkeypatch, relative):
+    before = tool.code_identity()
+    original = Path.read_bytes
+    def read_bytes(path):
+        data = original(path)
+        return data + b'\n# changed executed harness' if path == tool.ROOT / relative else data
+    monkeypatch.setattr(Path, 'read_bytes', read_bytes)
+    after = tool.code_identity()
+    assert before['script_sha256'] == after['script_sha256']
+    assert before['migration_set_identity'] == after['migration_set_identity']
+    assert before['rehearsal_script_sha256'] != after['rehearsal_script_sha256']
 
 
 @pytest.mark.parametrize('scale', ('smoke', 'tiny'))
@@ -91,6 +125,13 @@ def test_false_crash_gate_is_never_production_authority(tmp_path):
 def test_all_crash_scenarios_required_even_if_top_gate_claims_success(scenario):
     value = example_receipt()
     value['crash_scenarios'][scenario]['passed'] = False
+    with pytest.raises(ValueError, match='crash_scenarios_incomplete'):
+        tool.validate(value)
+
+
+def test_gate_10_requires_verification_transaction_failure_in_addition_to_old_scenarios():
+    value = example_receipt()
+    del value['crash_scenarios']['rewrite_verified_transaction_failure']
     with pytest.raises(ValueError, match='crash_scenarios_incomplete'):
         tool.validate(value)
 
@@ -128,6 +169,8 @@ def test_invalid_measurements_refused(field, invalid):
 
 @pytest.mark.parametrize(('field', 'invalid'), (
     ('schema_version', 'different'), ('source_git_sha', 'main'),
+    ('script_sha256', None), ('rehearsal_script_sha256', 'missing'),
+    ('migration_set_identity', '0' * 64),
     ('image_digest', 'postgres:18'), ('settings', {'autovacuum': 'off'}),
     ('production_proportion', .0005), ('lifecycle_receipt_sha256', 'd' * 64),
     ('row_counts', {}), ('per_relation', {}), ('gate_10_crash_rehearsal_passed', 1),
@@ -205,6 +248,19 @@ def test_cli_invalid_seal_refuses_before_any_host_or_database_access(monkeypatch
     assert module.main(['plan', '--rehearsal-receipt=' + str(path),
                         '--rehearsal-receipt-sha256=' + value['content_sha256']]) == 1
     assert json.loads(capsys.readouterr().out)['failures'] == ['rehearsal_seal_invalid']
+
+
+@pytest.mark.parametrize('field', ('script_sha256', 'rehearsal_script_sha256', 'migration_set_identity'))
+def test_cli_stale_rehearsal_refuses_before_any_host_or_database_access(monkeypatch, tmp_path, capsys, field):
+    from tests.test_v3_derived_generation_purge_operator import _action_tool
+    module = _action_tool()
+    stale = ('sha256:' if field == 'migration_set_identity' else '') + '0' * 64
+    value = example_receipt(**{field: stale})
+    path = write_receipt(tmp_path, value)
+    monkeypatch.setattr(module, 'Runtime', lambda *_: pytest.fail('must bind identities before runtime'))
+    assert module.main(['plan', '--rehearsal-receipt=' + str(path),
+                        '--rehearsal-receipt-sha256=' + value['content_sha256']]) == 1
+    assert json.loads(capsys.readouterr().out)['failures'] == ['rehearsal_' + field + '_mismatch']
 
 
 def test_counts_must_match_committed_receipt_proportions():

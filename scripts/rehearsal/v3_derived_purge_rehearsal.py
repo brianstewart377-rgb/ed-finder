@@ -34,14 +34,20 @@ IMAGE = ('public.ecr.aws/docker/library/postgres:18-alpine@sha256:'
          '77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873')
 DATABASE = 'edfinder_purge_rehearsal'
 USER = 'edfinder_v3'
+OBSERVER_USER = 'edfinder_purge_observer'
 RECEIPT_PATH = ROOT / evidence.STEP0_RECEIPT
 SCALE_SYSTEMS = {'smoke': 100_000, 'one_percent': 2_000_000, 'tiny': 200}
 RELATIONS = tuple(controller.RELATIONS.values())
 SEED_BATCH_ROWS = 50_000
 SAMPLE_SECONDS = 0.1
-CRASH_SCENARIOS = ('batch_client_before_commit', 'batch_client_after_commit',
-                   'rewrite_monitor_cancel', 'rewrite_terminate_backend',
-                   'rewrite_postgres_restart', 'wrapper_after_rewrite_commit')
+CRASH_SCENARIOS = figures.CRASH_SCENARIOS
+OBSERVER_SETUP = """
+CREATE ROLE edfinder_purge_observer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE edfinder_purge_observer SET default_transaction_read_only=on;
+GRANT pg_read_all_stats TO edfinder_purge_observer;
+GRANT USAGE ON SCHEMA v3_meta,v3_derived,v3_spatial TO edfinder_purge_observer;
+GRANT SELECT ON ALL TABLES IN SCHEMA v3_meta,v3_derived,v3_spatial TO edfinder_purge_observer;
+"""
 
 
 def seeding_proportions(scale):
@@ -143,9 +149,16 @@ class Harness:
         return self.command(['docker', '--context', 'default', *arguments], **kwargs).stdout.strip()
 
     def sql(self, statement, parameters=None):
+        return self._sql(statement, parameters, user=USER)
+
+    def observe(self, statement, parameters=None):
+        """Read probes survive application-role session recycling at either fence."""
+        return self._sql(statement, parameters, user=OBSERVER_USER)
+
+    def _sql(self, statement, parameters, *, user):
         started = time.monotonic()
         result = self.docker('exec', '-i', self.container, 'psql', '-X', '--no-psqlrc',
-                             '--no-password', '-U', USER, '-d', DATABASE, '-Atq',
+                             '--no-password', '-U', user, '-d', DATABASE, '-Atq',
                              '--set', 'ON_ERROR_STOP=1', '--file=-',
                              body=bind_sql(statement, parameters or {}))
         self.statements.append({'statement_sha256': hashlib.sha256(statement.encode()).hexdigest(),
@@ -191,6 +204,9 @@ class Harness:
                 break
         else:
             raise ValueError('migration_016_missing')
+        # Only this private container owns the role. Grant table reads after
+        # migrations so monitoring never needs application/executor privileges.
+        self.sql(OBSERVER_SETUP)
 
     def seed(self):
         self.sql(seed.METADATA)
@@ -252,7 +268,7 @@ class Harness:
                     free = self.free_bytes()
                     samples.append(free)
                     if mode.startswith('delete-'):
-                        event = int(self.sql("SELECT COALESCE(max(event_sequence),0) FROM "
+                        event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
                                              "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
                         batch_observations.append((event, free))
                 except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
@@ -264,7 +280,7 @@ class Harness:
             free = self.free_bytes()
             samples.append(free)
             if mode.startswith('delete-'):
-                event = int(self.sql("SELECT COALESCE(max(event_sequence),0) FROM "
+                event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
                                      "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
                 batch_observations.append((event, free))
             worker.start()
@@ -280,7 +296,7 @@ class Harness:
             free = self.free_bytes()
             samples.append(free)
             if mode.startswith('delete-'):
-                event = int(self.sql("SELECT COALESCE(max(event_sequence),0) FROM "
+                event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
                                      "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
                 batch_observations.append((event, free))
         if failures or worker and worker.is_alive():
@@ -411,6 +427,7 @@ def main(argv=None):
     receipt = dict(schema_version='ed-finder/derived-purge-rehearsal/v1', operation='v3-derived-purge-rehearsal',
                    status='stopped', created_at=datetime.now(timezone.utc).isoformat(),
                    scale=args.scale, source_git_sha=harness.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).stdout.strip(),
+                   **figures.code_identity(),
                    image_digest=IMAGE, production_proportion=harness.proportion,
                    lifecycle_receipt_sha256=hashlib.sha256(RECEIPT_PATH.read_bytes()).hexdigest(),
                    row_counts=harness.counts, per_relation={},

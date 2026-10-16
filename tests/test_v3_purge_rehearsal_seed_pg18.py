@@ -10,9 +10,12 @@ import json
 from uuid import uuid4
 
 import psycopg
+import pytest
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Jsonb
 
+from scripts.operator.lib import v3_purge_rewrite as rewrite
 from scripts.operator.lib import v3_purge_transactions as transactions
 from scripts.rehearsal import v3_derived_purge_rehearsal as rehearsal
 from tests.ratings_v4_pg_fixture import canonical_database
@@ -28,10 +31,14 @@ def fresh_harness_database():
         database = 'v4_test_purge_seed_' + uuid4().hex
         created = False
         executor_was_absent = False
+        observer_was_absent = False
         administrator.execute('SELECT pg_advisory_lock(764016099)')
         try:
             executor_was_absent = administrator.execute(
                 'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
+            ).fetchone() is None
+            observer_was_absent = administrator.execute(
+                'SELECT 1 FROM pg_roles WHERE rolname=%s', (rehearsal.OBSERVER_USER,),
             ).fetchone() is None
             administrator.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
             created = True
@@ -40,6 +47,10 @@ def fresh_harness_database():
         finally:
             if created:
                 administrator.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(database)))
+            if observer_was_absent and administrator.execute(
+                    'SELECT 1 FROM pg_roles WHERE rolname=%s', (rehearsal.OBSERVER_USER,),
+            ).fetchone():
+                administrator.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(rehearsal.OBSERVER_USER)))
             if executor_was_absent and administrator.execute(
                     'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
             ).fetchone():
@@ -101,6 +112,13 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
             'SELECT derived_generation_id::text,publication_sequence FROM v3_meta.current_derived_generation',
         ).fetchall() == [(rehearsal.controller.PUBLISHED_ID, 1)]
         assert connection.execute(
+            '''SELECT publication_sequence,from_generation_id,to_generation_id::text,actor,reason
+               FROM v3_meta.derived_publication_audit''',
+        ).fetchall() == [(1, None, rehearsal.controller.PUBLISHED_ID, 'disposable-rehearsal', 'synthetic seed')]
+        assert connection.execute(
+            "SELECT to_regprocedure('v3_meta.publish_derived_generation(uuid,uuid,bigint,uuid,bigint,text,text)')",
+        ).fetchone() == (None,)
+        assert connection.execute(
             'SELECT publication_sequence FROM v3_meta.current_canonical_generation',
         ).fetchone() == (4,)
         assert connection.execute(
@@ -129,3 +147,127 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         assert plan['snapshot']['survivors'] == {
             relation: harness.counts[relation][rehearsal.controller.PUBLISHED_KEY]
             for relation in rehearsal.RELATIONS}
+
+        # Authenticate as the dedicated login, rather than SET ROLE on the
+        # application connection: recycling selects the authenticated usename.
+        password = uuid4().hex
+        connection.execute(sql.SQL('ALTER ROLE {} PASSWORD {}').format(
+            sql.Identifier(rehearsal.OBSERVER_USER), sql.Literal(password)))
+        with psycopg.connect(make_conninfo(connection.info.dsn, user=rehearsal.OBSERVER_USER,
+                                          password=password), autocommit=True) as observer:
+            assert observer.execute('SHOW default_transaction_read_only').fetchone() == ('on',)
+            assert observer.execute('SELECT current_user').fetchone() == (rehearsal.OBSERVER_USER,)
+            assert observer.execute('SELECT count(*) FROM v3_meta.derived_generation').fetchone() == (3,)
+            assert observer.execute(
+                '''SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls
+                   FROM pg_roles WHERE rolname=current_user''',
+            ).fetchone() == (False, False, False, False, False)
+            # Even an explicitly read-write transaction cannot acquire a
+            # payload write privilege through this observer login.
+            observer.execute('SET default_transaction_read_only=off')
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                observer.execute('DELETE FROM v3_derived.system_rating_vector WHERE false')
+
+
+def test_observer_survives_real_writer_fence_session_recycles():
+    from tests.test_v3_governed_derived_purge import _authorize, installed_purge
+
+    with canonical_database() as data, installed_purge(data[0], apply_chain=True) as connection:
+        purge_id = next(iter(_authorize(data).values()))
+        connection.execute('RESET ROLE')
+        connection.execute(rehearsal.OBSERVER_SETUP)
+        password = uuid4().hex
+        for role in (rehearsal.USER, rehearsal.OBSERVER_USER):
+            connection.execute(sql.SQL('ALTER ROLE {} PASSWORD {}').format(
+                sql.Identifier(role), sql.Literal(password)))
+        try:
+            observer_dsn = make_conninfo(connection.info.dsn, user=rehearsal.OBSERVER_USER, password=password)
+            application_dsn = make_conninfo(connection.info.dsn, user=rehearsal.USER, password=password)
+            with psycopg.connect(observer_dsn, autocommit=True) as observer:
+                observer_pid = observer.execute('SELECT pg_backend_pid()').fetchone()[0]
+                for enabled in (True, False):
+                    with psycopg.connect(application_dsn, autocommit=True) as application:
+                        connection.execute('SET ROLE v3_derived_purge_executor')
+                        connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,%s)', (purge_id, enabled))
+                        assert connection.execute(
+                            'SELECT v3_meta.purge_recycle_writer_sessions(%s,%s)', (purge_id, enabled),
+                        ).fetchone()[0] >= 1
+                        with pytest.raises(psycopg.OperationalError):
+                            application.execute('SELECT 1')
+                    # The same authenticated observer remains alive at both
+                    # fence boundaries, including ledger sampling queries.
+                    assert observer.execute('SELECT pg_backend_pid()').fetchone()[0] == observer_pid
+                    assert observer.execute('SELECT count(*) FROM v3_meta.derived_generation_purge_event').fetchone()[0] > 0
+                    observed = 'on' if enabled else 'off'
+                    connection.execute('SELECT v3_meta.purge_verify_writer_fence(%s,%s,%s)',
+                                       (purge_id, enabled, observed))
+        finally:
+            connection.execute('RESET ROLE')
+            connection.execute(sql.SQL('DROP OWNED BY {}').format(sql.Identifier(rehearsal.OBSERVER_USER)))
+            connection.execute(sql.SQL('DROP ROLE {}').format(sql.Identifier(rehearsal.OBSERVER_USER)))
+
+
+def test_rewrite_verified_transaction_rolls_back_and_recovers_without_second_rewrite():
+    from tests.test_v3_governed_derived_purge import (
+        _authorize, _batch, _operator_query, _receipt, _wait_for_fixture_maintenance,
+        _writer_fence, installed_purge,
+    )
+
+    with canonical_database() as data, installed_purge(data[0], apply_chain=True) as connection:
+        purge_ids = [str(identity) for identity in _authorize(data).values()]
+        purge_id = purge_ids[0]
+        relation = 'system_search'
+        _writer_fence(connection, purge_id)
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, relation))
+        for request in purge_ids:
+            assert _batch(connection, request, relation) > 0
+        connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                           (purge_id, relation, Jsonb(_receipt())))
+        connection.execute('RESET ROLE')
+        # A real dispatch backend commits STARTED and VACUUM independently,
+        # then departs before the verification transaction begins.
+        with psycopg.connect(make_conninfo(connection.info.dsn, password=connection.info.password),
+                             autocommit=True) as backend:
+            backend.execute('SET ROLE v3_derived_purge_executor')
+            backend.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                            (purge_id, 'REWRITE_STARTED', relation, Jsonb(_receipt())))
+            backend.execute(rewrite.rewrite_command(relation))
+            backend.execute('SELECT pg_stat_force_next_flush()')
+        _wait_for_fixture_maintenance(connection)
+        query = _operator_query(connection)
+        opened = transactions.metadata_state(query, purge_ids)['open_rewrites']
+        assert len(opened) == 1
+        started = opened[0]
+        rewritten = connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0]
+        assert started['relation_oid'] is not None and started['relfilenode_before'] != rewritten
+
+        connection.execute('SET ROLE v3_derived_purge_executor')
+        with pytest.raises(psycopg.errors.DivisionByZero):
+            with connection.transaction():
+                inserted = connection.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
+                    (purge_id, 'REWRITE_VERIFIED', relation, Jsonb(_receipt()))).fetchone()[0]
+                assert connection.execute(
+                    'SELECT event_kind FROM v3_meta.derived_generation_purge_event WHERE event_sequence=%s',
+                    (inserted,),
+                ).fetchone() == ('REWRITE_VERIFIED',)
+                connection.execute('SELECT 1 / 0')
+        assert transactions.metadata_state(query, purge_ids)['open_rewrites'] == opened
+        assert connection.execute(
+            "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='REWRITE_VERIFIED'",
+        ).fetchone() == (0,)
+        plan = connection.execute('SELECT reviewed_plan FROM v3_meta.derived_generation_purge_request LIMIT 1').fetchone()[0]
+        with pytest.raises(transactions.PurgeTransactionError, match='purge_completion_preconditions_failed'):
+            transactions.complete(query, plan, _receipt(), purge_ids=purge_ids)
+
+        resolved = rewrite.resolve_rewrites(query, purge_ids, relation, cancel=False,
+                                            receipt=_receipt, statement_timeout_ms=60_000)
+        assert resolved['verified_relations'] == [relation]
+        assert transactions.metadata_state(query, purge_ids)['open_rewrites'] == []
+        assert connection.execute(
+            "SELECT recovered FROM v3_meta.derived_generation_purge_event WHERE event_kind='REWRITE_VERIFIED'",
+        ).fetchall() == [(True,)]
+        assert rewrite.resolve_rewrites(query, purge_ids, relation, cancel=False)['resolved_rewrite_events'] == []
+        assert connection.execute("SELECT pg_relation_filenode('v3_derived.system_search')").fetchone()[0] == rewritten
+        assert connection.execute(
+            "SELECT count(*) FROM v3_meta.derived_generation_purge_event WHERE event_kind='REWRITE_STARTED'",
+        ).fetchone() == (1,)

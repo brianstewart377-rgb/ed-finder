@@ -3,6 +3,7 @@ from copy import deepcopy
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -216,3 +217,51 @@ def test_wrong_marker_refused_before_controller_target_changes(monkeypatch, tmp_
     with pytest.raises(ValueError, match='marker_missing'):
         install_fake_target(monkeypatch, tmp_path, marker_override={
             'database': tool.PRODUCTION_DATABASE, 'marker': tool.MARKER_PREFIX + TOKEN})
+
+
+def test_verification_fault_inserts_then_fails_before_commit_and_only_marks_after_rollback(monkeypatch, tmp_path):
+    c, runtime, _ = install_fake_target(monkeypatch, tmp_path)
+    scenario = 'rewrite_verified_transaction_failure'
+    marker = tmp_path / 'verification-rolled-back.json'
+    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT', scenario)
+    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT_FILE', str(marker))
+    observed = []
+    def execute(self, *argv, **kwargs):
+        observed.append(kwargs)
+        assert not marker.exists()
+        assert kwargs['allow_failure'] is kwargs['return_result'] is True
+        statement = kwargs['input']
+        assert statement.index('purge_record_event(') < statement.index('SELECT 1 / 0;') < statement.index('COMMIT;')
+        return SimpleNamespace(returncode=3, stdout='{"event_sequence":43}\n', stderr='ERROR:  22012\n')
+    monkeypatch.setattr(c.Runtime, 'docker', execute)
+    monkeypatch.setattr(tool.time, 'sleep', lambda seconds: None)
+    with pytest.raises(ValueError, match='rehearsal_fault_not_interrupted'):
+        runtime.query(c._load('v3_purge_rewrite').EVENT_SQL, {
+            'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a',
+            'kind': 'REWRITE_VERIFIED', 'relation': 'system_rating_vector', 'evidence': '{}'}, write=True)
+    proof = json.loads(marker.read_text())
+    assert proof['scenario'] == scenario
+    assert proof['verification_event_sequence'] == 43
+    assert proof['verification_transaction_sqlstate'] == '22012'
+    assert len(observed) == 1
+    assert runtime._rehearsal_verification is False
+
+
+@pytest.mark.parametrize('returncode,stdout,stderr', [
+    (0, '{"event_sequence":43}', ''), (3, '{"event_sequence":43}', 'ERROR:  08006'),
+    (3, '{}', 'ERROR:  22012'), (3, '{"event_sequence":0}', 'ERROR:  22012'),
+    (3, '', 'ERROR:  22012'),
+])
+def test_verification_fault_cannot_mark_unobserved_insert_or_unexpected_failure(
+        monkeypatch, tmp_path, returncode, stdout, stderr):
+    c, runtime, _ = install_fake_target(monkeypatch, tmp_path)
+    marker = tmp_path / 'verification-rolled-back.json'
+    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT', 'rewrite_verified_transaction_failure')
+    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT_FILE', str(marker))
+    monkeypatch.setattr(c.Runtime, 'docker', lambda *args, **kwargs: SimpleNamespace(
+        returncode=returncode, stdout=stdout, stderr=stderr))
+    with pytest.raises(ValueError, match='rehearsal_verification_.*_not_observed'):
+        runtime.query(c._load('v3_purge_rewrite').EVENT_SQL, {
+            'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a',
+            'kind': 'REWRITE_VERIFIED', 'relation': 'system_rating_vector', 'evidence': '{}'}, write=True)
+    assert not marker.exists()

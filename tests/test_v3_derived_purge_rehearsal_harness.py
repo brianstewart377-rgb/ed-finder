@@ -1,6 +1,7 @@
 """Disposable harness contracts without a Docker daemon or database."""
 import hashlib
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -65,6 +66,7 @@ def test_receipt_seals_raw_and_margin_figures_without_promoting_missing_crashes(
                heap_index_bytes=65536, autovacuum_budget_source='heap_plus_index_lower_bound')
     receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal',
                    status='success', source_git_sha='a'*40, scale='tiny',
+                   **figures.code_identity(),
                    image_digest=harness.IMAGE, production_proportion=proportion,
                    row_counts=counts, lifecycle_receipt_sha256=hashlib.sha256(harness.RECEIPT_PATH.read_bytes()).hexdigest(),
                    settings={'autovacuum': 'on'}, gate_10_crash_rehearsal_passed=False,
@@ -129,6 +131,37 @@ def test_action_executes_real_entrypoint_and_preserves_sealed_statement_measurem
     assert calls[0][-4:] == ['--rehearsal-container', instance.container, '--rehearsal-token', instance.token]
     assert instance.statements[0]['duration_seconds'] == 0.1
     assert instance.statements[-1]['kind'] == 'action_wall_clock'
+
+
+def test_sampling_survives_application_session_recycle(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'observer-test', tmp_path)
+    recycling = threading.Event()
+    sampled_during_recycle = threading.Event()
+    observed_users = []
+    instance.free_bytes = lambda: 1_000_000
+    monkeypatch.setattr(harness, 'SAMPLE_SECONDS', 0.001)
+
+    def docker(*arguments, **kwargs):
+        user = arguments[arguments.index('-U') + 1]
+        observed_users.append(user)
+        if recycling.is_set():
+            if user == harness.USER:
+                raise RuntimeError('application_session_recycled')
+            sampled_during_recycle.set()
+        return '1'
+
+    def command(*arguments, **kwargs):
+        recycling.set()
+        assert sampled_during_recycle.wait(timeout=5), 'no concurrent sample observed'
+        recycling.clear()
+        return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
+
+    instance.docker = docker
+    instance.command = command
+    report, _, _, _, count = instance.action('delete-system-search', measure=True)
+    assert report['status'] == 'success' and count >= 3
+    assert observed_users and set(observed_users) == {harness.OBSERVER_USER}
+    assert harness.OBSERVER_USER != harness.USER
 
 
 def test_cleanup_unknown_inspect_requires_successful_absence_probe(tmp_path):

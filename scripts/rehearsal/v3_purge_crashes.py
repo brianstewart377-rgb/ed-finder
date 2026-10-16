@@ -52,6 +52,16 @@ STATE_SQL = """SELECT jsonb_build_object(
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'),
  'rewrite_verifications',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'),
+ 'rewrite_start',(SELECT jsonb_build_object('event_sequence',event_sequence,
+    'relation_oid',relation_oid,'relfilenode_before',relfilenode_before)
+    FROM v3_meta.derived_generation_purge_event
+    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'
+    ORDER BY event_sequence DESC LIMIT 1),
+ 'rewrite_verified',(SELECT jsonb_build_object('recovered',recovered,
+    'relation_oid',relation_oid,'relfilenode_after',relfilenode_after)
+    FROM v3_meta.derived_generation_purge_event
+    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'
+    ORDER BY event_sequence DESC LIMIT 1),
  'monitor_cancellations',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_CANCEL_REQUESTED'
       AND operational_payload->>'condition'='controller_loss' AND operational_payload->'signalled'='true'::jsonb),
@@ -68,12 +78,12 @@ SLEEP_SQL = """SELECT jsonb_build_object('sleeping',EXISTS(SELECT 1 FROM pg_stat
 
 
 def _json(harness, sql):
-    return json.loads(harness.sql(sql, {'published': controller.PUBLISHED_ID}))
+    return json.loads(harness.observe(sql, {'published': controller.PUBLISHED_ID}))
 
 
 def snapshot(harness):
     return {'published': _json(harness, PUBLISHED_SQL),
-            'pointers': json.loads(harness.sql(controller.POINTER_IDENTITIES_SQL)),
+            'pointers': json.loads(harness.observe(controller.POINTER_IDENTITIES_SQL)),
             'relation': _json(harness, STATE_SQL)}
 
 
@@ -143,7 +153,7 @@ def _delete_all(harness, name):
     relation = controller.RELATIONS[name]
     for _ in range(1000):
         harness.action('delete-' + name)
-        remaining = int(harness.sql('SELECT count(*) FROM v3_derived.' + relation +
+        remaining = int(harness.observe('SELECT count(*) FROM v3_derived.' + relation +
                                    ' WHERE derived_generation_id<>%(published)s::uuid;',
                                    {'published': controller.PUBLISHED_ID}))
         if remaining == 0:
@@ -160,7 +170,8 @@ def _active_rewrite(harness):
 
 
 def _interrupt(harness, scenario, process, marker):
-    if scenario in ('batch_client_before_commit', 'batch_client_after_commit', 'wrapper_after_rewrite_commit'):
+    if scenario in ('batch_client_before_commit', 'batch_client_after_commit',
+                    'wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure'):
         def ready():
             if not marker.exists():
                 return False
@@ -170,8 +181,13 @@ def _interrupt(harness, scenario, process, marker):
                 owned = type(pid) is int and pid > 0 and os.getpgid(pid) == process.pid
             except ProcessLookupError:
                 owned = False
+            if scenario == 'rewrite_verified_transaction_failure' and (
+                    payload.get('verification_transaction_sqlstate') != '22012'
+                    or type(payload.get('verification_event_sequence')) is not int
+                    or payload['verification_event_sequence'] <= 0):
+                return False
             return payload if payload.get('scenario') == scenario and owned else False
-        _wait(ready, process, reason='crash_fault_point_not_observed')
+        observed = _wait(ready, process, reason='crash_fault_point_not_observed')
         if scenario.startswith('batch_client_'):
             _wait(lambda: _json(harness, SLEEP_SQL).get('sleeping'), process,
                   reason='crash_batch_commit_boundary_not_observed')
@@ -180,6 +196,10 @@ def _interrupt(harness, scenario, process, marker):
         _kill(process)
         if scenario.startswith('batch_client_') or scenario == 'wrapper_after_rewrite_commit':
             harness.docker('exec', harness.container, 'killall', '-KILL', 'psql')
+        if scenario == 'rewrite_verified_transaction_failure':
+            return {'observed_fault_point': scenario, 'verification_transaction_rolled_back': True,
+                    'verification_event_sequence_attempted': observed['verification_event_sequence'],
+                    'verification_transaction_sqlstate': observed['verification_transaction_sqlstate']}
         return {'observed_fault_point': scenario,
                 'batch_client_state': ('killed_before_commit' if scenario == 'batch_client_before_commit'
                                        else 'killed_after_commit' if scenario == 'batch_client_after_commit'
@@ -208,7 +228,7 @@ def _interrupt(harness, scenario, process, marker):
         deadline = time.monotonic() + 120
         while True:
             try:
-                harness.sql('SELECT 1;')
+                harness.observe('SELECT 1;')
                 break
             except (RuntimeError, OSError, subprocess.SubprocessError):
                 if time.monotonic() >= deadline:
@@ -223,10 +243,38 @@ def configure_fixture(harness, scenario):
     # remain sparse. The main measured fixture and target proportions never
     # change. Tiny CI checks deliberately keep their original bounded dataset.
     harness.counts = deepcopy(harness.counts)
-    if scenario.startswith('rewrite_') and harness.scale != 'tiny':
+    if scenario in ('rewrite_monitor_cancel', 'rewrite_terminate_backend', 'rewrite_postgres_restart') and harness.scale != 'tiny':
         published = harness.counts[RELATION][controller.PUBLISHED_KEY]
         harness.counts[RELATION][controller.PUBLISHED_KEY] = max(2_000_000, published)
     return deepcopy(harness.counts)
+
+
+def _unresolved_verification(harness, before, interrupted):
+    relation = interrupted['relation']
+    started = relation.get('rewrite_start') or {}
+    if (relation['relfilenode'] == before['relation']['relfilenode']
+            or relation['rewrite_starts'] != 1 or relation['rewrite_verifications'] != 0
+            or started.get('relation_oid') != before['relation']['oid']
+            or started.get('relfilenode_before') != before['relation']['relfilenode']
+            or type(started.get('event_sequence')) is not int):
+        raise ValueError('crash_verification_rollback_ledger_not_unresolved')
+    # Invoke the actual read-only status and fail-closed completion paths before
+    # the matching rewrite redispatch gets any chance to recover the record.
+    status, *_ = harness.action('status')
+    unresolved = status.get('purge_state', {}).get('unresolved', [])
+    if not any(event.get('event_kind') == 'REWRITE_STARTED'
+               and event.get('relation_code') == RELATION
+               and event.get('event_sequence') == started['event_sequence'] for event in unresolved):
+        raise ValueError('crash_status_did_not_report_unresolved_rewrite')
+    refusal = harness.command(harness.action_argv('complete'), check=False, timeout=3600)
+    report = json.loads(refusal.stdout)
+    (harness.output / 'unresolved-complete-refusal.json').write_text(evidence.canonical_json(report) + '\n')
+    if (refusal.returncode == 0 or report.get('status') != 'stopped'
+            or not any(event.get('event_kind') == 'REWRITE_STARTED'
+                       and event.get('event_sequence') == started['event_sequence']
+                       for event in report.get('purge_state', {}).get('unresolved', []))):
+        raise ValueError('crash_complete_accepted_unresolved_rewrite')
+    return {'unresolved_rewrite_reported': True, 'complete_refused': True}
 
 
 def run_scenario(harness, scenario):
@@ -260,14 +308,17 @@ def run_scenario(harness, scenario):
             raise ValueError('crash_committed_batch_not_atomic')
     if scenario == 'rewrite_monitor_cancel' and interrupted['relation']['monitor_cancellations'] < 1:
         raise ValueError('crash_monitor_did_not_cancel_active_rewrite')
-    if scenario == 'wrapper_after_rewrite_commit' and state != 'new':
+    if scenario in ('wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure') and state != 'new':
         raise ValueError('crash_committed_rewrite_not_swapped')
     if (scenario == 'rewrite_postgres_restart' and interrupted['relation']['postmaster_started']
             == before['relation']['postmaster_started']):
         raise ValueError('crash_postgres_not_restarted')
     # Use the actual restore dispatcher, then the actual matching phase. No
     # ledger row is synthesized or patched by this orchestration module.
-    harness.action('restore-services')
+    if scenario == 'rewrite_verified_transaction_failure':
+        interruption.update(_unresolved_verification(harness, before, interrupted))
+    else:
+        harness.action('restore-services')
     if is_batch:
         _delete_all(harness, MODE)
     harness.action('rewrite-' + MODE)
@@ -275,6 +326,14 @@ def run_scenario(harness, scenario):
     harness.action('rewrite-' + MODE)
     repeated = snapshot(harness)
     assert_recovered(before, recovered, repeated)
+    if scenario == 'rewrite_verified_transaction_failure':
+        verified = recovered['relation'].get('rewrite_verified') or {}
+        if (verified.get('recovered') is not True
+                or verified.get('relation_oid') != before['relation']['oid']
+                or verified.get('relfilenode_after') != recovered['relation']['relfilenode']
+                or recovered['relation']['rewrite_starts'] != interrupted['relation']['rewrite_starts']):
+            raise ValueError('crash_verification_recovery_repeated_or_not_recovered')
+        interruption['recovered_flag_verified'] = True
     if is_batch and recovered['relation']['committed_rows'] != before['relation']['target_rows']:
         raise ValueError('crash_delete_double_counted_or_incomplete')
     harness.action('complete')
@@ -287,7 +346,7 @@ def run_scenario(harness, scenario):
 
 
 def run_crashes(harness_factory, scale, run_id, output):
-    """Always record all six outcomes; any unobserved/failing scenario closes gate10."""
+    """Record every outcome; any unobserved/failing scenario closes gate10."""
     results = {}
     crash_scale = 'tiny' if scale == 'tiny' else 'smoke'
     for index, scenario in enumerate(CRASH_SCENARIOS):
