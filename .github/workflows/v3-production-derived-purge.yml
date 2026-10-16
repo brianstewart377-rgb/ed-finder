@@ -1,0 +1,237 @@
+name: V3 production derived purge
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Separately reviewed governed purge phase
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - status
+          - authorize
+          - verify-system-archetype-empty
+          - delete-system-search
+          - delete-economy-opportunity
+          - delete-body-mechanics
+          - delete-system-rating-vector
+          - rewrite-system-search
+          - rewrite-economy-opportunity
+          - rewrite-body-mechanics
+          - rewrite-system-rating-vector
+          - abort-relation-system-search
+          - abort-relation-economy-opportunity
+          - abort-relation-body-mechanics
+          - abort-relation-system-rating-vector
+          - restore-services
+          - complete
+      confirm_target:
+        description: Type ed-finder-prod/nb79a3d.mevnode.com
+        required: true
+        type: string
+      plan_run_id:
+        description: Successful protected plan run ID (all modes except plan/status)
+        required: false
+        default: ''
+        type: string
+      plan_sha256:
+        description: Reviewed plan receipt content_sha256 (64 lowercase hex)
+        required: false
+        default: ''
+        type: string
+      verification_run_id:
+        description: Successful protected verify-system-archetype-empty run (delete/rewrite/abort/restore/complete)
+        required: false
+        default: ''
+        type: string
+      verification_sha256:
+        description: Exclusion proof receipt content_sha256 (64 lowercase hex)
+        required: false
+        default: ''
+        type: string
+      acknowledge_failed_stop:
+        description: Owner-reviewed integrity FAILED_STOP event sequence (restore-services only)
+        required: false
+        default: ''
+        type: string
+      wall_clock_seconds:
+        description: Delete-only loop budget in seconds, integer 1..1800 (blank for other modes)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v3-production-application-authority
+  cancel-in-progress: false
+
+jobs:
+  production-purge:
+    if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: v3-production
+    concurrency:
+      group: chatgpt-ed-new-ops
+      cancel-in-progress: false
+    # Delete: <=1800s loop + <=2700s batch. Rewrite: <=7200s reviewed
+    # statement (enforced before SSH). 10800s total leaves >=3600s for
+    # preflight, verification, cancellation/recovery, restoration and upload.
+    timeout-minutes: 180
+    env:
+      INPUT_MODE: ${{ inputs.mode }}
+      INPUT_CONFIRM_TARGET: ${{ inputs.confirm_target }}
+      INPUT_PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+      INPUT_PLAN_SHA256: ${{ inputs.plan_sha256 }}
+      INPUT_VERIFICATION_RUN_ID: ${{ inputs.verification_run_id }}
+      INPUT_VERIFICATION_SHA256: ${{ inputs.verification_sha256 }}
+      INPUT_ACKNOWLEDGE_FAILED_STOP: ${{ inputs.acknowledge_failed_stop }}
+      INPUT_WALL_CLOCK_SECONDS: ${{ inputs.wall_clock_seconds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Initialize failure receipt
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"status":"stopped","failures":["workflow_did_not_complete"],"remote_outcome":null}' > "$RUNNER_TEMP/receipt.json"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Initialize sealed receipt with unknown remote outcomes
+        run: python scripts/operator/v3_production_purge_workflow.py initialize-receipt
+      - name: Require literal target and exact current main after production approval
+        run: |
+          set -euo pipefail
+          [ "$INPUT_CONFIRM_TARGET" = "ed-finder-prod/nb79a3d.mevnode.com" ] || exit 64
+          python scripts/operator/v3_production_purge_workflow.py validate-inputs
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 64
+          git fetch --no-tags origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" ] || {
+            echo "Canonical main moved while production approval was pending" >&2
+            exit 64
+          }
+      - name: Download reviewed protected plan
+        if: inputs.mode != 'plan' && inputs.mode != 'status'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: v3-derived-purge-plan
+          path: ${{ runner.temp }}/purge-plan
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.plan_run_id }}
+      - name: Download sealed exclusion proof
+        if: inputs.mode == 'complete' || inputs.mode == 'restore-services' || startsWith(inputs.mode, 'delete-') || startsWith(inputs.mode, 'rewrite-') || startsWith(inputs.mode, 'abort-relation-')
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: v3-derived-purge-verification
+          path: ${{ runner.temp }}/purge-verification
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.verification_run_id }}
+      - name: Authenticate artifacts by successful same-workflow main run and sealed SHA-256
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/operator/v3_production_purge_workflow.py authenticate
+      - name: Prepare bounded trusted-main source bundle and pinned SSH trust
+        env:
+          SSH_KEY: ${{ secrets.V3_PRODUCTION_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || exit 64
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535 )) || exit 64
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh "$RUNNER_TEMP/purge-bundle"
+          install -m 600 /dev/null ~/.ssh/v3_production_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+          # Bounded schema-migration bundle precedent, streamed from exact main.
+          # Keep credential-free Git objects: the action proves HEAD and backup
+          # wrapper bytes against committed source, not a caller's source label.
+          bundle="$RUNNER_TEMP/purge-bundle"
+          git archive HEAD scripts/operator scripts/release deploy/v3-production sql | tar -xf - -C "$bundle"
+          cp -R .git "$bundle/.git"
+          rm -f "$bundle/.git/config"
+          rm -rf "$bundle/.git/hooks"
+          install -d -m 700 "$bundle/artifacts"
+          if [ -n "$INPUT_PLAN_RUN_ID" ]; then
+            install -m 600 "$RUNNER_TEMP/purge-plan/receipt.json" "$bundle/artifacts/plan.json"
+          fi
+          if [ -n "$INPUT_VERIFICATION_RUN_ID" ]; then
+            install -m 600 "$RUNNER_TEMP/purge-verification/receipt.json" "$bundle/artifacts/verification.json"
+          fi
+          tar -C "$bundle" -cf "$RUNNER_TEMP/purge-source.tar" .
+      - name: Run action and retain concurrency authority until remote exit
+        env:
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_USER: ${{ secrets.V3_PRODUCTION_USER }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" ] || {
+            echo "Canonical main moved immediately before production purge" >&2
+            exit 64
+          }
+          set +e
+          python scripts/operator/v3_production_purge_workflow.py execute | tee "$RUNNER_TEMP/receipt.remote.json"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          # Preserve the initialized unknown-outcome receipt on transport loss.
+          python - <<'PY'
+          import importlib.util, os, pathlib
+          spec = importlib.util.spec_from_file_location('evidence', 'scripts/operator/lib/f2d_evidence.py')
+          evidence = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(evidence)
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          remote = root / 'receipt.remote.json'
+          if remote.stat().st_size > 8 * 1024 * 1024:
+              raise SystemExit('Remote purge receipt exceeds the bound')
+          receipt = evidence.load_sealed(remote)
+          if receipt.get('operation') != 'v3-derived-generation-purge' or receipt.get('phase') != os.environ['INPUT_MODE']:
+              raise SystemExit('Remote purge receipt has the wrong operation')
+          if receipt.get('workflow_run_id') not in (None, os.environ['GITHUB_RUN_ID']) or receipt.get('source_git_sha') not in (None, os.environ['GITHUB_SHA']):
+              raise SystemExit('Remote purge receipt has the wrong source identity')
+          # A stopped preflight may not have reached source/run observation.
+          # Retain its sealed diagnostic receipt, but never call it successful.
+          remote.replace(root / 'receipt.json')
+          if receipt.get('status') != 'success' or receipt.get('failures') != [] or receipt.get('workflow_run_id') != os.environ['GITHUB_RUN_ID'] or receipt.get('source_git_sha') != os.environ['GITHUB_SHA']:
+              raise SystemExit('Remote purge action did not produce a successful receipt')
+          PY
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ]
+      - name: Upload purge receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-purge-receipt
+          path: ${{ runner.temp }}/receipt.json
+          if-no-files-found: error
+          retention-days: 180
+      - name: Upload sealed plan
+        if: success() && inputs.mode == 'plan'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-purge-plan
+          path: ${{ runner.temp }}/receipt.json
+          if-no-files-found: error
+          retention-days: 180
+      - name: Upload sealed exclusion proof
+        if: success() && inputs.mode == 'verify-system-archetype-empty'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-purge-verification
+          path: ${{ runner.temp }}/receipt.json
+          if-no-files-found: error
+          retention-days: 180
