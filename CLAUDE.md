@@ -91,6 +91,10 @@ environment. Hetzner/V2 is decommissioned.
 - NATS/JetStream transport state is not canonical domain truth.
 - Production commands must come from current V3 runbooks/workflows that explicitly identify the target and safety boundary.
 - Contabo hosts exactly three self-hosted Codex runners. It is not production.
+  A separate fourth runner (user `rehearsal`, label `purge-rehearsal` only,
+  registered with `--no-default-labels`) exists solely for the disposable
+  purge rehearsal and is the only account that may reach Docker there; the
+  Codex runners have no container runtime access.
   It is the selected first live-checkpoint target only through the isolated,
   bounded application deployment authority; missing runtime/data/route facts
   still stop mutation.

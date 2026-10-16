@@ -34,7 +34,9 @@ def test_manual_scale_choices_and_self_hosted_concurrency():
         "group": "v3-derived-purge-rehearsal", "cancel-in-progress": "false",
     }
     job = document["jobs"]["rehearse"]
-    assert job["runs-on"] == ["self-hosted", "Linux", "X64"]
+    # Only the dedicated Docker-capable runner; never the Codex runners'
+    # default self-hosted/Linux/X64 labels.
+    assert job["runs-on"] == ["purge-rehearsal"]
     assert 0 < int(job["timeout-minutes"]) <= 720
     assert "services" not in job
     assert "environment" not in job

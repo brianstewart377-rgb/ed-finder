@@ -46,6 +46,13 @@ production. It is now the selected first V3 live-checkpoint target only through
 the separate environment-gated application checkpoint boundary; this does not
 make it a production target or authorize production credentials/data/routing.
 
+Owner decision 2026-10-16: Docker Engine is installed on Contabo for the
+disposable purge rehearsal only. A dedicated fourth runner, running as its own
+`rehearsal` user and registered with only the `purge-rehearsal` label
+(`--no-default-labels`), is the only account in the `docker` group. The three
+Codex runners keep no container runtime access, and no Codex workflow can land
+on the rehearsal runner because it has no `self-hosted`/`Linux`/`X64` label.
+
 Read-only inspection on 2026-09-06 proved host identity
 `vmi3542235` / `vmi3542235.contaboserver.net`, `x86_64`, 8 logical CPUs,
 24,608,576 KiB RAM (23,340,792 KiB then available), and 268,809,076,736 bytes
