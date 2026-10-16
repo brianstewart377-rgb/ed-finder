@@ -81,6 +81,8 @@ def test_no_production_credentials_and_fixed_harness_arguments():
     assert 'scripts/rehearsal/v3_derived_purge_rehearsal.py' in execute["run"]
     assert '--run-id "$REHEARSAL_RUN_ID"' in execute["run"]
     assert '--output-dir "$REHEARSAL_OUTPUT_DIR"' in execute["run"]
+    assert "::error title=Purge rehearsal stopped::" in execute["run"]
+    assert execute["run"].rstrip().endswith('exit "$status"')
 
 
 def test_cleanup_always_scopes_run_and_verifies_absence_and_retains_artifacts():
@@ -187,3 +189,19 @@ def test_cleanup_deletes_owned_resources_then_checks_again(tmp_path):
     result = subprocess.run(["bash", "-c", cleanup["run"]], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(state.read_text()) == {"containers": [], "volumes": []}
+
+
+@pytest.mark.parametrize(("exit_code", "annotated"), [(0, False), (1, True)])
+def test_harness_step_annotates_summary_and_keeps_exit_code(tmp_path, exit_code, annotated):
+    execute = next(step for step in steps() if "--scale" in step.get("run", ""))
+    fake = tmp_path / "python"
+    fake.write_text("#!/bin/sh\nprintf '%s\\n' '{\"failures\":[\"x_100%\"],\"status\":\"stopped\"}'\n"
+                    f"exit {exit_code}\n")
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+           "RUNNER_TEMP": str(tmp_path), "REHEARSAL_RUN_ID": "123-1", "REHEARSAL_SCALE": "smoke",
+           "REHEARSAL_OUTPUT_DIR": str(tmp_path / "out")}
+    result = subprocess.run(["bash", "-c", execute["run"]], env=env, capture_output=True, text=True)
+    assert result.returncode == exit_code
+    annotation = '::error title=Purge rehearsal stopped::{"failures":["x_100%25"],"status":"stopped"}'
+    assert (annotation in result.stdout) is annotated

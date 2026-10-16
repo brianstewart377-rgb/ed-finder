@@ -125,6 +125,7 @@ class Harness:
         self.token = secrets.token_hex(32)
         self.proportion, self.counts = seeding_proportions(scale)
         self.plan = self.verification = None
+        self.refused_action = None
         self.statements = []
         self.filesystem_receipts = []
         self.call_number = 0
@@ -331,6 +332,11 @@ class Harness:
                    and report['writer_restore'].get('verified') is True
                    and bool(report.get('failed_stop_recorded')))
         if (result.returncode or report.get('status') != 'success') and not partial:
+            # Failure codes are fixed identifiers; anything else is withheld.
+            codes = report.get('failures') if isinstance(report.get('failures'), list) else []
+            self.refused_action = {'mode': mode, 'report': path.name, 'failures': [
+                code for code in codes if isinstance(code, str)
+                and re.fullmatch('[a-z0-9_,]{1,120}', code)][:20]}
             raise RuntimeError('real_action_refused_' + mode.replace('-', '_'))
         peak = batch_peak_growth(batch_observations) if mode.startswith('delete-') else maximum_drawdown(samples)
         return report, path, duration, peak, len(samples)
@@ -467,6 +473,8 @@ def main(argv=None):
         receipt['status'] = 'stopped'
         code = str(exc)
         receipt['failures'].append(code if re.fullmatch('[a-zA-Z0-9_]+', code) else 'rehearsal_failed')
+        if harness.refused_action is not None:
+            receipt['refused_action'] = harness.refused_action
     finally:
         try:
             harness.cleanup()
@@ -478,7 +486,8 @@ def main(argv=None):
         (harness.output / 'rehearsal-receipt.json').write_text(evidence.canonical_json(sealed) + '\n')
         print(evidence.canonical_json({'status': receipt['status'], 'scale': args.scale,
               'content_sha256': sealed['content_sha256'], 'gate_10_crash_rehearsal_passed':
-              receipt['gate_10_crash_rehearsal_passed'], 'failures': receipt['failures']}))
+              receipt['gate_10_crash_rehearsal_passed'], 'failures': receipt['failures'],
+              'refused_action': receipt.get('refused_action')}))
     return 0 if receipt['status'] == 'success' else 1
 
 

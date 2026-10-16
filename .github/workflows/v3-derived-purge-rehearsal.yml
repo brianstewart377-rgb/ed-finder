@@ -97,10 +97,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          summary="$RUNNER_TEMP/v3-purge-rehearsal-summary-$REHEARSAL_RUN_ID.json"
+          status=0
           python scripts/rehearsal/v3_derived_purge_rehearsal.py \
             --scale "$REHEARSAL_SCALE" \
             --run-id "$REHEARSAL_RUN_ID" \
-            --output-dir "$REHEARSAL_OUTPUT_DIR"
+            --output-dir "$REHEARSAL_OUTPUT_DIR" | tee "$summary" || status=$?
+          if [ "$status" -ne 0 ]; then
+            # The summary is canonical JSON of fixed failure codes only. Surface
+            # it as an annotation so it is readable without downloading logs.
+            line="$(tail -n 1 "$summary" | tr -d '\r' | cut -c1-4000)"
+            line="${line//'%'/'%25'}"
+            printf '::error title=Purge rehearsal stopped::%s\n' "${line:-no summary printed}"
+          fi
+          exit "$status"
 
       - name: Remove own disposable containers and volumes and verify absence
         if: always()
