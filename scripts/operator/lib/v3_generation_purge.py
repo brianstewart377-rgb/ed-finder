@@ -691,7 +691,9 @@ class Runtime:
         # data_directory is a GUC_SUPERUSER_ONLY setting. Read PostgreSQL's
         # own startup PID file through the pinned container instead of granting
         # extra SQL capabilities to 016's executor. No credential file is read.
-        value = self.docker('exec', CONTAINER, 'sh', '-c',
+        # Run as the server's own OS user: Docker withholds CAP_SYS_PTRACE, so
+        # root in the container cannot read another user's /proc/<pid>/cwd.
+        value = self.docker('exec', '--user', 'postgres', CONTAINER, 'sh', '-c',
                             'test -n "$PGDATA" && test -f "$PGDATA/postmaster.pid" || exit 1; '
                             'pid="$(sed -n "1p" "$PGDATA/postmaster.pid")"; '
                             'case "$pid" in ""|*[!0-9]*) exit 1;; esac; '

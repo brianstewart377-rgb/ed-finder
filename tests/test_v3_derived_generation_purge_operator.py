@@ -1030,6 +1030,20 @@ def test_data_directory_pid_file_must_match_live_sql_start_epoch(monkeypatch, re
             runtime.data_directory()
 
 
+def test_data_directory_reads_proc_as_the_server_os_user(monkeypatch):
+    # Docker withholds CAP_SYS_PTRACE: container root cannot read the
+    # postmaster's /proc/<pid>/cwd, but the server's own OS user can.
+    module = _action_tool()
+    report = module.receipt('plan')
+    report['postmaster_started_epoch'] = 100
+    runtime = module.Runtime(report)
+    calls = []
+    monkeypatch.setattr(runtime, 'docker', lambda *args, **kwargs: calls.append(args) or '/data\n100')
+    assert runtime.data_directory() == '/data'
+    assert calls[0][:4] == ('exec', '--user', 'postgres', module.CONTAINER)
+    assert '/proc/$pid/cwd' in calls[0][-1]
+
+
 def test_status_preserves_current_ages_instead_of_fence_time_ages():
     module = _action_tool()
     ages = {'objects': [{'relation_code': 'system_search', 'scope': 'heap',
