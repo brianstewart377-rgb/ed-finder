@@ -110,6 +110,27 @@ def test_container_and_volume_have_token_and_workflow_cleanup_labels(tmp_path):
     assert '--hostname' in calls[1] and instance.container in calls[1]
 
 
+def test_readiness_waits_for_the_final_server_over_loopback_tcp(tmp_path):
+    # initdb's temporary server answers only on the Unix socket; probing over
+    # 127.0.0.1 cannot mistake it for the restarted final server.
+    instance = harness.Harness('tiny', 'ready-test', tmp_path)
+    probes = []
+    instance.docker = lambda *args, **kwargs: ''
+    instance.sql = lambda *args, **kwargs: None
+    def command(arguments, **kwargs):
+        probes.append(arguments)
+        return SimpleNamespace(returncode=0 if len(probes) > 2 else 2)
+    instance.command = command
+    harness.time.sleep, original = (lambda _seconds: None), harness.time.sleep
+    try:
+        instance.start()
+    finally:
+        harness.time.sleep = original
+    assert probes == [['docker', '--context', 'default', 'exec', instance.container,
+                       'pg_isready', '-h', '127.0.0.1', '-p', '5432',
+                       '-U', harness.USER, '-d', harness.DATABASE]] * 3
+
+
 def test_batch_growth_uses_boundaries_without_counting_accumulated_prior_wal():
     observations = [(1, 1000), (1, 900), (2, 850), (2, 800), (3, 750), (3, 700)]
     assert harness.batch_peak_growth(observations) == 150
