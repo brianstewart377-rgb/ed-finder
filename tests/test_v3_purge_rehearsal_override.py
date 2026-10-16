@@ -265,3 +265,13 @@ def test_verification_fault_cannot_mark_unobserved_insert_or_unexpected_failure(
             'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a',
             'kind': 'REWRITE_VERIFIED', 'relation': 'system_rating_vector', 'evidence': '{}'}, write=True)
     assert not marker.exists()
+
+
+def test_injected_batch_pause_ends_inside_the_recovery_wait():
+    # A killed client is noticed only when the injected sleep ends; 016 cannot
+    # cancel a backend that is no longer running the payload batch. Recovery
+    # must therefore outlast the pause with margin, or it refuses to resolve.
+    import inspect
+    from scripts.operator.lib import v3_purge_transactions as tx
+    bound = inspect.signature(tx.resolve_batches).parameters['maximum_seconds'].default
+    assert 0 < tool.BATCH_PAUSE_SECONDS <= bound - 20

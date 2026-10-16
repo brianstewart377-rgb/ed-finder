@@ -28,6 +28,13 @@ PRODUCTION_CONTAINER = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
 PRODUCTION_DATABASE = 'edfinder_v3_phase4c_full_20260827_r5'
 
 
+# A busy backend notices its killed client only when the injected sleep ends.
+# The batch is then no longer running purge_derived_payload_batch, so 016's
+# authenticated cancel correctly refuses it and recovery simply waits for the
+# backend to exit (resolve_batches, 65 s). Keep the pause well inside that.
+BATCH_PAUSE_SECONDS = 40
+
+
 def validate_target(name, token, short_host, full_host, inspection, volume, marker):
     """Pure, fail-closed admission; every independent identity must agree."""
     if (short_host in PRODUCTION_HOSTS or full_host in PRODUCTION_HOSTS
@@ -215,7 +222,8 @@ def install(c, report, name, token):
                 # No additional result row; production's two committed JSON
                 # result parsing stays unchanged. The crash driver waits for
                 # this backend's PgSleep wait before killing its psql client.
-                pause = "DO $purge_rehearsal$ BEGIN PERFORM pg_sleep(120); END $purge_rehearsal$;\n"
+                pause = ("DO $purge_rehearsal$ BEGIN PERFORM pg_sleep(" + str(BATCH_PAUSE_SECONDS)
+                         + "); END $purge_rehearsal$;\n")
                 kwargs['input'] = (before + pause + 'COMMIT;' + final if scenario == 'batch_client_before_commit'
                                    else before + 'COMMIT;\n' + pause + final)
             # Alpine's du reports allocated KiB. Preserve the controller's byte
