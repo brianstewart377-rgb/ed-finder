@@ -18,6 +18,7 @@ from psycopg.types.json import Jsonb
 from scripts.operator.lib import v3_purge_rewrite as rewrite
 from scripts.operator.lib import v3_purge_transactions as transactions
 from scripts.rehearsal import v3_derived_purge_rehearsal as rehearsal
+from scripts.rehearsal import v3_purge_crashes as crashes
 from tests.ratings_v4_pg_fixture import canonical_database
 
 
@@ -162,6 +163,21 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
                 '''SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls
                    FROM pg_roles WHERE rolname=current_user''',
             ).fetchone() == (False, False, False, False, False)
+            # The crash driver's snapshot queries run as this observer: no
+            # executor role switch, and oid-typed identities as JSON numbers.
+            assert 'SET ROLE' not in crashes.POINTER_OBSERVATION_SQL
+            with psycopg.ClientCursor(observer) as cursor:
+                cursor.execute(crashes.POINTER_OBSERVATION_SQL)
+                pointers = None
+                while True:
+                    if cursor.description is not None:
+                        pointers = cursor.fetchone()[0]
+                    if not cursor.nextset():
+                        break
+            assert pointers['derived']['derived_generation_id'] == rehearsal.controller.PUBLISHED_ID
+            state = observer.execute(crashes.STATE_SQL, {'published': rehearsal.controller.PUBLISHED_ID}).fetchone()[0]
+            assert type(state['oid']) is int and type(state['relfilenode']) is int
+            assert state['catalog_relations'] == 1 and state['kind'] == 'r'
             # Even an explicitly read-write transaction cannot acquire a
             # payload write privilege through this observer login.
             observer.execute('SET default_transaction_read_only=off')
