@@ -493,6 +493,11 @@ def main(argv=None):
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
             receipt.update(status='stopped', cleanup_verified=False)
             receipt['failures'].append('cleanup_not_verified')
+            receipt.setdefault('stopped_phase', 'cleanup')
+        # Every stopped outcome names its stage, including a failed crash gate
+        # that returns normally rather than raising.
+        if receipt['status'] != 'success':
+            receipt.setdefault('stopped_phase', harness.phase)
         sealed = evidence.seal(receipt)
         (harness.output / 'rehearsal-receipt.json').write_text(evidence.canonical_json(sealed) + '\n')
         print(evidence.canonical_json({'status': receipt['status'], 'scale': args.scale,

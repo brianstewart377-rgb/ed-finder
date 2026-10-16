@@ -235,3 +235,34 @@ def test_refused_action_records_its_own_identifier_failure_codes(tmp_path):
         instance.action('plan')
     assert instance.refused_action == {'mode': 'plan', 'report': '001-plan.json', 'failures': [
         'bounded_command_failed', 'purge_unresolved_AUTOVACUUM_DISABLED,purge_unresolved_WRITER_FENCE_ENABLED']}
+
+
+
+@pytest.mark.parametrize(('crash_passed', 'cleanup_fails', 'status', 'phase'), [
+    (True, False, 'success', None),
+    (False, False, 'stopped', 'crash_scenarios'),
+    (True, True, 'stopped', 'cleanup'),
+])
+def test_every_stopped_outcome_records_its_phase(tmp_path, monkeypatch, capsys,
+                                                 crash_passed, cleanup_fails, status, phase):
+    from scripts.rehearsal import v3_purge_crashes as crashes
+    for name in ('start', 'migrate', 'seed'):
+        monkeypatch.setattr(harness.Harness, name, lambda self: None)
+    monkeypatch.setattr(harness.Harness, 'sql', lambda self, *args, **kwargs: '{}')
+    monkeypatch.setattr(harness.Harness, 'journey', lambda self: {})
+    calls = []
+    def cleanup(self):
+        calls.append(1)
+        if cleanup_fails and len(calls) > 1:
+            raise RuntimeError('cleanup')
+    monkeypatch.setattr(harness.Harness, 'cleanup', cleanup)
+    monkeypatch.setattr(crashes, 'run_crashes', lambda *args: {
+        name: {'passed': crash_passed} for name in harness.CRASH_SCENARIOS})
+    monkeypatch.setattr(harness.figures, 'validate', lambda *args, **kwargs: None)
+    code = harness.main(['--scale', 'tiny', '--run-id', 'phase-test', '--output-dir', str(tmp_path)])
+    summary = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == (0 if status == 'success' else 1)
+    assert summary['status'] == status
+    assert summary['stopped_phase'] == phase
+    sealed = evidence.load_sealed(tmp_path / 'rehearsal-receipt.json')
+    assert sealed.get('stopped_phase') == phase
