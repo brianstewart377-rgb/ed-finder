@@ -90,6 +90,8 @@ class RewriteModel(DispatchModel):
         assert query is self.backend_query and ids == self.ids and relation == 'system_search'
         assert self.writer and self.auto == relation and not self.open_rewrite
         assert measured['rewrite_peak_bytes'] == 1_000_000_000
+        # 016 caps batch_peak_bytes at one delete batch; a rewrite has none.
+        assert measured['batch_peak_bytes'] == 0
         self.write('REWRITE_STARTED-committed')
         self.open_rewrite = True
         return {'start_event': 10, 'rewrite_started_at': '2026-10-16T00:00:00+00:00',

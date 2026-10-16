@@ -134,6 +134,21 @@ def analyze_command(relation: str) -> str:
     }[tx._relation(relation)]
 
 
+def start_evidence(measured: dict, rewrite_peak_bytes: int, competing_writer_wait) -> dict:
+    """Fresh host evidence for REWRITE_STARTED.
+
+    016's shared freshness check (purge_check_measurements) bounds
+    batch_peak_bytes to one delete batch (< 1 GB). A rewrite has no delete
+    batch, so it reports 0 there. The rewrite's own peak travels as
+    rewrite_peak_bytes, which REWRITE_STARTED checks against the 100 GB floor
+    separately; the controller has already enforced the same headroom.
+    """
+    if type(rewrite_peak_bytes) is not int or not 0 <= rewrite_peak_bytes < 2**63:
+        raise tx.PurgeTransactionError('rewrite_peak_not_measured')
+    return {**measured, 'batch_peak_bytes': 0, 'rewrite_peak_bytes': rewrite_peak_bytes,
+            'competing_writer_wait': competing_writer_wait}
+
+
 def start_rewrite(query, purge_ids, relation: str, receipt: dict) -> dict:
     ids = tx._ids(purge_ids)
     tx._relation(relation)

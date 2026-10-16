@@ -161,3 +161,49 @@ def test_operator_three_steps_recover_committed_and_rolled_back_then_complete(da
         assert set(completed['completed_ids']) == set(purge_ids)
         assert completed['snapshot'] == reviewed['snapshot']
         assert _count(connection, 'v3_meta.derived_generation_purge_event') > 0
+
+
+def test_rewrite_start_accepts_a_multi_gigabyte_peak_only_in_the_rewrite_field(database):  # noqa: F811
+    """Production rewrite peaks are whole relations, far above one delete batch.
+
+    016's shared freshness check bounds batch_peak_bytes below 1 GB. The pre-fix
+    evidence reused that field for the rewrite peak and was always refused;
+    start_evidence() carries it only as rewrite_peak_bytes.
+    """
+    connection = database[0]
+    ids_by_target = _authorize(database)
+    purge_ids = [str(value) for value in ids_by_target.values()]
+    purge_id = ids_by_target[TARGETS[0][1]]
+    relation = RELATIONS[0]
+    peak = 5_000_000_000
+    measured = {**_receipt(), 'filesystem_free_bytes': 120_000_000_000}
+    _writer_fence(connection, purge_id)
+    with _fresh_purge_controller(connection) as connection:
+        observer = _operator_query(connection)
+        connection.execute('SET ROLE v3_derived_purge_executor')
+        _wait_for_fixture_maintenance(connection)
+        connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, relation))
+        for request_id in ids_by_target.values():
+            assert _batch(connection, request_id, relation) > 0
+        for request_id in ids_by_target.values():
+            connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
+                               (request_id, relation, Jsonb(_receipt())))
+        with _application_worker(connection) as worker:
+            legacy = {**measured, 'batch_peak_bytes': peak, 'rewrite_peak_bytes': peak}
+            try:
+                tool.start_rewrite(_query(worker), purge_ids, relation, legacy)
+            except psycopg.errors.RaiseException as exc:
+                assert 'fresh disk, WAL or worker evidence missing or unsafe' in str(exc)
+            else:
+                raise AssertionError('016 accepted a batch peak of one whole relation')
+        with _application_worker(connection) as worker:
+            evidence = tool.start_evidence(measured, peak, {'attempts': 1})
+            assert evidence['batch_peak_bytes'] == 0 and evidence['rewrite_peak_bytes'] == peak
+            started = tool.start_rewrite(_query(worker), purge_ids, relation, evidence)
+        assert started['start_event'] > 0
+        recorded = connection.execute(
+            'SELECT operational_payload FROM v3_meta.derived_generation_purge_event WHERE event_sequence=%s',
+            (started['start_event'],)).fetchone()[0]
+        assert recorded['rewrite_peak_bytes'] == peak and recorded['batch_peak_bytes'] == 0
+        rolled_back = tool.resolve_rewrites(observer, purge_ids, relation, cancel=False)
+        assert rolled_back['rolled_back_relations'] == [relation]
