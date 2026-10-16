@@ -21,6 +21,18 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-16 — Purge physical rewrites and durable owner acknowledgement (P2b2b)
+
+Added the four guarded rewrite dispatches, a backend-lifetime systemd watchdog,
+filenode-based retry and interrupted-writer recovery, and recovered ANALYZE.
+Amended unapplied migration 016 to durably record validated owner acknowledgement
+on writer restoration, recutting its registered schema/target identities without
+opening data-repair authority. Disposable PG18 catalog-worker races now use
+fixture maintenance suppression and bounded waits. Added transaction, watchdog,
+operator and PG18 recovery/completion coverage. No deployment, workflow dispatch
+or production operation is authorized by this change; rehearsal figures remain
+mandatory and come from P2d.
+
 ## 2026-10-15 — Bounded purge deletes and writer-fence recovery (P2b2a)
 
 Extended the governed purge action with bounded, resumable delete dispatches,

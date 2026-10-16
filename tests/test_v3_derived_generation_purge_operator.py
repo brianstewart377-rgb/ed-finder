@@ -203,10 +203,9 @@ def test_p2b1_modes_are_implemented(mode):
     for relation in ('system-search', 'economy-opportunity', 'body-mechanics',
                      'system-rating-vector')
 ])
-def test_p2b2b_rewrite_modes_have_explicit_failure_and_cannot_fall_through(mode):
+def test_p2b2b_rewrite_modes_are_admitted_to_guarded_dispatch(mode):
     module = _action_tool()
-    with pytest.raises(Exception, match='mode_not_implemented_until_p2b2b'):
-        module.classify_mode(mode)
+    assert module.classify_mode(mode) == mode
 
 
 @pytest.mark.parametrize('mode', ('', 'delete-system-archetype', 'rewrite-cluster',
@@ -662,7 +661,7 @@ def test_shared_preflight_failure_never_reaches_a_mutation(monkeypatch, failure)
 
 @pytest.mark.parametrize('mode,expected', (
     ('delete-system-search', 'sealed_verification_required'),
-    ('rewrite-system-search', 'mode_not_implemented_until_p2b2b'),
+    ('rewrite-system-search', 'sealed_verification_required'),
     ('restore-services', 'sealed_verification_required'),
     ('delete-system-archetype', 'unknown_mode'),
 ))
@@ -994,7 +993,7 @@ def test_expired_autovacuum_fence_never_recommends_another_delete(remaining, exp
     deadlines = [{'relation_code': 'system_search', 'ceiling_exceeded': True}]
     result = module.next_mode(state, progress, counts, deadlines=deadlines)
     assert result['mode'] == expected
-    assert result['implemented'] is (not expected.startswith('rewrite-'))
+    assert result['implemented'] is True
 
 
 def test_sql_adapter_binds_sha256_parameter_names_used_by_later_phases(monkeypatch):
@@ -1199,7 +1198,7 @@ def test_status_reports_recovery_before_independent_locked_relation_probes(monke
             # Recovery evidence exists before the first potentially blocking SQL.
             assert report['purge_state']['unresolved'] == [opened]
             assert report['backend_state'] == backends
-            assert report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': False}
+            assert report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': True}
             if sql == module.STATUS_RELATION_SQL['system_search']:
                 assert locked, 'the live rewrite relation must never be probed'
                 raise RuntimeError('database_lock_timeout')
@@ -1318,6 +1317,9 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
     'scripts/operator/lib/f2d_evidence.py',
     'scripts/operator/lib/v3_generation_purge.py',
     'scripts/operator/lib/v3_purge_delete.py',
+    'scripts/operator/lib/v3_purge_rewrite.py',
+    'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
+    'scripts/operator/lib/v3_purge_rewrite_monitor.py',
     'scripts/operator/lib/v3_purge_state.py',
     'scripts/operator/lib/v3_purge_transactions.py',
     'scripts/operator/v3_schema_identity.py',
@@ -1331,6 +1333,9 @@ def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_pat
         'scripts/operator/lib/f2d_evidence.py',
         'scripts/operator/lib/v3_generation_purge.py',
         'scripts/operator/lib/v3_purge_delete.py',
+    'scripts/operator/lib/v3_purge_rewrite.py',
+    'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
+    'scripts/operator/lib/v3_purge_rewrite_monitor.py',
         'scripts/operator/lib/v3_purge_state.py',
         'scripts/operator/lib/v3_purge_transactions.py',
         'scripts/operator/v3_schema_identity.py',

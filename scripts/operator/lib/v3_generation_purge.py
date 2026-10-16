@@ -18,9 +18,11 @@ import os
 from pathlib import Path
 import platform
 import re
+import select
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -30,7 +32,7 @@ CONTAINER = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
 DATABASE = 'edfinder_v3_phase4c_full_20260827_r5'
 USER = APPLICATION_ROLE = 'edfinder_v3'
 MIGRATION = '016_v3_governed_derived_purge.sql'
-MIGRATION_SHA256 = '0919904cb12509082022ffdb27b7df30b8ed4b20a1b4ac2bb1e0e700778e0836'
+MIGRATION_SHA256 = 'bde335956f50a1ec7933c1961b34fee4fa17df13c90b2c9faa8f15330231b772'
 LEASE = Path('/run/lock/edfinder-v3-derived-purge.lock')
 BACKUP_SCHEDULE_LOCK = Path('/run/lock/edfinder-v3-pgbackrest-schedule.lock')
 INSTALLED_WRAPPER = Path('/opt/ed-finder-v3-runtime/pgbackrest-operation.sh')
@@ -70,15 +72,29 @@ purge_state = _load('v3_purge_state')
 schema_identity = _load('v3_schema_identity', ROOT / 'scripts/operator/v3_schema_identity.py')
 
 
+def script_identity():
+    return evidence.canonical_sha256({
+        relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+        for relative in sorted((
+            'deploy/v3-production/backup/pgbackrest-operation.sh',
+            'scripts/operator/actions/v3-derived-generation-purge.sh',
+            'scripts/operator/actions/v3-derived-lifecycle-status.sh',
+            'scripts/operator/lib/f2d_evidence.py',
+            'scripts/operator/lib/v3_generation_purge.py',
+            'scripts/operator/lib/v3_purge_delete.py',
+            'scripts/operator/lib/v3_purge_rewrite.py',
+            'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
+            'scripts/operator/lib/v3_purge_rewrite_monitor.py',
+            'scripts/operator/lib/v3_purge_state.py',
+            'scripts/operator/lib/v3_purge_transactions.py',
+            'scripts/operator/v3_schema_identity.py',
+        ))})
+
+
 def classify_mode(mode):
     if mode in IMPLEMENTED or mode == 'restore-services' or any(
-            mode == prefix + relation for prefix in ('delete-', 'abort-relation-') for relation in RELATIONS):
+            mode == prefix + relation for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS):
         return mode
-    if mode == 'restore-services' or any(
-        mode == prefix + relation
-        for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS
-    ):
-        raise ValueError('mode_not_implemented_until_p2b2b')
     raise ValueError('unknown_mode')
 
 
@@ -221,11 +237,11 @@ SELECT jsonb_build_object(
   WHERE s.setrole='edfinder_v3'::regrole AND s.setdatabase IN (0,(SELECT oid FROM pg_database WHERE datname=current_database()))
   AND v LIKE 'default_transaction_read_only=%'),'[]'::jsonb),
  'writer_fence_owner',(SELECT r.rolname FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
-  WHERE p.oid='v3_meta.purge_set_writer_fence(uuid,boolean)'::regprocedure AND p.prosecdef),
+  WHERE p.oid='v3_meta.purge_set_writer_fence(uuid,boolean,bigint)'::regprocedure AND p.prosecdef),
  'writer_fence_owner_permitted',(SELECT r.rolname='edfinder_v3' OR (r.rolcreaterole AND EXISTS(
   SELECT 1 FROM pg_auth_members m WHERE m.roleid='edfinder_v3'::regrole AND m.member=r.oid AND m.admin_option))
   FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
-  WHERE p.oid='v3_meta.purge_set_writer_fence(uuid,boolean)'::regprocedure AND p.prosecdef))
+  WHERE p.oid='v3_meta.purge_set_writer_fence(uuid,boolean,bigint)'::regprocedure AND p.prosecdef))
 """)
 
 # Fixed relation list includes every payload heap, its indexes, TOAST and TOAST
@@ -397,6 +413,7 @@ class Runtime:
     def __init__(self, report):
         self.report = report
         self.lease_fd = None
+        self.backup_lock_fd = None
         self.deadline = time.monotonic() + 3600
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'DOCKER_'))}
         self.env['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
@@ -470,6 +487,84 @@ class Runtime:
             self.report['transaction_outcome'] = 'committed'
         return value
 
+    @contextmanager
+    def rewrite_backend(self, timeout_ms, *, on_wait=None):
+        """One backend spans the committed start and standalone VACUUM command.
+
+        Close/join psql on every exit before resolving the ledger or restoring
+        writers. SQLSTATE diagnostics stay in a private temporary file.
+        """
+        rewrite = _load('v3_purge_rewrite')
+        argv = ['docker', '--context', 'default', 'exec', '-i', CONTAINER,
+                'psql', '-X', '--no-psqlrc', '--no-password', '--username', USER,
+                '--dbname', DATABASE, '--host', '/var/run/postgresql',
+                '--tuples-only', '--no-align', '--quiet', '--set', 'ON_ERROR_STOP=1',
+                '--set', 'VERBOSITY=sqlstate', '--file=-']
+        with tempfile.TemporaryFile(mode='w+') as errors:
+            process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                       stderr=errors, bufsize=0, env=self.env,
+                                       pass_fds=tuple(fd for fd in (self.lease_fd, self.backup_lock_fd) if fd is not None))
+            runtime = self
+            class Backend:
+                pending = b''
+                def query(self, sql, params=None, *, write=False):
+                    assignments = []
+                    for key, value in (params or {}).items():
+                        if re.fullmatch('[a-z][a-z0-9_]*', key) is None:
+                            raise ValueError('invalid_parameter_name')
+                        value = evidence.canonical_json(value) if not isinstance(value, str) else value
+                        assignments.append('\\set ' + key + " '" + value.encode().hex() + "'")
+                        sql = sql.replace('%(' + key + ')s', "convert_from(decode(:'" + key + "','hex'),'UTF8')")
+                    if '%(' in sql:
+                        raise ValueError('unbound_parameter')
+                    if write:
+                        runtime.report.update(read_only=False, db_writes_performed=None, transaction_outcome=None)
+                    process.stdin.write(('\n'.join(assignments) + '\n' + sql + '\n').encode())
+                    process.stdin.flush()
+                    while True:
+                        if on_wait is not None:
+                            on_wait()
+                        if time.monotonic() >= runtime.deadline:
+                            raise ValueError('rewrite_controller_timeout')
+                        if b'\n' not in self.pending and select.select([process.stdout], [], [], 0.2)[0]:
+                            chunk = os.read(process.stdout.fileno(), 65536)
+                            if not chunk:
+                                raise ValueError('rewrite_backend_failed')
+                            self.pending += chunk
+                        if len(self.pending) > MAX_OUTPUT:
+                            raise ValueError('command_output_bound_exceeded')
+                        if b'\n' in self.pending:
+                            raw, self.pending = self.pending.split(b'\n', 1)
+                            line = raw.decode('utf-8')
+                            if len(line) > MAX_OUTPUT:
+                                raise ValueError('command_output_bound_exceeded')
+                            # START_SQL can emit its event sequence before the
+                            # COMMIT. Only its subsequent JSON proves commit.
+                            if not line.lstrip().startswith('{'):
+                                continue
+                            result = json.loads(line)
+                            if write:
+                                runtime.report.update(db_writes_performed=True, transaction_outcome='committed')
+                            return result
+                        if process.poll() is not None:
+                            raise ValueError('rewrite_backend_failed')
+                def command(self, sql):
+                    return self.query(sql + "\nSELECT jsonb_build_object('command_completed',true);", write=True)
+            try:
+                backend = Backend()
+                backend.command(rewrite.session_setup(timeout_ms))
+                yield backend
+            finally:
+                process.stdin.close()
+                # A command has a reviewed statement timeout; cancellation is
+                # handled by the watchdog and on_wait, never an arbitrary PID.
+                while process.poll() is None:
+                    if on_wait is not None:
+                        on_wait()
+                    time.sleep(0.1)
+                process.stdout.close()
+                process.wait()
+
     def guard(self):
         if self.run(['hostname', '-s']) != HOST or self.run(['hostname', '-f']) != FQDN:
             raise ValueError('unexpected_host_identity')
@@ -494,19 +589,7 @@ class Runtime:
         if re.fullmatch('[0-9a-f]{40}', committed_blob) is None or local_blob != committed_blob:
             raise ValueError('backup_wrapper_committed_source_mismatch')
         self.report['workflow_run_id'] = os.environ.get('GITHUB_RUN_ID') or None
-        self.report['script_sha256'] = evidence.canonical_sha256({
-            relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
-            for relative in sorted((
-                'deploy/v3-production/backup/pgbackrest-operation.sh',
-                'scripts/operator/actions/v3-derived-generation-purge.sh',
-                'scripts/operator/actions/v3-derived-lifecycle-status.sh',
-                'scripts/operator/lib/f2d_evidence.py',
-                'scripts/operator/lib/v3_generation_purge.py',
-                'scripts/operator/lib/v3_purge_delete.py',
-                'scripts/operator/lib/v3_purge_state.py',
-                'scripts/operator/lib/v3_purge_transactions.py',
-                'scripts/operator/v3_schema_identity.py',
-            ))})
+        self.report['script_sha256'] = script_identity()
 
     @contextmanager
     def backup_lock(self):
@@ -528,8 +611,10 @@ class Runtime:
             self.report['backup_processes'] = active
             if active:
                 raise ValueError('backup_or_verify_process_active')
+            self.backup_lock_fd = fd
             yield
         finally:
+            self.backup_lock_fd = None
             os.close(fd)
 
     @contextmanager
@@ -828,7 +913,7 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
                 prefix = 'abort-relation-'
             elif kind == 'AUTOVACUUM_DISABLED' and empty(code) is None:
                 return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
-            return {'mode': prefix + relation, 'implemented': prefix != 'rewrite-'}
+            return {'mode': prefix + relation, 'implemented': True}
     if not progress['requests']:
         return {'mode': 'plan', 'reason': 'fresh_plan_before_authorize'}
     if all(any(event['purge_id'] == request['purge_id'] and event['event_kind'] == 'COMPLETED'
@@ -843,7 +928,7 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
             if empty(code) is None:
                 return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
             return {'mode': ('rewrite-' if empty(code) else 'delete-') + name,
-                    'implemented': not empty(code)}
+                    'implemented': True}
     return {'mode': 'complete', 'implemented': True}
 
 
@@ -899,6 +984,10 @@ def admission_state(runtime, report, *, allow_unresolved=False):
 def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
             verification=None, phase_options=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
+    if mode.startswith('rewrite-'):
+        _load('v3_purge_rewrite_dispatch').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
+                                                   **(phase_options or {}))
+        return
     if mode == 'restore-services' or mode.startswith(('delete-', 'abort-relation-')):
         _load('v3_purge_delete').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
                                          **(phase_options or {}))
@@ -1117,7 +1206,7 @@ def main(argv=None):
             raise ValueError('python314_required')
         plan = None
         verification = None
-        phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'abort-relation-'))
+        phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))
         phase_options = dict(wall_clock_seconds=args.wall_clock_seconds, controller_pid=args.controller_pid,
                              controller_run_id=args.controller_run_id, acknowledge_failed_stop=args.acknowledge_failed_stop,
                              writer_mode=args.writer_mode)
@@ -1136,7 +1225,8 @@ def main(argv=None):
         runtime = Runtime(report)
         runtime.guard()
         if phase_mode:
-            if mode == 'restore-services':
+            if mode == 'restore-services' or mode.startswith('rewrite-'):
+                # Rewrite authenticates any narrowly scoped recovery itself.
                 runtime.state(allow_unresolved=True)
             else:
                 admission_state(runtime, report, allow_unresolved=True)

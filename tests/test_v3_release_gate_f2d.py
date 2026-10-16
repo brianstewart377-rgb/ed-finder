@@ -1167,3 +1167,13 @@ def test_later_generation_retains_exact_generation_requirement(deployer, attesta
     observed["publication_sequence"] = 2
     with pytest.raises(deployer.DeploymentError, match="^f2d_current_generation_mismatch:publication_sequence$"):
         deployer.validate_f2d_generation(observed, attestation)
+
+
+def test_gate_refuses_pre_acknowledgement_016_checksum(deployer):
+    entries = complete_entries()
+    applied = deepcopy(entries)
+    previous = '0919904cb12509082022ffdb27b7df30b8ed4b20a1b4ac2bb1e0e700778e0836'
+    next(row for row in applied if row['ledger_name'].startswith('016_'))['sha256'] = previous
+    assert next(row for row in entries if row['ledger_name'].startswith('016_'))['sha256'] != previous
+    with pytest.raises(deployer.DeploymentError, match='^required_migration_hash_mismatch:016$'):
+        deployer.validate_f2d_migrations({'migration_set_entries': applied}, entries)

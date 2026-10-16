@@ -199,14 +199,18 @@ def test_recovery_metadata_never_scans_payload_or_acquires_a_write_transaction()
 def test_shared_plan_failure_has_one_exact_acknowledgement_sequence():
     calls = []
     def query(sql, params=None, *, write=False):
+        if sql == tool._RECOVERY_STATE_READ:
+            assert not write
+            assert json.loads(params['purge_ids']) == IDS
+            return {**state(), 'integrity_failures': [{'event_sequence': 17, 'purge_id': IDS[0]}]}
         assert write and sql == tool.FAILED_STOP_SQL
         assert json.loads(params['purge_ids']) == [IDS[0]]
         calls.append(json.loads(params['evidence']))
         return {'failed_stop_events': [17 if len(calls) == 1 else 18]}
     assert tool.record_failed_stop(query, IDS, {'integrity_failed': True})['failed_stop_events'] == [17]
-    with pytest.raises(tool.PurgeTransactionError,
-                       match='integrity_failed_stop_acknowledgement_payload_unsupported_016'):
-        tool.acknowledge_failure(query, IDS, 17)
+    assert tool.acknowledge_failure(query, IDS, 17) == {'acknowledge_failed_stop': 17}
+    with pytest.raises(tool.PurgeTransactionError, match='purge_failed_stop_acknowledgement_invalid'):
+        tool.acknowledge_failure(query, IDS, 18)
     assert calls == [{'integrity_failed': True}]
 
 
@@ -317,3 +321,37 @@ def test_abort_relation_size_observation_uses_catalog_size_without_exact_row_sca
     assert 'count(*)' not in tool.RELATION_BYTES_SQL
     for relation in tool.RELATIONS:
         assert "'v3_derived." + relation + "'::regclass" in tool.RELATION_BYTES_SQL
+
+
+def test_writer_restore_passes_exact_acknowledgement_to_dedicated_016_function():
+    calls = []
+    observed = {**state(), 'integrity_failures': [{'event_sequence': 17, 'purge_id': IDS[0]}],
+                'writer_fence': {'event_kind': 'WRITER_FENCE_ENABLED',
+                                 'operational_payload': {'verified': True}}}
+    def query(sql, params=None, *, write=False):
+        if sql == tool._RECOVERY_STATE_READ:
+            assert not write
+            return deepcopy(observed)
+        assert write and params['acknowledge_failed_stop'] == '17'
+        assert params['purge_id'] == IDS[0] and params['enabled'] == 'false'
+        calls.append(sql)
+        return {'verified': True}
+    restored = tool.writer_fence(query, IDS[0], False, lambda: 'off', purge_ids=IDS,
+                                acknowledge_failed_stop=17)
+    assert restored['verified'] is True
+    assert calls == [tool.WRITER_SET_SQL, tool.WRITER_RECYCLE_SQL, tool.WRITER_VERIFY_SQL]
+    assert "NULLIF(%(acknowledge_failed_stop)s,'')::bigint" in calls[0]
+    assert all('purge_record_event' not in sql for sql in calls)
+
+
+@pytest.mark.parametrize('writer_event', (None, {
+    'event_kind': 'WRITER_FENCE_RESTORED', 'operational_payload': {'verified': True},
+}))
+def test_idempotent_writer_restore_rejects_supplied_unmatched_acknowledgement(writer_event):
+    observed = {**state(), 'writer_fence': writer_event}
+    def query(sql, params=None, *, write=False):
+        assert sql == tool._RECOVERY_STATE_READ and not write
+        return deepcopy(observed)
+    with pytest.raises(tool.PurgeTransactionError, match='purge_failed_stop_acknowledgement_invalid'):
+        tool.writer_fence(query, IDS[0], False, lambda: pytest.fail('no fresh probe'),
+                          purge_ids=IDS, acknowledge_failed_stop=17)

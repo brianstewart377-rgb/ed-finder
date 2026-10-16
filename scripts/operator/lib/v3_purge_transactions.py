@@ -173,7 +173,7 @@ AUTOVACUUM_SQL = _session("""WITH changed AS MATERIALIZED (
  SELECT v3_meta.purge_set_relation_autovacuum(%(purge_id)s::uuid,%(relation)s,%(enabled)s::boolean)
 ) SELECT jsonb_build_object('autovacuum_enabled',%(enabled)s::boolean) FROM changed;""", write=True)
 WRITER_SET_SQL = _session("""WITH changed AS MATERIALIZED (
- SELECT v3_meta.purge_set_writer_fence(%(purge_id)s::uuid,%(enabled)s::boolean)
+ SELECT v3_meta.purge_set_writer_fence(%(purge_id)s::uuid,%(enabled)s::boolean,NULLIF(%(acknowledge_failed_stop)s,'')::bigint)
 ) SELECT jsonb_build_object('enabled',%(enabled)s::boolean) FROM changed;""", write=True)
 WRITER_RECYCLE_SQL = _session("""SELECT jsonb_build_object('sessions_recycled',
  v3_meta.purge_recycle_writer_sessions(%(purge_id)s::uuid,%(enabled)s::boolean));""", write=True)
@@ -584,7 +584,7 @@ def autovacuum_fence(query, purge_ids, relation: str) -> dict:
     return {**result, 'adopted': False}
 
 
-def writer_fence(query, purge_id: str, enabled: bool, probe, *, purge_ids=None) -> dict:
+def writer_fence(query, purge_id: str, enabled: bool, probe, *, purge_ids=None, acknowledge_failed_stop=None) -> dict:
     """Each adapter call commits: catalog change, recycle, fresh login, verify.
 
     probe must create a fresh application-role login and return its observed
@@ -592,6 +592,10 @@ def writer_fence(query, purge_id: str, enabled: bool, probe, *, purge_ids=None) 
     """
     if type(enabled) is not bool:
         raise PurgeTransactionError('purge_writer_fence_enable_invalid')
+    if acknowledge_failed_stop is not None:
+        if enabled or purge_ids is None:
+            raise PurgeTransactionError('purge_failed_stop_acknowledgement_invalid')
+        acknowledge_failure(query, purge_ids, acknowledge_failed_stop)
     if purge_ids is not None:
         state = metadata_state(query, purge_ids)
         event = state['writer_fence']
@@ -601,7 +605,8 @@ def writer_fence(query, purge_id: str, enabled: bool, probe, *, purge_ids=None) 
             return {'enabled': enabled, 'verified': True, 'adopted': True}
         if not enabled and event is None:
             return {'enabled': False, 'verified': True, 'already_restored': True}
-    params = {'purge_id': str(UUID(purge_id)), 'enabled': str(enabled).lower()}
+    params = {'purge_id': str(UUID(purge_id)), 'enabled': str(enabled).lower(),
+              'acknowledge_failed_stop': '' if acknowledge_failed_stop is None else str(acknowledge_failed_stop)}
     _result(query, WRITER_SET_SQL, params, write=True)
     recycled = _result(query, WRITER_RECYCLE_SQL, params, write=True)
     observed = probe()
@@ -652,8 +657,6 @@ def resolve_batches(query, purge_ids, relation=None, *, cancel=True,
     if relation is not None:
         _relation(relation)
     state = metadata_state(query, purge_ids)
-    if state['open_rewrites']:
-        raise PurgeTransactionError('rewrite_resolution_requires_p2b2b')
     resolved = []
     for event in state['open_batches']:
         if relation is not None and event['relation_code'] != relation:
@@ -719,12 +722,12 @@ def record_failed_stop(query, purge_ids, evidence: dict, relation=None) -> dict:
 def acknowledge_failure(query, purge_ids, sequence: int) -> dict:
     if type(sequence) is not int or sequence <= 0:
         raise PurgeTransactionError('purge_failed_stop_acknowledgement_invalid')
-    # 016 accepts acknowledgements only through another FAILED_STOP. Its
-    # dedicated writer restoration functions cannot record the required restore
-    # payload, and the generic recorder refuses WRITER_FENCE_RESTORED. Preserve
-    # the original integrity stop until separate repair authority resolves this
-    # contract; an acknowledgement must never masquerade as another failure.
-    raise PurgeTransactionError('integrity_failed_stop_acknowledgement_payload_unsupported_016')
+    state = metadata_state(query, purge_ids)
+    matching = [event for event in state['integrity_failures']
+                if event.get('event_sequence') == sequence]
+    if len(matching) != 1:
+        raise PurgeTransactionError('purge_failed_stop_acknowledgement_invalid')
+    return {'acknowledge_failed_stop': sequence}
 
 
 def abort_relation(query, purge_ids, relation: str, evidence: dict) -> dict:
