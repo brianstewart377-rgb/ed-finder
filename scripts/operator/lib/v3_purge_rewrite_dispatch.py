@@ -208,8 +208,8 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                 raise ValueError('writer_fence_fresh_probe_drift')
             waited = tx.wait_for_competing_writers(runtime.query)
             report['competing_writer_wait'] = waited
-            measured = measure(config['rewrite_peak_bytes'])
-            measured.update(rewrite_peak_bytes=config['rewrite_peak_bytes'], competing_writer_wait=waited)
+            measured = rewrite.start_evidence(measure(config['rewrite_peak_bytes']),
+                                              config['rewrite_peak_bytes'], waited)
             with runtime.rewrite_backend(config['statement_timeout_ms'], on_wait=cancel_if_stopping) as backend:
                 start = rewrite.start_rewrite(backend.query, ids, relation, measured)
                 report['rewrite_started_at'] = start['rewrite_started_at']
