@@ -293,7 +293,23 @@ disabled.
 The action opens or adopts the relation's `AUTOVACUUM_DISABLED` fence through
 016, preserving the ledgered prior heap and TOAST settings. Adoption remeasures
 XID and MultiXact ages against the original ceilings; it never resets the
-fence's clock. It enables the selected writer fence with
+fence's clock. Before opening or adopting a fence, and before every batch, the
+projected time to the nearer heap or TOAST XID/MultiXact ceiling must cover the
+relation's **remaining target rows divided by
+`reviewed_plan.delete[relation].rows_per_second`, plus its reviewed
+`rewrite_allowance_seconds`**, and at least this dispatch's budget plus 65
+seconds. The throughput must account for the planned cadence across dispatches.
+The plan generator records a conservative fallback of one row per second with
+`rows_per_second_source: conservative_fallback`; rehearsal may supply a measured
+or configured cadence. It supplies no rewrite allowance: rehearsal must add that
+relation's allowance before sealing and reviewing the plan. Missing or invalid
+horizon fields refuse with `autovacuum_fence_horizon_not_reviewed`; the action
+never invents a rewrite time. The receipt records the remaining horizon and each
+scope's projected deadline. A horizon that does not fit refuses with
+`autovacuum_fence_deadline_unsafe` and recommends `rewrite-<relation>` when fresh
+counts prove the relation logically empty, otherwise `abort-relation-<relation>`.
+
+It enables the selected writer fence with
 `purge_set_writer_fence`, commits that change, recycles the application role's
 other sessions with `purge_recycle_writer_sessions`, then probes a fresh login
 and records `purge_verify_writer_fence`. An already verified fence for this
@@ -301,7 +317,10 @@ active dispatch may be reused. The API stays up, reads continue, and application
 writes fail closed during the fence. The exact running write-capable container
 set comes from `deploy/v3-production/target-authority.json`, including container
 IDs, and is retained in root-owned host state. No containers are stopped under
-option (b).
+option (b). An authority-listed API slot removed by the deployer or never created
+at bootstrap counts as stopped only on Docker's exact name-specific
+`No such object` exit. Other inspect failures, malformed or mismatched identities,
+and running application containers outside the authority refuse execution.
 
 Before every small batch, the action records and checks all of the following:
 
@@ -315,7 +334,9 @@ Before every small batch, the action records and checks all of the following:
 - `pg_wal` remains on that filesystem. No slot is inactive or has `wal_status`
   `extended`, `unreserved` or `lost`. The archiver's `failed_count` has not
   increased from the dispatch snapshot, and `last_failed_time` is no newer than
-  `last_archived_time`.
+  `last_archived_time`. Delete and abort receipts measure physical `pg_wal`
+  directory bytes for both `wal_before` and `wal_after`, using the same probe as
+  plan/authorize; unavailable measurements refuse execution.
 - Named workers are stopped, no autovacuum is running on the relation or its
   TOAST relation, and the recorded controller is alive.
 - The bounded competing-writer wait finds no other backend with a

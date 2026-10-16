@@ -1268,6 +1268,30 @@ def test_status_worker_inventory_uses_docker_without_lifecycle_sql(monkeypatch):
     assert all(worker['running'] is False for worker in workers if not worker['exists'])
 
 
+def test_runtime_inspection_result_preserves_exact_missing_exit_without_exposing_diagnostics(monkeypatch):
+    module = _action_tool()
+    runtime = module.Runtime(module.receipt('status'))
+    name = 'edfinder-v3-production-api-green'
+    result = subprocess.CompletedProcess([], 1, '', 'Error: No such object: ' + name)
+    monkeypatch.setattr(module.subprocess, 'run', lambda *_, **kwargs: result)
+    assert runtime.docker('inspect', '-f', '{{json .}}', name,
+                          allow_failure=True, return_result=True) is result
+    with pytest.raises(RuntimeError, match='^bounded_command_failed$'):
+        runtime.docker('inspect', '-f', '{{json .}}', name)
+
+
+@pytest.mark.parametrize('stream', ('stdout', 'stderr'))
+def test_runtime_structured_inspection_result_keeps_output_bounds(monkeypatch, stream):
+    module = _action_tool()
+    runtime = module.Runtime(module.receipt('status'))
+    result = subprocess.CompletedProcess([], 1, '', '')
+    setattr(result, stream, 'x' * (module.MAX_OUTPUT + 1))
+    monkeypatch.setattr(module.subprocess, 'run', lambda *_, **kwargs: result)
+    with pytest.raises(RuntimeError, match='^command_output_bound_exceeded$'):
+        runtime.docker('inspect', '-f', '{{json .}}', 'edfinder-v3-production-api-green',
+                       allow_failure=True, return_result=True)
+
+
 def test_complete_requires_verification_proof_before_any_mutation(monkeypatch):
     module = _action_tool()
     report, runtime, plan, calls = _successful_phase(module, monkeypatch, 'complete')
@@ -1379,6 +1403,16 @@ def test_launcher_requires_python314_without_executing_python3_fallback(tmp_path
     assert result.returncode == 1
     assert json.loads(result.stdout)['failures'] == ['python314_required']
     assert not marker.exists()
+
+
+@pytest.mark.parametrize('output', ('', '10', '-1 /data/pg_wal', '10 /other/pg_wal',
+                                   '10 /data/pg_wal\n20 /data/pg_wal', None))
+def test_wal_measurement_fails_closed_on_unavailable_directory_size(output):
+    module = _action_tool()
+    runtime = SimpleNamespace(query=lambda _: {'lsn': '0/10', 'bytes': None},
+                              docker=lambda *_: output)
+    with pytest.raises(ValueError, match='wal_directory_bytes_unavailable'):
+        module.measure_wal(runtime, '/data')
 
 
 def test_wal_delta_uses_parameterized_server_lsn_arithmetic():
@@ -1513,7 +1547,21 @@ def test_generated_plan_does_not_invent_rehearsal_budget(monkeypatch):
     report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'plan')
     module.execute('plan', runtime, report)
     assert report['reviewed_plan']['delete'] == {
-        code: {'batch_limit': 1000} for code in module.RELATIONS.values()}
+        code: {'batch_limit': 1000, 'rows_per_second': 1,
+               'rows_per_second_source': 'conservative_fallback'} for code in module.RELATIONS.values()}
+    assert all('rewrite_allowance_seconds' not in config
+               for config in report['reviewed_plan']['delete'].values())
+
+
+@pytest.mark.parametrize('field', ('rows_per_second', 'rewrite_allowance_seconds'))
+@pytest.mark.parametrize('value', (True, 0, -1, '1000', None))
+def test_authenticated_plan_refuses_invalid_optional_fence_horizon(tmp_path, field, value):
+    module = _action_tool()
+    path = tmp_path / 'plan.json'
+    now, plan = _sealed_plan(module, path, reviewed_plan={
+        'plan_sha256': '1' * 64, 'delete': {'system_search': {field: value}}})
+    with pytest.raises(ValueError, match='autovacuum_fence_horizon_not_reviewed'):
+        module.authenticated_plan(path, plan['content_sha256'], now=now)
 
 
 @pytest.mark.parametrize('mode', ('plan', 'authorize', 'complete', 'verify-system-archetype-empty'))

@@ -12,6 +12,108 @@ import pytest
 from scripts.operator.lib import v3_purge_delete as purge
 
 
+@pytest.fixture
+def writer_inventory(tmp_path):
+    names = ['edfinder-v3-production-api-blue', 'edfinder-v3-production-api-green']
+    authority = tmp_path / 'authority.json'
+    authority.write_text(json.dumps({'application_contract': {
+        'compose_project': 'edfinder-v3-production',
+        'services': ['api-blue', 'api-green'], 'containers': names,
+    }}))
+    listing = [{'Names': names[0], 'Labels': 'com.docker.compose.project=edfinder-v3-production'}]
+    inspect = {
+        names[0]: SimpleNamespace(returncode=0, stdout=json.dumps({
+            'Name': '/' + names[0], 'State': {'Running': True}, 'Id': 'a' * 64,
+        }), stderr=''),
+        names[1]: SimpleNamespace(returncode=1, stdout='', stderr='Error: No such object: ' + names[1]),
+    }
+    calls = []
+    def docker(*argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv == ('container', 'ls', '--format', '{{json .}}'):
+            assert kwargs == {}
+            return '\n'.join(json.dumps(value) for value in listing)
+        assert argv[:3] == ('inspect', '-f', '{{json .}}')
+        assert kwargs == {'allow_failure': True, 'return_result': True}
+        return inspect[argv[3]]
+    return SimpleNamespace(authority=authority, names=names, listing=listing,
+                           inspect=inspect, calls=calls, runtime=SimpleNamespace(docker=docker))
+
+
+def test_writer_inventory_accepts_one_running_slot_and_one_absent_slot(writer_inventory):
+    inventory = writer_inventory
+    inventory.listing.append({'Names': 'unrelated-container', 'Labels': ''})
+    assert purge.running_services(inventory.runtime, inventory.authority) == [
+        {'name': inventory.names[0], 'id': 'a' * 64}]
+    assert len(inventory.calls) == 3
+
+
+def test_writer_inventory_accepts_existing_stopped_slot(writer_inventory):
+    inventory = writer_inventory
+    inventory.inspect[inventory.names[1]] = SimpleNamespace(returncode=0, stdout=json.dumps({
+        'Name': '/' + inventory.names[1], 'State': {'Running': False}, 'Id': 'b' * 64,
+    }), stderr='')
+    assert purge.running_services(inventory.runtime, inventory.authority) == [
+        {'name': inventory.names[0], 'id': 'a' * 64}]
+
+
+@pytest.mark.parametrize(('code', 'stdout', 'stderr'), (
+    (1, '', 'permission denied'),
+    (1, '', 'Cannot connect to the Docker daemon'),
+    (2, '', 'Error: No such object: {name}'),
+    (1, 'unexpected output', 'Error: No such object: {name}'),
+    (1, '', 'Error: No such object: another-container'),
+    (1, '', 'Error: No such object: {name}\npermission denied'),
+))
+def test_writer_inspection_accepts_only_exact_missing_exit(writer_inventory, code, stdout, stderr):
+    inventory = writer_inventory
+    inventory.inspect[inventory.names[1]] = SimpleNamespace(
+        returncode=code, stdout=stdout, stderr=stderr.format(name=inventory.names[1]))
+    with pytest.raises(ValueError, match='^writer_container_inspect_failed$'):
+        purge.running_services(inventory.runtime, inventory.authority)
+
+
+@pytest.mark.parametrize('value', (
+    'not-json', '[]', '{}',
+    json.dumps({'Name': '/unexpected', 'State': {'Running': True}, 'Id': 'a' * 64}),
+    json.dumps({'Name': '/edfinder-v3-production-api-blue', 'State': {'Running': 'true'}, 'Id': 'a' * 64}),
+    json.dumps({'Name': '/edfinder-v3-production-api-blue', 'State': {'Running': True}, 'Id': ''}),
+))
+def test_writer_inspection_refuses_malformed_output_and_unexpected_name(writer_inventory, value):
+    inventory = writer_inventory
+    inventory.inspect[inventory.names[0]].stdout = value
+    with pytest.raises(ValueError, match='^writer_container_inspect_invalid$'):
+        purge.running_services(inventory.runtime, inventory.authority)
+
+
+@pytest.mark.parametrize('name,labels', (
+    ('edfinder-v3-production-api-red', ''),
+    ('unexpected-project-writer', 'com.docker.compose.project=edfinder-v3-production'),
+))
+def test_writer_inventory_refuses_running_containers_outside_authority(writer_inventory, name, labels):
+    inventory = writer_inventory
+    inventory.listing.append({'Names': name, 'Labels': labels})
+    with pytest.raises(ValueError, match='^writer_container_outside_authority$'):
+        purge.running_services(inventory.runtime, inventory.authority)
+    assert len(inventory.calls) == 1
+
+
+@pytest.mark.parametrize('value', ({}, [], {'Names': 'unexpected name', 'Labels': ''},
+                                   {'Names': 'a-container', 'Labels': None}))
+def test_writer_inventory_refuses_malformed_listing(writer_inventory, value):
+    inventory = writer_inventory
+    inventory.listing.append(value)
+    with pytest.raises(ValueError, match='^writer_container_inventory_invalid$'):
+        purge.running_services(inventory.runtime, inventory.authority)
+
+
+def test_writer_inventory_refuses_slot_that_disappeared_after_listing(writer_inventory):
+    inventory = writer_inventory
+    inventory.listing.append({'Names': inventory.names[1], 'Labels': ''})
+    with pytest.raises(ValueError, match='^writer_container_inventory_changed$'):
+        purge.running_services(inventory.runtime, inventory.authority)
+
+
 @pytest.mark.parametrize('condition', ('filesystem_free_space_floor', 'archiver_failed_count_increased'))
 def test_delete_loop_stops_before_next_batch_and_later_resumes_from_counts(condition):
     state = {'remaining': 9, 'gates': 0, 'batches': 0}

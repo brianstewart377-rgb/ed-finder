@@ -47,7 +47,9 @@ class DispatchModel:
                          'survivors': {'system_search': 7}, 'retained': {'manifests': 3}}
         self.reviewed = {'plan_sha256': 'a' * 64, 'snapshot': deepcopy(self.snapshot),
                          'pointer_identities': {'identities': 'stable'},
-                         'delete': {'system_search': {'batch_limit': 1, 'batch_peak_bytes': 10}}}
+                         'delete': {'system_search': {'batch_limit': 1, 'batch_peak_bytes': 10,
+                                                      'rows_per_second': 1,
+                                                      'rewrite_allowance_seconds': 600}}}
         self.age_config = {'xid_ceiling': 1_000_000, 'mxid_ceiling': 1_000_000,
                            'xid_rate': 0, 'mxid_rate': 0}
         self.reviewed['autovacuum'] = {'system_search': self.age_config}
@@ -81,7 +83,7 @@ class DispatchModel:
         # process joining and inherited lease descriptors have separate tests.
         monkeypatch.setattr(self.d, 'run_loop_process', lambda work, report, stop: work())
         self.runtime = SimpleNamespace(query=self.query, state=self.state, storage=lambda *_: self.space('/data'),
-                                       data_directory=lambda: '/data', docker=lambda *_: '10 /data/pg_wal',
+                                       data_directory=self.data_directory, docker=lambda *_: '10 /data/pg_wal',
                                        device=self.device, workers=self.workers, deadline=time.monotonic() + 3600)
 
     def trip(self, condition):
@@ -125,10 +127,17 @@ class DispatchModel:
         self.log.append('free-space')
         return {'free_bytes': 99_000_000_000 if self.trip('floor') else self.free}
 
+    def data_directory(self):
+        # The real runtime authenticates postmaster.pid against SQL identity.
+        # Exercise that check so dispatch must populate the receipt first.
+        runtime = SimpleNamespace(report=self.report, docker=lambda *_: '/data\n1234567890')
+        return self.c.Runtime.data_directory(runtime)
+
     def query(self, sql, params=None, **kwargs):
         assert not kwargs.get('write'), 'all writes must use the transaction model'
         if sql == self.c.IDENTITY_SQL:
-            return {'role_defaults': ['default_transaction_read_only=on'] if self.writer else []}
+            return {'role_defaults': ['default_transaction_read_only=on'] if self.writer else [],
+                    'postmaster_started_epoch': 1234567890}
         if sql == self.c.OBJECTS_SQL:
             return [{'relation': 'v3_derived.system_search', 'valid': not self.trip('index'),
                      'total_bytes': self.relation_bytes}]
@@ -324,6 +333,101 @@ def test_each_batch_has_fresh_gates_and_competing_writer_wait(monkeypatch):
     assert model.log.index('relation-logically-empty') < model.log.index('writer-restored')
     assert report['writer_fence']['enabled'] is False
     assert report['writer_fence']['verified'] is True
+
+
+@pytest.mark.parametrize('kind', ('xid', 'mxid'))
+@pytest.mark.parametrize('scope', ('heap', 'toast'))
+@pytest.mark.parametrize('opened', (False, True))
+def test_delete_requires_the_entire_remaining_horizon_before_opening_or_adopting_fence(
+        monkeypatch, kind, scope, opened):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search' if opened else None
+    model.reviewed['delete']['system_search'].update(rows_per_second=0.003, rewrite_allowance_seconds=600)
+    # 1,000 seconds until the nearer ceiling admits this 365-second
+    # dispatch, but cannot cover 1,000 seconds of deletes plus the rewrite.
+    near = {**model.age_config, kind + '_ceiling': 1010, kind + '_rate': 1}
+    if scope == 'heap':
+        model.age_config.update(near)
+    query = model.runtime.query
+    def ages(sql, *args, **kwargs):
+        value = query(sql, *args, **kwargs)
+        if sql == model.c.AGES_SQL and scope == 'toast':
+            value['objects'].append({**value['objects'][0], 'scope': 'toast', 'oid': 100})
+        return value
+    model.runtime.query = ages
+    if scope == 'toast':
+        if opened:
+            model.tx.metadata_state = lambda *_: {'autovacuum_fences': [{
+                'relation_code': 'system_search', 'operational_payload': {
+                    'heap': model.age_config, 'toast': near}}]}
+        else:
+            # Unopened fences use the plan's conservative per-relation rates.
+            model.reviewed['autovacuum']['system_search'] = near
+    with pytest.raises(ValueError, match='autovacuum_fence_deadline_unsafe'):
+        model.run()
+    assert model.batch_count == 0 and model.mutations == []
+    assert 'autovacuum-adopted' not in model.log
+    assert model.report['next_admissible_mode'] == {'mode': 'abort-relation-system-search', 'implemented': True}
+    horizon = model.report['autovacuum_fence_horizon']
+    assert horizon['remaining_target_rows'] == 3
+    assert horizon['required_seconds'] == 1600
+    assert horizon['projections'][-1]['seconds_to_ceiling'] == 1000
+
+
+@pytest.mark.parametrize('kind', ('xid', 'mxid'))
+def test_resumed_delete_with_comfortable_full_horizon_passes(monkeypatch, kind):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    model.reviewed['delete']['system_search'].update(rows_per_second=0.003, rewrite_allowance_seconds=600)
+    model.age_config.update({kind + '_ceiling': 2010, kind + '_rate': 1})
+    horizons = []
+    gate = model.d.age_gate
+    def record(*args):
+        gate(*args)
+        horizons.append(deepcopy(model.report['autovacuum_fence_horizon']))
+    monkeypatch.setattr(model.d, 'age_gate', record)
+    assert model.run()['status'] == 'success'
+    assert 'autovacuum-adopted' in model.log
+    assert horizons[0]['required_seconds'] == 1600
+    assert horizons[-1]['required_seconds'] == 600
+    assert [h['remaining_target_rows'] for h in horizons][-4:] == [3, 2, 1, 0]
+
+
+@pytest.mark.parametrize('field', ('rows_per_second', 'rewrite_allowance_seconds'))
+@pytest.mark.parametrize('opened', (False, True))
+def test_delete_refuses_unreviewed_horizon_fields_without_inventing_defaults(monkeypatch, field, opened):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search' if opened else None
+    del model.reviewed['delete']['system_search'][field]
+    with pytest.raises(ValueError, match='autovacuum_fence_horizon_not_reviewed'):
+        model.run()
+    assert model.batch_count == 0 and model.mutations == []
+    assert model.report['next_admissible_mode']['mode'] == 'abort-relation-system-search'
+
+
+def test_empty_relation_with_insufficient_rewrite_horizon_recommends_rewrite(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    model.counts = dict.fromkeys(model.ids, 0)
+    model.age_config.update(xid_ceiling=510, xid_rate=1)
+    with pytest.raises(ValueError, match='autovacuum_fence_deadline_unsafe'):
+        model.run()
+    assert model.mutations == []
+    assert model.report['next_admissible_mode'] == {'mode': 'rewrite-system-search', 'implemented': False}
+
+
+def test_delete_rechecks_full_horizon_immediately_before_adopting_fence(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.auto = 'system_search'
+    def host_evidence(*_):
+        model.age_config.update(xid_ceiling=510, xid_rate=1)
+        return []
+    monkeypatch.setattr(model.d, 'running_services', host_evidence)
+    with pytest.raises(ValueError, match='autovacuum_fence_deadline_unsafe'):
+        model.run()
+    assert 'autovacuum-adopted' not in model.log
+    assert model.batch_count == 0
+    assert model.report['next_admissible_mode']['mode'] == 'abort-relation-system-search'
 
 
 def test_successful_delete_receipt_has_final_integrity_and_fresh_relation_sizes(monkeypatch):
@@ -538,6 +642,47 @@ def test_abort_dispatch_reports_shortfall_before_releasing_autovacuum(monkeypatc
     assert model.auto is None
     assert report['next_admissible_mode']['mode'] == 'delete-system-search'
     assert model.log.index('autovacuum-restored-aborted') < model.log.index('database-counts')
+
+
+@pytest.mark.parametrize('mode', ('delete-system-search', 'abort-relation-system-search', 'restore-services'))
+def test_delete_abort_and_restore_receipts_measure_physical_wal_bytes(monkeypatch, mode):
+    model = DispatchModel(monkeypatch)
+    if mode.startswith('abort-'):
+        model.auto = 'system_search'
+        model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = model.relation_bytes
+    measurements = []
+    def docker(*args):
+        assert args == ('exec', model.c.CONTAINER, 'du', '--bytes', '--summarize',
+                        '--dereference', '--', '/data/pg_wal')
+        measurements.append(100 + len(measurements))
+        return str(measurements[-1]) + ' /data/pg_wal'
+    model.runtime.docker = docker
+    report = model.run(mode)
+    assert report['status'] == 'success'
+    assert report['wal_before']['bytes'] == measurements[0]
+    assert report['wal_after']['bytes'] == measurements[-1]
+    assert report['wal_after']['bytes'] > report['wal_before']['bytes']
+    # Directory growth is evidence distinct from WAL generated via LSN delta.
+    assert report['wal_byte_delta'] == 0
+
+
+@pytest.mark.parametrize('mode', ('delete-system-search', 'abort-relation-system-search'))
+@pytest.mark.parametrize('failure', ('malformed', 'command-failed'))
+def test_delete_and_abort_refuse_unavailable_initial_wal_bytes(monkeypatch, mode, failure):
+    model = DispatchModel(monkeypatch)
+    if mode.startswith('abort-'):
+        model.auto = 'system_search'
+        model.reviewed['delete']['system_search']['autovacuum_budget_bytes'] = model.relation_bytes
+    def docker(*args):
+        if failure == 'command-failed':
+            raise RuntimeError('du_command_failed')
+        return 'not measured'
+    model.runtime.docker = docker
+    with pytest.raises((ValueError, RuntimeError), match='wal_directory_bytes_unavailable|du_command_failed'):
+        model.run(mode)
+    assert model.mutations == []
+    assert model.batch_count == 0
+    assert 'resolve-batches' not in model.log
 
 
 @pytest.mark.parametrize('budget', (None, True, False, 0, -1, 1.5, '3000000000', 2**63))

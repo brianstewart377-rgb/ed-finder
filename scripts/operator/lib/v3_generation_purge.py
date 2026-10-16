@@ -98,7 +98,7 @@ def receipt(mode):
         'rewrite_completed_at', 'transaction_outcome', 'competing_writer_wait',
         'writer_fence', 'autovacuum', 'purge_state', 'progress', 'next_admissible_mode',
         'skipped_scheduled_backups', 'installed_wrapper_sha256', 'expected_wrapper_sha256',
-        'pointer_identities', 'extra_payload_counts', 'autovacuum_ages',
+        'pointer_identities', 'extra_payload_counts', 'autovacuum_ages', 'autovacuum_fence_horizon',
         'system_archetype_verification', 'relation_probes',
     ))
     result.update(
@@ -285,6 +285,20 @@ SELECT jsonb_build_object('wal_byte_delta',
 """)
 
 
+def measure_wal(runtime, data_directory):
+    """Pair server WAL health with physical bytes on the proved data volume."""
+    wal = runtime.query(WAL_SQL)
+    # pg_ls_waldir needs a privilege deliberately not given to the executor
+    # by 016. Use the same fixed container/directory measurement in each phase.
+    size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
+                          '--dereference', '--', data_directory + '/pg_wal')
+    fields = size.split() if isinstance(size, str) else []
+    if (not isinstance(wal, dict) or len(fields) != 2 or not fields[0].isascii()
+            or not fields[0].isdecimal() or fields[1] != data_directory + '/pg_wal'):
+        raise ValueError('wal_directory_bytes_unavailable')
+    return {**wal, 'bytes': int(fields[0])}
+
+
 def finalize_wal_delta(runtime, report):
     """Use server LSN arithmetic; directory growth is not WAL generated."""
     before = (report.get('wal_before') or {}).get('lsn')
@@ -387,7 +401,7 @@ class Runtime:
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'DOCKER_'))}
         self.env['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
 
-    def run(self, argv, *, input=None, timeout=30, allow_failure=False):
+    def run(self, argv, *, input=None, timeout=30, allow_failure=False, return_result=False):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError('wall_clock_timeout')
@@ -405,8 +419,11 @@ class Runtime:
             if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+55P03\b', result.stderr):
                 raise RuntimeError('database_lock_timeout')
             raise RuntimeError('bounded_command_failed')
-        if len(result.stdout.encode()) > MAX_OUTPUT:
+        if (len(result.stdout.encode()) > MAX_OUTPUT
+                or return_result and len(result.stderr.encode()) > MAX_OUTPUT):
             raise RuntimeError('command_output_bound_exceeded')
+        if return_result:
+            return result
         return result.stdout.strip()
 
     def docker(self, *argv, **kwargs):
@@ -960,18 +977,12 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
     report.update(expected_wrapper_sha256=expected_wrapper, installed_wrapper_sha256=installed_wrapper)
     if runtime.workers() is not True:
         raise ValueError('named_workers_not_stopped')
-    first_wal = runtime.query(WAL_SQL)
-    first_wal['bytes'] = int(runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
-                                           '--dereference', '--', identity['data_directory'] + '/pg_wal').split()[0])
+    first_wal = measure_wal(runtime, identity['data_directory'])
     report['wal_before'] = first_wal
     auto = measure_autovacuum(runtime)
     report['autovacuum'] = auto
-    last_wal = runtime.query(WAL_SQL)
-    # The directory is already proved to be on the measured filesystem. Avoid
-    # pg_ls_waldir, a privilege deliberately not given to the executor by 016.
-    wal_size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize', '--dereference', '--', identity['data_directory'] + '/pg_wal')
-    wal_bytes = int(wal_size.split()[0])
-    last_wal['bytes'] = wal_bytes
+    last_wal = measure_wal(runtime, identity['data_directory'])
+    wal_bytes = last_wal['bytes']
     wal_health(first_wal, last_wal)
     report.update(wal_after=last_wal, archive_status=last_wal['archiver'], replication_slots=last_wal['slots'],
                   checkpoint_counters=last_wal['checkpoints'], temp_bytes=last_wal['temp_bytes'])
@@ -990,10 +1001,8 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         check_wrapper()
         if runtime.workers() is not True:
             raise ValueError('named_workers_not_stopped')
-        fresh_wal = runtime.query(WAL_SQL)
-        wal_bytes = int(runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize', '--dereference',
-                                      '--', identity['data_directory'] + '/pg_wal').split()[0])
-        fresh_wal['bytes'] = wal_bytes
+        fresh_wal = measure_wal(runtime, identity['data_directory'])
+        wal_bytes = fresh_wal['bytes']
         wal_health(first_wal, fresh_wal)
         report.update(wal_after=fresh_wal, archive_status=fresh_wal['archiver'],
                       replication_slots=fresh_wal['slots'], checkpoint_counters=fresh_wal['checkpoints'],
@@ -1020,7 +1029,12 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         if reviewed['snapshot'] != observed['snapshot'] or reviewed['targets'] != observed['targets']:
             raise ValueError('plan_snapshot_changed_during_measurement')
         reviewed.update(autovacuum=auto['configuration'], extra_payload_counts=extra_counts,
-                        delete={code: {'batch_limit': 1000} for code in RELATIONS.values()},
+                        # Until measured/configured cadence is reviewed, reserve
+                        # one row per second across dispatches. A rewrite time
+                        # must still come from rehearsal; never invent it here.
+                        delete={code: {'batch_limit': 1000, 'rows_per_second': 1,
+                                       'rows_per_second_source': 'conservative_fallback'}
+                                for code in RELATIONS.values()},
                         pointer_identities=pointer_identities)
         require_reviewed_migration_ledger(runtime, entries)
         report['reviewed_plan'] = transactions.seal_plan(runtime.query, reviewed)

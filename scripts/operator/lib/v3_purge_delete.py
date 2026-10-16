@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -91,14 +92,62 @@ def running_services(runtime, authority_path):
     contract = authority['application_contract']
     services = contract['services']
     containers = contract['containers']
-    if len(services) != len(containers):
+    if (not isinstance(services, list) or not isinstance(containers, list)
+            or len(services) != len(containers)
+            or any(not isinstance(service, str) for service in services)
+            or any(not isinstance(name, str) for name in containers)
+            or len(set(services)) != len(services) or len(set(containers)) != len(containers)
+            or contract.get('compose_project') != 'edfinder-v3-production'):
         raise ValueError('writer_container_authority_invalid')
     names = [name for service, name in zip(services, containers, strict=True) if service.startswith('api-')]
-    if not names or any(re.fullmatch('edfinder-v3-production-api-(blue|green)', n) is None for n in names):
+    if (not names or any(re.fullmatch('edfinder-v3-production-api-(blue|green)', n) is None for n in names)
+            or any(name != 'edfinder-v3-production-' + service
+                   for service, name in zip(services, containers, strict=True) if service.startswith('api-'))):
         raise ValueError('writer_container_authority_invalid')
+    # Inspect only the authority's writers, but also refuse an unlisted API or
+    # application-project container. Unrelated host containers are preserved.
+    listed = runtime.docker('container', 'ls', '--format', '{{json .}}')
+    observed = set()
+    for row in listed.splitlines():
+        try:
+            value = json.loads(row)
+            name, labels = value['Names'], value['Labels']
+            if (not isinstance(name, str) or re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.-]*', name) is None
+                    or not isinstance(labels, str) or name in observed):
+                raise ValueError()
+            projects = [label.removeprefix('com.docker.compose.project=')
+                        for label in labels.split(',') if label.startswith('com.docker.compose.project=')]
+            if len(projects) > 1:
+                raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            raise ValueError('writer_container_inventory_invalid') from None
+        observed.add(name)
+        if ((name.startswith('edfinder-v3-production-api-') or projects == [contract['compose_project']])
+                and name not in containers):
+            raise ValueError('writer_container_outside_authority')
     result = []
     for name in names:
-        value = json.loads(runtime.docker('inspect', '-f', '{{json .}}', name))
+        inspected = runtime.docker('inspect', '-f', '{{json .}}', name,
+                                   allow_failure=True, return_result=True)
+        if inspected.returncode:
+            # The deployer removes the prior slot; bootstrap may never create
+            # it. Only Docker's exact name-specific not-found exit proves that
+            # absence. Daemon, permission, transport and other errors stop us.
+            if (inspected.returncode == 1 and not inspected.stdout.strip()
+                    and inspected.stderr.strip() == 'Error: No such object: ' + name):
+                if name in observed:
+                    raise ValueError('writer_container_inventory_changed')
+                continue
+            raise ValueError('writer_container_inspect_failed')
+        try:
+            value = json.loads(inspected.stdout)
+            if (value['Name'] != '/' + name or type(value['State']['Running']) is not bool
+                    or not isinstance(value['Id'], str) or re.fullmatch('[0-9a-f]{64}', value['Id']) is None):
+                raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            raise ValueError('writer_container_inspect_invalid') from None
+        if (name in observed) != value['State']['Running']:
+            raise ValueError('writer_container_inventory_changed')
         if value['State']['Running'] is True:
             result.append({'name': name, 'id': value['Id']})
     return result
@@ -299,15 +348,16 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     # Identity and authenticated ownership precede even recovery mutations.
     # Resolving batches uses only metadata, so an unavailable rewrite heap
     # cannot prevent safe recovery status/refusal.
-    report['wal_before'] = runtime.query(c.WAL_SQL)
+    report['postmaster_started_epoch'] = identity.get('postmaster_started_epoch')
+    identity['data_directory'] = runtime.data_directory()
+    report['wal_before'] = c.measure_wal(runtime, identity['data_directory'])
     tx.resolve_batches(runtime.query, ids, relation)
     if mode == 'restore-services':
         restore(c, tx, runtime, report, ids, acknowledge_failed_stop)
+        report['wal_after'] = c.measure_wal(runtime, identity['data_directory'])
         c.finalize_wal_delta(runtime, report)
         report['status'] = 'success'
         return
-    report['postmaster_started_epoch'] = identity.get('postmaster_started_epoch')
-    identity['data_directory'] = runtime.data_directory()
     objects = runtime.query(c.OBJECTS_SQL)
     if not objects or any(obj.get('valid') is not True for obj in objects):
         raise ValueError('relation_or_index_evidence_invalid')
@@ -369,7 +419,6 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         controller_alive()
         if stop.is_set():
             raise ValueError('delete_stop_requested')
-        age_gate(c, tx, runtime, report, ids, relation, reviewed, wall_clock_seconds + 65)
         if fenced and fresh_probe(runtime, c) != 'on':
             raise ValueError('writer_fence_fresh_probe_drift')
         waited = tx.wait_for_competing_writers(runtime.query)
@@ -377,6 +426,7 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
         c.require_reviewed_migration_ledger(runtime, entries)
         # Measurements follow the bounded writer wait: 016 requires <=30s old.
         measured = measurement(c, runtime, identity, report, report['wal_before'], peak)
+        age_gate(c, tx, runtime, report, ids, relation, reviewed, sum(counts.values()), wall_clock_seconds + 65)
         measured['competing_writer_wait'] = waited
         return measured
     def boundary(*, final=False):
@@ -403,9 +453,9 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
             report['fk_check'] = checks
         return observed
     # All ordinary preflight failures above and here leave new fences untouched.
-    age_gate(c, tx, runtime, report, ids, relation, reviewed, wall_clock_seconds + 65)
     initial = boundary()
     counts = {target['id']: target['payload_counts'][relation] for target in initial['targets']}
+    age_gate(c, tx, runtime, report, ids, relation, reviewed, sum(counts.values()), wall_clock_seconds + 65)
     report['rows_affected_cumulative'] = sum(target['payload_counts'][relation] for target in reviewed['targets']) - sum(counts.values())
     gates()
     def fail(exc):
@@ -478,6 +528,9 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                      'recorded_at': datetime.now(timezone.utc).isoformat()})
     with stop_signals(stop):
         try:
+            # Docker/host evidence can take time. Recheck the full remaining
+            # horizon immediately before opening or adopting the durable fence.
+            age_gate(c, tx, runtime, report, ids, relation, reviewed, sum(counts.values()), wall_clock_seconds + 65)
             report['autovacuum'] = tx.autovacuum_fence(runtime.query, ids, relation)
             report['writer_fence'] = {**(report.get('writer_fence') or {}),
                 **tx.writer_fence(runtime.query, ids[0], True, lambda: fresh_probe(runtime, c), purge_ids=ids)}
@@ -535,9 +588,7 @@ def measurement(c, runtime, identity, report, before, peak):
         raise ValueError('named_workers_not_stopped')
     filesystem = free_space(report['data_mount']['source'])
     report['filesystem_after'] = filesystem
-    wal = runtime.query(c.WAL_SQL)
-    wal['bytes'] = int(runtime.docker('exec', c.CONTAINER, 'du', '--bytes', '--summarize', '--dereference', '--',
-                                     identity['data_directory'] + '/pg_wal').split()[0])
+    wal = c.measure_wal(runtime, identity['data_directory'])
     report['wal_after'] = wal
     c.wal_health(before, wal)
     if runtime.device(identity['data_directory'] + '/pg_wal') != report['data_mount']['device']:
@@ -574,11 +625,39 @@ def backup_skips(runtime, report):
         report['skipped_scheduled_backups'] = None
 
 
-def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_seconds):
+def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_rows, dispatch_seconds):
+    """Reserve the remaining delete cadence AND the reviewed rewrite time.
+
+    Counts start at this dispatch's exact DB boundary and decrease only after
+    committed batches. The original fence's rates/ceilings still govern resume.
+    """
+    mode_relation = next(key for key, code in c.RELATIONS.items() if code == relation)
+    def refuse(code):
+        report['next_admissible_mode'] = {
+            'mode': ('rewrite-' if remaining_rows == 0 else 'abort-relation-') + mode_relation,
+            'implemented': remaining_rows != 0,
+        }
+        raise ValueError(code)
+    config = reviewed.get('delete', {}).get(relation, {})
+    rate = config.get('rows_per_second')
+    rewrite = config.get('rewrite_allowance_seconds')
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+           for value in (rate, rewrite)):
+        refuse('autovacuum_fence_horizon_not_reviewed')
+    delete_seconds = remaining_rows / rate
+    required_seconds = max(dispatch_seconds, delete_seconds + rewrite)
+    if not math.isfinite(required_seconds):
+        refuse('autovacuum_fence_horizon_not_reviewed')
+    horizon = {'remaining_target_rows': remaining_rows, 'rows_per_second': rate,
+               'rows_per_second_source': config.get('rows_per_second_source'),
+               'delete_seconds': delete_seconds, 'rewrite_allowance_seconds': rewrite,
+               'required_seconds': required_seconds, 'projections': []}
+    report['autovacuum_fence_horizon'] = horizon
     metadata = tx.metadata_state(runtime.query, ids)
     opened = [event for event in metadata['autovacuum_fences'] if event['relation_code'] == relation]
     options = opened[-1]['operational_payload'] if opened else None
     observed = c.age_sample(runtime)
+    report['autovacuum_ages'] = observed
     scopes = [obj for obj in observed['objects'] if obj['relation_code'] == relation]
     if not scopes or not any(obj['scope'] == 'heap' for obj in scopes):
         raise ValueError('autovacuum_age_observation_invalid')
@@ -586,10 +665,17 @@ def age_gate(c, tx, runtime, report, ids, relation, reviewed, remaining_seconds)
         config = options.get(obj['scope'], {}) if options is not None else reviewed.get('autovacuum', {}).get(relation, {})
         for kind in ('xid', 'mxid'):
             ceiling, rate = config.get(kind + '_ceiling'), config.get(kind + '_rate')
-            if (type(ceiling) is not int or type(rate) not in (int, float) or rate < 0
-                    or obj[kind + '_age'] + rate * remaining_seconds >= ceiling):
-                raise ValueError('autovacuum_fence_deadline_unsafe')
-    report['autovacuum_ages'] = observed
+            if (type(ceiling) is not int or type(rate) not in (int, float)
+                    or not math.isfinite(rate) or rate < 0):
+                refuse('autovacuum_fence_deadline_unsafe')
+            ceiling = min(ceiling, obj[kind + '_limit'])
+            margin = ceiling - obj[kind + '_age']
+            projected = margin / rate if rate else None
+            horizon['projections'].append({'scope': obj['scope'], 'kind': kind,
+                                           'age': obj[kind + '_age'], 'ceiling': ceiling,
+                                           'rate': rate, 'seconds_to_ceiling': projected})
+            if margin <= 0 or (projected is not None and projected < required_seconds):
+                refuse('autovacuum_fence_deadline_unsafe')
 
 
 def restore(c, tx, runtime, report, ids, acknowledgement, *, automatic=False):

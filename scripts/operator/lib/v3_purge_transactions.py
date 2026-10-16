@@ -7,6 +7,7 @@ through 016's public functions. The outer operator owns host gates and the lease
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from uuid import UUID
@@ -346,6 +347,10 @@ def validate_delete_plan_budgets(reviewed_plan: dict) -> None:
             for relation, config in configuration.items())):
         raise PurgeTransactionError('purge_delete_plan_configuration_invalid')
     for config in configuration.values():
+        for field in ('rows_per_second', 'rewrite_allowance_seconds'):
+            if field in config and (type(config[field]) not in (int, float)
+                                    or not math.isfinite(config[field]) or config[field] <= 0):
+                raise PurgeTransactionError('autovacuum_fence_horizon_not_reviewed')
         if 'autovacuum_budget_bytes' not in config:
             continue
         budget = config['autovacuum_budget_bytes']
