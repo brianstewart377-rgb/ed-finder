@@ -21,6 +21,20 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-16 — Disposable governed purge rehearsal (P2d)
+
+Added a manual Contabo self-hosted rehearsal workflow with a credential-free
+PostgreSQL 18 container, unique disposable resources, disk admission checks,
+scoped cleanup and 180-day evidence retention. The harness seeds lifecycle
+receipt proportions, drives the real purge action through a production-refusing
+disposable override, and records sealed measurements and crash-gate results.
+Plan mode can consume a reviewed one-percent receipt by path and content SHA,
+recomputing its production figures and refusing invalid seals or failed crash
+gates. Smoke results cannot authorize production. Added workflow, harness,
+override and receipt-consumption coverage and the P2d review runbook. No workflow
+was dispatched or production system accessed; production artifact transport into
+the protected plan workflow remains a separate gated integration.
+
 ## 2026-10-16 — Protected governed purge dispatch (P2c)
 
 Added the manual, `v3-production`-protected derived-purge workflow with a closed

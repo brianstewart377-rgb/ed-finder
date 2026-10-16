@@ -85,6 +85,8 @@ def script_identity():
             'scripts/operator/lib/v3_purge_rewrite.py',
             'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
             'scripts/operator/lib/v3_purge_rewrite_monitor.py',
+            'scripts/operator/lib/v3_purge_rehearsal.py',
+            'scripts/operator/lib/v3_purge_rehearsal_receipt.py',
             'scripts/operator/lib/v3_purge_state.py',
             'scripts/operator/lib/v3_purge_transactions.py',
             'scripts/operator/v3_schema_identity.py',
@@ -982,7 +984,7 @@ def admission_state(runtime, report, *, allow_unresolved=False):
 
 
 def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
-            verification=None, phase_options=None):
+            verification=None, phase_options=None, rehearsal=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
     if mode.startswith('rewrite-'):
         _load('v3_purge_rewrite_dispatch').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
@@ -1125,6 +1127,11 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
                                        'rows_per_second_source': 'conservative_fallback'}
                                 for code in RELATIONS.values()},
                         pointer_identities=pointer_identities)
+        if getattr(runtime, 'rehearsal', False):
+            runtime.prepare_plan(reviewed)
+        if rehearsal is not None:
+            _load('v3_purge_rehearsal_receipt').apply_to_plan(reviewed, rehearsal)
+            report['rehearsal_receipt_sha256'] = rehearsal['content_sha256']
         require_reviewed_migration_ledger(runtime, entries)
         report['reviewed_plan'] = transactions.seal_plan(runtime.query, reviewed)
         report['reviewed_plan_sha256'] = report['reviewed_plan']['plan_sha256']
@@ -1190,6 +1197,10 @@ def main(argv=None):
         parser.add_argument('mode')
         parser.add_argument('--plan')
         parser.add_argument('--plan-sha256')
+        parser.add_argument('--rehearsal-receipt')
+        parser.add_argument('--rehearsal-receipt-sha256')
+        parser.add_argument('--rehearsal-container')
+        parser.add_argument('--rehearsal-token')
         parser.add_argument('--actor', default='governed-operator')
         parser.add_argument('--reason', default='Owner-authorized governed purge')
         parser.add_argument('--verification')
@@ -1206,6 +1217,12 @@ def main(argv=None):
             raise ValueError('python314_required')
         plan = None
         verification = None
+        rehearsal = None
+        if args.rehearsal_receipt or args.rehearsal_receipt_sha256:
+            if mode != 'plan' or not args.rehearsal_receipt or not args.rehearsal_receipt_sha256:
+                raise ValueError('rehearsal_arguments_not_admitted_for_mode')
+            rehearsal = _load('v3_purge_rehearsal_receipt').load_reviewed(
+                args.rehearsal_receipt, args.rehearsal_receipt_sha256)
         phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))
         phase_options = dict(wall_clock_seconds=args.wall_clock_seconds, controller_pid=args.controller_pid,
                              controller_run_id=args.controller_run_id, acknowledge_failed_stop=args.acknowledge_failed_stop,
@@ -1222,7 +1239,14 @@ def main(argv=None):
             plan = authenticated_plan(args.plan, args.plan_sha256, require_fresh=mode == 'authorize')
         elif args.plan or args.plan_sha256:
             raise ValueError('plan_arguments_not_admitted_for_mode')
-        runtime = Runtime(report)
+        if args.rehearsal_container or args.rehearsal_token:
+            runtime = _load('v3_purge_rehearsal').install(
+                sys.modules[__name__] if __name__ in sys.modules else argparse.Namespace(**globals()),
+                report, args.rehearsal_container, args.rehearsal_token)
+        else:
+            runtime = Runtime(report)
+        if plan is not None and plan.get('reviewed_plan', {}).get('disposable_rehearsal_only') is True and not getattr(runtime, 'rehearsal', False):
+            raise ValueError('disposable_plan_refused_in_production')
         runtime.guard()
         if phase_mode:
             if mode == 'restore-services' or mode.startswith('rewrite-'):
@@ -1245,7 +1269,7 @@ def main(argv=None):
                 else:
                     execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason, verification=verification)
         else:
-            execute(mode, runtime, report, actor=args.actor, reason=args.reason, verification=verification)
+            execute(mode, runtime, report, actor=args.actor, reason=args.reason, verification=verification, rehearsal=rehearsal)
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
         # Only our own finite error codes escape. Commands, SQL diagnostics,
         # environment and arbitrary parser/request text never become receipts.
