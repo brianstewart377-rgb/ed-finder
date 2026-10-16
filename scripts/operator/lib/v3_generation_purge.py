@@ -1,4 +1,4 @@
-"""P2b1 governed purge controller: fixed SQL, sealed evidence, no payload DML.
+"""Governed purge controller: fixed SQL and sealed, bounded phase evidence.
 
 The owner-only P2a read-only state probe is reused unchanged in substance;
 progress also uses a fixed owner read to observe backend identities. Other
@@ -32,6 +32,7 @@ USER = APPLICATION_ROLE = 'edfinder_v3'
 MIGRATION = '016_v3_governed_derived_purge.sql'
 MIGRATION_SHA256 = '0919904cb12509082022ffdb27b7df30b8ed4b20a1b4ac2bb1e0e700778e0836'
 LEASE = Path('/run/lock/edfinder-v3-derived-purge.lock')
+BACKUP_SCHEDULE_LOCK = Path('/run/lock/edfinder-v3-pgbackrest-schedule.lock')
 INSTALLED_WRAPPER = Path('/opt/ed-finder-v3-runtime/pgbackrest-operation.sh')
 WRAPPER = ROOT / 'deploy/v3-production/backup/pgbackrest-operation.sh'
 MAX_PLAN_AGE_SECONDS = 3600
@@ -70,13 +71,14 @@ schema_identity = _load('v3_schema_identity', ROOT / 'scripts/operator/v3_schema
 
 
 def classify_mode(mode):
-    if mode in IMPLEMENTED:
+    if mode in IMPLEMENTED or mode == 'restore-services' or any(
+            mode == prefix + relation for prefix in ('delete-', 'abort-relation-') for relation in RELATIONS):
         return mode
     if mode == 'restore-services' or any(
         mode == prefix + relation
         for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS
     ):
-        raise ValueError('mode_not_implemented_until_p2b2')
+        raise ValueError('mode_not_implemented_until_p2b2b')
     raise ValueError('unknown_mode')
 
 
@@ -96,7 +98,7 @@ def receipt(mode):
         'rewrite_completed_at', 'transaction_outcome', 'competing_writer_wait',
         'writer_fence', 'autovacuum', 'purge_state', 'progress', 'next_admissible_mode',
         'skipped_scheduled_backups', 'installed_wrapper_sha256', 'expected_wrapper_sha256',
-        'pointer_identities', 'extra_payload_counts', 'autovacuum_ages',
+        'pointer_identities', 'extra_payload_counts', 'autovacuum_ages', 'autovacuum_fence_horizon',
         'system_archetype_verification', 'relation_probes',
     ))
     result.update(
@@ -104,7 +106,7 @@ def receipt(mode):
         operation='v3-derived-generation-purge', phase=mode, status='stopped', failures=[],
         created_at=datetime.now(timezone.utc).isoformat(),
         migration_expected_sha256=MIGRATION_SHA256,
-        read_only=mode not in ('authorize', 'complete'),
+        read_only=mode in ('plan', 'status', 'verify-system-archetype-empty'),
         lock_timeout='5s', statement_timeout='45min', wall_clock_timeout_seconds=3600,
         reserve_bytes=FREE_FLOOR_BYTES, abort_threshold_bytes=FREE_FLOOR_BYTES,
     )
@@ -138,6 +140,7 @@ def authenticated_plan(path, expected_sha, *, now=None, require_fresh=True):
         raise ValueError('plan_expired_or_future')
     if not isinstance(plan.get('reviewed_plan'), dict):
         raise ValueError('plan_database_contract_missing')
+    _load('v3_purge_transactions').validate_delete_plan_budgets(plan['reviewed_plan'])
     return plan
 
 
@@ -276,6 +279,46 @@ SELECT jsonb_build_object('lsn',pg_current_wal_lsn()::text,
  'temp_bytes',(SELECT temp_bytes FROM pg_stat_database WHERE datname=current_database()))
 """)
 
+WAL_LSN_DIFF_SQL = read_sql("""
+SELECT jsonb_build_object('wal_byte_delta',
+ pg_wal_lsn_diff(%(after_lsn)s::pg_lsn,%(before_lsn)s::pg_lsn)::bigint)
+""")
+
+
+def measure_wal(runtime, data_directory):
+    """Pair server WAL health with physical bytes on the proved data volume."""
+    wal = runtime.query(WAL_SQL)
+    # pg_ls_waldir needs a privilege deliberately not given to the executor
+    # by 016. Use the same fixed container/directory measurement in each phase.
+    size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
+                          '--dereference', '--', data_directory + '/pg_wal')
+    fields = size.split() if isinstance(size, str) else []
+    if (not isinstance(wal, dict) or len(fields) != 2 or not fields[0].isascii()
+            or not fields[0].isdecimal() or fields[1] != data_directory + '/pg_wal'):
+        raise ValueError('wal_directory_bytes_unavailable')
+    return {**wal, 'bytes': int(fields[0])}
+
+
+def finalize_wal_delta(runtime, report):
+    """Use server LSN arithmetic; directory growth is not WAL generated."""
+    before = (report.get('wal_before') or {}).get('lsn')
+    after = runtime.query(WAL_SQL)
+    if not isinstance(after, dict):
+        raise ValueError('wal_byte_delta_unavailable')
+    after_lsn = after.get('lsn')
+    if any(not isinstance(value, str) or re.fullmatch('[0-9A-Fa-f]+/[0-9A-Fa-f]+', value) is None
+           for value in (before, after_lsn)):
+        raise ValueError('wal_byte_delta_unavailable')
+    result = runtime.query(WAL_LSN_DIFF_SQL, {'before_lsn': before, 'after_lsn': after_lsn})
+    delta = result.get('wal_byte_delta') if isinstance(result, dict) else None
+    if type(delta) is not int or delta < 0:
+        raise ValueError('wal_byte_delta_unavailable')
+    # WAL_SQL deliberately leaves directory bytes unmeasured. Retain the
+    # phase's final filesystem measurement while refreshing its server LSN.
+    measured = report.get('wal_after') or {}
+    report.update(wal_after={**measured, **{key: value for key, value in after.items()
+                                         if key != 'bytes'}}, wal_byte_delta=delta)
+
 # Like the P2a probe, this fixed owner read is needed to see the recorded
 # backend's full identity; SET ROLE masks other sessions' backend_start.
 PROGRESS_SQL = "BEGIN READ ONLY; SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'; " + """
@@ -358,7 +401,7 @@ class Runtime:
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'DOCKER_'))}
         self.env['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
 
-    def run(self, argv, *, input=None, timeout=30, allow_failure=False):
+    def run(self, argv, *, input=None, timeout=30, allow_failure=False, return_result=False):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError('wall_clock_timeout')
@@ -371,11 +414,16 @@ class Runtime:
         if result.returncode and not allow_failure:
             # psql's SQLSTATE-only diagnostics allow a bounded, safe recovery
             # signal without exposing server errors or command output.
+            if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+(23503|XX001|XX002)\b', result.stderr):
+                raise RuntimeError('delete_fk_or_index_failure')
             if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+55P03\b', result.stderr):
                 raise RuntimeError('database_lock_timeout')
             raise RuntimeError('bounded_command_failed')
-        if len(result.stdout.encode()) > MAX_OUTPUT:
+        if (len(result.stdout.encode()) > MAX_OUTPUT
+                or return_result and len(result.stderr.encode()) > MAX_OUTPUT):
             raise RuntimeError('command_output_bound_exceeded')
+        if return_result:
+            return result
         return result.stdout.strip()
 
     def docker(self, *argv, **kwargs):
@@ -385,6 +433,7 @@ class Runtime:
         # psql variable quoting is a data binding layer. Values are hex-encoded
         # UTF-8, decoded inside PostgreSQL; neither SQL nor identifiers come from
         # request text. --file=- is essential: -c does not expand psql variables.
+        is_batch = sql == _load('v3_purge_transactions').BATCH_SQL
         assignments = []
         for key, value in (params or {}).items():
             if re.fullmatch('[a-z][a-z0-9_]*', key) is None:
@@ -405,7 +454,15 @@ class Runtime:
                            '--file=-', input='\n'.join(assignments) + '\n' + sql,
                            timeout=2 if "'competing_writers'" in sql else 2760)
         try:
-            value = json.loads(body)
+            if is_batch:
+                parts = [json.loads(line) for line in body.splitlines() if line]
+                if (len(parts) != 2 or any(not isinstance(part, dict) for part in parts)
+                        or type(parts[0].get('start_event')) is not int
+                        or parts[0]['start_event'] <= 0):
+                    raise ValueError('batch_result_invalid')
+                value = {**parts[0], **parts[1]}
+            else:
+                value = json.loads(body)
         except ValueError:
             raise RuntimeError('database_result_invalid') from None
         if write:
@@ -428,18 +485,52 @@ class Runtime:
         if re.fullmatch('[0-9a-f]{40}', sha) is None:
             raise ValueError('source_identity_invalid')
         self.report['source_git_sha'] = sha
+        wrapper_relative = 'deploy/v3-production/backup/pgbackrest-operation.sh'
+        committed_blob = self.run(['git', '-C', str(ROOT), 'rev-parse', sha + ':' + wrapper_relative])
+        local_blob = self.run(['git', '-C', str(ROOT), 'hash-object', '--no-filters', '--',
+                               str(ROOT / wrapper_relative)])
+        # Compare Git's byte-exact blob identities: Runtime.run strips stdout,
+        # so hashing `git show` text would lose the source's trailing newline.
+        if re.fullmatch('[0-9a-f]{40}', committed_blob) is None or local_blob != committed_blob:
+            raise ValueError('backup_wrapper_committed_source_mismatch')
         self.report['workflow_run_id'] = os.environ.get('GITHUB_RUN_ID') or None
         self.report['script_sha256'] = evidence.canonical_sha256({
             relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
             for relative in sorted((
+                'deploy/v3-production/backup/pgbackrest-operation.sh',
                 'scripts/operator/actions/v3-derived-generation-purge.sh',
                 'scripts/operator/actions/v3-derived-lifecycle-status.sh',
                 'scripts/operator/lib/f2d_evidence.py',
                 'scripts/operator/lib/v3_generation_purge.py',
+                'scripts/operator/lib/v3_purge_delete.py',
                 'scripts/operator/lib/v3_purge_state.py',
                 'scripts/operator/lib/v3_purge_transactions.py',
                 'scripts/operator/v3_schema_identity.py',
             ))})
+
+    @contextmanager
+    def backup_lock(self):
+        """Exclude scheduled and manually started pgBackRest backup/verify."""
+        fd = os.open(BACKUP_SCHEDULE_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError('backup_schedule_lock_not_regular')
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise ValueError('backup_schedule_lock_held') from None
+            processes = self.docker('top', CONTAINER, '-eo', 'pid,args')
+            if not processes or not re.search(r'\bPID\b', processes.splitlines()[0]):
+                raise ValueError('backup_process_state_unknown')
+            active = sum(bool(re.search(r'\bpgbackrest\b', line, re.I) and
+                              re.search(r'\b(?:backup|verify)\b', line, re.I))
+                         for line in processes.splitlines()[1:])
+            self.report['backup_processes'] = active
+            if active:
+                raise ValueError('backup_or_verify_process_active')
+            yield
+        finally:
+            os.close(fd)
 
     @contextmanager
     def lease(self):
@@ -724,7 +815,7 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
     if 'FAILED_STOP' in kinds:
         return {'mode': 'status', 'reason': 'owner_integrity_review_required'}
     if kinds & {'WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'}:
-        return {'mode': 'restore-services', 'implemented': False}
+        return {'mode': 'restore-services', 'implemented': True}
     for kind, prefix in (('BATCH_STARTED', 'delete-'), ('REWRITE_STARTED', 'rewrite-'),
                          ('AUTOVACUUM_DISABLED', 'delete-')):
         rows = [row for row in state['unresolved'] if row['event_kind'] == kind]
@@ -737,7 +828,7 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
                 prefix = 'abort-relation-'
             elif kind == 'AUTOVACUUM_DISABLED' and empty(code) is None:
                 return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
-            return {'mode': prefix + relation, 'implemented': False}
+            return {'mode': prefix + relation, 'implemented': prefix != 'rewrite-'}
     if not progress['requests']:
         return {'mode': 'plan', 'reason': 'fresh_plan_before_authorize'}
     if all(any(event['purge_id'] == request['purge_id'] and event['event_kind'] == 'COMPLETED'
@@ -752,7 +843,7 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
             if empty(code) is None:
                 return {'mode': 'status', 'reason': 'relation_counts_not_proven'}
             return {'mode': ('rewrite-' if empty(code) else 'delete-') + name,
-                    'implemented': False}
+                    'implemented': not empty(code)}
     return {'mode': 'complete', 'implemented': True}
 
 
@@ -792,12 +883,30 @@ def _snapshot_fields(report, observed):
     report['rows_remaining'] = {target['id']: target['payload_counts'] for target in observed['targets']}
 
 
+def admission_state(runtime, report, *, allow_unresolved=False):
+    """Observe P2a without hiding recovery guidance behind its refusal."""
+    state = runtime.state(allow_unresolved=True)
+    report['purge_state'] = state
+    if any(event['event_kind'] in ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED')
+           for event in state['unresolved']):
+        report['next_admissible_mode'] = {'mode': 'restore-services', 'implemented': True}
+        raise ValueError('orphaned_writer_fence_requires_restore_services')
+    if not allow_unresolved and state.get('failures'):
+        raise ValueError(','.join(state['failures']))
+    return state
+
+
 def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
-            verification=None):
+            verification=None, phase_options=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
+    if mode == 'restore-services' or mode.startswith(('delete-', 'abort-relation-')):
+        _load('v3_purge_delete').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
+                                         **(phase_options or {}))
+        return
     transactions = _load('v3_purge_transactions')
     # First observation on mutating modes is P2a admission, before taking lease.
-    state = runtime.state(allow_unresolved=mode == 'status')
+    state = (runtime.state(allow_unresolved=True) if mode == 'status'
+             else admission_state(runtime, report))
     report['purge_state'] = state
     if mode == 'status':
         progress = runtime.query(PROGRESS_SQL)
@@ -868,18 +977,12 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
     report.update(expected_wrapper_sha256=expected_wrapper, installed_wrapper_sha256=installed_wrapper)
     if runtime.workers() is not True:
         raise ValueError('named_workers_not_stopped')
-    first_wal = runtime.query(WAL_SQL)
-    first_wal['bytes'] = int(runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
-                                           '--dereference', '--', identity['data_directory'] + '/pg_wal').split()[0])
+    first_wal = measure_wal(runtime, identity['data_directory'])
     report['wal_before'] = first_wal
     auto = measure_autovacuum(runtime)
     report['autovacuum'] = auto
-    last_wal = runtime.query(WAL_SQL)
-    # The directory is already proved to be on the measured filesystem. Avoid
-    # pg_ls_waldir, a privilege deliberately not given to the executor by 016.
-    wal_size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize', '--dereference', '--', identity['data_directory'] + '/pg_wal')
-    wal_bytes = int(wal_size.split()[0])
-    last_wal['bytes'] = wal_bytes
+    last_wal = measure_wal(runtime, identity['data_directory'])
+    wal_bytes = last_wal['bytes']
     wal_health(first_wal, last_wal)
     report.update(wal_after=last_wal, archive_status=last_wal['archiver'], replication_slots=last_wal['slots'],
                   checkpoint_counters=last_wal['checkpoints'], temp_bytes=last_wal['temp_bytes'])
@@ -898,10 +1001,8 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         check_wrapper()
         if runtime.workers() is not True:
             raise ValueError('named_workers_not_stopped')
-        fresh_wal = runtime.query(WAL_SQL)
-        wal_bytes = int(runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize', '--dereference',
-                                      '--', identity['data_directory'] + '/pg_wal').split()[0])
-        fresh_wal['bytes'] = wal_bytes
+        fresh_wal = measure_wal(runtime, identity['data_directory'])
+        wal_bytes = fresh_wal['bytes']
         wal_health(first_wal, fresh_wal)
         report.update(wal_after=fresh_wal, archive_status=fresh_wal['archiver'],
                       replication_slots=fresh_wal['slots'], checkpoint_counters=fresh_wal['checkpoints'],
@@ -928,6 +1029,12 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         if reviewed['snapshot'] != observed['snapshot'] or reviewed['targets'] != observed['targets']:
             raise ValueError('plan_snapshot_changed_during_measurement')
         reviewed.update(autovacuum=auto['configuration'], extra_payload_counts=extra_counts,
+                        # Until measured/configured cadence is reviewed, reserve
+                        # one row per second across dispatches. A rewrite time
+                        # must still come from rehearsal; never invent it here.
+                        delete={code: {'batch_limit': 1000, 'rows_per_second': 1,
+                                       'rows_per_second_source': 'conservative_fallback'}
+                                for code in RELATIONS.values()},
                         pointer_identities=pointer_identities)
         require_reviewed_migration_ledger(runtime, entries)
         report['reviewed_plan'] = transactions.seal_plan(runtime.query, reviewed)
@@ -979,7 +1086,8 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
     if after_snapshot is not None:
         report['pointers_after'] = {k: after_snapshot[k] for k in ('canonical', 'derived', 'spatial')}
         report['survivors_after'] = after_snapshot['survivors']
-    report['status'] = 'success' 
+    finalize_wal_delta(runtime, report)
+    report['status'] = 'success'
 
 
 def main(argv=None):
@@ -997,6 +1105,11 @@ def main(argv=None):
         parser.add_argument('--reason', default='Owner-authorized governed purge')
         parser.add_argument('--verification')
         parser.add_argument('--verification-sha256')
+        parser.add_argument('--wall-clock-seconds', type=int, default=300)
+        parser.add_argument('--controller-pid', type=int)
+        parser.add_argument('--controller-run-id')
+        parser.add_argument('--acknowledge-failed-stop', type=int)
+        parser.add_argument('--writer-mode', default='read-only')
         args = parser.parse_args(argv)
         report = receipt(args.mode)
         mode = classify_mode(args.mode)
@@ -1004,13 +1117,17 @@ def main(argv=None):
             raise ValueError('python314_required')
         plan = None
         verification = None
+        phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'abort-relation-'))
+        phase_options = dict(wall_clock_seconds=args.wall_clock_seconds, controller_pid=args.controller_pid,
+                             controller_run_id=args.controller_run_id, acknowledge_failed_stop=args.acknowledge_failed_stop,
+                             writer_mode=args.writer_mode)
         if args.verification or args.verification_sha256:
-            if mode not in ('status', 'complete') or not args.verification or not args.verification_sha256:
+            if (mode not in ('status', 'complete') and not phase_mode) or not args.verification or not args.verification_sha256:
                 raise ValueError('verification_arguments_not_admitted_for_mode')
             verification = authenticated_verification(args.verification, args.verification_sha256)
-        if mode == 'complete' and verification is None:
+        if (mode == 'complete' or phase_mode) and verification is None:
             raise ValueError('sealed_verification_required')
-        if mode in ('authorize', 'verify-system-archetype-empty', 'complete'):
+        if mode in ('authorize', 'verify-system-archetype-empty', 'complete') or phase_mode:
             if not args.plan or not args.plan_sha256:
                 raise ValueError('authenticated_plan_required')
             plan = authenticated_plan(args.plan, args.plan_sha256, require_fresh=mode == 'authorize')
@@ -1018,12 +1135,25 @@ def main(argv=None):
             raise ValueError('plan_arguments_not_admitted_for_mode')
         runtime = Runtime(report)
         runtime.guard()
-        if mode in ('authorize', 'complete', 'verify-system-archetype-empty'):
+        if phase_mode:
+            if mode == 'restore-services':
+                runtime.state(allow_unresolved=True)
+            else:
+                admission_state(runtime, report, allow_unresolved=True)
+            with runtime.lease():
+                with runtime.backup_lock():
+                    execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason,
+                            verification=verification, phase_options=phase_options)
+        elif mode in ('authorize', 'complete', 'verify-system-archetype-empty'):
             # Check first, then take the lease and recheck under it. The second
             # check knows it owns the lease, so cannot mistake itself for a rival.
-            runtime.state()
+            admission_state(runtime, report)
             with runtime.lease():
-                execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason, verification=verification)
+                if mode in ('authorize', 'complete'):
+                    with runtime.backup_lock():
+                        execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason, verification=verification)
+                else:
+                    execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason, verification=verification)
         else:
             execute(mode, runtime, report, actor=args.actor, reason=args.reason, verification=verification)
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
