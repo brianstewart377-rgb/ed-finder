@@ -36,8 +36,9 @@ PUBLISHED_SQL = 'SELECT jsonb_build_object(' + ','.join(
     "COALESCE(sum(hashtextextended(to_jsonb(t)::text,0)::numeric),0)::text) "
     'FROM v3_derived.' + relation + ' t WHERE derived_generation_id=%(published)s::uuid)'
     for relation in RELATIONS) + ');'
+# jsonb renders oid values as text; cast them so identity checks compare ints.
 STATE_SQL = """SELECT jsonb_build_object(
- 'oid',c.oid,'relfilenode',c.relfilenode,'kind',c.relkind,
+ 'oid',c.oid::bigint,'relfilenode',c.relfilenode::bigint,'kind',c.relkind,
  'catalog_relations',(SELECT count(*) FROM pg_class x JOIN pg_namespace n ON n.oid=x.relnamespace
     WHERE n.nspname='v3_derived' AND x.relname='system_rating_vector'),
  'target_rows',(SELECT count(*) FROM v3_derived.system_rating_vector
@@ -53,12 +54,12 @@ STATE_SQL = """SELECT jsonb_build_object(
  'rewrite_verifications',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'),
  'rewrite_start',(SELECT jsonb_build_object('event_sequence',event_sequence,
-    'relation_oid',relation_oid,'relfilenode_before',relfilenode_before)
+    'relation_oid',relation_oid::bigint,'relfilenode_before',relfilenode_before::bigint)
     FROM v3_meta.derived_generation_purge_event
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'
     ORDER BY event_sequence DESC LIMIT 1),
  'rewrite_verified',(SELECT jsonb_build_object('recovered',recovered,
-    'relation_oid',relation_oid,'relfilenode_after',relfilenode_after)
+    'relation_oid',relation_oid::bigint,'relfilenode_after',relfilenode_after::bigint)
     FROM v3_meta.derived_generation_purge_event
     WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'
     ORDER BY event_sequence DESC LIMIT 1),
@@ -77,13 +78,24 @@ SLEEP_SQL = """SELECT jsonb_build_object('sleeping',EXISTS(SELECT 1 FROM pg_stat
  WHERE datname=current_database() AND wait_event='PgSleep' AND pid<>pg_backend_pid()));"""
 
 
+# The controller's read_sql() wrapper first assumes the purge executor role,
+# which the read-only observer cannot (and must not) do. The observer already
+# reads these catalog tables; it also survives the writer fence's session
+# recycling, so drop only that role prefix and keep the bounded transaction.
+_EXECUTOR_PREFIX = ('SET ROLE v3_derived_purge_executor; '
+                    'SET default_transaction_read_only=off; ')
+if not controller.POINTER_IDENTITIES_SQL.startswith(_EXECUTOR_PREFIX + 'BEGIN READ ONLY; '):
+    raise ValueError('pointer_identity_sql_shape_changed')
+POINTER_OBSERVATION_SQL = controller.POINTER_IDENTITIES_SQL[len(_EXECUTOR_PREFIX):]
+
+
 def _json(harness, sql):
     return json.loads(harness.observe(sql, {'published': controller.PUBLISHED_ID}))
 
 
 def snapshot(harness):
     return {'published': _json(harness, PUBLISHED_SQL),
-            'pointers': json.loads(harness.observe(controller.POINTER_IDENTITIES_SQL)),
+            'pointers': json.loads(harness.observe(POINTER_OBSERVATION_SQL)),
             'relation': _json(harness, STATE_SQL)}
 
 
