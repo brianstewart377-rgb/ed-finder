@@ -135,11 +135,16 @@ def test_batch_client_kill_requires_authenticated_hook_and_commit_boundary_sleep
     monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
     monkeypatch.setattr(tool, '_json', lambda harness, sql: {'sleeping': True})
     monkeypatch.setattr(tool, '_kill', lambda process: calls.append('kill-wrapper-group'))
-    harness = SimpleNamespace(container='disposable', docker=lambda *args: calls.append(args))
+    def docker(*args, **kwargs):
+        calls.append((args, kwargs))
+        return 'PID COMMAND\n7 postgres\n' if args[0] == 'top' else ''
+    harness = SimpleNamespace(container='disposable', docker=docker)
     result = tool._interrupt(harness, scenario,
                              SimpleNamespace(pid=123, poll=lambda: None), marker)
     assert result['batch_client_state'] == ('killed_before_commit' if scenario.endswith('before_commit') else 'killed_after_commit')
-    assert calls == ['kill-wrapper-group', ('exec', 'disposable', 'killall', '-KILL', 'psql')]
+    assert calls == ['kill-wrapper-group',
+                     (('exec', 'disposable', 'killall', '-KILL', 'psql'), {'check': False}),
+                     (('top', 'disposable', '-eo', 'pid,args'), {})]
 
 
 def test_unrelated_hook_pid_is_not_accepted(tmp_path, monkeypatch):
@@ -329,3 +334,22 @@ def test_tiny_crash_fixture_is_never_augmented():
     counts = {tool.RELATION: {tool.controller.PUBLISHED_KEY: 200}}
     fixture = SimpleNamespace(counts=counts, scale='tiny')
     assert tool.configure_fixture(fixture, 'rewrite_postgres_restart') == counts
+
+
+def test_idle_client_already_gone_is_accepted_but_a_survivor_is_not(monkeypatch):
+    listings = iter(['PID COMMAND\n7 postgres\n9 psql -X --no-psqlrc\n', 'PID COMMAND\n7 postgres\n'])
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append((args, kwargs))
+        return next(listings) if args[0] == 'top' else ''
+    fixture = SimpleNamespace(container='c', docker=docker)
+    monkeypatch.setattr(tool.time, 'sleep', lambda _seconds: None)
+    tool._wait_no_psql_client(fixture)
+    assert all(args[:2] == ('top', 'c') and args[2:] == ('-eo', 'pid,args') for args, _ in calls)
+    survivor = SimpleNamespace(container='c', docker=lambda *a, **k: 'PID COMMAND\n9 /usr/local/bin/psql\n')
+    clock = iter(range(0, 100, 10))
+    monkeypatch.setattr(tool.time, 'monotonic', lambda: next(clock))
+    with pytest.raises(RuntimeError, match='crash_psql_client_survived'):
+        tool._wait_no_psql_client(survivor)
+    with pytest.raises(RuntimeError, match='crash_container_process_listing_unknown'):
+        tool._psql_clients(SimpleNamespace(container='c', docker=lambda *a, **k: ''))

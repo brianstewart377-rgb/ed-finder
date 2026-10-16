@@ -266,3 +266,21 @@ def test_every_stopped_outcome_records_its_phase(tmp_path, monkeypatch, capsys,
     assert summary['stopped_phase'] == phase
     sealed = evidence.load_sealed(tmp_path / 'rehearsal-receipt.json')
     assert sealed.get('stopped_phase') == phase
+
+
+@pytest.mark.parametrize(('mode', 'plan', 'verification'), [
+    ('plan', False, False), ('status', False, True), ('authorize', True, False),
+    ('verify-system-archetype-empty', True, False), ('complete', True, True),
+    ('delete-system-search', True, True), ('rewrite-system-search', True, True),
+    ('abort-relation-system-search', True, True), ('restore-services', True, True),
+])
+def test_action_arguments_match_controller_admission(tmp_path, mode, plan, verification):
+    # The controller refuses plan arguments for status/plan, and verification
+    # arguments for authorize/verify (plan_/verification_arguments_not_admitted).
+    instance = harness.Harness('tiny', 'argv-test', tmp_path)
+    instance.plan = (tmp_path / 'plan.json', 'a' * 64)
+    instance.verification = (tmp_path / 'verify.json', 'b' * 64)
+    argv = instance.action_argv(mode)
+    assert ('--plan' in argv) is plan and ('--plan-sha256' in argv) is plan
+    assert ('--verification' in argv) is verification
+    assert ('--verification-sha256' in argv) is verification

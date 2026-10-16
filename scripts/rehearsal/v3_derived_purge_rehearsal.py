@@ -254,8 +254,13 @@ class Harness:
     def action_argv(self, mode):
         argv = ['bash', str(ROOT / 'scripts/operator/actions/v3-derived-generation-purge.sh'), mode,
                 '--rehearsal-container', self.container, '--rehearsal-token', self.token]
+        # Mirror the controller's admission exactly: status takes no plan and
+        # may take the verification; authorize/verify take only the plan.
+        phase = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))
+        admitted = {'plan': mode in ('authorize', 'verify-system-archetype-empty', 'complete') or phase,
+                    'verification': mode in ('status', 'complete') or phase}
         for flag, proof in (('plan', self.plan), ('verification', self.verification)):
-            if proof is not None and (flag == 'plan' or mode not in ('authorize', 'verify-system-archetype-empty')):
+            if proof is not None and admitted[flag]:
                 argv += ['--' + flag, str(proof[0]), '--' + flag + '-sha256', proof[1]]
         if mode.startswith(('delete-', 'rewrite-')):
             argv += ['--wall-clock-seconds', '1800']
