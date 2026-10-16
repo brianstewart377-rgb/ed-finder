@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sys
 from time import monotonic, sleep
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -660,6 +661,12 @@ def test_operator_plan_and_status_observation_sql_is_readonly_under_executor(dat
     assert int(ages['xid_next']) > 0
     assert {item['relation_code'] for item in ages['objects']} == set(RELATIONS)
     assert all(item['xid_limit'] > 0 and item['mxid_limit'] > 0 for item in ages['objects'])
+    # jsonb renders the oid type as text; the controller's own validator must
+    # accept the live PostgreSQL 18 shape, not only hand-built fixtures.
+    assert all(type(item['oid']) is int for item in ages['objects'])
+    validated = purge_operator.age_sample(SimpleNamespace(query=query))
+    assert {(item['relation_code'], item['scope']) for item in validated['objects']} == {
+        (item['relation_code'], item['scope']) for item in ages['objects']}
     wal = query(purge_operator.WAL_SQL)
     assert wal['lsn'] and wal['bytes'] is None
     assert isinstance(wal['archiver'], dict)

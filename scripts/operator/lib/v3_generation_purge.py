@@ -275,7 +275,7 @@ WITH heaps AS (SELECT oid,relname,reltoastrelid FROM pg_class
  SELECT relname,'toast',reltoastrelid FROM heaps WHERE reltoastrelid<>0)
 SELECT jsonb_build_object('xid_next',pg_snapshot_xmax(pg_current_snapshot())::text,
  'objects',(SELECT jsonb_agg(jsonb_build_object('relation_code',o.relation_code,'scope',o.scope,
- 'oid',c.oid,'relminmxid',c.relminmxid::text,'xid_age',age(c.relfrozenxid)::bigint,
+ 'oid',c.oid::bigint,'relminmxid',c.relminmxid::text,'xid_age',age(c.relfrozenxid)::bigint,
  'mxid_age',mxid_age(c.relminmxid)::bigint,
  'xid_limit',least(current_setting('autovacuum_freeze_max_age')::bigint,COALESCE(
  (SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name='autovacuum_freeze_max_age'),9223372036854775807)),
