@@ -110,6 +110,27 @@ def test_container_and_volume_have_token_and_workflow_cleanup_labels(tmp_path):
     assert '--hostname' in calls[1] and instance.container in calls[1]
 
 
+def test_readiness_waits_for_the_final_server_over_loopback_tcp(tmp_path):
+    # initdb's temporary server answers only on the Unix socket; probing over
+    # 127.0.0.1 cannot mistake it for the restarted final server.
+    instance = harness.Harness('tiny', 'ready-test', tmp_path)
+    probes = []
+    instance.docker = lambda *args, **kwargs: ''
+    instance.sql = lambda *args, **kwargs: None
+    def command(arguments, **kwargs):
+        probes.append(arguments)
+        return SimpleNamespace(returncode=0 if len(probes) > 2 else 2)
+    instance.command = command
+    harness.time.sleep, original = (lambda _seconds: None), harness.time.sleep
+    try:
+        instance.start()
+    finally:
+        harness.time.sleep = original
+    assert probes == [['docker', '--context', 'default', 'exec', instance.container,
+                       'pg_isready', '-h', '127.0.0.1', '-p', '5432',
+                       '-U', harness.USER, '-d', harness.DATABASE]] * 3
+
+
 def test_batch_growth_uses_boundaries_without_counting_accumulated_prior_wal():
     observations = [(1, 1000), (1, 900), (2, 850), (2, 800), (3, 750), (3, 700)]
     assert harness.batch_peak_growth(observations) == 150
@@ -214,3 +235,34 @@ def test_refused_action_records_its_own_identifier_failure_codes(tmp_path):
         instance.action('plan')
     assert instance.refused_action == {'mode': 'plan', 'report': '001-plan.json', 'failures': [
         'bounded_command_failed', 'purge_unresolved_AUTOVACUUM_DISABLED,purge_unresolved_WRITER_FENCE_ENABLED']}
+
+
+
+@pytest.mark.parametrize(('crash_passed', 'cleanup_fails', 'status', 'phase'), [
+    (True, False, 'success', None),
+    (False, False, 'stopped', 'crash_scenarios'),
+    (True, True, 'stopped', 'cleanup'),
+])
+def test_every_stopped_outcome_records_its_phase(tmp_path, monkeypatch, capsys,
+                                                 crash_passed, cleanup_fails, status, phase):
+    from scripts.rehearsal import v3_purge_crashes as crashes
+    for name in ('start', 'migrate', 'seed'):
+        monkeypatch.setattr(harness.Harness, name, lambda self: None)
+    monkeypatch.setattr(harness.Harness, 'sql', lambda self, *args, **kwargs: '{}')
+    monkeypatch.setattr(harness.Harness, 'journey', lambda self: {})
+    calls = []
+    def cleanup(self):
+        calls.append(1)
+        if cleanup_fails and len(calls) > 1:
+            raise RuntimeError('cleanup')
+    monkeypatch.setattr(harness.Harness, 'cleanup', cleanup)
+    monkeypatch.setattr(crashes, 'run_crashes', lambda *args: {
+        name: {'passed': crash_passed} for name in harness.CRASH_SCENARIOS})
+    monkeypatch.setattr(harness.figures, 'validate', lambda *args, **kwargs: None)
+    code = harness.main(['--scale', 'tiny', '--run-id', 'phase-test', '--output-dir', str(tmp_path)])
+    summary = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == (0 if status == 'success' else 1)
+    assert summary['status'] == status
+    assert summary['stopped_phase'] == phase
+    sealed = evidence.load_sealed(tmp_path / 'rehearsal-receipt.json')
+    assert sealed.get('stopped_phase') == phase

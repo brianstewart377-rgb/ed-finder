@@ -126,6 +126,7 @@ class Harness:
         self.proportion, self.counts = seeding_proportions(scale)
         self.plan = self.verification = None
         self.refused_action = None
+        self.phase = 'not_started'
         self.statements = []
         self.filesystem_receipts = []
         self.call_number = 0
@@ -180,8 +181,12 @@ class Harness:
                     '-c', 'max_wal_size=1GB', '-c', 'checkpoint_timeout=5min',
                     '-c', 'shared_buffers=256MB', '-c', 'maintenance_work_mem=256MB')
         deadline = time.monotonic() + 120
+        # The image's first-start initdb runs a temporary server that answers on
+        # the Unix socket only (listen_addresses=''), then restarts. Readiness
+        # over container loopback TCP is answered only by the final server.
         while self.command(['docker', '--context', 'default', 'exec', self.container,
-                            'pg_isready', '-U', USER, '-d', DATABASE], check=False).returncode:
+                            'pg_isready', '-h', '127.0.0.1', '-p', '5432',
+                            '-U', USER, '-d', DATABASE], check=False).returncode:
             if time.monotonic() > deadline:
                 raise RuntimeError('postgres_start_timeout')
             time.sleep(0.2)
@@ -450,9 +455,13 @@ def main(argv=None):
                           'autovacuum_budget_source': 'heap_plus_index_lower_bound',
                           'autovacuum_budget_caveat': 'equivalent-copy maintenance not measured; current whole relation heap+index bytes used as design lower bound'}
     try:
+        harness.phase = 'start'
         harness.start()
+        harness.phase = 'migrate'
         harness.migrate()
+        harness.phase = 'seed'
         harness.seed()
+        harness.phase = 'journey'
         receipt['settings'] = json.loads(harness.sql("SELECT json_object_agg(name,setting) FROM pg_settings WHERE name IN "
                          "('server_version','wal_level','archive_mode','archive_command','autovacuum','max_wal_size',"
                          "'checkpoint_timeout','shared_buffers','maintenance_work_mem','fsync','full_page_writes');"))
@@ -462,6 +471,7 @@ def main(argv=None):
         # fixtures. Each interruption gets a fresh database and its own cleanup.
         harness.cleanup()
         from scripts.rehearsal.v3_purge_crashes import run_crashes
+        harness.phase = 'crash_scenarios'
         receipt['crash_scenarios'] = run_crashes(Harness, args.scale, args.run_id, harness.output)
         receipt['gate_10_crash_rehearsal_passed'] = all(
             receipt['crash_scenarios'][name].get('passed') is True for name in CRASH_SCENARIOS)
@@ -475,6 +485,7 @@ def main(argv=None):
         receipt['failures'].append(code if re.fullmatch('[a-zA-Z0-9_]+', code) else 'rehearsal_failed')
         if harness.refused_action is not None:
             receipt['refused_action'] = harness.refused_action
+        receipt['stopped_phase'] = harness.phase
     finally:
         try:
             harness.cleanup()
@@ -482,12 +493,17 @@ def main(argv=None):
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
             receipt.update(status='stopped', cleanup_verified=False)
             receipt['failures'].append('cleanup_not_verified')
+            receipt.setdefault('stopped_phase', 'cleanup')
+        # Every stopped outcome names its stage, including a failed crash gate
+        # that returns normally rather than raising.
+        if receipt['status'] != 'success':
+            receipt.setdefault('stopped_phase', harness.phase)
         sealed = evidence.seal(receipt)
         (harness.output / 'rehearsal-receipt.json').write_text(evidence.canonical_json(sealed) + '\n')
         print(evidence.canonical_json({'status': receipt['status'], 'scale': args.scale,
               'content_sha256': sealed['content_sha256'], 'gate_10_crash_rehearsal_passed':
               receipt['gate_10_crash_rehearsal_passed'], 'failures': receipt['failures'],
-              'refused_action': receipt.get('refused_action')}))
+              'refused_action': receipt.get('refused_action'), 'stopped_phase': receipt.get('stopped_phase')}))
     return 0 if receipt['status'] == 'success' else 1
 
 
