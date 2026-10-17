@@ -40,6 +40,19 @@ governed purge of `ratings_v4_prod_p4`/`opt1` runs afterwards with its design
 and gates unchanged. A host disk upgrade waits for NVMe availability.
 `docs/ROADMAP.md`, `CLAUDE.md` and the capacity decision record carry the
 amendment. Documentation only; no production operation is included.
+## 2026-10-17 — Purge ledger state queries scale with batch history
+
+The 1% disposable purge rehearsal stopped with `purge_state_query_failed`
+during its third `delete-economy_opportunity` dispatch. Migration 016's
+`purge_open_event` anti-joined every opening ledger event against every
+closing event, so its cost grew with the square of the batch count, and the
+operator state query let the planner call it once per batch event. The
+never-applied 016 now resolves open events in one grouped last-closing pass
+with identical results (randomised PG18 equivalence test), and the state
+query materialises its scopes. Twenty thousand closed batches per relation
+and request now resolve in about 0.13 s instead of about 30 s. The migration
+checksum, manifest, target-authority migration-set identity and external
+schema-identity checksum are re-pinned. No production operation is included.
 
 ## 2026-10-16 — Disposable governed purge rehearsal (P2d)
 

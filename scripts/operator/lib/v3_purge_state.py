@@ -34,12 +34,12 @@ COMMIT;"""
 STATE_SQL = """BEGIN READ ONLY;
 SET LOCAL statement_timeout='10s';
 SET LOCAL lock_timeout='5s';
-WITH scopes AS (
+WITH scopes AS MATERIALIZED (
  SELECT DISTINCT purge_id,relation_code,event_kind
  FROM v3_meta.derived_generation_purge_event
  WHERE event_kind IN ('BATCH_STARTED','REWRITE_STARTED','SERVICES_QUIESCED',
                      'WRITER_FENCE_ENABLED','AUTOVACUUM_DISABLED')
-), resolved AS (
+), resolved AS MATERIALIZED (
  SELECT v3_meta.purge_open_event(purge_id,relation_code,event_kind,
   CASE event_kind
    WHEN 'BATCH_STARTED' THEN ARRAY['BATCH_COMMITTED','BATCH_ROLLED_BACK']

@@ -384,14 +384,26 @@ EXECUTE FUNCTION v3_meta.guard_purge_delete();
 CREATE FUNCTION v3_meta.purge_open_event(purge_ uuid, code_ text, opening_ text, closing_ text[])
 RETURNS v3_meta.derived_generation_purge_event
 LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+-- The latest opening event of this kind that no later closing event of the
+-- same request and relation resolves. "No closing event after e" is exactly
+-- "e is later than the last closing event", so one grouped pass replaces a
+-- per-event anti-join whose cost grew with the square of the batch count.
+WITH scope AS (
+ SELECT p.purge_id FROM v3_meta.derived_generation_purge_request p
+ WHERE p.plan_sha256=(SELECT plan_sha256 FROM v3_meta.derived_generation_purge_request WHERE purge_id=purge_)
+ AND (opening_<>'BATCH_STARTED' OR p.purge_id=purge_)
+), closed AS (
+ SELECT c.purge_id, max(c.event_sequence) AS last_closing
+ FROM v3_meta.derived_generation_purge_event c JOIN scope USING (purge_id)
+ WHERE c.relation_code IS NOT DISTINCT FROM code_ AND c.event_kind=ANY(closing_)
+ AND (opening_<>'WRITER_FENCE_ENABLED' OR c.operational_payload->'verified'='true'::jsonb)
+ GROUP BY c.purge_id
+)
 SELECT e FROM v3_meta.derived_generation_purge_event e
-JOIN v3_meta.derived_generation_purge_request p ON p.purge_id=e.purge_id
-WHERE p.plan_sha256=(SELECT plan_sha256 FROM v3_meta.derived_generation_purge_request WHERE purge_id=purge_)
-AND (opening_<>'BATCH_STARTED' OR e.purge_id=purge_) AND e.relation_code IS NOT DISTINCT FROM code_ AND e.event_kind=opening_
-AND NOT EXISTS (SELECT 1 FROM v3_meta.derived_generation_purge_event c
- WHERE c.purge_id=e.purge_id AND c.relation_code IS NOT DISTINCT FROM e.relation_code
- AND c.event_sequence>e.event_sequence AND c.event_kind=ANY(closing_)
- AND (opening_<>'WRITER_FENCE_ENABLED' OR c.operational_payload->'verified'='true'::jsonb))
+JOIN scope USING (purge_id)
+LEFT JOIN closed k USING (purge_id)
+WHERE e.relation_code IS NOT DISTINCT FROM code_ AND e.event_kind=opening_
+AND (k.last_closing IS NULL OR e.event_sequence>k.last_closing)
 ORDER BY e.event_sequence DESC LIMIT 1
 $$;
 CREATE FUNCTION v3_meta.purge_assert_phase(purge_ uuid, code_ text) RETURNS void
