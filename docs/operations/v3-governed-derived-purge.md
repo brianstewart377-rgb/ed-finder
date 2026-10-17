@@ -88,6 +88,7 @@ failure exits non-zero before starting pgBackRest. See the
 | `v3-spatial-status.sh` | Read-only | Inspects spatial state. |
 | `v3-derived-lifecycle-status.sh` | Read-only | Inspects pointers, workers and derived lifecycle. |
 | `v3-disk-inventory.sh` | Read-only | Inspects filesystem and relation inventory. |
+| `v3-host-storage-detail.sh` | Read-only | Inspects Docker storage and `/var/lib`, excluding production PGDATA from directory scans; no database access. |
 | All `status` modes above; migration `plan`/`authority-gate`; deployment `authority-gate`/`preflight` | Read-only operation | No production build, publication, DDL or service change. |
 
 The three probe/gate launchers above are deliberately fenced under the task's

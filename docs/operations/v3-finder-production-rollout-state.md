@@ -790,6 +790,59 @@ unqualified `filesystem_writes_performed: false` overclaimed. Any purge, index r
 relation rewrite, or other reclamation remains a separate reviewed design and
 operator action.
 
+## Host storage detail (read-only follow-up, 2026-10-17)
+
+The owner-provided `v3-disk-inventory` receipt from run `39018450185`
+(2026-10-17) identifies approximately 64.4 GB under `/var/lib` outside the
+production PostgreSQL volume
+`edfinder-v3-phase4c-full-20260827_r5-pgdata` (approximately 1,346 GB). The
+governed `v3-host-storage-detail` action inventories those host consumers before
+any cleanup decision. Its implementation base is current `origin/main` at
+`24d0c4d9127928b886d68f81da7eb200593ee9dc`, including PR #832. This records the
+existing receipt and implementation baseline; no follow-up production run has
+been dispatched by this change.
+
+Select `v3-host-storage-detail` in the existing protected operations workflow,
+`.github/workflows/chatgpt-ed-new-ops.yml`, using its established SSH and
+elevation boundary. The action checks host identity against
+`deploy/v3-production/target-authority.json`, uses isolated standard-library
+Python, has a hard wall-clock limit of 600 seconds, and performs no database
+access or cleanup. Host output is one JSON receipt on stdout; retained receipt
+files are written on the GitHub runner only.
+
+The receipt reports Docker system storage totals; every volume's labels,
+mountpoint, size and references from running or stopped containers; every
+image's size, creation time and container use; stopped containers; and root
+filesystem `df` before and after. The production PGDATA volume's size comes
+only from Docker's own figure: directory scans must never traverse it. The
+depth-two `/var/lib` scan reports its largest 40 entries and passes an exact
+`--exclude` for
+`/var/lib/docker/volumes/edfinder-v3-phase4c-full-20260827_r5-pgdata`.
+Before any `du`, Docker must confirm that the production volume mountpoint is
+the excluded directory's `_data` child; missing or relocated PGDATA stops the scans.
+The optional `/var/lib/pgbackrest` and `/var/lib/ed-finder` totals use the same
+exclusion. Docker human-readable figures are rounded; byte values converted
+from them retain that precision limitation.
+
+To keep `filesystem_writes_performed=false`, the action refuses storage scans
+unless directory access-time writes are suppressed (`noatime`, `nodiratime`,
+or a read-only mount) on the covering and nested `/var/lib` mounts, including
+the production volume queried by Docker. A refusal records
+`directory_atime_writes_not_suppressed`; it does not change mount options. A
+mount-table change during the observation also stops the receipt. Python runs
+with `-I -B` and its code is passed as an argument, avoiding both bytecode writes
+and Bash's possible spooling of a large here-document to a temporary host file.
+
+The full JSON is retained as `v3-host-storage-detail-receipt`. Operators who
+cannot download artifacts or read logs can inspect the workflow's GitHub
+annotations titled **Host storage detail**: these summarize Docker totals,
+volumes sorted by size with container references, image sizes and use, and the
+largest `/var/lib` entries. There are at most eight annotations, each below
+4,000 characters; annotation text escapes percent signs, carriage returns and
+newlines. Review receipt `status` and `failures` before interpreting the
+inventory. In-use references and reclaimable estimates describe observed
+storage; any cleanup still requires a separate reviewed action.
+
 ## Where else this pattern can bite (watch-list)
 
 - **Three distinct states — don't conflate them.** (1) *Committed*: a

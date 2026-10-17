@@ -22,6 +22,13 @@ def _step(name):
     return next(step for step in _workflow()['jobs']['execute']['steps'] if step.get('name') == name)
 
 
+@pytest.mark.parametrize("operation", ("v3-disk-inventory", "v3-host-storage-detail"))
+def test_host_storage_read_only_operations_have_closed_choice_and_independent_allowlist(operation):
+    options = _workflow()['on']['workflow_dispatch']['inputs']['operation']['options']
+    assert options.count(operation) == 1
+    assert f'\n            {operation}) ;;' in WORKFLOW.read_text()
+
+
 def test_ops_purge_choices_are_exactly_plan_and_status_with_independent_allowlist():
     workflow = _workflow()
     options = workflow['on']['workflow_dispatch']['inputs']['operation']['options']
