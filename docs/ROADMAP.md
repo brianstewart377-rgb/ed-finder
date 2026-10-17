@@ -493,7 +493,10 @@ newer dated source wins).
   on 2026-10-17 to build and publish the Finder first and run the governed
   purge (P) afterwards, at leisure; a host disk upgrade is deferred until NVMe
   capacity is available from the host. **The controlling path is now 4′ → 4″ →
-  2 → 3 → 5′ → 6′ → 7′ → 8′ → 9′ → 10–11, then P.** Nothing in the purge
+  2 → 3 → 5′ → 6′ → 7′ → 8′ → 9′ (go-live, including the F2d design's
+  post-publication verification), then P.** The old unprimed steps 10–11 are
+  not re-run: 5′ already revises the release gate and deploys before any
+  product exists, and 9′ publishes and verifies the live Finder. Nothing in the purge
   design is relaxed: the step 7′ combined capacity gate, taken from a fresh
   `df` immediately before the Search build, remains the fail-closed guard that
   the products fit, and every Finder build and publish action still refuses
@@ -502,7 +505,17 @@ newer dated source wins).
   correctness. When P runs after go-live, its plan must be re-taken against the
   then-current relation sizes: `system_search` and `system_archetype` will also
   hold the published Finder rows, so the `system_search` rewrite needs room for
-  those survivors.
+  those survivors. Two gates are therefore reopened before P may run after
+  go-live: (1) the rewrite peak must be re-measured with survivor Search rows —
+  the reviewed 1% rehearsal fixture holds none, and its `rewrite_peak_bytes`
+  is what admits `VACUUM FULL` — by a new disposable rehearsal (or a reviewed,
+  fail-closed bound) that includes a published Search survivor population, and
+  no rewrite dispatch may rely on a zero-survivor measurement; (2) the purge
+  design's per-relation outage answer lapses once the product has users, and
+  `VACUUM FULL` holds `ACCESS EXCLUSIVE` and blocks Finder reads for the
+  rewrite's duration, so the owner must answer the outage/maintenance-window
+  question again before any rewrite. Until both are recorded, P is not
+  runnable.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
   several backends are genuinely live (map, journal, watchlist just shipped). But
