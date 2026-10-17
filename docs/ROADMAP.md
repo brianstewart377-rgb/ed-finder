@@ -505,7 +505,7 @@ newer dated source wins).
   correctness. When P runs after go-live, its plan must be re-taken against the
   then-current relation sizes: `system_search` and `system_archetype` will also
   hold the published Finder rows, so the `system_search` rewrite needs room for
-  those survivors. Two gates are therefore reopened before P may run after
+  those survivors. Three gates are therefore reopened before P may run after
   go-live: (1) the rewrite peak must be re-measured with survivor Search rows —
   the reviewed 1% rehearsal fixture holds none, and its `rewrite_peak_bytes`
   is what admits `VACUUM FULL` — by a new disposable rehearsal (or a reviewed,
@@ -514,8 +514,10 @@ newer dated source wins).
   design's per-relation outage answer lapses once the product has users, and
   `VACUUM FULL` holds `ACCESS EXCLUSIVE` and blocks Finder reads for the
   rewrite's duration, so the owner must answer the outage/maintenance-window
-  question again before any rewrite. Until both are recorded, P is not
-  runnable.
+  question again before any rewrite; (3) the purge's `system_search` survivor
+  proof must verify the reviewed plan's frozen published Search count, unchanged,
+  instead of the pre-go-live zero count, confirmed in the implementation by a
+  reviewed change. Until all three are recorded, P is not runnable.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
   several backends are genuinely live (map, journal, watchlist just shipped). But
