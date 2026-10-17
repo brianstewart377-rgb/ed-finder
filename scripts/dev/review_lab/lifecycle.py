@@ -40,7 +40,7 @@ from .support_matrix import REVIEW_SUPPORT_ROUTE_MATRIX, validate_support_route_
 from .timeouts import TIMEOUTS
 
 API_DOCKERFILE = ROOT / 'apps' / 'api' / 'Dockerfile'
-ECR_PUBLIC_LIBRARY_PREFIX = 'public.ecr.aws/docker/library/'
+CI_IMAGE_MIRROR_PREFIX = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/'
 
 
 def validate_review_database_name(value: str) -> str:
@@ -171,7 +171,7 @@ def validate_compose_text(compose_text: str) -> None:
     postgres_block = extract_service_block(compose_text, 'review-postgres')
     redis_block = extract_service_block(compose_text, 'review-redis')
     api_block = extract_service_block(compose_text, 'review-api')
-    if 'image: public.ecr.aws/docker/library/postgres:18-alpine' not in postgres_block:
+    if 'image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine' not in postgres_block:
         raise ReviewLabError('review-postgres must use the V3 PostgreSQL 18 test service')
     # Parse port declarations so alternate YAML spellings/long form cannot
     # bypass the exact loopback-only host seed boundary. No ambient host DB.
@@ -289,9 +289,9 @@ def _review_api_base_image() -> str:
     )
     parts = from_line.split()
     image = parts[1] if len(parts) >= 2 else ''
-    if not image.startswith(ECR_PUBLIC_LIBRARY_PREFIX):
+    if not image.startswith(CI_IMAGE_MIRROR_PREFIX):
         raise ReviewLabError(
-            'review-api Dockerfile base image must use the ECR Public Docker Library mirror',
+            'review-api Dockerfile base image must use the CI image mirror',
             failure_code='STATIC_CONTAINMENT_FAILED',
         )
     return image

@@ -463,8 +463,8 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     with pytest.raises(contract.ReviewLabError, match='PostgreSQL 18'):
         lifecycle.validate_compose_text(
             compose.replace(
-                'image: public.ecr.aws/docker/library/postgres:18-alpine',
-                'image: public.ecr.aws/docker/library/postgres:16-alpine',
+                'image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine',
+                'image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:16-alpine',
             )
         )
     with pytest.raises(contract.ReviewLabError, match='disable external EDDN'):
@@ -558,8 +558,8 @@ def test_pull_review_images_runs_each_pull_sequentially_with_spacing(monkeypatch
         'docker', 'compose', '-f', str(contract.COMPOSE_FILE), '-p', contract.PROJECT_NAME,
         'pull', '--quiet',
     ]
-    postgres_image = 'public.ecr.aws/docker/library/postgres:18-alpine'
-    redis_image = 'public.ecr.aws/docker/library/redis:7-alpine'
+    postgres_image = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine'
+    redis_image = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine'
     assert events == [
         ('validate', base_image),
         ('command', ['docker', 'image', 'inspect', postgres_image], {
@@ -604,8 +604,8 @@ def test_pull_review_images_skips_all_cached_images(monkeypatch):
     result = lifecycle.pull_review_images()
 
     assert [command for command, _kwargs in commands] == [
-        ['docker', 'image', 'inspect', 'public.ecr.aws/docker/library/postgres:18-alpine'],
-        ['docker', 'image', 'inspect', 'public.ecr.aws/docker/library/redis:7-alpine'],
+        ['docker', 'image', 'inspect', 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine'],
+        ['docker', 'image', 'inspect', 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine'],
         ['docker', 'image', 'inspect', lifecycle._review_api_base_image()],
     ]
     assert not any('pull' in command for command, _kwargs in commands)
@@ -620,7 +620,7 @@ def test_pull_review_images_skips_all_cached_images(monkeypatch):
 def test_pull_review_images_pulls_only_the_missing_image(monkeypatch):
     commands = []
     sleeps = []
-    missing_image = 'public.ecr.aws/docker/library/redis:7-alpine'
+    missing_image = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine'
 
     def fake_run_subprocess(command, **kwargs):
         commands.append((command, kwargs))
@@ -934,7 +934,7 @@ def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     assert "sys.version_info[:2] == (3, 14)" in read('scripts/dev/review_lab/lifecycle.py')
     assert 'working-directory: apps/web' in workflow
     assert 'tests/test_review_lab_v3.py' in workflow
-    assert 'image: public.ecr.aws/docker/library/postgres:18-alpine' in compose
+    assert 'image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine' in compose
     assert 'EDDN_SIMULATION_INGEST_ENABLED: "false"' in compose
     for legacy in ('working-directory: frontend', 'resolve_project_state.py', 'git diff --check'):
         assert legacy not in workflow

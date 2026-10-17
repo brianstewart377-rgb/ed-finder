@@ -1,6 +1,6 @@
 services:
   review-postgres:
-    image: public.ecr.aws/docker/library/postgres:18-alpine
+    image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
     environment:
       POSTGRES_DB: edfinder_local_review
       POSTGRES_USER: review_user
@@ -21,7 +21,7 @@ services:
       - review
 
   review-redis:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

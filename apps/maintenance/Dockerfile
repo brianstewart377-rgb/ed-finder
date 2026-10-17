@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/python:3.14-alpine
+FROM ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-alpine
 
 # LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY.
 # The retained root Compose environment still uses PostgreSQL 16. Current V3

@@ -76,7 +76,7 @@ jobs:
           }
 
           release_python_base="$(grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}')"
-          pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine
+          pull_with_retry ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
           sleep 2
           pull_with_retry "${release_python_base}"
 
@@ -107,7 +107,7 @@ jobs:
             --env POSTGRES_USER=edfinder \
             --env POSTGRES_PASSWORD=edfinder \
             --env POSTGRES_DB=edfinder \
-            public.ecr.aws/docker/library/postgres:18-alpine
+            ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
           for attempt in $(seq 1 30); do
             if docker exec "${postgres_name}" pg_isready -U edfinder -d edfinder >/dev/null 2>&1; then
               break
