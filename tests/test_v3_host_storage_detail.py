@@ -105,7 +105,7 @@ elif name == "docker":
             mountpoint = "/srv/volume"
         if volume == "pgdata-alias":
             mountpoint = "/var/lib/docker/volumes/" + pg + "/_data"
-        fields(volume, {"com.docker.compose.project": "rehearsal"}, mountpoint)
+        fields(volume, {"com.docker.compose.project": "rehearsal", "backup.token": "SECRET-LABEL-VALUE"}, mountpoint)
     elif args[:2] == ["image", "ls"]:
         for tag, image_id, size in (("postgres", "used", "1GB"), ("rehearsal", "old", "2GB"), ("unused", "unused", "5GB")):
             output({"Repository": tag, "Tag": "18", "ID": "sha256:" + image_id, "Size": size, "CreatedAt": "2026-08-02 00:00:00 +0000 UTC"})
@@ -195,6 +195,9 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
     ]
     assert volumes["unused"]["in_use"] is False
     assert volumes["unused"]["labels"] == {"com.docker.compose.project": "rehearsal"}
+    assert volumes["unused"]["other_label_count"] == 1
+    assert "SECRET-LABEL-VALUE" not in json.dumps(receipt)
+    assert "backup.token" not in json.dumps(receipt)
     images = {i["id"]: i for i in receipt["images"]}
     assert images["sha256:old"]["in_use"] is True
     assert images["sha256:unused"]["in_use"] is False
@@ -230,7 +233,7 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
     ],
 )
 def test_collector_marks_partial_inventory_stopped(tmp_path, mode, failure):
-    status, receipt, _ = _run(tmp_path, mode)
+    status, receipt, calls = _run(tmp_path, mode)
     assert status == 1
     assert receipt["status"] == "stopped"
     assert failure in receipt["failures"]
@@ -241,6 +244,12 @@ def test_collector_marks_partial_inventory_stopped(tmp_path, mode, failure):
         )
         assert all(i["in_use"] is None for i in receipt["images"])
         assert all(not v["measured"] for v in receipt["volumes"])
+        # Unclassified volumes may belong to another PostgreSQL container:
+        # every /var/lib du must exclude them as well as PGDATA.
+        var_lib_du = [c for c in calls if c[0] == "du" and c[-1].startswith("/var/lib")]
+        assert var_lib_du
+        for volume in receipt["volumes"]:
+            assert all("--exclude=" + volume["mountpoint"] in c for c in var_lib_du)
     if mode == "volume-du-failure":
         volume = next(v for v in receipt["volumes"] if v["name"] == "unused")
         assert volume["size_bytes"] is None

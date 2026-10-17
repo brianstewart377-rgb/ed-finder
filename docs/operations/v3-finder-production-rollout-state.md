@@ -810,7 +810,10 @@ Python, has a hard wall-clock limit of 600 seconds, and performs no database
 access or cleanup. Host output is one JSON receipt on stdout; retained receipt
 files are written on the GitHub runner only.
 
-The receipt reports every Docker volume's labels, mountpoint and references
+The receipt reports every Docker volume's mountpoint, its non-secret identity
+labels (`com.docker.compose.project`, `com.docker.compose.volume`,
+`io.ed-finder.purge-rehearsal`; any other label is counted in
+`other_label_count` but its key and value are dropped) and references
 from running or stopped containers; every image's reported size, creation time
 and container use; stopped containers; and root filesystem `df` before and
 after. Image sizes come from `docker image ls --format '{{json .}}'`; those
@@ -819,7 +822,10 @@ precision limitation. Volumes come from `docker volume ls` and
 `docker volume inspect`. Volumes referenced by any container whose name ends
 in `-postgres`, and any volume at the excluded PGDATA mountpoint, are never
 measured: their entries record `size_bytes: null`, `measured: false` and
-`reason: postgres_data_volume_not_scanned`. Other volumes are measured with
+`reason: postgres_data_volume_not_scanned`. If container inventory fails, no
+volume can be classified: every volume is recorded as
+`container_inventory_unavailable`, left unmeasured, and excluded from the
+`/var/lib` scans like PGDATA. Other volumes are measured with
 `du -sx --block-size=1` on their mountpoints. The action never runs
 `docker system df`, which would traverse all local volumes, including PGDATA.
 The depth-two `/var/lib` scan covers overlay2 and buildkit, reports its largest

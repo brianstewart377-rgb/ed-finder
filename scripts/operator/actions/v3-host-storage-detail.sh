@@ -36,6 +36,13 @@ DEADLINE = STARTED + ACTION_BUDGET_SECONDS
 MAX_OUTPUT_BYTES = 32 * 1024 * 1024
 MOUNTINFO_PATH = "/proc/self/mountinfo"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
+# Only these non-secret identity labels keep their values. Every other label
+# is reduced to a count so labels never carry credentials into the receipt.
+VOLUME_LABEL_KEYS = (
+    "com.docker.compose.project",
+    "com.docker.compose.volume",
+    "io.ed-finder.purge-rehearsal",
+)
 receipt = {
     "schema_version": "ed-finder/operator-operation-result/v1",
     "operation": "v3-host-storage-detail",
@@ -186,10 +193,13 @@ def mount_guard():
 
 
 def excluded_paths():
+    # A volume whose users are unknown may belong to another PostgreSQL
+    # container, so the /var/lib scan must skip it as well.
     return {PGDATA_PATH} | {
         v["mountpoint"]
         for v in receipt.get("volumes", [])
-        if v.get("reason") == "postgres_data_volume_not_scanned"
+        if v.get("reason")
+        in ("postgres_data_volume_not_scanned", "container_inventory_unavailable")
     }
 
 
@@ -335,7 +345,12 @@ def volume_inventory(containers):
         result.append(
             {
                 "name": actual,
-                "labels": labels or {},
+                "labels": {
+                    k: v for k, v in (labels or {}).items() if k in VOLUME_LABEL_KEYS
+                },
+                "other_label_count": len(
+                    [k for k in (labels or {}) if k not in VOLUME_LABEL_KEYS]
+                ),
                 "mountpoint": mountpoint,
                 "size_bytes": None,
                 "measured": False,
