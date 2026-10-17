@@ -30,7 +30,7 @@ from scripts.operator.lib import v3_generation_purge as controller  # noqa: E402
 from scripts.operator.lib import v3_purge_rehearsal_receipt as figures  # noqa: E402
 from scripts.rehearsal import v3_derived_purge_seed as seed  # noqa: E402
 
-IMAGE = ('public.ecr.aws/docker/library/postgres:18-alpine@sha256:'
+IMAGE = ('ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine@sha256:'
          '77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873')
 DATABASE = 'edfinder_purge_rehearsal'
 USER = 'edfinder_v3'

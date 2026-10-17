@@ -1,7 +1,7 @@
 name: CI base-image mirror
 
 # Copies the public base images that CI, Review Lab and the image builds use
-# from public.ecr.aws, whose anonymous pulls hit a shared per-IP data limit,
+# from the listed upstream, whose anonymous pulls hit a shared per-IP data limit,
 # into this repository's GitHub Container Registry. Manifests are copied with
 # every platform and their digests preserved, so a digest-pinned reference
 # resolves to the same bytes from either registry. This workflow only writes
@@ -59,19 +59,20 @@ jobs:
               ghcr.io/brianstewart377-rgb/ed-finder/mirror/*) ;;
               *) echo "::error title=Image mirror::destination outside the mirror namespace: $destination"; exit 1 ;;
             esac
-            # The listed source is the Docker official image on public.ecr.aws,
+            # The listed source is the upstream Docker official image,
             # whose anonymous pulls share a per-IP data limit with every other
             # GitHub runner. Google's Docker Hub mirror and Docker Hub serve the
             # same official images with the same digests, so try them in turn.
             # Worst case 12 entries x 3 candidates x 300 s = 180 minutes, inside
             # the 240-minute job limit with room for setup and verification.
-            reference="${source#public.ecr.aws/docker/library/}"
+            source_prefix="${source%/*}/"
+            reference="${source##*/}"
             # skopeo rejects name:tag@digest, so a pinned source is fetched as
             # name@digest; the digest alone identifies the exact manifest.
             if [[ "$reference" == *@sha256:* ]]; then
               reference="${reference%%:*}@${reference##*@}"
             fi
-            listed="public.ecr.aws/docker/library/$reference"
+            listed="$source_prefix$reference"
             copied_from=""
             last_error=""
             for candidate in "mirror.gcr.io/library/$reference" "$listed" "docker.io/library/$reference"; do

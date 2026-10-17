@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/python:3.14-slim
+FROM ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-slim
 
 WORKDIR /app
 

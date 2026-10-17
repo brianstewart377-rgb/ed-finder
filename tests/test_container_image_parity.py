@@ -19,7 +19,7 @@ _BARE_LIBRARY_IMAGE = re.compile(
 _BARE_LIBRARY_IMAGE_NAME = re.compile(
     r'(?:postgres|redis|nginx)(?:(?::|@).+)?'
 )
-_DOCKER_LIBRARY_MIRROR = 'public.ecr.aws/docker/library/'
+CI_IMAGE_MIRROR_PREFIX = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/'
 _DOCKER_RUN_FLAGS_WITHOUT_VALUES = frozenset({
     '--detach',
     '--disable-content-trust',
@@ -87,7 +87,7 @@ def test_required_parity_check_runs_for_every_pull_request():
     assert 'paths:' in push_block
 
 
-def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
+def test_ci_mirror_base_images_are_prepulled_sequentially_with_retry():
     workflow = _read('.github', 'workflows', 'container-image-parity.yml')
     release_job = workflow.split('  release-api-python314:', 1)[1].split('\n  parity:', 1)[0]
     parity_job = workflow.split('\n  parity:', 1)[1]
@@ -111,7 +111,7 @@ def test_ecr_public_base_images_are_prepulled_sequentially_with_retry():
         assert 'sleep 2' in step
 
     assert "grep -m1 '^FROM ' apps/api/Dockerfile.release | awk '{print $2}'" in workflow
-    assert 'pull_with_retry public.ecr.aws/docker/library/postgres:18-alpine' in workflow
+    assert 'pull_with_retry ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine' in workflow
     parity_step = workflow.split(
         '      - name: Pre-pull parity base images with retry', 1
     )[1].split('\n      - ', 1)[0]
@@ -155,7 +155,7 @@ def test_ci_and_review_lab_do_not_use_bare_docker_hub_library_images():
                 violations.append(f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}')
             if path in dockerfiles and line.lstrip().startswith('FROM '):
                 image = line.split(maxsplit=2)[1]
-                if not image.startswith(_DOCKER_LIBRARY_MIRROR):
+                if not image.startswith(CI_IMAGE_MIRROR_PREFIX):
                     violations.append(
                         f'{path.relative_to(ROOT)}:{line_number}: {line.strip()}'
                     )
@@ -249,7 +249,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
-    assert 'FROM public.ecr.aws/docker/library/python:3.14-alpine' in maintenance_dockerfile
+    assert 'FROM ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-alpine' in maintenance_dockerfile
     assert "'psycopg[binary]==3.3.4'" in maintenance_dockerfile
     assert 'postgresql-client rclone curl' in maintenance_dockerfile
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
@@ -264,7 +264,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'apps/api/Dockerfile.release' in workflow
     assert 'Release API CPython 3.14 build and startup' in workflow
     assert "sys.version_info[:2] == (3, 14)" in workflow
-    assert 'public.ecr.aws/docker/library/postgres:18-alpine' in workflow
+    assert 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine' in workflow
     assert 'DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder' in workflow
     assert 'EDDN_SIMULATION_INGEST_ENABLED=false' in workflow
     assert 'http://127.0.0.1:18000/api/health' in workflow
@@ -280,7 +280,8 @@ def test_local_and_release_api_images_use_the_frozen_python314_runtime():
 
     for dockerfile in (local, release):
         assert (
-            'FROM public.ecr.aws/docker/library/python:3.14-slim@sha256:'
+            'FROM ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-slim@sha256:'
+            'cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6'
             in dockerfile
         )
         assert 'uv==0.11.33' in dockerfile

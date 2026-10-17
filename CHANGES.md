@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-17 — Switch base-image pulls to the populated GHCR mirror
+
+CI services, Docker builds, Review Lab and the disposable purge rehearsal now
+pull base images from `ghcr.io/brianstewart377-rgb/ed-finder/mirror/` to avoid
+anonymous upstream data limits. Tags and all digest pins are unchanged,
+including the production API and web base images. The mirror's upstream source
+list remains `.github/ci-image-mirror.txt`; contract tests reject executable
+upstream references and unlisted mirror tags or digests. Current pull guidance
+and image assertions follow the mirror. No production operation is included.
+
 ## 2026-10-17 — CI base-image mirror on ghcr.io
 
 Anonymous pulls from `public.ecr.aws` now regularly fail CI with
