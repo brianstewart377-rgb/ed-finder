@@ -193,8 +193,9 @@ newer dated source wins).
   both Finder products to the already-published
   `ratings_v4_prod_p4_parallel_v1` behind an explicit product-publication gate
   (new migration `015`), defer any purge, and accept the new ranking identity.
-  **The purge deferral was superseded on 2026-10-11** (amendment below); A + B
-  stand. The replacement for steps 4–9 is therefore — and **4′ and 4″ come
+  **The purge deferral was superseded on 2026-10-11 and restored on
+  2026-10-17** (amendments below: the Finder goes live first and P follows);
+  A + B stand. The replacement for steps 4–9 is therefore — and **4′ and 4″ come
   before step 2**, because the governed migration runner applies *every* pending
   entry: running step 2 today would apply the current eight-row `011`, record
   its hash in the production ledger and make the rewrite impossible without a
@@ -284,8 +285,9 @@ newer dated source wins).
      `economy_opportunity`, `body_mechanics`, `system_rating_vector`, each a
      separate reviewed dispatch with before/after evidence. Finished only on a
      reviewed completion receipt.
-  3. The step 3 constraint validation, after P has physically reclaimed the old
-     `opt1` Search payload and before 5′.
+  3. The step 3 constraint validation, before 5′. (Since the 2026-10-17
+     amendment it no longer waits for P, so it also scans the retained `opt1`
+     Search payload.)
   5′. **Deploy the release before any product reaches READY.** Revise the
      application-release gate to require the applied migration set and its exact
      ledger hashes, the new ranking identity, the bounded ranking route and the
@@ -416,9 +418,10 @@ newer dated source wins).
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.
-  Step 3 runs after P and before 5′, so its full-table scan covers neither the
-  reclaimed `opt1` rows nor the new product's; the `NOT VALID` checks still
-  enforce every subsequent builder insert automatically. The step 3 action `v3-system-search-validate-constraints` is
+  Step 3 runs before 5′. Since the 2026-10-17 amendment it no longer waits for
+  P, so its full-table scan also covers the retained `opt1` rows (time, not
+  correctness) but not the new product's; the `NOT VALID` checks still enforce
+  every subsequent builder insert automatically. The step 3 action `v3-system-search-validate-constraints` is
   merged (#799) and may only start once migration `010` is applied.
   For step 6, the read-only action `v3-archetype-calibration-probe` is merged
   (#800); the probe reads the already-published `parallel_v1` ratings vectors and
@@ -446,8 +449,9 @@ newer dated source wins).
 
   The insert-only `DELETE`/`TRUNCATE` triggers in
   `006_v3_derived_product_lifecycle.sql` remain in force today; the governed purge
-  path that 4″ adds is the only sanctioned way through them, and it is a
-  prerequisite of this rollout by the owner's 2026-10-11 decision below.
+  path that 4″ adds is the only sanctioned way through them. The owner's
+  2026-10-11 decision below made it a prerequisite of this rollout; the
+  2026-10-17 amendment below moves it after go-live.
 
   **Capacity decision amendment (owner, 2026-10-11) — governed purge selected.**
   The 2026-10-10 instruction to defer purge is superseded; decisions A and B
@@ -473,6 +477,47 @@ newer dated source wins).
   [governed derived-generation purge design](development/v3-governed-derived-purge-design.md).
   The [dated production evidence and tooling status](operations/v3-finder-production-rollout-state.md)
   supports this sequence; it does not supersede the roadmap.
+
+  **Capacity decision amendment (owner, 2026-10-17) — Finder first, purge
+  after go-live.** The 2026-10-11 pre-build purge ordering is superseded; A + B
+  and the purge's scope, design and execution gates stand unchanged. The
+  disposable 1% purge rehearsal (run 39024371827) stopped on a ledger
+  state-query timeout that grew with the batch count, caused by migration
+  `016`'s open-event resolver. **Step 2 stays blocked until the reviewed `016`
+  resolver fix (PR #835) has merged**, because the runner applies every pending
+  entry and would otherwise record the quadratic resolver in the production
+  ledger, after which only a corrective migration could change it. The
+  full-scale purge duration is still unmeasured, while the 2026-10-10 record already shows the Finder fits without
+  it (87 GB Search + ≈ 76 GB archetype from 292 GB free, ≈ 129 GB headroom,
+  before the separately approved host clean-up of ≈ 142 GB). The owner chose
+  on 2026-10-17 to build and publish the Finder first and run the governed
+  purge (P) afterwards, at leisure; a host disk upgrade is deferred until NVMe
+  capacity is available from the host. **The controlling path is now 4′ → 4″ →
+  2 → 3 → 5′ → 6′ → 7′ → 8′ → 9′ (go-live, including the F2d design's
+  post-publication verification), then P.** The old unprimed steps 10–11 are
+  not re-run: 5′ already revises the release gate and deploys before any
+  product exists, and 9′ publishes and verifies the live Finder. Nothing in the purge
+  design is relaxed: the step 7′ combined capacity gate, taken from a fresh
+  `df` immediately before the Search build, remains the fail-closed guard that
+  the products fit, and every Finder build and publish action still refuses
+  while any purge event is unresolved. Step 3's constraint validation now
+  scans the retained `opt1` Search rows as well, which costs time, not
+  correctness. When P runs after go-live, its plan must be re-taken against the
+  then-current relation sizes: `system_search` and `system_archetype` will also
+  hold the published Finder rows, so the `system_search` rewrite needs room for
+  those survivors. Three gates are therefore reopened before P may run after
+  go-live: (1) the rewrite peak must be re-measured with survivor Search rows —
+  the reviewed 1% rehearsal fixture holds none, and its `rewrite_peak_bytes`
+  is what admits `VACUUM FULL` — by a new disposable rehearsal (or a reviewed,
+  fail-closed bound) that includes a published Search survivor population, and
+  no rewrite dispatch may rely on a zero-survivor measurement; (2) the purge
+  design's per-relation outage answer lapses once the product has users, and
+  `VACUUM FULL` holds `ACCESS EXCLUSIVE` and blocks Finder reads for the
+  rewrite's duration, so the owner must answer the outage/maintenance-window
+  question again before any rewrite; (3) the purge's `system_search` survivor
+  proof must verify the reviewed plan's frozen published Search count, unchanged,
+  instead of the pre-go-live zero count, confirmed in the implementation by a
+  reviewed change. Until all three are recorded, P is not runnable.
 - **The gap to the product is UI — but gated on F2c/F3 first.** A V2→V3 parity
   inventory (2026-09-26) shows the remaining V2 features are mostly **UI**, and
   several backends are genuinely live (map, journal, watchlist just shipped). But
