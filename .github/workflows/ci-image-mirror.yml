@@ -66,9 +66,15 @@ jobs:
             # Worst case 12 entries x 3 candidates x 300 s = 180 minutes, inside
             # the 240-minute job limit with room for setup and verification.
             reference="${source#public.ecr.aws/docker/library/}"
+            # skopeo rejects name:tag@digest, so a pinned source is fetched as
+            # name@digest; the digest alone identifies the exact manifest.
+            if [[ "$reference" == *@sha256:* ]]; then
+              reference="${reference%%:*}@${reference##*@}"
+            fi
+            listed="public.ecr.aws/docker/library/$reference"
             copied_from=""
             last_error=""
-            for candidate in "mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"; do
+            for candidate in "mirror.gcr.io/library/$reference" "$listed" "docker.io/library/$reference"; do
               if error=$(timeout 300 skopeo copy --all --preserve-digests --retry-times 2 \
                   "docker://$candidate" "docker://$destination" 2>&1 >/dev/null); then
                 copied_from="$candidate"
