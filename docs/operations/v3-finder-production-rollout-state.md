@@ -790,6 +790,88 @@ unqualified `filesystem_writes_performed: false` overclaimed. Any purge, index r
 relation rewrite, or other reclamation remains a separate reviewed design and
 operator action.
 
+## Host storage detail (read-only follow-up, 2026-10-17)
+
+The owner-provided `v3-disk-inventory` receipt from run `39018450185`
+(2026-10-17) identifies approximately 64.4 GB under `/var/lib` outside the
+production PostgreSQL volume
+`edfinder-v3-phase4c-full-20260827_r5-pgdata` (approximately 1,346 GB). The
+governed `v3-host-storage-detail` action inventories those host consumers before
+any cleanup decision. Its implementation base is current `origin/main` at
+`24d0c4d9127928b886d68f81da7eb200593ee9dc`, including PR #832. This records the
+existing receipt and implementation baseline; no follow-up production run has
+been dispatched by this change.
+
+Select `v3-host-storage-detail` in the existing protected operations workflow,
+`.github/workflows/chatgpt-ed-new-ops.yml`, using its established SSH and
+elevation boundary. The action checks host identity against
+`deploy/v3-production/target-authority.json`, uses isolated standard-library
+Python, has a hard wall-clock limit of 600 seconds, and performs no database
+access or cleanup. Host output is one JSON receipt on stdout; retained receipt
+files are written on the GitHub runner only.
+
+The receipt reports every Docker volume's mountpoint, its non-secret identity
+labels (`com.docker.compose.project`, `com.docker.compose.volume`,
+`io.ed-finder.purge-rehearsal`; any other label is counted in
+`other_label_count` but its key and value are dropped) and references
+from running or stopped containers; every image's reported size, creation time
+and container use; stopped containers; and root filesystem `df` before and
+after. Image sizes come from `docker image ls --format '{{json .}}'`; those
+human-readable figures are rounded, and converted byte values retain that
+precision limitation. Volumes come from `docker volume ls` and
+`docker volume inspect`. Volumes referenced by any container whose name or image contains
+`postgres`, `postgis` or `timescale` (so Compose names such as
+`octopus-postgres-1` count), and any volume at the excluded PGDATA mountpoint,
+are never measured: their entries record `size_bytes: null`, `measured: false` and
+`reason: postgres_data_volume_not_scanned`. If container inventory fails, no
+volume can be classified: every volume is recorded as
+`container_inventory_unavailable`, left unmeasured, and excluded from the
+`/var/lib` scans like PGDATA. Other volumes are measured with
+`du -sx --block-size=1` on their mountpoints. The action never runs
+`docker system df`, which would traverse all local volumes, including PGDATA.
+The depth-two `/var/lib` scan covers overlay2 and buildkit, reports its largest
+40 entries and passes an exact
+`--exclude` for
+`/var/lib/docker/volumes/edfinder-v3-phase4c-full-20260827_r5-pgdata`.
+Before any `du`, Docker must confirm that the production volume mountpoint is
+the excluded directory's `_data` child; missing or relocated PGDATA stops the scans.
+The optional `/var/lib/pgbackrest` and `/var/lib/ed-finder` totals use the same
+exclusion.
+
+The action records `content_writes_performed=false`. Scans run under the
+production root mount's `rw,relatime` policy, so directory access times may be
+updated by the kernel. `directory_atime_metadata_writes_possible` is true when
+any scanned path's mount lacks `noatime`, `nodiratime` or `ro`;
+`directory_atime_guard.atime_updating_mounts` identifies those mounts. The
+action does not change mount options or write file content.
+
+Before any `du` under `/var/lib`, the action parses `/proc/self/mountinfo` and
+octal-unescapes its fields. `du -x` already skips mounts of other devices
+(the overlay mounts of running containers, their `shm` tmpfs, a separate disk),
+so only mounts of the device that holds `/var/lib` matter. On that device the
+action refuses the scan if any mountpoint lies strictly under `/var/lib`,
+except an excluded PGDATA mount, or if any entry's mount root is the
+`/var/lib` directory or below it (a bind source exposed elsewhere). Mount roots
+are resolved relative to the filesystem holding `/var/lib`, which matters if
+`/var/lib` is a separate filesystem. Directory atime claims are likewise
+limited to mounts on the scanned device. The receipt records `var_lib_scan_refused:
+nested_mount` and the offending mountpoints; other read-only sections continue.
+A mount-table change during the observation also stops the receipt. Python runs
+with `-I -S -B` (no `site` import, so no `.pth` or `sitecustomize` code runs as
+root) and its code is passed as an argument, avoiding both bytecode writes
+and Bash's possible spooling of a large here-document to a temporary host file.
+
+The full JSON is retained as `v3-host-storage-detail-receipt`. Operators who
+cannot download artifacts or read logs can inspect the workflow's GitHub
+annotations titled **Host storage detail**: these summarize content and atime
+write claims, scan refusal, volumes sorted by measured size with container
+references and unmeasured reasons, image sizes and use, and the
+largest `/var/lib` entries. There are at most eight annotations, each below
+4,000 characters; annotation text escapes percent signs, carriage returns and
+newlines. Review receipt `status` and `failures` before interpreting the
+inventory. In-use references describe observed storage; any cleanup still
+requires a separate reviewed action.
+
 ## Where else this pattern can bite (watch-list)
 
 - **Three distinct states — don't conflate them.** (1) *Committed*: a
