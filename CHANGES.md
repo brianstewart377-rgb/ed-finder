@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-17 — CI base-image mirror on ghcr.io
+
+Anonymous pulls from `public.ecr.aws` now regularly fail CI with
+`toomanyrequests: Data limit exceeded`. A new `CI base-image mirror` workflow
+(manual and weekly) copies the listed base images (`.github/ci-image-mirror.txt`)
+into `ghcr.io/brianstewart377-rgb/ed-finder/mirror/*` with every platform and
+their manifest digests preserved and verified, then checks the packages pull
+anonymously. A contract test keeps every executable `public.ecr.aws` reference
+on the mirror list. Switching CI, Review Lab and image builds to the mirror is
+a follow-up once the mirror is populated. No production operation is included.
 ## 2026-10-17 — Purge ledger state queries scale with batch history
 
 The 1% disposable purge rehearsal stopped with `purge_state_query_failed`

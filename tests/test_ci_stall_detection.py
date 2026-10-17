@@ -40,6 +40,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 CHECKED_WORKFLOWS = (
     'chatgpt-ed-new-ops.yml',
     'checkpoint-workflow-validation.yml',
+    'ci-image-mirror.yml',
     'ci.yml',
     'codeql.yml',
     'codex-dispatch.yml',
