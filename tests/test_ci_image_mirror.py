@@ -74,6 +74,9 @@ def test_mirror_workflow_is_bounded_and_preserves_digests():
     assert job['permissions'] == {'contents': 'read', 'packages': 'write'}
     text = WORKFLOW.read_text()
     assert '--all --preserve-digests' in text
+    # Fallback sources serve the same official images; pins are still verified.
+    assert '"mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"' in text
+    assert '[ "$pinned" != "$destination_digest" ]' in text
     assert '--password-stdin' in text and '--password ' not in text
     assert 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/*' in text
     for step in job['steps']:
@@ -87,3 +90,12 @@ def test_scan_joins_adjacent_python_literals():
             "         '" + '7' * 64 + "')\n")
     joined = ADJACENT_LITERALS.sub('', text)
     assert SOURCE.findall(joined) == ['public.ecr.aws/docker/library/postgres:18-alpine@sha256:' + '7' * 64]
+
+
+def test_fallback_deadlines_fit_inside_the_job_timeout():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    job_minutes = workflow['jobs']['mirror']['timeout-minutes']
+    per_candidate = int(re.search(r'timeout (\d+) skopeo copy', WORKFLOW.read_text()).group(1))
+    worst_case_minutes = len(mirror_entries()) * 3 * per_candidate / 60
+    # Leave at least 30 minutes for setup, verification and the anonymous check.
+    assert worst_case_minutes + 30 <= job_minutes, (worst_case_minutes, job_minutes)
