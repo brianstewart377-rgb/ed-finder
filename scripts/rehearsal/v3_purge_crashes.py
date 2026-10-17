@@ -137,6 +137,22 @@ def _wait(probe, process, *, reason):
     raise RuntimeError(reason)
 
 
+def _psql_clients(harness):
+    # docker top requires a PID column; the command follows it.
+    listing = harness.docker('top', harness.container, '-eo', 'pid,args').splitlines()
+    if not listing or listing[0].split()[:2] != ['PID', 'COMMAND']:
+        raise RuntimeError('crash_container_process_listing_unknown')
+    return [line for line in listing[1:] if len(line.split()) > 1 and Path(line.split()[1]).name == 'psql']
+
+
+def _wait_no_psql_client(harness):
+    deadline = time.monotonic() + 30
+    while _psql_clients(harness):
+        if time.monotonic() >= deadline:
+            raise RuntimeError('crash_psql_client_survived')
+        time.sleep(POLL_SECONDS)
+
+
 def _kill(process):
     if process.poll() is None:
         os.killpg(process.pid, signal.SIGKILL)
@@ -207,7 +223,11 @@ def _interrupt(harness, scenario, process, marker):
         # interruption. Before COMMIT its live psql client is then killed too.
         _kill(process)
         if scenario.startswith('batch_client_') or scenario == 'wrapper_after_rewrite_commit':
-            harness.docker('exec', harness.container, 'killall', '-KILL', 'psql')
+            # A busy psql (mid-batch) must be killed; an idle one (after the
+            # rewrite committed) exits by itself once its exec client dies, so
+            # killall may find nothing. The requirement is that none remains.
+            harness.docker('exec', harness.container, 'killall', '-KILL', 'psql', check=False)
+            _wait_no_psql_client(harness)
         if scenario == 'rewrite_verified_transaction_failure':
             return {'observed_fault_point': scenario, 'verification_transaction_rolled_back': True,
                     'verification_event_sequence_attempted': observed['verification_event_sequence'],
