@@ -82,9 +82,9 @@ def run(argv, *, closing=False):
     buffers = {"stdout": bytearray(), "stderr": bytearray()}
     proc = None
     try:
-        proc = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
-        )
+        # Stay in the process group of the outer timeout wrapper, so killing
+        # the collector at its deadline also kills a running du or docker.
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         with selectors.DefaultSelector() as selector:
             selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
             selector.register(proc.stderr, selectors.EVENT_READ, "stderr")
@@ -109,11 +109,9 @@ def run(argv, *, closing=False):
         raise RuntimeError("command_unavailable_or_timed_out:" + argv[0]) from exc
     finally:
         if proc is not None:
-            # Also stop descendants if a timeout/output cap interrupted the command.
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            # Stop the command if a timeout or output cap interrupted it.
+            if proc.poll() is None:
+                proc.kill()
             proc.wait()
             proc.stdout.close()
             proc.stderr.close()
@@ -311,6 +309,18 @@ def container_inventory():
     return result
 
 
+DATABASE_MARKERS = ("postgres", "postgis", "timescale")
+
+
+def database_container(container):
+    # Over-match on purpose: a false match only leaves a volume unmeasured.
+    # Compose names such as octopus-postgres-1 and any postgres image count.
+    text = (
+        str(container.get("name", "")) + " " + str(container.get("image", ""))
+    ).lower()
+    return any(marker in text for marker in DATABASE_MARKERS)
+
+
 def volume_inventory(containers):
     names = run(DOCKER + ["volume", "ls", "--quiet"]).splitlines()
     result = []
@@ -326,7 +336,7 @@ def volume_inventory(containers):
         ]
         users = (
             [
-                {"name": c["name"], "state": c["state"]}
+                {"name": c["name"], "state": c["state"], "database": database_container(c)}
                 for c in containers
                 if any(
                     m.get("Type") == "volume" and m.get("Name") == actual
@@ -340,7 +350,7 @@ def volume_inventory(containers):
             actual == PGDATA_VOLUME
             or mountpoint == PGDATA_PATH
             or below(mountpoint, PGDATA_PATH)
-            or any(u["name"].endswith("-postgres") for u in (users or []))
+            or any(u["database"] for u in (users or []))
         )
         result.append(
             {

@@ -819,9 +819,10 @@ and container use; stopped containers; and root filesystem `df` before and
 after. Image sizes come from `docker image ls --format '{{json .}}'`; those
 human-readable figures are rounded, and converted byte values retain that
 precision limitation. Volumes come from `docker volume ls` and
-`docker volume inspect`. Volumes referenced by any container whose name ends
-in `-postgres`, and any volume at the excluded PGDATA mountpoint, are never
-measured: their entries record `size_bytes: null`, `measured: false` and
+`docker volume inspect`. Volumes referenced by any container whose name or image contains
+`postgres`, `postgis` or `timescale` (so Compose names such as
+`octopus-postgres-1` count), and any volume at the excluded PGDATA mountpoint,
+are never measured: their entries record `size_bytes: null`, `measured: false` and
 `reason: postgres_data_volume_not_scanned`. If container inventory fails, no
 volume can be classified: every volume is recorded as
 `container_inventory_unavailable`, left unmeasured, and excluded from the

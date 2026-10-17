@@ -88,8 +88,9 @@ elif name == "docker":
                 mounts.append({"Type": "volume", "Name": "extra-postgres-data"})
             fields("/production-postgres", "sha256:used", "postgres:18", "2026-08-27T00:00:00Z", "running", True, mounts)
         else:
-            container = "/rehearsal-postgres" if mode == "extra-stopped-postgres" else "/rehearsal"
-            fields(container, "sha256:old", "rehearsal:august", "2026-08-02T00:00:00Z", "exited", False, [{"Type": "volume", "Name": "old-rehearsal"}])
+            container = {"extra-stopped-postgres": "/rehearsal-postgres", "compose-suffixed-postgres": "/octopus-postgres-1"}.get(mode, "/rehearsal")
+            image = "postgres:17-alpine" if mode == "postgres-image" else "rehearsal:august"
+            fields(container, "sha256:old", image, "2026-08-02T00:00:00Z", "exited", False, [{"Type": "volume", "Name": "old-rehearsal"}])
     elif args[:2] == ["volume", "ls"]:
         print(pg + "\\nold-rehearsal\\nunused")
         if mode == "extra-running-postgres":
@@ -191,7 +192,7 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
         assert volumes[name]["size_source"] == "du_allocated_bytes"
     assert volumes["old-rehearsal"]["in_use"] is True
     assert volumes["old-rehearsal"]["containers"] == [
-        {"name": "rehearsal", "state": "exited"}
+        {"name": "rehearsal", "state": "exited", "database": False}
     ]
     assert volumes["unused"]["in_use"] is False
     assert volumes["unused"]["labels"] == {"com.docker.compose.project": "rehearsal"}
@@ -478,6 +479,10 @@ def test_invalid_mountinfo_fails_closed_before_du(tmp_path, mountinfo):
     [
         ("extra-running-postgres", "extra-postgres-data"),
         ("extra-stopped-postgres", "old-rehearsal"),
+        # Compose-suffixed names (the production Octopus database) and any
+        # postgres image identify a database even without a -postgres suffix.
+        ("compose-suffixed-postgres", "old-rehearsal"),
+        ("postgres-image", "old-rehearsal"),
         ("pgdata-alias", "pgdata-alias"),
     ],
 )
@@ -544,3 +549,11 @@ def test_separate_var_lib_filesystem_resolves_bind_sources_relative_to_it(
     else:
         assert status == 0
         assert "var_lib_scan_refused" not in receipt
+
+
+def test_commands_stay_in_the_outer_timeout_process_group():
+    # A new session would let du outlive the wrapper that kills the collector.
+    source = ACTION.read_text()
+    assert "start_new_session" not in source
+    assert "killpg" not in source
+    assert "setsid" not in source
