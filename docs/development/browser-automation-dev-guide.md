@@ -22,10 +22,10 @@ release journey, owner/auth boundary, renderer synchronization telemetry and
 WCAG axe scan live under `frontend/cypress/e2e/`.
 
 CI and Review Lab pull Docker Official Images through
-`public.ecr.aws/docker/library` to avoid the anonymous Docker Hub pull limit on
-shared GitHub-hosted runner IP addresses. The mirror serves the same image tags
-and manifests/digests as Docker Hub, so moving the registry host does not change
-the selected image; digest pins remain unchanged.
+`ghcr.io/brianstewart377-rgb/ed-finder/mirror/` to avoid anonymous upstream
+pull limits on shared runner IP addresses. `.github/ci-image-mirror.txt` lists
+the mirrored Docker Official Images. The mirror preserves every platform and
+manifest digest; executable digest pins remain unchanged.
 
 ## Screenshots and visual baselines
 
