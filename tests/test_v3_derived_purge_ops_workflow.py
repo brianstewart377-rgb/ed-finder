@@ -32,7 +32,8 @@ def test_ops_purge_choices_are_exactly_plan_and_status_with_independent_allowlis
     assert 'v3-derived-purge-plan|v3-derived-purge-status) ;;' in source
     assert workflow['permissions'] == {'contents': 'read'}
     assert workflow['jobs']['execute']['environment'] == 'ed-new-operator'
-    assert workflow['concurrency'] == {'group': 'chatgpt-ed-new-ops', 'cancel-in-progress': 'false'}
+    assert workflow['concurrency'] == {'group': 'v3-production-application-authority', 'cancel-in-progress': 'false'}
+    assert workflow['jobs']['execute']['concurrency'] == {'group': 'chatgpt-ed-new-ops', 'cancel-in-progress': 'false'}
     run = _step('Run read-only derived purge plan or status')['run']
     assert 'v3-derived-purge-plan) mode=plan ;;' in run
     assert 'v3-derived-purge-status) mode=status ;;' in run

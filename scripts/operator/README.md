@@ -58,6 +58,12 @@ Do not promote a repository helper into a production command merely because it e
   It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
+- `actions/v3-host-cleanup.sh`: the owner-authorized, fixed four-directory
+  clean-up on `ed-finder-prod` / `nb79a3d.mevnode.com`, available only through
+  manual `v3-host-cleanup` dispatch on trusted `main` in the operations workflow.
+  It refuses unsafe paths, preserves Docker/PostgreSQL data, never changes a
+  service or database, and emits a JSON receipt plus a compact workflow notice.
+  See [the exact paths and operator boundary](../../docs/operations/operator-command-contexts.md#fixed-production-host-clean-up).
 - `actions/v3-production-inventory.sh` and `v3_production_inventory.py`: the
   exact-host, read-only production inventory authority. It reports bounded
   container/listener/network/HTTP facts and the complete migration ledger from

@@ -10,8 +10,9 @@ remains the execution-gate authority. The approximately 1% disposable PostgreSQL
 the design's owner execution gates. No production operation follows from merging
 this code.
 
-All governed production mutators first read the operating database's purge
-ledger and non-blockingly probe `/run/lock/edfinder-v3-derived-purge.lock`.
+Governed production mutators, except the fixed host clean-up described below,
+first read the operating database's purge ledger and non-blockingly probe
+`/run/lock/edfinder-v3-derived-purge.lock`.
 An open `BATCH_STARTED`, `REWRITE_STARTED`, `SERVICES_QUIESCED`,
 `WRITER_FENCE_ENABLED`, or `AUTOVACUUM_DISABLED`, an integrity-failed
 `FAILED_STOP`, a held lease, missing ledger, or failed probe refuses the action
@@ -81,6 +82,7 @@ failure exits non-zero before starting pgBackRest. See the
 | `v3-finder-capacity-gate.sh run` | Worker launcher, fenced | Database reads are read-only, but launches a container and writes host run/env/receipt state. |
 | `octopus-qdrant-healthcheck-repair.sh` | Mutator, fenced | Changes Compose and recreates/starts services. |
 | `v3-backup-wrapper-install.sh` | Mutator, fenced | Atomically replaces the installed backup runtime file. |
+| `v3-host-cleanup.sh` | Filesystem mutator, workflow-serialized | Removes only four owner-approved unused directories; shares both workflow concurrency groups with purge, with no database or service writes. See [operator boundary](operator-command-contexts.md#fixed-production-host-clean-up). |
 | `host-status` (inline) | Read-only | Host and container inventory. |
 | `octopus-edge-status.sh` | Read-only | Inspects edge state. |
 | `recover-v3-runtime-contract` (`recover_v3_runtime_contract.py`) | Read-only | Inspects runtime metadata and streams an archive; artifact writes are on the runner. |
@@ -89,6 +91,13 @@ failure exits non-zero before starting pgBackRest. See the
 | `v3-derived-lifecycle-status.sh` | Read-only | Inspects pointers, workers and derived lifecycle. |
 | `v3-disk-inventory.sh` | Read-only | Inspects filesystem and relation inventory. |
 | All `status` modes above; migration `plan`/`authority-gate`; deployment `authority-gate`/`preflight` | Read-only operation | No production build, publication, DDL or service change. |
+
+The fixed `v3-host-cleanup` exception removes only the four unused directories
+listed in its owner authorization. It reads no database ledger and changes no
+services; both workflow concurrency fences serialize it with an executing
+purge. It independently rejects Docker mounts/state, PostgreSQL data markers,
+and other mounts/filesystems. This exception supplies no authority for database
+payload deletion, generic host cleanup, or any additional path.
 
 The three probe/gate launchers above are deliberately fenced under the task's
 worker-launch rule despite their read-only database queries. Pure status,
