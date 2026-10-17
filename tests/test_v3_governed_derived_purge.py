@@ -2178,3 +2178,110 @@ def test_delete_operator_payload_adapter_commits_start_and_small_batch_on_same_b
         'purge_id': purge_id, 'relation': 'system_search', 'start_event': str(result['start_event']),
     }) == {'selected': 3, 'range_rows': 0}
     assert purge_transactions.metadata_state(query, ids)['open_batches'] == []
+
+
+_RESOLVER_CASES = (
+    ('BATCH_STARTED', ('BATCH_COMMITTED', 'BATCH_ROLLED_BACK')),
+    ('REWRITE_STARTED', ('REWRITE_VERIFIED', 'REWRITE_ROLLED_BACK', 'FAILED_STOP')),
+    ('REWRITE_STARTED', ('REWRITE_VERIFIED', 'REWRITE_ROLLED_BACK')),
+    ('SERVICES_QUIESCED', ('SERVICES_RESTORED',)),
+    ('WRITER_FENCE_ENABLED', ('WRITER_FENCE_RESTORED',)),
+    ('AUTOVACUUM_DISABLED', ('AUTOVACUUM_RESTORED',)),
+)
+
+
+def _reference_open_event(events, plan_ids, purge_id, code, opening, closing):
+    """The resolver's definition: the newest opening with no later closing."""
+    if purge_id not in plan_ids:
+        return None
+    scope = {purge_id} if opening == 'BATCH_STARTED' else plan_ids
+    for sequence, owner, kind, relation, payload in sorted(events, reverse=True):
+        if owner not in scope or kind != opening or relation != code:
+            continue
+        if not any(
+            other == owner and later_relation == code and later > sequence and later_kind in closing
+            and (opening != 'WRITER_FENCE_ENABLED' or later_payload.get('verified') is True)
+            for later, other, later_kind, later_relation, later_payload in events
+        ):
+            return sequence
+    return None
+
+
+def test_open_event_resolver_matches_its_anti_join_definition_on_random_ledgers(database):
+    import random
+
+    connection = database[0]
+    plan_ids = set(_authorize(database).values())
+    connection.execute('RESET ROLE')
+    stranger = uuid4()
+    kinds = sorted({kind for opening, closing in _RESOLVER_CASES for kind in (opening, *closing)})
+    relations = (None, 'system_search', 'economy_opportunity')
+    payloads = ({}, {'verified': True}, {'verified': False}, {'verified': 'true'})
+    generator = random.Random(20261017)
+    non_null = 0
+    for _ in range(12):
+        # The ledger is append-only, so each round extends the same history.
+        for _ in range(generator.randint(5, 25)):
+            connection.execute(
+                '''INSERT INTO v3_meta.derived_generation_purge_event
+                   (purge_id,event_kind,relation_code,operational_payload) VALUES(%s,%s,%s,%s)''',
+                (generator.choice(sorted(plan_ids)), generator.choice(kinds),
+                 generator.choice(relations), Jsonb(generator.choice(payloads))),
+            )
+        events = [tuple(row) for row in connection.execute(
+            '''SELECT event_sequence,purge_id,event_kind,relation_code,operational_payload
+               FROM v3_meta.derived_generation_purge_event''')]
+        for purge_id in (*sorted(plan_ids), stranger):
+            for code in relations:
+                for opening, closing in _RESOLVER_CASES:
+                    observed = connection.execute(
+                        'SELECT (v3_meta.purge_open_event(%s,%s,%s,%s)).event_sequence',
+                        (purge_id, code, opening, list(closing)),
+                    ).fetchone()[0]
+                    expected = _reference_open_event(events, plan_ids, purge_id, code, opening, closing)
+                    assert observed == expected, (purge_id, code, opening, closing)
+                    non_null += expected is not None
+    assert non_null > 50
+
+
+def test_state_and_open_event_stay_fast_with_production_scale_batch_history(database):
+    """The 1% rehearsal stopped when STATE_SQL passed its 10s limit.
+
+    Every delete batch appends a BATCH_STARTED/BATCH_COMMITTED pair. The
+    resolver once compared each opening with each closing event, so cost grew
+    with the square of the batch count. Twenty thousand closed batches per
+    relation and request took about 30 seconds per call before the rewrite.
+    """
+    from scripts.operator.lib.v3_purge_state import STATE_SQL
+
+    connection = database[0]
+    ids = sorted(_authorize(database).values())
+    connection.execute('RESET ROLE')
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           SELECT purge_id,kind,relation_code
+           FROM unnest(%s::uuid[]) AS purge_id,
+                unnest(ARRAY['system_search','economy_opportunity']) AS relation_code,
+                generate_series(1,20000) AS batch,
+                unnest(ARRAY['BATCH_STARTED','BATCH_COMMITTED']) WITH ORDINALITY AS k(kind,step)
+           ORDER BY batch,step''', (ids,),
+    )
+    # One batch left open on the newest relation must still be reported.
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_generation_purge_event(purge_id,event_kind,relation_code)
+           VALUES(%s,'BATCH_STARTED','economy_opportunity')''', (ids[0],),
+    )
+    connection.execute('ANALYZE v3_meta.derived_generation_purge_event')
+    started = monotonic()
+    observed = _fence_sql_rows(connection, STATE_SQL)[0][0]
+    state_seconds = monotonic() - started
+    assert [(row['event_kind'], row['relation_code']) for row in observed['unresolved']] == [
+        ('BATCH_STARTED', 'economy_opportunity')]
+    assert state_seconds < 3, state_seconds
+    for code in ('system_search', 'economy_opportunity'):
+        started = monotonic()
+        connection.execute(
+            "SELECT v3_meta.purge_open_event(%s,%s,'BATCH_STARTED',ARRAY['BATCH_COMMITTED','BATCH_ROLLED_BACK'])",
+            (ids[1], code),
+        ).fetchone()
+        assert monotonic() - started < 1, code

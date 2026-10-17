@@ -32,7 +32,7 @@ CONTAINER = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
 DATABASE = 'edfinder_v3_phase4c_full_20260827_r5'
 USER = APPLICATION_ROLE = 'edfinder_v3'
 MIGRATION = '016_v3_governed_derived_purge.sql'
-MIGRATION_SHA256 = 'bde335956f50a1ec7933c1961b34fee4fa17df13c90b2c9faa8f15330231b772'
+MIGRATION_SHA256 = '559fa7ea35fc9ad43635e90cdedcbefd47b2f30dcf479843911bfba0b3dfb0aa'
 LEASE = Path('/run/lock/edfinder-v3-derived-purge.lock')
 BACKUP_SCHEDULE_LOCK = Path('/run/lock/edfinder-v3-pgbackrest-schedule.lock')
 INSTALLED_WRAPPER = Path('/opt/ed-finder-v3-runtime/pgbackrest-operation.sh')
