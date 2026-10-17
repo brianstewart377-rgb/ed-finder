@@ -95,13 +95,18 @@ or argument selects a deletion path. The workflow retains pinned SSH trust,
 uses the existing root/passwordless-sudo handoff, and holds the workflow's
 `chatgpt-ed-new-ops` concurrency group, with cancellation disabled, including
 during the attached SSH run. The governed derived purge job holds that same
-group, so clean-up can never overlap a purge.
+group. The action also takes the purge's host lease at
+`/run/lock/edfinder-v3-derived-purge.lock` before validation and holds it through
+receipt printing. Clean-up and purge exclude each other through both this
+non-blocking host lease and the workflow group, including if the runner or SSH
+dies while the remote action continues. A held lease refuses every path with
+`purge_host_lease_held`.
 
 The action verifies `ed-finder-prod` / `nb79a3d.mevnode.com` against committed
 target authority and runs for at most 1800 seconds. In the order above, it skips
 absent paths and refuses unsafe paths: symlinks or symlinked parents, a changed
-realpath, mounts or another filesystem, non-root ownership, Docker volume or
-Docker-state containment, PostgreSQL data or a nested `PG_VERSION`. The Spansh
+realpath, mount points or overlapping bind-mount sources, another filesystem,
+non-root ownership, Docker volume or Docker-state containment, PostgreSQL data or a nested `PG_VERSION`. The Spansh
 directory additionally requires no process to hold an open file beneath it.
 It measures each accepted directory with `du -sx -B1`, removes only that exact
 directory with `rm -rf --one-file-system --`, and verifies absence. A refusal
@@ -109,10 +114,17 @@ skips that directory and makes the final status `stopped`; other allowlisted
 paths are still checked. Parents are never removal targets.
 
 Every run attempts upload of `v3-host-cleanup-receipt` for 180 days and emits a
-compact `Host clean-up` notice containing each path's outcome and freed bytes,
-including stopped runs. The JSON receipt records per-path outcomes, measured
-bytes, total measured bytes freed, root filesystem usage before/after, and whether any
-filesystem removal occurred. Database writes and service changes remain false.
+compact `Host clean-up` notice containing each path's outcome, estimated bytes
+removed, and filesystem space reclaimed, including stopped runs. The JSON
+receipt records per-path `bytes_removed_estimate` from `du -sx -B1` before
+deletion (or null if unmeasured), and `filesystem_bytes_reclaimed` as root
+filesystem available bytes after minus before (or null if either observation is
+unavailable). The estimate can exceed space reclaimed because hard links or
+open files retain blocks; the filesystem delta can also reflect other host
+activity. A later refusal can retain the pre-deletion estimate, so always read
+it alongside the outcome. The receipt also records root filesystem usage
+before/after and whether any filesystem removal occurred. Database writes and
+service changes remain false.
 Review the notice and receipt before any retry; an already-removed path becomes
 `already_absent`. This code change does not execute the clean-up.
 

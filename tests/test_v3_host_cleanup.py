@@ -66,6 +66,8 @@ def sandbox(tmp_path):
         return result
 
     module.os.lstat = root_owned
+    module.mount_points = lambda: (("/",), ())
+    module.protected_docker_paths = lambda: ()
     return module, target
 
 
@@ -79,7 +81,7 @@ def _assert_refused(module, target, monkeypatch, **kwargs):
     result = _cleanup(module, target, **kwargs)
     assert result["outcome"] == "refused", result
     assert result["reason"]
-    assert result["bytes_freed"] == 0
+    assert "bytes_freed" not in result
     assert result["filesystem_writes_performed"] is False
     assert not removals
     assert os.path.lexists(target)
@@ -113,8 +115,8 @@ def test_absent_path_is_already_absent_without_deletion(sandbox, monkeypatch):
     monkeypatch.setattr(module, "remove_tree", lambda path: pytest.fail("absent path reached removal"))
     result = _cleanup(module, absent)
     assert result["outcome"] == "already_absent"
-    assert result["bytes_before"] == 0
-    assert result["bytes_freed"] == 0
+    assert result["bytes_removed_estimate"] == 0
+    assert "bytes_freed" not in result
     assert result["filesystem_writes_performed"] is False
 
 
@@ -124,8 +126,8 @@ def test_real_temp_directory_is_removed_and_absence_verified(sandbox):
     expected_bytes = int(before.stdout.split()[0])
     result = _cleanup(module, target)
     assert result["outcome"] == "removed", result
-    assert result["bytes_before"] == expected_bytes
-    assert result["bytes_freed"] == expected_bytes
+    assert result["bytes_removed_estimate"] == expected_bytes
+    assert "bytes_freed" not in result
     assert result["filesystem_writes_performed"] is True
     assert not os.path.lexists(target)
     assert target.parent.is_dir()
@@ -220,7 +222,7 @@ def test_failed_post_delete_verification_is_refused(sandbox, monkeypatch):
     monkeypatch.setattr(module, "remove_tree", lambda path: False)
     result = _cleanup(module, target)
     assert result["outcome"] == "refused"
-    assert result["bytes_freed"] == 0
+    assert "bytes_freed" not in result
     assert target.exists()
 
 
@@ -277,14 +279,14 @@ def _summary_notice():
 
 def test_summary_notice_escapes_percent_carriage_return_and_line_feed():
     notice = _summary_notice()({
-        "status": "stopped", "total_bytes_freed": 42,
-        "paths": [{"path": "/root/.bun", "outcome": "refused", "reason": "100%\r\n::error::injected", "bytes_freed": 42}],
+        "status": "stopped", "filesystem_bytes_reclaimed": 12,
+        "paths": [{"path": "/root/.bun", "outcome": "refused", "reason": "100%\r\n::error::injected", "bytes_removed_estimate": 42}],
     })
     assert notice.startswith("::notice title=Host clean-up::")
     assert "100%25%0D%0A::error::injected" in notice
     assert "\n" not in notice and "\r" not in notice
     assert "/root/.bun: refused" in notice
-    assert "bytes_freed=42" in notice and "total_bytes_freed=42" in notice
+    assert "estimated bytes removed=42" in notice and "filesystem space reclaimed=12" in notice
     assert len(notice) < 4000
 
 
@@ -327,7 +329,7 @@ def test_same_device_bind_mount_from_mountinfo_is_refused(sandbox, monkeypatch, 
     mount = target if unsafe_mount == "self" else target / "nested"
     if unsafe_mount == "nested":
         mount.mkdir()
-    monkeypatch.setattr(module, "mount_points", lambda: (str(mount),))
+    monkeypatch.setattr(module, "mount_points", lambda: ((str(mount),), ()))
     monkeypatch.setattr(module.os.path, "ismount", lambda path: False)
     _assert_refused(module, target, monkeypatch)
 
@@ -347,6 +349,7 @@ def _prepare_receipt(module, monkeypatch):
     module.sys = SimpleNamespace(**vars(sys))
     module.sys.argv = ["-", "committed-authority"]
     monkeypatch.setattr(module, "verify_authority", lambda encoded: None)
+    monkeypatch.setattr(module, "acquire_host_lease", lambda: None)
     monkeypatch.setattr(module, "root_df", lambda: {"size_bytes": 100, "used_bytes": 50, "available_bytes": 50})
     monkeypatch.setattr(module, "protected_docker_paths", lambda: ())
     real_lstat = module.os.lstat
@@ -394,15 +397,15 @@ def test_receipt_uses_only_fixed_paths_in_order_and_stops_on_any_refusal(monkeyp
         calls.append((path, spansh))
         refused = index == refused_index
         return {"path": path, "outcome": "refused" if refused else "removed",
-                "reason": "unsafe" if refused else None, "bytes_before": 10,
-                "bytes_freed": 0 if refused else 10,
+                "reason": "unsafe" if refused else None, "bytes_removed_estimate": 10,
                 "filesystem_writes_performed": not refused}
 
     monkeypatch.setattr(module, "cleanup_path", cleanup)
     receipt = module.run_cleanup()
     assert calls == [(path, index == 0) for index, path in enumerate(EXPECTED_PATHS)]
     assert receipt["status"] == ("success" if refused_index is None else "stopped")
-    assert receipt["total_bytes_freed"] == (40 if refused_index is None else 30)
+    assert receipt["filesystem_bytes_reclaimed"] == 0
+    assert "total_bytes_freed" not in receipt
     assert receipt["filesystem_writes_performed"] is True
     assert receipt["db_writes_performed"] is False
     assert receipt["service_changes_performed"] is False
@@ -422,7 +425,7 @@ def test_docker_discovery_failure_refuses_every_path_without_removal(monkeypatch
     assert receipt["status"] == "stopped"
     assert all(item["outcome"] == "refused" for item in receipt["paths"])
     assert receipt["filesystem_writes_performed"] is False
-    assert receipt["total_bytes_freed"] == 0
+    assert receipt["filesystem_bytes_reclaimed"] == 0
 
 
 def test_absent_fixed_paths_do_not_require_docker_inventory(monkeypatch):
@@ -439,7 +442,7 @@ def test_absent_fixed_paths_do_not_require_docker_inventory(monkeypatch):
     assert receipt["status"] == "success"
     assert all(item["outcome"] == "already_absent" for item in receipt["paths"])
     assert receipt["filesystem_writes_performed"] is False
-    assert receipt["total_bytes_freed"] == 0
+    assert receipt["filesystem_bytes_reclaimed"] == 0
 
 
 def test_docker_inventory_is_local_and_includes_unused_volumes_and_stopped_container_mounts(monkeypatch):
@@ -460,7 +463,7 @@ def test_docker_inventory_is_local_and_includes_unused_volumes_and_stopped_conta
             assert "-aq" in command
             return "stopped-container"
         if command[0] == "inspect":
-            return json.dumps([{"Source": "/bind-mount-for-stopped-container"}])
+            return json.dumps([{"Type": "bind", "Source": "/bind-mount-for-stopped-container"}])
         pytest.fail(f"unexpected command: {command}")
 
     monkeypatch.setattr(module, "run", run)
@@ -482,7 +485,7 @@ def test_mount_table_octal_escapes_cannot_hide_bind_mount(monkeypatch):
     module = _module()
     contents = "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 /other /root/leftover\\040directory rw - ext4 /dev/root rw\n"
     monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
-    assert module.mount_points() == ("/", "/root/leftover directory")
+    assert module.mount_points() == (("/", "/root/leftover directory"), ("/other",))
 
 
 @pytest.mark.parametrize("failure", [None, "hostname", "fqdn", "authority", "root"])
@@ -508,7 +511,7 @@ def test_committed_authority_and_observed_host_identity_are_required(monkeypatch
 
 
 @pytest.mark.parametrize("writes", [False, True])
-def test_failed_removal_reports_actual_partial_writes_without_claiming_freed_bytes(sandbox, monkeypatch, writes):
+def test_failed_removal_reports_actual_partial_writes_with_only_an_estimate(sandbox, monkeypatch, writes):
     module, target = sandbox
 
     def remove(_path):
@@ -518,5 +521,350 @@ def test_failed_removal_reports_actual_partial_writes_without_claiming_freed_byt
     result = _cleanup(module, target)
     assert result["outcome"] == "refused"
     assert result["filesystem_writes_performed"] is writes
-    assert result["bytes_freed"] == 0
+    assert "bytes_freed" not in result
     assert target.exists()
+
+
+@pytest.mark.parametrize("retained", ["hard_link", "open_file"])
+def test_receipt_distinguishes_du_estimate_from_reclaimed_space(sandbox, monkeypatch, retained):
+    module, target = sandbox
+    _prepare_receipt(module, monkeypatch)
+    # Spansh (first slot) refuses open files; these retained-block examples
+    # exercise the ordinary cleanup directories in the second slot.
+    module.ALLOWLIST = (str(target.parent / "absent-spansh"), str(target))
+    payload = target / "payload"
+    estimate = module.du_bytes(str(target))
+    if retained == "hard_link":
+        link = target.parent / "retained-payload"
+        os.link(payload, link)
+        held = nullcontext()
+    else:
+        held = payload.open("rb")
+    # The filesystem can retain every payload block despite successful rm.
+    with held as opened:
+        receipt = module.run_cleanup()
+        if retained == "open_file":
+            assert opened.read() == b"unused leftovers" * 256
+        else:
+            assert link.read_bytes() == b"unused leftovers" * 256
+    assert receipt["status"] == "success", receipt
+    assert receipt["paths"][1]["bytes_removed_estimate"] == estimate > 0
+    assert receipt["filesystem_bytes_reclaimed"] == 0
+    assert "total_bytes_freed" not in receipt
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("delta", [12, -5])
+def test_filesystem_reclaimed_uses_observed_available_bytes_delta(monkeypatch, delta):
+    module = _module()
+    _prepare_receipt(module, monkeypatch)
+    observations = iter([
+        {"size_bytes": 100, "used_bytes": 50, "available_bytes": 50},
+        {"size_bytes": 100, "used_bytes": 50 - delta, "available_bytes": 50 + delta},
+    ])
+    monkeypatch.setattr(module, "root_df", lambda: next(observations))
+    monkeypatch.setattr(module, "cleanup_path", lambda path, **kwargs: {
+        "path": path, "outcome": "removed", "bytes_removed_estimate": 1000,
+        "filesystem_writes_performed": True,
+    })
+    receipt = module.run_cleanup()
+    assert receipt["status"] == "success"
+    assert receipt["filesystem_bytes_reclaimed"] == delta
+
+
+def test_unavailable_after_df_does_not_claim_reclaimed_bytes(monkeypatch):
+    module = _module()
+    _prepare_receipt(module, monkeypatch)
+    observations = iter([{"available_bytes": 50}])
+
+    def df():
+        try:
+            return next(observations)
+        except StopIteration:
+            raise RuntimeError("df_failed") from None
+
+    monkeypatch.setattr(module, "root_df", df)
+    monkeypatch.setattr(module, "cleanup_path", lambda path, **kwargs: {
+        "path": path, "outcome": "removed", "bytes_removed_estimate": 1000,
+        "filesystem_writes_performed": True,
+    })
+    receipt = module.run_cleanup()
+    assert receipt["status"] == "stopped"
+    assert receipt["filesystem_bytes_reclaimed"] is None
+    assert receipt["failures"] == ["df_failed"]
+
+
+def _mock_docker_container_mounts(module, monkeypatch, mounts):
+    def run(argv):
+        assert argv[:3] == ["docker", "--host", "unix:///var/run/docker.sock"]
+        command = argv[3:]
+        if command[0] == "info":
+            return json.dumps("/var/lib/docker")
+        if command[:2] == ["volume", "ls"]:
+            return ""
+        if command[0] == "ps":
+            return "stopped-worker"
+        if command[0] == "inspect":
+            return json.dumps(mounts)
+        pytest.fail(f"unexpected Docker command: {command}")
+
+    monkeypatch.setattr(module, "run", run)
+
+
+@pytest.mark.parametrize("mount_type", ["tmpfs", "npipe"])
+def test_hostless_docker_mounts_do_not_refuse_inventory(monkeypatch, mount_type):
+    module = _module()
+    _mock_docker_container_mounts(module, monkeypatch, [
+        {"Type": mount_type, "Source": ""},
+        {"Type": "bind", "Source": "/retained-stopped-worker-bind"},
+        {"Type": "volume", "Source": "/retained-stopped-worker-volume"},
+    ])
+    assert set(module.protected_docker_paths()) == {
+        "/var/lib/docker", "/retained-stopped-worker-bind", "/retained-stopped-worker-volume",
+    }
+
+
+@pytest.mark.parametrize("mount_type", ["bind", "volume", "future-type", None])
+@pytest.mark.parametrize("source", ["", "relative/path", None])
+def test_docker_mounts_requiring_host_paths_refuse_non_absolute_sources(monkeypatch, mount_type, source):
+    module = _module()
+    _mock_docker_container_mounts(module, monkeypatch, [{"Type": mount_type, "Source": source}])
+    with pytest.raises(RuntimeError, match="docker_mount_source_unverified"):
+        module.protected_docker_paths()
+
+
+@pytest.mark.parametrize("mount", [None, "invalid", {}])
+def test_malformed_docker_mount_refuses_inventory(monkeypatch, mount):
+    module = _module()
+    _mock_docker_container_mounts(module, monkeypatch, [mount])
+    with pytest.raises(RuntimeError, match="docker_mount_source_unverified"):
+        module.protected_docker_paths()
+
+
+def test_unknown_docker_mount_type_with_absolute_source_is_protected(monkeypatch):
+    module = _module()
+    _mock_docker_container_mounts(module, monkeypatch, [{"Type": "future-type", "Source": "/future-mount"}])
+    assert "/future-mount" in module.protected_docker_paths()
+
+
+def test_docker_bind_created_during_du_is_refused(sandbox, monkeypatch):
+    module, target = sandbox
+    measured = False
+    observed = []
+
+    def du(_path):
+        nonlocal measured
+        measured = True
+        return 4096
+
+    def fresh_inventory():
+        assert measured, "Docker inventory was not refreshed after du"
+        observed.append(True)
+        return (str(target),)
+
+    monkeypatch.setattr(module, "du_bytes", du)
+    monkeypatch.setattr(module, "protected_docker_paths", fresh_inventory)
+    result = _assert_refused(module, target, monkeypatch)
+    assert result["reason"] == "protected_docker_path"
+    assert observed == [True]
+
+
+def test_failed_docker_refresh_after_du_refuses_removal(sandbox, monkeypatch):
+    module, target = sandbox
+
+    def failed_inventory():
+        raise RuntimeError("docker_inventory_failed_after_du")
+
+    monkeypatch.setattr(module, "protected_docker_paths", failed_inventory)
+    result = _assert_refused(module, target, monkeypatch)
+    assert result["reason"] == "docker_inventory_failed_after_du"
+
+
+@pytest.mark.parametrize("relation", ["self", "inside", "ancestor"])
+def test_same_device_bind_source_exposed_elsewhere_is_refused(sandbox, monkeypatch, relation):
+    module, target = sandbox
+    source = {"self": target, "inside": target / "exposed", "ancestor": target.parent}[relation]
+    contents = (
+        "1 0 8:1 / / rw - ext4 /dev/root rw\n"
+        f"2 1 8:1 {source} /elsewhere rw - ext4 /dev/root rw\n"
+    )
+    original_mount_points = _module().mount_points
+    original_mount_points.__globals__["open"] = lambda *args, **kwargs: io.StringIO(contents)
+    monkeypatch.setattr(module, "mount_points", original_mount_points)
+    monkeypatch.setattr(module.os.path, "ismount", lambda path: False)
+    result = _assert_refused(module, target, monkeypatch)
+    assert result["reason"] == "bind_mount_source"
+
+
+def test_mountinfo_bind_sources_decode_octal_escapes_and_filter_root_device(monkeypatch):
+    module = _module()
+    contents = (
+        "1 0 8:1 / / rw - ext4 /dev/root rw\n"
+        "2 1 8:1 /root/leftover\\040directory /elsewhere rw - ext4 /dev/root rw\n"
+        "3 1 8:2 /foreign/source /foreign rw - ext4 /dev/foreign rw\n"
+    )
+    monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
+    points, sources = module.mount_points()
+    assert points == ("/", "/elsewhere", "/foreign")
+    assert sources == ("/root/leftover directory",)
+
+
+@pytest.mark.parametrize("entry", [
+    "2 1 8:1 relative /elsewhere rw - ext4 /dev/root rw\n",
+    "2 1 unknown /source /elsewhere rw - ext4 /dev/root rw\n",
+])
+def test_malformed_mountinfo_source_or_device_fails_closed(monkeypatch, entry):
+    module = _module()
+    contents = "1 0 8:1 / / rw - ext4 /dev/root rw\n" + entry
+    monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
+    with pytest.raises(RuntimeError, match="mount_table_unverified"):
+        module.mount_points()
+
+
+def test_host_cleanup_lease_literal_matches_both_governed_purge_modules():
+    module = _module()
+    assert module.PURGE_HOST_LEASE == "/run/lock/edfinder-v3-derived-purge.lock"
+    for filename in ("v3_purge_state.py", "v3_generation_purge.py"):
+        tree = ast.parse((ROOT / "scripts/operator/lib" / filename).read_text())
+        assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == "LEASE" for target in node.targets))
+        assert isinstance(assignment.value, ast.Call)
+        assert ast.literal_eval(assignment.value.args[0]) == module.PURGE_HOST_LEASE
+
+
+def test_host_lease_uses_safe_open_flags_and_excludes_another_lock(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "purge.lock"
+    monkeypatch.setattr(module, "PURGE_HOST_LEASE", str(path))
+    original_open = module.os.open
+    opens = []
+
+    def observed_open(path, flags, mode):
+        opens.append((path, flags, mode))
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr(module.os, "open", observed_open)
+    descriptor = module.acquire_host_lease()
+    contender = os.open(path, os.O_RDWR)
+    try:
+        assert opens == [(str(path), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)]
+        assert path.stat().st_mode & 0o777 == 0o600
+        with pytest.raises(BlockingIOError):
+            module.fcntl.flock(contender, module.fcntl.LOCK_EX | module.fcntl.LOCK_NB)
+        assert module._host_lease_fd == descriptor
+        module.release_host_lease()
+        module.fcntl.flock(contender, module.fcntl.LOCK_EX | module.fcntl.LOCK_NB)
+    finally:
+        module.release_host_lease()
+        os.close(contender)
+
+
+def test_held_host_lease_refuses_every_path_before_any_validation_and_closes_fd(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "purge.lock"
+    monkeypatch.setattr(module, "PURGE_HOST_LEASE", str(path))
+    holder = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    module.fcntl.flock(holder, module.fcntl.LOCK_EX | module.fcntl.LOCK_NB)
+    # A lock refusal takes precedence over even invalid runtime/arguments.
+    module.sys = SimpleNamespace(**vars(sys))
+    module.sys.argv = []
+    module.sys.version_info = (0, 0)
+    monkeypatch.setattr(module, "verify_authority", lambda *args: pytest.fail("held lease reached authority"))
+    monkeypatch.setattr(module, "root_df", lambda: pytest.fail("held lease reached filesystem inventory"))
+    monkeypatch.setattr(module, "cleanup_path", lambda *args, **kwargs: pytest.fail("held lease reached cleanup"))
+    closed = []
+    original_close = module.os.close
+
+    def close(descriptor):
+        closed.append(descriptor)
+        original_close(descriptor)
+
+    monkeypatch.setattr(module.os, "close", close)
+    try:
+        receipt = module.run_cleanup()
+        assert receipt["status"] == "stopped"
+        assert receipt["failures"] == ["purge_host_lease_held"]
+        assert [item["path"] for item in receipt["paths"]] == list(EXPECTED_PATHS)
+        assert all(item["outcome"] == "refused" and item["reason"] == "purge_host_lease_held"
+                   for item in receipt["paths"])
+        assert receipt["filesystem_writes_performed"] is False
+        assert len(closed) == 1
+        with pytest.raises(OSError):
+            os.fstat(closed[0])
+        assert module._host_lease_fd is None
+    finally:
+        os.close(holder)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+def test_host_lease_refuses_symlink_or_nonregular_file(tmp_path, monkeypatch, kind):
+    module = _module()
+    path = tmp_path / "purge.lock"
+    monkeypatch.setattr(module, "PURGE_HOST_LEASE", str(path))
+    if kind == "symlink":
+        target = tmp_path / "retained"
+        target.write_text("untouched")
+        path.symlink_to(target)
+        with pytest.raises(OSError):
+            module.acquire_host_lease()
+        assert target.read_text() == "untouched"
+    else:
+        os.mkfifo(path)
+        closed = []
+        original_close = module.os.close
+
+        def close(descriptor):
+            closed.append(descriptor)
+            original_close(descriptor)
+
+        monkeypatch.setattr(module.os, "close", close)
+        with pytest.raises(RuntimeError, match="purge_host_lease_not_regular"):
+            module.acquire_host_lease()
+        assert len(closed) == 1
+        with pytest.raises(OSError):
+            os.fstat(closed[0])
+    assert module._host_lease_fd is None
+
+
+def test_host_lease_stays_held_until_receipt_print_is_flushed(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "purge.lock"
+    monkeypatch.setattr(module, "PURGE_HOST_LEASE", str(path))
+    module.sys = SimpleNamespace(**vars(sys))
+    module.signal = SimpleNamespace(**vars(module.signal))
+    monkeypatch.setattr(module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(module.signal, "alarm", lambda *args: None)
+
+    def cleanup():
+        module.acquire_host_lease()
+        return {"status": "success"}
+
+    monkeypatch.setattr(module, "run_cleanup", cleanup)
+    printed = []
+
+    def print_receipt(text, *, flush):
+        assert flush is True
+        contender = os.open(path, os.O_RDWR)
+        try:
+            with pytest.raises(BlockingIOError):
+                module.fcntl.flock(contender, module.fcntl.LOCK_EX | module.fcntl.LOCK_NB)
+        finally:
+            os.close(contender)
+        printed.append(json.loads(text))
+
+    monkeypatch.setattr(module, "print", print_receipt, raising=False)
+    main = next(node for node in ast.parse(_body()).body if isinstance(node, ast.If)
+                and ast.unparse(node.test) == "__name__ == '__main__'")
+    try:
+        with pytest.raises(SystemExit) as exited:
+            exec(compile(ast.Module(body=main.body, type_ignores=[]), str(ACTION), "exec"), module.__dict__)
+        assert exited.value.code == 0
+        assert printed == [{"status": "success"}]
+        assert module._host_lease_fd is None
+        contender = os.open(path, os.O_RDWR)
+        try:
+            module.fcntl.flock(contender, module.fcntl.LOCK_EX | module.fcntl.LOCK_NB)
+        finally:
+            os.close(contender)
+    finally:
+        module.release_host_lease()

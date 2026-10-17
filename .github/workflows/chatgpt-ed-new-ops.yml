@@ -269,11 +269,11 @@ jobs:
                   part = str(item.get("path", "unknown")) + ": " + str(item.get("outcome", "refused"))
                   if item.get("reason"):
                       part += " (" + str(item["reason"]) + ")"
-                  part += "; bytes_freed=" + str(item.get("bytes_freed", 0))
+                  part += "; estimated bytes removed=" + str(item.get("bytes_removed_estimate"))
                   parts.append(part)
               if not receipt.get("paths") and receipt.get("failures"):
                   parts.append("failures=" + ",".join(str(reason) for reason in receipt["failures"]))
-              parts.append("total_bytes_freed=" + str(receipt.get("total_bytes_freed", 0)))
+              parts.append("filesystem space reclaimed=" + str(receipt.get("filesystem_bytes_reclaimed")))
               text = " | ".join(parts)
               # Escape GitHub command data and bound the entire annotation below
               # 4000 characters. Escape before truncating to avoid expansion over it.
@@ -286,7 +286,7 @@ jobs:
               if not isinstance(receipt, dict) or not isinstance(receipt.get("paths"), list):
                   raise ValueError("invalid receipt")
           except (OSError, ValueError):
-              receipt = {"status": "stopped; receipt unavailable or invalid", "paths": [], "total_bytes_freed": 0}
+              receipt = {"status": "stopped; receipt unavailable or invalid", "paths": [], "filesystem_bytes_reclaimed": None}
           print(summary_notice(receipt))
           PYTHON
 

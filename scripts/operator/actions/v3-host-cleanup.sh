@@ -15,6 +15,7 @@ exec timeout --signal=TERM --kill-after=5s 1790s "$PYTHON_BIN" -I -B - "$@" <<'P
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import platform
@@ -36,6 +37,36 @@ EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 ACTION_DEADLINE = time.monotonic() + 1770
 COMMAND_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
+PURGE_HOST_LEASE = "/run/lock/edfinder-v3-derived-purge.lock"
+_host_lease_fd: int | None = None
+
+
+def acquire_host_lease() -> int:
+    # Keep the same inode locked as the governed purge even if SSH or its
+    # runner disappears and GitHub releases the workflow concurrency fence.
+    global _host_lease_fd
+    descriptor = os.open(PURGE_HOST_LEASE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    acquired = False
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError("purge_host_lease_not_regular")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("purge_host_lease_held") from None
+        _host_lease_fd = descriptor
+        acquired = True
+        return descriptor
+    finally:
+        if not acquired:
+            os.close(descriptor)
+
+
+def release_host_lease() -> None:
+    global _host_lease_fd
+    if _host_lease_fd is not None:
+        os.close(_host_lease_fd)
+        _host_lease_fd = None
 
 
 def remaining() -> float:
@@ -80,27 +111,43 @@ def protected_docker_paths() -> tuple[str, ...]:
         if not isinstance(mounts, list):
             raise RuntimeError("docker_container_mounts_unverified")
         for mount in mounts:
+            mount_type = mount.get("Type") if isinstance(mount, dict) else None
             source = mount.get("Source") if isinstance(mount, dict) else None
+            # tmpfs and named pipes expose no host filesystem directory. In
+            # particular Docker reports an empty Source for --tmpfs mounts.
+            if mount_type in ("tmpfs", "npipe"):
+                continue
             if not isinstance(source, str) or not source.startswith("/"):
                 raise RuntimeError("docker_mount_source_unverified")
             paths.add(os.path.realpath(source))
     return tuple(sorted(paths))
 
 
-def mount_points() -> tuple[str, ...]:
+def mount_points() -> tuple[tuple[str, ...], tuple[str, ...]]:
     # ismount alone misses bind mounts on the same device. The kernel's mount
-    # table records those too; decode its documented octal path escapes.
-    points = []
+    # table also identifies their source roots, which may be exposed elsewhere
+    # even when no mount point lies inside the deletion candidate.
+    entries = []
     with open("/proc/self/mountinfo", encoding="utf-8", errors="surrogateescape") as mounts:
         for line in mounts:
             fields = line.split()
-            if len(fields) < 10 or "-" not in fields[6:] or not fields[4].startswith("/"):
+            if (
+                len(fields) < 10 or "-" not in fields[6:]
+                or not re.fullmatch(r"[0-9]+:[0-9]+", fields[2])
+                or not fields[3].startswith("/") or not fields[4].startswith("/")
+            ):
                 raise RuntimeError("mount_table_unverified")
+            root = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), fields[3])
             point = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), fields[4])
-            points.append(point)
-    if "/" not in points:
+            entries.append((fields[2], root, point))
+    root_mounts = [entry for entry in entries if entry[2] == "/"]
+    if len(root_mounts) != 1:
         raise RuntimeError("root_mount_unverified")
-    return tuple(points)
+    root_device = root_mounts[0][0]
+    return (
+        tuple(point for _, _, point in entries),
+        tuple(root for device, root, point in entries if device == root_device and point != "/"),
+    )
 
 
 def check_open_files(path: str) -> None:
@@ -139,11 +186,13 @@ def validate_path(path: str, protected_paths: tuple[str, ...], spansh: bool = Fa
         if parent == "/":
             break
         parent = os.path.dirname(parent)
-    mounts = mount_points()
+    mounts, bind_sources = mount_points()
     if path in mounts or os.path.ismount(path):
         raise RuntimeError("mount_point")
     if any(within(mount, path) for mount in mounts):
         raise RuntimeError("nested_mount_or_filesystem")
+    if any(within(source, path) or within(path, source) for source in bind_sources):
+        raise RuntimeError("bind_mount_source")
     root_device = os.lstat("/").st_dev
     if info.st_dev != root_device:
         raise RuntimeError("different_filesystem")
@@ -233,8 +282,8 @@ def remove_tree(path: str) -> bool:
 
 def cleanup_path(path: str, *, protected_paths: tuple[str, ...], spansh: bool = False) -> dict:
     result = {
-        "path": path, "outcome": "refused", "bytes_before": None,
-        "bytes_freed": 0, "filesystem_writes_performed": False,
+        "path": path, "outcome": "refused", "bytes_removed_estimate": None,
+        "filesystem_writes_performed": False,
     }
     try:
         # lstat distinguishes absent from dangling links, and propagates denied
@@ -243,13 +292,13 @@ def cleanup_path(path: str, *, protected_paths: tuple[str, ...], spansh: bool = 
             os.lstat(path)
         except FileNotFoundError:
             result["outcome"] = "already_absent"
-            result["bytes_before"] = 0
+            result["bytes_removed_estimate"] = 0
             return result
         validate_path(path, protected_paths, spansh)
         before = os.lstat(path)
-        result["bytes_before"] = du_bytes(path)
+        result["bytes_removed_estimate"] = du_bytes(path)
         # Recheck after potentially slow du, including processes and mounts.
-        validate_path(path, protected_paths, spansh)
+        validate_path(path, protected_docker_paths(), spansh)
         after = os.lstat(path)
         if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
             raise RuntimeError("path_identity_changed")
@@ -258,7 +307,6 @@ def cleanup_path(path: str, *, protected_paths: tuple[str, ...], spansh: bool = 
             os.lstat(path)
         except FileNotFoundError:
             result["outcome"] = "removed"
-            result["bytes_freed"] = result["bytes_before"]
         else:
             raise RuntimeError("path_still_present")
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
@@ -297,11 +345,12 @@ def run_cleanup() -> dict:
     receipt = {
         "schema_version": "ed-finder/operator-operation-result/v1",
         "operation": "v3-host-cleanup", "status": "stopped", "paths": [],
-        "total_bytes_freed": 0, "root_df_before": None, "root_df_after": None,
+        "filesystem_bytes_reclaimed": None, "root_df_before": None, "root_df_after": None,
         "filesystem_writes_performed": False, "db_writes_performed": False,
         "service_changes_performed": False, "failures": [],
     }
     try:
+        acquire_host_lease()
         if platform.python_implementation() != "CPython" or sys.version_info[:2] != (3, 14):
             raise RuntimeError("python314_required")
         if len(sys.argv) != 2:
@@ -315,8 +364,8 @@ def run_cleanup() -> dict:
                     os.lstat(path)
                 except FileNotFoundError:
                     receipt["paths"].append({
-                        "path": path, "outcome": "already_absent", "bytes_before": 0,
-                        "bytes_freed": 0, "filesystem_writes_performed": False,
+                        "path": path, "outcome": "already_absent", "bytes_removed_estimate": 0,
+                        "filesystem_writes_performed": False,
                     })
                     continue
                 # Refresh protection immediately before each candidate; Docker
@@ -325,12 +374,14 @@ def run_cleanup() -> dict:
                 result = cleanup_path(path, protected_paths=protected, spansh=index == 0)
             except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
                 result = {"path": path, "outcome": "refused", "reason": str(exc)[:200],
-                          "bytes_before": None, "bytes_freed": 0,
+                          "bytes_removed_estimate": None,
                           "filesystem_writes_performed": False}
             receipt["paths"].append(result)
-            receipt["total_bytes_freed"] += result["bytes_freed"]
             receipt["filesystem_writes_performed"] |= result["filesystem_writes_performed"]
         receipt["root_df_after"] = root_df()
+        receipt["filesystem_bytes_reclaimed"] = (
+            receipt["root_df_after"]["available_bytes"] - receipt["root_df_before"]["available_bytes"]
+        )
         receipt["status"] = "success" if all(
             item["outcome"] in ("removed", "already_absent") for item in receipt["paths"]
         ) else "stopped"
@@ -340,7 +391,7 @@ def run_cleanup() -> dict:
         for path in ALLOWLIST[len(receipt["paths"]):]:
             receipt["paths"].append({
                 "path": path, "outcome": "refused", "reason": reason,
-                "bytes_before": None, "bytes_freed": 0,
+                "bytes_removed_estimate": None,
                 "filesystem_writes_performed": False,
             })
     return receipt
@@ -353,9 +404,12 @@ def deadline_signal(_signum: int, _frame: object) -> None:
 if __name__ == "__main__":
     signal.signal(signal.SIGALRM, deadline_signal)
     signal.alarm(1770)
-    receipt = run_cleanup()
-    # Complete the receipt within the outer watchdog's reserved twenty seconds.
-    signal.alarm(0)
-    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+    try:
+        receipt = run_cleanup()
+        # Complete the receipt within the outer watchdog's reserved twenty seconds.
+        signal.alarm(0)
+        print(json.dumps(receipt, sort_keys=True, separators=(",", ":")), flush=True)
+    finally:
+        release_host_lease()
     sys.exit(0 if receipt["status"] == "success" else 1)
 PY

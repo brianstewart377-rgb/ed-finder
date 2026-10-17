@@ -82,7 +82,7 @@ failure exits non-zero before starting pgBackRest. See the
 | `v3-finder-capacity-gate.sh run` | Worker launcher, fenced | Database reads are read-only, but launches a container and writes host run/env/receipt state. |
 | `octopus-qdrant-healthcheck-repair.sh` | Mutator, fenced | Changes Compose and recreates/starts services. |
 | `v3-backup-wrapper-install.sh` | Mutator, fenced | Atomically replaces the installed backup runtime file. |
-| `v3-host-cleanup.sh` | Filesystem mutator, workflow-serialized | Removes only four owner-approved unused directories; shares the `chatgpt-ed-new-ops` concurrency group with the purge job, with no database or service writes. See [operator boundary](operator-command-contexts.md#fixed-production-host-clean-up). |
+| `v3-host-cleanup.sh` | Filesystem mutator, workflow-serialized and host-leased | Removes only four owner-approved unused directories; shares the `chatgpt-ed-new-ops` concurrency group with the purge job and holds the same host lease through receipt printing, with no database or service writes. See [operator boundary](operator-command-contexts.md#fixed-production-host-clean-up). |
 | `host-status` (inline) | Read-only | Host and container inventory. |
 | `octopus-edge-status.sh` | Read-only | Inspects edge state. |
 | `recover-v3-runtime-contract` (`recover_v3_runtime_contract.py`) | Read-only | Inspects runtime metadata and streams an archive; artifact writes are on the runner. |
@@ -94,9 +94,10 @@ failure exits non-zero before starting pgBackRest. See the
 
 The fixed `v3-host-cleanup` exception removes only the four unused directories
 listed in its owner authorization. It reads no database ledger and changes no
-services; the shared `chatgpt-ed-new-ops` concurrency group serializes it
-with an executing purge. It independently rejects Docker mounts/state, PostgreSQL data markers,
-and other mounts/filesystems. This exception supplies no authority for database
+services; the shared `chatgpt-ed-new-ops` concurrency group and a held
+`/run/lock/edfinder-v3-derived-purge.lock` lease serialize it with an executing
+purge, even after a runner or SSH failure. It independently rejects Docker
+mounts/state, PostgreSQL data markers, and other mounts/filesystems. This exception supplies no authority for database
 payload deletion, generic host cleanup, or any additional path.
 
 The three probe/gate launchers above are deliberately fenced under the task's
