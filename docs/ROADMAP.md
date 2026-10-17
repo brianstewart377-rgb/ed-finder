@@ -418,9 +418,10 @@ newer dated source wins).
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.
-  Step 3 runs after P and before 5′, so its full-table scan covers neither the
-  reclaimed `opt1` rows nor the new product's; the `NOT VALID` checks still
-  enforce every subsequent builder insert automatically. The step 3 action `v3-system-search-validate-constraints` is
+  Step 3 runs before 5′. Since the 2026-10-17 amendment it no longer waits for
+  P, so its full-table scan also covers the retained `opt1` rows (time, not
+  correctness) but not the new product's; the `NOT VALID` checks still enforce
+  every subsequent builder insert automatically. The step 3 action `v3-system-search-validate-constraints` is
   merged (#799) and may only start once migration `010` is applied.
   For step 6, the read-only action `v3-archetype-calibration-probe` is merged
   (#800); the probe reads the already-published `parallel_v1` ratings vectors and
@@ -448,8 +449,9 @@ newer dated source wins).
 
   The insert-only `DELETE`/`TRUNCATE` triggers in
   `006_v3_derived_product_lifecycle.sql` remain in force today; the governed purge
-  path that 4″ adds is the only sanctioned way through them, and it is a
-  prerequisite of this rollout by the owner's 2026-10-11 decision below.
+  path that 4″ adds is the only sanctioned way through them. The owner's
+  2026-10-11 decision below made it a prerequisite of this rollout; the
+  2026-10-17 amendment below moves it after go-live.
 
   **Capacity decision amendment (owner, 2026-10-11) — governed purge selected.**
   The 2026-10-10 instruction to defer purge is superseded; decisions A and B
@@ -480,9 +482,12 @@ newer dated source wins).
   after go-live.** The 2026-10-11 pre-build purge ordering is superseded; A + B
   and the purge's scope, design and execution gates stand unchanged. The
   disposable 1% purge rehearsal (run 39024371827) stopped on a ledger
-  state-query timeout that grew with the batch count; that defect is fixed in
-  migration `016` before any apply, but the full-scale purge duration is still
-  unmeasured, while the 2026-10-10 record already shows the Finder fits without
+  state-query timeout that grew with the batch count, caused by migration
+  `016`'s open-event resolver. **Step 2 stays blocked until the reviewed `016`
+  resolver fix (PR #835) has merged**, because the runner applies every pending
+  entry and would otherwise record the quadratic resolver in the production
+  ledger, after which only a corrective migration could change it. The
+  full-scale purge duration is still unmeasured, while the 2026-10-10 record already shows the Finder fits without
   it (87 GB Search + ≈ 76 GB archetype from 292 GB free, ≈ 129 GB headroom,
   before the separately approved host clean-up of ≈ 142 GB). The owner chose
   on 2026-10-17 to build and publish the Finder first and run the governed
