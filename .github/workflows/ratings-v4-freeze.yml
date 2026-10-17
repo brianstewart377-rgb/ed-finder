@@ -64,7 +64,7 @@ jobs:
           python -m pytest tests/test_ratings_v4*.py -q
           python scripts/ratings_v4/verify_freeze.py --postgres --receipt /tmp/ratings-v4-validation-receipt.json
       - name: Retain independent generation validation receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ratings-v4-validation-receipt
           path: /tmp/ratings-v4-validation-receipt.json
@@ -76,7 +76,7 @@ jobs:
           python scripts/ratings_v4/benchmark_source_parser.py --rounds 4 --postgres
           --receipt /tmp/ratings-v4-parser-benchmark.json
       - name: Retain parser and builder benchmark receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ratings-v4-parser-benchmark
           path: /tmp/ratings-v4-parser-benchmark.json
