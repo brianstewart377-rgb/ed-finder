@@ -39,7 +39,12 @@ def test_ops_purge_choices_are_exactly_plan_and_status_with_independent_allowlis
     assert 'v3-derived-purge-plan|v3-derived-purge-status) ;;' in source
     assert workflow['permissions'] == {'contents': 'read'}
     assert workflow['jobs']['execute']['environment'] == 'ed-new-operator'
+    # The whole workflow stays in its own group; the derived purge job holds the
+    # same group, so host clean-up can never overlap a purge. Moving every ops
+    # operation into the application-authority group would let a read-only
+    # dispatch replace a pending release.
     assert workflow['concurrency'] == {'group': 'chatgpt-ed-new-ops', 'cancel-in-progress': 'false'}
+    assert 'concurrency' not in workflow['jobs']['execute']
     run = _step('Run read-only derived purge plan or status')['run']
     assert 'v3-derived-purge-plan) mode=plan ;;' in run
     assert 'v3-derived-purge-status) mode=status ;;' in run

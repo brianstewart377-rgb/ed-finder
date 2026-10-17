@@ -71,7 +71,62 @@ The only current replacement-host helpers presently identified by the V3 control
 - `scripts/operator/actions/v3-app-status.sh`;
 - `scripts/operator/actions/octopus-edge-status.sh`;
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
-- `scripts/operator/recover_v3_runtime_contract.py`.
+- `scripts/operator/recover_v3_runtime_contract.py`;
+- `scripts/operator/actions/v3-host-cleanup.sh` through the bounded operation below.
+
+### Fixed production host clean-up
+
+The owner authorized removal of four unused host directories following the
+2026-10-17 `v3-disk-inventory` receipt from run `39018450185`. Implementation
+base: current `origin/main` at `24d0c4d9127928b886d68f81da7eb200593ee9dc`
+(includes #832). The fixed targets are:
+
+- `/data/v3/source-artifacts/spansh/2026-08-24T205426Z`;
+- `/root/edfinder-v3-benchmark`;
+- `/root/.bun`;
+- `/root/.codex`.
+
+The only operator entry point is a manual dispatch of
+[ChatGPT ed-new Ops](../../.github/workflows/chatgpt-ed-new-ops.yml) on `main`,
+selecting `v3-host-cleanup`. Request-file pushes and dispatches on other refs
+are refused for this operation. Trusted `main` supplies both the action and
+`deploy/v3-production/target-authority.json`; no input, environment variable,
+or argument selects a deletion path. The workflow retains pinned SSH trust,
+uses the existing root/passwordless-sudo handoff, and holds the workflow's
+`chatgpt-ed-new-ops` concurrency group, with cancellation disabled, including
+during the attached SSH run. The governed derived purge job holds that same
+group. The action also takes the purge's host lease at
+`/run/lock/edfinder-v3-derived-purge.lock` before validation and holds it through
+receipt printing. Clean-up and purge exclude each other through both this
+non-blocking host lease and the workflow group, including if the runner or SSH
+dies while the remote action continues. A held lease refuses every path with
+`purge_host_lease_held`.
+
+The action verifies `ed-finder-prod` / `nb79a3d.mevnode.com` against committed
+target authority and runs for at most 1800 seconds. In the order above, it skips
+absent paths and refuses unsafe paths: symlinks or symlinked parents, a changed
+realpath, mount points or overlapping bind-mount sources, another filesystem,
+non-root ownership, Docker volume or Docker-state containment, PostgreSQL data or a nested `PG_VERSION`. The Spansh
+directory additionally requires no process to hold an open file beneath it.
+It measures each accepted directory with `du -sx -B1`, removes only that exact
+directory with `rm -rf --one-file-system --`, and verifies absence. A refusal
+skips that directory and makes the final status `stopped`; other allowlisted
+paths are still checked. Parents are never removal targets.
+
+Every run attempts upload of `v3-host-cleanup-receipt` for 180 days and emits a
+compact `Host clean-up` notice containing each path's outcome, estimated bytes
+removed, and filesystem space reclaimed, including stopped runs. The JSON
+receipt records per-path `bytes_removed_estimate` from `du -sx -B1` before
+deletion (or null if unmeasured), and `filesystem_bytes_reclaimed` as root
+filesystem available bytes after minus before (or null if either observation is
+unavailable). The estimate can exceed space reclaimed because hard links or
+open files retain blocks; the filesystem delta can also reflect other host
+activity. A later refusal can retain the pre-deletion estimate, so always read
+it alongside the outcome. The receipt also records root filesystem usage
+before/after and whether any filesystem removal occurred. Database writes and
+service changes remain false.
+Review the notice and receipt before any retry; an already-removed path becomes
+`already_absent`. This code change does not execute the clean-up.
 
 The production application promotion surface is separately and exclusively
 identified by `docs/operations/v3-production-application-release.md` and
