@@ -99,7 +99,7 @@ def test_allowlist_is_exact_literal_tuple_and_is_not_loaded_from_external_inputs
     assert len(assignments) == 1
     assert ast.literal_eval(assignments[0].value) == EXPECTED_PATHS
     source = ACTION.read_text()
-    assert "-I -B" in source
+    assert "-I -S -B" in source
     assert "--one-file-system" in source
     assert not any(token in source for token in ("argparse", "os.getenv", "os.environ.get(\"ROOT\"", "glob("))
 

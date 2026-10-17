@@ -26,6 +26,7 @@ on:
           - v3-derived-purge-plan
           - v3-derived-purge-status
           - v3-disk-inventory
+          - v3-host-storage-detail
           - v3-host-cleanup
           - v3-backup-wrapper-install
           - v3-system-search-validate-constraints-start
@@ -98,6 +99,7 @@ jobs:
             host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-derived-lifecycle-status) ;;
             v3-derived-purge-plan|v3-derived-purge-status) ;;
             v3-disk-inventory) ;;
+            v3-host-storage-detail) ;;
             v3-host-cleanup)
               [ "$EVENT_NAME" = workflow_dispatch ] && [ "$CURRENT_REF" = refs/heads/main ] || {
                 echo "V3 host clean-up requires a manual dispatch on main" >&2; exit 64;
@@ -337,6 +339,117 @@ jobs:
         with:
           name: v3-disk-inventory-receipt
           path: ${{ runner.temp }}/v3-disk-inventory-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Inspect V3 host storage detail
+        if: steps.request.outputs.operation == 'v3-host-storage-detail'
+        timeout-minutes: 12
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-host-storage-detail-receipt.json
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          # Root access lets the read-only inventory measure otherwise inaccessible
+          # directories. The streamed action never creates host files or queries DBs.
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s; else echo 'V3 host storage detail requires root or passwordless sudo' >&2; exit 64; fi"
+          status=0
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "cd /opt/ed-finder && $remote" < trusted-main/scripts/operator/actions/v3-host-storage-detail.sh > "$RECEIPT" || status=$?
+          exit "$status"
+
+      - name: Annotate V3 host storage detail
+        if: always() && steps.request.outputs.operation == 'v3-host-storage-detail'
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-host-storage-detail-receipt.json
+        run: |
+          python3 -I - <<'PYTHON'
+          import json
+          import os
+          import pathlib
+
+          PREFIX = "::notice title=Host storage detail::"
+
+          def escape(value):
+              return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def short(value, limit=180):
+              text = str(value)
+              return text if len(text) <= limit else text[:limit] + "[field truncated]"
+
+          def size(value):
+              if isinstance(value, (int, float)) and not isinstance(value, bool):
+                  return f"{value / (1024 ** 3):.2f} GiB ({value:.0f} B)"
+              return "unknown"
+
+          def emit(label, rows, pages=1):
+              # Reserve space for the omission disclosure after packing escaped rows.
+              rows = list(rows) or ["(none or unavailable)"]
+              index = 0
+              for page in range(pages):
+                  text = f"{label} ({page + 1}):"
+                  while index < len(rows):
+                      candidate = text + "\n" + rows[index]
+                      if len(PREFIX) + len(escape(candidate)) > 3700:
+                          break
+                      text = candidate
+                      index += 1
+                  if index < len(rows) and page == pages - 1:
+                      text += f"\n[truncated: {len(rows) - index} more entries; full receipt in artifact]"
+                  print(PREFIX + escape(text))
+                  if index == len(rows):
+                      break
+
+          try:
+              receipt = json.loads(pathlib.Path(os.environ["RECEIPT"]).read_text())
+              if not isinstance(receipt, dict):
+                  raise ValueError("receipt is not an object")
+          except (OSError, ValueError) as error:
+              emit("Receipt unavailable", [short(error, 500)])
+              raise SystemExit(0)
+
+          failures = receipt.get("failures", [])
+          emit("Result", [
+              "status=" + short(receipt.get("status", "unknown")),
+              "failures=" + short(json.dumps(failures, ensure_ascii=True), 700),
+              "read_only=" + short(receipt.get("read_only", "unknown")),
+              "content_writes_performed=" + short(receipt.get("content_writes_performed", "unknown")),
+              "directory_atime_metadata_writes_possible=" + short(receipt.get("directory_atime_metadata_writes_possible", "unknown")),
+              "var_lib_scan_refused=" + short(receipt.get("var_lib_scan_refused", False)),
+          ])
+          volumes = sorted(receipt.get("volumes", []), key=lambda row: row.get("size_bytes") or -1, reverse=True)
+          emit("Docker volumes by size", (
+              f"{short(row.get('name', '?'))}: {size(row.get('size_bytes'))}; "
+              f"measured={row.get('measured', 'unknown')}; reason={short(row.get('reason', ''))}; "
+              f"in_use={row.get('in_use', 'unknown')}; containers=" + short(
+                  ", ".join(f"{item.get('name', '?')} ({item.get('state', '?')})" for item in (row.get("containers") or [])), 260
+              )
+              for row in volumes
+          ), pages=2)
+          images = sorted(receipt.get("images", []), key=lambda row: row.get("size_bytes") or -1, reverse=True)
+          emit("Docker images by size", (
+              f"{short(row.get('repository_tag', '?'))} [{short(row.get('id', '?'), 80)}]: "
+              f"{size(row.get('size_bytes'))}; in_use={row.get('in_use', 'unknown')}"
+              for row in images
+          ), pages=2)
+          entries = sorted(receipt.get("var_lib_top", []), key=lambda row: row.get("size_bytes") or -1, reverse=True)
+          emit("/var/lib top entries (production pgdata excluded)", (
+              f"{short(row.get('path', '?'), 350)}: {size(row.get('size_bytes'))}"
+              for row in entries
+          ), pages=2)
+          PYTHON
+
+      - name: Upload V3 host storage detail receipt
+        if: always() && steps.request.outputs.operation == 'v3-host-storage-detail'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-host-storage-detail-receipt
+          path: ${{ runner.temp }}/v3-host-storage-detail-receipt.json
           if-no-files-found: error
           retention-days: 30
 

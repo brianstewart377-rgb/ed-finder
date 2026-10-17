@@ -11,7 +11,7 @@ fi
 # timeout owns the entire process group, including du/rm. Even an unresponsive
 # Python process or child is killed before 1800 seconds. Python reserves time to
 # emit a stopped receipt before this last-resort ceiling.
-exec timeout --signal=TERM --kill-after=5s 1790s "$PYTHON_BIN" -I -B - "$@" <<'PY'
+exec timeout --signal=TERM --kill-after=5s 1790s "$PYTHON_BIN" -I -S -B - "$@" <<'PY'
 from __future__ import annotations
 
 import base64
