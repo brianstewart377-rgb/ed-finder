@@ -868,3 +868,41 @@ def test_host_lease_stays_held_until_receipt_print_is_flushed(tmp_path, monkeypa
             os.close(contender)
     finally:
         module.release_host_lease()
+
+
+def test_namespace_mounts_with_pseudo_roots_on_other_devices_are_accepted(monkeypatch):
+    module = _module()
+    contents = (
+        "1 0 8:1 / / rw - ext4 /dev/root rw\n"
+        "2 1 0:4 net:[4026532451] /run/docker/netns/0f1e2d3c4b5a rw shared:1 - nsfs nsfs rw\n"
+        "3 1 0:4 mnt:[4026532200] /run/snapd/ns/lxd.mnt rw - nsfs nsfs rw\n"
+    )
+    monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
+    points, sources = module.mount_points()
+    assert "/run/docker/netns/0f1e2d3c4b5a" in points
+    assert sources == ()
+
+
+@pytest.mark.parametrize("contents", [
+    # A pseudo root on the root filesystem's own device is unexplained.
+    "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 net:[1] /elsewhere rw - ext4 /dev/root rw\n",
+    # The root mount itself must expose a path.
+    "1 0 8:1 net:[1] / rw - ext4 /dev/root rw\n",
+])
+def test_pseudo_root_on_root_device_or_root_mount_fails_closed(monkeypatch, contents):
+    module = _module()
+    monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
+    with pytest.raises(RuntimeError, match="mount_table_unverified|root_mount_unverified"):
+        module.mount_points()
+
+
+def test_stacked_root_uses_the_visible_later_entry(monkeypatch):
+    module = _module()
+    contents = (
+        "1 0 0:2 / / rw - rootfs rootfs rw\n"
+        "2 1 8:1 / / rw - ext4 /dev/root rw\n"
+        "3 2 8:1 /srv/data /mnt/data rw - ext4 /dev/root rw\n"
+    )
+    monkeypatch.setattr(module, "open", lambda *args, **kwargs: io.StringIO(contents), raising=False)
+    points, sources = module.mount_points()
+    assert sources == ("/srv/data",)

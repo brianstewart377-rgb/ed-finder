@@ -134,19 +134,27 @@ def mount_points() -> tuple[tuple[str, ...], tuple[str, ...]]:
             if (
                 len(fields) < 10 or "-" not in fields[6:]
                 or not re.fullmatch(r"[0-9]+:[0-9]+", fields[2])
-                or not fields[3].startswith("/") or not fields[4].startswith("/")
+                or not fields[4].startswith("/")
             ):
                 raise RuntimeError("mount_table_unverified")
             root = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), fields[3])
             point = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), fields[4])
             entries.append((fields[2], root, point))
     root_mounts = [entry for entry in entries if entry[2] == "/"]
-    if len(root_mounts) != 1:
+    # A stacked "/" shows the later entry, as mountinfo lists mounts in order.
+    if not root_mounts or not root_mounts[-1][1].startswith("/"):
         raise RuntimeError("root_mount_unverified")
-    root_device = root_mounts[0][0]
+    root_device = root_mounts[-1][0]
+    # Namespace mounts such as Docker network namespaces report a pseudo root
+    # like net:[4026532...] on their own nsfs device; they expose no directory
+    # of the root filesystem. A non-path root on the root device would be
+    # unexplained, so it still refuses.
+    if any(device == root_device and not root.startswith("/") for device, root, _ in entries):
+        raise RuntimeError("mount_table_unverified")
     return (
         tuple(point for _, _, point in entries),
-        tuple(root for device, root, point in entries if device == root_device and point != "/"),
+        tuple(root for device, root, point in entries
+              if device == root_device and point != "/" and root.startswith("/")),
     )
 
 
