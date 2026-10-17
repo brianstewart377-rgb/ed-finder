@@ -44,10 +44,11 @@ products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
 the generation pointer does not move; no production migration apply may run
 until the rewritten `011`, `015` and the governed-purge migration `016` are
 registered, because the runner applies every pending entry. **Amendment
-2026-10-11 (owner):** the purge deferral is superseded — a governed purge of
-`ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1` runs before either Finder
-product build (`docs/development/v3-governed-derived-purge-design.md`; ROADMAP
-steps 4″ and P). The Finder archetype UI (F4) is gated on F2c/F3, not
+2026-10-17 (owner):** the Finder goes live first — the 2026-10-11 pre-build
+purge ordering is superseded, and the governed purge of `ratings_v4_prod_p4`
+and `ratings_v4_prod_p4_opt1` (`docs/development/v3-governed-derived-purge-design.md`;
+ROADMAP step P) runs after go-live, with its design and gates unchanged; the
+step 7′ capacity gate still guards the builds. The Finder archetype UI (F4) is gated on F2c/F3, not
 UI-only yet) is in `docs/ROADMAP.md` "Programme status —
 2026-09-26" and its "Capacity decision" paragraph; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
