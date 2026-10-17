@@ -4,6 +4,7 @@
 # floating tag is refreshed by the weekly run. Digests are always preserved,
 # so a pinned reference resolves to the same bytes in either registry.
 public.ecr.aws/docker/library/postgres:18-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
+public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine-pin-77f585114c32
 public.ecr.aws/docker/library/postgres:16-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:16-alpine
 public.ecr.aws/docker/library/redis:7-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine
 public.ecr.aws/docker/library/python:3.14-slim ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-slim

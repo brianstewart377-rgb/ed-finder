@@ -14,6 +14,7 @@ NAMESPACE = 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/'
 SOURCE = re.compile(
     r'public\.ecr\.aws/docker/library/[a-z0-9._-]+:[A-Za-z0-9._-]+(?:@sha256:[0-9a-f]{64})?'
 )
+ADJACENT_LITERALS = re.compile(r"(?<=[A-Za-z0-9:@/._-])(['\"])\s*\n\s*\1")
 # Prose records history; executable references are what CI pulls.
 SCANNED_SUFFIXES = {'.yml', '.yaml', '.py', '.sh', ''}
 
@@ -53,7 +54,11 @@ def test_every_executable_public_ecr_reference_is_mirrored():
             continue
         if path == MIRROR_LIST or path.parts[len(ROOT.parts)] == 'docs':
             continue
-        for reference in SOURCE.findall(path.read_text(errors='ignore')):
+        text = path.read_text(errors='ignore')
+        if path.suffix == '.py':
+            # Join adjacent string literals split across lines, as Python does.
+            text = ADJACENT_LITERALS.sub('', text)
+        for reference in SOURCE.findall(text):
             if reference not in mirrored:
                 missing.add((str(path.relative_to(ROOT)), reference))
     assert not missing, sorted(missing)
@@ -75,3 +80,10 @@ def test_mirror_workflow_is_bounded_and_preserves_digests():
         uses = step.get('uses')
         if uses:
             assert re.fullmatch(r'[\w.-]+/[\w.-]+@[0-9a-f]{40}', uses.split(' ')[0]), uses
+
+
+def test_scan_joins_adjacent_python_literals():
+    text = ("IMAGE = ('public.ecr.aws/docker/library/postgres:18-alpine@sha256:'\n"
+            "         '" + '7' * 64 + "')\n")
+    joined = ADJACENT_LITERALS.sub('', text)
+    assert SOURCE.findall(joined) == ['public.ecr.aws/docker/library/postgres:18-alpine@sha256:' + '7' * 64]
