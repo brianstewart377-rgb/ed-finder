@@ -75,7 +75,9 @@ def test_mirror_workflow_is_bounded_and_preserves_digests():
     text = WORKFLOW.read_text()
     assert '--all --preserve-digests' in text
     # Fallback sources serve the same official images; pins are still verified.
-    assert '"mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"' in text
+    assert '"mirror.gcr.io/library/$reference" "$listed" "docker.io/library/$reference"' in text
+    # Pinned sources drop the tag: skopeo refuses name:tag@digest.
+    assert 'reference="${reference%%:*}@${reference##*@}"' in text
     assert '[ "$pinned" != "$destination_digest" ]' in text
     assert '--password-stdin' in text and '--password ' not in text
     assert 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/*' in text
@@ -99,3 +101,19 @@ def test_fallback_deadlines_fit_inside_the_job_timeout():
     worst_case_minutes = len(mirror_entries()) * 3 * per_candidate / 60
     # Leave at least 30 minutes for setup, verification and the anonymous check.
     assert worst_case_minutes + 30 <= job_minutes, (worst_case_minutes, job_minutes)
+
+
+def test_pinned_reference_is_rewritten_to_name_at_digest():
+    import subprocess
+    script = (
+        'source="$1"; reference="${source#public.ecr.aws/docker/library/}"\n'
+        'if [[ "$reference" == *@sha256:* ]]; then reference="${reference%%:*}@${reference##*@}"; fi\n'
+        'printf "%s" "$reference"'
+    )
+    digest = 'sha256:' + 'a' * 64
+    pinned = subprocess.run(['bash', '-c', script, '_', 'public.ecr.aws/docker/library/nginx:1.29-alpine@' + digest],
+                            capture_output=True, text=True, check=True).stdout
+    assert pinned == 'nginx@' + digest
+    floating = subprocess.run(['bash', '-c', script, '_', 'public.ecr.aws/docker/library/postgres:18-alpine'],
+                              capture_output=True, text=True, check=True).stdout
+    assert floating == 'postgres:18-alpine'
