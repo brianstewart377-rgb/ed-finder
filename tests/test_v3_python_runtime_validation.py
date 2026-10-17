@@ -20,7 +20,7 @@ LEGACY_DRIVER = "psycopg" + "2"
 OLD_PYTHON = re.compile(
     r"(?i)(?:(?:cpython|python)\s+3\.(?:11|12|13)\b|"
     r"python-version\s*:\s*['\"]?3\.(?:11|12|13)\b|"
-    r"FROM\s+(?:public\.ecr\.aws/docker/library/)?python:3\.(?:11|12|13)\b|"
+    r"FROM\s+(?:public\.ecr\.aws/docker/library/|ghcr\.io/brianstewart377-rgb/ed-finder/mirror/)?python:3\.(?:11|12|13)\b|"
     r"python3\.(?:11|12|13)\b|py\s+-3\.(?:11|12|13)\b|"
     r"\b(?:py|cp)3(?:11|12|13)\b)"
 )
@@ -138,7 +138,7 @@ def test_python_project_and_container_authorities_are_exactly_314():
     ):
         text = path.read_text(encoding="utf-8")
         python_bases = re.findall(
-            r"^FROM public\.ecr\.aws/docker/library/python:([^\s@]+)",
+            r"^FROM ghcr\.io/brianstewart377-rgb/ed-finder/mirror/python:([^\s@]+)",
             text,
             flags=re.MULTILINE,
         )
