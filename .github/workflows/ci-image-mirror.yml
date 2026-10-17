@@ -23,7 +23,7 @@ jobs:
   mirror:
     name: Mirror CI base images to ghcr.io
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     permissions:
       contents: read
       packages: write
@@ -63,11 +63,13 @@ jobs:
             # whose anonymous pulls share a per-IP data limit with every other
             # GitHub runner. Google's Docker Hub mirror and Docker Hub serve the
             # same official images with the same digests, so try them in turn.
+            # Worst case 12 entries x 3 candidates x 300 s = 180 minutes, inside
+            # the 240-minute job limit with room for setup and verification.
             reference="${source#public.ecr.aws/docker/library/}"
             copied_from=""
             last_error=""
             for candidate in "mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"; do
-              if error=$(timeout 420 skopeo copy --all --preserve-digests --retry-times 2 \
+              if error=$(timeout 300 skopeo copy --all --preserve-digests --retry-times 2 \
                   "docker://$candidate" "docker://$destination" 2>&1 >/dev/null); then
                 copied_from="$candidate"
                 break
