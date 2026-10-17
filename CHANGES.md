@@ -21,6 +21,20 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-17 — Purge ledger state queries scale with batch history
+
+The 1% disposable purge rehearsal stopped with `purge_state_query_failed`
+during its third `delete-economy_opportunity` dispatch. Migration 016's
+`purge_open_event` anti-joined every opening ledger event against every
+closing event, so its cost grew with the square of the batch count, and the
+operator state query let the planner call it once per batch event. The
+never-applied 016 now resolves open events in one grouped last-closing pass
+with identical results (randomised PG18 equivalence test), and the state
+query materialises its scopes. Twenty thousand closed batches per relation
+and request now resolve in about 0.13 s instead of about 30 s. The migration
+checksum, manifest, target-authority migration-set identity and external
+schema-identity checksum are re-pinned. No production operation is included.
+
 ## 2026-10-16 — Disposable governed purge rehearsal (P2d)
 
 Added a manual Contabo self-hosted rehearsal workflow with a credential-free
