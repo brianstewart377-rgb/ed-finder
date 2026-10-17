@@ -9,6 +9,7 @@ ALLOWED_VISIBLE_ROOT_FILES = {
     'AGENTS.md',
     'CHANGES.md',
     'CLAUDE.md',
+    'docker-compose.lab.yml',
     'docker-compose.local.yml',
     'docker-compose.localtest.yml',
     'docker-compose.review-hosted.yml',
