@@ -198,12 +198,26 @@ def scan_guard(path):
     entries = read_mountinfo()
     exclusions = excluded_paths()
     if path == "/var/lib" or below(path, "/var/lib"):
-        root_device = next(e["device"] for e in reversed(entries) if e["point"] == "/")
+        # du -x skips mounts of other devices, such as the overlay mounts of
+        # running containers and their shm tmpfs, so only mounts of the device
+        # that holds /var/lib can be walked twice or lead outside it.
+        holders = [
+            e
+            for e in entries
+            if e["point"] in ("/", "/var/lib") or below("/var/lib", e["point"])
+        ]
+        # Later entries are visible for stacked mounts, so prefer the last one.
+        holder = max(reversed(holders), key=lambda e: len(e["point"]))
+        scan_device = holder["device"]
+        # Mount roots are relative to the filesystem, not to the host tree.
+        suffix = "/var/lib"[len(holder["point"].rstrip("/")) :]
+        source = (holder["root"].rstrip("/") + suffix) or "/"
         offending = sorted(
             {
                 e["point"]
                 for e in entries
-                if e["point"] != "/"
+                if e["point"] not in ("/", "/var/lib")
+                and e["device"] == scan_device
                 and (
                     (
                         below(e["point"], "/var/lib")
@@ -211,10 +225,8 @@ def scan_guard(path):
                             e["point"] == x or below(e["point"], x) for x in exclusions
                         )
                     )
-                    or (
-                        e["device"] == root_device
-                        and (e["root"] == "/var/lib" or below(e["root"], "/var/lib"))
-                    )
+                    or e["root"] == source
+                    or below(e["root"], source)
                 )
             }
         )
@@ -228,10 +240,14 @@ def scan_guard(path):
     covering = [p for p in visible if path == p or below(path, p)]
     if not covering:
         raise RuntimeError("scan_mount_unresolved")
-    points = {max(covering, key=len)} | {
+    top = max(covering, key=len)
+    # du -x never enters mounts of other devices, so they cannot gain atimes.
+    points = {top} | {
         p
         for p in visible
-        if below(p, path) and not any(p == x or below(p, x) for x in exclusions)
+        if below(p, path)
+        and visible[p]["device"] == visible[top]["device"]
+        and not any(p == x or below(p, x) for x in exclusions)
     }
     guard = receipt.setdefault(
         "directory_atime_guard",

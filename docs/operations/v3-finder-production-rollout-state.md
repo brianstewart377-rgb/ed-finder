@@ -839,10 +839,15 @@ any scanned path's mount lacks `noatime`, `nodiratime` or `ro`;
 action does not change mount options or write file content.
 
 Before any `du` under `/var/lib`, the action parses `/proc/self/mountinfo` and
-octal-unescapes its fields. It refuses that scan if any mountpoint other than
-`/` lies strictly under `/var/lib`, except an excluded PGDATA mount, or if any
-other entry on the root filesystem's major:minor device has a mount root under
-`/var/lib` (a bind source). The receipt records `var_lib_scan_refused:
+octal-unescapes its fields. `du -x` already skips mounts of other devices
+(the overlay mounts of running containers, their `shm` tmpfs, a separate disk),
+so only mounts of the device that holds `/var/lib` matter. On that device the
+action refuses the scan if any mountpoint lies strictly under `/var/lib`,
+except an excluded PGDATA mount, or if any entry's mount root is the
+`/var/lib` directory or below it (a bind source exposed elsewhere). Mount roots
+are resolved relative to the filesystem holding `/var/lib`, which matters if
+`/var/lib` is a separate filesystem. Directory atime claims are likewise
+limited to mounts on the scanned device. The receipt records `var_lib_scan_refused:
 nested_mount` and the offending mountpoints; other read-only sections continue.
 A mount-table change during the observation also stops the receipt. Python runs
 with `-I -B` and its code is passed as an argument, avoiding both bytecode writes

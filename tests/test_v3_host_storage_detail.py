@@ -366,7 +366,6 @@ def test_suppressed_directory_atime_and_excluded_pgdata_mount(tmp_path, options)
     "device,root,point,decoded_point",
     [
         ("8:1", "/", "/var/lib/alias", "/var/lib/alias"),
-        ("8:2", "/", "/var/lib/external", "/var/lib/external"),
         ("8:1", "/var/lib/docker", "/mnt/bind", "/mnt/bind"),
         ("8:1", "/var/lib", "/mnt/bind", "/mnt/bind"),
         ("8:1", r"/var/lib/with\040space", r"/mnt/bind\011tab", "/mnt/bind\ttab"),
@@ -401,6 +400,13 @@ def test_nested_or_bind_mount_refuses_all_var_lib_du_but_keeps_inventory(
         "3 1 8:2 /var/lib/docker /mnt/other rw,relatime - ext4 /dev/other rw\n",
         "3 1 8:1 /var/library /mnt/other rw,relatime - ext4 /dev/test rw\n",
         "3 1 8:1 / /var/library rw,relatime - ext4 /dev/test rw\n",
+        # Other-device mounts that du -x skips: a running container overlay,
+        # its shm tmpfs, and a separate disk mounted under /var/lib.
+        "3 1 0:51 / /var/lib/docker/overlay2/abc/merged rw,relatime"
+        " - overlay overlay rw\n",
+        "3 1 0:52 / /var/lib/docker/containers/abc/mounts/shm rw,relatime"
+        " - tmpfs shm rw\n",
+        "3 1 8:2 / /var/lib/external rw,relatime - ext4 /dev/other rw\n",
     ],
 )
 def test_unrelated_mounts_do_not_refuse_or_taint_atime_claims(tmp_path, entry):
@@ -499,3 +505,33 @@ def test_nested_mount_refusal_preserves_volume_scans_outside_var_lib(tmp_path):
     volume = next(v for v in receipt["volumes"] if v["name"] == "unused")
     assert volume["measured"] is True
     assert "root_filesystem_after" in receipt
+
+
+@pytest.mark.parametrize(
+    "extra,offending,refused",
+    [
+        # /var/lib is its own filesystem: mount roots are relative to it.
+        ("4 1 8:3 /docker /mnt/bind rw,noatime - ext4 /dev/vl rw\n", "/mnt/bind", True),
+        (
+            "4 1 8:3 / /var/lib/alias rw,noatime - ext4 /dev/vl rw\n",
+            "/var/lib/alias",
+            True,
+        ),
+        # Same relative root on the ROOT device is a different directory.
+        ("4 1 8:1 /docker /mnt/bind rw,noatime - ext4 /dev/test rw\n", None, False),
+    ],
+)
+def test_separate_var_lib_filesystem_resolves_bind_sources_relative_to_it(
+    tmp_path, extra, offending, refused
+):
+    status, receipt, calls = _run(
+        tmp_path,
+        mountinfo_extra="3 1 8:3 / /var/lib rw,noatime - ext4 /dev/vl rw\n" + extra,
+    )
+    if refused:
+        assert receipt["var_lib_scan_refused"] == "nested_mount"
+        assert receipt["var_lib_scan_offending_mount_points"] == [offending]
+        assert not any(c[0] == "du" and c[-1].startswith("/var/lib") for c in calls)
+    else:
+        assert status == 0
+        assert "var_lib_scan_refused" not in receipt
