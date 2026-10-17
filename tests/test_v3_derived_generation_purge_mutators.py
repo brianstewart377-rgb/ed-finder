@@ -118,7 +118,7 @@ def test_streamed_mutators_preserve_refusal_receipts(name: str, failure: str) ->
 
 @pytest.mark.parametrize("name", (
     "octopus-edge-status", "v3-app-status", "v3-spatial-status",
-    "v3-derived-lifecycle-status", "v3-disk-inventory",
+    "v3-derived-lifecycle-status", "v3-disk-inventory", "v3-host-storage-detail",
 ))
 def test_read_only_inventory_status_actions_do_not_take_purge_fence(name: str) -> None:
     source = (ACTIONS / f"{name}.sh").read_text()

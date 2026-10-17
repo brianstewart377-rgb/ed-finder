@@ -1,5 +1,10 @@
 # Finder rollout — capacity decision (2026-10-10)
 
+**Status amendment (2026-10-17):** the owner restored the build-first order: the
+Finder products are built and published first and the governed purge runs after
+go-live, as recorded in the controlling [`docs/ROADMAP.md`](../ROADMAP.md)
+amendment of that date. A + B and the step 7′ capacity gate stand.
+
 **Status amendment (2026-10-11):** the owner retained A + B but superseded the
 purge deferral by selecting the governed pre-build purge sequence in
 [`docs/development/v3-governed-derived-purge-design.md`](../development/v3-governed-derived-purge-design.md)

@@ -31,6 +31,15 @@ their manifest digests preserved and verified, then checks the packages pull
 anonymously. A contract test keeps every executable `public.ecr.aws` reference
 on the mirror list. Switching CI, Review Lab and image builds to the mirror is
 a follow-up once the mirror is populated. No production operation is included.
+## 2026-10-17 — Finder first, governed purge after go-live (owner decision)
+
+The owner restored the build-first order: the 2026-10-11 pre-build purge
+ordering is superseded, so the Finder products are built and published on
+`parallel_v1` first (step 7′'s capacity gate still guards the builds) and the
+governed purge of `ratings_v4_prod_p4`/`opt1` runs afterwards with its design
+and gates unchanged. A host disk upgrade waits for NVMe availability.
+`docs/ROADMAP.md`, `CLAUDE.md` and the capacity decision record carry the
+amendment. Documentation only; no production operation is included.
 ## 2026-10-17 — Purge ledger state queries scale with batch history
 
 The 1% disposable purge rehearsal stopped with `purge_state_query_failed`
