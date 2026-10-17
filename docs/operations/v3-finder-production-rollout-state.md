@@ -857,7 +857,8 @@ are resolved relative to the filesystem holding `/var/lib`, which matters if
 limited to mounts on the scanned device. The receipt records `var_lib_scan_refused:
 nested_mount` and the offending mountpoints; other read-only sections continue.
 A mount-table change during the observation also stops the receipt. Python runs
-with `-I -B` and its code is passed as an argument, avoiding both bytecode writes
+with `-I -S -B` (no `site` import, so no `.pth` or `sitecustomize` code runs as
+root) and its code is passed as an argument, avoiding both bytecode writes
 and Bash's possible spooling of a large here-document to a temporary host file.
 
 The full JSON is retained as `v3-host-storage-detail-receipt`. Operators who

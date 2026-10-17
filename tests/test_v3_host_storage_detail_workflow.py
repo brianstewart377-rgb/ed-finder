@@ -99,7 +99,7 @@ def test_host_storage_detail_is_read_only_and_excludes_production_pgdata() -> No
     source = ACTION.read_text()
     for forbidden in (r"\brm\b", r"\bprune\b", r"\brmi\b"):
         assert re.search(forbidden, source) is None
-    assert '"$PYTHON_BIN" -I -B -c' in source
+    assert '"$PYTHON_BIN" -I -S -B -c' in source
     assert f'PGDATA_PATH = "{PGDATA}"' in source
     assert (
         'command.extend("--exclude=" + x for x in sorted(excluded_paths()))' in source

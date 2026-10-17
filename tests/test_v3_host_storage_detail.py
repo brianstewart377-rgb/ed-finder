@@ -21,7 +21,7 @@ PGDATA = "/var/lib/docker/volumes/edfinder-v3-phase4c-full-20260827_r5-pgdata"
 def _code():
     words = shlex.split(ACTION.read_text().split("exec timeout", 1)[1])
     assert words[:2] == ["--signal=KILL", "600"]
-    assert words[-4:-1] == ["-I", "-B", "-c"]
+    assert words[-5:-1] == ["-I", "-S", "-B", "-c"]
     return words[-1]
 
 

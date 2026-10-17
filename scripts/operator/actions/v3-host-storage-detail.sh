@@ -12,7 +12,7 @@ fi
 # Use -c rather than a large here-document: bash may spool heredocs to disk.
 # Isolated stdlib imports cannot load worktree code or write bytecode.
 # The outer ceiling also covers interpreter startup; Python reserves receipt time.
-exec timeout --signal=KILL 600 "$PYTHON_BIN" -I -B -c 'from __future__ import annotations
+exec timeout --signal=KILL 600 "$PYTHON_BIN" -I -S -B -c 'from __future__ import annotations
 
 import json
 import os
