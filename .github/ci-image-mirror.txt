@@ -1,0 +1,16 @@
+# CI base-image mirror: public.ecr.aws (anonymous, IP data-limited) -> ghcr.io.
+# One line per image: <source reference> <ghcr.io destination name:tag>.
+# A source with @sha256 is copied by digest and verified against it; a
+# floating tag is refreshed by the weekly run. Digests are always preserved,
+# so a pinned reference resolves to the same bytes in either registry.
+public.ecr.aws/docker/library/postgres:18-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
+public.ecr.aws/docker/library/postgres:16-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:16-alpine
+public.ecr.aws/docker/library/redis:7-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine
+public.ecr.aws/docker/library/python:3.14-slim ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-slim
+public.ecr.aws/docker/library/python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-slim-pin-cad9a2c87176
+public.ecr.aws/docker/library/python:3.14-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/python:3.14-alpine
+public.ecr.aws/docker/library/node:24-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/node:24-alpine
+public.ecr.aws/docker/library/node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf ghcr.io/brianstewart377-rgb/ed-finder/mirror/node:24-alpine-pin-e67514e5d0f6
+public.ecr.aws/docker/library/nginx:1.29-alpine ghcr.io/brianstewart377-rgb/ed-finder/mirror/nginx:1.29-alpine
+public.ecr.aws/docker/library/nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de ghcr.io/brianstewart377-rgb/ed-finder/mirror/nginx:1.29-alpine-pin-5616878291a2
+public.ecr.aws/docker/library/nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 ghcr.io/brianstewart377-rgb/ed-finder/mirror/nginx:1.28-alpine-pin-a8b39bd9cf0f

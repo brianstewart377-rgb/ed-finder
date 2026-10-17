@@ -1,0 +1,106 @@
+name: CI base-image mirror
+
+# Copies the public base images that CI, Review Lab and the image builds use
+# from public.ecr.aws, whose anonymous pulls hit a shared per-IP data limit,
+# into this repository's GitHub Container Registry. Manifests are copied with
+# every platform and their digests preserved, so a digest-pinned reference
+# resolves to the same bytes from either registry. This workflow only writes
+# mirror packages; it touches no production host, database or release.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-image-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Mirror CI base images to ghcr.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout mirror list
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ensure skopeo is available
+        run: |
+          set -euo pipefail
+          if ! command -v skopeo >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq skopeo
+          fi
+          skopeo --version
+
+      - name: Log in to ghcr.io
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Copy images with every platform and their digests preserved
+        run: |
+          set -euo pipefail
+          failures=0
+          while read -r source destination; do
+            case "$source" in ''|'#'*) continue ;; esac
+            case "$destination" in
+              ghcr.io/brianstewart377-rgb/ed-finder/mirror/*) ;;
+              *) echo "::error title=Image mirror::destination outside the mirror namespace: $destination"; exit 1 ;;
+            esac
+            copied=false
+            for attempt in 1 2 3 4 5; do
+              if skopeo copy --all --preserve-digests --retry-times 3 \
+                  "docker://$source" "docker://$destination"; then
+                copied=true
+                break
+              fi
+              sleep $((attempt * 20))
+            done
+            if [ "$copied" != true ]; then
+              echo "::error title=Image mirror::copy failed: $source"
+              failures=$((failures + 1))
+              continue
+            fi
+            # The destination manifest must be byte-identical to the source
+            # one, and a pinned source must match its own pinned digest.
+            source_digest="sha256:$(skopeo inspect --raw --retry-times 3 "docker://$source" | sha256sum | cut -d' ' -f1)"
+            destination_digest="sha256:$(skopeo inspect --raw --retry-times 3 "docker://$destination" | sha256sum | cut -d' ' -f1)"
+            pinned="${source##*@}"
+            if [ "$source_digest" != "$destination_digest" ] || { [ "$pinned" != "$source" ] && [ "$pinned" != "$destination_digest" ]; }; then
+              echo "::error title=Image mirror::digest mismatch for $destination ($source_digest vs $destination_digest)"
+              failures=$((failures + 1))
+              continue
+            fi
+            echo "::notice title=Image mirrored::$destination = $destination_digest"
+          done < .github/ci-image-mirror.txt
+          [ "$failures" -eq 0 ]
+
+      - name: Check anonymous pulls work
+        run: |
+          set -euo pipefail
+          skopeo logout ghcr.io || true
+          private=()
+          while read -r source destination; do
+            case "$source" in ''|'#'*) continue ;; esac
+            if ! skopeo inspect --raw --no-creds --retry-times 3 "docker://$destination" >/dev/null 2>&1; then
+              private+=("${destination%%:*}")
+            fi
+          done < .github/ci-image-mirror.txt
+          if [ "${#private[@]}" -gt 0 ]; then
+            names=$(printf '%s\n' "${private[@]}" | sort -u | tr '\n' ' ')
+            echo "::error title=Mirror packages not public::Set these packages to public in the repository package settings: $names"
+            exit 1
+          fi
+          echo "::notice title=Image mirror::all mirror packages pull anonymously"
