@@ -23,7 +23,7 @@ jobs:
   mirror:
     name: Mirror CI base images to ghcr.io
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     permissions:
       contents: read
       packages: write
@@ -59,23 +59,30 @@ jobs:
               ghcr.io/brianstewart377-rgb/ed-finder/mirror/*) ;;
               *) echo "::error title=Image mirror::destination outside the mirror namespace: $destination"; exit 1 ;;
             esac
-            copied=false
-            for attempt in 1 2 3 4 5; do
-              if skopeo copy --all --preserve-digests --retry-times 3 \
-                  "docker://$source" "docker://$destination"; then
-                copied=true
+            # The listed source is the Docker official image on public.ecr.aws,
+            # whose anonymous pulls share a per-IP data limit with every other
+            # GitHub runner. Google's Docker Hub mirror and Docker Hub serve the
+            # same official images with the same digests, so try them in turn.
+            reference="${source#public.ecr.aws/docker/library/}"
+            copied_from=""
+            last_error=""
+            for candidate in "mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"; do
+              if error=$(timeout 420 skopeo copy --all --preserve-digests --retry-times 2 \
+                  "docker://$candidate" "docker://$destination" 2>&1 >/dev/null); then
+                copied_from="$candidate"
                 break
               fi
-              sleep $((attempt * 20))
+              last_error="$candidate: $(printf '%s' "$error" | tail -n 1 | tr -d '\r' | cut -c1-300)"
             done
-            if [ "$copied" != true ]; then
-              echo "::error title=Image mirror::copy failed: $source"
+            if [ -z "$copied_from" ]; then
+              echo "::error title=Image mirror::copy failed: $source; last error: ${last_error//%/%25}"
               failures=$((failures + 1))
               continue
             fi
-            # The destination manifest must be byte-identical to the source
-            # one, and a pinned source must match its own pinned digest.
-            source_digest="sha256:$(skopeo inspect --raw --retry-times 3 "docker://$source" | sha256sum | cut -d' ' -f1)"
+            # The destination manifest must be byte-identical to the one copied,
+            # and a pinned source must match its own pinned digest wherever it
+            # was copied from.
+            source_digest="sha256:$(skopeo inspect --raw --retry-times 3 "docker://$copied_from" | sha256sum | cut -d' ' -f1)"
             destination_digest="sha256:$(skopeo inspect --raw --retry-times 3 "docker://$destination" | sha256sum | cut -d' ' -f1)"
             pinned="${source##*@}"
             if [ "$source_digest" != "$destination_digest" ] || { [ "$pinned" != "$source" ] && [ "$pinned" != "$destination_digest" ]; }; then
@@ -83,7 +90,7 @@ jobs:
               failures=$((failures + 1))
               continue
             fi
-            echo "::notice title=Image mirrored::$destination = $destination_digest"
+            echo "::notice title=Image mirrored::$destination = $destination_digest (from ${copied_from%%/*})"
           done < .github/ci-image-mirror.txt
           [ "$failures" -eq 0 ]
 

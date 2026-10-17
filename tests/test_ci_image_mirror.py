@@ -74,6 +74,9 @@ def test_mirror_workflow_is_bounded_and_preserves_digests():
     assert job['permissions'] == {'contents': 'read', 'packages': 'write'}
     text = WORKFLOW.read_text()
     assert '--all --preserve-digests' in text
+    # Fallback sources serve the same official images; pins are still verified.
+    assert '"mirror.gcr.io/library/$reference" "$source" "docker.io/library/$reference"' in text
+    assert '[ "$pinned" != "$destination_digest" ]' in text
     assert '--password-stdin' in text and '--password ' not in text
     assert 'ghcr.io/brianstewart377-rgb/ed-finder/mirror/*' in text
     for step in job['steps']:
