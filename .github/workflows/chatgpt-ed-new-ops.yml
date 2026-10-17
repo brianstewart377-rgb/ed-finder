@@ -341,17 +341,14 @@ jobs:
               "status=" + short(receipt.get("status", "unknown")),
               "failures=" + short(json.dumps(failures, ensure_ascii=True), 700),
               "read_only=" + short(receipt.get("read_only", "unknown")),
+              "content_writes_performed=" + short(receipt.get("content_writes_performed", "unknown")),
+              "directory_atime_metadata_writes_possible=" + short(receipt.get("directory_atime_metadata_writes_possible", "unknown")),
+              "var_lib_scan_refused=" + short(receipt.get("var_lib_scan_refused", False)),
           ])
-          emit("Docker system df", (
-              f"{short(row.get('type', 'unknown'))}: count={short(row.get('total_count', '?'), 30)} "
-              f"active={short(row.get('active', '?'), 30)} "
-              f"size={short(row.get('size', size(row.get('size_bytes'))))} "
-              f"reclaimable={short(row.get('reclaimable', size(row.get('reclaimable_bytes'))))}"
-              for row in receipt.get("docker_system_df", [])
-          ))
           volumes = sorted(receipt.get("volumes", []), key=lambda row: row.get("size_bytes") or -1, reverse=True)
           emit("Docker volumes by size", (
               f"{short(row.get('name', '?'))}: {size(row.get('size_bytes'))}; "
+              f"measured={row.get('measured', 'unknown')}; reason={short(row.get('reason', ''))}; "
               f"in_use={row.get('in_use', 'unknown')}; containers=" + short(
                   ", ".join(f"{item.get('name', '?')} ({item.get('state', '?')})" for item in (row.get("containers") or [])), 260
               )

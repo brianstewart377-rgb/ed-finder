@@ -67,7 +67,7 @@ elif name == "df":
 elif name == "du":
     assert "--exclude=/var/lib/docker/volumes/" + pg in args
     assert not args[-1].startswith("/var/lib/docker/volumes/" + pg)
-    if mode == "du-failure":
+    if mode == "du-failure" or (mode == "volume-du-failure" and args[-1].endswith("unused/_data")):
         raise SystemExit(1)
     if args[-1] == "/var/lib":
         for size, path in ((64400000000, "/var/lib"), (40000000000, "/var/lib/docker"), (24000000000, "/var/lib/backup\\nname")):
@@ -77,28 +77,34 @@ elif name == "du":
 elif name == "docker":
     assert args[:2] == ["--host", "unix:///var/run/docker.sock"]
     args = args[2:]
-    if args[:2] == ["system", "df"]:
-        if "-v" in args:
-            output({"Volumes": [{"Name": pg, "Size": "1.346TB"}, {"Name": "old-rehearsal", "Size": "7GB"}, {"Name": "unused", "Size": "N/A" if mode == "unknown-size" else "3GB"}]})
-        else:
-            for kind in ("Images", "Containers", "Local Volumes", "Build Cache"):
-                output({"Type": kind, "TotalCount": "3", "Active": "1", "Size": "20GB", "Reclaimable": "10GB (50%)"})
-    elif args[:2] == ["container", "ls"]:
+    if args[:2] == ["container", "ls"]:
         if mode == "containers-failure":
             raise SystemExit(1)
         print("running-id\\nstopped-id")
     elif args[:2] == ["container", "inspect"]:
         if args[-1] == "running-id":
-            fields("/production", "sha256:used", "postgres:18", "2026-08-27T00:00:00Z", "running", True, [{"Type": "volume", "Name": pg}])
+            mounts = [{"Type": "volume", "Name": pg}]
+            if mode == "extra-running-postgres":
+                mounts.append({"Type": "volume", "Name": "extra-postgres-data"})
+            fields("/production-postgres", "sha256:used", "postgres:18", "2026-08-27T00:00:00Z", "running", True, mounts)
         else:
-            fields("/rehearsal", "sha256:old", "rehearsal:august", "2026-08-02T00:00:00Z", "exited", False, [{"Type": "volume", "Name": "old-rehearsal"}])
+            container = "/rehearsal-postgres" if mode == "extra-stopped-postgres" else "/rehearsal"
+            fields(container, "sha256:old", "rehearsal:august", "2026-08-02T00:00:00Z", "exited", False, [{"Type": "volume", "Name": "old-rehearsal"}])
     elif args[:2] == ["volume", "ls"]:
         print(pg + "\\nold-rehearsal\\nunused")
+        if mode == "extra-running-postgres":
+            print("extra-postgres-data")
+        if mode == "pgdata-alias":
+            print("pgdata-alias")
     elif args[:2] == ["volume", "inspect"]:
         volume = args[-1]
         mountpoint = "/var/lib/docker/volumes/" + volume + "/_data"
         if mode == "relocated-pgdata" and volume == pg:
             mountpoint = "/var/lib/other-pgdata"
+        if mode == "external-volume" and volume == "unused":
+            mountpoint = "/srv/volume"
+        if volume == "pgdata-alias":
+            mountpoint = "/var/lib/docker/volumes/" + pg + "/_data"
         fields(volume, {"com.docker.compose.project": "rehearsal"}, mountpoint)
     elif args[:2] == ["image", "ls"]:
         for tag, image_id, size in (("postgres", "used", "1GB"), ("rehearsal", "old", "2GB"), ("unused", "unused", "5GB")):
@@ -110,7 +116,9 @@ else:
 """
 
 
-def _run(tmp_path, mode="", options="rw,noatime", nested_options=None):
+def _run(
+    tmp_path, mode="", options="rw,noatime", nested_options=None, mountinfo_extra=""
+):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "fixture"
@@ -118,20 +126,21 @@ def _run(tmp_path, mode="", options="rw,noatime", nested_options=None):
     stub.chmod(0o755)
     for name in ("hostname", "pwd", "df", "docker", "du"):
         (bindir / name).symlink_to(stub)
-    mounts = tmp_path / "mounts"
+    mounts = tmp_path / "mountinfo"
     mounts.write_text(
-        "/dev/test / ext4 "
+        "1 0 8:1 / / "
         + options
-        + " 0 0\n"
+        + " - ext4 /dev/test rw\n"
         + (
-            "/dev/pg " + PGDATA + " ext4 " + nested_options + " 0 0\n"
+            "2 1 8:2 / " + PGDATA + " " + nested_options + " - ext4 /dev/pg rw\n"
             if nested_options
             else ""
         )
+        + mountinfo_extra
     )
     script = tmp_path / "action.sh"
     script.write_text(
-        ACTION.read_text().replace('"/proc/self/mounts"', json.dumps(str(mounts)))
+        ACTION.read_text().replace('"/proc/self/mountinfo"', json.dumps(str(mounts)))
     )
     calls = tmp_path / "calls.jsonl"
     result = subprocess.run(
@@ -164,13 +173,22 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
     assert receipt["failures"] == []
     assert receipt["read_only"] is True
     assert receipt["db_writes_performed"] is False
-    assert receipt["filesystem_writes_performed"] is False
+    assert "filesystem_writes_performed" not in receipt
+    assert receipt["content_writes_performed"] is False
     assert receipt["direct_db_access_performed"] is False
     assert receipt["root_filesystem_before"] == receipt["root_filesystem_after"]
-    assert len(receipt["docker_system_df"]) == 4
-    assert receipt["docker_system_df"][0]["reclaimable_bytes"] == 10_000_000_000
+    assert "docker_system_df" not in receipt
+    assert receipt["directory_atime_metadata_writes_possible"] is False
+    assert receipt["directory_atime_guard"]["atime_updating_mounts"] == []
     volumes = {v["name"]: v for v in receipt["volumes"]}
-    assert volumes[PGDATA.rsplit("/", 1)[-1]]["size_bytes"] == 1_346_000_000_000
+    postgres = volumes[PGDATA.rsplit("/", 1)[-1]]
+    assert postgres["size_bytes"] is None
+    assert postgres["measured"] is False
+    assert postgres["reason"] == "postgres_data_volume_not_scanned"
+    for name in ("old-rehearsal", "unused"):
+        assert volumes[name]["size_bytes"] == 1234
+        assert volumes[name]["measured"] is True
+        assert volumes[name]["size_source"] == "du_allocated_bytes"
     assert volumes["old-rehearsal"]["in_use"] is True
     assert volumes["old-rehearsal"]["containers"] == [
         {"name": "rehearsal", "state": "exited"}
@@ -188,6 +206,14 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
             assert "--exclude=" + PGDATA in command
             assert command[-1] != PGDATA
         assert "exec" not in command
+        assert not (command[0] == "docker" and command[3:5] == ["system", "df"])
+    scans = [c for c in calls if c[0] == "du"]
+    volume_scans = [c for c in scans if "/volumes/" in c[-1]]
+    assert {c[-1] for c in volume_scans} == {
+        "/var/lib/docker/volumes/" + name + "/_data"
+        for name in ("old-rehearsal", "unused")
+    }
+    assert all("-sx" in c and "--block-size=1" in c for c in volume_scans)
     # No full inspect dumps: container environments and commands never reach Python.
     for command in calls:
         if "inspect" in command:
@@ -200,7 +226,7 @@ def test_collector_reports_storage_and_stopped_references_without_scanning_pgdat
     [
         ("du-failure", "var_lib_top:command_failed:du:1"),
         ("containers-failure", "containers:command_failed:docker:1"),
-        ("unknown-size", "volume_size_unavailable:unused"),
+        ("volume-du-failure", "volume_size:unused:command_failed:du:1"),
     ],
 )
 def test_collector_marks_partial_inventory_stopped(tmp_path, mode, failure):
@@ -214,8 +240,13 @@ def test_collector_marks_partial_inventory_stopped(tmp_path, mode, failure):
             v["in_use"] is None and v["containers"] is None for v in receipt["volumes"]
         )
         assert all(i["in_use"] is None for i in receipt["images"])
-    if mode == "unknown-size":
-        assert receipt["volumes"][-1]["size_bytes"] is None
+        assert all(not v["measured"] for v in receipt["volumes"])
+    if mode == "volume-du-failure":
+        volume = next(v for v in receipt["volumes"] if v["name"] == "unused")
+        assert volume["size_bytes"] is None
+        assert volume["measured"] is False
+        assert volume["reason"] == "command_failed:du:1"
+        assert "var_lib_top" in receipt
 
 
 def test_wrong_host_stops_before_storage_commands(tmp_path):
@@ -225,18 +256,18 @@ def test_wrong_host_stops_before_storage_commands(tmp_path):
     assert {c[0] for c in calls} == {"hostname"}
 
 
-@pytest.mark.parametrize(
-    "options,nested", [("rw,relatime", None), ("rw,noatime", "rw,relatime")]
-)
-def test_discloses_directory_atime_updates_instead_of_refusing(
-    tmp_path, options, nested
-):
+@pytest.mark.parametrize("options", ["rw,relatime", "rw,strictatime", "rw"])
+def test_discloses_directory_atime_updates_instead_of_refusing(tmp_path, options):
     # Production's root is relatime; refusing would make the action unusable.
-    status, receipt, calls = _run(tmp_path, options=options, nested_options=nested)
+    status, receipt, calls = _run(tmp_path, options=options)
     assert "directory_atime_writes_not_suppressed" not in receipt["failures"]
+    assert status == 0
+    assert any(c[0] == "du" for c in calls)
+    assert receipt["directory_atime_metadata_writes_possible"] is True
     assert receipt["directory_atime_writes_suppressed"] is False
     assert receipt["directory_atime_guard"]["atime_updating_mounts"]
-    assert receipt["filesystem_writes_performed"] is False
+    assert "filesystem_writes_performed" not in receipt
+    assert receipt["content_writes_performed"] is False
     assert "root_filesystem_after" in receipt
 
 
@@ -249,6 +280,7 @@ def test_targets_match_current_production_authority_and_no_shell_spool():
     assert ns["EXPECTED_FQDN"] == authority["target"]["fqdn"]
     assert ns["ACTION_BUDGET_SECONDS"] < 600
     assert "<<" not in ACTION.read_text()
+    assert "\x27" not in _code()
     subprocess.run(["bash", "-n", str(ACTION)], check=True)
 
 
@@ -313,3 +345,157 @@ def test_unexpected_pgdata_mountpoint_stops_before_any_du(tmp_path):
     assert "pgdata_exclusion_mountpoint_unverified" in receipt["failures"]
     assert "images" in receipt
     assert not any(command[0] == "du" for command in calls)
+
+
+@pytest.mark.parametrize("options", ["rw,noatime", "rw,nodiratime", "ro,relatime"])
+def test_suppressed_directory_atime_and_excluded_pgdata_mount(tmp_path, options):
+    status, receipt, calls = _run(
+        tmp_path, options=options, nested_options="rw,relatime"
+    )
+    assert status == 0
+    assert any(c[0] == "du" for c in calls)
+    assert receipt["content_writes_performed"] is False
+    assert receipt["directory_atime_metadata_writes_possible"] is False
+    assert receipt["directory_atime_guard"] == {
+        "checked_mounts": ["/"],
+        "atime_updating_mounts": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "device,root,point,decoded_point",
+    [
+        ("8:1", "/", "/var/lib/alias", "/var/lib/alias"),
+        ("8:2", "/", "/var/lib/external", "/var/lib/external"),
+        ("8:1", "/var/lib/docker", "/mnt/bind", "/mnt/bind"),
+        ("8:1", "/var/lib", "/mnt/bind", "/mnt/bind"),
+        ("8:1", r"/var/lib/with\040space", r"/mnt/bind\011tab", "/mnt/bind\ttab"),
+        (
+            "8:1",
+            "/",
+            r"/var/lib/with\134slash\012newline",
+            "/var/lib/with\\slash\nnewline",
+        ),
+    ],
+)
+def test_nested_or_bind_mount_refuses_all_var_lib_du_but_keeps_inventory(
+    tmp_path, device, root, point, decoded_point
+):
+    status, receipt, calls = _run(
+        tmp_path,
+        mountinfo_extra=f"3 1 {device} {root} {point} rw,noatime - ext4 /dev/test rw\n",
+    )
+    assert status == 1
+    assert receipt["var_lib_scan_refused"] == "nested_mount"
+    assert receipt["var_lib_scan_offending_mount_points"] == [decoded_point]
+    assert "var_lib_top:nested_mount" in receipt["failures"]
+    assert not any(c[0] == "du" for c in calls)
+    assert "images" in receipt and "volumes" in receipt
+    assert receipt["root_filesystem_after"] == receipt["root_filesystem_before"]
+    assert receipt["directory_atime_metadata_writes_possible"] is False
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "3 1 8:2 /var/lib/docker /mnt/other rw,relatime - ext4 /dev/other rw\n",
+        "3 1 8:1 /var/library /mnt/other rw,relatime - ext4 /dev/test rw\n",
+        "3 1 8:1 / /var/library rw,relatime - ext4 /dev/test rw\n",
+    ],
+)
+def test_unrelated_mounts_do_not_refuse_or_taint_atime_claims(tmp_path, entry):
+    status, receipt, calls = _run(tmp_path, mountinfo_extra=entry)
+    assert status == 0
+    assert "var_lib_scan_refused" not in receipt
+    assert receipt["directory_atime_metadata_writes_possible"] is False
+    assert any(c[0] == "du" for c in calls)
+
+
+def test_stacked_root_uses_visible_mount_atime_policy(tmp_path):
+    status, receipt, _ = _run(
+        tmp_path,
+        mountinfo_extra="3 1 8:1 / / rw,relatime - ext4 /dev/test rw\n",
+    )
+    assert status == 0
+    assert receipt["directory_atime_metadata_writes_possible"] is True
+    assert receipt["directory_atime_guard"]["atime_updating_mounts"] == ["/"]
+
+
+def test_mountinfo_guard_rechecks_before_each_du_including_optional_totals(tmp_path):
+    ns = _definitions()
+    mountinfo = tmp_path / "mountinfo"
+    initial = "1 0 8:1 / / rw,noatime - ext4 /dev/test rw\n"
+    mountinfo.write_text(initial)
+    ns["MOUNTINFO_PATH"] = str(mountinfo)
+    calls = []
+
+    def fake_run(command):
+        calls.append(command)
+        mountinfo.write_text(
+            initial + "3 1 8:1 /var/lib/source /mnt/bind rw - ext4 /dev/test rw\n"
+        )
+        return "1234\t" + command[-1] + "\0"
+
+    ns["run"] = fake_run
+    ns["du"]("/var/lib/docker/volumes/safe/_data", total=True)
+    # The new mount is visible before both another volume and an optional total.
+    with pytest.raises(RuntimeError, match="nested_mount"):
+        ns["du"]("/var/lib/ed-finder", total=True)
+    assert len(calls) == 1
+    assert ns["receipt"]["var_lib_scan_refused"] == "nested_mount"
+
+
+@pytest.mark.parametrize(
+    "mountinfo", ["invalid\n", "2 1 8:2 / /mnt rw - ext4 /dev/test rw\n"]
+)
+def test_invalid_mountinfo_fails_closed_before_du(tmp_path, mountinfo):
+    ns = _definitions()
+    path = tmp_path / "mountinfo"
+    path.write_text(mountinfo)
+    ns["MOUNTINFO_PATH"] = str(path)
+    ns["run"] = lambda argv: pytest.fail("No du on unresolved mount table")
+    with pytest.raises(RuntimeError, match="mountinfo_invalid|root_mount_unresolved"):
+        ns["du"]("/var/lib")
+
+
+@pytest.mark.parametrize(
+    "mode,protected",
+    [
+        ("extra-running-postgres", "extra-postgres-data"),
+        ("extra-stopped-postgres", "old-rehearsal"),
+        ("pgdata-alias", "pgdata-alias"),
+    ],
+)
+def test_all_postgres_volume_references_and_pgdata_aliases_are_unmeasured(
+    tmp_path, mode, protected
+):
+    status, receipt, calls = _run(tmp_path, mode)
+    assert status == 0
+    volume = next(v for v in receipt["volumes"] if v["name"] == protected)
+    assert volume["size_bytes"] is None
+    assert volume["measured"] is False
+    assert volume["reason"] == "postgres_data_volume_not_scanned"
+    for command in calls:
+        assert not (command[0] == "docker" and command[3:5] == ["system", "df"])
+        if command[0] == "du":
+            assert command[-1] != volume["mountpoint"]
+            assert "--exclude=" + volume["mountpoint"] in command
+
+
+def test_nested_mount_refusal_preserves_volume_scans_outside_var_lib(tmp_path):
+    status, receipt, calls = _run(
+        tmp_path,
+        "external-volume",
+        mountinfo_extra=(
+            "3 1 8:1 / /var/lib/nested rw,noatime - ext4 /dev/test rw\n"
+            "4 1 8:2 / /srv rw,relatime - ext4 /dev/other rw\n"
+        ),
+    )
+    assert status == 1
+    assert receipt["var_lib_scan_refused"] == "nested_mount"
+    assert [c[-1] for c in calls if c[0] == "du"] == ["/srv/volume"]
+    assert receipt["directory_atime_metadata_writes_possible"] is True
+    assert receipt["directory_atime_guard"]["atime_updating_mounts"] == ["/srv"]
+    volume = next(v for v in receipt["volumes"] if v["name"] == "unused")
+    assert volume["measured"] is True
+    assert "root_filesystem_after" in receipt

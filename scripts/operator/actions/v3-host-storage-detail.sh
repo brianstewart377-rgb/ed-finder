@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Read-only host storage evidence. No database connections or filesystem changes.
+# Read-only host storage evidence. No database connections or file content writes; directory atime can change.
 set -euo pipefail
 if command -v python3.14 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3.14)"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3)"
 else
-    printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-host-storage-detail","status":"stopped","failures":["python3_unavailable"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"filesystem_writes_performed":false}'
+    printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-host-storage-detail","status":"stopped","failures":["python3_unavailable"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"content_writes_performed":false,"directory_atime_metadata_writes_possible":false}'
     exit 1
 fi
 # Use -c rather than a large here-document: bash may spool heredocs to disk.
@@ -34,6 +34,7 @@ ACTION_BUDGET_SECONDS = 590
 STARTED = time.monotonic()
 DEADLINE = STARTED + ACTION_BUDGET_SECONDS
 MAX_OUTPUT_BYTES = 32 * 1024 * 1024
+MOUNTINFO_PATH = "/proc/self/mountinfo"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
 receipt = {
     "schema_version": "ed-finder/operator-operation-result/v1",
@@ -41,7 +42,8 @@ receipt = {
     "read_only": True,
     "direct_db_access_performed": False,
     "db_writes_performed": False,
-    "filesystem_writes_performed": False,
+    "content_writes_performed": False,
+    "directory_atime_metadata_writes_possible": False,
     "env_files_read": False,
     "private_keys_read": False,
     "service_changes_performed": False,
@@ -144,44 +146,37 @@ def unescape_mount(value):
     return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), value)
 
 
+def below(path, root):
+    return path.startswith(root.rstrip("/") + "/")
+
+
+def read_mountinfo():
+    # Kernel fields escape spaces, tabs, newlines and backslashes as octal.
+    with open(MOUNTINFO_PATH, encoding="utf-8", errors="surrogateescape") as handle:
+        entries = []
+        for line in handle:
+            fields = line.split()
+            if len(fields) < 10 or "-" not in fields[6:]:
+                raise RuntimeError("mountinfo_invalid")
+            entries.append(
+                {
+                    "device": fields[2],
+                    "root": unescape_mount(fields[3]),
+                    "point": unescape_mount(fields[4]),
+                    "options": set(fields[5].split(",")),
+                }
+            )
+    if not any(e["point"] == "/" for e in entries):
+        raise RuntimeError("root_mount_unresolved")
+    return entries
+
+
 def mount_guard():
-    # du reads directories. Under the kernel default relatime (the production
-    # mount, per the 2026-10-17 disk inventory) or strictatime, reading can
-    # update DIRECTORY ACCESS TIMES. That is a mount property, not a write this
-    # action chooses; like v3-disk-inventory, disclose it rather than refusing
-    # (refusal would make the action unusable on production). No file content,
-    # size, name or ownership changes. Hold a pollable mount descriptor across
-    # every scan; even a reverted remount invalidates the opening observation.
-    monitor = open("/proc/self/mounts", "rb")
+    # Keep a pollable descriptor across every scan, including reverted remounts.
+    monitor = open(MOUNTINFO_PATH, "rb")
     try:
-        mounts = []
-        for line in monitor.read().decode().splitlines():
-            source, path, filesystem, options, *_ = line.split()
-            mounts.append((unescape_mount(path), set(options.split(","))))
-        covering = [
-            m
-            for m in mounts
-            if "/var/lib" == m[0] or "/var/lib".startswith(m[0].rstrip("/") + "/")
-        ]
-        if not covering:
-            raise RuntimeError("var_lib_mount_unresolved")
-        # Last entry at a stacked mount is the visible one, as in mountinfo order.
-        visible = {}
-        for path, options in mounts:
-            visible[path] = options
-        root = max(covering, key=lambda m: len(m[0]))[0]
-        scanned = {root: visible[root]}
-        scanned.update({p: o for p, o in visible.items() if p.startswith("/var/lib/")})
-        unsafe = [
-            p
-            for p, opts in scanned.items()
-            if not opts.intersection({"noatime", "nodiratime", "ro"})
-        ]
-        receipt["directory_atime_guard"] = {
-            "checked_mounts": sorted(scanned),
-            "atime_updating_mounts": sorted(unsafe),
-        }
-        receipt["directory_atime_writes_suppressed"] = not unsafe
+        monitor.read()
+        read_mountinfo()
         poller = select.poll()
         poller.register(monitor, select.POLLPRI | select.POLLERR)
         return monitor, poller
@@ -190,26 +185,75 @@ def mount_guard():
         raise
 
 
-def system_df():
-    rows = json_lines(DOCKER + ["system", "df", "--format", "{{json .}}"])
-    if {r["Type"] for r in rows} != {
-        "Images",
-        "Containers",
-        "Local Volumes",
-        "Build Cache",
-    } or len(rows) != 4:
-        raise ValueError("docker_totals_incomplete")
-    return [
+def excluded_paths():
+    return {PGDATA_PATH} | {
+        v["mountpoint"]
+        for v in receipt.get("volumes", [])
+        if v.get("reason") == "postgres_data_volume_not_scanned"
+    }
+
+
+def scan_guard(path):
+    # Check before EVERY du, including per-volume and optional directory totals.
+    entries = read_mountinfo()
+    exclusions = excluded_paths()
+    if path == "/var/lib" or below(path, "/var/lib"):
+        root_device = next(e["device"] for e in reversed(entries) if e["point"] == "/")
+        offending = sorted(
+            {
+                e["point"]
+                for e in entries
+                if e["point"] != "/"
+                and (
+                    (
+                        below(e["point"], "/var/lib")
+                        and not any(
+                            e["point"] == x or below(e["point"], x) for x in exclusions
+                        )
+                    )
+                    or (
+                        e["device"] == root_device
+                        and (e["root"] == "/var/lib" or below(e["root"], "/var/lib"))
+                    )
+                )
+            }
+        )
+        if offending:
+            receipt["var_lib_scan_refused"] = "nested_mount"
+            receipt["var_lib_scan_offending_mount_points"] = offending
+            raise RuntimeError("nested_mount")
+    # Later entries are visible for stacked mounts. Attribute metadata risk only
+    # to paths being scanned, never to the excluded PostgreSQL volume.
+    visible = {e["point"]: e for e in entries}
+    covering = [p for p in visible if path == p or below(path, p)]
+    if not covering:
+        raise RuntimeError("scan_mount_unresolved")
+    points = {max(covering, key=len)} | {
+        p
+        for p in visible
+        if below(p, path) and not any(p == x or below(p, x) for x in exclusions)
+    }
+    guard = receipt.setdefault(
+        "directory_atime_guard",
         {
-            "type": r["Type"],
-            "total_count": int(r["TotalCount"]),
-            "active": int(r["Active"]),
-            "size": r["Size"],
-            "size_bytes": size_bytes(r["Size"]),
-            "reclaimable": r["Reclaimable"],
-            "reclaimable_bytes": size_bytes(r["Reclaimable"]),
-        }
-        for r in rows
+            "checked_mounts": [],
+            "atime_updating_mounts": [],
+        },
+    )
+    unsafe = {
+        p
+        for p in points
+        if not visible[p]["options"].intersection({"noatime", "nodiratime", "ro"})
+    }
+    guard["checked_mounts"] = sorted(set(guard["checked_mounts"]) | points)
+    guard["atime_updating_mounts"] = sorted(
+        set(guard["atime_updating_mounts"]) | unsafe
+    )
+    receipt["directory_atime_metadata_writes_possible"] = bool(
+        guard["atime_updating_mounts"]
+    )
+    receipt["directory_atime_writes_suppressed"] = not receipt[
+        "directory_atime_metadata_writes_possible"
     ]
 
 
@@ -242,13 +286,6 @@ def container_inventory():
 
 
 def volume_inventory(containers):
-    detail = json.loads(run(DOCKER + ["system", "df", "-v", "--format", "{{json .}}"]))
-    sizes = {}
-    for volume in detail["Volumes"]:
-        try:
-            sizes[volume["Name"]] = (volume["Size"], size_bytes(volume["Size"]))
-        except ValueError:
-            sizes[volume["Name"]] = (volume["Size"], None)
     names = run(DOCKER + ["volume", "ls", "--quiet"]).splitlines()
     result = []
     if PGDATA_VOLUME not in names:
@@ -273,23 +310,47 @@ def volume_inventory(containers):
             if containers is not None
             else None
         )
-        value = sizes.get(actual)
-        if value is None or value[1] is None:
-            # No fallback filesystem traversal, especially for the production volume.
-            receipt["failures"].append("volume_size_unavailable:" + actual)
+        postgres = (
+            actual == PGDATA_VOLUME
+            or mountpoint == PGDATA_PATH
+            or below(mountpoint, PGDATA_PATH)
+            or any(u["name"].endswith("-postgres") for u in (users or []))
+        )
         result.append(
             {
                 "name": actual,
                 "labels": labels or {},
                 "mountpoint": mountpoint,
-                "size_bytes": value[1] if value else None,
-                "size": value[0] if value else None,
-                "size_source": "docker_system_df_verbose",
+                "size_bytes": None,
+                "measured": False,
+                "reason": "postgres_data_volume_not_scanned"
+                if postgres
+                else "container_inventory_unavailable"
+                if containers is None
+                else "measurement_pending",
                 "in_use": bool(users) if users is not None else None,
                 "containers": users,
             }
         )
     return sorted(result, key=lambda v: (-(v["size_bytes"] or 0), v["name"]))
+
+
+def measure_volumes():
+    for volume in receipt.get("volumes", []):
+        if volume["reason"] != "measurement_pending":
+            continue
+        try:
+            path = volume["mountpoint"]
+            if not path.startswith("/") or os.path.normpath(path) != path:
+                raise RuntimeError("volume_mountpoint_invalid")
+            volume["size_bytes"] = du(path, total=True)[0]["size_bytes"]
+            volume["measured"] = True
+            volume["size_source"] = "du_allocated_bytes"
+            del volume["reason"]
+        except (RuntimeError, ValueError, OSError) as exc:
+            volume["reason"] = str(exc)
+            receipt["failures"].append("volume_size:" + volume["name"] + ":" + str(exc))
+    receipt["volumes"].sort(key=lambda v: (-(v["size_bytes"] or 0), v["name"]))
 
 
 def image_inventory(containers):
@@ -314,10 +375,12 @@ def image_inventory(containers):
 
 
 def du(path, *, total=False):
-    command = ["du", "--null", "-sx" if total else "-x", "-B1"]
+    scan_guard(path)
+    command = ["du", "--null", "-sx" if total else "-x", "--block-size=1"]
     if not total:
         command.append("--max-depth=2")
-    command.extend(["--exclude=" + PGDATA_PATH, "--", path])
+    command.extend("--exclude=" + x for x in sorted(excluded_paths()))
+    command.extend(["--", path])
     rows = []
     for record in run(command).split("\0"):
         if record:
@@ -362,7 +425,6 @@ def main():
     section("root_filesystem_before", df)
     monitor, poller = mount_guard()
     try:
-        section("docker_system_df", system_df)
         section("containers", container_inventory)
         containers = receipt.pop("containers", None)
         if containers is not None:
@@ -380,6 +442,7 @@ def main():
         )
         if pgdata is None or pgdata["mountpoint"] != PGDATA_PATH + "/_data":
             raise RuntimeError("pgdata_exclusion_mountpoint_unverified")
+        measure_volumes()
         section("var_lib_top", var_lib)
         section("pgbackrest", lambda: optional_directory("/var/lib/pgbackrest"))
         section("ed_finder", lambda: optional_directory("/var/lib/ed-finder"))

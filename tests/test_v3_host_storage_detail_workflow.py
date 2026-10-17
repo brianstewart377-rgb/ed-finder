@@ -60,6 +60,7 @@ def test_operation_is_in_closed_choices_and_independent_request_allowlist(
 
 
 def test_host_storage_detail_preserves_pinned_ssh_elevation_and_receipt() -> None:
+    assert _workflow()["concurrency"]["group"] == "chatgpt-ed-new-ops"
     step = _step("Inspect V3 host storage detail")
     assert step["if"] == f"steps.request.outputs.operation == '{OPERATION}'"
     assert int(step["timeout-minutes"]) <= 12
@@ -100,7 +101,10 @@ def test_host_storage_detail_is_read_only_and_excludes_production_pgdata() -> No
         assert re.search(forbidden, source) is None
     assert '"$PYTHON_BIN" -I -B -c' in source
     assert f'PGDATA_PATH = "{PGDATA}"' in source
-    assert 'command.extend(["--exclude=" + PGDATA_PATH, "--", path])' in source
+    assert (
+        'command.extend("--exclude=" + x for x in sorted(excluded_paths()))' in source
+    )
+    assert 'command.extend(["--", path])' in source
 
 
 def _annotations(tmp_path: Path, receipt: dict | None) -> list[str]:
@@ -132,29 +136,32 @@ def test_annotation_summary_executes_with_escaping_and_sorted_inventory(
         {
             "status": "stopped",
             "read_only": True,
+            "content_writes_performed": False,
+            "directory_atime_metadata_writes_possible": True,
+            "var_lib_scan_refused": "nested_mount",
             "failures": ["scan_failed"],
-            "docker_system_df": [
-                {
-                    "type": name,
-                    "total_count": 2,
-                    "active": 1,
-                    "size": "20GB",
-                    "reclaimable": "10GB (50%)",
-                }
-                for name in ("Images", "Containers", "Local Volumes", "Build Cache")
-            ],
             "volumes": [
                 {
                     "name": "small",
                     "size_bytes": 1024,
+                    "measured": True,
                     "in_use": False,
                     "containers": [],
                 },
                 {
                     "name": "large%\r\n::error::injected",
                     "size_bytes": 1024**3,
+                    "measured": True,
                     "in_use": True,
                     "containers": [{"name": "postgres", "state": "running"}],
+                },
+                {
+                    "name": "production-pgdata",
+                    "size_bytes": None,
+                    "measured": False,
+                    "reason": "postgres_data_volume_not_scanned",
+                    "in_use": True,
+                    "containers": [{"name": "app-postgres", "state": "running"}],
                 },
             ],
             "images": [
@@ -171,17 +178,17 @@ def test_annotation_summary_executes_with_escaping_and_sorted_inventory(
             ],
         },
     )
-    assert len(lines) == 5
+    assert len(lines) == 4
     joined = "\n".join(lines)
     for expected in (
         "status=stopped",
         "scan_failed",
-        "Images: count=2",
-        "Containers: count=2",
-        "Local Volumes: count=2",
-        "Build Cache: count=2",
-        "reclaimable=10GB (50%25)",
+        "content_writes_performed=False",
+        "directory_atime_metadata_writes_possible=True",
+        "var_lib_scan_refused=nested_mount",
         "large%25%0D%0A::error::injected",
+        "measured=True",
+        "production-pgdata: unknown; measured=False; reason=postgres_data_volume_not_scanned",
         "in_use=True; containers=postgres (running)",
         "example:tag [sha256:abcd]: 2.00 GiB",
         "in_use=False",
@@ -189,6 +196,7 @@ def test_annotation_summary_executes_with_escaping_and_sorted_inventory(
         assert expected in joined
     assert joined.index("large%25") < joined.index("small:")
     assert joined.index("/var/lib/large:") < joined.index("/var/lib/small:")
+    assert "Docker system df" not in joined
     assert "\r" not in joined
 
 
@@ -220,7 +228,7 @@ def test_annotation_summary_is_bounded_and_discloses_omissions(tmp_path: Path) -
         ],
     }
     lines = _annotations(tmp_path, receipt)
-    assert len(lines) == 8
+    assert len(lines) == 7
     assert sum("[truncated:" in line for line in lines) == 3
     assert any("[field truncated]" in line for line in lines)
 
@@ -245,8 +253,36 @@ def test_annotation_summary_handles_unknown_container_references(
     )
     assert "containers:command_failed:docker:1" in lines[0]
     assert any(
-        "unknown-volume: unknown; in_use=None; containers=" in line for line in lines
+        "unknown-volume: unknown; measured=unknown; reason=; in_use=None; containers="
+        in line
+        for line in lines
     )
+
+
+def test_host_storage_detail_docs_disclose_scan_safety_and_atime_metadata() -> None:
+    source = (
+        ROOT / "docs/operations/v3-finder-production-rollout-state.md"
+    ).read_text()
+    section = source.split("## Host storage detail", 1)[1].split("\n## ", 1)[0]
+    for expected in (
+        "`content_writes_performed=false`",
+        "`directory_atime_metadata_writes_possible`",
+        "`directory_atime_guard.atime_updating_mounts`",
+        "Scans run under the",
+        "`rw,relatime`",
+        "`size_bytes: null`",
+        "`measured: false`",
+        "`reason: postgres_data_volume_not_scanned`",
+        "`docker image ls --format '{{json .}}'`",
+        "`du -sx --block-size=1`",
+        "`/proc/self/mountinfo`",
+        "octal-unescapes",
+        "bind source",
+        "other read-only sections continue",
+    ):
+        assert expected in section
+    assert "filesystem_writes_performed=false" not in section
+    assert "directory_atime_writes_not_suppressed" not in section
 
 
 @pytest.mark.parametrize(

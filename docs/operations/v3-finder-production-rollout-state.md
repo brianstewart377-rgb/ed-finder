@@ -810,38 +810,54 @@ Python, has a hard wall-clock limit of 600 seconds, and performs no database
 access or cleanup. Host output is one JSON receipt on stdout; retained receipt
 files are written on the GitHub runner only.
 
-The receipt reports Docker system storage totals; every volume's labels,
-mountpoint, size and references from running or stopped containers; every
-image's size, creation time and container use; stopped containers; and root
-filesystem `df` before and after. The production PGDATA volume's size comes
-only from Docker's own figure: directory scans must never traverse it. The
-depth-two `/var/lib` scan reports its largest 40 entries and passes an exact
+The receipt reports every Docker volume's labels, mountpoint and references
+from running or stopped containers; every image's reported size, creation time
+and container use; stopped containers; and root filesystem `df` before and
+after. Image sizes come from `docker image ls --format '{{json .}}'`; those
+human-readable figures are rounded, and converted byte values retain that
+precision limitation. Volumes come from `docker volume ls` and
+`docker volume inspect`. Volumes referenced by any container whose name ends
+in `-postgres`, and any volume at the excluded PGDATA mountpoint, are never
+measured: their entries record `size_bytes: null`, `measured: false` and
+`reason: postgres_data_volume_not_scanned`. Other volumes are measured with
+`du -sx --block-size=1` on their mountpoints. The action never runs
+`docker system df`, which would traverse all local volumes, including PGDATA.
+The depth-two `/var/lib` scan covers overlay2 and buildkit, reports its largest
+40 entries and passes an exact
 `--exclude` for
 `/var/lib/docker/volumes/edfinder-v3-phase4c-full-20260827_r5-pgdata`.
 Before any `du`, Docker must confirm that the production volume mountpoint is
 the excluded directory's `_data` child; missing or relocated PGDATA stops the scans.
 The optional `/var/lib/pgbackrest` and `/var/lib/ed-finder` totals use the same
-exclusion. Docker human-readable figures are rounded; byte values converted
-from them retain that precision limitation.
+exclusion.
 
-To keep `filesystem_writes_performed=false`, the action refuses storage scans
-unless directory access-time writes are suppressed (`noatime`, `nodiratime`,
-or a read-only mount) on the covering and nested `/var/lib` mounts, including
-the production volume queried by Docker. A refusal records
-`directory_atime_writes_not_suppressed`; it does not change mount options. A
-mount-table change during the observation also stops the receipt. Python runs
+The action records `content_writes_performed=false`. Scans run under the
+production root mount's `rw,relatime` policy, so directory access times may be
+updated by the kernel. `directory_atime_metadata_writes_possible` is true when
+any scanned path's mount lacks `noatime`, `nodiratime` or `ro`;
+`directory_atime_guard.atime_updating_mounts` identifies those mounts. The
+action does not change mount options or write file content.
+
+Before any `du` under `/var/lib`, the action parses `/proc/self/mountinfo` and
+octal-unescapes its fields. It refuses that scan if any mountpoint other than
+`/` lies strictly under `/var/lib`, except an excluded PGDATA mount, or if any
+other entry on the root filesystem's major:minor device has a mount root under
+`/var/lib` (a bind source). The receipt records `var_lib_scan_refused:
+nested_mount` and the offending mountpoints; other read-only sections continue.
+A mount-table change during the observation also stops the receipt. Python runs
 with `-I -B` and its code is passed as an argument, avoiding both bytecode writes
 and Bash's possible spooling of a large here-document to a temporary host file.
 
 The full JSON is retained as `v3-host-storage-detail-receipt`. Operators who
 cannot download artifacts or read logs can inspect the workflow's GitHub
-annotations titled **Host storage detail**: these summarize Docker totals,
-volumes sorted by size with container references, image sizes and use, and the
+annotations titled **Host storage detail**: these summarize content and atime
+write claims, scan refusal, volumes sorted by measured size with container
+references and unmeasured reasons, image sizes and use, and the
 largest `/var/lib` entries. There are at most eight annotations, each below
 4,000 characters; annotation text escapes percent signs, carriage returns and
 newlines. Review receipt `status` and `failures` before interpreting the
-inventory. In-use references and reclaimable estimates describe observed
-storage; any cleanup still requires a separate reviewed action.
+inventory. In-use references describe observed storage; any cleanup still
+requires a separate reviewed action.
 
 ## Where else this pattern can bite (watch-list)
 
