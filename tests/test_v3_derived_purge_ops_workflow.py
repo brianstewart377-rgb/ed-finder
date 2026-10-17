@@ -67,7 +67,8 @@ def test_ops_purge_streams_committed_main_source_with_git_identity_and_pinned_tr
     assert step['env']['OPERATION'] == '${{ steps.request.outputs.operation }}'
     assert step['env']['SSH_HOST'] == '${{ secrets.ED_NEW_OPERATOR_HOST }}'
     run = step['run']
-    assert '[ "$SSH_HOST" = nb79a3d.mevnode.com ]' in run
+    assert '[ "$SSH_HOST" != nb79a3d.mevnode.com ]' in run
+    assert 'getent ahosts nb79a3d.mevnode.com' in run
     assert '[ "$(git -C "$work" rev-parse HEAD)" = "$2" ]' in run
     assert 'export GITHUB_RUN_ID="$3"' in run
     assert 'scripts/operator/actions/v3-derived-generation-purge.sh" "$1"' in run
@@ -99,6 +100,7 @@ def _run_route(tmp_path, **changes):
     capture = tmp_path / 'ssh.json'
     commands = {
         'git': '#!/bin/sh\nprintf "%040d\\n" 1\n',
+        'getent': '#!/bin/sh\n[ "$2" = nb79a3d.mevnode.com ] && printf "203.0.113.7 STREAM nb79a3d.mevnode.com\\n2001:db8::7 STREAM\\n"\n',
         'tar': '#!/bin/sh\nexit 0\n',
         'ssh': f'#!{sys.executable}\nimport json,os,pathlib,sys\nsys.stdin.read()\npathlib.Path(os.environ["TEST_CAPTURE"]).write_text(json.dumps(sys.argv[1:]))\nprint("{{}}")\n',
     }
@@ -136,3 +138,24 @@ def test_ops_purge_rejects_unvalidated_remote_arguments_before_ssh(tmp_path, key
     result, command = _run_route(tmp_path, **{key: value})
     assert result.returncode == 64
     assert command is None
+
+
+@pytest.mark.parametrize('address', ['203.0.113.7', '2001:db8::7'])
+def test_ops_accepts_a_current_address_of_the_production_fqdn(tmp_path, address):
+    result, command = _run_route(tmp_path, SSH_HOST=address)
+    assert result.returncode == 0, result.stderr
+    assert command[-2] == 'operator@' + address
+
+
+@pytest.mark.parametrize('host', ['198.51.100.9', 'other.example', 'nb79a3d.mevnode.com;id', '203.0.113.7 ', ''])
+def test_ops_refuses_any_other_host_before_ssh(tmp_path, host):
+    result, command = _run_route(tmp_path, SSH_HOST=host)
+    assert result.returncode == 64
+    assert command is None
+    assert 'neither the production FQDN nor one of its current addresses' in result.stderr
+
+
+def test_cleanup_step_shares_the_same_host_rule():
+    run = _step('Clean up fixed V3 host leftovers')['run']
+    assert 'getent ahosts nb79a3d.mevnode.com' in run
+    assert run.count('exit 64') >= 3

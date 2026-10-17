@@ -242,9 +242,18 @@ jobs:
           RECEIPT: ${{ runner.temp }}/v3-host-cleanup-receipt.json
         run: |
           set -euo pipefail
-          [ "$SSH_HOST" = nb79a3d.mevnode.com ] || exit 64
-          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || exit 64
-          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 64
+          # ED_NEW_OPERATOR_HOST may hold the production FQDN or one of the
+          # addresses that FQDN currently resolves to; pinned known-host trust
+          # and the action's own hostname/FQDN check still identify the host.
+          if [ "$SSH_HOST" != nb79a3d.mevnode.com ] && ! {
+              [[ "$SSH_HOST" =~ ^[0-9A-Fa-f:.]{2,45}$ ]] &&
+              getent ahosts nb79a3d.mevnode.com | awk '{print $1}' | grep -Fxq -- "$SSH_HOST"
+            }; then
+            echo "ED_NEW_OPERATOR_HOST is neither the production FQDN nor one of its current addresses" >&2
+            exit 64
+          fi
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || { echo "ED_NEW_OPERATOR_PORT is not a valid port" >&2; exit 64; }
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "ED_NEW_OPERATOR_USER is not a valid user name" >&2; exit 64; }
           # Only reviewed main supplies authority; no request can supply a path.
           authority_b64="$(base64 -w0 trusted-main/deploy/v3-production/target-authority.json)"
           [[ "$authority_b64" =~ ^[A-Za-z0-9+/=]+$ ]] || exit 64
@@ -1189,9 +1198,18 @@ jobs:
             v3-derived-purge-status) mode=status ;;
             *) exit 64 ;;
           esac
-          [ "$SSH_HOST" = nb79a3d.mevnode.com ] || exit 64
-          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || exit 64
-          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 64
+          # ED_NEW_OPERATOR_HOST may hold the production FQDN or one of the
+          # addresses that FQDN currently resolves to; pinned known-host trust
+          # and the action's own hostname/FQDN check still identify the host.
+          if [ "$SSH_HOST" != nb79a3d.mevnode.com ] && ! {
+              [[ "$SSH_HOST" =~ ^[0-9A-Fa-f:.]{2,45}$ ]] &&
+              getent ahosts nb79a3d.mevnode.com | awk '{print $1}' | grep -Fxq -- "$SSH_HOST"
+            }; then
+            echo "ED_NEW_OPERATOR_HOST is neither the production FQDN nor one of its current addresses" >&2
+            exit 64
+          fi
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || { echo "ED_NEW_OPERATOR_PORT is not a valid port" >&2; exit 64; }
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "ED_NEW_OPERATOR_USER is not a valid user name" >&2; exit 64; }
           [[ "$RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || exit 64
           source_sha="$(git -C trusted-main rev-parse HEAD)"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
