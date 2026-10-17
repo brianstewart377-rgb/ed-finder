@@ -92,11 +92,10 @@ selecting `v3-host-cleanup`. Request-file pushes and dispatches on other refs
 are refused for this operation. Trusted `main` supplies both the action and
 `deploy/v3-production/target-authority.json`; no input, environment variable,
 or argument selects a deletion path. The workflow retains pinned SSH trust,
-uses the existing root/passwordless-sudo handoff, and holds
-`v3-production-application-authority` and `chatgpt-ed-new-ops` concurrency in
-that order, with cancellation disabled, including during the attached SSH run.
-This serializes clean-up with the governed derived purge and other production
-mutators.
+uses the existing root/passwordless-sudo handoff, and holds the workflow's
+`chatgpt-ed-new-ops` concurrency group, with cancellation disabled, including
+during the attached SSH run. The governed derived purge job holds that same
+group, so clean-up can never overlap a purge.
 
 The action verifies `ed-finder-prod` / `nb79a3d.mevnode.com` against committed
 target authority and runs for at most 1800 seconds. In the order above, it skips

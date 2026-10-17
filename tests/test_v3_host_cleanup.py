@@ -233,8 +233,9 @@ def test_cleanup_is_in_closed_workflow_choice_and_case_allowlists():
     resolver = _step("Resolve request")["run"]
     assert '"$EVENT_NAME" = "workflow_dispatch"' in resolver
     assert '"$CURRENT_REF" = refs/heads/main' in resolver
-    assert workflow["concurrency"] == {"group": "v3-production-application-authority", "cancel-in-progress": "false"}
-    assert workflow["jobs"]["execute"]["concurrency"] == {"group": "chatgpt-ed-new-ops", "cancel-in-progress": "false"}
+    assert workflow["concurrency"] == {"group": "chatgpt-ed-new-ops", "cancel-in-progress": "false"}
+    purge = yaml.load((ROOT / ".github/workflows/v3-production-derived-purge.yml").read_text(), Loader=yaml.BaseLoader)
+    assert purge["jobs"]["production-purge"]["concurrency"]["group"] == "chatgpt-ed-new-ops"
     assert workflow["permissions"] == {"contents": "read"}
 
 
