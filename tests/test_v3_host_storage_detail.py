@@ -228,13 +228,15 @@ def test_wrong_host_stops_before_storage_commands(tmp_path):
 @pytest.mark.parametrize(
     "options,nested", [("rw,relatime", None), ("rw,noatime", "rw,relatime")]
 )
-def test_refuses_directory_atime_writes_even_for_docker_pgdata_size(
+def test_discloses_directory_atime_updates_instead_of_refusing(
     tmp_path, options, nested
 ):
+    # Production's root is relatime; refusing would make the action unusable.
     status, receipt, calls = _run(tmp_path, options=options, nested_options=nested)
-    assert status == 1
-    assert "directory_atime_writes_not_suppressed" in receipt["failures"]
-    assert not any(c[0] in ("du", "docker") for c in calls)
+    assert "directory_atime_writes_not_suppressed" not in receipt["failures"]
+    assert receipt["directory_atime_writes_suppressed"] is False
+    assert receipt["directory_atime_guard"]["atime_updating_mounts"]
+    assert receipt["filesystem_writes_performed"] is False
     assert "root_filesystem_after" in receipt
 
 

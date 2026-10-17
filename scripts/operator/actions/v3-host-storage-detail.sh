@@ -145,10 +145,13 @@ def unescape_mount(value):
 
 
 def mount_guard():
-    # du reads directories, so relatime/strictatime would violate the no-write
-    # promise. Refuse rather than remounting or silently claiming no metadata writes.
-    # Hold a pollable mount descriptor across every scan; even a reverted remount
-    # invalidates the opening observation.
+    # du reads directories. Under the kernel default relatime (the production
+    # mount, per the 2026-10-17 disk inventory) or strictatime, reading can
+    # update DIRECTORY ACCESS TIMES. That is a mount property, not a write this
+    # action chooses; like v3-disk-inventory, disclose it rather than refusing
+    # (refusal would make the action unusable on production). No file content,
+    # size, name or ownership changes. Hold a pollable mount descriptor across
+    # every scan; even a reverted remount invalidates the opening observation.
     monitor = open("/proc/self/mounts", "rb")
     try:
         mounts = []
@@ -176,10 +179,9 @@ def mount_guard():
         ]
         receipt["directory_atime_guard"] = {
             "checked_mounts": sorted(scanned),
-            "unsafe_mounts": sorted(unsafe),
+            "atime_updating_mounts": sorted(unsafe),
         }
-        if unsafe:
-            raise RuntimeError("directory_atime_writes_not_suppressed")
+        receipt["directory_atime_writes_suppressed"] = not unsafe
         poller = select.poll()
         poller.register(monitor, select.POLLPRI | select.POLLERR)
         return monitor, poller
