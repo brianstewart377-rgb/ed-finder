@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-18 — Finder migrations applied to production
+
+Step 0 closed (read-only lifecycle status run 39113741990, every named worker
+stopped or absent) and step 2 completed: governed plan run 39113784318 and apply
+run 39113822236 applied `014`, `010`, `011`, `013`, `015` and `016` to the
+production PostgreSQL 18 database, installing schema identity `d7efe689…`. The
+apply receipt is retained under `docs/operations/evidence/`. The roadmap records
+that the retired Storage Box leaves WAL archiving without a target and must be
+resolved before the Finder builds.
 ## 2026-10-18 — Storage Box restoration runbook
 
 `docs/operations/v3-storage-box-restoration.md` is the owner-run host procedure

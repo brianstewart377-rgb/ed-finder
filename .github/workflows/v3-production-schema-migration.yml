@@ -199,6 +199,73 @@ jobs:
           fi
           cat "$RECEIPT"
           [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+      - name: Annotate schema migration receipt
+        if: always()
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-production-migration.json
+        run: |
+          python -I - <<'PYTHON'
+          import json
+          import os
+          import pathlib
+          import re
+
+          def bounded(value, limit=100):
+              if not isinstance(value, str):
+                  return "unknown"
+              # Only selected receipt fields are read. Suppress credential-bearing
+              # diagnostics too; never print parser errors or environment values.
+              if re.search(r"://|password|passwd|secret|token|credential|dsn|-----BEGIN|gh[pousr]_|github_pat_|AKIA|sk-", value, re.I):
+                  return "[redacted]"
+              escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return escaped if len(escaped) <= limit else escaped[:limit - 11] + "[truncated]"
+
+          def flag(value):
+              return json.dumps(value) if value is None or isinstance(value, bool) else "unknown"
+
+          def digest(value, prefix=False):
+              pattern = r"sha256:[0-9a-f]{64}" if prefix else r"[0-9a-f]{64}"
+              return value[:19 if prefix else 12] if isinstance(value, str) and re.fullmatch(pattern, value) else "unknown"
+
+          def ledger_names(rows):
+              if not isinstance(rows, list):
+                  return "unknown"
+              # Never serialize whole ledger rows (which may grow new fields).
+              return bounded(",".join(
+                  row["ledger_name"] if isinstance(row, dict) and isinstance(row.get("ledger_name"), str) else "unknown"
+                  for row in rows
+              ) or "(none)", 650)
+
+          try:
+              receipt = json.loads(pathlib.Path(os.environ["RECEIPT"]).read_text())
+              if not isinstance(receipt, dict):
+                  raise ValueError("invalid receipt")
+          except (OSError, ValueError):
+              receipt = {"status": "unavailable", "failures": ["receipt_unavailable_or_invalid"]}
+
+          failures = receipt.get("failures")
+          failure_text = bounded(",".join(item if isinstance(item, str) else "unknown" for item in failures) or "(none)", 600) if isinstance(failures, list) else "unknown"
+          applied = receipt.get("applied_before")
+          rows = [
+              "status=" + bounded(receipt.get("status")),
+              "operation=" + bounded(receipt.get("operation")),
+              "failures=" + failure_text,
+              "source_sha=" + bounded(receipt.get("source_sha"), 40),
+              "applied_before_count=" + (str(len(applied)) if isinstance(applied, list) else "unknown"),
+              "applied_before_last=" + ledger_names(applied[-1:] if isinstance(applied, list) else None),
+              "pending=" + ledger_names(receipt.get("pending")),
+              "applied_now=" + ledger_names(receipt.get("applied_now")),
+          ]
+          for name in ("database_writes_performed", "migrations_performed", "schema_identity_updated"):
+              rows.append(name + "=" + flag(receipt.get(name)))
+          for name in ("schema_identity_before_sha256", "schema_identity_after_sha256"):
+              rows.append(name + "=" + digest(receipt.get(name)))
+          rows.append("desired_ledger_sha256=" + digest(receipt.get("desired_ledger_sha256"), prefix=True))
+          level = "notice" if receipt.get("status") in ("planned", "applied") and failures == [] else "error"
+          # Fields are bounded after escaping, so all labels survive even for
+          # oversized diagnostics/ledgers. Emit exactly one annotation, <4000 chars.
+          print(f"::{level} title=Schema migration::" + " | ".join(rows))
+          PYTHON
       - name: Upload sanitized migration receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

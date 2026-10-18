@@ -229,7 +229,136 @@ jobs:
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
-            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-derived-lifecycle-status.sh
+            'cd /opt/ed-finder && bash -s' < trusted-main/scripts/operator/actions/v3-derived-lifecycle-status.sh \
+            | tee "$RUNNER_TEMP/v3-derived-lifecycle-status.json"
+
+      - name: Annotate V3 derived lifecycle status
+        if: always() && steps.request.outputs.operation == 'v3-derived-lifecycle-status'
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-derived-lifecycle-status.json
+        run: |
+          python3 -I -B - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          PREFIX = "::notice title=Derived lifecycle status::"
+
+          def escape(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def text(value):
+              # Only operational identifiers/timestamps, never nested objects,
+              # URLs, environment assignments or free-form diagnostic text.
+              if not isinstance(value, str):
+                  return "unknown"
+              if (not re.fullmatch(r"[A-Za-z0-9_.:%+ \r\n-]+", value)
+                      or re.search(r"password|secret|token|credential|dsn|gh[pousr]_|github_pat_|AKIA|sk-", value, re.I)):
+                  return "[redacted]"
+              return value[:180] + ("[field truncated]" if len(value) > 180 else "")
+
+          def flag(value):
+              return json.dumps(value) if isinstance(value, bool) else "unknown"
+
+          def number(value):
+              return str(value) if type(value) is int and -(2 ** 63) <= value < 2 ** 63 else "unknown"
+
+          def mapping(value):
+              return value if isinstance(value, dict) else {}
+
+          def rows(value):
+              return value if isinstance(value, list) else []
+
+          def emit(label, entries, pages=1):
+              # The fixed page budgets below total eight. Pack escaped rows;
+              # reserve room for a truthful omission disclosure on the last page.
+              entries = list(entries) or ["(none or unavailable)"]
+              index = 0
+              for page in range(pages):
+                  message = f"{label} ({page + 1}):"
+                  while index < len(entries):
+                      candidate = message + "\n" + entries[index]
+                      if len(PREFIX) + len(escape(candidate)) > 3700:
+                          break
+                      message = candidate
+                      index += 1
+                  if index < len(entries) and page == pages - 1:
+                      message += f"\n[truncated: {len(entries) - index} more entries; full receipt in artifact]"
+                  print(PREFIX + escape(message))
+                  if index == len(entries):
+                      break
+
+          try:
+              receipt = json.loads(Path(os.environ["RECEIPT"]).read_text())
+              if not isinstance(receipt, dict):
+                  raise ValueError("invalid receipt")
+          except (OSError, ValueError, RecursionError):
+              emit("Result", ["status=stopped", "failures=receipt unavailable or invalid"])
+              raise SystemExit(0)
+
+          failures = rows(receipt.get("failures"))
+          emit("Result", [
+              "status=" + text(receipt.get("status")),
+              "all_named_workers_stopped=" + flag(receipt.get("all_named_workers_stopped")),
+              "failures=" + ("[]" if not failures else ""),
+              *(text(value) for value in failures[:8]),
+              *([f"[truncated: {len(failures) - 8} more failures]"] if len(failures) > 8 else []),
+          ])
+          emit("Workers", (
+              "name=" + text(worker.get("name")) + "; " + "; ".join(
+                  key + "=" + formatter(worker.get(key))
+                  for key, formatter in (("running", flag), ("exists", flag), ("status", text), ("exit_code", number))
+              )
+              for worker in rows(receipt.get("workers")) if isinstance(worker, dict)
+          ))
+          preconditions = mapping(receipt.get("migration_apply_preconditions"))
+          migrations = mapping(receipt.get("finder_migrations_applied"))
+          products = mapping(receipt.get("finder_products_on_published_generation"))
+          emit("Migration and Finder gates", [
+              "migration_apply_preconditions: " + "; ".join(
+                  key + "=" + flag(preconditions.get(key)) for key in (
+                      "all_named_workers_stopped", "current_pointers_recorded", "inspection_complete", "ready_for_governed_plan"
+                  )
+              ),
+              "finder_migrations_applied:",
+              *(text(key) + "=" + flag(value) for key, value in migrations.items()),
+              "finder_products_on_published_generation: " + "; ".join(
+                  key + "=" + text(products.get(key)) for key in ("system_search", "system_archetype")
+              ),
+          ])
+          emit("Derived generations", (
+              "generation_key=" + text(row.get("generation_key")) + "; lifecycle_state=" + text(row.get("lifecycle_state"))
+              for row in rows(receipt.get("derived_generations")) if isinstance(row, dict)
+          ), pages=2)
+          emit("derived_products", (
+              "; ".join(key + "=" + text(row.get(key)) for key in ("generation_key", "product_code", "lifecycle_state"))
+              for row in rows(receipt.get("derived_products")) if isinstance(row, dict)
+          ), pages=2)
+          disk = mapping(mapping(receipt.get("footprint")).get("host_disk"))
+          wal = mapping(mapping(receipt.get("postgres")).get("wal"))
+          disk_rows = []
+          for key in ("avail_bytes", "size_bytes"):
+              value = disk.get(key)
+              size = number(value)
+              if size != "unknown" and value >= 0:
+                  size += f" ({value / (1024 ** 3):.2f} GiB)"
+              disk_rows.append("footprint.host_disk." + key + "=" + size)
+          emit("Disk and WAL", disk_rows + [
+              "postgres.wal." + key + "=" + formatter(wal.get(key))
+              for key, formatter in (("archive_mode", text), ("failed_count", number), ("last_archived_time", text), ("last_failed_time", text))
+          ])
+          PYTHON
+
+      - name: Upload V3 derived lifecycle status receipt
+        if: always() && steps.request.outputs.operation == 'v3-derived-lifecycle-status'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-derived-lifecycle-status-receipt
+          path: ${{ runner.temp }}/v3-derived-lifecycle-status.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Clean up fixed V3 host leftovers
         if: steps.request.outputs.operation == 'v3-host-cleanup'
@@ -488,6 +617,87 @@ jobs:
           cat "$RECEIPT"
           exit "$status"
 
+      - name: Annotate V3 backup wrapper install receipt
+        if: always() && steps.request.outputs.operation == 'v3-backup-wrapper-install'
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-backup-wrapper-install-receipt.json
+        run: |
+          python -I -B - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          PREFIX = "::notice title=Backup wrapper install::"
+
+          def escape(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def flag(value):
+              return str(value).lower() if isinstance(value, bool) else "unknown"
+
+          def digest(value):
+              return value[:12] if isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value) else "unknown"
+
+          def failure(value):
+              # Receipts carry failure codes, never arbitrary exception or host text.
+              if (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_%\r\n.-]{1,160}", value)
+                      and not re.search(r"password|passwd|secret|token|credential|dsn|gh[pousr]_|github_pat_|AKIA|sk-", value, re.I)):
+                  return value
+              return "[invalid failure code]"
+
+          def emit(rows):
+              index = 0
+              for page in range(8):
+                  text = ""
+                  while index < len(rows):
+                      candidate = text + (" | " if text else "") + rows[index]
+                      if len(PREFIX) + len(escape(candidate)) > 3700:
+                          break
+                      text = candidate
+                      index += 1
+                  if index < len(rows) and page == 7:
+                      text += " | [truncated: more fields in receipt artifact]"
+                  print(PREFIX + escape(text))
+                  if index == len(rows):
+                      break
+
+          try:
+              receipt = json.loads(Path(os.environ["RECEIPT"]).read_text())
+              if not isinstance(receipt, dict):
+                  raise ValueError("invalid receipt")
+          except (OSError, ValueError):
+              receipt = {"status": "stopped", "failures": ["receipt_unavailable_or_invalid"]}
+
+          status = receipt.get("status")
+          rows = ["status=" + (status if status in ("passed", "stopped") else "unknown")]
+          failures = receipt.get("failures", [])
+          if isinstance(failures, list):
+              codes = [failure(value) for value in failures[:12]]
+              if len(failures) > 12:
+                  codes.append("[more failure codes omitted]")
+              text = ",".join(codes) if codes else "[]"
+              if len(text) > 700:
+                  text = text[:700] + "[failure codes truncated]"
+              rows.append("failures=" + text)
+          else:
+              rows.append("failures=[invalid failure codes]")
+          for name in ("source_sha256", "installed_sha256"):
+              rows.append(name + "=" + digest(receipt.get(name)))
+          for name in ("wrapper_temp_written", "wrapper_installed", "installed_hash_verified"):
+              rows.append(name + "=" + flag(receipt.get(name)))
+          # Only boolean mutation flags are included; no other receipt fields,
+          # environment values, paths, or subprocess diagnostics are serialized.
+          names = {"db_writes_performed", "filesystem_writes_performed", "service_changes_performed",
+                   "timer_changes_performed", "unit_changes_performed"}
+          names.update(name for name in receipt
+                       if re.fullmatch(r"[a-z][a-z0-9_]{0,64}_(?:writes|changes)_performed", name)
+                       and not re.search(r"password|passwd|secret|token|credential|dsn|gh[pousr]_|github_pat_|AKIA", name, re.I))
+          rows.extend(name + "=" + flag(receipt.get(name)) for name in sorted(names))
+          emit(rows)
+          PYTHON
+
       - name: Upload V3 backup wrapper install receipt
         if: always() && steps.request.outputs.operation == 'v3-backup-wrapper-install'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -524,6 +734,68 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'cd /opt/ed-finder && bash -s -- status' < trusted-main/scripts/operator/actions/v3-system-search-validate-constraints.sh | tee "$RECEIPT"
+
+      - name: Annotate V3 Search constraint validation
+        if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
+        run: |
+          python3 -I -B - <<'PYTHON'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          PREFIX = "::notice title=Search constraint validation::"
+
+          def escape(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def text(value):
+              # Identifiers, states and durations only; never SQL, paths or free text.
+              if isinstance(value, bool) or value is None:
+                  return json.dumps(value)
+              if type(value) is int:
+                  return str(value)
+              if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:+ -]{1,120}", value):
+                  return "[redacted]"
+              return value
+
+          receipt = None
+          try:
+              lines = [line for line in Path(os.environ["RECEIPT"]).read_text().splitlines() if line.strip()]
+              receipt = json.loads(lines[-1]) if lines else None
+          except (OSError, ValueError, RecursionError):
+              receipt = None
+          if not isinstance(receipt, dict):
+              print(PREFIX + escape("status=stopped; receipt unavailable or invalid"))
+              raise SystemExit(0)
+          parts = ["status=" + text(receipt.get("status"))]
+          failures = receipt.get("failures") if isinstance(receipt.get("failures"), list) else []
+          parts.append("failures=" + (",".join(text(f) for f in failures[:10]) or "[]"))
+          # Start and status receipts carry different fields; report each as named.
+          for key in ("operation", "result", "migration_010_verified", "migration_010_in_ledger",
+                      "constraints_total", "constraints_validated_before", "catalog_validation_launched",
+                      "validated_count", "all_validated", "runner_pid_alive",
+                      "runner_pid_file_stale", "runner_exit_code"):
+              if key in receipt:
+                  parts.append(key + "=" + text(receipt.get(key)))
+          queued = receipt.get("constraints_queued")
+          if isinstance(queued, list):
+              parts.append("constraints_queued=" + str(len(queued)) + ": " + (",".join(text(q) for q in queued[:20]) or "none"))
+          constraints = receipt.get("constraints") if isinstance(receipt.get("constraints"), list) else []
+          if constraints:
+              parts.append("constraints_total=" + str(len(constraints)))
+              pending = [text(c.get("name")) for c in constraints if isinstance(c, dict) and c.get("validated") is not True]
+              parts.append("not_yet_validated=" + (",".join(pending[:20]) or "none"))
+          active = receipt.get("active_validations") if isinstance(receipt.get("active_validations"), list) else []
+          for item in active[:4]:
+              if isinstance(item, dict):
+                  parts.append("active: state=" + text(item.get("state")) + " running_for=" + text(item.get("running_for")))
+          message = " | ".join(parts)
+          print(PREFIX + escape(message)[:3800])
+          PYTHON
 
       - name: Upload V3 Search constraint validation receipt
         if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')

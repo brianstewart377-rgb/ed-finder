@@ -159,3 +159,199 @@ def test_cleanup_step_shares_the_same_host_rule():
     run = _step('Clean up fixed V3 host leftovers')['run']
     assert 'getent ahosts nb79a3d.mevnode.com' in run
     assert run.count('exit 64') >= 3
+
+
+def _lifecycle_receipt():
+    return {
+        'status': 'success', 'failures': [], 'all_named_workers_stopped': True,
+        'workers': [
+            {'name': 'edfinder-worker', 'running': False, 'exists': True,
+             'status': 'exited', 'exit_code': 0, 'inspect_error': 'password=unrelated-secret'},
+        ],
+        'migration_apply_preconditions': {
+            'all_named_workers_stopped': True, 'current_pointers_recorded': True,
+            'inspection_complete': True, 'ready_for_governed_plan': True,
+            'environment': 'password=unrelated-secret',
+        },
+        'finder_migrations_applied': {'010_v3_system_search_body_type_counts.sql': True},
+        'finder_products_on_published_generation': {'system_search': 'READY', 'system_archetype': None},
+        'derived_generations': [{'generation_key': 'ratings_parallel', 'lifecycle_state': 'PUBLISHED'}],
+        'derived_products': [{'generation_key': 'ratings_parallel', 'product_code': 'system_search',
+                              'lifecycle_state': 'READY', 'failure': 'password=unrelated-secret'}],
+        'footprint': {'host_disk': {'avail_bytes': 5 * 1024 ** 3, 'size_bytes': 20 * 1024 ** 3,
+                                    'mount': 'password=unrelated-secret'}},
+        'postgres': {'wal': {'archive_mode': 'on', 'failed_count': 0,
+                             'last_archived_time': '2026-10-18 12:00:00+00', 'last_failed_time': None},
+                     'environment': 'password=unrelated-secret'},
+        'query_error': 'postgres://operator:unrelated-secret@host/db',
+        'unrelated': 'password=unrelated-secret',
+    }
+
+
+def _lifecycle_summary(tmp_path, receipt):
+    path = tmp_path / 'receipt.json'
+    if receipt is not None:
+        path.write_text(receipt if isinstance(receipt, str) else json.dumps(receipt))
+    step = _step('Annotate V3 derived lifecycle status')
+    assert step['if'] == "always() && steps.request.outputs.operation == 'v3-derived-lifecycle-status'"
+    assert step['env'] == {'RECEIPT': '${{ runner.temp }}/v3-derived-lifecycle-status.json'}
+    result = subprocess.run(['bash', '-c', step['run']], env={**os.environ, 'RECEIPT': str(path)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ''
+    lines = result.stdout.splitlines()
+    assert 1 <= len(lines) <= 8
+    assert all(line.startswith('::notice title=Derived lifecycle status::') for line in lines)
+    assert all(len(line) < 4000 for line in lines)
+    assert 'unrelated-secret' not in result.stdout
+    return result.stdout
+
+
+@pytest.mark.parametrize('status,failures', [('success', []), ('stopped', ['worker_state_unknown'])])
+def test_lifecycle_annotation_reports_operational_fields_without_unrelated_text(tmp_path, status, failures):
+    receipt = _lifecycle_receipt()
+    receipt.update(status=status, failures=failures)
+    output = _lifecycle_summary(tmp_path, receipt)
+    for field in (
+        f'status={status}', 'failures=', 'all_named_workers_stopped=true',
+        'name=edfinder-worker', 'running=false', 'exists=true', 'status=exited', 'exit_code=0',
+        'migration_apply_preconditions:', 'current_pointers_recorded=true', 'inspection_complete=true',
+        'ready_for_governed_plan=true', 'finder_migrations_applied:',
+        '010_v3_system_search_body_type_counts.sql=true', 'finder_products_on_published_generation:',
+        'system_search=READY', 'system_archetype=unknown',
+        'generation_key=ratings_parallel; lifecycle_state=PUBLISHED', 'derived_products',
+        'generation_key=ratings_parallel; product_code=system_search; lifecycle_state=READY',
+        f'footprint.host_disk.avail_bytes={5 * 1024 ** 3} (5.00 GiB)',
+        f'footprint.host_disk.size_bytes={20 * 1024 ** 3} (20.00 GiB)',
+        'postgres.wal.archive_mode=on', 'postgres.wal.failed_count=0',
+        'postgres.wal.last_archived_time=2026-10-18 12:00:00+00', 'postgres.wal.last_failed_time=unknown',
+        *failures,
+    ):
+        assert field in output
+
+
+@pytest.mark.parametrize('receipt', [None, 'password=unrelated-secret', '[]', 'null', '{'])
+def test_lifecycle_annotation_handles_missing_invalid_receipts(tmp_path, receipt):
+    output = _lifecycle_summary(tmp_path, receipt)
+    assert 'status=stopped' in output
+    assert 'failures=receipt unavailable or invalid' in output
+
+
+def test_lifecycle_annotation_escapes_command_data(tmp_path):
+    receipt = _lifecycle_receipt()
+    receipt['status'] = 'stopped%\r\ninjected'
+    receipt['failures'] = ['failed%\r\ncommand']
+    receipt['workers'][0]['name'] = 'worker%\r\nname'
+    output = _lifecycle_summary(tmp_path, receipt)
+    for value in ('stopped%25%0D%0Ainjected', 'failed%25%0D%0Acommand', 'worker%25%0D%0Aname'):
+        assert value in output
+    assert '\r' not in output
+
+
+def test_lifecycle_annotation_bounds_large_escaped_receipts_with_disclosure(tmp_path):
+    receipt = _lifecycle_receipt()
+    receipt['failures'] = ['%' * 10000] * 200
+    for key in ('workers', 'derived_generations', 'derived_products'):
+        receipt[key] = [{**receipt[key][0], 'name': '%' * 10000, 'generation_key': '%' * 10000}] * 200
+    output = _lifecycle_summary(tmp_path, receipt)
+    assert len(output.splitlines()) == 8
+    assert '[truncated:' in output
+    assert '[field truncated]' in output
+    assert 'footprint.host_disk.avail_bytes=' in output
+    assert 'postgres.wal.last_failed_time=' in output
+
+
+def test_lifecycle_annotation_rejects_nested_or_credential_bearing_field_values(tmp_path):
+    receipt = _lifecycle_receipt()
+    receipt['failures'] = [{'secret': 'unrelated-secret'}, 'postgres://operator:unrelated-secret@host/db']
+    receipt['workers'][0]['status'] = 'PASSWORD=unrelated-secret'
+    receipt['footprint']['host_disk']['avail_bytes'] = {'secret': 'unrelated-secret'}
+    receipt['postgres']['wal']['last_failed_time'] = 'token=unrelated-secret'
+    output = _lifecycle_summary(tmp_path, receipt)
+    assert '[redacted]' in output
+    assert 'avail_bytes=unknown' in output
+
+
+def test_lifecycle_receipt_is_always_uploaded_and_retained_30_days():
+    step = _step('Upload V3 derived lifecycle status receipt')
+    assert step['if'] == "always() && steps.request.outputs.operation == 'v3-derived-lifecycle-status'"
+    assert step['with'] == {
+        'name': 'v3-derived-lifecycle-status-receipt',
+        'path': '${{ runner.temp }}/v3-derived-lifecycle-status.json',
+        'if-no-files-found': 'warn', 'retention-days': '30',
+    }
+
+
+@pytest.mark.parametrize('exit_code', [0, 7])
+def test_lifecycle_capture_preserves_action_exit_status_and_stdout(tmp_path, exit_code):
+    action = tmp_path / 'trusted-main/scripts/operator/actions/v3-derived-lifecycle-status.sh'
+    action.parent.mkdir(parents=True)
+    action.touch()
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    ssh = binary / 'ssh'
+    ssh.write_text(f'#!/bin/sh\nprintf \'{{"status":"stopped"}}\\n\'\nexit {exit_code}\n')
+    ssh.chmod(0o755)
+    result = subprocess.run(
+        ['bash', '-c', _step('Inspect V3 derived lifecycle status')['run']], cwd=tmp_path,
+        env={**os.environ, 'PATH': str(binary) + os.pathsep + os.environ['PATH'],
+             'SSH_USER': 'operator', 'SSH_HOST': 'local.invalid', 'SSH_PORT': '22', 'RUNNER_TEMP': str(tmp_path)},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == exit_code, result.stderr
+    assert result.stdout == '{"status":"stopped"}\n'
+    assert (tmp_path / 'v3-derived-lifecycle-status.json').read_text() == result.stdout
+
+
+def _validation_summary(tmp_path, content):
+    path = tmp_path / 'validation.txt'
+    if content is not None:
+        path.write_text(content)
+    step = _step('Annotate V3 Search constraint validation')
+    assert step['if'].startswith('always() && ')
+    result = subprocess.run(['bash', '-c', step['run']], env={**os.environ, 'RECEIPT': str(path)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith('::notice title=Search constraint validation::')
+    assert len(lines[0]) < 4000
+    return lines[0]
+
+
+def test_validation_status_annotation_reports_progress_without_query_text(tmp_path):
+    receipt = {
+        'operation': 'v3-system-search-validate-constraints-status', 'status': 'success',
+        'failures': [], 'migration_010_in_ledger': True, 'validated_count': 7, 'all_validated': False,
+        'runner_pid_alive': True, 'runner_pid_file_stale': False, 'runner_exit_code': None,
+        'constraints': [{'name': f'system_search_check_{n}', 'validated': n < 7} for n in range(18)],
+        'active_validations': [{'pid': 9, 'state': 'active', 'running_for': '00:04:12',
+                                'query': "ALTER TABLE x VALIDATE CONSTRAINT y; password='unrelated-secret'"}],
+        'log_tail': ["password='unrelated-secret'"],
+    }
+    line = _validation_summary(tmp_path, 'noise before\n' + json.dumps(receipt) + '\n')
+    for field in ('status=success', 'validated_count=7', 'all_validated=false', 'constraints_total=18',
+                  'system_search_check_7', 'running_for=00:04:12', 'runner_pid_alive=true'):
+        assert field in line
+    assert 'unrelated-secret' not in line
+    assert 'VALIDATE' not in line
+
+
+@pytest.mark.parametrize('content', [None, '', 'not json', '[1, 2]'])
+def test_validation_annotation_survives_missing_or_invalid_receipt(tmp_path, content):
+    line = _validation_summary(tmp_path, content)
+    assert 'receipt unavailable or invalid' in line
+
+
+def test_validation_start_annotation_reports_launch_and_queue(tmp_path):
+    receipt = {
+        'operation': 'v3-system-search-validate-constraints-start', 'status': 'success', 'result': 'launched',
+        'migration_010_verified': True, 'constraints_total': 18, 'constraints_validated_before': 0,
+        'constraints_queued': [f'system_search_check_{n}' for n in range(18)],
+        'catalog_validation_launched': True, 'failures': [],
+    }
+    line = _validation_summary(tmp_path, json.dumps(receipt))
+    for field in ('result=launched', 'constraints_total=18', 'constraints_validated_before=0',
+                  'catalog_validation_launched=true', 'constraints_queued=18', 'system_search_check_17',
+                  'migration_010_verified=true'):
+        assert field in line

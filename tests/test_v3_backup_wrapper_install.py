@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -219,9 +220,101 @@ def test_install_workflow_streams_trusted_source_and_keeps_strict_ssh():
     assert "systemctl" not in INSTALLER.read_text()
 
 
+def backup_install_annotations(tmp_path, receipt):
+    step = WORKFLOW.read_text().split("      - name: Annotate V3 backup wrapper install receipt\n", 1)[1].split("      - name:", 1)[0]
+    assert "if: always() && steps.request.outputs.operation == 'v3-backup-wrapper-install'" in step
+    assert "RECEIPT: ${{ runner.temp }}/v3-backup-wrapper-install-receipt.json" in step
+    source = textwrap.dedent(step.split("<<'PYTHON'\n", 1)[1].rsplit("          PYTHON", 1)[0])
+    path = tmp_path / "secret-in-missing-path"
+    if receipt is not None:
+        path.write_text(json.dumps(receipt) if not isinstance(receipt, str) else receipt)
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-"], input=source,
+        env={**os.environ, "RECEIPT": str(path)}, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    lines = result.stdout.splitlines()
+    assert 1 <= len(lines) <= 8
+    assert all(line.startswith("::notice title=Backup wrapper install::") for line in lines)
+    assert all(len(line) < 4000 for line in lines)
+    assert "secret-in-missing-path" not in result.stdout
+    return result.stdout
+
+
+@pytest.mark.parametrize("status", ["passed", "stopped"])
+def test_backup_install_annotation_selects_required_fields_and_escapes(tmp_path, status):
+    flags = {
+        "wrapper_temp_written": True, "wrapper_installed": True, "installed_hash_verified": status == "passed",
+        "db_writes_performed": False, "filesystem_writes_performed": True,
+        "service_changes_performed": False, "timer_changes_performed": False, "unit_changes_performed": False,
+        "additional_writes_performed": False, "additional_changes_performed": True,
+    }
+    receipt = {
+        "status": status, "failures": [] if status == "passed" else ["probe%failed\r\nrefused"],
+        "source_sha256": "a" * 64, "installed_sha256": "b" * 64, **flags,
+        "unrelated": "postgresql://operator:SECRET_PASSWORD@private-db/production",
+    }
+    output = backup_install_annotations(tmp_path, receipt)
+    assert f"status={status}" in output
+    assert "failures=" in output
+    assert "source_sha256=" + "a" * 12 in output
+    assert "installed_sha256=" + "b" * 12 in output
+    assert "a" * 13 not in output and "b" * 13 not in output
+    for name, value in flags.items():
+        assert f"{name}={str(value).lower()}" in output
+    assert "SECRET_PASSWORD" not in output and "postgresql" not in output
+    if status == "stopped":
+        assert "probe%25failed%0D%0Arefused" in output
+    else:
+        assert "failures=[]" in output
+
+
+@pytest.mark.parametrize("receipt", [None, "invalid SECRET_PASSWORD receipt", [], 17])
+def test_backup_install_annotation_handles_missing_and_invalid_receipts(tmp_path, receipt):
+    output = backup_install_annotations(tmp_path, receipt)
+    assert "status=stopped" in output
+    assert "failures=receipt_unavailable_or_invalid" in output
+    assert "source_sha256=unknown" in output and "installed_sha256=unknown" in output
+    for name in ("wrapper_temp_written", "wrapper_installed", "installed_hash_verified", "db_writes_performed",
+                 "filesystem_writes_performed", "service_changes_performed", "timer_changes_performed", "unit_changes_performed"):
+        assert f"{name}=unknown" in output
+    assert "SECRET_PASSWORD" not in output
+
+
+def test_backup_install_annotation_bounds_large_receipts_and_rejects_credential_text(tmp_path):
+    receipt = {
+        "status": "stopped", "failures": ["%\r\n" * 50] * 100,
+        **{f"extra_{index}_writes_performed": False for index in range(2000)},
+        "source_sha256": "postgresql://operator:SECRET_PASSWORD@db",
+        "installed_sha256": {"secret": "SECRET_PASSWORD"},
+        "wrapper_installed": "SECRET_PASSWORD",
+        "unrelated": "postgresql://operator:SECRET_PASSWORD@private-db/production",
+    }
+    output = backup_install_annotations(tmp_path, receipt)
+    assert len(output.splitlines()) == 8
+    assert "truncated" in output
+    assert "%25%0D%0A" in output
+    assert "source_sha256=unknown" in output
+    assert "wrapper_installed=unknown" in output
+    assert "SECRET_PASSWORD" not in output
+    receipt["failures"] = ["postgresql://operator:SECRET_PASSWORD@db"]
+    output = backup_install_annotations(tmp_path, receipt)
+    assert "[invalid failure code]" in output
+    assert "SECRET_PASSWORD" not in output
+
+
 @pytest.mark.parametrize("path", [WRAPPER, INSTALLER])
 def test_changed_shell_parses(path):
     subprocess.run(["bash", "-n", str(path)], check=True)
+
+
+@pytest.mark.parametrize('sensitive', ['ghp_example', 'github_pat_example', 'AKIAEXAMPLE', 'sk-example', 'PASSWORD_VALUE'])
+def test_backup_install_annotation_suppresses_credential_markers(tmp_path, sensitive):
+    receipt = {'status': 'stopped', 'failures': [sensitive], sensitive + '_writes_performed': True}
+    output = backup_install_annotations(tmp_path, receipt)
+    assert sensitive not in output
+    assert 'failures=[invalid failure code]' in output
 
 
 @pytest.mark.parametrize(("host", "endpoint", "fence_called", "code"), [

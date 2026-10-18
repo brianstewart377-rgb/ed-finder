@@ -10,6 +10,12 @@ rclone FUSE mount, the retained PostgreSQL 18 container's `rprivate` bind of
 Nothing here changes `pgbackrest.conf`, the backup timers, the wrapper, the
 database schema or data.
 
+**Prerequisites (both recorded 2026-10-18):** migration `016` is applied
+(apply run 39113822236) and the ledger-aware wrapper is installed through the
+governed `v3-backup-wrapper-install` operation (run 39115078455, installed hash
+equal to the committed source). Step 9 relies on that wrapper. Do not start this
+procedure if either receipt is missing from `docs/operations/evidence/`.
+
 The owner runs every command, as `root` on the production server
 `ed-finder-prod` (`nb79a3d.mevnode.com`), one at a time, in order. Storage Box
 passwords are typed only at interactive prompts and never into a command line,
@@ -53,12 +59,26 @@ ssh-keygen -t ed25519 -N '' -f /root/.ssh/storagebox_ed25519 -C ed-finder-prod-s
 
 ## 3. Install the key on the Storage Box
 
-Command, production server. It asks you to confirm the Storage Box's host key
-(type `yes`) and then for the Storage Box **password** — type it at that prompt
-only:
+First check you are talking to the real Storage Box. Command, production server.
+It prints the server's key fingerprints and changes nothing:
 
 ```
-ssh-copy-id -p 23 -s -i /root/.ssh/storagebox_ed25519.pub u123456@u123456.your-storagebox.de
+ssh-keyscan -p 23 u123456.your-storagebox.de 2>/dev/null | ssh-keygen -lf -
+```
+
+Open Hetzner's published Storage Box fingerprints in your web browser at
+`https://docs.hetzner.com/storage/storage-box/general/` (section "SSH host
+keys") and check the `ED25519` line above matches the one Hetzner lists.
+**If it does not match, stop here.**
+
+Then add the key without removing any key already on the box (Hetzner's
+`install-ssh-key` appends to it). Command, production server. It asks you to
+confirm the host key — type `yes` only if the `ED25519` fingerprint it shows is
+the one you just matched — and then for the Storage Box **password**; type it at
+that prompt only:
+
+```
+cat /root/.ssh/storagebox_ed25519.pub | ssh -p 23 u123456@u123456.your-storagebox.de install-ssh-key
 ```
 
 Then check the key works without a password. Command, production server. It
@@ -132,6 +152,16 @@ Command, production server. Wait until it prints `accepting connections`
 docker exec edfinder-v3-phase4c-full-20260827_r5-postgres pg_isready -h 127.0.0.1 -p 5432
 ```
 
+Then check the whole application is healthy again, not only the database.
+Command, production server. It runs the installed health check (database
+container healthy, Redis and NATS up, exactly one active web origin,
+`/api/health` reporting `database: connected`, and the sign-in session check)
+and must print `V3 runtime health PASS`; repeat after a minute if it does not:
+
+```
+/opt/ed-finder-v3-runtime/health-check.sh
+```
+
 Command, production server. It must print `fuse.rclone`, proving the container
 now sees the Storage Box:
 
@@ -183,8 +213,8 @@ docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest
 
 Record the dated outcome (the `info` summary, without any secret) in
 `deploy/v3-production/backup/README.md` and
-`docs/operations/infrastructure-status.md`, replacing their "no backup target"
-statements. A restore has still never been rehearsed; that remains open.
+`docs/operations/infrastructure-status.md`, replacing the dated "no backup
+target" statements they carry until then. A restore has still never been rehearsed; that remains open.
 
 ## If something goes wrong
 

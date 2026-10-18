@@ -21,7 +21,7 @@ the source of truth for the deployed build; deploys still run **only** through
 the governed application-promotion workflow and its fail-closed target authority.
 See [`v3-production-application-release.md`](v3-production-application-release.md).
 
-The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
+The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. **Backup state (2026-10-18):** the offsite Storage Box behind that design was retired by the owner, so no current offsite backup or WAL archive exists (last successful WAL archive 2026-09-24; scheduled backups skip on the missing mount). The design is retained; restoring a target needs a reviewed procedure. See `deploy/v3-production/backup/README.md`. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
 The reviewed V3 application promotion boundary is
 [`v3-production-application-release.md`](v3-production-application-release.md).
