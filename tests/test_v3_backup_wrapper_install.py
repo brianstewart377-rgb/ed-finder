@@ -44,7 +44,7 @@ if 'psql' in args:
         sys.exit(1)
     if state=='live': print('purge_id=test event_sequence=7 kind=REWRITE_STARTED relation=system_search backend_pid=123 backend_start=now')
     sys.exit(0)
-if 'info' in args: print('[{"status":{"message":"ok"}}]')
+if 'info' in args: print('[{"status":{"code":0,"message":"ok"},"backup":[{"type":"full"}]}]')
 ''')
     docker.chmod(0o755)
     for name, script in {

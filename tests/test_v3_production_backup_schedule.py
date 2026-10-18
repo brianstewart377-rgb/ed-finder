@@ -53,6 +53,51 @@ def test_wrapper_supports_exactly_the_scheduled_operations():
     assert '=="ok"' in source
 
 
+def _info_guard():
+    import re
+
+    source = WRAPPER.read_text(encoding="utf-8")
+    match = re.search(r"python3\.14 -I -S -c '(.*?)' \"\$op\" <<<\"\$info\"", source, re.S)
+    assert match, "the repository-health guard must stay a single python -c check"
+    return match.group(1)
+
+
+def _guard_passes(op, info):
+    import json
+    import subprocess
+    import sys
+
+    result = subprocess.run([sys.executable, "-I", "-S", "-c", _info_guard(), op],
+                            input=json.dumps(info), capture_output=True, text=True, check=False)
+    return result.returncode == 0
+
+
+HEALTHY = [{"status": {"code": 0, "message": "ok"}, "backup": [{"type": "full"}]}]
+EMPTY = [{"status": {"code": 2, "message": "no valid backups"}, "backup": []}]
+
+
+def test_guard_admits_every_operation_on_a_healthy_stanza():
+    for op in ("full", "diff", "verify"):
+        assert _guard_passes(op, HEALTHY)
+
+
+def test_guard_admits_only_a_first_full_backup_on_an_empty_repository():
+    assert _guard_passes("full", EMPTY)
+    assert not _guard_passes("diff", EMPTY)
+    assert not _guard_passes("verify", EMPTY)
+
+
+def test_guard_refuses_missing_or_damaged_stanzas():
+    for info in (
+        [{"status": {"code": 1, "message": "missing stanza path"}, "backup": []}],
+        [{"status": {"code": 3, "message": "missing stanza data"}, "backup": []}],
+        [{"status": {"code": 2, "message": "no valid backups"}, "backup": [{"type": "full"}]}],
+        [],
+        [HEALTHY[0], HEALTHY[0]],
+    ):
+        assert not _guard_passes("full", info)
+
+
 def test_service_is_oneshot_and_requires_the_storage_box_mount():
     source = SERVICE.read_text(encoding="utf-8")
 

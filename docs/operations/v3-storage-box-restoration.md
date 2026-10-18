@@ -13,8 +13,16 @@ database schema or data.
 **Prerequisites (both recorded 2026-10-18):** migration `016` is applied
 (apply run 39113822236) and the ledger-aware wrapper is installed through the
 governed `v3-backup-wrapper-install` operation (run 39115078455, installed hash
-equal to the committed source). Step 9 relies on that wrapper. Do not start this
-procedure if either receipt is missing from `docs/operations/evidence/`.
+equal to the committed source). Do not start this procedure if either receipt
+is missing from `docs/operations/evidence/`.
+
+Step 9 additionally needs the wrapper version that admits the **first** full
+backup into an empty repository (pgBackRest reports `no valid backups` there,
+which older wrappers refuse). Before step 9, the governed
+`v3-backup-wrapper-install` operation must have installed the wrapper from a
+`main` that contains that change, with `status: passed` and equal source and
+installed hashes; it is dispatched by the operator with owner approval, not run
+by hand.
 
 The owner runs every command, as `root` on the production server
 `ed-finder-prod` (`nb79a3d.mevnode.com`), one at a time, in order. Storage Box
@@ -134,6 +142,13 @@ mkdir -p /mnt/ed-storagebox/ed-finder/backups/postgres-v3/v3_main
 ```
 
 ## 7. Restart the database container so it sees the new mount
+
+**Gate:** a restart stops anything running inside the database container. Do not
+restart while a governed database operation is in progress. In particular, a
+started Search constraint validation must first report `all_validated=true` from
+the `v3-system-search-validate-constraints-status` operation (2026-10-18: run
+39119560891 reported 18 of 18 validated, runner exited 0). Ask the operator to
+confirm no build, validation or purge is running before continuing.
 
 Owner approval is required for this step: PostgreSQL is offline for about a
 minute and the API returns errors until it is back. `docker restart` stops and
