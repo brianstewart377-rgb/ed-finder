@@ -301,3 +301,43 @@ def test_lifecycle_capture_preserves_action_exit_status_and_stdout(tmp_path, exi
     assert result.returncode == exit_code, result.stderr
     assert result.stdout == '{"status":"stopped"}\n'
     assert (tmp_path / 'v3-derived-lifecycle-status.json').read_text() == result.stdout
+
+
+def _validation_summary(tmp_path, content):
+    path = tmp_path / 'validation.txt'
+    if content is not None:
+        path.write_text(content)
+    step = _step('Annotate V3 Search constraint validation')
+    assert step['if'].startswith('always() && ')
+    result = subprocess.run(['bash', '-c', step['run']], env={**os.environ, 'RECEIPT': str(path)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith('::notice title=Search constraint validation::')
+    assert len(lines[0]) < 4000
+    return lines[0]
+
+
+def test_validation_status_annotation_reports_progress_without_query_text(tmp_path):
+    receipt = {
+        'operation': 'v3-system-search-validate-constraints-status', 'status': 'success',
+        'failures': [], 'migration_010_in_ledger': True, 'validated_count': 7, 'all_validated': False,
+        'runner_pid_alive': True, 'runner_pid_file_stale': False, 'runner_exit_code': None,
+        'constraints': [{'name': f'system_search_check_{n}', 'validated': n < 7} for n in range(18)],
+        'active_validations': [{'pid': 9, 'state': 'active', 'running_for': '00:04:12',
+                                'query': "ALTER TABLE x VALIDATE CONSTRAINT y; password='unrelated-secret'"}],
+        'log_tail': ["password='unrelated-secret'"],
+    }
+    line = _validation_summary(tmp_path, 'noise before\n' + json.dumps(receipt) + '\n')
+    for field in ('status=success', 'validated_count=7', 'all_validated=false', 'constraints_total=18',
+                  'system_search_check_7', 'running_for=00:04:12', 'runner_pid_alive=true'):
+        assert field in line
+    assert 'unrelated-secret' not in line
+    assert 'VALIDATE' not in line
+
+
+@pytest.mark.parametrize('content', [None, '', 'not json', '[1, 2]'])
+def test_validation_annotation_survives_missing_or_invalid_receipt(tmp_path, content):
+    line = _validation_summary(tmp_path, content)
+    assert 'receipt unavailable or invalid' in line

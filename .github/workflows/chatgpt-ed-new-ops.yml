@@ -735,6 +735,63 @@ jobs:
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'cd /opt/ed-finder && bash -s -- status' < trusted-main/scripts/operator/actions/v3-system-search-validate-constraints.sh | tee "$RECEIPT"
 
+      - name: Annotate V3 Search constraint validation
+        if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
+        run: |
+          python3 -I -B - <<'PYTHON'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          PREFIX = "::notice title=Search constraint validation::"
+
+          def escape(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          def text(value):
+              # Identifiers, states and durations only; never SQL, paths or free text.
+              if isinstance(value, bool) or value is None:
+                  return json.dumps(value)
+              if type(value) is int:
+                  return str(value)
+              if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:+ -]{1,120}", value):
+                  return "[redacted]"
+              return value
+
+          receipt = None
+          try:
+              lines = [line for line in Path(os.environ["RECEIPT"]).read_text().splitlines() if line.strip()]
+              receipt = json.loads(lines[-1]) if lines else None
+          except (OSError, ValueError, RecursionError):
+              receipt = None
+          if not isinstance(receipt, dict):
+              print(PREFIX + escape("status=stopped; receipt unavailable or invalid"))
+              raise SystemExit(0)
+          parts = ["status=" + text(receipt.get("status"))]
+          failures = receipt.get("failures") if isinstance(receipt.get("failures"), list) else []
+          parts.append("failures=" + (",".join(text(f) for f in failures[:10]) or "[]"))
+          for key in ("operation", "migration_010_in_ledger", "constraints_validated_before", "queued",
+                      "launched", "validated_count", "all_validated", "runner_pid_alive",
+                      "runner_pid_file_stale", "runner_exit_code"):
+              if key in receipt:
+                  parts.append(key + "=" + text(receipt.get(key)))
+          constraints = receipt.get("constraints") if isinstance(receipt.get("constraints"), list) else []
+          if constraints:
+              parts.append("constraints_total=" + str(len(constraints)))
+              pending = [text(c.get("name")) for c in constraints if isinstance(c, dict) and c.get("validated") is not True]
+              parts.append("not_yet_validated=" + (",".join(pending[:20]) or "none"))
+          active = receipt.get("active_validations") if isinstance(receipt.get("active_validations"), list) else []
+          for item in active[:4]:
+              if isinstance(item, dict):
+                  parts.append("active: state=" + text(item.get("state")) + " running_for=" + text(item.get("running_for")))
+          message = " | ".join(parts)
+          print(PREFIX + escape(message)[:3800])
+          PYTHON
+
       - name: Upload V3 Search constraint validation receipt
         if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
