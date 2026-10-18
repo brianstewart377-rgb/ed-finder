@@ -189,6 +189,10 @@ def _run_status_action(
                   missing)
                     printf 'Error: No such object: %s\\n' "$name" >&2
                     exit 1 ;;
+                  missing-lower)
+                    # The production host's Docker CLI prints lower case.
+                    printf 'error: no such object: %s\\n' "$name" >&2
+                    exit 1 ;;
                   daemon)
                     printf '%s\\n' 'Cannot connect to the Docker daemon' >&2
                     exit 1 ;;
@@ -534,8 +538,9 @@ def test_v3_derived_lifecycle_status_refuses_truncated_slot_report(tmp_path):
     assert receipt["migration_apply_preconditions"]["inspection_complete"] is False
 
 
-def test_v3_derived_lifecycle_status_treats_no_such_object_as_absent(tmp_path):
-    result = _run_status_action(tmp_path, worker_inspect_failure="missing")
+@pytest.mark.parametrize("failure", ["missing", "missing-lower"])
+def test_v3_derived_lifecycle_status_treats_no_such_object_as_absent(tmp_path, failure):
+    result = _run_status_action(tmp_path, worker_inspect_failure=failure)
 
     assert result.returncode == 0, result.stderr or result.stdout
     receipt = json.loads(result.stdout)
