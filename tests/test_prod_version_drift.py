@@ -506,8 +506,23 @@ def test_missing_hold_file_means_no_hold(tmp_path, monkeypatch, capsys):
     assert "Promotion hold file: no hold file" in capsys.readouterr().out
 
 
-def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
+def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys, tmp_path):
     live = "bed755b944eb6cb226e1726b2a51582ba9fa9bdb"
+    # The committed hold was removed when f667bb4d was accepted (2026-10-18).
+    # Recreate that historical hold in a scratch repo to keep proving that the
+    # default path resolves relative to --repo.
+    repo = tmp_path / "repo"
+    (repo / mod.DEFAULT_HOLD_FILE).parent.mkdir(parents=True)
+    (repo / mod.DEFAULT_HOLD_FILE).write_text(json.dumps({
+        "schema_version": "ed-finder/production-promotion-hold/v1",
+        "held_live_sha": live,
+        "covers_main_sha": "c3da6061441cb40c96e0d43b7507bda740ad9d94",
+        "held_since": "2026-10-04",
+        "expires_at": "2026-11-09T00:00:00Z",
+        "reason": "F3 Finder cutover must not be promoted before the Finder products are "
+                  "built and published; see docs/operations/v3-production-application-release.md",
+        "review": "PR #793",
+    }))
     monkeypatch.setattr(mod, "fetch_api_sha", lambda _base, _timeout: live)
     monkeypatch.setattr(mod, "fetch_web_sha", lambda _base, _timeout: live)
     # CI checks out a shallow PR merge commit, so real git history is unavailable here.
@@ -522,7 +537,7 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
     code = mod.main(
         [
             "--repo",
-            str(ROOT),
+            str(repo),
             "--main-sha",
             BASE_MAIN,
             "--now-epoch",
@@ -541,7 +556,7 @@ def test_default_hold_file_is_loaded_relative_to_repo(monkeypatch, capsys):
         "(reviewed against c3da6061441c)"
     )
     assert (
-        f"Promotion hold file: {ROOT / mod.DEFAULT_HOLD_FILE}"
+        f"Promotion hold file: {repo / mod.DEFAULT_HOLD_FILE}"
         in lines
     )
 

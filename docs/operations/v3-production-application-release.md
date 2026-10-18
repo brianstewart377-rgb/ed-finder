@@ -307,12 +307,18 @@ rollback artifact. It does not require product READY, receipts, counts,
 `published_at` or publication audits. The retained READY Search product row on
 `opt1` does not block the gate.
 
-**Schema prerequisite remains outstanding.** Migrations `014`, bounded `010`,
-rewritten wide-row `011`, `013`, product-publication `015` and governed-purge
-`016` are now registered; registration is not application, and the governed
-plan/review/apply, P2 operator actions/rehearsal, purge and separate constraint
-validation remain outstanding. The release gate requires the exact registered
-`016` hash in the applied ledger. No production attestation is supplied by P1.
+**Status (2026-10-18).** Migrations `014`, bounded `010`, rewritten wide-row
+`011`, `013`, product-publication `015` and governed-purge `016` are applied
+(apply run 39113822236) and the 18 Search constraints are validated. The first
+F2d release, source `f667bb4d` (release run 39149556699), was accepted by
+promotion run 39149980927; its attestation is the accepted release in
+`deploy/v3-production/target-authority.json`. Later candidates are therefore
+judged by the accepted-F2d rule (product rows may exist, never `FAILED`) and
+must keep `minimum_schema_compatible_image` at that release's backend digest.
+The F2d release attests only the installed through-016 identity, so the
+completed through-012 → through-016 `schema_transition` is no longer
+replayable: the migration operator refuses with "omits a transition prefix"
+until a new reviewed transition is committed for any later migration.
 
 The accepted-release compatibility attestation adds `ranking_version`,
 `ranking_sha256`, `f2d_operator_code_sha256`,
@@ -371,8 +377,7 @@ mode; the `--expected-sha` post-deploy gate remains history-independent.
 
 Extending the hold requires a reviewed pull request that bumps
 `covers_main_sha` (and `expires_at` if needed). This is how each later deployable
-change is consciously acknowledged rather than silently covered. The code-only
-PR4b gate implementation leaves this hold in place: application of migration
-`016` and the governed rollout remain outstanding. Remove the hold with the
-reviewed production-release authorization; this implementation does not extend
-its coverage or expiry.
+change is consciously acknowledged rather than silently covered. The hold was
+removed on 2026-10-18 with the authority update recording the accepted F2d
+release (`f667bb4d`), which superseded its live SHA; the drift monitor runs with
+no hold file until another reviewed hold is needed.

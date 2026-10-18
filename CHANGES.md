@@ -21,6 +21,24 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-18 — First F2d release accepted in production (step 5′)
+
+Release run 39149556699 (source `f667bb4d`, including #851) passed preflight
+run 39149910712 and was promoted by run 39149980927: receipt `status:
+accepted`, active slot blue→green, no migrations or database writes, protected
+resources unchanged. Staging, active and public smoke returned 200; the F2d
+image contract, OpenAPI bounds, hard-filter 422 rejections and the 503
+not-ready behavioural probes passed. `deploy/v3-production/target-authority.json`
+now records this release in `observed_runtime` and as the accepted release
+with its complete F2d attestation, so later candidates are judged by the
+accepted-F2d product-state rule and keep its backend as the boundary image.
+The bed755b9 promotion hold is removed. Both promotion receipts (accepted and
+the earlier stopped attempt) are under `docs/operations/evidence/`. Tests that
+assumed the pre-F2d accepted release or the unapplied migration transition now
+assert the applied state; the transition mechanism tests rebuild the
+historical attested set themselves. ROADMAP also records step 3 (all 18 Search
+constraints validated) and the Storage Box restoration.
+
 ## 2026-10-18 — First F2d promotion stop fixed (OpenAPI bound type, search 422 order)
 
 Production promotion run 39143010163 (release run 39140812920, source

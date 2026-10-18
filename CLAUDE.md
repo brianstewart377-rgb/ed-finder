@@ -26,12 +26,14 @@ Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
 checkpoint remains a separate rehearsal boundary. The app-only V3 production
 promotion path is now `authorized` and has accepted governed promotions
 (2026-09-10 bootstrap; identity 2026-09-16; density-swirl `8055f268` 2026-09-23;
-`bed755b9` 2026-09-25 per the accepted-release attestation), with exact CPython
+`bed755b9` 2026-09-25; first F2d release `f667bb4d` 2026-10-18 per the
+accepted-release attestation), with exact CPython
 3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
-promote. Current programme status (prod app on `bed755b9` shipping
-watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
+promote. Current programme status (prod app on `f667bb4d`, the first F2d release, whose
+Finder routes answer 503 until both products are published; it carries the
+`bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; Finder `system_search` post-`010` build not yet started; Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`

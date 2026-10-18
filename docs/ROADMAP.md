@@ -96,7 +96,12 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
-- **Production app promoted to `bed755b9`** (promote receipt `received_at`
+- **Production app promoted to `f667bb4d`, the first F2d release (2026-10-18).**
+  Release run 39149556699, promote run 39149980927, receipt `received_at`
+  `2026-10-18T17:32:21Z`, active slot blue→green, `status: accepted`; app-only
+  (no migrations, no database writes). Finder routes answer 503 until both
+  products are built and published (steps 6′–9′).
+- **Previously: production app promoted to `bed755b9`** (promote receipt `received_at`
   `2026-09-25T22:35:23Z` per `deploy/v3-production/target-authority.json`).
   Governed release → preflight → promote (release run 36196769987, promote run
   36197361462) flipped the active slot green→blue; all smoke (`/`, `/api/health`,
@@ -429,11 +434,27 @@ newer dated source wins).
   installed hash `3393fd81…` equals the committed source, no database, service,
   timer or unit changes (receipt in
   `docs/operations/evidence/2026-10-18-v3-backup-wrapper-install-receipt.json`).
-  Next: step 3. The production Storage Box was
-  retired by the owner, so offsite backups and WAL archiving have no target
-  (`last_archived_time` 2026-09-24); either a reviewed Storage Box restoration
-  or the owner-approved interim of disabling WAL archiving must precede the
-  step 8′ builds, whose WAL would otherwise be retained until the disk fills.
+  **Step 3 done (2026-10-18):** start run 39115455914, then status run
+  39119560891 reported `all_validated=true` for all 18 Search constraints
+  (`not_yet_validated=none`, runner exit 0). **Storage Box restored
+  (2026-10-18):** the owner replaced the retired box with a new Hetzner BX box
+  through `docs/operations/v3-storage-box-restoration.md` (key auth, host key
+  fingerprints verified); the stanza was created and checked, WAL archiving
+  resumed, the ledger-aware wrapper (`b20b8009…`, run 39139808335, `status:
+  passed`) was reinstalled, and the first full backup was started; its
+  `pgbackrest info` outcome is recorded separately. **Step 5′ done
+  (2026-10-18):** release run 39149556699 (source `f667bb4d`, including the
+  #851 gate fixes) was promoted by run 39149980927 to active slot green with
+  receipt `status: accepted`, no migrations, no database writes and protected
+  resources unchanged; the F2d image contract, OpenAPI bounds, hard-filter 422
+  rejections and the 503 not-ready behavioural probes all passed (receipt in
+  `docs/operations/evidence/2026-10-18-v3-production-promotion-receipt-run-39149980927.json`).
+  The first attempt, run 39143010163 of release 39140812920, stopped before
+  cutover on `f2d_openapi_contract_invalid:search.size` with the staged
+  candidate removed and rollback verified (receipt alongside). The accepted
+  release, now carrying the F2d attestation, is recorded in
+  `deploy/v3-production/target-authority.json` and the promotion hold is
+  removed. Next: step 6′.
   The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the
