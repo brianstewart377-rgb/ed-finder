@@ -110,7 +110,7 @@ run_operation() {
   require_generation
 
   install -d -m 700 "$STATE_ROOT"
-  local api api_image cleanup_command dsn env_file output_file exit_code worker
+  local api api_image cleanup_command dsn env_file output_file error_file exit_code worker
   api="$(active_api_container)"
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
@@ -118,7 +118,8 @@ run_operation() {
   worker="edfinder-v3-archetype-probe-${SOURCE_SHA:0:12}"
   env_file="$STATE_ROOT/probe.envfile"
   output_file="$(mktemp "$STATE_ROOT/probe-output.XXXXXX")"
-  printf -v cleanup_command 'rm -f -- %q %q' "$env_file" "$output_file"
+  error_file="$(mktemp "$STATE_ROOT/probe-stderr.XXXXXX")"
+  printf -v cleanup_command 'rm -f -- %q %q %q' "$env_file" "$output_file" "$error_file"
   trap "$cleanup_command" EXIT
   umask 077
   printf 'V3_ARCHETYPE_PROBE_DATABASE_URL=%s\n' "$dsn" > "$env_file"
@@ -146,7 +147,7 @@ run_operation() {
       export PYTHONPATH="/tmp/v3-probe-deps:/work:/work/apps/api/src"
       cd /work
       exec /app/.venv/bin/python scripts/v3_archetype_calibration_probe.py --generation-key ratings_v4_prod_p4_parallel_v1 --max-systems 200000
-    ' > "$output_file"
+    ' > "$output_file" 2> "$error_file"
   exit_code=$?
   set -e
   rm -f "$env_file"
@@ -173,7 +174,13 @@ run_operation() {
     printf 'probe_json=\n'
   else
     printf 'failure=invalid_probe_output\n'
-    printf 'probe_output_raw=\n'
+    # The container's stderr (pip, the probe's own diagnostics, psycopg's
+    # error class) is the only explanation of an empty or invalid result, and
+    # it never carries the DSN: the probe prints only exception class names.
+    # Record its bounded tail in the receipt, after the raw output block.
+    printf 'probe_stderr_tail=\n'
+    tail -c 4000 "$error_file"
+    printf '\nprobe_output_raw=\n'
   fi
   cat "$output_file"
   return "$exit_code"

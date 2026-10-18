@@ -133,6 +133,49 @@ def test_cli_build_then_validate(database, monkeypatch, capsys):
     assert again == receipt
 
 
+def test_cli_forces_custom_plans_for_the_whole_session(database, monkeypatch):
+    # Shared read SQL selects its branch with parameter NULL tests; a generic
+    # plan joins full scans (production probe run 39155668281 cancelled at
+    # its statement timeout). main() must set the session mode on connect,
+    # before the first chunk read, for build and validate alike.
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+    _ready_ratings(database, generation_id)
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', _fixture_dsn(connection))
+    observed = []
+    import psycopg
+
+    class Observed:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._inner.__exit__(*args)
+
+        def execute(self, sql, *args, **kwargs):
+            observed.append(sql)
+            return self._inner.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    original = psycopg.connect
+    monkeypatch.setattr(psycopg, 'connect', lambda *a, **k: Observed(original(*a, **k)))
+    assert builder.main(['--generation-key', key]) == 0
+    forced = next(i for i, sql in enumerate(observed)
+                  if "'plan_cache_mode','force_custom_plan'" in sql)
+    first_read = next(i for i, sql in enumerate(observed)
+                      if 'system_rating_vector' in sql)
+    assert forced < first_read
+    assert connection.execute(
+        "SELECT current_setting('plan_cache_mode')"
+    ).fetchone()[0] == 'auto'  # the fixture's own session is untouched
+
+
 def test_cli_missing_database_authority_fails_closed(monkeypatch, capsys):
     monkeypatch.delenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', raising=False)
     assert builder.main(['--generation-key', 'whatever']) == 64

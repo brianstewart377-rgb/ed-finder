@@ -101,7 +101,8 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
                 raise SystemExit(0)
             if args[:1] == ["run"]:
                 print(os.environ["FAKE_PROBE_OUTPUT"], end="")
-                raise SystemExit(0)
+                print(os.environ.get("FAKE_PROBE_STDERR", ""), end="", file=sys.stderr)
+                raise SystemExit(int(os.environ.get("FAKE_PROBE_EXIT", "0")))
             raise SystemExit(2)
             """
         ),
@@ -120,6 +121,8 @@ def _run_action(
         '{"probe_version":"v3-archetype-calibration-probe-1",'
         '"read_only":true}\n'
     ),
+    probe_stderr: str = "",
+    probe_exit: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], Path, Path]:
     fake_bin, docker_log = _make_fake_path(tmp_path)
     source_sha = hashlib.sha1(str(tmp_path).encode()).hexdigest()
@@ -153,6 +156,8 @@ def _run_action(
             "TEST_PYTHON_BIN": sys.executable,
             "FAKE_CURRENT": "1" if current_pointer else "0",
             "FAKE_PROBE_OUTPUT": probe_output,
+            "FAKE_PROBE_STDERR": probe_stderr,
+            "FAKE_PROBE_EXIT": str(probe_exit),
         }
     )
     try:
@@ -432,3 +437,37 @@ def test_non_json_prefix_fails_closed_and_prints_raw_probe_output(tmp_path: Path
     _, marker, captured_probe = result.stdout.partition("probe_output_raw=\n")
     assert marker
     assert captured_probe == probe_output
+
+
+def test_empty_probe_output_records_container_stderr_tail_in_receipt(tmp_path: Path):
+    # Run 39155668281 recorded failure=invalid_probe_output with an empty raw
+    # block: the container's stderr held the only explanation, and only the
+    # unreadable job log had it. The receipt must carry its bounded tail.
+    stderr = "pip chatter\n" + "x" * 5000 + "\ndatabase error: OperationalError\n"
+    result, calls, home, _ = _run_action(
+        tmp_path, current_pointer=True, probe_output="", probe_stderr=stderr, probe_exit=4,
+    )
+
+    assert len([args for args in calls if args[:1] == ["run"]]) == 1
+    assert result.returncode == 65
+    assert "failure=invalid_probe_output\n" in result.stdout
+    _, marker, rest = result.stdout.partition("probe_stderr_tail=\n")
+    assert marker
+    tail, raw_marker, raw = rest.partition("\nprobe_output_raw=\n")
+    assert raw_marker
+    assert raw == ""
+    assert tail == stderr[-4000:]
+    assert tail.endswith("database error: OperationalError\n")
+    assert "pip chatter" not in tail
+    state = home / ".local/state/ed-finder/v3-archetype-probe"
+    assert not list(state.glob("probe-stderr.*"))
+    assert not list(state.glob("probe-output.*"))
+
+
+def test_valid_probe_output_omits_stderr_from_receipt(tmp_path: Path):
+    result, _, _, _ = _run_action(
+        tmp_path, current_pointer=True, probe_stderr="pip chatter\n",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "probe_stderr_tail=" not in result.stdout
+    assert "pip chatter" not in result.stdout
