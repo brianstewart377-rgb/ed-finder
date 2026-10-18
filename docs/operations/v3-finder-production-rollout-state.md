@@ -12,6 +12,9 @@ they diverge, that is a signal to **correct the roadmap to match this verified
 evidence**, not to follow this file instead. The controlling sequence lives in
 the roadmap.
 
+**Production progress (2026-10-18) — supersedes the 'outstanding'/'open'/'blocked' statements below for steps 0 and 2:**
+step 0 is closed (read-only lifecycle status run 39113741990, every named worker stopped or absent); step 2 is done (plan run 39113784318, apply run 39113822236 applied `014`, `010`, `011`, `013`, `015`, `016`, schema identity `d7efe689…`); the ledger-aware backup wrapper is installed (run 39115078455); step 3 constraint validation was started (run 39115455914). Receipts are under `docs/operations/evidence/2026-10-18-*`. Per the 2026-10-17 ROADMAP amendment the purge (P) follows go-live. The Storage Box is retired, so WAL archiving has no target; that must be resolved before the step 8′ builds.
+
 **Updates after 2026-10-04:** the additions below, including the PR #792
 registration facts, are repository/workflow facts, not a new production
 inspection.
