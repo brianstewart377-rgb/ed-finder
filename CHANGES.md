@@ -21,6 +21,22 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-18 — First F2d promotion stop fixed (OpenAPI bound type, search 422 order)
+
+Production promotion run 39143010163 (release run 39140812920, source
+`3415d5a3`) stopped on `f2d_openapi_contract_invalid:search.size` before any
+cutover; the staged candidate was removed and the rollback verified, so the
+live release was unchanged. FastAPI's OpenAPI model serves request-body
+bounds as floats (`500.0`), while the gate accepted only JSON integers. The
+gate now accepts an integral float equal to the exact expected bound (never a
+bool). A local probe of the same release also showed the next gate,
+`verify_f2d_rejections`, would stop: `POST /api/local/search` resolved the
+published generation before validating the request, so an unpublished Finder
+returned 503 where a disallowed hard filter must return 422. The route now runs
+the DB-free `prepare_local_search_v3` validation first, matching the rankings
+route. A new release must be built from the merged source before the next
+promotion.
+
 ## 2026-10-18 — Finder migrations applied to production
 
 Step 0 closed (read-only lifecycle status run 39113741990, every named worker

@@ -751,6 +751,43 @@ def test_concrete_openapi_contract_accepts_local_request_schema_reference(deploy
     }}
 
 
+def test_openapi_accepts_fastapi_float_typed_request_body_bounds(deployer, monkeypatch):
+    # FastAPI's OpenAPI model serves request-body bounds as floats (`500.0`),
+    # which made production promotion run 39143010163 stop on search.size.
+    document = openapi_document()
+    properties = document["components"]["schemas"]["LocalSearchRequest"]["properties"]
+    properties["size"].update(minimum=1.0, maximum=500.0)
+    properties["from"].update(minimum=0.0, maximum=2147483647.0)
+    payload = json.dumps(document).encode()
+    assert b'"maximum": 500.0' in payload
+    monkeypatch.setattr(deployer, "get", lambda *_args: (200, payload, "application/json"))
+    recorded = deployer.verify_f2d_openapi_contract("http://127.0.0.1:58081")
+    assert recorded["contracts"]["search.size"] == {"minimum": 1, "maximum": 500}
+    assert recorded["contracts"]["search.from"] == {"minimum": 0, "maximum": 2_147_483_647}
+
+
+@pytest.mark.parametrize("value", [500.5, 501.0, True, "500", None])
+def test_openapi_refuses_non_exact_or_non_numeric_bound(deployer, monkeypatch, value):
+    document = openapi_document()
+    document["components"]["schemas"]["LocalSearchRequest"]["properties"]["size"]["maximum"] = value
+    monkeypatch.setattr(deployer, "get", lambda *_args: (200, json.dumps(document).encode(), "application/json"))
+    with pytest.raises(deployer.DeploymentError, match="f2d_openapi_contract_invalid:search.size"):
+        deployer.verify_f2d_openapi_contract("http://127.0.0.1:58081")
+
+
+@pytest.mark.parametrize("value", [True, 1.0])
+def test_openapi_refuses_bool_lower_bound_but_accepts_integral_float(deployer, monkeypatch, value):
+    document = openapi_document()
+    schema = document["paths"]["/api/archetypes/rankings"]["get"]["parameters"][2]["schema"]
+    schema["minimum"] = value
+    monkeypatch.setattr(deployer, "get", lambda *_args: (200, json.dumps(document).encode(), "application/json"))
+    if value is True:
+        with pytest.raises(deployer.DeploymentError, match="f2d_openapi_contract_invalid:ranking.limit"):
+            deployer.verify_f2d_openapi_contract("http://127.0.0.1:58081")
+    else:
+        assert deployer.verify_f2d_openapi_contract("http://127.0.0.1:58081")["status"] == 200
+
+
 @pytest.mark.parametrize(("field", "bound"), [
     ("ranking.limit", "minimum"), ("ranking.limit", "maximum"),
     ("ranking.offset", "minimum"), ("ranking.offset", "maximum"),

@@ -171,6 +171,43 @@ async def test_local_search_caches_under_result_generation_not_preresolve(client
     assert 'ggen-OLD' not in stored.get('key', ''), stored
 
 
+async def test_local_search_rejects_hard_filter_before_publication_gate(client):
+    """A disallowed request must answer 422 even while the Finder products are
+    unpublished. The route used to resolve the published generation first, so
+    the products' 503 masked the 422 and stopped production promotion (the
+    deploy gate's `f2d_hard_filter_rejection_failed` probe). The rankings route
+    already validates first; search now matches it and never touches the DB."""
+    from fastapi import HTTPException
+
+    resolve = AsyncMock(side_effect=HTTPException(
+        503, 'Finder ranking products are not available for the published '
+             'generation (system_archetype=MISSING, system_search=MISSING).'))
+    with patch('edfinder_api.routers.search._ls.resolve_published_generation', resolve):
+        rejected = await client.post('/api/local/search', json={
+            'galaxy_wide': True, 'sort_by': 'development',
+            'body_filters': {'elw_count': {'min': 1}}, 'size': 1,
+        })
+        window = await client.post('/api/local/search', json={
+            'galaxy_wide': True, 'sort_by': 'development', 'from': 9999, 'size': 1,
+        })
+    assert rejected.status_code == 422, rejected.text
+    assert 'elw_count' in rejected.text
+    # Only the valid request reached the publication gate.
+    assert resolve.await_count == 1
+    assert window.status_code == 503, window.text
+
+
+async def test_local_search_early_validation_failure_keeps_503_boundary(client):
+    def boom(body):
+        raise RuntimeError('simulated validation failure')
+
+    with patch('edfinder_api.routers.search._ls.prepare_local_search_v3', boom):
+        r = await client.post('/api/local/search', json={
+            'galaxy_wide': True, 'sort_by': 'development', 'size': 1,
+        })
+    assert r.status_code == 503, r.text
+
+
 async def test_galaxy_search_returns_503_on_db_failure(client):
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')

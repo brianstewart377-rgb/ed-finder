@@ -969,15 +969,17 @@ def _build_v3_system_record(row: asyncpg.Record, reference_coords: tuple[float, 
     }
 
 
-async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
-    """V3-native ranked search for `POST /api/local/search`.
+def prepare_local_search_v3(
+    body: dict,
+) -> tuple[LocalSearchContext, str, dict[str, Any], tuple[float, float, float] | None]:
+    """Validate a V3 Finder search request without touching the database.
 
-    Generation-pinned, reads only `v3_app.system_search` +
-    `v3_app.system_archetype_summary` through
-    `ranking.ranking_sql.build_ranked_query` — no legacy V2 relation and no
-    other schema's relation is ever touched here.
+    Every request-shape rejection (window, population, economy, sort_by,
+    body-filter keys and the bounded Any-mode access paths) happens here, so
+    the search route can answer 422 for a disallowed request *before* it
+    resolves the published generation. Otherwise an unpublished Finder
+    product would mask the 422 with a 503, unlike the rankings route.
     """
-    t0 = time.time()
     # `_parse_local_search_context` is shared with legacy routes whose default
     # page is 50,000. The V3 public request model defaults to 50, so preserve
     # that bounded contract for direct/internal callers that omit `size` too.
@@ -1019,7 +1021,6 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
             'search (no per-economy potential projection exists); '
             'use economy="any".',
         )
-    picked_economy = None
 
     # Map the request's sort_by onto a builder ordering mode, rejecting
     # anything unsupported rather than silently keeping score-first order for
@@ -1044,6 +1045,20 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
         if not ctx.galaxy_wide and ctx.has_reference_coords
         else None
     )
+    return ctx, sort_mode, hard_filters, reference_coords
+
+
+async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
+    """V3-native ranked search for `POST /api/local/search`.
+
+    Generation-pinned, reads only `v3_app.system_search` +
+    `v3_app.system_archetype_summary` through
+    `ranking.ranking_sql.build_ranked_query` — no legacy V2 relation and no
+    other schema's relation is ever touched here.
+    """
+    t0 = time.time()
+    ctx, sort_mode, hard_filters, reference_coords = prepare_local_search_v3(body)
+    picked_economy = None
 
     sql, params = build_ranked_query(
         PROFILE_SPEC,

@@ -202,6 +202,26 @@ async def local_search_endpoint(
         'galaxy_region_id': req.galaxy_region_id,
     }
 
+    # Reject a disallowed request shape (422) before any database access, so
+    # an unpublished Finder product (503) can never mask it. The rankings
+    # route validates in the same order. local_db_search_v3 repeats this
+    # pure check for direct callers.
+    try:
+        _ls.prepare_local_search_v3(body_dict)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Keep the ranked read's error boundary: an unexpected failure here was
+        # previously raised inside local_db_search_v3 and classified as 503.
+        log.error(
+            'prepare_local_search_v3 failed: type=%s repr=%r',
+            type(exc).__name__, exc, exc_info=True,
+        )
+        return _search_unavailable(
+            f'local search: {type(exc).__name__}: {exc}',
+            hint='Reduce search radius or filter scope; if persistent, retry shortly.',
+        )
+
     # Resolve the pinned PUBLISHED generation BEFORE consulting the cache.
     # This does two things a body-only key could not: (a) a request with no
     # published generation gets a 404 even on a cache hit, instead of a warm
