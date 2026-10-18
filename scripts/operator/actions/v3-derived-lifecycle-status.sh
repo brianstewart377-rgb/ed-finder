@@ -211,8 +211,11 @@ def df_values(argv: list[str], columns: tuple[str, ...]) -> dict[str, Any]:
 def inspect_worker(name: str) -> dict[str, Any]:
     result = run(["docker", "inspect", "-f", WORKER_INSPECT_FORMAT, name])
     if result.returncode != 0:
+        # Docker CLI versions differ in case ("Error: No such object" versus
+        # the production host's "error: no such object"); absence is absence.
         stderr = result.stderr or ""
-        if "No such object" not in stderr and "No such container" not in stderr:
+        lowered = stderr.lower()
+        if "no such object" not in lowered and "no such container" not in lowered:
             detail = stderr.strip().splitlines()
             inspect_error = detail[-1][:240] if detail else f"exit_{result.returncode}"
             return {
