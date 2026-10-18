@@ -600,6 +600,17 @@ async def test_local_search_v3_rejects_unknown_body_filter_with_422():
     assert excinfo.value.status_code == 422
 
 
+def test_prepare_local_search_v3_rejects_galaxy_wide_hard_filter_without_a_pool():
+    # Pure validation: the route calls this before any database access.
+    with pytest.raises(local_search.HTTPException) as caught:
+        local_search.prepare_local_search_v3({
+            'galaxy_wide': True, 'sort_by': 'development',
+            'body_filters': {'elw_count': {'min': 1}}, 'size': 1,
+        })
+    assert caught.value.status_code == 422
+    assert 'elw_count' in str(caught.value.detail)
+
+
 def test_v3_hard_filters_maps_every_declared_body_count_min_and_max():
     """Finding #7: every declared body-count field maps onto BOTH range bounds
     (min -> <col>_min, max -> <col>_max); a max of 0 is a real constraint."""

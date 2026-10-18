@@ -1528,6 +1528,12 @@ def f2d_behavioural_probes(
         raise DeploymentError("behavioural_probe_pairs_failed")
 
 
+def _exact_integral_bound(value: object, expected: int) -> bool:
+    if type(value) is int:
+        return value == expected
+    return type(value) is float and value.is_integer() and value == expected
+
+
 def verify_f2d_openapi_contract(origin: str) -> dict[str, Any]:
     status, payload, _ = get(origin, "/openapi.json")
     if status != 200 or len(payload) > MAX_SMOKE:
@@ -1591,10 +1597,14 @@ def verify_f2d_openapi_contract(origin: str) -> dict[str, Any]:
         }
         recorded: dict[str, Any] = {"min_score": [60, 76, 88]}
         for field, (schema, minimum, maximum) in bounds.items():
+            # FastAPI's OpenAPI model types body-schema bounds as float, so a
+            # request-body field serves `500.0` where a query parameter serves
+            # `500`. Both are the same JSON Schema number; accept an integral
+            # float only when it equals the exact expected bound (never bool).
             if (
-                schema.get("type") != "integer" or schema.get("minimum") != minimum
-                or schema.get("maximum") != maximum
-                or type(schema.get("minimum")) is not int or type(schema.get("maximum")) is not int
+                schema.get("type") != "integer"
+                or not _exact_integral_bound(schema.get("minimum"), minimum)
+                or not _exact_integral_bound(schema.get("maximum"), maximum)
             ):
                 raise DeploymentError("f2d_openapi_contract_invalid:" + field)
             recorded[field] = {"minimum": minimum, "maximum": maximum}
