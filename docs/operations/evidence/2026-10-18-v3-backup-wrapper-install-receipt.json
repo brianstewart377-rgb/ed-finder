@@ -1,0 +1,34 @@
+{
+    "db_writes_performed": false,
+    "destination": "/opt/ed-finder-v3-runtime/pgbackrest-operation.sh",
+    "direct_db_access_performed": true,
+    "env_files_read": false,
+    "failures": [],
+    "filesystem_writes_performed": true,
+    "installed_hash_verified": true,
+    "installed_sha256": "3393fd81edb16c5374b60e25c6fa78acf457e96e022f16df70afa84b97202515",
+    "operation": "v3-backup-wrapper-install",
+    "private_keys_read": false,
+    "purge_state": {
+        "bootstrap": false,
+        "failures": [],
+        "lease": "free",
+        "ledger_present": true,
+        "status": "clear",
+        "unresolved": []
+    },
+    "read_only": false,
+    "schema_version": "ed-finder/operator-operation-result/v1",
+    "service_changes_performed": false,
+    "source_sha": "68eabd47d7742991ae39d8285fac16bd52b8e6ee",
+    "source_sha256": "3393fd81edb16c5374b60e25c6fa78acf457e96e022f16df70afa84b97202515",
+    "status": "passed",
+    "target": {
+        "fqdn": "nb79a3d.mevnode.com",
+        "hostname": "ed-finder-prod"
+    },
+    "timer_changes_performed": false,
+    "unit_changes_performed": false,
+    "wrapper_installed": true,
+    "wrapper_temp_written": true
+}
