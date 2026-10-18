@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-18 — Storage Box restoration runbook
+
+`docs/operations/v3-storage-box-restoration.md` is the owner-run host procedure
+that reconnects the retired offsite pgBackRest target to the unchanged design:
+key-based rclone SFTP connection, `edfinder-storagebox.service` mount, a
+same-container restart for the `rprivate` bind, `stanza-create`/`check` in the
+new empty repository and the first full backup through the ledger-aware
+wrapper. Documentation only; no production operation is included.
+
 ## 2026-10-17 — Switch base-image pulls to the populated GHCR mirror
 
 CI services, Docker builds, Review Lab and the disposable purge rehearsal now
