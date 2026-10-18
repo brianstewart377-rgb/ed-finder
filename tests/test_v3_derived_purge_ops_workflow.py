@@ -341,3 +341,17 @@ def test_validation_status_annotation_reports_progress_without_query_text(tmp_pa
 def test_validation_annotation_survives_missing_or_invalid_receipt(tmp_path, content):
     line = _validation_summary(tmp_path, content)
     assert 'receipt unavailable or invalid' in line
+
+
+def test_validation_start_annotation_reports_launch_and_queue(tmp_path):
+    receipt = {
+        'operation': 'v3-system-search-validate-constraints-start', 'status': 'success', 'result': 'launched',
+        'migration_010_verified': True, 'constraints_total': 18, 'constraints_validated_before': 0,
+        'constraints_queued': [f'system_search_check_{n}' for n in range(18)],
+        'catalog_validation_launched': True, 'failures': [],
+    }
+    line = _validation_summary(tmp_path, json.dumps(receipt))
+    for field in ('result=launched', 'constraints_total=18', 'constraints_validated_before=0',
+                  'catalog_validation_launched=true', 'constraints_queued=18', 'system_search_check_17',
+                  'migration_010_verified=true'):
+        assert field in line

@@ -774,11 +774,16 @@ jobs:
           parts = ["status=" + text(receipt.get("status"))]
           failures = receipt.get("failures") if isinstance(receipt.get("failures"), list) else []
           parts.append("failures=" + (",".join(text(f) for f in failures[:10]) or "[]"))
-          for key in ("operation", "migration_010_in_ledger", "constraints_validated_before", "queued",
-                      "launched", "validated_count", "all_validated", "runner_pid_alive",
+          # Start and status receipts carry different fields; report each as named.
+          for key in ("operation", "result", "migration_010_verified", "migration_010_in_ledger",
+                      "constraints_total", "constraints_validated_before", "catalog_validation_launched",
+                      "validated_count", "all_validated", "runner_pid_alive",
                       "runner_pid_file_stale", "runner_exit_code"):
               if key in receipt:
                   parts.append(key + "=" + text(receipt.get(key)))
+          queued = receipt.get("constraints_queued")
+          if isinstance(queued, list):
+              parts.append("constraints_queued=" + str(len(queued)) + ": " + (",".join(text(q) for q in queued[:20]) or "none"))
           constraints = receipt.get("constraints") if isinstance(receipt.get("constraints"), list) else []
           if constraints:
               parts.append("constraints_total=" + str(len(constraints)))
