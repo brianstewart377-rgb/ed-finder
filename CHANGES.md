@@ -30,6 +30,18 @@ production PostgreSQL 18 database, installing schema identity `d7efe689…`. The
 apply receipt is retained under `docs/operations/evidence/`. The roadmap records
 that the retired Storage Box leaves WAL archiving without a target and must be
 resolved before the Finder builds.
+## 2026-10-18 — Storage Box restoration runbook
+
+`docs/operations/v3-storage-box-restoration.md` is the owner-run host procedure
+that reconnects the retired offsite pgBackRest target to the unchanged design:
+key-based rclone SFTP connection, `edfinder-storagebox.service` mount, a
+same-container restart for the `rprivate` bind, `stanza-create`/`check` in the
+new empty repository and the first full backup through the ledger-aware
+wrapper. The wrapper's repository-health guard now also admits a full backup
+(only) when a newly created stanza reports code 2 `no valid backups` with no
+backups, so the first backup can be taken; every other state still refuses.
+No production operation is included; the wrapper must be reinstalled through
+the governed operation before the first backup.
 
 ## 2026-10-17 — Switch base-image pulls to the populated GHCR mirror
 

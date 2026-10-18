@@ -112,7 +112,8 @@ retired some months ago. Scheduled backups therefore `SKIP:` (exit 0, so the
 timers look healthy), PostgreSQL's last successful WAL archive was 2026-09-24,
 and **no current offsite backup or continuous WAL archive exists**. Any copy
 that predates the retirement must be treated as unavailable. Restoring a
-Storage Box target needs a reviewed procedure before this section is changed.
+Storage Box target follows `docs/operations/v3-storage-box-restoration.md`;
+this section changes only after that procedure's backup is confirmed.
 Until then, the paragraphs below describe the design, not a usable repository.
 
 ## Still unproven: a restore

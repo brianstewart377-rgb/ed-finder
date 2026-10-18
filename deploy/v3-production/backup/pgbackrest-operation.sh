@@ -64,7 +64,16 @@ if [ -n "$purge_records" ]; then
 fi
 
 info="$(docker exec -u postgres "$c" pgbackrest --stanza=edfinder_v3 --log-level-console=off --output=json info)"
-python3.14 -I -S -c 'import json,sys; d=json.load(sys.stdin); assert len(d)==1 and d[0].get("status",{}).get("message")=="ok"' <<<"$info"
+# A healthy stanza reports code 0 "ok". A newly created, empty repository
+# reports code 2 "no valid backups" until its first backup exists; only a full
+# backup may create that first backup. Every other state refuses.
+python3.14 -I -S -c 'import json,sys
+d=json.load(sys.stdin); op=sys.argv[1]
+assert len(d)==1
+s=d[0].get("status",{})
+ok=s.get("code")==0 and s.get("message")=="ok"
+first=op=="full" and s.get("code")==2 and s.get("message")=="no valid backups" and d[0].get("backup")==[]
+assert ok or first' "$op" <<<"$info"
 
 echo "START: pgBackRest $op"
 if [ "$op" = verify ]; then
