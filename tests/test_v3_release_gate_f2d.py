@@ -35,11 +35,18 @@ def deployer():
     return module
 
 
-@pytest.fixture
-def legacy_attestation():
+def current_accepted_release():
     return json.loads((ROOT / "deploy/v3-production/target-authority.json").read_text())[
         "accepted_release_schema_compatibility"
     ]
+
+
+@pytest.fixture
+def legacy_attestation():
+    # A pre-F2d accepted release (the shape bed755b9 carried): the committed
+    # accepted release without its F2d group. Since 2026-10-18 the committed
+    # accepted release is the first F2d release, so strip the group here.
+    return {key: value for key, value in current_accepted_release().items() if key not in FIELDS}
 
 
 @pytest.fixture
@@ -84,9 +91,21 @@ def generation():
     }
 
 
-def test_current_accepted_release_remains_valid_without_f2d_fields(deployer, legacy_attestation):
+def test_pre_f2d_accepted_release_shape_remains_valid_without_f2d_fields(deployer, legacy_attestation):
     assert not set(FIELDS) & set(legacy_attestation)
     deployer.validate_release_compatibility_shape(legacy_attestation)
+
+
+def test_current_accepted_release_is_the_complete_first_f2d_release(deployer):
+    # Promotion run 39149980927 accepted release run 39149556699 (f667bb4d) on
+    # 2026-10-18. Later candidates keep its backend as the boundary image and
+    # are judged by the accepted-F2d product-state rule.
+    accepted = current_accepted_release()
+    assert set(FIELDS) <= set(accepted)
+    deployer.validate_release_compatibility_shape(accepted)
+    assert accepted["minimum_schema_compatible_image"] == accepted["images"]["backend"]
+    assert accepted["rollback_targets"] == [accepted["images"]["backend"]]
+    assert deployer.f2d_generation_rule(accepted) == "accepted-f2d-release-allowed-product-states"
     authority = json.loads((ROOT / "deploy/v3-production/target-authority.json").read_text())
     assert deployer.validate_authority(authority) == []
 

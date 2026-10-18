@@ -106,9 +106,13 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    assert set(reachable) <= set(
-        authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
-    )
+    # This transition was applied on 2026-10-18. The accepted release is now
+    # the first F2d release, which requires 016, so only the installed target
+    # is attested; replaying the completed transition therefore fails closed
+    # until a new reviewed transition is committed.
+    compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
+    assert reachable[-1] in compatible
+    assert not set(reachable[:-1]) & set(compatible)
     assert deployer.validate_authority(authority) == []
 
 
@@ -353,11 +357,15 @@ def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, o
     count = next(index + 1 for index, entry in enumerate(desired)
                  if entry["ledger_name"].startswith(omitted_migration + "_"))
     omitted_identity = identity.migration_set_identity(desired[:count])
-    authority["accepted_release_schema_compatibility"]["compatible_migration_sets"].remove(
-        omitted_identity
-    )
     installed_count = next(index + 1 for index, entry in enumerate(desired)
                            if entry["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql")
+    # Reconstruct the fully attested pre-apply set (the committed accepted
+    # release is now the F2d release, which attests only the target), then
+    # drop exactly one prefix so the refusal names that omission alone.
+    reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
+    authority["accepted_release_schema_compatibility"]["compatible_migration_sets"] = sorted(
+        item for item in reachable if item != omitted_identity
+    )
     with pytest.raises(module.MigrationError, match="omits a transition prefix"):
         module.inspect_schema_transition(
             deployer, authority, authority["external_authority"], desired,

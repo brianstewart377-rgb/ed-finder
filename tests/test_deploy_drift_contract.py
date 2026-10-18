@@ -1,6 +1,4 @@
-import json
 from pathlib import Path
-import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,24 +47,12 @@ def test_v2_release_wrapper_is_retired():
 
 
 def test_production_drift_hold_and_manual_bypass_contract():
-    hold = json.loads(_read("deploy", "v3-production", "promotion-hold.json"))
+    # The bed755b9 F3 hold was removed when the first F2d release (f667bb4d)
+    # was accepted on 2026-10-18; the monitor treats an absent hold file as
+    # "no hold". A future hold must be a reviewed, dated file again.
+    assert not (ROOT / "deploy" / "v3-production" / "promotion-hold.json").exists()
     workflow = _read(".github", "workflows", "prod-version-drift.yml")
 
-    assert set(hold) == {
-        "schema_version",
-        "held_live_sha",
-        "covers_main_sha",
-        "held_since",
-        "expires_at",
-        "reason",
-        "review",
-    }
-    assert hold["schema_version"] == "ed-finder/production-promotion-hold/v1"
-    assert hold["held_live_sha"] == "bed755b944eb6cb226e1726b2a51582ba9fa9bdb"
-    assert hold["covers_main_sha"] == "c3da6061441cb40c96e0d43b7507bda740ad9d94"
-    assert hold["held_since"] == "2026-10-04"
-    assert hold["expires_at"] == "2026-11-09T00:00:00Z"
-    assert re.fullmatch(r"PR #\d+", hold["review"])
     assert "ignore_hold:" in workflow
     assert "default: 'false'" in workflow
     assert '--hold-file "deploy/v3-production/promotion-hold.json"' in workflow

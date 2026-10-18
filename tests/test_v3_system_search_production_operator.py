@@ -183,13 +183,16 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
     assert authority["external_authority"]["schema_identity_sha256"] == "d7efe68932293813b4e5ec569a7b46d48ea660ef3de36b02c913110eedd7c4e6"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    reachable = {
+    # The transition was applied on 2026-10-18 (apply run 39113822236). The
+    # accepted release is now the first F2d release, which requires 016: it
+    # attests only the installed through-016 identity, never the superseded
+    # through-012 source or the intermediate prefixes.
+    intermediate = {
         module.migration_set_identity(entries[:prefix_length])
-        for prefix_length in range(stop, len(entries) + 1)
+        for prefix_length in range(stop, len(entries))
     }
-    assert reachable <= set(compatible)
-    assert transition['from_migration_set_identity'] in compatible
     assert transition['to_migration_set_identity'] in compatible
+    assert not intermediate & set(compatible)
 
 
 def test_search_status_is_read_only_and_reports_both_products():

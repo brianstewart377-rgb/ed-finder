@@ -24,18 +24,18 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:6d1c18641deec3ef7f36b6af8c4abb97ed8a2333a19c18d36b3bd593b660d251",
-    "api_build_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:07c946e8c15e742c50411ca16a064828302568044434b040225d1eea54bf9b3a",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
+    "api_build_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8fc3db81fe36aec6fd68284cf4e67ad1b031f3a61c5345a49bdeacdf06f63c27",
     "accepted_promotion": {
-      "received_at": "2026-09-25T22:35:23Z",
-      "release_run_id": "36196769987",
-      "source_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
+      "received_at": "2026-10-18T17:32:21Z",
+      "release_run_id": "39149556699",
+      "source_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
       "mode": "upgrade",
-      "active_slot": "blue",
-      "rollback_kind": "prior-accepted-immutable-release"
+      "active_slot": "green",
+      "rollback_kind": "authenticated-candidate-schema-compatible-release"
     },
     "retired_legacy_containers": [
       "edfinder-v3-api",
@@ -51,29 +51,30 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-bed755b9",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 36197361462 at 2026-09-25T22:35:23Z binds release run 36196769987 and source bed755b944eb6cb226e1726b2a51582ba9fa9bdb to active slot blue, promoted from the prior accepted green release 8055f2685a80c5b41005f9cc632abd1cda31d89e. Active smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are all false and the retained database, edge, redis and nats containers were preserved. This app-only upgrade shipped #758 (Galaxy Impact scoreboard), #769 (Finder watchlist/pins/compare), #753 (map label/nebulae fix) and the search/journal fixes. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-f667bb4d",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 39149980927 at 2026-10-18T17:32:21Z binds release run 39149556699 and source f667bb4d64abd879828bfe5effa64000562641c6 to active slot green, promoted from the prior accepted blue release bed755b944eb6cb226e1726b2a51582ba9fa9bdb. This is the first F2d release: staging, active and public smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed, with Finder routes answering 503 because neither Finder product is registered yet on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. An earlier promotion attempt, run 39143010163 of release 39140812920, stopped before cutover on f2d_openapi_contract_invalid:search.size with the staged candidate removed and rollback verified (fixed by PR 851). Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "bed755b944eb6cb226e1726b2a51582ba9fa9bdb",
-    "release_run_id": "36196769987",
-    "manifest_sha256": "4034f55e2f552e3219d88c66639cc70835bd28b77084ca1a4ff00530b0fade1a",
+    "source_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
+    "release_run_id": "39149556699",
+    "manifest_sha256": "b2708ec5797523ef51ffcb52d286a57e61b37438405d563f0a6685f11da64ae5",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:6d1c18641deec3ef7f36b6af8c4abb97ed8a2333a19c18d36b3bd593b660d251",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:07c946e8c15e742c50411ca16a064828302568044434b040225d1eea54bf9b3a"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8fc3db81fe36aec6fd68284cf4e67ad1b031f3a61c5345a49bdeacdf06f63c27"
     },
     "compatible_migration_sets": [
-      "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe",
-      "sha256:253a4957294dfe5595e6d344cdec1a81592c61ab91bfb906932ddf802fcd6832",
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
-      "sha256:66db7a1ddb5d68d6d76e9ba320a742e8d2195df19a09ff988bf8ba96d3d3976d",
-      "sha256:7511a66d438a6413153be3d5515622e007c58ee722c2c5ae39d6ed2adc3e6684",
-      "sha256:b13fd4c2f4cb1a43a74efd8506526e12a0572d3f39dfae85647ff617e0f7d91d",
-      "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc",
-      "sha256:cf97b0ab6f8ec2a64cdc15c97a46c5d4ba6115ca35d5c470e3b8d62d84abbc93"
+      "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc"
     ],
-    "evidence": "Release run 36196769987 and accepted promotion run 36197361462 bind source bed755b944eb6cb226e1726b2a51582ba9fa9bdb, the recorded backend/web digests and release-file SHA256 4034f55e2f552e3219d88c66639cc70835bd28b77084ca1a4ff00530b0fade1a. The app-only upgrade performed no migrations; its receipts reported installed through-012 identity sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe and migrations_performed=false. The sealed release also recorded canonical application identity sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf. git grep of apps/api/src at bed755b9 confirms ratings_v4.py reads the derived pointer/manifest and system_rating_vector/body_mechanics, with no derived payload DELETE or publication/purge-function call. It reads none of the Search/archetype relations or new watchlist relations. Thus 014's new empty tables, 010's Search columns/view, rewritten wide-row 011, 013's scheduler tables and 015's additive product-publication metadata/guards/views remain compatible. Migration 016 adds only new meta ledger relations/functions and a NOLOGIN executor role and tightens payload DELETE guards no running code uses; existing payload SELECTs and application writes elsewhere are unaffected. Installation invokes no purge or writer/autovacuum fence. The operator commits one migration per transaction, so all reachable through-012, through-014, through-010, through-011, through-013, through-015 and through-016 identities remain attested, alongside the sealed release identity. Compatibility evidence only; no production application is claimed."
+    "evidence": "Release run 39149556699 built source f667bb4d64abd879828bfe5effa64000562641c6 (includes PR 851 gate fixes) as the first F2d release for the installed through-016 schema (apply run 39113822236, 2026-10-18, identity sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc). Promotion run 39149980927 accepted it at 2026-10-18T17:32:21Z (receipt status accepted, active slot green, migrations_performed and database_writes_performed false, protected resources unchanged). ranking_version and ranking_sha256 come from edfinder_api.ranking.profile at that source and were confirmed in the deployed image; f2d_operator_code_sha256 from scripts/operator/lib/f2d_operator_identity.py compute at that source. Finder routes answer 503 until product publication (behavioural probes verified the not-ready reason). The minimum schema-compatible image and sole rollback target is this backend; the receipt lists the prior bed755b9 backend as an incompatible rollback image.",
+    "ranking_version": "v3-colony-potential-2",
+    "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
+    "f2d_operator_code_sha256": "a4a4b74c338eb2423f819504f67801960191902c5f7d4cac9478c2ef59e90db3",
+    "minimum_schema_compatible_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
+    "rollback_targets": [
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3"
+    ]
   },
   "schema_transition": {
     "schema_version": "ed-finder/v3-production-schema-transition/v1",
