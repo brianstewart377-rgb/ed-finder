@@ -21,6 +21,24 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-18 — Calibration probe: generic-plan cancellation, stderr in receipt
+
+Read-only probe run 39151827257 lost its SSH channel to the ~300 s idle
+timeout (fixed in #853); the re-run 39155668281 then cancelled at the probe's
+60 s statement timeout with `database error: QueryCanceled` and an empty raw
+block. Reproduced on disposable PostgreSQL 18 with a 12 M-row copy: the shared
+`OPPORTUNITY_READ_SQL` selects its branch with parameter NULL tests, and once
+psycopg names the statement the generic plan is a parallel hash join over full
+scans of both tables, while the custom plan is the chunk index plus the
+opportunity primary key. `v3_archetype_calibration_probe` now forces custom
+plans for the session, as `v3_archetype_calibration_complete` already did, and
+`v3_system_archetype` does the same on connect because the build issues those
+reads ~200,000 times. The probe action records the bounded tail of the
+container's stderr in its receipt when the output is empty or invalid. Both
+scripts are in the F2d operator-code manifest, so the accepted release must be
+rebuilt and promoted with the new `f2d_operator_code_sha256`
+(`7d3f346d…`) before the complete read, capacity gate or builds run.
+
 ## 2026-10-18 — First F2d release accepted in production (step 5′)
 
 Release run 39149556699 (source `f667bb4d`, including #851) passed preflight

@@ -307,3 +307,60 @@ def test_probe_rejects_bound_smaller_than_a_fixture_chunk(
         'calibration sample is empty: raise --max-systems '
         '(at least one full chunk must fit)\n'
     )
+
+
+def test_run_forces_custom_plans_before_any_chunk_read():
+    # Shared read SQL selects its branch with parameter NULL tests; a generic
+    # plan cannot fold them and scans the table (production run 39155668281
+    # cancelled at the statement timeout). The session setting must precede
+    # the first read, as in v3_archetype_calibration_complete.
+    import argparse
+
+    class Result:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+    class Connection:
+        read_only = False
+
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql, params=None):
+            self.statements.append(sql)
+            if 'build_chunk' in sql:
+                return Result([])
+            return Result([None])
+
+        def rollback(self):
+            pass
+
+        def commit(self):
+            pass
+
+    connection = Connection()
+    args = argparse.Namespace(
+        statement_timeout_ms=60_000, generation_key='g', allow_unpublished=True,
+        max_systems=1000, stride=None,
+    )
+    original = probe._generation
+    probe._generation = lambda conn, key: ('id', 'PUBLISHED', key, 10, True)
+    try:
+        exit_code, _ = probe._run(connection, args)
+    finally:
+        probe._generation = original
+    assert exit_code == 5
+    settings = [sql for sql in connection.statements if 'set_config' in sql]
+    assert any("'statement_timeout'" in sql for sql in settings)
+    forced = next(index for index, sql in enumerate(connection.statements)
+                  if "'plan_cache_mode','force_custom_plan'" in sql)
+    first_read = next(index for index, sql in enumerate(connection.statements)
+                      if 'build_chunk' in sql)
+    assert forced < first_read
+    assert connection.read_only is True

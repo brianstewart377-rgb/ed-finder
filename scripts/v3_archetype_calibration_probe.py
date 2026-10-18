@@ -268,6 +268,16 @@ def _run(connection, args) -> tuple[int, dict | None]:
         "SELECT set_config('statement_timeout',%s,false)",
         (f'{args.statement_timeout_ms}ms',),
     )
+    # The two shared read constants select their branch with parameter NULL
+    # tests. psycopg names a statement after five executions and the server
+    # may then plan it generically, without the parameter values, so the
+    # (generation, chunk_ordinal) index path is lost and every later chunk
+    # read scans the whole table. Production run 39155668281 cancelled at
+    # the 60 s statement timeout for exactly this. Custom plans fold the
+    # tests per execution, as the complete read already does.
+    connection.execute(
+        "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
+    )
     generation = _generation(connection, args.generation_key)
     if generation is None:
         connection.rollback()

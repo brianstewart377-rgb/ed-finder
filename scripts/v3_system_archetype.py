@@ -345,6 +345,23 @@ def _ratings_chunks_missing_archetype(connection, generation_id: str):
     ).fetchall()
 
 
+def configure_session(connection) -> None:
+    '''Keep every chunk read on its index path for the whole session.
+
+    The shared read constants (`VECTOR_READ_SQL`, `OPPORTUNITY_READ_SQL`)
+    select their branch with parameter NULL tests. psycopg names a statement
+    after five executions and the server may then plan it generically, without
+    the parameter values: the opportunity join degrades to a hash join over
+    full scans of both tables, which production run 39155668281 saw cancel at
+    the calibration probe's 60 s statement timeout. This build issues the same
+    two reads ~200,000 times, so custom plans are forced for the session, as
+    `v3_archetype_calibration_complete` already does.
+    '''
+    connection.execute(
+        "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
+    )
+
+
 def _read_chunk_vectors(connection, generation_id: str, ordinal: int):
     '''Purely fetch raw arrays and integer opportunity aggregates.'''
     scope = {
@@ -876,6 +893,7 @@ def main(argv=None) -> int:
     try:
         import psycopg
         with psycopg.connect(dsn, autocommit=True) as connection:
+            configure_session(connection)
             if args.validate:
                 generation, _, manifest_sha = register_product(
                     connection, args.generation_key,
