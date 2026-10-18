@@ -169,6 +169,14 @@ jobs:
           chmod 600 ~/.ssh/ed_new_operator_key
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+          # Foreground actions (the calibration probe, the plan probe) stream
+          # nothing until their final receipt. A ~300 s NAT/proxy idle timeout
+          # reaps a silent channel (probe run 39151827257: exit 255 after
+          # 5m32s with an empty receipt; same failure as the spatial pyramid
+          # build). Keep every operator channel warm; ~10 min of silence from
+          # a busy host is tolerated before the peer is declared dead.
+          printf '%s\n' 'Host *' '  ServerAliveInterval 30' '  ServerAliveCountMax 20' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
           if [ "$SSH_PORT" = "22" ]; then
             known_host_lookup="$SSH_HOST"
           else

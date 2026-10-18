@@ -207,6 +207,30 @@ def test_probe_operation_is_allowlisted_through_trusted_main():
     assert "retention-days: 90" in workflow
 
 
+def test_operator_ssh_channels_keep_alive_through_silent_foreground_actions():
+    # Probe run 39151827257 lost its channel after 5m32s (exit 255, empty
+    # receipt): the probe streams nothing until its final receipt and a
+    # ~300 s idle timeout reaps silent SSH channels. The shared SSH setup must
+    # configure keepalive for every operator connection, before any is opened.
+    workflow = _read(WORKFLOW)
+    parsed_workflow = yaml.safe_load(workflow)
+    steps = parsed_workflow["jobs"]["execute"]["steps"]
+    names = [step.get("name") for step in steps]
+    prepare = steps[names.index("Prepare SSH")]["run"]
+    assert (
+        "printf '%s\\n' 'Host *' '  ServerAliveInterval 30' '  ServerAliveCountMax 20'"
+        " > ~/.ssh/config"
+    ) in prepare
+    assert "chmod 600 ~/.ssh/config" in prepare
+    first_ssh = next(
+        index for index, step in enumerate(steps)
+        if "ssh -i ~/.ssh/ed_new_operator_key" in str(step.get("run", ""))
+    )
+    assert names.index("Prepare SSH") < first_ssh
+    # No operator connection opts out of the user config.
+    assert not [line for line in workflow.splitlines() if "ssh -i " in line and " -F " in line]
+
+
 def test_complete_read_operations_are_allowlisted_and_use_a_trusted_bundle():
     workflow = _read(WORKFLOW)
     parsed_workflow = yaml.safe_load(workflow)
