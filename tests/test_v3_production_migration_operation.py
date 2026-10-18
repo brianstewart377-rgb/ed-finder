@@ -14,6 +14,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -419,6 +420,128 @@ def test_governed_migration_workflow_is_manual_protected_and_source_bounded():
     assert "v3-production-schema-migration" in source
     for forbidden in ("docker stop", "docker compose", "registry-token", "apply_migrations.sh"):
         assert forbidden not in source
+
+
+def _migration_annotation_step():
+    import yaml
+
+    workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    return next(
+        step for step in workflow["jobs"]["production-migration"]["steps"]
+        if step.get("name") == "Annotate schema migration receipt"
+    )
+
+
+def _migration_annotation(tmp_path, receipt):
+    step = _migration_annotation_step()
+    path = tmp_path / "v3-production-migration.json"
+    if receipt is not None:
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+    source = step["run"].split("<<'PYTHON'\n", 1)[1].rsplit("\nPYTHON", 1)[0]
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", source],
+        env={**os.environ, "RECEIPT": str(path)},
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stderr == ""
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    assert len(lines[0]) < 4000
+    return lines[0]
+
+
+def _sample_migration_receipt(status="planned"):
+    return {
+        "status": status,
+        "operation": "production-migration",
+        "failures": [],
+        "source_sha": "a" * 40,
+        "applied_before": [{"ledger_name": "001_initial.sql"}, {"ledger_name": "002_current.sql"}],
+        "pending": [{"ledger_name": "003_next.sql"}, {"ledger_name": "004_last.sql"}],
+        "applied_now": [{"ledger_name": "003_next.sql"}],
+        "database_writes_performed": status == "applied",
+        "migrations_performed": status == "applied",
+        "schema_identity_updated": status == "applied",
+        "schema_identity_before_sha256": "b" * 64,
+        "schema_identity_after_sha256": "c" * 64,
+        "desired_ledger_sha256": "sha256:" + "d" * 64,
+        "unrelated": "postgresql://operator:secret-password@private/db",
+    }
+
+
+@pytest.mark.parametrize("status", ["planned", "applied"])
+def test_migration_annotation_reports_plan_and_apply_without_unrelated_fields(tmp_path, status):
+    step = _migration_annotation_step()
+    assert step["if"] == "always()"
+    assert step["env"]["RECEIPT"] == "${{ runner.temp }}/v3-production-migration.json"
+    line = _migration_annotation(tmp_path, _sample_migration_receipt(status))
+    assert line.startswith("::notice title=Schema migration::")
+    for field in (
+        f"status={status}", "operation=production-migration", "failures=(none)",
+        "source_sha=" + "a" * 40, "applied_before_count=2",
+        "applied_before_last=002_current.sql", "pending=003_next.sql,004_last.sql",
+        "applied_now=003_next.sql", "database_writes_performed=",
+        "migrations_performed=", "schema_identity_updated=",
+        "schema_identity_before_sha256=" + "b" * 12,
+        "schema_identity_after_sha256=" + "c" * 12,
+        "desired_ledger_sha256=sha256:" + "d" * 12,
+    ):
+        assert field in line
+    for hidden in ("unrelated", "operator", "secret-password", "private", "b" * 13, "c" * 13, "d" * 13):
+        assert hidden not in line
+
+
+@pytest.mark.parametrize("status,failures", [
+    ("stopped", []), ("planned", ["migration_failed"]), ("applied", ["identity_failed"]),
+])
+def test_migration_annotation_uses_error_for_status_or_failures(tmp_path, status, failures):
+    receipt = {**_sample_migration_receipt(status), "failures": failures}
+    line = _migration_annotation(tmp_path, receipt)
+    assert line.startswith("::error title=Schema migration::")
+    assert f"status={status}" in line
+    for failure in failures:
+        assert failure in line
+
+
+@pytest.mark.parametrize("receipt", [None, [], "postgresql://operator:private@host/db"])
+def test_migration_annotation_handles_missing_and_invalid_receipt(tmp_path, receipt):
+    line = _migration_annotation(tmp_path, receipt)
+    assert line.startswith("::error title=Schema migration::")
+    assert "status=unavailable" in line
+    assert "failures=receipt_unavailable_or_invalid" in line
+    assert "operator" not in line and "private" not in line
+
+
+def test_migration_annotation_handles_invalid_json_without_printing_parse_error(tmp_path):
+    (tmp_path / "v3-production-migration.json").write_text("private-token invalid {", encoding="utf-8")
+    line = _migration_annotation(tmp_path, None)
+    assert "failures=receipt_unavailable_or_invalid" in line
+    assert "private-token" not in line
+
+
+def test_migration_annotation_escapes_command_data_and_preserves_all_labels_when_bounded(tmp_path):
+    receipt = _sample_migration_receipt()
+    receipt["failures"] = ["failure%\r\nretry" + "%\r\n" * 4000]
+    for name in ("applied_before", "pending", "applied_now"):
+        receipt[name] = [{"ledger_name": "migration%\r\n" * 4000} for _ in range(20)]
+    line = _migration_annotation(tmp_path, receipt)
+    assert "failure%25%0D%0Aretry" in line
+    assert "migration%25%0D%0A" in line
+    assert "[truncated]" in line
+    for field in receipt:
+        if field not in ("applied_before", "unrelated"):
+            assert field + "=" in line
+    assert "applied_before_count=20" in line and "applied_before_last=" in line
+
+
+@pytest.mark.parametrize('sensitive', ['connect postgresql://operator:sensitive@host/db', 'ghp_example', 'github_pat_example', 'AKIAEXAMPLE', 'sk-example'])
+def test_migration_annotation_suppresses_credential_bearing_diagnostics(tmp_path, sensitive):
+    receipt = _sample_migration_receipt("stopped")
+    receipt["failures"] = [sensitive]
+    receipt["pending"][0]["unexpected_environment"] = "credential-value"
+    line = _migration_annotation(tmp_path, receipt)
+    assert "failures=[redacted]" in line
+    assert sensitive not in line and "credential-value" not in line
 
 
 def test_migration_launcher_requires_exact_cpython314_only_for_apply():
