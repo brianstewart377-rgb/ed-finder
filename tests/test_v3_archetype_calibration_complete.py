@@ -556,3 +556,270 @@ def test_complete_read_scores_every_fixture_chunk_without_product_rows(
     assert exit_code == 0
     assert receipt['system_count'] == len(records)
     assert before == after == 0
+
+
+def _scoring_fixture(monkeypatch, reads):
+    identity = compute_operator_code_sha256(ROOT)
+    monkeypatch.setattr(complete, '_generation', lambda *_args: _generation_row())
+    monkeypatch.setattr(complete, 'refuse_unlisted_checkout_modules', lambda: None)
+    probe = _fake_probe(reads)
+    monkeypatch.setattr(complete, '_load_scoring_modules', lambda: (probe, builder, model))
+    return identity, probe
+
+
+def test_resume_survives_a_stale_temporary_left_by_a_hard_kill(tmp_path, monkeypatch):
+    # The worker is PID 1 in its container, so the old `.checkpoint.json.tmp-1`
+    # name was identical on every run and O_EXCL refused every later resume.
+    reads: list[int] = []
+    identity, _ = _scoring_fixture(monkeypatch, reads)
+    state = tmp_path / 'state'
+    exit_code, _ = complete.run_complete(
+        _Connection(), _args(state, stop_after_chunks=1), f2d_identity=identity,
+    )
+    assert exit_code == 75
+    stale = state / '.checkpoint.json.tmp-1'
+    stale.write_text('{"torn":', encoding='utf-8')
+    (state / '.failure-receipt.json.tmp-1').write_text('', encoding='utf-8')
+    exit_code, receipt = complete.run_complete(
+        _Connection(), _args(state), f2d_identity=identity,
+    )
+    assert exit_code == 0
+    assert complete.validate_complete_receipt(receipt) is receipt
+    assert not stale.exists()
+    assert not list(state.glob('.checkpoint.json.tmp-*'))
+    # The failure-receipt writer is also unblocked by a stale temporary.
+    complete._failure_receipt(state, 'x', identity)
+    assert json.loads((state / 'failure-receipt.json').read_text())['status'] == 'failed'
+    assert not list(state.glob('.failure-receipt.json.tmp-*'))
+
+
+import psycopg  # noqa: E402
+
+
+class _FlakyConnectionFactory:
+    '''Produces connections whose chunk reads fail a scripted number of times.'''
+
+    def __init__(self, failures_by_ordinal: dict[int, list[BaseException]]):
+        self.failures = failures_by_ordinal
+        self.created: list[_Connection] = []
+        self.rollbacks = 0
+        self.closed = 0
+
+    def connect(self):
+        connection = _Connection()
+        factory = self
+
+        def rollback():
+            factory.rollbacks += 1
+
+        def close():
+            factory.closed += 1
+
+        connection.rollback = rollback
+        connection.close = close
+        self.created.append(connection)
+        return connection
+
+    def wrap_probe(self, probe):
+        inner = probe._read_chunk_rows
+
+        def read(connection, generation_id, ordinal):
+            pending = self.failures.get(ordinal)
+            if pending:
+                error = pending.pop(0)
+                if isinstance(error, psycopg.OperationalError) and not isinstance(
+                    error, psycopg.errors.QueryCanceled,
+                ):
+                    connection.broken = True  # the server link is gone
+                raise error
+            return inner(connection, generation_id, ordinal)
+
+        probe._read_chunk_rows = read
+
+
+def test_chunk_read_retries_then_succeeds_and_reconnects_on_connection_loss(
+    tmp_path, monkeypatch,
+):
+    import psycopg
+
+    reads: list[int] = []
+    identity, probe = _scoring_fixture(monkeypatch, reads)
+    cancelled = psycopg.errors.QueryCanceled('canceling statement due to statement timeout')
+    dropped = psycopg.OperationalError('server closed the connection unexpectedly')
+    factory = _FlakyConnectionFactory({0: [cancelled], 1: [dropped]})
+    factory.wrap_probe(probe)
+    sleeps: list[float] = []
+    first = factory.connect()
+    exit_code, receipt = complete.run_complete(
+        first, _args(tmp_path), f2d_identity=identity,
+        reconnect=factory.connect, sleep=sleeps.append,
+    )
+    assert exit_code == 0
+    assert complete.validate_complete_receipt(receipt) is receipt
+    # Chunk 0: one statement cancel, rolled back on the same connection.
+    # Chunk 1: one dropped connection, replaced by a fresh configured one.
+    assert factory.rollbacks == 1
+    assert factory.closed == 1
+    assert len(factory.created) == 2
+    replacement = factory.created[1]
+    assert replacement.read_only is True
+    assert any("'plan_cache_mode','force_custom_plan'" in s for s in replacement.statements)
+    assert any("'statement_timeout'" in s for s in replacement.statements)
+    assert sleeps == [complete.CHUNK_RETRY_BACKOFF_SECONDS[0]] * 2
+    # Each chunk is checkpointed exactly once.
+    log = (tmp_path / complete.PER_CHUNK_FILE).read_bytes().splitlines()
+    assert [json.loads(line)['chunk_ordinal'] for line in log] == [0, 1]
+    assert reads == [0, 1]
+
+
+def test_chunk_read_retry_exhaustion_leaves_a_detailed_failure_receipt(
+    tmp_path, monkeypatch,
+):
+    import psycopg
+
+    reads: list[int] = []
+    identity, probe = _scoring_fixture(monkeypatch, reads)
+    errors = [
+        psycopg.errors.QueryCanceled('canceling statement due to statement timeout')
+        for _ in range(complete.CHUNK_RETRY_ATTEMPTS)
+    ]
+    for error in errors:
+        error.sqlstate = '57014'
+    first_error = errors[0]
+    factory = _FlakyConnectionFactory({1: list(errors)})
+    factory.wrap_probe(probe)
+    connection = factory.connect()
+    with pytest.raises(complete.ChunkReadError) as caught:
+        complete.run_complete(
+            connection, _args(tmp_path), f2d_identity=identity,
+            reconnect=factory.connect, sleep=lambda _seconds: None,
+        )
+    assert caught.value.ordinal == 1
+    assert factory.rollbacks == complete.CHUNK_RETRY_ATTEMPTS - 1
+    # Chunk 0 was checkpointed; chunk 1 never was, so a later resume rescans it.
+    checkpoint = json.loads((tmp_path / 'checkpoint.json').read_text())
+    assert checkpoint['next_chunk_index'] == 1
+
+    # main() turns it into a sealed failure receipt with the detail an
+    # operator needs: class, message, SQLSTATE and the chunk in flight.
+    monkeypatch.setenv(complete.DEFAULT_IDENTITY_ENV, identity)
+    monkeypatch.setenv(complete.DEFAULT_DATABASE_URL_ENV, 'postgresql://unused/unused')
+    monkeypatch.setattr(complete, 'require_image_model_match', lambda _path: 'f' * 64)
+    monkeypatch.setattr(
+        complete.f2d_operator_identity, 'require_operator_code_identity',
+        lambda _root, _attested: identity,
+    )
+
+    def run_complete(*_args, **_kwargs):
+        raise complete.ChunkReadError(1, first_error)
+
+    monkeypatch.setattr(complete, 'run_complete', run_complete)
+    monkeypatch.setattr(psycopg, 'connect', lambda *_a, **_k: _ContextConnection())
+    assert complete.main([
+        '--generation-key', 'g', '--generation-id', 'i', '--publication-sequence', '1',
+        '--state-dir', str(tmp_path / 'main'),
+    ]) == 4
+    receipt = json.loads((tmp_path / 'main' / 'failure-receipt.json').read_text())
+    assert complete.validate_complete_receipt(receipt) is receipt
+    assert receipt['failures'] == ['database error: QueryCanceled']
+    assert receipt['error'].startswith('QueryCanceled: canceling statement')
+    assert receipt['sqlstate'] == '57014'
+    assert receipt['chunk_ordinal'] == 1
+
+
+class _ContextConnection(_Connection):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+def test_main_writes_a_failure_receipt_for_any_exception(tmp_path, monkeypatch):
+    import psycopg
+
+    identity = 'a' * 64
+    monkeypatch.setenv(complete.DEFAULT_IDENTITY_ENV, identity)
+    monkeypatch.setenv(complete.DEFAULT_DATABASE_URL_ENV, 'postgresql://unused/unused')
+    monkeypatch.setattr(complete, 'require_image_model_match', lambda _path: 'f' * 64)
+    monkeypatch.setattr(
+        complete.f2d_operator_identity, 'require_operator_code_identity',
+        lambda _root, _attested: identity,
+    )
+    monkeypatch.setattr(psycopg, 'connect', lambda *_a, **_k: _ContextConnection())
+
+    def run_complete(*_args, **_kwargs):
+        raise TypeError("int() argument must be a string, not 'NoneType'")
+
+    monkeypatch.setattr(complete, 'run_complete', run_complete)
+    assert complete.main([
+        '--generation-key', 'g', '--generation-id', 'i', '--publication-sequence', '1',
+        '--state-dir', str(tmp_path),
+    ]) == 5
+    receipt = json.loads((tmp_path / 'failure-receipt.json').read_text())
+    assert complete.validate_complete_receipt(receipt) is receipt
+    assert receipt['failures'] == ['internal error: TypeError']
+    assert receipt['error'] == "TypeError: int() argument must be a string, not 'NoneType'"
+    assert 'postgresql://' not in json.dumps(receipt)
+
+
+def test_complete_default_statement_timeout_is_five_minutes():
+    args = complete.parse_args([
+        '--generation-key', 'g', '--generation-id', 'i', '--publication-sequence', '1',
+    ])
+    assert args.statement_timeout_ms == 300_000
+
+
+def test_action_refusals_print_a_result_line_on_stdout():
+    import os
+    import subprocess
+
+    action = ROOT / 'scripts/operator/actions/v3-archetype-calibration-complete.sh'
+    environment = os.environ.copy()
+    environment.pop('F2D_OPERATOR_CODE_SHA256_ATTESTED', None)
+    result = subprocess.run(
+        ['bash', str(action), 'start', str(ROOT), '0' * 40],
+        cwd=ROOT, env=environment, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 64
+    line = json.loads(result.stdout.strip().splitlines()[-1])
+    assert line['status'] == 'stopped'
+    assert line['failures'] == ['attested_identity_refused']
+    assert line['operation'] == 'v3-archetype-calibration-complete-start'
+    # A generic fail() refusal also leaves a parseable line.
+    result = subprocess.run(
+        ['bash', str(action), 'status', '/nonexistent-bundle', '0' * 40],
+        cwd=ROOT, env=environment, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 64
+    line = json.loads(result.stdout.strip().splitlines()[-1])
+    assert line['failures'] == ['trusted_main_bundle_path_is_required']
+    assert 'trusted main bundle path is required' in result.stderr
+
+
+def test_action_keeps_worker_logs_and_uses_init_with_a_ten_minute_proof_window():
+    action = (
+        ROOT / 'scripts/operator/actions/v3-archetype-calibration-complete.sh'
+    ).read_text()
+    start = action[action.index('start_operation()'):action.index('status_operation()')]
+    # A stopped worker's logs are saved before `docker rm` discards them.
+    assert start.index('save_worker_logs') < start.index('docker rm "$WORKER"')
+    assert 'docker logs --tail 200 "$WORKER" > "$destination" 2>&1' in action
+    assert '--init \\' in start
+    assert 'for _ in $(seq 1 300); do' in start
+    assert "'log_tail': os.environ.get('WORKER_LOGS') or None" in action
+
+
+def test_workflow_routes_action_stderr_into_the_receipt_artifact():
+    workflow = (ROOT / '.github/workflows/chatgpt-ed-new-ops.yml').read_text()
+    for script in (
+        'v3-archetype-calibration-complete.sh',
+        'v3-archetype-calibration-probe.sh',
+        'v3-system-search-f1.sh',
+        'v3-system-archetype.sh',
+        'v3-finder-capacity-gate.sh',
+        'v3-archetype-plan-probe.sh',
+    ):
+        for line in workflow.splitlines():
+            if f'actions/{script} | tee' in line or f'actions/{script} 2>&1 | tee' in line:
+                assert '2>&1 | tee "$RECEIPT"' in line, line

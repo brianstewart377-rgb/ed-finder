@@ -11,18 +11,30 @@ ACTION="${1:-}"
 REPO_ROOT="${2:-}"
 SOURCE_SHA="${3:-}"
 
-if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
-  printf '%s\n' 'v3 archetype calibration complete: trusted main bundle path is required' >&2
-  exit 64
-fi
-IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
-[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] || {
-  printf '%s\n' 'v3 archetype calibration complete: identity helper is missing or symlinked' >&2
+# Every refusal leaves a parseable result line on stdout (the workflow's receipt
+# artifact) as well as the message on stderr: an empty receipt explained nothing.
+fail() {
+  local slug
+  # The slug is restricted to [A-Za-z0-9_] so it is JSON-safe without a parser.
+  slug="$(printf '%s' "$*" | tr -c 'a-zA-Z0-9' '_' | tr -s '_' | sed 's/^_//; s/_$//' | cut -c1-120)"
+  [ -n "$slug" ] || slug="unknown"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["%s"]}\n' "${ACTION:-unknown}" "$slug"
+  printf 'v3 archetype calibration complete: %s\n' "$*" >&2
   exit 64
 }
+
+if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
+  fail "trusted main bundle path is required"
+fi
+IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
+[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] || fail "identity helper is missing or symlinked"
 # shellcheck source=../lib/f2d_operator_identity.sh
 source "$IDENTITY_HELPER"
-F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" || exit $?
+F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" || {
+  identity_status=$?
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["attested_identity_refused"]}\n' "${ACTION:-unknown}"
+  exit "$identity_status"
+}
 
 TARGET_HOSTNAME="ed-finder-prod"
 TARGET_FQDN="nb79a3d.mevnode.com"
@@ -41,10 +53,16 @@ TARGET_CPUS="8"
 TARGET_MEMORY="16g"
 PYTHON_BIN=""
 
-fail() {
-  printf 'v3 archetype calibration complete: %s\n' "$*" >&2
-  exit 64
+# Keep the last worker log lines (both streams) before a stopped worker is
+# removed, and print a bounded tail so the receipt explains the previous run.
+save_worker_logs() {
+  local destination
+  destination="$STATE_ROOT/worker-logs.$(date -u +%Y%m%dT%H%M%SZ).$$.txt"
+  ( umask 077; docker logs --tail 200 "$WORKER" > "$destination" 2>&1 || true )
+  chmod 600 "$destination" 2>/dev/null || true
+  LAST_WORKER_LOG_FILE="$destination"
 }
+LAST_WORKER_LOG_FILE=""
 
 # Read-only preflight precedes every operation lock, host write and container change.
 require_purge_clear() {
@@ -155,12 +173,17 @@ PY
 }
 
 emit_status() {
-  local operation="$1" worker_status="missing" worker_exit=""
+  local operation="$1" worker_status="missing" worker_exit="" worker_logs=""
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     worker_status="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
     worker_exit="$(docker inspect -f '{{.State.ExitCode}}' "$WORKER")"
+    if [ "$worker_status" != "running" ]; then
+      worker_logs="$(docker logs --tail 50 "$WORKER" 2>&1 | tail -c 4000 || true)"
+    fi
+  elif [ -n "$LAST_WORKER_LOG_FILE" ] && [ -f "$LAST_WORKER_LOG_FILE" ]; then
+    worker_logs="$(tail -c 4000 "$LAST_WORKER_LOG_FILE" || true)"
   fi
-  WORKER_STATUS="$worker_status" WORKER_EXIT="$worker_exit" \
+  WORKER_STATUS="$worker_status" WORKER_EXIT="$worker_exit" WORKER_LOGS="$worker_logs" \
   OPERATION="$operation" STATE_ROOT_VALUE="$STATE_ROOT" \
   F2D_IDENTITY_VALUE="$F2D_IDENTITY" "$PYTHON_BIN" - <<'PY'
 import json
@@ -253,7 +276,8 @@ payload = {
     'application_service_changes_performed': False,
     'f2d_operator_code_sha256': os.environ['F2D_IDENTITY_VALUE'],
     'worker': {'name': 'edfinder-v3-archetype-calibration-complete', 'status': worker,
-               'exit_code': int(os.environ['WORKER_EXIT']) if os.environ['WORKER_EXIT'] else None},
+               'exit_code': int(os.environ['WORKER_EXIT']) if os.environ['WORKER_EXIT'] else None,
+               'log_tail': os.environ.get('WORKER_LOGS') or None},
     'progress': progress,
     'checkpoint': checkpoint,
     'per_chunk_log': per_chunk_log(),
@@ -282,6 +306,7 @@ start_operation() {
       emit_status "v3-archetype-calibration-complete-start"
       return 0
     fi
+    save_worker_logs
     docker rm "$WORKER" >/dev/null
   fi
 
@@ -313,6 +338,7 @@ start_operation() {
   trap 'rm -f -- "$env_file"' EXIT
 
   docker run -d \
+    --init \
     --name "$WORKER" \
     --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
@@ -361,8 +387,12 @@ start_operation() {
   # it, so a resume is proven by this worker, not by the file existing. Wait
   # for it so a worker that refuses inside the container fails this start,
   # not a later status read.
+  # Up to ten minutes: a resume first installs its wheels, hashes the
+  # manifest, reads the ~200,000-row chunk plan and re-validates the whole
+  # per-chunk log before it can prove this launch, and the host may be busy
+  # with a backup.
   local proof=false
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 300); do
     worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
     if [ "$worker_state" = "running" ] && [ -f "$STATE_ROOT/checkpoint.json" ] \
       && [ ! -L "$STATE_ROOT/checkpoint.json" ] \
