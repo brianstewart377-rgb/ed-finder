@@ -91,10 +91,14 @@ def test_action_attests_image_and_generates_sql_inside_running_api() -> None:
     source = _read(ACTION)
     assert "docker inspect -f '{{.Config.Image}}'" in source
     assert "docker inspect -f '{{.Image}}'" in source
-    assert "docker image inspect -f '{{index .RepoDigests 0}}'" in source
+    assert "docker image inspect -f '{{json .RepoDigests}}'" in source
+    assert "{{index .RepoDigests 0}}" not in source
     assert "accepted_release_schema_compatibility" in source
     assert "['images']['backend']" in source
-    assert '"$image_digest" = "$expected_digest"' in source
+    # Repo digests are unordered locally: the attested digest is matched by
+    # membership rather than read from index 0.
+    assert "if expected not in digests:" in source
+    assert "active API RepoDigest differs from target authority" in source
     assert 'docker exec -i "$api" /app/.venv/bin/python -' in source
     assert '< "$REPO_ROOT/scripts/v3_plan_probe_statements.py"' in source
     assert "--dense-anchor" in source

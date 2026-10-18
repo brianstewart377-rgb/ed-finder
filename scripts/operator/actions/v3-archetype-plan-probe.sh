@@ -315,17 +315,26 @@ PY
   api="$(active_api_container)"
   image_reference="$(docker inspect -f '{{.Config.Image}}' "$api")"
   image_id="$(docker inspect -f '{{.Image}}' "$api")"
-  image_digest="$(docker image inspect -f '{{index .RepoDigests 0}}' "$image_id")"
-  [ -n "$image_reference" ] && [ -n "$image_id" ] && [ -n "$image_digest" ] \
+  # Repo digests are unordered locally, so test membership of the attested
+  # backend rather than reading index 0.
+  image_digests="$(docker image inspect -f '{{json .RepoDigests}}' "$image_id")"
+  [ -n "$image_reference" ] && [ -n "$image_id" ] && [ -n "$image_digests" ] \
     || fail "active API image identity is incomplete"
-  expected_digest="$("$PYTHON_BIN" - "$REPO_ROOT/deploy/v3-production/target-authority.json" <<'PY'
-import json, sys
+  image_digest="$(IMAGE_DIGESTS="$image_digests" "$PYTHON_BIN" - "$REPO_ROOT/deploy/v3-production/target-authority.json" <<'PY'
+import json, os, re, sys
 value = json.load(open(sys.argv[1], encoding='utf-8'))
-print(value['accepted_release_schema_compatibility']['images']['backend'])
+expected = value['accepted_release_schema_compatibility']['images']['backend']
+digests = json.loads(os.environ['IMAGE_DIGESTS'])
+if (
+    not isinstance(digests, list) or not digests or len(digests) > 16
+    or any(not isinstance(d, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', d) for d in digests)
+):
+    raise SystemExit('active API image identity invalid')
+if expected not in digests:
+    raise SystemExit('active API RepoDigest differs from target authority')
+print(expected)
 PY
-)"
-  [ "$image_digest" = "$expected_digest" ] \
-    || fail "active API RepoDigest differs from target authority"
+)" || fail "active API RepoDigest differs from target authority"
 
   set +e
   docker exec -i "$api" /app/.venv/bin/python - \

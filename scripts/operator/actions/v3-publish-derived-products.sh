@@ -347,26 +347,41 @@ PY
 }
 
 read_image() {
-  local api image_id image_digest
+  local api image_id image_digests
   api="$(active_api_container)" || return 1
   image_id="$(docker inspect -f '{{.Image}}' "$api")" || return 1
-  image_digest="$(docker image inspect -f '{{index .RepoDigests 0}}' "$image_id")" || return 1
-  "$PYTHON_BIN" - "$api" "$image_id" "$image_digest" <<'PY'
+  # An image ID can carry several repo digests locally (tag pull plus digest
+  # pull); their order is unspecified, so record every one and let check_image
+  # test membership, as the production deployer does.
+  image_digests="$(docker image inspect -f '{{json .RepoDigests}}' "$image_id")" || return 1
+  "$PYTHON_BIN" - "$api" "$image_id" "$image_digests" <<'PY'
 import json, re, sys
-api, image_id, digest = sys.argv[1:]
-if not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', digest):
+api, image_id, raw = sys.argv[1:]
+digests = json.loads(raw) if raw.strip() else []
+if (
+    not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id)
+    or not isinstance(digests, list) or not digests or len(digests) > 16
+    or any(not isinstance(d, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', d) for d in digests)
+):
     raise SystemExit('active image identity invalid')
-print(json.dumps({'container': api, 'image_id': image_id, 'image_digest': digest}))
+print(json.dumps({'container': api, 'image_id': image_id, 'image_digests': sorted(digests)}))
 PY
 }
 
+# Refuses unless the attested backend is among the active image's repo
+# digests; on success records it as image_digest for the later receipt fields.
 check_image() {
   "$PYTHON_BIN" - "$RUN_DIR/attestation.json" "$1" <<'PY'
 import json, sys
 attestation = json.load(open(sys.argv[1]))
-image = json.load(open(sys.argv[2]))
-if image['image_digest'] != attestation['images']['backend']:
+path = sys.argv[2]
+image = json.load(open(path))
+expected = attestation['images']['backend']
+if expected not in image['image_digests']:
     raise SystemExit('active API digest differs from accepted release')
+image['image_digest'] = expected
+with open(path, 'w') as handle:
+    json.dump(image, handle, sort_keys=True)
 PY
 }
 

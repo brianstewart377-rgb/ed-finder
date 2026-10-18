@@ -2078,9 +2078,12 @@ def _f2d_workflow_attestation_fixture(tmp_path):
     manifest.with_suffix(".json.sha256").write_text(checksum + "  " + manifest.name + "\n")
     authority = tmp_path / "deploy/v3-production/target-authority.json"
     authority.parent.mkdir(parents=True)
-    authority.write_text(json.dumps({
-        "schema_transition": {"to_migration_set_identity": "sha256:" + "d" * 64},
-    }))
+    # The workflow computes the operator-code identity over the checkout, so
+    # the synthetic repo carries a minimal manifest (self entry only) and the
+    # fixture attests exactly that identity.
+    manifest_path = tmp_path / "deploy/v3-production/f2d-operator-code.txt"
+    manifest_path.write_text("deploy/v3-production/f2d-operator-code.txt\n")
+    identity = _load_f2d_identity().compute_operator_code_sha256(tmp_path)
     attestation = {
         "schema_version": _load_deployer().RELEASE_COMPATIBILITY_SCHEMA,
         "source_sha": "a" * 40,
@@ -2091,11 +2094,29 @@ def _f2d_workflow_attestation_fixture(tmp_path):
         "evidence": "Synthetic workflow fixture",
         "ranking_version": "fixture-ranking-v1",
         "ranking_sha256": "e" * 64,
-        "f2d_operator_code_sha256": "f" * 64,
+        "f2d_operator_code_sha256": identity,
         "minimum_schema_compatible_image": images["backend"],
         "rollback_targets": [images["backend"]],
     }
+    # A previously accepted pre-F2d release: the first F2d boundary is the
+    # candidate backend itself.
+    authority.write_text(json.dumps({
+        "schema_transition": {"to_migration_set_identity": "sha256:" + "d" * 64},
+        "accepted_release_schema_compatibility": {
+            key: value for key, value in attestation.items()
+            if key not in _load_deployer().F2D_ATTESTATION_FIELDS
+        },
+    }))
     return directory, attestation
+
+
+def _load_f2d_identity():
+    spec = importlib.util.spec_from_file_location(
+        "f2d_operator_identity_workflow_test", ROOT / "scripts/operator/lib/f2d_operator_identity.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run_f2d_workflow_attestation(tmp_path, raw):
@@ -2132,7 +2153,7 @@ def test_f2d_candidate_attestation_workflow_writes_bound_private_evidence(tmp_pa
 
 @pytest.mark.parametrize("invalid", [
     "malformed", "partial", "source_sha", "release_run_id", "manifest_sha256",
-    "images", "schema", "sidecar",
+    "images", "schema", "sidecar", "operator_identity", "boundary", "rollback_targets",
 ])
 def test_f2d_candidate_attestation_workflow_refuses_unbound_evidence(tmp_path, invalid):
     directory, attestation = _f2d_workflow_attestation_fixture(tmp_path)
@@ -2144,6 +2165,20 @@ def test_f2d_candidate_attestation_workflow_refuses_unbound_evidence(tmp_path, i
         if invalid == "partial":
             attestation.pop("ranking_sha256")
             expected = "f2d_attestation_partial_group"
+        elif invalid == "operator_identity":
+            # Shape-valid but not the identity of the checked-out source.
+            attestation["f2d_operator_code_sha256"] = "f" * 64
+            expected = "operator-code identity does not match the candidate source"
+        elif invalid == "boundary":
+            other = "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:" + "9" * 64
+            attestation["minimum_schema_compatible_image"] = other
+            attestation["rollback_targets"] = [other, attestation["images"]["backend"]]
+            expected = "f2d_minimum_schema_compatible_image_mismatch"
+        elif invalid == "rollback_targets":
+            other = "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:" + "9" * 64
+            attestation["minimum_schema_compatible_image"] = other
+            attestation["rollback_targets"] = [other]
+            expected = "f2d_attestation_invalid:rollback_targets"
         elif invalid == "source_sha":
             attestation["source_sha"] = "0" * 40
         elif invalid == "release_run_id":

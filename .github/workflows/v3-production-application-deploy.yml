@@ -283,8 +283,21 @@ jobs:
           directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "candidate"
           manifest = directory / "v3-application-release.json"
           checksum = deployer.verify_checksum(manifest, pathlib.Path(str(manifest) + ".sha256"))
-          schema = {"migration_set_identity": json.loads(pathlib.Path("deploy/v3-production/target-authority.json").read_text())["schema_transition"]["to_migration_set_identity"]}
+          authority = json.loads(pathlib.Path("deploy/v3-production/target-authority.json").read_text())
+          schema = {"migration_set_identity": authority["schema_transition"]["to_migration_set_identity"]}
           deployer.validate_f2d_attestation(value, json.loads(manifest.read_text()), checksum, os.environ["RELEASE_RUN_ID"], schema)
+          # The checkout is the exact candidate source (guarded above), so the
+          # attested operator-code identity must be the one computed over it;
+          # a typo here would otherwise pass promotion and refuse every later
+          # F2d action with attested_identity_mismatch.
+          identity_spec = importlib.util.spec_from_file_location("f2d_operator_identity", "scripts/operator/lib/f2d_operator_identity.py")
+          identity = importlib.util.module_from_spec(identity_spec)
+          identity_spec.loader.exec_module(identity)
+          computed = identity.compute_operator_code_sha256(".")
+          if value["f2d_operator_code_sha256"] != computed:
+              raise SystemExit("F2d candidate attestation operator-code identity does not match the candidate source: expected " + computed)
+          # Catch a wrong boundary image here rather than after the SSH round trip.
+          deployer.validate_f2d_boundary(value, authority["accepted_release_schema_compatibility"])
           output = directory / "f2d-release-attestation.json"
           with output.open("x", encoding="utf-8") as handle:
               os.chmod(output, 0o600)

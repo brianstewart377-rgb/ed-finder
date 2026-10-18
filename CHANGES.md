@@ -38,6 +38,23 @@ container's stderr in its receipt when the output is empty or invalid. Both
 scripts are in the F2d operator-code manifest, so the accepted release must be
 rebuilt and promoted with the new `f2d_operator_code_sha256`
 (`7d3f346d…`) before the complete read, capacity gate or builds run.
+## 2026-10-18 — Deploy and publish gate fixes for the second F2d promotion
+
+Three gates audited ahead of the first re-promotion of an F2d release.
+`validate_f2d_attestation` now requires the candidate backend to be one of its
+own `rollback_targets`: the accepted authority later feeds
+`validate_prior_runtime` for every migration apply without the running-image
+exemption, so an attestation listing only the boundary image would block all
+later migrations. The deploy workflow's attestation step now also computes
+the operator-code identity over the checked-out candidate source and refuses
+a mismatching `f2d_operator_code_sha256` (previously only shape-checked, so a
+typo would pass promotion and refuse every later F2d action), and runs
+`validate_f2d_boundary` before the SSH round trip. The publish and plan-probe
+actions matched the active API image by `RepoDigests[0]`; repo digests are
+unordered locally, so both now test membership of the attested backend as the
+deployer does (both actions are in the F2d operator-code manifest). Tests
+cover the second-release attestation shape, the workflow refusals and the
+two-digest image case.
 
 ## 2026-10-18 — First F2d release accepted in production (step 5′)
 
