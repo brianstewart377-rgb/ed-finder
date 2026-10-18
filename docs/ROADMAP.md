@@ -414,7 +414,27 @@ newer dated source wins).
   merged, **no production step beyond step 0 may be dispatched** (not even the
   migration plan/apply); 4′ and 4″ are the gate. Step 0 itself stays open until a receipt records
   every detached worker stopped (the paused `opt1` worker was killed by the
-  owner on 2026-10-10; the confirming receipt is pending). The step 0 action
+  owner on 2026-10-10). **Progress (2026-10-18): step 0 closed** — the
+  read-only `v3-derived-lifecycle-status` run 39113741990 succeeded on `main`
+  `68eabd47` with `status: success`, no failures, every named worker stopped
+  or absent and every migration-apply precondition true (receipt line retained
+  in `docs/operations/evidence/2026-10-18-v3-derived-lifecycle-status-run-39113741990.log.txt`;
+  the earlier run 39105441503 had stopped only because the host's Docker
+  reports absence in lower case, fixed in #847). **Step 2 done (2026-10-18):** reviewed plan run
+  39113784318, then apply run 39113822236 applied `014`, `010`, `011`, `013`,
+  `015`, `016` in order (status `applied`, schema identity
+  `4cae7d2b…` → `d7efe689…`, no service changes); receipt in
+  `docs/operations/evidence/2026-10-18-v3-production-migration-apply-receipt.json`.
+  **Backup wrapper installed (2026-10-18):** run 39115078455, `status: passed`,
+  installed hash `3393fd81…` equals the committed source, no database, service,
+  timer or unit changes (receipt in
+  `docs/operations/evidence/2026-10-18-v3-backup-wrapper-install-receipt.json`).
+  Next: step 3. The production Storage Box was
+  retired by the owner, so offsite backups and WAL archiving have no target
+  (`last_archived_time` 2026-09-24); either a reviewed Storage Box restoration
+  or the owner-approved interim of disabling WAL archiving must precede the
+  step 8′ builds, whose WAL would otherwise be retained until the disk fills.
+  The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the
   legacy-relation pattern it was modelled on.

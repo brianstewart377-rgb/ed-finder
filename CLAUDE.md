@@ -32,7 +32,7 @@ still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
 promote. Current programme status (prod app on `bed755b9` shipping
 watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
-identity/journal shipped; Finder F1 `system_search` rebuild in progress; Finder
+identity/journal shipped; Finder `system_search` post-`010` build not yet started; Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
 read the V3 projections, while `/rerank`, `/system/{id64}` and `/simulate` are
@@ -41,9 +41,9 @@ the fresh-generation route is superseded — the unapplied migration `011` is be
 rewritten as one wide archetype row per system (F2d design, PR #806), both Finder
 products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
 (seq 1) behind an explicit **product**-publication gate (migration `015`), and
-the generation pointer does not move; no production migration apply may run
-until the rewritten `011`, `015` and the governed-purge migration `016` are
-registered, because the runner applies every pending entry. **Amendment
+the generation pointer does not move. **Applied 2026-10-18:** `014`, `010`,
+the rewritten `011`, `013`, `015` and `016` are in the production ledger (apply
+run 39113822236; receipts under `docs/operations/evidence/`). **Amendment
 2026-10-17 (owner):** the Finder goes live first — the 2026-10-11 pre-build
 purge ordering is superseded, and the governed purge of `ratings_v4_prod_p4`
 and `ratings_v4_prod_p4_opt1` (`docs/development/v3-governed-derived-purge-design.md`;

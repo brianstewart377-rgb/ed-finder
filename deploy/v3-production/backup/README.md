@@ -105,6 +105,16 @@ docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres \
   pgbackrest --stanza=edfinder_v3 info
 ```
 
+## Current state (2026-10-18): no backup target
+
+The owner has stated that the Hetzner Storage Box behind `/mnt/ed-storagebox` was
+retired some months ago. Scheduled backups therefore `SKIP:` (exit 0, so the
+timers look healthy), PostgreSQL's last successful WAL archive was 2026-09-24,
+and **no current offsite backup or continuous WAL archive exists**. Any copy
+that predates the retirement must be treated as unavailable. Restoring a
+Storage Box target needs a reviewed procedure before this section is changed.
+Until then, the paragraphs below describe the design, not a usable repository.
+
 ## Still unproven: a restore
 
 The repository holds full and diff backups, encrypted with AES-256-CBC, plus a
