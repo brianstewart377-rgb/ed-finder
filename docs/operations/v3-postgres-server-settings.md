@@ -63,7 +63,10 @@ workflows must stop rather than mutate these settings.
 purge removes two of the three generations held in `economy_opportunity`
 (about 1.5 billion rows today), so after it the same fraction would understate
 the roughly 200 million distinct systems by about half. The purge's closing
-steps must recalibrate the column: set `n_distinct` to the post-purge fraction
-(about -0.39 for one 198.5 M-system generation) or reset the option and
-re-ANALYZE with the 1000-row-per-bucket target, then confirm the chunk-read
-join still plans as a nested loop over `economy_opportunity_pkey`.
+steps must recalibrate the column from fresh counts, never a hard-coded
+fraction: `n_distinct = -(distinct system_id64 / row count)` measured after
+the purge (the retained generation holds about 49% of today's rows per the
+2026-10-10 lifecycle receipt, so roughly 746 M rows and 198.5 M systems,
+about -0.27, but measure it), or reset the option and re-ANALYZE with the
+1000-row-per-bucket target; then confirm the chunk-read join still plans as a
+nested loop over `economy_opportunity_pkey`.
