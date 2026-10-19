@@ -51,8 +51,11 @@ def legacy_attestation():
 
 @pytest.fixture
 def attestation(legacy_attestation):
+    # The fixture's own backend is the boundary image, so the rollback list
+    # [MINIMUM, LATER] contains the attested backend as the deployer requires.
     return {
         **legacy_attestation,
+        "images": {**legacy_attestation["images"], "backend": MINIMUM},
         "ranking_version": "fixture-ranking-v1",
         "ranking_sha256": "d" * 64,
         "f2d_operator_code_sha256": "e" * 64,
@@ -880,6 +883,32 @@ def test_first_f2d_boundary_is_the_candidate_backend(deployer, attestation, lega
     attestation["minimum_schema_compatible_image"] = EARLIER
     with pytest.raises(deployer.DeploymentError, match="^f2d_minimum_schema_compatible_image_mismatch$"):
         deployer.validate_f2d_boundary(attestation, legacy_attestation)
+
+
+def test_second_f2d_release_keeps_boundary_and_lists_its_own_backend(deployer, attestation):
+    # Second F2d promotion: the candidate backend is LATER, the previously
+    # accepted release's backend MINIMUM stays the boundary. rollback_targets
+    # must start at the boundary and include the candidate, because the
+    # accepted authority later gates every migration apply on the running
+    # backend being a rollback target.
+    previous = deepcopy(attestation)
+    attestation["images"]["backend"] = LATER
+    attestation["minimum_schema_compatible_image"] = MINIMUM
+    attestation["rollback_targets"] = [MINIMUM, LATER]
+    deployer.validate_f2d_attestation(attestation, *candidate_evidence(attestation))
+    deployer.validate_f2d_boundary(attestation, previous)
+
+    only_previous = deepcopy(attestation)
+    only_previous["rollback_targets"] = [MINIMUM]
+    with pytest.raises(deployer.DeploymentError, match="^f2d_attestation_invalid:rollback_targets$"):
+        deployer.validate_f2d_attestation(only_previous, *candidate_evidence(only_previous))
+
+    only_candidate = deepcopy(attestation)
+    only_candidate["minimum_schema_compatible_image"] = LATER
+    only_candidate["rollback_targets"] = [LATER]
+    deployer.validate_f2d_attestation(only_candidate, *candidate_evidence(only_candidate))
+    with pytest.raises(deployer.DeploymentError, match="^f2d_minimum_schema_compatible_image_mismatch$"):
+        deployer.validate_f2d_boundary(only_candidate, previous)
 
 
 @pytest.mark.parametrize("minimum", [MINIMUM, EARLIER, LATER])

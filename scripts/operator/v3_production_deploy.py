@@ -726,6 +726,11 @@ def validate_f2d_attestation(
         or schema["migration_set_identity"] not in attestation["compatible_migration_sets"]
     ):
         raise DeploymentError("f2d_release_attestation_identity_mismatch")
+    # The accepted authority later feeds validate_prior_runtime for every
+    # migration apply without allow_incompatible_running_image, so the running
+    # backend must be a rollback target or no later migration can apply.
+    if attestation["images"]["backend"] not in attestation["rollback_targets"]:
+        raise DeploymentError("f2d_attestation_invalid:rollback_targets")
 
 
 def validate_f2d_boundary(

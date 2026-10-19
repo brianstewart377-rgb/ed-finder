@@ -232,9 +232,46 @@ def test_old_api_digest_refuses_even_with_ready_products(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     attestation = _json(tmp_path / "attestation.json", {"images": {"backend": "registry/api@sha256:" + "a" * 64}})
-    image = _json(tmp_path / "image.json", {"image_digest": "registry/api@sha256:" + "b" * 64})
+    image = _json(tmp_path / "image.json", {"image_digests": ["registry/api@sha256:" + "b" * 64]})
     with pytest.raises(SystemExit, match="differs from accepted release"):
         _execute(_python("check_image"), [attestation, image], monkeypatch)
+
+
+def test_attested_digest_is_matched_by_membership_not_first_repo_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A locally pulled image can carry several repo digests in unspecified
+    # order; the attested one is second here and must still be accepted.
+    attested = "registry/api@sha256:" + "a" * 64
+    attestation = _json(tmp_path / "attestation.json", {"images": {"backend": attested}})
+    image = _json(tmp_path / "image.json", {
+        "container": "api", "image_id": "sha256:" + "0" * 64,
+        "image_digests": ["registry/api@sha256:" + "b" * 64, attested],
+    })
+    _execute(_python("check_image"), [attestation, image], monkeypatch)
+    recorded = json.loads(image.read_text())
+    assert recorded["image_digest"] == attested
+    assert recorded["image_digests"] == ["registry/api@sha256:" + "b" * 64, attested]
+    source = _source()
+    assert "docker image inspect -f '{{json .RepoDigests}}'" in source
+    assert "{{index .RepoDigests 0}}" not in source
+
+
+def test_read_image_records_every_repo_digest_and_refuses_malformed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code = _python("read_image")
+    first = "registry/api@sha256:" + "b" * 64
+    second = "registry/api@sha256:" + "a" * 64
+    capture = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", capture)
+    _execute(code, ["api-green", "sha256:" + "0" * 64, json.dumps([first, second])], monkeypatch)
+    value = json.loads(capture.getvalue())
+    assert value == {"container": "api-green", "image_id": "sha256:" + "0" * 64,
+                     "image_digests": sorted([first, second])}
+    for raw in ("[]", json.dumps(["registry/api@latest"]), json.dumps("x")):
+        with pytest.raises(SystemExit, match="active image identity invalid"):
+            _execute(code, ["api-green", "sha256:" + "0" * 64, raw], monkeypatch)
 
 
 @pytest.mark.parametrize("statuses", ((503, 422, 503, 422), (200, 422, 503, 422)))
