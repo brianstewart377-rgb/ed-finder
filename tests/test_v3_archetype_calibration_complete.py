@@ -919,8 +919,8 @@ def test_reconnect_failures_count_against_the_chunk_retry_budget(tmp_path, monke
     assert 'connection refused' in str(caught.value.cause)
 
 
-def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_path):
-    '''The "two API slots" refusal is raised inside api="$(active_api_container)".'''
+def _run_action_with_fake_docker(tmp_path, action_name, *, ps_names, prepare_state=None):
+    '''Run the action against a staged manifest tree and a fake docker.'''
     import os
     import shutil
     import subprocess
@@ -948,31 +948,33 @@ def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_
             '#!/bin/sh\nif [ "${1:-}" = "-f" ]; then echo nb79a3d.mevnode.com; else echo ed-finder-prod; fi\n'
         )
         (fake_bin / 'python3.14').write_text('#!/bin/sh\nexec "$TEST_PYTHON_BIN" "$@"\n')
-        (fake_bin / 'docker').write_text(textwrap.dedent('''\
+        (fake_bin / 'docker').write_text(textwrap.dedent(f'''\
             #!/usr/bin/env python3
             import json, sys
             args = sys.argv[1:]
             joined = " ".join(args)
             if "derived_generation_purge_event" in joined:
-                print(json.dumps({"database": "edfinder_v3_phase4c_full_20260827_r5",
-                    "read_only": "on", "ledger_present": True, "unresolved": []}))
+                print(json.dumps({{"database": "edfinder_v3_phase4c_full_20260827_r5",
+                    "read_only": "on", "ledger_present": True, "unresolved": []}}))
                 raise SystemExit(0)
             if args[:2] == ["context", "show"]:
                 print("default"); raise SystemExit(0)
             if args[:3] == ["context", "inspect", "default"]:
-                print('{"Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}'); raise SystemExit(0)
+                print('{{"Endpoints":{{"docker":{{"Host":"unix:///var/run/docker.sock"}}}}}}'); raise SystemExit(0)
             if args[:1] == ["inspect"]:
                 if "edfinder-v3-archetype-calibration-complete" in joined:
-                    raise SystemExit(1)  # no worker yet
+                    raise SystemExit(1)  # no worker container
                 if "State.Running" in joined:
                     print("true")
                 elif "com.docker.compose.service" in joined:
                     print("api-blue" if "api-active" in joined else "api-green")
                 else:
-                    print("{}")
+                    print("{{}}")
                 raise SystemExit(0)
             if args[:1] == ["ps"]:
-                print("api-active"); print("api-other"); raise SystemExit(0)
+                for name in {ps_names!r}:
+                    print(name)
+                raise SystemExit(0)
             if args[:1] == ["exec"] and "current_derived_generation" in joined:
                 print("ratings_v4_prod_p4_parallel_v1\\tcfc25d36-3bc7-4011-a465-d6460eaaf826\\tPUBLISHED\\t1\\ttrue")
                 raise SystemExit(0)
@@ -982,6 +984,10 @@ def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_
             (fake_bin / name).chmod(0o755)
         home = tmp_path / 'home'
         home.mkdir()
+        state_root = home / '.local/state/ed-finder/v3-archetype-calibration-complete'
+        if prepare_state is not None:
+            state_root.mkdir(parents=True)
+            prepare_state(state_root)
         env = os.environ.copy()
         env.update({
             'PATH': f'{fake_bin}{os.pathsep}{env.get("PATH", "")}',
@@ -991,13 +997,87 @@ def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_
         })
         result = subprocess.run(
             ['bash', str(stage / 'scripts/operator/actions/v3-archetype-calibration-complete.sh'),
-             'start', str(stage), source_sha],
+             action_name, str(stage), source_sha],
             cwd=stage, env=env, capture_output=True, text=True, check=False,
         )
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+    return result, state_root
+
+
+def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_path):
+    '''The "two API slots" refusal is raised inside api="$(active_api_container)".'''
+    result, _ = _run_action_with_fake_docker(
+        tmp_path, 'start', ps_names=['api-active', 'api-other'],
+    )
     assert result.returncode == 64, result.stderr
     assert 'expected exactly one running production API slot, found 2' in result.stderr
     line = json.loads(result.stdout.strip().splitlines()[-1])
     assert line['status'] == 'stopped'
     assert line['failures'] == ['expected_exactly_one_running_production_API_slot_found_2']
+
+
+def test_status_reports_the_archived_crash_log_from_a_later_process(tmp_path):
+    # start archived the crashed worker's logs and removed the container; a
+    # later status call is a different process and must still find them.
+    def prepare(state_root):
+        archive = state_root / 'worker-logs.20261018T200000Z.123.txt'
+        archive.write_text('pip ok\ndatabase error: OperationalError\n')
+        (state_root / 'worker-logs.latest').write_text(f'{archive}\n')
+
+    result, state_root = _run_action_with_fake_docker(
+        tmp_path, 'status', ps_names=['api-active'], prepare_state=prepare,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload['status'] == 'stopped'
+    assert payload['worker']['status'] == 'missing'
+    assert payload['worker']['log_tail'].endswith('database error: OperationalError')
+    assert payload['worker']['archived_log_file'] == str(
+        state_root / 'worker-logs.20261018T200000Z.123.txt'
+    )
+
+
+def test_status_ignores_a_pointer_outside_the_state_directory(tmp_path):
+    def prepare(state_root):
+        (state_root / 'worker-logs.latest').write_text('/etc/passwd\n')
+
+    result, _ = _run_action_with_fake_docker(
+        tmp_path, 'status', ps_names=['api-active'], prepare_state=prepare,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload['worker']['log_tail'] is None
+    assert payload['worker']['archived_log_file'] is None
+
+
+def test_a_failed_session_configuration_discards_the_reconnected_connection(
+    tmp_path, monkeypatch,
+):
+    reads: list[int] = []
+    identity, probe = _scoring_fixture(monkeypatch, reads)
+    factory = _FlakyConnectionFactory({1: [psycopg.OperationalError('dropped')]})
+    factory.wrap_probe(probe)
+    real_configure = complete.configure_session
+    configure_failures = [psycopg.OperationalError('SET failed')]
+    configured: list[int] = []
+
+    def configure(connection, timeout):
+        if connection is not factory.created[0] and configure_failures:
+            raise configure_failures.pop(0)
+        configured.append(factory.created.index(connection))
+        real_configure(connection, timeout)
+
+    monkeypatch.setattr(complete, 'configure_session', configure)
+    exit_code, receipt = complete.run_complete(
+        factory.connect(), _args(tmp_path), f2d_identity=identity,
+        reconnect=factory.connect, sleep=lambda _s: None,
+    )
+    assert exit_code == 0
+    assert complete.validate_complete_receipt(receipt) is receipt
+    # Three connections: the original, the one whose configuration failed
+    # (closed, never used for a read) and the configured replacement.
+    assert len(factory.created) == 3
+    assert configured == [0, 2]
+    assert factory.closed == 2
+    assert factory.created[1].statements == []

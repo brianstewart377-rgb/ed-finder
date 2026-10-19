@@ -659,8 +659,19 @@ def _read_and_score_chunk(
     for attempt in range(CHUNK_RETRY_ATTEMPTS):
         try:
             if connection is None:
-                connection = reconnect()
-                configure_session(connection, statement_timeout_ms)
+                # Keep the connection None until it is fully configured: a
+                # configuration failure must not leave a half-set-up
+                # connection that the next attempt would use unconfigured.
+                candidate = reconnect()
+                try:
+                    configure_session(candidate, statement_timeout_ms)
+                except BaseException:
+                    try:
+                        candidate.close()
+                    except Exception:  # noqa: BLE001 - best effort
+                        pass
+                    raise
+                connection = candidate
             raw_rows = probe._read_chunk_rows(connection, generation_id, ordinal)
             histograms, actual_rows = _score_chunk(raw_rows, model)
             connection.commit()

@@ -60,14 +60,24 @@ PYTHON_BIN=""
 
 # Keep the last worker log lines (both streams) before a stopped worker is
 # removed, and print a bounded tail so the receipt explains the previous run.
+# The newest archive's path is persisted in STATE_ROOT/worker-logs.latest so a
+# later status call (a different process) can still show it.
 save_worker_logs() {
   local destination
   destination="$STATE_ROOT/worker-logs.$(date -u +%Y%m%dT%H%M%SZ).$$.txt"
   ( umask 077; docker logs --tail 200 "$WORKER" > "$destination" 2>&1 || true )
   chmod 600 "$destination" 2>/dev/null || true
-  LAST_WORKER_LOG_FILE="$destination"
+  ( umask 077; printf '%s\n' "$destination" > "$STATE_ROOT/worker-logs.latest" )
 }
-LAST_WORKER_LOG_FILE=""
+
+latest_worker_log_file() {
+  local pointer="$STATE_ROOT/worker-logs.latest" path
+  [ -f "$pointer" ] && [ ! -L "$pointer" ] || return 0
+  path="$(head -n 1 "$pointer" 2>/dev/null || true)"
+  case "$path" in "$STATE_ROOT"/worker-logs.*.txt) ;; *) return 0 ;; esac
+  [ -f "$path" ] && [ ! -L "$path" ] || return 0
+  printf '%s\n' "$path"
+}
 
 # Read-only preflight precedes every operation lock, host write and container change.
 require_purge_clear() {
@@ -185,10 +195,15 @@ emit_status() {
     if [ "$worker_status" != "running" ]; then
       worker_logs="$(docker logs --tail 50 "$WORKER" 2>&1 | tail -c 4000 || true)"
     fi
-  elif [ -n "$LAST_WORKER_LOG_FILE" ] && [ -f "$LAST_WORKER_LOG_FILE" ]; then
-    worker_logs="$(tail -c 4000 "$LAST_WORKER_LOG_FILE" || true)"
+  else
+    local archived
+    archived="$(latest_worker_log_file)"
+    if [ -n "$archived" ]; then
+      worker_logs="$(tail -c 4000 "$archived" || true)"
+    fi
   fi
   WORKER_STATUS="$worker_status" WORKER_EXIT="$worker_exit" WORKER_LOGS="$worker_logs" \
+  WORKER_LOG_FILE="$(latest_worker_log_file)" \
   OPERATION="$operation" STATE_ROOT_VALUE="$STATE_ROOT" \
   F2D_IDENTITY_VALUE="$F2D_IDENTITY" "$PYTHON_BIN" - <<'PY'
 import json
@@ -282,7 +297,8 @@ payload = {
     'f2d_operator_code_sha256': os.environ['F2D_IDENTITY_VALUE'],
     'worker': {'name': 'edfinder-v3-archetype-calibration-complete', 'status': worker,
                'exit_code': int(os.environ['WORKER_EXIT']) if os.environ['WORKER_EXIT'] else None,
-               'log_tail': os.environ.get('WORKER_LOGS') or None},
+               'log_tail': os.environ.get('WORKER_LOGS') or None,
+               'archived_log_file': os.environ.get('WORKER_LOG_FILE') or None},
     'progress': progress,
     'checkpoint': checkpoint,
     'per_chunk_log': per_chunk_log(),
