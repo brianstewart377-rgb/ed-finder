@@ -42,9 +42,79 @@ TARGET_CPUS="8"
 TARGET_MEMORY="32g"
 PYTHON_BIN=""
 
+CURRENT_OPERATION="v3-system-search-f1"
+
+# Every refusal is also a stopped operation-result line on stdout: the
+# workflow records stdout only, so a reason that went to stderr alone was
+# invisible in the downloadable receipt.
 fail() {
-  printf 'v3 system search f1: %s\n' "$*" >&2
+  local reason="$*"
+  printf 'v3 system search f1: %s\n' "$reason" >&2
+  reason="${reason//\\/\\\\}"
+  reason="${reason//\"/\\\"}"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["%s"]}\n' \
+    "$CURRENT_OPERATION" "$reason"
   exit 64
+}
+
+# Keep a crashed worker's log before it is removed; status reports its tail.
+preserve_worker_log() {
+  local target
+  [ -d "$STATE_ROOT" ] || return 0
+  target="$STATE_ROOT/worker-log.$(date -u +%Y%m%dT%H%M%SZ).txt"
+  ( umask 077; docker logs --tail 200 "$WORKER" > "$target" 2>&1 || true )
+  chmod 600 "$target" 2>/dev/null || true
+}
+
+preserved_worker_log_tail() {
+  local latest
+  latest="$(ls -1t "$STATE_ROOT"/worker-log.*.txt 2>/dev/null | head -n 1 || true)"
+  [ -n "$latest" ] || return 0
+  printf 'preserved_worker_log=%s\npreserved_worker_log_tail:\n' "$latest"
+  tail -n 40 "$latest" | sed 's/^/  /'
+}
+
+# WAL archiving health (pgBackRest archive-push). A build writes hundreds of
+# GB of WAL; an archiver that is failing, or silent while WAL piles up, would
+# fill the data volume mid-build, so start refuses until it is healthy.
+ARCHIVER_SILENCE_SECONDS=1800
+ARCHIVER_WAL_FILE_LIMIT=50
+archiver_status() {
+  db_query "BEGIN READ ONLY; SELECT json_build_object(
+    'archived_count',a.archived_count,
+    'last_archived_wal',a.last_archived_wal,
+    'last_archived_time',a.last_archived_time,
+    'failed_count',a.failed_count,
+    'last_failed_wal',a.last_failed_wal,
+    'last_failed_time',a.last_failed_time,
+    'seconds_since_last_archived',EXTRACT(EPOCH FROM (clock_timestamp()-a.last_archived_time))::bigint,
+    'archiver_failing',COALESCE(a.failed_count>0 AND a.last_failed_time>COALESCE(a.last_archived_time,'-infinity'::timestamptz),false),
+    'pg_wal_files',(SELECT count(*) FROM pg_ls_waldir() w WHERE w.name ~ '^[0-9A-F]{24}$'),
+    'pg_wal_bytes',(SELECT COALESCE(sum(w.size),0) FROM pg_ls_waldir() w)
+  )::text FROM pg_stat_archiver a; COMMIT;"
+}
+
+require_archiver_healthy() {
+  local status verdict
+  status="$(archiver_status)"
+  verdict="$("$PYTHON_BIN" - "$ARCHIVER_SILENCE_SECONDS" "$ARCHIVER_WAL_FILE_LIMIT" "$status" <<'PY'
+import json
+import sys
+silence, wal_limit = int(sys.argv[1]), int(sys.argv[2])
+try:
+    value = json.loads(sys.argv[3])
+except ValueError:
+    print('invalid'); raise SystemExit(0)
+if value.get('archiver_failing') is True:
+    print('failing'); raise SystemExit(0)
+silent = value.get('seconds_since_last_archived')
+files = value.get('pg_wal_files') or 0
+if (silent is None or silent > silence) and files > wal_limit:
+    print('silent'); raise SystemExit(0)
+print('healthy')
+PY
+)"
+  [ "$verdict" = "healthy" ] || fail "wal_archiver_unhealthy:${verdict} ${status}"
 }
 
 # Read-only preflight precedes every operation lock, host write and container change.
@@ -408,6 +478,7 @@ start_operation() {
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
   dsn="$(api_database_url "$api")"
+  require_archiver_healthy
   run_capacity_gate
 
   env_file="$STATE_ROOT/search.env"
@@ -427,6 +498,7 @@ start_operation() {
       printf 'publication_performed=false\ncanonical_writes_performed=false\n'
       return 0
     fi
+    preserve_worker_log
     docker rm "$WORKER" >/dev/null
   fi
 
@@ -478,7 +550,8 @@ start_operation() {
     # Validation-only resume: proven by a clean exit. While it is still
     # validating it is reported as such and left running (it can write no
     # further chunk); finalize requires its exit code 0 either way.
-    for _ in $(seq 1 30); do
+    # Ten minutes: a resume installs wheels, registers and lists ~198k chunks first.
+    for _ in $(seq 1 300); do
       [ "$worker_state" = "running" ] || break
       sleep 2
       worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
@@ -490,13 +563,16 @@ start_operation() {
       result=validated
     else
       docker logs --tail 80 "$WORKER" >&2 || true
+      preserve_worker_log
+    preserve_worker_log
       fail "Search validation-only worker did not exit successfully"
     fi
   elif [ "$worker_state" != "running" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     fail "Search worker did not remain running"
   fi
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 300); do
     [ "$validation_only" = false ] || break
     proof="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
     [[ "$proof" =~ ^[0-9]+$ ]] || fail "Search proof query was invalid"
@@ -507,6 +583,7 @@ start_operation() {
   done
   if [ "$validation_only" = false ] && [ "$proof" -le "$baseline_chunks" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     # A failed start must not leave an unproven worker inserting in the
     # background: stop it (an uncommitted chunk rolls back; committed chunks
     # stay sealed for a later resume) before reporting the failure.
@@ -534,11 +611,13 @@ status_operation() {
   printf 'operation=v3-system-search-f1-status\nworker_containers:\n'
   docker ps -a --filter "label=${OPERATION_LABEL}" --format '  {{.Names}}\t{{.Status}}\t{{.Image}}' || true
   printf 'latest_status=%s\n' "$(latest_status)"
+  printf 'archiver_status=%s\n' "$(archiver_status)"
   emit_receipt_status
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     printf 'latest_worker_log_tail:\n'
     docker logs --tail 40 "$WORKER" 2>&1 | sed 's/^/  /' || true
   fi
+  preserved_worker_log_tail
   printf 'publication_performed=false\ncanonical_writes_performed=false\napplication_service_changes_performed=false\n'
 }
 
@@ -651,8 +730,8 @@ PY
 }
 
 case "$ACTION" in
-  start) start_operation ;;
-  status) status_operation ;;
-  finalize) finalize_operation ;;
+  start) CURRENT_OPERATION="v3-system-search-f1-start"; start_operation ;;
+  status) CURRENT_OPERATION="v3-system-search-f1-status"; status_operation ;;
+  finalize) CURRENT_OPERATION="v3-system-search-f1-finalize"; finalize_operation ;;
   *) fail "expected start, status, or finalize" ;;
 esac

@@ -41,9 +41,79 @@ TARGET_CPUS="8"
 TARGET_MEMORY="32g"
 PYTHON_BIN=""
 
+CURRENT_OPERATION="v3-system-archetype"
+
+# Every refusal is also a stopped operation-result line on stdout: the
+# workflow records stdout only, so a reason that went to stderr alone was
+# invisible in the downloadable receipt.
 fail() {
-  printf 'v3 system archetype: %s\n' "$*" >&2
+  local reason="$*"
+  printf 'v3 system archetype: %s\n' "$reason" >&2
+  reason="${reason//\\/\\\\}"
+  reason="${reason//\"/\\\"}"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["%s"]}\n' \
+    "$CURRENT_OPERATION" "$reason"
   exit 64
+}
+
+# Keep a crashed worker's log before it is removed; status reports its tail.
+preserve_worker_log() {
+  local target
+  [ -d "$STATE_ROOT" ] || return 0
+  target="$STATE_ROOT/worker-log.$(date -u +%Y%m%dT%H%M%SZ).txt"
+  ( umask 077; docker logs --tail 200 "$WORKER" > "$target" 2>&1 || true )
+  chmod 600 "$target" 2>/dev/null || true
+}
+
+preserved_worker_log_tail() {
+  local latest
+  latest="$(ls -1t "$STATE_ROOT"/worker-log.*.txt 2>/dev/null | head -n 1 || true)"
+  [ -n "$latest" ] || return 0
+  printf 'preserved_worker_log=%s\npreserved_worker_log_tail:\n' "$latest"
+  tail -n 40 "$latest" | sed 's/^/  /'
+}
+
+# WAL archiving health (pgBackRest archive-push). A build writes hundreds of
+# GB of WAL; an archiver that is failing, or silent while WAL piles up, would
+# fill the data volume mid-build, so start refuses until it is healthy.
+ARCHIVER_SILENCE_SECONDS=1800
+ARCHIVER_WAL_FILE_LIMIT=50
+archiver_status() {
+  db_query "BEGIN READ ONLY; SELECT json_build_object(
+    'archived_count',a.archived_count,
+    'last_archived_wal',a.last_archived_wal,
+    'last_archived_time',a.last_archived_time,
+    'failed_count',a.failed_count,
+    'last_failed_wal',a.last_failed_wal,
+    'last_failed_time',a.last_failed_time,
+    'seconds_since_last_archived',EXTRACT(EPOCH FROM (clock_timestamp()-a.last_archived_time))::bigint,
+    'archiver_failing',COALESCE(a.failed_count>0 AND a.last_failed_time>COALESCE(a.last_archived_time,'-infinity'::timestamptz),false),
+    'pg_wal_files',(SELECT count(*) FROM pg_ls_waldir() w WHERE w.name ~ '^[0-9A-F]{24}$'),
+    'pg_wal_bytes',(SELECT COALESCE(sum(w.size),0) FROM pg_ls_waldir() w)
+  )::text FROM pg_stat_archiver a; COMMIT;"
+}
+
+require_archiver_healthy() {
+  local status verdict
+  status="$(archiver_status)"
+  verdict="$("$PYTHON_BIN" - "$ARCHIVER_SILENCE_SECONDS" "$ARCHIVER_WAL_FILE_LIMIT" "$status" <<'PY'
+import json
+import sys
+silence, wal_limit = int(sys.argv[1]), int(sys.argv[2])
+try:
+    value = json.loads(sys.argv[3])
+except ValueError:
+    print('invalid'); raise SystemExit(0)
+if value.get('archiver_failing') is True:
+    print('failing'); raise SystemExit(0)
+silent = value.get('seconds_since_last_archived')
+files = value.get('pg_wal_files') or 0
+if (silent is None or silent > silence) and files > wal_limit:
+    print('silent'); raise SystemExit(0)
+print('healthy')
+PY
+)"
+  [ "$verdict" = "healthy" ] || fail "wal_archiver_unhealthy:${verdict} ${status}"
 }
 
 # Read-only preflight precedes every operation lock, host write and container change.
@@ -411,35 +481,11 @@ emit_receipt_status() {
   done
 }
 
-run_archetype_container() {
-  local api_image="$1" env_file="$2" mode="$3"
-  local -a command=(docker run --rm)
-  if [ "$mode" = "validate" ]; then
-    command=(timeout --signal=TERM 7200 docker run --rm)
-  fi
-  "${command[@]}" \
-    --network "$WORKER_NETWORK" --cpus "$TARGET_CPUS" \
-    --memory "$TARGET_MEMORY" --memory-swap "$TARGET_MEMORY" \
-    --pids-limit 256 --read-only --tmpfs /tmp:rw,nosuid,size=2g \
-    --env-file "$env_file" --mount "type=bind,src=${REPO_ROOT},dst=/work,readonly" \
-    --entrypoint /bin/sh "$api_image" -lc '
-      set -eu
-      /usr/local/bin/python -m pip install --quiet --disable-pip-version-check --no-input --no-index \
-        --find-links /work/.v3-archetype-wheelhouse --target /tmp/v3-archetype-deps \
-        --require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2
-      export PYTHONPATH="/tmp/v3-archetype-deps:/work:/work/apps/api/src"
-      cd /work
-      /app/.venv/bin/python -c "from pathlib import Path; from scripts.v3_archetype_calibration_complete import require_image_model_match; require_image_model_match(Path(\"/app/shared_contracts/v3_system_archetype_model.py\"))"
-      if [ "${ARCHETYPE_OPERATION_MODE}" = validate ]; then
-        exec /app/.venv/bin/python scripts/v3_system_archetype.py \
-          --generation-key ratings_v4_prod_p4_parallel_v1 --validate \
-          --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256"
-      fi
-      exec /app/.venv/bin/python scripts/v3_system_archetype.py \
-        --generation-key ratings_v4_prod_p4_parallel_v1 --follow --poll-seconds 5 \
-        --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256"
-    '
-}
+# Validation (every chunk re-read and re-scored, hours at 198.5 M systems)
+# runs inside the detached worker after its last chunk, exactly as the Search
+# worker does; it is never a bounded foreground container. Finalize therefore
+# only confirms the worker's clean exit and the READY/VERIFIED product before
+# the maintenance VACUUM.
 
 # Stop a launched worker whose launch could not be proven, and confirm it is
 # no longer running; refuse loudly if it cannot be stopped.
@@ -505,6 +551,7 @@ start_operation() {
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
   dsn="$(api_database_url "$api")"
+  require_archiver_healthy
   run_capacity_gate
   manifest_sha="$(expected_manifest_sha256)" \
     || fail "complete-read expected Archetype manifest is invalid"
@@ -521,18 +568,24 @@ start_operation() {
       printf 'publication_performed=false\ncanonical_writes_performed=false\napplication_service_changes_performed=false\n'
       return 0
     fi
+    preserve_worker_log
     docker rm "$WORKER" >/dev/null
   fi
 
   env_file="$STATE_ROOT/archetype.env"
   write_builder_env "$env_file" "$dsn" "$manifest_sha"
-  printf 'ARCHETYPE_OPERATION_MODE=build\n' >> "$env_file"
   trap 'rm -f -- "$env_file"' EXIT
   # Chunks a previous worker already committed are not proof for this launch:
   # record them, and require this worker to commit at least one more.
   local baseline_chunks
   baseline_chunks="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.archetype_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
   [[ "$baseline_chunks" =~ ^[0-9]+$ ]] || fail "Archetype baseline chunk query was invalid"
+  local planned_chunks validation_only=false result=launched
+  planned_chunks="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
+  [[ "$planned_chunks" =~ ^[1-9][0-9]*$ ]] || fail "Archetype planned chunk query was invalid"
+  [ "$baseline_chunks" -le "$planned_chunks" ] \
+    || fail "Archetype has more committed chunks than the Ratings chunk plan"
+  [ "$baseline_chunks" -lt "$planned_chunks" ] || validation_only=true
   docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
@@ -561,12 +614,30 @@ start_operation() {
 
   sleep 3
   worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
-  if [ "$worker_state" != "running" ]; then
+  proof="$baseline_chunks"
+  if [ "$validation_only" = true ]; then
+    # Validation-only resume (every chunk already sealed): the worker re-reads
+    # and re-scores every chunk for hours, so it is left running and finalize
+    # requires its clean exit; a quick clean exit means it was already READY.
+    if [ "$worker_state" = "running" ]; then
+      result=launched-validation-only
+    elif [ "$worker_state" = "exited" ] \
+      && [ "$(docker inspect -f '{{.State.ExitCode}}' "$WORKER")" = "0" ]; then
+      result=validated
+    else
+      docker logs --tail 80 "$WORKER" >&2 || true
+      preserve_worker_log
+      fail "Archetype validation-only worker did not exit successfully"
+    fi
+  elif [ "$worker_state" != "running" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     fail "Archetype worker did not remain running"
   fi
-  proof=0
-  for _ in $(seq 1 30); do
+  # The worker must prove itself within ten minutes: a resume first installs
+  # wheels, registers, lists ~198k chunks and reads a cold first chunk.
+  for _ in $(seq 1 300); do
+    [ "$validation_only" = false ] || break
     proof="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.archetype_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
     [[ "$proof" =~ ^[0-9]+$ ]] || fail "Archetype proof query was invalid"
     [ "$proof" -gt "$baseline_chunks" ] && break
@@ -574,8 +645,9 @@ start_operation() {
     [ "$worker_state" = "running" ] || break
     sleep 2
   done
-  if [ "$proof" -le "$baseline_chunks" ]; then
+  if [ "$validation_only" = false ] && [ "$proof" -le "$baseline_chunks" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     # A failed start must not leave an unproven worker inserting in the
     # background: stop it (an uncommitted chunk rolls back; committed chunks
     # stay sealed for a later resume) before reporting the failure.
@@ -583,7 +655,9 @@ start_operation() {
     fail "Archetype worker did not prove a chunk committed by this launch; the worker was stopped"
   fi
 
-  printf 'operation=v3-system-archetype-start\nresult=launched\n'
+  printf 'operation=v3-system-archetype-start\nresult=%s\n' "$result"
+  printf 'planned_chunks=%s\n' "$planned_chunks"
+
   printf 'source_sha=%s\ngeneration_key=%s\ngeneration_id=%s\n' \
     "$SOURCE_SHA" "$TARGET_GENERATION_KEY" "$TARGET_GENERATION_ID"
   printf 'manifest_sha256=%s\nworker=%s\nworker_state=%s\nproof_chunks=%s\nbaseline_chunks=%s\n' \
@@ -602,11 +676,13 @@ status_operation() {
   printf 'operation=v3-system-archetype-status\nworker_containers:\n'
   docker ps -a --filter "label=${OPERATION_LABEL}" --format '  {{.Names}}\t{{.Status}}\t{{.Image}}' || true
   printf 'latest_status=%s\n' "$(latest_status)"
+  printf 'archiver_status=%s\n' "$(archiver_status)"
   emit_receipt_status
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     printf 'latest_worker_log_tail:\n'
     docker logs --tail 40 "$WORKER" 2>&1 | sed 's/^/  /' || true
   fi
+  preserved_worker_log_tail
   printf 'publication_performed=false\ncanonical_writes_performed=false\napplication_service_changes_performed=false\n'
 }
 
@@ -621,7 +697,7 @@ finalize_operation() {
   exec 9>"$STATE_ROOT/finalize.lock"
   flock -n 9 || fail "another V3 Archetype finalize is in progress"
 
-  local worker_state worker_exit manifest_sha expected_manifest api api_image dsn env_file
+  local worker_state worker_exit manifest_sha expected_manifest
   local product_row lifecycle validation registered_manifest expected_rows wide_rows
   local chunk_row final_insert_at chunk_count row_count stats last_vacuum last_analyze vacuum_performed=false
   require_search_prerequisite
@@ -649,21 +725,11 @@ PY
   docker inspect "$WORKER" >/dev/null 2>&1 || fail "Archetype worker container is missing"
   worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
   worker_exit="$(docker inspect -f '{{.State.ExitCode}}' "$WORKER")"
+  if [ "$worker_state" = "running" ]; then
+    fail "Archetype worker is still running (building or validating); finalize after it exits"
+  fi
   [ "$worker_state" = "exited" ] && [ "$worker_exit" = "0" ] \
-    || fail "Archetype worker has not exited successfully"
-
-  api="$(active_api_container)"
-  api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
-  [ -n "$api_image" ] || fail "active API image identity is empty"
-  dsn="$(api_database_url "$api")"
-  env_file="$STATE_ROOT/archetype-validate.env"
-  write_builder_env "$env_file" "$dsn" "$manifest_sha"
-  printf 'ARCHETYPE_OPERATION_MODE=validate\n' >> "$env_file"
-  trap 'rm -f -- "$env_file"' EXIT
-  run_archetype_container "$api_image" "$env_file" validate \
-    || fail "reviewed Archetype validation route failed"
-  rm -f -- "$env_file"
-  trap - EXIT
+    || { preserve_worker_log; fail "Archetype worker has not exited successfully (state=${worker_state} exit=${worker_exit})"; }
 
   product_row="$(db_query "BEGIN READ ONLY; SELECT p.lifecycle_state || E'\\t' || COALESCE(p.validation_receipt->>'status','') || E'\\t' || encode(p.manifest_sha256,'hex') || E'\\t' || p.expected_rows::text || E'\\t' || (SELECT count(*)::text FROM v3_derived.system_archetype a WHERE a.derived_generation_id=p.derived_generation_id) FROM v3_meta.derived_product p WHERE p.derived_generation_id='${TARGET_GENERATION_ID}'::uuid AND p.product_code='system_archetype'; COMMIT;")"
   IFS=$'\t' read -r lifecycle validation registered_manifest expected_rows wide_rows <<< "$product_row"
@@ -739,8 +805,8 @@ PY
 }
 
 case "$ACTION" in
-  start) start_operation ;;
-  status) status_operation ;;
-  finalize) finalize_operation ;;
+  start) CURRENT_OPERATION="v3-system-archetype-start"; start_operation ;;
+  status) CURRENT_OPERATION="v3-system-archetype-status"; status_operation ;;
+  finalize) CURRENT_OPERATION="v3-system-archetype-finalize"; finalize_operation ;;
   *) fail "expected start, status, or finalize" ;;
 esac

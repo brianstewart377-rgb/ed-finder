@@ -136,9 +136,15 @@ def test_start_writes_sealed_receipts_and_proves_a_committed_chunk() -> None:
     assert "'f2d_operator_code_sha256': identity" in source
     assert "pg_total_relation_size('v3_derived.system_archetype')" in source
     assert "v3_derived.archetype_build_chunk" in source
-    assert "for _ in $(seq 1 30)" in source
+    # Ten-minute proof window: a resume installs wheels, registers and lists
+    # ~198k chunks before its first cold chunk commit.
+    assert "for _ in $(seq 1 300)" in source
+    assert "for _ in $(seq 1 30)" not in source
     assert "sleep 2" in source
     assert "Archetype worker did not prove a chunk committed by this launch" in source
+    # A worker that finds every chunk sealed only validates; it is left running.
+    assert "validation_only=true" in source
+    assert "result=launched-validation-only" in source
 
 
 def test_build_and_validation_containers_are_bounded_offline_and_read_only() -> None:
@@ -149,8 +155,8 @@ def test_build_and_validation_containers_are_bounded_offline_and_read_only() -> 
     assert '--memory-swap "$TARGET_MEMORY"' in source
     assert "--pids-limit 256" in source
     assert "--restart no" in source
-    assert source.count("--read-only") >= 2
-    assert source.count("--tmpfs /tmp:rw,nosuid,size=2g") >= 2
+    assert source.count("--read-only") >= 1
+    assert source.count("--tmpfs /tmp:rw,nosuid,size=2g") >= 1
     assert 'dst=/work,readonly' in source
     assert '--require-hashes -r /work/deploy/v3-production/f2d-wheels.txt 1>&2' in source
     assert "--no-index" in source
@@ -165,26 +171,35 @@ def test_build_and_validation_containers_are_bounded_offline_and_read_only() -> 
 def test_build_and_validation_refuse_an_api_image_model_mismatch() -> None:
     source = _source()
 
-    assert source.count("require_image_model_match") >= 2
+    assert source.count("require_image_model_match") >= 1
     assert source.count(
         "/app/shared_contracts/v3_system_archetype_model.py"
-    ) >= 2
+    ) >= 1
     assert "scripts.v3_archetype_calibration_complete" in source
 
 
-def test_finalize_runs_reviewed_validation_route_before_ready_and_vacuum_checks() -> None:
+def test_finalize_requires_worker_validated_ready_product_before_vacuum() -> None:
+    """Validation (every chunk re-read and re-scored, hours at 198.5 M systems)
+    runs inside the detached worker after its last chunk, as Search does. A
+    bounded foreground validate container could never finish and lost its log
+    with --rm, so finalize never launches one: it requires the worker's clean
+    exit and the READY/VERIFIED product, then VACUUMs."""
     source = _source()
     finalize = source[source.index("finalize_operation()") :]
 
     assert "Archetype worker has not exited successfully" in finalize
+    assert "Archetype worker is still running" in finalize
     assert '"$worker_state" = "exited"' in finalize
     assert '"$worker_exit" = "0"' in finalize
-    assert "run_archetype_container \"$api_image\" \"$env_file\" validate" in finalize
-    assert "--generation-key ratings_v4_prod_p4_parallel_v1 --validate" in source
-    assert finalize.index("run_archetype_container") < finalize.index(
+    assert "run_archetype_container" not in source
+    assert "timeout --signal=TERM 7200 docker run" not in source
+    assert "--validate" not in source
+    assert "ARCHETYPE_OPERATION_MODE" not in source
+    assert "docker run -d" in source and "docker run --rm" not in source
+    assert finalize.index('"$worker_exit" = "0"') < finalize.index(
         'product_code=\'system_archetype\''
     )
-    assert finalize.index("run_archetype_container") < finalize.index(
+    assert finalize.index('product_code=\'system_archetype\'') < finalize.index(
         'db_maintenance "VACUUM (ANALYZE)'
     )
     assert "Archetype product is not READY/VERIFIED" in finalize
@@ -247,9 +262,9 @@ def test_status_is_read_only_and_reports_receipts() -> None:
 
 def test_action_exposes_only_start_status_and_finalize_modes() -> None:
     source = _source()
-    assert "start) start_operation" in source
-    assert "status) status_operation" in source
-    assert "finalize) finalize_operation" in source
+    assert 'start) CURRENT_OPERATION="v3-system-archetype-start"; start_operation' in source
+    assert 'status) CURRENT_OPERATION="v3-system-archetype-status"; status_operation' in source
+    assert 'finalize) CURRENT_OPERATION="v3-system-archetype-finalize"; finalize_operation' in source
     assert 'fail "expected start, status, or finalize"' in source
 
 

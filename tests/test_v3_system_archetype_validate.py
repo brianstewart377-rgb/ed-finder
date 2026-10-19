@@ -244,7 +244,7 @@ def test_half_boundary_row_uses_shared_integer_rule(monkeypatch):
     generation = builder.Generation('generation', 'key', 'READY', 'canonical', 1,
                                     'v3_gen_fixture', 1)
     monkeypatch.setattr(builder, '_source_projection_sha', lambda *args: b'a' * 32)
-    monkeypatch.setattr(builder, '_chunk_content_sha', lambda *args: b'b' * 32)
+    monkeypatch.setattr(builder, '_rows_content_sha', lambda rows: b'b' * 32)
     monkeypatch.setattr(builder, '_chunk_rows', lambda *args: [stored])
     monkeypatch.setattr(builder, '_read_chunk_vectors', lambda *args: {7: (object(), ())})
     monkeypatch.setattr(builder.model, 'score_raw_system', lambda *args: scored)

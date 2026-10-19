@@ -260,6 +260,74 @@ def _rating_chunks(connection, generation_id: str, *, missing_search_only: bool 
     ).fetchall()
 
 
+def _missing_chunk_systems(
+    connection, generation: Generation, ordinal: int, limit: int = 20,
+) -> list[int]:
+    '''Bounded sample of Ratings systems the projection did not cover.
+
+    A coverage mismatch is a fail-closed guard, and without this the operator
+    cannot tell which id64s the canonical schema lacks. Read-only; the caller
+    raises right after.
+    '''
+    try:
+        from psycopg import sql
+        rows = connection.execute(
+            sql.SQL('''SELECT v.system_id64
+                     FROM v3_derived.system_rating_vector v
+                LEFT JOIN {schema}.systems s ON s.id64=v.system_id64
+                    WHERE v.derived_generation_id=%(generation_id)s
+                      AND v.chunk_ordinal=%(chunk_ordinal)s
+                      AND s.id64 IS NULL
+                    ORDER BY v.system_id64 LIMIT %(limit)s''').format(
+                schema=sql.Identifier(generation.canonical_schema),
+            ),
+            {'generation_id': generation.identifier, 'chunk_ordinal': ordinal,
+             'limit': limit},
+        ).fetchall()
+    except Exception:  # diagnostic only; the coverage error is what surfaces
+        return []
+    return [int(row[0]) for row in rows]
+
+
+LOCK_TIMEOUT = '30s'
+STATEMENT_TIMEOUT = '30min'
+
+
+def configure_session(connection) -> None:
+    '''Bound the serial builder session and force per-execution plans.
+
+    Mirrors the parallel scheduler's lock/statement bounds so a blocked
+    FOR SHARE / FOR NO KEY UPDATE cannot hang the worker silently, and keeps
+    every parameterised read on its index path (psycopg names statements
+    after five executions and a generic plan may discard the index path).
+    Validation's position scan over the whole relation must stay under the
+    statement bound; VACUUM runs from the operator action via psql.
+    '''
+    connection.execute(
+        "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
+    )
+    connection.execute(
+        "SELECT set_config('lock_timeout',%s,false)", (LOCK_TIMEOUT,),
+    )
+    connection.execute(
+        "SELECT set_config('statement_timeout',%s,false)", (STATEMENT_TIMEOUT,),
+    )
+
+
+def failure_receipt(exc: BaseException) -> dict:
+    '''Bounded failure receipt: class, message and SQLSTATE, never the DSN.'''
+    detail = f'{type(exc).__name__}: {exc}'
+    receipt = {
+        'status': 'FAILED',
+        'error': type(exc).__name__,
+        'error_detail': detail[:500],
+    }
+    sqlstate = getattr(exc, 'sqlstate', None)
+    if isinstance(sqlstate, str):
+        receipt['sqlstate'] = sqlstate
+    return receipt
+
+
 def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
     rows = connection.execute(
         '''SELECT s.system_id64,s.name,s.x_ly,s.y_ly,s.z_ly,
@@ -520,6 +588,15 @@ def _insert_chunk(
             {'generation_id': generation.identifier, 'chunk_ordinal': ordinal},
         )
         if cursor.rowcount != systems:
+            missing = _missing_chunk_systems(
+                connection, generation, ordinal,
+            )
+            print(json.dumps({
+                'status': 'DIAGNOSTIC', 'product_code': PRODUCT_CODE,
+                'chunk_ordinal': ordinal, 'expected_systems': systems,
+                'inserted_rows': cursor.rowcount,
+                'missing_sample': missing,
+            }, sort_keys=True), file=sys.stderr, flush=True)
             raise ValueError('Search chunk did not cover every Ratings system')
 
         content_sha = _chunk_content_sha(connection, generation.identifier, ordinal)
@@ -767,6 +844,7 @@ def main(argv=None) -> int:
     try:
         import psycopg
         with psycopg.connect(dsn, autocommit=True) as connection:
+            configure_session(connection)
             if args.print_manifest_sha256:
                 generation = _generation(connection, args.generation_key)
                 manifest_sha = _digest(product_manifest(generation)).hex()
@@ -794,7 +872,7 @@ def main(argv=None) -> int:
         )
         return 65
     except Exception as exc:
-        print(json.dumps({'status': 'FAILED', 'error': type(exc).__name__}), file=sys.stderr)
+        print(json.dumps(failure_receipt(exc)), file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
     return 0

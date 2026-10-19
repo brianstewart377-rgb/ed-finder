@@ -110,14 +110,18 @@ def test_cli_build_then_validate(database, monkeypatch, capsys):
     _ready_ratings(database, generation_id)
     monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', _fixture_dsn(connection))
 
+    # The worker validates and promotes READY itself once every chunk is
+    # sealed (the Search pattern); finalize no longer runs a validate container.
     assert builder.main(['--generation-key', key]) == 0
     built = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert built['status'] == 'BUILT'
+    assert built['status'] == 'VERIFIED'
     assert built['chunks_written'] == 3
+    assert built['validation_receipt']['status'] == 'VERIFIED'
 
     assert builder.main(['--generation-key', key, '--validate']) == 0
     receipt = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert receipt['status'] == 'VERIFIED'
+    assert receipt == built['validation_receipt']
 
     row = connection.execute(
         '''SELECT lifecycle_state FROM v3_meta.derived_product
@@ -214,7 +218,8 @@ def test_run_follow_keeps_polling_while_base_is_still_building(database, monkeyp
     monkeypatch.setattr(builder.time, 'sleep', fake_sleep)
 
     result = builder.run(connection, key, follow=True, poll_seconds=0.01)
-    assert result['status'] == 'BUILT'
+    assert result['status'] == 'VERIFIED'
+    assert result['validation_receipt']['status'] == 'VERIFIED'
     assert len(poll_calls) == 1
 
     row = connection.execute(
@@ -330,3 +335,80 @@ def test_code_identity_changes_when_only_canonical_model_changes(tmp_path):
     after = builder.code_identity(tmp_path)
     changed = {path for path in before if before[path] != after[path]}
     assert changed == {'shared_contracts/v3_system_archetype_model.py'}
+
+
+def test_failure_receipt_carries_bounded_detail_and_sqlstate(monkeypatch, capsys):
+    import psycopg
+
+    class Boom(psycopg.Error):
+        pass
+
+    error = Boom('canceling statement due to statement timeout ' + 'x' * 600)
+    error.sqlstate = '57014'
+    receipt = builder.failure_receipt(error)
+    assert receipt['error'] == 'Boom'
+    assert receipt['sqlstate'] == '57014'
+    assert len(receipt['error_detail']) == 500
+    assert receipt['error_detail'].startswith('Boom: canceling statement')
+    assert builder.failure_receipt(ValueError('x')) == {
+        'status': 'FAILED', 'error': 'ValueError', 'error_detail': 'ValueError: x',
+    }
+    # main() writes it to stderr on any unexpected failure.
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', 'postgresql://x:y@127.0.0.1:1/z')
+    assert builder.main(['--generation-key', 'nothing']) == 1
+    written = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert written['status'] == 'FAILED'
+    assert 'error_detail' in written
+    assert 'x:y@' not in json.dumps(written)
+
+
+def test_session_settings_are_exactly_plan_mode_and_timeouts(monkeypatch):
+    class Connection:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql, params=None):
+            self.statements.append((sql, params))
+
+    connection = Connection()
+    builder.configure_session(connection)
+    names = [sql.split("'")[1] for sql, _ in connection.statements]
+    assert names == ['plan_cache_mode', 'lock_timeout', 'statement_timeout']
+    assert connection.statements[1][1] == (builder.LOCK_TIMEOUT,)
+    assert connection.statements[2][1] == (builder.STATEMENT_TIMEOUT,)
+    assert builder.STATEMENT_TIMEOUT == '30min'
+
+
+def test_worker_validates_in_process_and_reports_validation_progress(database, monkeypatch):
+    # After the last chunk is sealed the worker re-reads and re-scores every
+    # chunk and promotes READY itself; finalize never launches a bounded
+    # foreground validate container. Progress lines mark the validate phase.
+    connection, _, _, _ = database
+    key, generation_id = _ratings_generation(database)
+    _ready_ratings(database, generation_id)
+    events = []
+    monkeypatch.setattr(builder, '_validate_rows_and_seals', _progress_spy(events))
+    result = builder.run(connection, key, follow=True, progress=events.append)
+    assert result['status'] == 'VERIFIED'
+    assert result['validation_receipt']['status'] == 'VERIFIED'
+    assert [event['phase'] for event in events if event.get('phase')] == ['validate']
+    row = connection.execute(
+        '''SELECT lifecycle_state FROM v3_meta.derived_product
+            WHERE derived_generation_id=%s AND product_code=%s''',
+        (generation_id, builder.PRODUCT_CODE),
+    ).fetchone()
+    assert row[0] == 'READY'
+    # A re-run on the READY product re-prints the stored receipt, no rebuild.
+    again = builder.run(connection, key, follow=True)
+    assert again['status'] == 'VERIFIED' and again['chunks_written'] == 0
+
+
+def _progress_spy(events):
+    real = builder._validate_rows_and_seals
+
+    def spy(connection, generation, manifest_sha, rating_chunks, progress=None):
+        assert progress is not None
+        progress({'phase': 'validate', 'chunks_total': len(rating_chunks)})
+        return real(connection, generation, manifest_sha, rating_chunks)
+
+    return spy

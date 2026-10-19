@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,3 +225,133 @@ def test_start_refuses_a_build_start_receipt_from_another_operator_identity():
     assert "if receipt['f2d_operator_code_sha256'] != identity:" in block
     assert "raise SystemExit(3)" in block
     assert "written under another operator identity" in block
+
+
+ACTIONS = {
+    "search": ROOT / "scripts/operator/actions/v3-system-search-f1.sh",
+    "archetype": ROOT / "scripts/operator/actions/v3-system-archetype.sh",
+}
+
+
+def _function_block(source: str, name: str) -> str:
+    start = source.index(f"{name}() {{")
+    end = source.index("\n}\n", start) + 3
+    return source[start:end]
+
+
+def _harness(action: str, extra: str) -> str:
+    """Bash preamble: the action's helper functions with stubbed dependencies."""
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    functions = "\n".join(
+        _function_block(source, name)
+        for name in (
+            "fail", "preserve_worker_log", "preserved_worker_log_tail",
+            "archiver_status", "require_archiver_healthy",
+        )
+    )
+    settings = "\n".join(
+        line for line in source.splitlines()
+        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "WORKER="))
+    )
+    return f"set -uo pipefail\n{settings}\n{functions}\n{extra}\n"
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_fail_prints_a_stopped_operation_result_on_stdout(action, tmp_path):
+    # The workflow records stdout only; a refusal that went to stderr alone
+    # left an empty receipt the operator could not act on.
+    script = _harness(action, 'CURRENT_OPERATION="unit-op"\nfail \'bad "thing" here\'\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    assert 'bad "thing" here' in result.stderr
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt == {
+        "schema_version": "ed-finder/operator-operation-result/v1",
+        "operation": "unit-op", "status": "stopped", "read_only": False,
+        "db_writes_performed": False, "failures": ['bad "thing" here'],
+    }
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("status", "verdict"), [
+    ({"archiver_failing": False, "seconds_since_last_archived": 30, "pg_wal_files": 500}, "healthy"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 12}, "healthy"),
+    ({"archiver_failing": True, "seconds_since_last_archived": 5, "pg_wal_files": 1}, "failing"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": None, "pg_wal_files": 51}, "silent"),
+])
+def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_path):
+    # A build writes hundreds of GB of WAL through pgBackRest archive-push; a
+    # failing archiver, or one silent for 30 minutes while WAL piles up past
+    # 50 files, would fill the data volume mid-build.
+    stub = (
+        "db_query() { printf '%s\\n' \"$ARCHIVER_FIXTURE\"; }\n"
+        'PYTHON_BIN="$(command -v python3)"\n'
+        "require_archiver_healthy && echo ARCHIVER_OK\n"
+    )
+    script = _harness(action, stub)
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "ARCHIVER_FIXTURE": json.dumps(status),
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    if verdict == "healthy":
+        assert result.returncode == 0, result.stderr
+        assert "ARCHIVER_OK" in result.stdout
+    else:
+        assert result.returncode == 64
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["status"] == "stopped"
+        assert receipt["failures"][0].startswith(f"wal_archiver_unhealthy:{verdict}")
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_start_reads_archiver_health_before_the_capacity_gate_and_launch(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    start = source[source.index("start_operation()") : source.index("status_operation()")]
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert start.index("require_archiver_healthy") < start.index("run_capacity_gate")
+    assert start.index("run_capacity_gate") < start.index("docker run -d")
+    assert "pg_stat_archiver" in source
+    assert "pg_ls_waldir()" in source
+    assert "archiver_status=" in status
+    assert "BEGIN READ ONLY" in _function_block(source, "archiver_status")
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_crashed_worker_logs_are_preserved_before_removal_and_reported(action, tmp_path):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    # Every `docker rm` of the worker is preceded by a log capture; status
+    # reports the newest capture so the downloadable receipt explains a crash.
+    for index in [i for i in range(len(source)) if source.startswith('docker rm "$WORKER"', i)]:
+        preceding = source[max(0, index - 200) : index]
+        assert "preserve_worker_log" in preceding
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert "preserved_worker_log_tail" in status
+    stub = (
+        "docker() { printf 'line one\\nline two\\n'; }\n"
+        "preserve_worker_log\n"
+        "ls \"$STATE_ROOT\"\n"
+        "preserved_worker_log_tail\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", _harness(action, stub)], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr
+    captured = [path for path in tmp_path.iterdir() if path.name.startswith("worker-log.")]
+    assert len(captured) == 1
+    assert oct(captured[0].stat().st_mode & 0o777) == "0o600"
+    assert "preserved_worker_log_tail:" in result.stdout
+    assert "  line two" in result.stdout
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_start_proof_window_is_ten_minutes(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    assert "for _ in $(seq 1 300)" in source
+    assert "for _ in $(seq 1 30)" not in source
+    assert "sleep 2" in source
