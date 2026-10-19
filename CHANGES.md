@@ -76,6 +76,59 @@ ledger now point at the 7′ gate as the next step.
 
 ---
 
+## 2026-10-19 — API silent-failure fixes (ingest liveness, SSE bridge, evidence errors, status cache)
+
+Six places where the API swallowed a failure and reported itself healthy:
+
+- **EDDN simulation ingest** (`apps/api/src/ingest/eddn_client.py`): a failed
+  DB flush no longer advances the liveness timestamp (the July 2026 outage
+  shape — the loop cycled, every flush failed, the stall alert never fired).
+  Liveness advances on a successful flush, and on message receipt only while
+  the write path is healthy. New `/api/metrics` series:
+  `ed_finder_eddn_simulation_ingest_flush_failures_total`,
+  `..._consecutive_flush_failures` and
+  `..._last_successful_flush_timestamp_seconds`. After
+  `EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES` (default 5, bounded
+  1..1000) consecutive failures the loop raises and reconnects. The ingest
+  remains the named runtime exception in `CLAUDE.md`; no journal-import
+  automation was added.
+- **EDDN→SSE bridge** (`apps/api/src/routers/events.py`, `main.py`,
+  `deps.py`): the bridge now starts unconditionally and, when Redis was down
+  at boot, retries the connection itself with capped exponential backoff
+  (1 s → 60 s), installing the client on success so the cache recovers too.
+  Boot and bridge share one bounded `deps.connect_redis()`. New gauge
+  `ed_finder_sse_bridge_state` (0 not started, 1 connecting, 2 subscribed,
+  3 retrying, 4 stopped) and counter `ed_finder_sse_bridge_reconnects_total`.
+- **Warehouse planner evidence** (`warehouse_planner_evidence_provider.py`):
+  only `UndefinedTableError`/`UndefinedColumnError` count as "missing
+  evidence". Timeouts (`QueryCanceledError`), interface errors and other
+  database errors raise `PlannerEvidenceQueryError`, which the route turns
+  into HTTP 503 with a bounded detail (exception class + SQLSTATE only).
+- **Share OG image** (`share_router.py`): the Redis read/write goes through
+  `deps.cache_get`/`cache_set` (0.1 s cache I/O timeout) with the PNG
+  base64-encoded; the cached payload is validated (PNG signature, size cap)
+  before it is streamed. The bare Redis calls in `routers/archetypes.py` and
+  `local_search.py` are deliberately left for a follow-up because another PR
+  is editing those files.
+- **V2 cluster rebuild** (`routers/admin.py`, `helpers.py`):
+  `POST /api/admin/rebuild-clusters` answers 410 Gone with a
+  `application/problem+json` body. The Docker Compose shell-out — which the V3
+  API could never execute — is removed along with `subprocess`; admin auth and
+  the rate limit stay on the route. Only the route's description changed in
+  the generated API clients.
+- **`/api/local/status`** (`routers/meta.py`): a `{available: false}` payload
+  is no longer cached for `ttl_status`, and the raw exception text is replaced
+  by a fixed reason code (`db_timeout`, `db_schema_missing`, `db_unavailable`,
+  `db_error`); the raw text stays in the server log.
+
+Tests: `tests/test_eddn_simulation_ingest_flush_failures.py`,
+`tests/test_sse_bridge_redis_recovery.py`,
+`tests/test_warehouse_planner_evidence_query_errors.py`,
+`tests/test_share_og_cache_bounded.py`,
+`tests/test_meta_status_failure_branch.py`; the retired cluster-rebuild
+contract test now pins the 410 and the absence of a Docker shell-out.
+
+---
 ## 2026-10-19 — F3 slice 2: `/rerank`, `/system/{id64}`, `/simulate`, `/profiles` on the V3 projections
 
 `apps/api/src/routers/archetypes.py` now reads only the published V3

@@ -338,9 +338,9 @@ export const cacheClearApiCacheClearPost = <ThrowOnError extends boolean = false
 /**
  * Trigger Rebuild Clusters
  *
- * Kick a background cluster rebuild (dirty anchors only).
+ * Retired V2 route — always answers 410 Gone.
  *
- * Returns 409 if a rebuild is already running. X-Admin-Token required.
+ * V2 shelled into Docker from the API container; the V3 API has no container runtime, so cluster rebuilds run only through the governed operator workflows. Admin auth is still required.
  */
 export const triggerRebuildClustersApiAdminRebuildClustersPost = <ThrowOnError extends boolean = false>(options?: Options<TriggerRebuildClustersApiAdminRebuildClustersPostData, ThrowOnError>): RequestResult<TriggerRebuildClustersApiAdminRebuildClustersPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<TriggerRebuildClustersApiAdminRebuildClustersPostResponses, unknown, ThrowOnError>({ url: '/api/admin/rebuild-clusters', ...options });
 

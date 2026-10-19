@@ -19,6 +19,8 @@ path and the 2k-line main module.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import logging
 import os
@@ -27,6 +29,8 @@ from typing import Optional
 from fastapi import APIRouter, Request, Response, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, ImageDraw, ImageFont
+
+from edfinder_api.deps import cache_get, cache_set
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +179,32 @@ def _html_escape(s: str) -> str:
     )
 
 
+OG_CACHE_TTL_SECONDS = 7 * 24 * 3600
+# A rendered 1200x630 card is a few tens of KB; refuse anything absurd from
+# the cache rather than streaming it to a client.
+OG_CACHE_MAX_BYTES = 2 * 1024 * 1024
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _encode_cached_png(png: bytes) -> str:
+    return base64.b64encode(png).decode("ascii")
+
+
+def _decode_cached_png(value: object) -> Optional[bytes]:
+    """Turn a cache_get() result back into PNG bytes, or None if unusable."""
+    if not isinstance(value, str) or not value:
+        return None
+    if len(value) > OG_CACHE_MAX_BYTES * 4 // 3 + 4:
+        return None
+    try:
+        png = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not png.startswith(PNG_SIGNATURE) or len(png) > OG_CACHE_MAX_BYTES:
+        return None
+    return png
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # OG image renderer
 # ─────────────────────────────────────────────────────────────────────────
@@ -187,19 +217,19 @@ async def og_image(id64: int, request: Request):
     redis = getattr(request.app.state, "redis", None)
     cache_key = f"og:{id64}"
 
-    # 1. Cache hit — stream straight from Redis.
-    if redis is not None:
-        try:
-            cached = await redis.get(cache_key)
-            if cached:
-                return Response(
-                    content=cached,
-                    media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=604800",
-                             "X-Cache": "HIT"},
-                )
-        except Exception as e:
-            log.debug(f"og redis read failed: {e}")
+    # 1. Cache hit — stream straight from Redis. Goes through deps.cache_get
+    #    so the shared cache I/O timeout applies: a slow or wedged Redis must
+    #    not hold an OG-image request (Discord/Slack unfurl) hostage. The
+    #    PNG is stored base64-encoded because the shared client runs with
+    #    decode_responses=True and the helpers are JSON-shaped.
+    cached_png = _decode_cached_png(await cache_get(cache_key, redis))
+    if cached_png is not None:
+        return Response(
+            content=cached_png,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=604800",
+                     "X-Cache": "HIT"},
+        )
 
     # 2. Live fetch system data.
     name, score, conf, rationale, x, y, z = None, None, None, None, None, None, None
@@ -240,12 +270,8 @@ async def og_image(id64: int, request: Request):
         id64=id64,
     )
 
-    # 4. Cache for 7 days.
-    if redis is not None:
-        try:
-            await redis.setex(cache_key, 7 * 24 * 3600, png)
-        except Exception as e:
-            log.debug(f"og redis write failed: {e}")
+    # 4. Cache for 7 days (same bounded helper; failures are swallowed there).
+    await cache_set(cache_key, _encode_cached_png(png), OG_CACHE_TTL_SECONDS, redis)
 
     return Response(
         content=png,

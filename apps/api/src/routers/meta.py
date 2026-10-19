@@ -19,9 +19,18 @@ from fastapi.responses import PlainTextResponse
 
 from edfinder_api.config import settings
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set, require_admin
-from edfinder_api.ingest.eddn_client import seconds_since_last_flush as eddn_simulation_ingest_seconds_since_flush
+from edfinder_api.ingest.eddn_client import (
+    consecutive_flush_failures as eddn_simulation_ingest_consecutive_flush_failures,
+    flush_failures_total as eddn_simulation_ingest_flush_failures_total,
+    last_successful_flush_timestamp as eddn_simulation_ingest_last_successful_flush_timestamp,
+    seconds_since_last_flush as eddn_simulation_ingest_seconds_since_flush,
+)
 from edfinder_api.models import HealthResponse, StatusResponse
 from edfinder_api.monitoring import data_invariants_receipt_metrics
+from edfinder_api.routers.events import (
+    bridge_reconnects_total as sse_bridge_reconnects_total,
+    bridge_state as sse_bridge_state,
+)
 from edfinder_api.state import metrics
 
 log = logging.getLogger('ed_finder')
@@ -153,11 +162,53 @@ async def local_status(
     if _LS_AVAILABLE:
         try:
             result = await _ls.local_db_status(pool)
-            await cache_set(cache_key, result, settings.ttl_status, redis)
-            return result
         except Exception as exc:
             log.warning('local_db_status error: %s', exc)
+        else:
+            if result.get('available') is True:
+                await cache_set(cache_key, result, settings.ttl_status, redis)
+                return result
+            # Failure branch: local_db_status swallowed a DB error and
+            # returned {available: False, reason: <raw exception text>}.
+            # Never cache that (a 60 s cache turns a one-off blip into a
+            # minute of "unavailable" and hides recovery) and never return
+            # the raw text (it can carry DSN fragments, host names or SQL).
+            log.warning('local_db_status unavailable: %s', result.get('reason'))
+            return {
+                **{k: v for k, v in result.items() if k != 'reason'},
+                'available': False,
+                'reason': status_failure_reason_code(result.get('reason')),
+            }
     return await status(pool, redis)
+
+
+# Bounded, non-sensitive reason codes for an unavailable status payload.
+# The raw exception text stays in the server log only.
+STATUS_REASON_TIMEOUT = 'db_timeout'
+STATUS_REASON_SCHEMA = 'db_schema_missing'
+STATUS_REASON_CONNECTION = 'db_unavailable'
+STATUS_REASON_UNKNOWN = 'db_error'
+STATUS_REASON_CODES = frozenset({
+    STATUS_REASON_TIMEOUT, STATUS_REASON_SCHEMA, STATUS_REASON_CONNECTION, STATUS_REASON_UNKNOWN,
+})
+
+
+def status_failure_reason_code(raw_reason: object) -> str:
+    """Map a raw local_db_status failure reason to a fixed reason code.
+
+    Classification is best-effort on the text we are given (local_db_status
+    only hands us ``str(exc)``); anything unrecognised is ``db_error``. The
+    output is always one of STATUS_REASON_CODES, never the input.
+    """
+    text = str(raw_reason or '').lower()
+    if 'timeout' in text or 'canceling statement' in text or 'cancelled' in text or 'canceled' in text:
+        return STATUS_REASON_TIMEOUT
+    if 'does not exist' in text or 'undefined' in text:
+        return STATUS_REASON_SCHEMA
+    if ('connect' in text or 'pool' in text or 'too many' in text
+            or 'closed' in text or 'refused' in text):
+        return STATUS_REASON_CONNECTION
+    return STATUS_REASON_UNKNOWN
 
 
 @router.get('/api/metrics', response_class=PlainTextResponse, include_in_schema=False)
@@ -213,5 +264,20 @@ async def metrics_endpoint():
         '# HELP ed_finder_eddn_simulation_ingest_seconds_since_flush Seconds since the EDDN simulation ingest task last completed a flush cycle',
         '# TYPE ed_finder_eddn_simulation_ingest_seconds_since_flush gauge',
         f'ed_finder_eddn_simulation_ingest_seconds_since_flush {eddn_simulation_ingest_seconds_since_flush():.1f}',
+        '# HELP ed_finder_eddn_simulation_ingest_flush_failures_total Failed EDDN simulation ingest DB flushes since process start',
+        '# TYPE ed_finder_eddn_simulation_ingest_flush_failures_total counter',
+        f'ed_finder_eddn_simulation_ingest_flush_failures_total {eddn_simulation_ingest_flush_failures_total()}',
+        '# HELP ed_finder_eddn_simulation_ingest_consecutive_flush_failures Consecutive failed EDDN simulation ingest flushes since the last successful one',
+        '# TYPE ed_finder_eddn_simulation_ingest_consecutive_flush_failures gauge',
+        f'ed_finder_eddn_simulation_ingest_consecutive_flush_failures {eddn_simulation_ingest_consecutive_flush_failures()}',
+        '# HELP ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds Unix time of the last successful EDDN simulation ingest DB flush (0 = none since process start)',
+        '# TYPE ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds gauge',
+        f'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds {eddn_simulation_ingest_last_successful_flush_timestamp():.0f}',
+        '# HELP ed_finder_sse_bridge_state EDDN to SSE Redis pub/sub bridge state (0 not started, 1 connecting, 2 subscribed, 3 retrying, 4 stopped)',
+        '# TYPE ed_finder_sse_bridge_state gauge',
+        f'ed_finder_sse_bridge_state {sse_bridge_state()}',
+        '# HELP ed_finder_sse_bridge_reconnects_total EDDN to SSE bridge connect or subscribe attempts that followed a failure',
+        '# TYPE ed_finder_sse_bridge_reconnects_total counter',
+        f'ed_finder_sse_bridge_reconnects_total {sse_bridge_reconnects_total()}',
     ])
     return '\n'.join(lines) + '\n'

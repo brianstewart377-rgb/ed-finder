@@ -16,14 +16,66 @@ import asyncpg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from edfinder_api.deps import get_pool
-from edfinder_api.state import active_jobs, sse_clients, get_redis_singleton
+from edfinder_api.deps import connect_redis, get_pool
+from edfinder_api.state import active_jobs, sse_clients, get_redis_singleton, set_redis
 
 log = logging.getLogger('ed_finder')
 
 router = APIRouter(tags=['events'])
 
 EDDN_PUBSUB_CHANNEL = 'eddn_events'
+
+# Reconnect backoff bounds (seconds). Shared by "Redis down at boot" and
+# "Redis dropped mid-stream" — both are the same recovery problem.
+BRIDGE_BACKOFF_INITIAL_SECONDS = 1.0
+BRIDGE_BACKOFF_MAX_SECONDS = 60.0
+
+# Bridge state, exported as a Prometheus gauge from /api/metrics. Numeric
+# codes are stable: dashboards/alerts key on them.
+BRIDGE_STATE_NOT_STARTED = 0   # lifespan has not created the task
+BRIDGE_STATE_CONNECTING = 1    # no Redis client yet; retrying with backoff
+BRIDGE_STATE_SUBSCRIBED = 2    # subscribed and listening
+BRIDGE_STATE_RETRYING = 3      # had a subscription, lost it, backing off
+BRIDGE_STATE_STOPPED = 4       # cancelled by lifespan shutdown
+
+_bridge_state: int = BRIDGE_STATE_NOT_STARTED
+_bridge_reconnects_total: int = 0
+
+
+def bridge_state() -> int:
+    """Current EDDN→SSE bridge state code (see BRIDGE_STATE_*)."""
+    return _bridge_state
+
+
+def bridge_reconnects_total() -> int:
+    """Count of connect/subscribe attempts that followed a failure."""
+    return _bridge_reconnects_total
+
+
+def _set_bridge_state(state: int) -> None:
+    global _bridge_state
+    _bridge_state = state
+
+
+async def _redis_or_connect() -> object | None:
+    """Return the process Redis client, connecting it if boot could not.
+
+    When Redis was unreachable at boot the lifespan installs no client; the
+    bridge then owns the retry and, on success, installs the client so the
+    cache helpers recover as well. Returns None when the connect fails
+    (the caller backs off). Never logs the connection URL.
+    """
+    r = get_redis_singleton()
+    if r is not None:
+        return r
+    try:
+        r = await connect_redis()
+    except Exception as e:
+        log.warning('EDDN pub/sub bridge: Redis still unavailable (%s)', type(e).__name__)
+        return None
+    set_redis(r)
+    log.info('EDDN pub/sub bridge: Redis connected after boot-time failure ✓')
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -38,17 +90,31 @@ async def eddn_pubsub_bridge() -> None:
     a single Redis blip (restart, network partition, OOM-kill) would kill
     the bridge for the lifetime of the API container — front-ends
     silently stopped receiving live events with no recovery.
+
+    Silent-failure fix (2026-10-19): the bridge no longer returns when
+    Redis is absent at boot. It retries the connection itself with the
+    same capped exponential backoff, so a Redis that comes up a minute
+    after the API does is picked up without a restart, and the state is
+    exported as `ed_finder_sse_bridge_state` so "never connected" is
+    visible rather than indistinguishable from "quiet feed".
     """
-    backoff = 1.0
+    global _bridge_reconnects_total
+    backoff = BRIDGE_BACKOFF_INITIAL_SECONDS
+    _set_bridge_state(BRIDGE_STATE_CONNECTING)
     while True:
-        r = get_redis_singleton()
-        if r is None:
-            return
         pubsub = None
         try:
+            r = await _redis_or_connect()
+            if r is None:
+                _set_bridge_state(BRIDGE_STATE_CONNECTING)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2.0, BRIDGE_BACKOFF_MAX_SECONDS)
+                _bridge_reconnects_total += 1
+                continue
             pubsub = r.pubsub()
             await pubsub.subscribe(EDDN_PUBSUB_CHANNEL)
-            backoff = 1.0  # reset on successful subscribe
+            backoff = BRIDGE_BACKOFF_INITIAL_SECONDS  # reset on successful subscribe
+            _set_bridge_state(BRIDGE_STATE_SUBSCRIBED)
             async for message in pubsub.listen():
                 if message.get('type') != 'message':
                     continue
@@ -61,6 +127,7 @@ async def eddn_pubsub_bridge() -> None:
                     continue
                 _broadcast(event)
         except asyncio.CancelledError:
+            _set_bridge_state(BRIDGE_STATE_STOPPED)
             try:
                 if pubsub is not None:
                     await pubsub.unsubscribe(EDDN_PUBSUB_CHANNEL)
@@ -69,6 +136,7 @@ async def eddn_pubsub_bridge() -> None:
                 pass
             raise
         except Exception as e:
+            _set_bridge_state(BRIDGE_STATE_RETRYING)
             log.error('EDDN pub/sub bridge error (will reconnect in %.1fs): %s', backoff, e)
             try:
                 if pubsub is not None:
@@ -76,7 +144,8 @@ async def eddn_pubsub_bridge() -> None:
             except Exception:
                 pass
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2.0, 60.0)
+            backoff = min(backoff * 2.0, BRIDGE_BACKOFF_MAX_SECONDS)
+            _bridge_reconnects_total += 1
             continue
 
 

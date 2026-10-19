@@ -703,9 +703,9 @@ export interface paths {
         put?: never;
         /**
          * Trigger Rebuild Clusters
-         * @description Kick a background cluster rebuild (dirty anchors only).
+         * @description Retired V2 route — always answers 410 Gone.
          *
-         *     Returns 409 if a rebuild is already running. X-Admin-Token required.
+         *     V2 shelled into Docker from the API container; the V3 API has no container runtime, so cluster rebuilds run only through the governed operator workflows. Admin auth is still required.
          */
         post: operations["trigger_rebuild_clusters_api_admin_rebuild_clusters_post"];
         delete?: never;

@@ -6,9 +6,6 @@ arguments, returns values. Easy to unit test.
 from __future__ import annotations
 
 import logging
-import os
-import subprocess
-from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger('ed_finder')
@@ -98,43 +95,22 @@ def sys_row_to_dict(r: Any) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Cluster rebuild subprocess runner (triggered by admin endpoint).
+# Cluster rebuild (retired V2 route).
 #
-# The caller MUST have already claimed the active_jobs slot inside the
-# active_jobs_lock; this function only updates the terminal state.
+# V2 ran `docker compose ... run importer build_clusters.py` from inside the
+# API container. V3 never mounts the Docker socket or a compose project into
+# the API, so that shell-out could only ever fail (and did, silently, as a
+# "failed" admin job). The V3 derived-data path is the governed operator
+# workflow, not an API-triggered subprocess. The route now answers 410 Gone;
+# this constant is the single source for its problem detail.
 # ---------------------------------------------------------------------------
-def run_cluster_rebuild(active_jobs: dict[str, Any]) -> None:
-    """Run build_clusters.py as a subprocess and record status."""
-    job_id = 'cluster_rebuild'
-    try:
-        compose_dir = os.environ.get('COMPOSE_PROJECT_DIR', '/opt/ed-finder')
-        cmd = [
-            'docker', 'compose',
-            '--project-directory', compose_dir,
-            '--profile', 'import',
-            'run', '--rm', '--entrypoint', 'python3', 'importer',
-            'build_clusters.py', '--dirty-only', '--workers', '6',
-        ]
-        log.info('Triggering background cluster rebuild: %s', ' '.join(cmd))
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-        active_jobs[job_id].update({
-            'status':   'completed',
-            'end_time': datetime.now(timezone.utc).isoformat(),
-            'exit_code': 0,
-        })
-        log.info('Background cluster rebuild completed successfully.')
-    except subprocess.CalledProcessError as e:
-        active_jobs[job_id].update({
-            'status':   'failed',
-            'end_time': datetime.now(timezone.utc).isoformat(),
-            'exit_code': e.returncode,
-            'error':    e.stderr or str(e),
-        })
-        log.error('Background cluster rebuild failed (exit %d): %s', e.returncode, e.stderr)
-    except Exception as e:
-        active_jobs[job_id].update({
-            'status':   'failed',
-            'end_time': datetime.now(timezone.utc).isoformat(),
-            'error':    str(e),
-        })
-        log.exception('Unexpected error during background cluster rebuild')
+CLUSTER_REBUILD_GONE_PROBLEM: dict[str, Any] = {
+    'type': 'https://ed-finder.local/problem/v2-cluster-rebuild-retired',
+    'title': 'V2 cluster rebuild route retired',
+    'status': 410,
+    'detail': (
+        'POST /api/admin/rebuild-clusters belonged to the V2 Docker Compose deployment '
+        'and shelled into a container runtime the V3 API does not have. Cluster/derived '
+        'rebuilds now run only through the governed V3 operator workflows.'
+    ),
+}
