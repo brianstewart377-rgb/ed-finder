@@ -14,9 +14,8 @@
  *   - bounded session-only `X-Admin-Token` injected only for require_admin routes;
  *   - lossless Id64 preservation BEFORE the SDK's `JSON.parse` can round a token;
  *   - structured `ApiError` on any non-2xx / transport failure.
- * Application-shaped concerns (system-envelope unwrapping, optimiser request
- * defaults, profile-sync helpers) stay here in the facade. SSE stays outside the
- * generated query lane (see ./events).
+ * Application-shaped concerns (system-envelope unwrapping, profile-sync
+ * helpers) stay here in the facade.
  *
  * Components never import generated modules directly
  * (tests/test_svelte_generated_client_boundary.py).
@@ -54,7 +53,6 @@ import {
   localSearchEndpointApiLocalSearchPost,
   mapHeatmapApiMapHeatmapGet,
   mapSystemsApiMapSystemsGet,
-  postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
   removeWatchlistApiV2WatchlistSyncKeyId64Delete,
   unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
@@ -714,22 +712,6 @@ export async function removeWatchlist(
   if (watchlistRecord(data).ok !== true)
     throw new TypeError('The watchlist remove response is invalid');
   return { ok: true };
-}
-
-export function optimiserCandidates<
-  TResponse,
-  TRequest extends Record<string, unknown>,
->(request: TRequest): Promise<TResponse> {
-  return postOptimiserCandidatesApiOptimiserCandidatesPost({
-    throwOnError: true,
-    body: {
-      max_candidates: 5,
-      allow_estimated_data: true,
-      run_preview: true,
-      include_ranking: true,
-      ...request,
-    } as never,
-  }).then((result) => result.data as TResponse);
 }
 
 export interface ProfileSyncPullResponse<TBlob> {

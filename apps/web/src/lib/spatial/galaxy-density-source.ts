@@ -5,10 +5,9 @@ import {
   validateCatalogueDensityPayload,
   type CatalogueDensityPayload,
 } from './galaxy-density';
-import {
-  getMapHeatmap,
-  type MapHeatmapResponse,
-  type MapHeatmapPyramidResponse,
+import type {
+  MapHeatmapResponse,
+  MapHeatmapPyramidResponse,
 } from '$lib/api/client';
 
 function minBy(
@@ -101,13 +100,4 @@ export function densityContributionFrom(
  */
 export function heatmapVoxelSizeForDistance(distanceLy: number): number {
   return Math.max(200, Math.round(distanceLy / 200));
-}
-
-export async function loadGalaxyDensityContribution(
-  query: { voxel_size?: number; min_systems?: number; max_cells?: number },
-  revision: number,
-  signal?: AbortSignal,
-): Promise<SpatialContribution | null> {
-  const data = await getMapHeatmap(query, signal);
-  return densityContributionFrom(data, revision);
 }

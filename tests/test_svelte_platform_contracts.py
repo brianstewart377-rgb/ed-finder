@@ -108,7 +108,7 @@ def test_persisted_key_inventory_is_explicit_and_complete():
         "ed-finder:selected-system-context",
         "ed_density_v1",
     }
-    session_keys = {"ed_admin_token", "ed_operator_selected_source_run"}
+    session_keys = {"ed_admin_token"}
     assert all(
         f"'{key}'" in persistence or f'"{key}"' in persistence
         for key in local_keys | session_keys

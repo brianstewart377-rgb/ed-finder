@@ -34,6 +34,24 @@ ledger now point at the 7′ gate as the next step.
 
 ---
 
+## 2026-10-19 — Svelte web dead-code trim
+
+Deletions only in `apps/web/`, no behaviour change. Removed the unreferenced
+`OwnerAccessGate.svelte` and `SessionAdminTokenControl.svelte` components (no
+`/admin` or `/operator` route exists), the `operatorHandoff` session store and
+its `ed_operator_selected_source_run` persistence key, `queryKeys.operator`,
+the SSE helper `src/lib/api/events.ts`, the optimiser request fingerprinting
+(`optimiserRequestFingerprint`, `OptimiserQueryRequest`, `queryKeys.optimiser`)
+and the `optimiserCandidates` facade function, the eager `profileSyncCommands`
+singleton, and three zero-reference helpers (`loadGalaxyDensityContribution`,
+`readSessionStorageValue`, `persistenceDiagnostics` plus its unused test seam).
+Each deleted item had no importer outside its own unit test; those tests were
+removed or trimmed with it, and the persistence contract test now lists only
+`ed_admin_token` as a session key. The unused `bits-ui` dependency is dropped
+from `apps/web/package.json` and `pnpm-lock.yaml`. `packages/api-client` is
+still consumed (`core`, `id64`, `lossless-json` by the web facade; `types` by
+`planner-core`) and is left in place.
+
 ## 2026-10-19 — Complete read receipt and coefficient decision committed
 
 The step 6′ complete read (start run 39243944566, status run 39311585254)

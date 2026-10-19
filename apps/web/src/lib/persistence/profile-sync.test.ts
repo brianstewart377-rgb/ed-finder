@@ -89,7 +89,6 @@ describe('profile sync persistence helpers', () => {
       JSON.stringify({ state: { syncKey: 'watch-list-key-1234' }, version: 0 }),
     );
     localStorage.setItem(PERSISTENCE_KEYS.adminToken, 'must-not-sync');
-    localStorage.setItem(PERSISTENCE_KEYS.operatorHandoff, 'must-not-sync');
     localStorage.setItem(PERSISTENCE_KEYS.profileSyncKey, VALID_KEY);
     localStorage.setItem(PERSISTENCE_KEYS.profileSyncLast, EXPORTED_AT);
     localStorage.setItem(PERSISTENCE_KEYS.density, 'compact');
@@ -107,7 +106,6 @@ describe('profile sync persistence helpers', () => {
     ]);
     expect(PROFILE_SYNC_SECURITY_DENYLIST).toEqual([
       PERSISTENCE_KEYS.adminToken,
-      PERSISTENCE_KEYS.operatorHandoff,
       PERSISTENCE_KEYS.syncKey,
     ]);
     for (const denied of PROFILE_SYNC_SECURITY_DENYLIST)
