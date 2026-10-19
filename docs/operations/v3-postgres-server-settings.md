@@ -38,7 +38,7 @@ complete read was running; confirmed active with `pending_restart = f`:
 | `work_mem` | 4 MB | 32 MB | sorts and hashes in the Finder reads and builders |
 | `maintenance_work_mem` | 64 MB | 2 GB | VACUUM (ANALYZE) after the builds, index maintenance |
 | `max_wal_size` | 1 GB | 32 GB | fewer checkpoints during the ~87 GB + ~66 GB insert-only builds |
-| `checkpoint_timeout` | 5 min | 30 min | fewer full-page images in WAL; crash recovery stays bounded by PITR |
+| `checkpoint_timeout` | 5 min | 30 min | fewer full-page images in WAL; **trade-off:** after a crash, PostgreSQL replays WAL from the last checkpoint, so crash recovery can now take up to tens of minutes instead of a few (PITR is a separate restore path and does not shorten this) |
 | `wal_compression` | off | zstd | smaller WAL for the archive stream to the Storage Box |
 
 ## Planned (needs a restart; after the complete read, before the builds)
@@ -48,7 +48,22 @@ complete read was running; confirmed active with `pending_restart = f`:
 is about thirty seconds; the complete read resumes from its checkpoint and the
 API reconnects. Record the outcome here when done.
 
-## Reverting
+## Changing or reverting these settings
 
-`ALTER SYSTEM RESET <name>` followed by `SELECT pg_reload_conf()` restores a
-default; `postgresql.auto.conf` holds every override.
+There is no allowlisted operator action for PostgreSQL server settings; the
+changes above were made by the owner at the host shell as an owner-authorised
+production operation, not by the repository. Any change or reversal is likewise
+an owner decision made the same way and recorded here afterwards (the
+overrides live in the container's `postgresql.auto.conf`). Agents and
+workflows must stop rather than mutate these settings.
+
+## After the governed purge (ROADMAP step P)
+
+`n_distinct = -0.13` is a fraction of the table's current row count. The
+purge removes two of the three generations held in `economy_opportunity`
+(about 1.5 billion rows today), so after it the same fraction would understate
+the roughly 200 million distinct systems by about half. The purge's closing
+steps must recalibrate the column: set `n_distinct` to the post-purge fraction
+(about -0.39 for one 198.5 M-system generation) or reset the option and
+re-ANALYZE with the 1000-row-per-bucket target, then confirm the chunk-read
+join still plans as a nested loop over `economy_opportunity_pkey`.
