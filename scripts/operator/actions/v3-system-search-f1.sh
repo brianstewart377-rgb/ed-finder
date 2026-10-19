@@ -6,15 +6,45 @@ ACTION="${1:-}"
 REPO_ROOT="${2:-}"
 SOURCE_SHA="${3:-}"
 
-# Identity is intentionally the first preflight in every mode.
-IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
-[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] || {
-  printf '%s\n' 'v3 system search f1: identity helper is missing or symlinked' >&2
+# The receipt emitter precedes every refusal, including the identity
+# preflight, so each stop prints a stopped operation-result line on stdout:
+# the workflow records stdout only, and a reason that went to stderr alone was
+# invisible in the downloadable receipt.
+CURRENT_OPERATION="v3-system-search-f1"
+if [[ "$ACTION" =~ ^(start|status|finalize)$ ]]; then
+  CURRENT_OPERATION="v3-system-search-f1-$ACTION"
+fi
+# Mutation state for the stopped receipt. "false" until this invocation may
+# have changed the database (a worker launched by it, or VACUUM started);
+# "unknown" afterwards, because a refusal cannot prove what the worker or
+# VACUUM committed before the stop.
+DB_WRITES_STATE="false"
+mark_db_writes_possible() { DB_WRITES_STATE="unknown"; }
+
+fail() {
+  local reason="$*" writes
+  printf 'v3 system search f1: %s\n' "$reason" >&2
+  reason="${reason//\\/\\\\}"
+  reason="${reason//\"/\\\"}"
+  local read_only="false"
+  case "$CURRENT_OPERATION" in *-status) read_only="true" ;; esac
+  case "$DB_WRITES_STATE" in
+    false) writes="false" ;;
+    *) writes="null" ;;
+  esac
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":%s,"db_writes_performed":%s,"db_writes_may_have_been_performed":%s,"failures":["%s"]}\n' \
+    "$CURRENT_OPERATION" "$read_only" "$writes" "$([ "$writes" = false ] && echo false || echo true)" "$reason"
   exit 64
 }
+
+# Identity is intentionally the first preflight in every mode.
+IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
+[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] \
+  || fail "identity helper is missing or symlinked"
 # shellcheck source=../lib/f2d_operator_identity.sh
 source "$IDENTITY_HELPER"
-F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" || exit $?
+F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" \
+  || fail "attested operator identity refused (see stderr)"
 
 TARGET_HOSTNAME="ed-finder-prod"
 TARGET_FQDN="nb79a3d.mevnode.com"
@@ -42,9 +72,97 @@ TARGET_CPUS="8"
 TARGET_MEMORY="32g"
 PYTHON_BIN=""
 
-fail() {
-  printf 'v3 system search f1: %s\n' "$*" >&2
-  exit 64
+# Keep a crashed worker's log before it is removed; status reports its tail.
+preserve_worker_log() {
+  local target
+  [ -d "$STATE_ROOT" ] || return 0
+  target="$STATE_ROOT/worker-log.$(date -u +%Y%m%dT%H%M%SZ).txt"
+  ( umask 077; docker logs --tail 200 "$WORKER" > "$target" 2>&1 || true )
+  chmod 600 "$target" 2>/dev/null || true
+}
+
+preserved_worker_log_tail() {
+  local latest
+  latest="$(ls -1t "$STATE_ROOT"/worker-log.*.txt 2>/dev/null | head -n 1 || true)"
+  [ -n "$latest" ] || return 0
+  printf 'preserved_worker_log=%s\npreserved_worker_log_tail:\n' "$latest"
+  tail -n 40 "$latest" | sed 's/^/  /'
+}
+
+# WAL archiving health (pgBackRest archive-push). A build writes hundreds of
+# GB of WAL; an archiver that is failing, or silent while unarchived WAL piles
+# up, would fill the data volume mid-build, so start refuses until it is
+# healthy. With archive_mode off (or no archive_command) there are no .ready
+# files and no failures, so the payload also carries both settings and start
+# refuses wal_archiving_disabled. The backlog is the archive_status .ready files (segments written
+# but not yet archived), never the pg_wal segment count, which includes
+# recycled and preallocated segments and so always looks full.
+ARCHIVER_SILENCE_SECONDS=1800
+ARCHIVER_WAL_FILE_LIMIT=50
+archiver_status() {
+  db_query "BEGIN READ ONLY; SELECT json_build_object(
+    'archive_mode',current_setting('archive_mode'),
+    'archive_command_set',(length(btrim(current_setting('archive_command')))>0),
+    'archived_count',a.archived_count,
+    'last_archived_wal',a.last_archived_wal,
+    'last_archived_time',a.last_archived_time,
+    'failed_count',a.failed_count,
+    'last_failed_wal',a.last_failed_wal,
+    'last_failed_time',a.last_failed_time,
+    'seconds_since_last_archived',EXTRACT(EPOCH FROM (clock_timestamp()-a.last_archived_time))::bigint,
+    'archiver_failing',COALESCE(a.failed_count>0 AND a.last_failed_time>COALESCE(a.last_archived_time,'-infinity'::timestamptz),false),
+    'pg_wal_bytes',(SELECT COALESCE(sum(w.size),0) FROM pg_ls_waldir() w),
+    'wal_unarchived_files',(SELECT count(*) FROM pg_ls_archive_statusdir() r WHERE r.name LIKE '%.ready')
+  )::text FROM pg_stat_archiver a; COMMIT;"
+}
+
+# The archive target is the rclone mount of the Hetzner Storage Box. With it
+# unmounted an idle server shows no .ready backlog and no archiver failure, so
+# mount presence is required outright (read from the mount table as root; no
+# network probe). The table path is overridable only so tests can stand in.
+ARCHIVE_TARGET_MOUNT="/mnt/ed-storagebox"
+ARCHIVE_TARGET_FSTYPE="fuse.rclone"
+MOUNT_TABLE="${V3_MOUNT_TABLE:-/proc/mounts}"
+archive_target_mounted() {
+  awk -v target="$ARCHIVE_TARGET_MOUNT" -v fstype="$ARCHIVE_TARGET_FSTYPE" \
+    '$2 == target && $3 == fstype { found = 1 } END { print (found ? "true" : "false") }' \
+    "$MOUNT_TABLE" 2>/dev/null || echo false
+}
+
+require_archive_target_mounted() {
+  [ "$(archive_target_mounted)" = "true" ] || fail "wal_archive_target_unmounted"
+}
+
+require_archiver_healthy() {
+  require_archive_target_mounted
+  local status verdict
+  status="$(archiver_status)" || fail "wal_archiver_query_failed"
+  verdict="$("$PYTHON_BIN" - "$ARCHIVER_SILENCE_SECONDS" "$ARCHIVER_WAL_FILE_LIMIT" "$status" <<'PY'
+import json
+import sys
+silence, wal_limit = int(sys.argv[1]), int(sys.argv[2])
+try:
+    value = json.loads(sys.argv[3])
+except ValueError:
+    print('invalid'); raise SystemExit(0)
+if value.get('archive_mode') not in ('on', 'always') or value.get('archive_command_set') is not True:
+    print('disabled'); raise SystemExit(0)
+if value.get('archiver_failing') is True:
+    print('failing'); raise SystemExit(0)
+silent = value.get('seconds_since_last_archived')
+files = value.get('wal_unarchived_files')
+if files is None:
+    print('invalid'); raise SystemExit(0)
+if (silent is None or silent > silence) and files > wal_limit:
+    print('silent'); raise SystemExit(0)
+print('healthy')
+PY
+)"
+  case "$verdict" in
+    healthy) ;;
+    disabled) fail "wal_archiving_disabled ${status}" ;;
+    *) fail "wal_archiver_unhealthy:${verdict} ${status}" ;;
+  esac
 }
 
 # Read-only preflight precedes every operation lock, host write and container change.
@@ -408,6 +526,7 @@ start_operation() {
   api_image="$(docker inspect -f '{{.Config.Image}}' "$api")"
   [ -n "$api_image" ] || fail "active API image identity is empty"
   dsn="$(api_database_url "$api")"
+  require_archiver_healthy
   run_capacity_gate
 
   env_file="$STATE_ROOT/search.env"
@@ -427,6 +546,7 @@ start_operation() {
       printf 'publication_performed=false\ncanonical_writes_performed=false\n'
       return 0
     fi
+    preserve_worker_log
     docker rm "$WORKER" >/dev/null
   fi
 
@@ -446,7 +566,8 @@ start_operation() {
   [ "$baseline_chunks" -le "$planned_chunks" ] \
     || fail "Search has more committed chunks than the Ratings chunk plan"
   [ "$baseline_chunks" -lt "$planned_chunks" ] || validation_only=true
-  docker run -d \
+  mark_db_writes_possible
+  if ! docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
     --label "ed-finder.generation-id=${TARGET_GENERATION_ID}" \
@@ -467,7 +588,16 @@ start_operation() {
       exec /app/.venv/bin/python scripts/v3_system_search.py \
         --generation-key ratings_v4_prod_p4_parallel_v1 --follow --poll-seconds 5 \
         --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256"
-    ' >/dev/null
+    ' >/dev/null; then
+    # set -e would otherwise exit here with no receipt: keep whatever the
+    # daemon logged for a container that was created, then stop closed.
+    rm -f -- "$env_file"
+    trap - EXIT
+    if docker inspect "$WORKER" >/dev/null 2>&1; then
+      preserve_worker_log
+    fi
+    fail "worker_launch_failed"
+  fi
   rm -f -- "$env_file"
   trap - EXIT
 
@@ -478,7 +608,8 @@ start_operation() {
     # Validation-only resume: proven by a clean exit. While it is still
     # validating it is reported as such and left running (it can write no
     # further chunk); finalize requires its exit code 0 either way.
-    for _ in $(seq 1 30); do
+    # Ten minutes: a resume installs wheels, registers and lists ~198k chunks first.
+    for _ in $(seq 1 300); do
       [ "$worker_state" = "running" ] || break
       sleep 2
       worker_state="$(docker inspect -f '{{.State.Status}}' "$WORKER")"
@@ -490,13 +621,15 @@ start_operation() {
       result=validated
     else
       docker logs --tail 80 "$WORKER" >&2 || true
+      preserve_worker_log
       fail "Search validation-only worker did not exit successfully"
     fi
   elif [ "$worker_state" != "running" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     fail "Search worker did not remain running"
   fi
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 300); do
     [ "$validation_only" = false ] || break
     proof="$(db_query "BEGIN READ ONLY; SELECT count(*) FROM v3_derived.search_build_chunk WHERE derived_generation_id='${TARGET_GENERATION_ID}'::uuid; COMMIT;")"
     [[ "$proof" =~ ^[0-9]+$ ]] || fail "Search proof query was invalid"
@@ -507,6 +640,7 @@ start_operation() {
   done
   if [ "$validation_only" = false ] && [ "$proof" -le "$baseline_chunks" ]; then
     docker logs --tail 80 "$WORKER" >&2 || true
+    preserve_worker_log
     # A failed start must not leave an unproven worker inserting in the
     # background: stop it (an uncommitted chunk rolls back; committed chunks
     # stay sealed for a later resume) before reporting the failure.
@@ -534,11 +668,14 @@ status_operation() {
   printf 'operation=v3-system-search-f1-status\nworker_containers:\n'
   docker ps -a --filter "label=${OPERATION_LABEL}" --format '  {{.Names}}\t{{.Status}}\t{{.Image}}' || true
   printf 'latest_status=%s\n' "$(latest_status)"
+  printf 'archiver_status=%s\n' "$(archiver_status)"
+  printf 'archive_target_mounted=%s\n' "$(archive_target_mounted)"
   emit_receipt_status
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     printf 'latest_worker_log_tail:\n'
     docker logs --tail 40 "$WORKER" 2>&1 | sed 's/^/  /' || true
   fi
+  preserved_worker_log_tail
   printf 'publication_performed=false\ncanonical_writes_performed=false\napplication_service_changes_performed=false\n'
 }
 
@@ -596,6 +733,7 @@ PY
   stats="$(db_query "BEGIN READ ONLY; SELECT COALESCE(last_vacuum::text,'') || E'\\t' || COALESCE(last_analyze::text,'') FROM pg_stat_user_tables WHERE schemaname='v3_derived' AND relname='system_search'; COMMIT;")"
   IFS=$'\t' read -r last_vacuum last_analyze <<< "$stats"
   if [ "$(search_vacuum_is_current)" != "true" ]; then
+    mark_db_writes_possible
     db_maintenance "VACUUM (ANALYZE) v3_derived.system_search;"
     vacuum_performed=true
     stats="$(db_query "BEGIN READ ONLY; SELECT COALESCE(last_vacuum::text,'') || E'\\t' || COALESCE(last_analyze::text,'') FROM pg_stat_user_tables WHERE schemaname='v3_derived' AND relname='system_search'; COMMIT;")"

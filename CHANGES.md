@@ -21,6 +21,42 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-19 — Step 8′ builder hardening before the first production build
+
+Audit of the two irreversible build actions ahead of their first production
+run. Archetype validation (every chunk re-read and re-scored, hours at 198.5 M
+systems) no longer runs as a bounded 7200 s foreground `--rm` container from
+`finalize`: the detached worker validates after its last chunk and promotes
+READY itself, exactly as the Search worker does, and `finalize` only requires
+the worker's clean exit and the READY/VERIFIED product before `VACUUM
+(ANALYZE)`; the duplicate per-chunk read is gone (the content seal is derived
+from the rows already fetched) and `--validate` remains for operators. Both
+builders now set `plan_cache_mode=force_custom_plan`, `lock_timeout` 30 s and
+`statement_timeout` 30 min on connect; their failure receipts carry a bounded
+`error_detail` and `sqlstate` with credential-bearing URIs and the live DSN
+redacted (libpq errors can echo the password); a Search coverage mismatch
+prints the ordinal and a bounded sample of uncovered id64s before failing. Both
+actions: `fail()` also emits a stopped operation-result JSON line on stdout
+(the workflow records stdout only), defined before the identity preflight so
+those refusals print it too, `read_only` true for `-status`, with `db_writes_performed` null once a worker was
+launched or VACUUM started by that invocation; a crashed worker's log is preserved under
+the state root before `docker rm` and reported by `status`; a failed
+`docker run -d` is guarded so it stops with a receipt (and the created
+container's log) rather than exiting silently under `set -e`; the launch proof
+window is ten minutes (a resume installs wheels and lists ~198k chunks first);
+`start` requires the Storage Box rclone mount at `/mnt/ed-storagebox` in the
+mount table (`wal_archive_target_unmounted` otherwise; an idle server with the
+target unmounted shows no backlog and no failure), reads `pg_stat_archiver`,
+`pg_ls_waldir()` and the archive_status
+`.ready` backlog (a failed query stops with `wal_archiver_query_failed`; `archive_mode` off or
+an empty `archive_command` stops with `wal_archiving_disabled`) and refuses `wal_archiver_unhealthy` when the archiver is
+failing, or silent for 30 minutes while more than 50 unarchived segments wait
+(never the recycled-segment count), since a build writes hundreds of GB of WAL
+through pgBackRest archive-push; `status` reports the archiver. The Archetype
+manifest records CPython major.minor only. Every changed file is in the F2d
+operator-code manifest, so the accepted release must be rebuilt and promoted
+with the new identity before the complete read, capacity gate or builds.
+
 ## 2026-10-18 — Calibration probe: generic-plan cancellation, stderr in receipt
 
 Read-only probe run 39151827257 lost its SSH channel to the ~300 s idle

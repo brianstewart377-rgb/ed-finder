@@ -410,11 +410,12 @@ def test_archetype_finalize_bound_covers_validation_then_vacuum() -> None:
     action = (ROOT / "scripts/operator/actions/v3-system-archetype.sh").read_text(
         encoding="utf-8"
     )
-    # Both sequential finalize phases carry their own two-hour bound.
-    assert "command=(timeout --signal=TERM 7200 docker run --rm)" in action
+    # Validation runs in the detached build worker (unbounded, resumable);
+    # finalize carries only the VACUUM's two-hour bound after the READY check.
+    assert "docker run --rm" not in action
     assert 'timeout --signal=TERM 7200 docker exec "$POSTGRES_CONTAINER"' in action
     finalize = action[action.index("finalize_operation() {"):]
-    assert finalize.index("run_archetype_container") < finalize.index("VACUUM (ANALYZE)")
+    assert finalize.index('"$worker_exit" = "0"') < finalize.index("VACUUM (ANALYZE)")
 
     parsed = yaml.safe_load(_read(WORKFLOW))
     execute_job = parsed["jobs"]["execute"]
@@ -616,6 +617,7 @@ def test_search_start_post_launch_proof(
         "set -euo pipefail\n"
         "fail() { printf 'FAIL: %s\\n' \"$*\"; exit 64; }\n"
         "stop_unproven_worker() { echo STOPPED; }\n"
+        "preserve_worker_log() { :; }\n"
         'db_query() { echo "$CHUNKS_AFTER"; }\n'
         "run() {\n"
         "  local WORKER=w TARGET_GENERATION_ID=g baseline_chunks=10 proof worker_state\n"
@@ -708,7 +710,8 @@ def test_running_worker_is_verified_before_any_receipt_is_written(
         ("v3-archetype-calibration-complete.sh", 1),
         ("v3-finder-capacity-gate.sh", 1),
         ("v3-system-search-f1.sh", 2),
-        ("v3-system-archetype.sh", 2),
+        # Archetype validation runs in the build worker; no validate container.
+        ("v3-system-archetype.sh", 1),
         ("v3-archetype-plan-probe.sh", 1),
         ("v3-publish-derived-products.sh", 1),
     ),

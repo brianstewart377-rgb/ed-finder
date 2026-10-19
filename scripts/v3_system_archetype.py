@@ -181,7 +181,10 @@ def product_manifest(generation: Generation) -> dict:
         'code_sha256': code_identity(),
         'model_file_sha256': hashlib.sha256(canonical_model.read_bytes()).hexdigest(),
         'archetype_model_sha256': model.archetype_model_sha256(),
-        'cpython_version': platform.python_version(),
+        # Major.minor only: the complete read, the build and finalize all run
+        # in the active API image, and a patch-level CPython bump between
+        # them must not invalidate the expected manifest.
+        'cpython_version': '.'.join(platform.python_version_tuple()[:2]),
         'storage_layout': 'one-row-per-system-v1',
         'explanation_delivery': 'on-demand',
         'confidence_storage': 'integer-parts-per-million',
@@ -345,8 +348,17 @@ def _ratings_chunks_missing_archetype(connection, generation_id: str):
     ).fetchall()
 
 
+LOCK_TIMEOUT = '30s'
+STATEMENT_TIMEOUT = '30min'
+
+
 def configure_session(connection) -> None:
-    '''Keep every chunk read on its index path for the whole session.
+    '''Bound the session and keep every chunk read on its index path.
+
+    lock_timeout keeps a blocked FOR SHARE / FOR NO KEY UPDATE from hanging the
+    worker silently; statement_timeout is generous because validation's
+    weighted-key gate scans the whole wide relation. VACUUM (ANALYZE) runs
+    from the operator action through psql, not this session.
 
     The shared read constants (`VECTOR_READ_SQL`, `OPPORTUNITY_READ_SQL`)
     select their branch with parameter NULL tests. psycopg names a statement
@@ -359,6 +371,12 @@ def configure_session(connection) -> None:
     '''
     connection.execute(
         "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
+    )
+    connection.execute(
+        "SELECT set_config('lock_timeout',%s,false)", (LOCK_TIMEOUT,),
+    )
+    connection.execute(
+        "SELECT set_config('statement_timeout',%s,false)", (STATEMENT_TIMEOUT,),
     )
 
 
@@ -435,7 +453,11 @@ def _chunk_rows(connection, generation_id: str, ordinal: int) -> list[tuple]:
 
 
 def _chunk_content_sha(connection, generation_id: str, ordinal: int) -> bytes:
-    return _digest(_chunk_rows(connection, generation_id, ordinal))
+    return _rows_content_sha(_chunk_rows(connection, generation_id, ordinal))
+
+
+def _rows_content_sha(rows: list[tuple]) -> bytes:
+    return _digest(rows)
 
 
 def _build_chunk(
@@ -605,11 +627,24 @@ def _gate_stored_weighted_keys(connection, generation_id: str) -> list[str]:
 
 def _validate_rows_and_seals(
     connection, generation: Generation, manifest_sha: bytes, rating_chunks,
+    progress: Progress | None = None,
 ) -> tuple[list[str], list[dict]]:
     reasons: list[str] = []
     receipt_payloads: list[dict] = []
-    for ordinal, systems, canonical_input_sha, ratings_content_sha in rating_chunks:
+    total = len(rating_chunks)
+    for index, (ordinal, systems, canonical_input_sha, ratings_content_sha) in enumerate(
+        rating_chunks, start=1,
+    ):
         ordinal, systems = int(ordinal), int(systems)
+        if progress is not None and (index % 1000 == 0 or index == total):
+            progress({
+                'derived_generation_id': generation.identifier,
+                'product_code': PRODUCT_CODE,
+                'phase': 'validate',
+                'chunks_validated': index,
+                'chunks_total': total,
+                'reasons_so_far': len(reasons),
+            })
         receipt = connection.execute(
             '''SELECT archetype_version,source_projection_sha256,content_sha256,systems
                  FROM v3_derived.archetype_build_chunk
@@ -628,13 +663,12 @@ def _validate_rows_and_seals(
             or int(receipt[3]) != systems
         ):
             reasons.append(f'reproducibility: chunk {ordinal} receipt mismatch')
-        actual_content = _chunk_content_sha(
-            connection, generation.identifier, ordinal,
-        )
-        if bytes(receipt[2]) != actual_content:
+        # One read of the wide rows serves both the content seal and the
+        # per-column comparison (the build sealed the same ordered row set).
+        stored = _chunk_rows(connection, generation.identifier, ordinal)
+        if bytes(receipt[2]) != _rows_content_sha(stored):
             reasons.append(f'reproducibility: chunk {ordinal} content seal mismatch')
         raw = _read_chunk_vectors(connection, generation.identifier, ordinal)
-        stored = _chunk_rows(connection, generation.identifier, ordinal)
         if len(raw) != systems or len(stored) != systems:
             reasons.append(f'coverage: chunk {ordinal} row count mismatch')
             continue
@@ -679,7 +713,18 @@ def _validate_rows_and_seals(
     return reasons, receipt_payloads
 
 
-def validate_product(connection, generation: Generation, manifest_sha: bytes) -> dict:
+def validate_product(
+    connection, generation: Generation, manifest_sha: bytes,
+    progress: Progress | None = None,
+) -> dict:
+    '''Validate every chunk and promote the product READY.
+
+    Runs inside the detached build worker once every chunk is committed (the
+    Search pattern), never in a bounded foreground container: it re-reads and
+    re-scores all ~198.5 M systems, which takes hours. It is restartable from
+    the start with no manual cleanup, and holds no transaction until the single
+    READY promotion at the end.
+    '''
     generation = _generation(connection, generation.key)
     _require_verified_search(connection, generation.identifier)
     product = _product(connection, generation.identifier)
@@ -759,7 +804,7 @@ def validate_product(connection, generation: Generation, manifest_sha: bytes) ->
         connection, generation.identifier,
     )
     reasons, chunk_payloads = _validate_rows_and_seals(
-        connection, generation, manifest_sha, rating_chunks,
+        connection, generation, manifest_sha, rating_chunks, progress,
     )
     reasons = [*weighted_reasons, *reasons]
     if reasons:
@@ -818,6 +863,16 @@ def run(
     if state not in {'BUILDING', 'READY'}:
         raise ValueError('Archetype product cannot be built from current state')
     total_seen = total_written = 0
+    if state == 'READY':
+        receipt = validate_product(connection, generation, manifest_sha, progress)
+        return {
+            'status': 'VERIFIED',
+            'derived_generation_id': generation.identifier,
+            'product_code': PRODUCT_CODE,
+            'chunks_seen': 0,
+            'chunks_written': 0,
+            'validation_receipt': receipt,
+        }
     while True:
         result = build_available(
             connection, generation, manifest_sha,
@@ -852,12 +907,25 @@ def run(
             and rating_systems == generation.expected_systems
         )
         if complete:
+            if max_chunks is not None:
+                return {
+                    'status': 'BUILT',
+                    'derived_generation_id': generation.identifier,
+                    'product_code': PRODUCT_CODE,
+                    'chunks_seen': total_seen,
+                    'chunks_written': total_written,
+                }
+            # Every chunk is sealed: validate in this worker and promote READY,
+            # so finalize only has to confirm READY/VERIFIED and VACUUM.
+            receipt = validate_product(connection, generation, manifest_sha, progress)
+            status = 'VERIFIED' if receipt.get('status') == 'VERIFIED' else 'FAILED'
             return {
-                'status': 'BUILT',
+                'status': status,
                 'derived_generation_id': generation.identifier,
                 'product_code': PRODUCT_CODE,
                 'chunks_seen': total_seen,
                 'chunks_written': total_written,
+                'validation_receipt': receipt,
             }
         if not follow or max_chunks is not None:
             return {
@@ -868,6 +936,34 @@ def run(
                 'chunks_written': total_written,
             }
         time.sleep(float(poll_seconds))
+
+
+CREDENTIAL_URI = re.compile(r'[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@', re.IGNORECASE)
+
+
+def redact_credentials(text: str, dsn: str | None = None) -> str:
+    '''Strip credential-bearing URIs (and the live DSN itself) from text.
+
+    libpq/psycopg connection errors can echo the full DSN, password included.
+    '''
+    if dsn:
+        text = text.replace(dsn, '<redacted-dsn>')
+    return CREDENTIAL_URI.sub('<redacted-dsn>@', text)
+
+
+def failure_receipt(exc: BaseException, dsn: str | None = None) -> dict:
+    '''Bounded failure receipt: class, message and SQLSTATE, never the DSN.'''
+    dsn = dsn if dsn is not None else os.environ.get('V3_SYSTEM_ARCHETYPE_DATABASE_URL')
+    detail = redact_credentials(f'{type(exc).__name__}: {exc}', dsn)
+    receipt = {
+        'status': 'FAILED',
+        'error': type(exc).__name__,
+        'error_detail': detail[:500],
+    }
+    sqlstate = getattr(exc, 'sqlstate', None)
+    if isinstance(sqlstate, str):
+        receipt['sqlstate'] = sqlstate
+    return receipt
 
 
 def parse_args(argv=None):
@@ -918,10 +1014,7 @@ def main(argv=None) -> int:
         )
         return 65
     except Exception as exc:
-        print(
-            json.dumps({'status': 'FAILED', 'error': type(exc).__name__}),
-            file=sys.stderr,
-        )
+        print(json.dumps(failure_receipt(exc, dsn)), file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
     if result.get('status') == 'FAILED':

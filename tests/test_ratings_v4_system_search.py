@@ -246,3 +246,147 @@ def test_governed_purge_preserves_search_insert_and_receipt_guards(database):
             ):
                 with pytest.raises(psycopg.errors.RaiseException):
                     connection.execute(sql.SQL(template).format(sql.Identifier(relation)))
+
+
+def test_failure_receipt_carries_bounded_detail_and_sqlstate():
+    import json
+
+    import psycopg
+
+    import scripts.v3_system_search as search
+
+    class Boom(psycopg.Error):
+        pass
+
+    error = Boom('relation "v3_derived.missing" does not exist ' + 'x' * 600)
+    error.sqlstate = '42P01'
+    receipt = search.failure_receipt(error)
+    assert receipt['status'] == 'FAILED'
+    assert receipt['error'] == 'Boom'
+    assert receipt['sqlstate'] == '42P01'
+    assert receipt['error_detail'].startswith('Boom: relation "v3_derived.missing"')
+    assert len(receipt['error_detail']) == 500
+    plain = search.failure_receipt(ValueError('coverage'))
+    assert plain == {'status': 'FAILED', 'error': 'ValueError',
+                     'error_detail': 'ValueError: coverage'}
+    json.dumps(receipt)
+
+
+def test_main_configures_session_before_any_read(database, monkeypatch, capsys):
+    # The serial builder sets custom plans and lock/statement bounds on connect,
+    # like the parallel scheduler, so a blocked lock or a generic plan over the
+    # 198 M-row vector table cannot hang the detached worker silently.
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+
+    import scripts.v3_system_search as search
+
+    connection, _, _, _ = database
+    key, _, _, _ = _ratings_generation(database)
+    dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
+    monkeypatch.setenv('V3_SYSTEM_SEARCH_DATABASE_URL', dsn)
+    observed = []
+
+    class Observed:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._inner.__exit__(*args)
+
+        def execute(self, sql, *args, **kwargs):
+            observed.append(sql if isinstance(sql, str) else str(sql))
+            return self._inner.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    original = psycopg.connect
+    monkeypatch.setattr(psycopg, 'connect', lambda *a, **k: Observed(original(*a, **k)))
+    assert search.main(['--generation-key', key, '--print-manifest-sha256']) == 0
+    settings = [index for index, sql in enumerate(observed) if 'set_config' in sql]
+    assert len(settings) == 3
+    assert any("'plan_cache_mode','force_custom_plan'" in observed[i] for i in settings)
+    assert any("'lock_timeout'" in observed[i] for i in settings)
+    assert any("'statement_timeout'" in observed[i] for i in settings)
+    first_read = next(i for i, sql in enumerate(observed) if 'derived_generation' in sql)
+    assert max(settings) < first_read
+    assert connection.execute(
+        "SELECT current_setting('plan_cache_mode')"
+    ).fetchone()[0] == 'auto'
+
+
+def test_coverage_mismatch_names_missing_systems_before_raising(database, monkeypatch, capsys):
+    # A chunk whose projection does not cover every Ratings system fails
+    # closed; the diagnostic names the ordinal and a bounded id64 sample so
+    # the operator can see which systems the canonical schema lacks.
+    import json
+
+    import scripts.v3_system_search as search
+
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    generation, _, manifest_sha = search.register_product(connection, key)
+    victim = connection.execute(
+        '''SELECT system_id64 FROM v3_derived.system_rating_vector
+            WHERE derived_generation_id=%s AND chunk_ordinal=0
+            ORDER BY system_id64 LIMIT 1''',
+        (generation_id,),
+    ).fetchone()[0]
+    # Narrow the projection to every system but one (the canonical rows are
+    # held by evidence foreign keys, so the gap is simulated in the query).
+    original = search.projection_query_sql()
+    anchor = 'WHERE v.derived_generation_id=%(generation_id)s AND v.chunk_ordinal=%(chunk_ordinal)s'
+    narrowed = original.replace(anchor, f'{anchor} AND v.system_id64<>{int(victim)}', 1)
+    assert narrowed != original
+    monkeypatch.setattr(search, 'projection_query_sql', lambda: narrowed)
+    monkeypatch.setattr(
+        search, '_missing_chunk_systems', lambda *args, **kwargs: [int(victim)],
+    )
+    chunk = next(
+        row for row in search._rating_chunks(connection, generation_id)
+        if int(row[0]) == 0
+    )
+    with pytest.raises(ValueError, match='did not cover every Ratings system'):
+        search._insert_chunk(connection, generation, manifest_sha, chunk)
+    diagnostic = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert diagnostic['status'] == 'DIAGNOSTIC'
+    assert diagnostic['chunk_ordinal'] == 0
+    assert diagnostic['missing_sample'] == [int(victim)]
+    assert diagnostic['inserted_rows'] == diagnostic['expected_systems'] - 1
+
+
+def test_missing_chunk_systems_is_bounded_and_read_only(database):
+    import scripts.v3_system_search as search
+
+    connection, _, _, _ = database
+    key, generation_id, _, _ = _ratings_generation(database)
+    generation = search._generation(connection, key)
+    assert search._missing_chunk_systems(connection, generation, 0) == []
+    # A broken query never masks the coverage error: it yields an empty sample.
+    broken = search.Generation(**{**generation.__dict__, 'canonical_schema': 'v3_gen_nope'})
+    assert search._missing_chunk_systems(connection, broken, 0) == []
+
+
+def test_failure_receipt_never_carries_a_credential_bearing_dsn(monkeypatch):
+    # libpq/psycopg connection errors can echo the full DSN, password included.
+    import json
+
+    import scripts.v3_system_search as search
+
+    monkeypatch.setenv('V3_SYSTEM_SEARCH_DATABASE_URL', 'postgresql://user:secret@host/db')
+    error = OSError(
+        'connection failed: postgresql://user:secret@host/db and also '
+        'postgres://other:hunter2@db.internal:5432/x?sslmode=require'
+    )
+    text = json.dumps(search.failure_receipt(error))
+    assert 'secret' not in text and 'hunter2' not in text
+    assert 'user:' not in text and 'other:' not in text
+    assert '<redacted-dsn>' in text
+    explicit = search.failure_receipt(ValueError('x postgresql://a:b@c/d y'), dsn='postgresql://a:b@c/d')
+    assert explicit['error_detail'] == 'ValueError: x <redacted-dsn> y'
+    assert len(search.failure_receipt(ValueError('postgresql://a:b@c/d ' + 'z' * 900))['error_detail']) == 500

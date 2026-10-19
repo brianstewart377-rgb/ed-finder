@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,3 +225,364 @@ def test_start_refuses_a_build_start_receipt_from_another_operator_identity():
     assert "if receipt['f2d_operator_code_sha256'] != identity:" in block
     assert "raise SystemExit(3)" in block
     assert "written under another operator identity" in block
+
+
+ACTIONS = {
+    "search": ROOT / "scripts/operator/actions/v3-system-search-f1.sh",
+    "archetype": ROOT / "scripts/operator/actions/v3-system-archetype.sh",
+}
+
+
+def _function_block(source: str, name: str) -> str:
+    start = source.index(f"{name}() {{")
+    end = source.index("\n}\n", start) + 3
+    return source[start:end]
+
+
+def _harness(action: str, extra: str) -> str:
+    """Bash preamble: the action's helper functions with stubbed dependencies."""
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    functions = "\n".join(
+        _function_block(source, name)
+        for name in (
+            "fail", "preserve_worker_log", "preserved_worker_log_tail",
+            "archiver_status", "archive_target_mounted",
+            "require_archive_target_mounted", "require_archiver_healthy",
+        )
+    )
+    settings = "\n".join(
+        line for line in source.splitlines()
+        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "ARCHIVE_TARGET_", "MOUNT_TABLE=",
+                            "WORKER=", "DB_WRITES_STATE=", "mark_db_writes_possible()"))
+    )
+    return f"set -uo pipefail\n{settings}\n{functions}\n{extra}\n"
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_fail_prints_a_stopped_operation_result_on_stdout(action, tmp_path):
+    # The workflow records stdout only; a refusal that went to stderr alone
+    # left an empty receipt the operator could not act on.
+    script = _harness(action, 'CURRENT_OPERATION="unit-op"\nfail \'bad "thing" here\'\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    assert 'bad "thing" here' in result.stderr
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt == {
+        "schema_version": "ed-finder/operator-operation-result/v1",
+        "operation": "unit-op", "status": "stopped", "read_only": False,
+        "db_writes_performed": False, "db_writes_may_have_been_performed": False,
+        "failures": ['bad "thing" here'],
+    }
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("suffix", "read_only"), [("-status", True), ("-start", False), ("-finalize", False)])
+def test_stopped_receipt_read_only_follows_the_operation(action, suffix, read_only, tmp_path):
+    slug = ACTIONS[action].name.removesuffix(".sh")
+    script = _harness(action, f'CURRENT_OPERATION="{slug}{suffix}"\nfail "nope"\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["operation"] == f"{slug}{suffix}"
+    assert receipt["read_only"] is read_only
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_fail_after_a_launch_or_vacuum_reports_unknown_database_writes(action, tmp_path):
+    # Once this invocation launched a worker or started VACUUM, a refusal
+    # cannot prove what was committed before the stop: the receipt says so
+    # (null / may-have-been-performed) instead of a hard-coded false.
+    script = _harness(action, 'mark_db_writes_possible\nfail "after launch"\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["db_writes_performed"] is None
+    assert receipt["db_writes_may_have_been_performed"] is True
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    # The flip precedes the launch and the VACUUM, the two mutation points.
+    assert source.index("mark_db_writes_possible\n  if ! docker run -d") > 0
+    assert 'mark_db_writes_possible\n    db_maintenance "VACUUM (ANALYZE)' in source
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_identity_preflight_refusals_print_a_stopped_receipt(action, tmp_path):
+    # The identity helper check and the attestation check run before anything
+    # else; both must still produce the stdout receipt line.
+    environment = {**os.environ, "HOME": str(tmp_path)}
+    environment.pop("F2D_OPERATOR_CODE_SHA256_ATTESTED", None)
+    result = subprocess.run(
+        ["bash", str(ACTIONS[action]), "status", str(ROOT), "0" * 40],
+        capture_output=True, text=True, check=False, env=environment,
+    )
+    assert result.returncode == 64
+    assert "attested_identity_missing" in result.stderr
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["status"] == "stopped"
+    assert receipt["operation"].endswith("-status")
+    assert receipt["db_writes_performed"] is False
+    assert "attested operator identity refused" in receipt["failures"][0]
+    missing = subprocess.run(
+        ["bash", str(ACTIONS[action]), "status", str(tmp_path), "0" * 40],
+        capture_output=True, text=True, check=False, env=environment,
+    )
+    assert missing.returncode == 64
+    receipt = json.loads(missing.stdout.strip().splitlines()[-1])
+    assert receipt["failures"] == ["identity helper is missing or symlinked"]
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("status", "verdict"), [
+    ({"archiver_failing": False, "seconds_since_last_archived": 30, "wal_unarchived_files": 500}, "healthy"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "wal_unarchived_files": 12}, "healthy"),
+    ({"archiver_failing": True, "seconds_since_last_archived": 5, "wal_unarchived_files": 1}, "failing"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "wal_unarchived_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": None, "wal_unarchived_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 51}, "invalid"),
+    ({"archive_mode": "off", "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "disabled"),
+    ({"archive_command_set": False, "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "disabled"),
+    ({"archive_mode": "always", "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "healthy"),
+])
+def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_path):
+    status = {"archive_mode": "on", "archive_command_set": True, **status}
+    # A build writes hundreds of GB of WAL through pgBackRest archive-push; a
+    # failing archiver, or one silent for 30 minutes while unarchived WAL
+    # (.ready files, never the recycled-segment count) piles up past 50 files,
+    # would fill the data volume mid-build.
+    stub = (
+        "db_query() { printf '%s\\n' \"$ARCHIVER_FIXTURE\"; }\n"
+        'PYTHON_BIN="$(command -v python3)"\n'
+        "require_archiver_healthy && echo ARCHIVER_OK\n"
+    )
+    script = _harness(action, stub)
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "ARCHIVER_FIXTURE": json.dumps(status),
+             "V3_MOUNT_TABLE": str(_mounted_table(tmp_path)),
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    if verdict == "healthy":
+        assert result.returncode == 0, result.stderr
+        assert "ARCHIVER_OK" in result.stdout
+    else:
+        assert result.returncode == 64
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["status"] == "stopped"
+        if verdict == "disabled":
+            # archive_mode off leaves no .ready files and no failures, so the
+            # payload carries the settings themselves; a build must never run
+            # with WAL archiving off.
+            assert receipt["failures"][0].startswith("wal_archiving_disabled ")
+        else:
+            assert receipt["failures"][0].startswith(f"wal_archiver_unhealthy:{verdict}")
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_start_reads_archiver_health_before_the_capacity_gate_and_launch(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    start = source[source.index("start_operation()") : source.index("status_operation()")]
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert start.index("require_archiver_healthy") < start.index("run_capacity_gate")
+    assert start.index("run_capacity_gate") < start.index("docker run -d")
+    assert "pg_stat_archiver" in source
+    assert "pg_ls_archive_statusdir()" in source
+    assert "current_setting('archive_mode')" in source
+    assert "current_setting('archive_command')" in source
+    assert "LIKE '%.ready'" in source
+    assert "'pg_wal_files'" not in source
+    assert "archiver_status=" in status
+    assert "BEGIN READ ONLY" in _function_block(source, "archiver_status")
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_crashed_worker_logs_are_preserved_before_removal_and_reported(action, tmp_path):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    # Every `docker rm` of the worker is preceded by a log capture; status
+    # reports the newest capture so the downloadable receipt explains a crash.
+    for index in [i for i in range(len(source)) if source.startswith('docker rm "$WORKER"', i)]:
+        preceding = source[max(0, index - 200) : index]
+        assert "preserve_worker_log" in preceding
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert "preserved_worker_log_tail" in status
+    stub = (
+        "docker() { printf 'line one\\nline two\\n'; }\n"
+        "preserve_worker_log\n"
+        "ls \"$STATE_ROOT\"\n"
+        "preserved_worker_log_tail\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", _harness(action, stub)], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr
+    captured = [path for path in tmp_path.iterdir() if path.name.startswith("worker-log.")]
+    assert len(captured) == 1
+    assert oct(captured[0].stat().st_mode & 0o777) == "0o600"
+    assert "preserved_worker_log_tail:" in result.stdout
+    assert "  line two" in result.stdout
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_start_proof_window_is_ten_minutes(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    assert "for _ in $(seq 1 300)" in source
+    assert "for _ in $(seq 1 30)" not in source
+    assert "sleep 2" in source
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_a_failed_worker_launch_stops_with_a_receipt_and_preserved_logs(action, tmp_path):
+    # `docker run -d` failing under set -e used to exit the action before
+    # fail()/preserve_worker_log ran: no stdout receipt, no logs. The launch
+    # is guarded; a created-but-failed container's log is kept first.
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    start = source[source.index("start_operation() {") : source.index("status_operation() {")]
+    begin = start.index("  mark_db_writes_possible\n  if ! docker run -d")
+    end = start.index("  rm -f -- \"$env_file\"\n  trap - EXIT\n", start.index("fail \"worker_launch_failed\"", begin))
+    segment = start[begin:end]
+    assert 'fail "worker_launch_failed"' in segment
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        '  run) echo "daemon refused" >&2; exit 125;;\n'
+        '  inspect) exit "$INSPECT_EXIT";;\n'
+        "  logs) echo created-container-log;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    env_file = tmp_path / "builder.env"
+    for inspect_exit, expect_log in (("1", False), ("0", True)):
+        env_file.write_text("X=1\n", encoding="utf-8")
+        script = _harness(
+            action,
+            "WORKER=w REPO_ROOT=/nonexistent SOURCE_SHA=x api_image=img\n"
+            f'env_file="{env_file}"\n'
+            "TARGET_GENERATION_KEY=k TARGET_GENERATION_ID=g TARGET_CPUS=1 TARGET_MEMORY=1g\n"
+            "OPERATION_LABEL=l WORKER_NETWORK=n F2D_IDENTITY=i\n"
+            "run_segment() {\n" + segment + "\n  echo UNREACHABLE\n}\nrun_segment\n",
+        )
+        result = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=False,
+            env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                 "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path),
+                 "INSPECT_EXIT": inspect_exit},
+        )
+        assert result.returncode == 64, result.stderr
+        assert "UNREACHABLE" not in result.stdout
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["status"] == "stopped"
+        assert receipt["failures"] == ["worker_launch_failed"]
+        # The launch was attempted, so the receipt cannot claim no writes.
+        assert receipt["db_writes_performed"] is None
+        logs = sorted(tmp_path.glob("worker-log.*.txt"))
+        assert bool(logs) is expect_log
+        for path in logs:
+            assert "created-container-log" in path.read_text(encoding="utf-8")
+            path.unlink()
+        # The DSN-bearing env file never outlives a failed launch.
+        assert not env_file.exists()
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_no_adjacent_duplicate_log_preservation(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    lines = [line.strip() for line in source.splitlines()]
+    assert not any(
+        lines[i] == "preserve_worker_log" and lines[i + 1] == "preserve_worker_log"
+        for i in range(len(lines) - 1)
+    )
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_a_failed_archiver_query_stops_with_a_receipt(action, tmp_path):
+    # Under set -e the `status="$(archiver_status)"` assignment exited before
+    # fail() could run; the query is guarded so the stdout receipt names it.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\necho 'psql: connection refused' >&2\nexit 2\n", encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    script = _harness(action, _function_block(source, "db_query") + (
+        'POSTGRES_CONTAINER=c DATABASE_USER=u DATABASE_NAME=d\n'
+        'PYTHON_BIN="$(command -v python3)"\n'
+        "require_archiver_healthy\necho UNREACHABLE\n"
+    ))
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+             "V3_MOUNT_TABLE": str(_mounted_table(tmp_path)),
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    assert "UNREACHABLE" not in result.stdout
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["status"] == "stopped"
+    assert receipt["failures"] == ["wal_archiver_query_failed"]
+    assert receipt["db_writes_performed"] is False
+    assert 'status="$(archiver_status)" || fail "wal_archiver_query_failed"' in source
+
+
+def _mounted_table(directory, *, fstype="fuse.rclone", target="/mnt/ed-storagebox"):
+    table = directory / "mounts"
+    table.write_text(
+        "/dev/md1 / ext4 rw 0 0\n"
+        f"storagebox: {target} {fstype} rw,nosuid,nodev,allow_other 0 0\n",
+        encoding="utf-8",
+    )
+    return table
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("table", "mounted"), [
+    ({}, True),
+    ({"fstype": "ext4"}, False),
+    ({"target": "/mnt/other"}, False),
+    (None, False),
+])
+def test_start_requires_the_archive_target_mount(action, table, mounted, tmp_path):
+    # An unmounted Storage Box on an idle server shows no .ready backlog and no
+    # archiver failure, so the archive-push target's mount is required
+    # outright, from the mount table; an end-to-end push probe is out of scope.
+    if table is None:
+        table_path = tmp_path / "missing"
+    else:
+        table_path = _mounted_table(tmp_path, **table)
+    stub = (
+        "db_query() { printf '%s\\n' \"$ARCHIVER_FIXTURE\"; }\n"
+        'PYTHON_BIN="$(command -v python3)"\n'
+        'echo "mounted=$(archive_target_mounted)"\n'
+        "require_archiver_healthy && echo ARCHIVER_OK\n"
+    )
+    healthy = {"archive_mode": "on", "archive_command_set": True, "archiver_failing": False,
+               "seconds_since_last_archived": 5, "wal_unarchived_files": 0}
+    result = subprocess.run(
+        ["bash", "-c", _harness(action, stub)], capture_output=True, text=True, check=False,
+        env={**os.environ, "ARCHIVER_FIXTURE": json.dumps(healthy),
+             "V3_MOUNT_TABLE": str(table_path),
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert f"mounted={'true' if mounted else 'false'}" in result.stdout
+    if mounted:
+        assert result.returncode == 0, result.stderr
+        assert "ARCHIVER_OK" in result.stdout
+    else:
+        assert result.returncode == 64
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["failures"] == ["wal_archive_target_unmounted"]
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    assert 'MOUNT_TABLE="${V3_MOUNT_TABLE:-/proc/mounts}"' in source
+    assert "require_archive_target_mounted\n" in _function_block(source, "require_archiver_healthy")
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert "archive_target_mounted=" in status

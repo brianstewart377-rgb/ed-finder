@@ -230,7 +230,9 @@ def test_manifest_includes_coefficients_and_anchors(database):
     assert 'already-six-decimal-confidence' in manifest['confidence_rounding']
     assert len(manifest['model_file_sha256']) == 64
     assert len(manifest['archetype_model_sha256']) == 64
-    assert manifest['cpython_version'].startswith('3.14.')
+    # Major.minor only: a patch-level CPython bump between the complete
+    # read, the build and finalize must not invalidate the manifest.
+    assert manifest['cpython_version'] == '3.14'
     weighted_rules = [
         item['rule'] for item in manifest['wide_columns']
         if item['column'].endswith('_weighted_e4')
