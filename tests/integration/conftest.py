@@ -188,8 +188,10 @@ def v3_fixture_db_ready():
 
     try:
         missing = asyncio.run(_missing())
-    except Exception as exc:  # noqa: BLE001 - any failure means "not this DB"
-        pytest.skip(f"V3-only fixture DB required; probe failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 - connection/driver failure, not schema state
+        # A failed probe means the database itself is unusable (not merely a
+        # V2-only lane), so it is an availability failure under EDF_DB_TESTS_REQUIRED.
+        db_isolation.database_unavailable(f"V3-only fixture DB required; probe failed: {exc}")
     if missing:
         pytest.skip(
             "V3-only fixture DB required; missing: " + ", ".join(missing)
@@ -253,7 +255,7 @@ async def clean_db():
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
     pool = await asyncpg.create_pool(
         dsn=os.environ['DATABASE_URL'], min_size=1, max_size=2,
         statement_cache_size=0,

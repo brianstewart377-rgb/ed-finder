@@ -176,13 +176,15 @@ def readonly_stage19as1_conn() -> Iterator[object]:
     try:
         config = _db_config(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(f'Stage 19AS.1 disposable Postgres checks skipped: unsafe_target:{exc}')
+        db_isolation.database_unavailable(
+            f'Stage 19AS.1 disposable Postgres checks skipped: unsafe_target:{exc}')
 
     try:
         import psycopg  # noqa: PLC0415
         from psycopg.rows import dict_row  # noqa: PLC0415
     except Exception:
-        pytest.skip('Stage 19AS.1 disposable Postgres checks skipped: psycopg_missing')
+        db_isolation.database_unavailable(
+            'Stage 19AS.1 disposable Postgres checks skipped: psycopg_missing')
 
     conn = None
     try:
@@ -191,7 +193,8 @@ def readonly_stage19as1_conn() -> Iterator[object]:
     except Exception as exc:
         if conn is not None:
             conn.close()
-        pytest.skip(f'Stage 19AS.1 disposable Postgres checks skipped: {type(exc).__name__}')
+        db_isolation.database_unavailable(
+            f'Stage 19AS.1 disposable Postgres checks skipped: {type(exc).__name__}')
 
     try:
         yield conn

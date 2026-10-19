@@ -2,7 +2,7 @@
 into an already-migrated connection (no DB create/drop, no migrations).
 
 Skips unless the isolated local PostgreSQL validation service is configured
-(see reference_local_test_database)."""
+(see reference_local_test_database); fails instead when EDF_DB_TESTS_REQUIRED=1."""
 from __future__ import annotations
 
 import os
@@ -10,18 +10,17 @@ from pathlib import Path
 import sys
 from uuid import uuid4
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
+from tests.helpers import db_isolation  # noqa: E402
 
-@pytest.mark.skipif(
-    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
-    reason='isolated PostgreSQL validation URL not set',
-)
+
 def test_bootstrap_publishes_canonical_generation():
+    if not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'):
+        db_isolation.database_unavailable(
+            'isolated PostgreSQL validation URL not set (RATINGS_V4_VALIDATION_DATABASE_URL)')
     import psycopg
     from psycopg.conninfo import make_conninfo
     from domain.ratings_v4_canonical import load_source_fixture

@@ -871,8 +871,12 @@ def test_process_registry_stops_only_its_owned_process_group(tmp_path):
     )
     try:
         assert process.poll() is None
-        registry.stop_all(grace_seconds=1)
-        deadline = time.monotonic() + 2
+        # A generous grace period keeps this a test of ownership, not of how
+        # fast a loaded CI runner delivers SIGTERM: stop_all records `running`
+        # from a poll taken inside the grace window, so a 1 s grace could see a
+        # still-exiting child and report it as running.
+        registry.stop_all(grace_seconds=10)
+        deadline = time.monotonic() + 15
         while process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         assert process.poll() is not None

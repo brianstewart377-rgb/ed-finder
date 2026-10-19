@@ -25,16 +25,16 @@ MANUAL_MIGRATION = '019_nullable_coords.sql'
 
 
 def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     if bash is None:
-        pytest.skip('bash is required to execute scripts/apply_migrations.sh')
+        db_isolation.database_unavailable('bash is required to execute scripts/apply_migrations.sh')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     auto_migrations = _manifest_entries(include_manual=False)
     all_migrations = _manifest_entries(include_manual=True)
@@ -49,7 +49,7 @@ def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for migration runtime test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for migration runtime test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -112,7 +112,7 @@ def _manifest_entries(*, include_manual: bool) -> list[str]:
 
 
 def _schema_migration_count(database_url: str) -> int:
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:
@@ -123,7 +123,7 @@ def _schema_migration_count(database_url: str) -> int:
 
 
 def _has_migration(database_url: str, filename: str) -> bool:
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:

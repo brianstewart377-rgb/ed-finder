@@ -30,19 +30,19 @@ PRE_LEDGER_FILES = [
 
 
 def test_baseline_migration_ledger_records_existing_preledger_state():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     if bash is None:
-        pytest.skip('bash is required to execute scripts/baseline_migration_ledger.sh')
+        db_isolation.database_unavailable('bash is required to execute scripts/baseline_migration_ledger.sh')
     psql = shutil.which('psql')
     if psql is None:
-        pytest.skip('psql is required to simulate a pre-ledger database')
+        db_isolation.database_unavailable('psql is required to simulate a pre-ledger database')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     baseline_db = f'migration_baseline_{uuid.uuid4().hex[:12]}'
     baseline_dsn = _dsn_for_database(db_target.dsn, baseline_db)
@@ -50,7 +50,7 @@ def test_baseline_migration_ledger_records_existing_preledger_state():
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for baseline runtime test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for baseline runtime test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -106,7 +106,7 @@ def _run_baseline(bash: str, database_url: str) -> subprocess.CompletedProcess[s
 
 
 def _count_rows(database_url: str, table_name: str) -> int:
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:

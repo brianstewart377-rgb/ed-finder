@@ -11,6 +11,7 @@ import sys
 import pytest
 
 from scripts.operator.lib import f2d_evidence
+from tests.helpers import db_isolation
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "dev" / "measure_search_footprint.py"
@@ -238,7 +239,8 @@ def test_smoke_on_disposable_postgresql_18(monkeypatch, tmp_path):
     """Exercise all three registered-DDL states when the isolated PG18 is available."""
     dsn = os.environ.get("RATINGS_V4_VALIDATION_DATABASE_URL")
     if not dsn:
-        pytest.skip("isolated PostgreSQL 18 validation URL not set")
+        db_isolation.database_unavailable(
+            "isolated PostgreSQL 18 validation URL not set (RATINGS_V4_VALIDATION_DATABASE_URL)")
     module = _load()
     monkeypatch.setenv("EDFINDER_DISPOSABLE_DSN", dsn)
     output = tmp_path / "search-footprint.json"

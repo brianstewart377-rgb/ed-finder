@@ -30,17 +30,17 @@ DATA_TRUST_HEALTH_SNAPSHOT = ROOT / 'scripts' / 'checks' / 'data_trust_health_sn
 
 
 def test_body_contract_repair_and_reconcile_restore_clean_invariants():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
-        pytest.skip('bash and psql are required to apply schema migrations for runtime trust tests')
+        db_isolation.database_unavailable('bash and psql are required to apply schema migrations for runtime trust tests')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     runtime_db = f'data_trust_body_{uuid.uuid4().hex[:12]}'
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
@@ -48,7 +48,7 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for data trust runtime test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for data trust runtime test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -167,17 +167,17 @@ def test_no_body_reconcile_skip_summary_requires_apply():
 
 
 def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drift():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
-        pytest.skip('bash and psql are required to apply schema migrations for runtime trust tests')
+        db_isolation.database_unavailable('bash and psql are required to apply schema migrations for runtime trust tests')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     runtime_db = f'data_trust_safe_{uuid.uuid4().hex[:12]}'
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
@@ -185,7 +185,7 @@ def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drif
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for production-safe invariant test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for production-safe invariant test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -231,17 +231,17 @@ def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drif
 
 
 def test_station_body_link_repair_restores_clean_invariants():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
-        pytest.skip('bash and psql are required to apply schema migrations for runtime trust tests')
+        db_isolation.database_unavailable('bash and psql are required to apply schema migrations for runtime trust tests')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     runtime_db = f'data_trust_link_{uuid.uuid4().hex[:12]}'
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
@@ -249,7 +249,7 @@ def test_station_body_link_repair_restores_clean_invariants():
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for data trust runtime test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for data trust runtime test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -364,17 +364,17 @@ def test_station_body_link_repair_restores_clean_invariants():
 
 
 def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
-        pytest.skip('bash and psql are required to apply schema migrations for runtime trust tests')
+        db_isolation.database_unavailable('bash and psql are required to apply schema migrations for runtime trust tests')
 
     try:
         db_isolation.require_destructive_reset_opt_in(os.environ)
         db_target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(str(exc))
+        db_isolation.database_unavailable(str(exc))
 
     runtime_db = f'data_trust_snapshot_{uuid.uuid4().hex[:12]}'
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
@@ -382,7 +382,7 @@ def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
     try:
         admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
-        pytest.skip(f'disposable Postgres unavailable for health snapshot runtime test: {exc}')
+        db_isolation.database_unavailable(f'disposable Postgres unavailable for health snapshot runtime test: {exc}')
 
     admin_conn.autocommit = True
     try:
@@ -533,7 +533,7 @@ def _apply_schema_via_migrations(bash: str, database_url: str) -> None:
 
 
 def _exec_sql(database_url: str, sql: str) -> None:
-    psycopg = pytest.importorskip('psycopg')
+    psycopg = db_isolation.import_db_module('psycopg')
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         cur.execute(sql)
 

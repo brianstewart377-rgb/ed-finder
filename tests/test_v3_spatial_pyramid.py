@@ -38,8 +38,8 @@ def db_conn():
     try:
         conn = psycopg.connect(target.dsn)
     except psycopg.OperationalError as exc:
-        pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
-        return
+        db_isolation.database_unavailable(
+            f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
     conn.autocommit = False
     # The V3 spatial schema (migration 012_v3_spatial_pyramid_decouple) is only
     # present on a disposable DB with the V3 lineage applied. CI lanes that seed

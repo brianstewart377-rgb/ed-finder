@@ -43,8 +43,8 @@ async def db_conn():
     try:
         conn = await asyncpg.connect(target.dsn)
     except (OSError, asyncpg.PostgresError) as exc:
-        pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
-        return
+        db_isolation.database_unavailable(
+            f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
     transaction = conn.transaction()
     await transaction.start()
     try:

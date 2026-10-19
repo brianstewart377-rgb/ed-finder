@@ -38,13 +38,15 @@ def real_stage19_conn() -> Iterator[object]:
     try:
         config = db_config(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(f'real Stage 19 DB readiness skipped explicitly: unsafe_target:{exc}')
+        db_isolation.database_unavailable(
+            f'real Stage 19 DB readiness skipped explicitly: unsafe_target:{exc}')
 
     try:
         import psycopg  # noqa: PLC0415
         from psycopg.rows import dict_row  # noqa: PLC0415
     except Exception:
-        pytest.skip('real Stage 19 DB readiness skipped explicitly: psycopg_missing')
+        db_isolation.database_unavailable(
+            'real Stage 19 DB readiness skipped explicitly: psycopg_missing')
 
     conn = None
     try:
@@ -53,7 +55,8 @@ def real_stage19_conn() -> Iterator[object]:
     except Exception as exc:
         if conn is not None:
             conn.close()
-        pytest.skip(f'real Stage 19 DB readiness skipped explicitly: {connection_skip_reason(exc)}')
+        db_isolation.database_unavailable(
+            f'real Stage 19 DB readiness skipped explicitly: {connection_skip_reason(exc)}')
 
     try:
         yield conn
