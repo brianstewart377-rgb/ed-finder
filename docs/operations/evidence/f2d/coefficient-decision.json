@@ -1,0 +1,22 @@
+{
+  "basis": "sample probe run 39186678592 and complete read receipt; owner accepted the coefficients as they are on 2026-10-19",
+  "coefficient_decision": "accepted",
+  "coefficients": {
+    "alpha": 0.6,
+    "breadth_pot": 55,
+    "breadth_qual": 40,
+    "breadth_target": 4,
+    "cap_floor": 0.6,
+    "cap_span": 0.4,
+    "capacity_target": 8,
+    "spec_floor": 0.85,
+    "spec_span": 0.15,
+    "spec_unknown_conf": 0.85,
+    "synergy_bonus": 5,
+    "synergy_threshold": 60
+  },
+  "complete_receipt_content_sha256": "2741e831165d963446bb212a3bb1c7457e015c7f4d377fbff740b3994061c431",
+  "content_sha256": "760180818df27e9daa98f78ce11f043dabbc55d8edd26d20c3eb3ddbb529f919",
+  "decided_by": "owner",
+  "decided_on": "2026-10-19"
+}

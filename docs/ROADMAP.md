@@ -473,7 +473,13 @@ newer dated source wins).
   the complete-read receipt is committed, since it must seal that receipt's
   `content_sha256`.
   **Second F2d release `0dddc78d` promoted (2026-10-19)** with PRs #854–#857.
-  Next: the complete read (6′ complete), then the five evidence files, 7′.
+  **Complete read done (2026-10-19):** start run 39243944566, worker ran
+  11:21–20:27 UTC over all 198,529 chunks (198,528,286 systems, no failures),
+  status run 39311585254 carried the sealed receipt (`content_sha256`
+  `2741e831…`, Σ_all 0.5895), committed as
+  `docs/operations/evidence/f2d/complete-read-receipt.json` with the sealed
+  owner decision `coefficient-decision.json` (`accepted`). Next: the capacity
+  measurement workflow for the three remaining evidence files, then 7′.
   The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the

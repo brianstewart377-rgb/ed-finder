@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-19 — Complete read receipt and coefficient decision committed
+
+The step 6′ complete read (start run 39243944566, status run 39311585254)
+scored every one of the 198,528,286 systems in 9 h 6 min with no failures;
+its sealed receipt (Σ_all 0.5895 against the 4.0 bound) and the owner's sealed
+`coefficient_decision: accepted` are committed under
+`docs/operations/evidence/f2d/`. Both pass the capacity gate's own checks
+against this source.
+
 ## 2026-10-19 — Production PostgreSQL server settings recorded
 
 `docs/operations/v3-postgres-server-settings.md` records the owner-applied
