@@ -800,24 +800,26 @@ class ArchetypeRerankWeights(BaseModel):
     """
     Per-archetype blend weights for `POST /api/archetypes/rerank` (F3 slice 2).
 
-    One weight per V3 archetype key, each in [0, 1]; at least one must be
-    greater than zero. The blend is normalised by the weight sum, so the
-    weights need not sum to 1.0 and a single non-zero weight reranks by
-    that archetype alone. The default is the generalist (equal) blend.
+    One weight per V3 archetype key, each in [0, 1]; every key is required
+    (a partial vector is a 422, never silently filled) and at least one must
+    be greater than zero. The blend is normalised by the weight sum, so the
+    weights need not sum to 1.0 and a single non-zero weight reranks by that
+    archetype alone. A request that omits `weights` entirely gets the
+    generalist (equal) blend from the route, not from field defaults.
 
     The legacy five V2 dimensions (`purity`, `buildability`, `slots`,
     `expansion`, `logistics`) have no V3 projection and are retired.
     """
     model_config = ConfigDict(extra='forbid')
 
-    paradise:           float = Field(default=0.125, ge=0.0, le=1.0)
-    mining_hub:         float = Field(default=0.125, ge=0.0, le=1.0)
-    manufacturing_hub:  float = Field(default=0.125, ge=0.0, le=1.0)
-    megacomplex:        float = Field(default=0.125, ge=0.0, le=1.0)
-    research_hub:       float = Field(default=0.125, ge=0.0, le=1.0)
-    stronghold:         float = Field(default=0.125, ge=0.0, le=1.0)
-    population_capital: float = Field(default=0.125, ge=0.0, le=1.0)
-    flexible:           float = Field(default=0.125, ge=0.0, le=1.0)
+    paradise:           float = Field(ge=0.0, le=1.0)
+    mining_hub:         float = Field(ge=0.0, le=1.0)
+    manufacturing_hub:  float = Field(ge=0.0, le=1.0)
+    megacomplex:        float = Field(ge=0.0, le=1.0)
+    research_hub:       float = Field(ge=0.0, le=1.0)
+    stronghold:         float = Field(ge=0.0, le=1.0)
+    population_capital: float = Field(ge=0.0, le=1.0)
+    flexible:           float = Field(ge=0.0, le=1.0)
 
     @model_validator(mode='after')
     def _at_least_one_positive(self) -> 'ArchetypeRerankWeights':

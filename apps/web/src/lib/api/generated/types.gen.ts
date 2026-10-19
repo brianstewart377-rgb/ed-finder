@@ -271,10 +271,12 @@ export type ArchetypeRerankRow = {
  *
  * Per-archetype blend weights for `POST /api/archetypes/rerank` (F3 slice 2).
  *
- * One weight per V3 archetype key, each in [0, 1]; at least one must be
- * greater than zero. The blend is normalised by the weight sum, so the
- * weights need not sum to 1.0 and a single non-zero weight reranks by
- * that archetype alone. The default is the generalist (equal) blend.
+ * One weight per V3 archetype key, each in [0, 1]; every key is required
+ * (a partial vector is a 422, never silently filled) and at least one must
+ * be greater than zero. The blend is normalised by the weight sum, so the
+ * weights need not sum to 1.0 and a single non-zero weight reranks by that
+ * archetype alone. A request that omits `weights` entirely gets the
+ * generalist (equal) blend from the route, not from field defaults.
  *
  * The legacy five V2 dimensions (`purity`, `buildability`, `slots`,
  * `expansion`, `logistics`) have no V3 projection and are retired.
@@ -283,35 +285,35 @@ export type ArchetypeRerankWeights = {
     /**
      * Paradise
      */
-    paradise?: number;
+    paradise: number;
     /**
      * Mining Hub
      */
-    mining_hub?: number;
+    mining_hub: number;
     /**
      * Manufacturing Hub
      */
-    manufacturing_hub?: number;
+    manufacturing_hub: number;
     /**
      * Megacomplex
      */
-    megacomplex?: number;
+    megacomplex: number;
     /**
      * Research Hub
      */
-    research_hub?: number;
+    research_hub: number;
     /**
      * Stronghold
      */
-    stronghold?: number;
+    stronghold: number;
     /**
      * Population Capital
      */
-    population_capital?: number;
+    population_capital: number;
     /**
      * Flexible
      */
-    flexible?: number;
+    flexible: number;
 };
 
 /**

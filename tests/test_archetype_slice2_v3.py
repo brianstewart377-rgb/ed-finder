@@ -314,6 +314,8 @@ class _NeverAcquire:
         {"id64s": [1], "profile": "industrial_empire"},                    # legacy preset id
         {"id64s": [1], "archetype": "refinery_industrial"},                # legacy key
         {"id64s": [1], "weights": {"purity": 1.0}},                        # legacy dimension
+        {"id64s": [1], "weights": {"paradise": 1.0}},                      # partial vector
+        {"id64s": [1], "weights": {}},                                     # empty vector
         {"id64s": [1], "weights": {key: 0.0 for key in ARCHETYPE_KEYS}},   # all zero
         {"id64s": [1], "weights": {**equal_weights(), "paradise": 1.5}},   # out of range
         {"id64s": []},
@@ -589,6 +591,8 @@ def test_openapi_exposes_v3_archetype_keys_and_response_models():
     assert set(weights) == set(ARCHETYPE_KEYS)
     for legacy in ("purity", "buildability", "slots", "expansion", "logistics"):
         assert legacy not in weights
+    # Every key is required: a partial explicit vector is never silently filled.
+    assert sorted(schemas["ArchetypeRerankWeights"]["required"]) == sorted(ARCHETYPE_KEYS)
     request_archetype = schemas["ArchetypeRerankRequest"]["properties"]["archetype"]
     assert any(
         option.get("enum") == list(ARCHETYPE_KEYS)
