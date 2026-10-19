@@ -63,7 +63,9 @@ inside the write window would have refused every later resume. Temporaries now
 use a per-write nonce and stale ones are cleared first. A chunk read that hits
 the statement timeout or loses its connection is retried up to three times
 (rollback, or reconnect with the session re-configured) before the run fails;
-the default statement timeout for complete mode is 300 s. `main()` writes a
+the default statement timeout for complete mode is 300 s; the session
+configuration is committed so a rollback keeps it, and a failed reconnect
+counts against the same per-chunk budget. `main()` writes a
 sealed failure receipt for every exception with a bounded `error`, `sqlstate`
 and the chunk in flight. The action's refusals print an
 `operator-operation-result/v1` line on stdout, a stopped worker's logs are saved

@@ -599,6 +599,9 @@ def configure_session(connection: Any, statement_timeout_ms: int) -> None:
     connection.execute(
         "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
     )
+    # autocommit is off: the settings above live in a transaction until this
+    # commit, and a later rollback would otherwise discard them.
+    connection.commit()
 
 
 class ChunkReadError(RuntimeError):
@@ -650,8 +653,14 @@ def _read_and_score_chunk(
     can never double-count a chunk.
     '''
     last: BaseException | None = None
+    # None means "replace the connection before the next attempt"; a failed
+    # reconnect or session configuration counts against the same budget, so
+    # it can never escape this loop without the chunk ordinal.
     for attempt in range(CHUNK_RETRY_ATTEMPTS):
         try:
+            if connection is None:
+                connection = reconnect()
+                configure_session(connection, statement_timeout_ms)
             raw_rows = probe._read_chunk_rows(connection, generation_id, ordinal)
             histograms, actual_rows = _score_chunk(raw_rows, model)
             connection.commit()
@@ -667,7 +676,7 @@ def _read_and_score_chunk(
             )
             if attempt + 1 >= CHUNK_RETRY_ATTEMPTS:
                 break
-            replace = _connection_unusable(connection)
+            replace = connection is None or _connection_unusable(connection)
             if not replace:
                 try:
                     connection.rollback()
@@ -675,13 +684,12 @@ def _read_and_score_chunk(
                     if not _is_database_error(rollback_exc):
                         raise
                     replace = True
-            if replace:
+            if replace and connection is not None:
                 try:
                     connection.close()
                 except Exception:  # noqa: BLE001 - the old connection is dead
                     pass
-                connection = reconnect()
-                configure_session(connection, statement_timeout_ms)
+                connection = None
             sleep(CHUNK_RETRY_BACKOFF_SECONDS[min(attempt, len(CHUNK_RETRY_BACKOFF_SECONDS) - 1)])
     assert last is not None
     raise ChunkReadError(ordinal, last) from last

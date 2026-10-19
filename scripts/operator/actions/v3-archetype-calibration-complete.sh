@@ -11,6 +11,11 @@ ACTION="${1:-}"
 REPO_ROOT="${2:-}"
 SOURCE_SHA="${3:-}"
 
+# fd 3 is the script's real stdout. fail() prints its result line there so a
+# refusal raised inside a command substitution (api="$(active_api_container)")
+# is not captured and discarded with the substitution.
+exec 3>&1
+
 # Every refusal leaves a parseable result line on stdout (the workflow's receipt
 # artifact) as well as the message on stderr: an empty receipt explained nothing.
 fail() {
@@ -18,7 +23,7 @@ fail() {
   # The slug is restricted to [A-Za-z0-9_] so it is JSON-safe without a parser.
   slug="$(printf '%s' "$*" | tr -c 'a-zA-Z0-9' '_' | tr -s '_' | sed 's/^_//; s/_$//' | cut -c1-120)"
   [ -n "$slug" ] || slug="unknown"
-  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["%s"]}\n' "${ACTION:-unknown}" "$slug"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["%s"]}\n' "${ACTION:-unknown}" "$slug" >&3
   printf 'v3 archetype calibration complete: %s\n' "$*" >&2
   exit 64
 }
@@ -32,7 +37,7 @@ IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
 source "$IDENTITY_HELPER"
 F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" || {
   identity_status=$?
-  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["attested_identity_refused"]}\n' "${ACTION:-unknown}"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-archetype-calibration-complete-%s","status":"stopped","read_only":true,"db_writes_performed":false,"failures":["attested_identity_refused"]}\n' "${ACTION:-unknown}" >&3
   exit "$identity_status"
 }
 

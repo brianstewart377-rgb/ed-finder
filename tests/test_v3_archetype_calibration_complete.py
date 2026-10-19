@@ -40,6 +40,8 @@ class _Connection:
         self.read_only = False
         self.commits = 0
         self.statements: list[str] = []
+        # Statement index at which each commit happened, for ordering checks.
+        self.commit_marks: list[int] = []
 
     def execute(self, statement, parameters=None):
         self.statements.append(str(statement))
@@ -47,6 +49,7 @@ class _Connection:
 
     def commit(self):
         self.commits += 1
+        self.commit_marks.append(len(self.statements))
 
 
 def _vector(system_id64: int, potential: int) -> model.SystemVectorRow:
@@ -604,13 +607,23 @@ class _FlakyConnectionFactory:
         self.created: list[_Connection] = []
         self.rollbacks = 0
         self.closed = 0
+        self.events: list[tuple[int, str]] = []  # (connection index, commit|rollback)
 
     def connect(self):
         connection = _Connection()
         factory = self
+        inner_commit = connection.commit
+        index = len(self.created)
+
+        def commit():
+            inner_commit()
+            factory.events.append((index, 'commit'))
 
         def rollback():
             factory.rollbacks += 1
+            factory.events.append((index, 'rollback'))
+
+        connection.commit = commit
 
         def close():
             factory.closed += 1
@@ -823,3 +836,168 @@ def test_workflow_routes_action_stderr_into_the_receipt_artifact():
         for line in workflow.splitlines():
             if f'actions/{script} | tee' in line or f'actions/{script} 2>&1 | tee' in line:
                 assert '2>&1 | tee "$RECEIPT"' in line, line
+
+
+def test_configure_session_commits_so_a_later_rollback_keeps_the_settings():
+    # autocommit is off: without the commit, the first rollback after a
+    # reconnect would discard statement_timeout and force_custom_plan.
+    connection = _Connection()
+    complete.configure_session(connection, 1234)
+    assert connection.read_only is True
+    assert connection.commits == 1
+    assert any("'statement_timeout'" in s for s in connection.statements)
+    assert any("'plan_cache_mode','force_custom_plan'" in s for s in connection.statements)
+
+
+def test_settings_survive_a_rollback_after_reconnect(tmp_path, monkeypatch):
+    # After the reconnect for chunk 1, the replacement connection sees a
+    # statement cancel on the next attempt and is rolled back; its session
+    # configuration was committed, so it is still in force for the retry.
+    reads: list[int] = []
+    identity, probe = _scoring_fixture(monkeypatch, reads)
+    dropped = psycopg.OperationalError('server closed the connection unexpectedly')
+    cancelled = psycopg.errors.QueryCanceled('canceling statement due to statement timeout')
+    factory = _FlakyConnectionFactory({1: [dropped, cancelled]})
+    factory.wrap_probe(probe)
+    exit_code, receipt = complete.run_complete(
+        factory.connect(), _args(tmp_path), f2d_identity=identity,
+        reconnect=factory.connect, sleep=lambda _s: None,
+    )
+    assert exit_code == 0
+    assert complete.validate_complete_receipt(receipt) is receipt
+    replacement = factory.created[1]
+    configured_at = next(
+        i for i, s in enumerate(replacement.statements)
+        if "'plan_cache_mode','force_custom_plan'" in s
+    )
+    # The configuration commit happened before any chunk statement and before
+    # the rollback that followed the cancel: commit (configure), rollback
+    # (cancel), commit (chunk 1 scored).
+    assert replacement.commit_marks[0] == configured_at + 1
+    assert [kind for index, kind in factory.events if index == 1] == ['commit', 'rollback', 'commit']
+    assert factory.rollbacks == 1
+    assert reads == [0, 1]
+
+
+def test_reconnect_failures_count_against_the_chunk_retry_budget(tmp_path, monkeypatch):
+    reads: list[int] = []
+    identity, probe = _scoring_fixture(monkeypatch, reads)
+    dropped = psycopg.OperationalError('server closed the connection unexpectedly')
+    factory = _FlakyConnectionFactory({1: [dropped]})
+    factory.wrap_probe(probe)
+    connect_errors = [psycopg.OperationalError('connection refused')]
+    real_connect = factory.connect
+
+    def reconnect():
+        if connect_errors:
+            raise connect_errors.pop(0)
+        return real_connect()
+
+    # One failed reconnect, then success: the run completes.
+    exit_code, receipt = complete.run_complete(
+        factory.connect(), _args(tmp_path / 'ok'), f2d_identity=identity,
+        reconnect=reconnect, sleep=lambda _s: None,
+    )
+    assert exit_code == 0
+    assert complete.validate_complete_receipt(receipt) is receipt
+
+    # Every reconnect failing exhausts the per-chunk budget and keeps the
+    # chunk ordinal, instead of escaping as a bare connection error.
+    reads.clear()
+    factory = _FlakyConnectionFactory({1: [psycopg.OperationalError('dropped')]})
+    factory.wrap_probe(probe)
+
+    def always_refused():
+        raise psycopg.OperationalError('connection refused')
+
+    with pytest.raises(complete.ChunkReadError) as caught:
+        complete.run_complete(
+            factory.connect(), _args(tmp_path / 'refused'), f2d_identity=identity,
+            reconnect=always_refused, sleep=lambda _s: None,
+        )
+    assert caught.value.ordinal == 1
+    assert 'connection refused' in str(caught.value.cause)
+
+
+def test_action_refusal_inside_a_command_substitution_still_prints_its_line(tmp_path):
+    '''The "two API slots" refusal is raised inside api="$(active_api_container)".'''
+    import os
+    import shutil
+    import subprocess
+    import textwrap
+
+    from scripts.operator.lib import f2d_operator_identity
+
+    source_sha = hashlib.sha1(str(tmp_path).encode()).hexdigest()
+    stage = Path(f'/var/tmp/edfinder-v3-archetype-complete-{source_sha}')
+    stage.mkdir(mode=0o700)
+    try:
+        for entry in f2d_operator_identity.manifest_entries(ROOT):
+            if entry.startswith('requirement:'):
+                continue
+            destination = stage / entry
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / entry, destination)
+        (stage / '.v3-archetype-complete-source-sha').write_text(f'{source_sha}\n')
+        (stage / '.v3-probe-wheelhouse').mkdir()
+        identity = compute_operator_code_sha256(stage)
+
+        fake_bin = tmp_path / 'bin'
+        fake_bin.mkdir()
+        (fake_bin / 'hostname').write_text(
+            '#!/bin/sh\nif [ "${1:-}" = "-f" ]; then echo nb79a3d.mevnode.com; else echo ed-finder-prod; fi\n'
+        )
+        (fake_bin / 'python3.14').write_text('#!/bin/sh\nexec "$TEST_PYTHON_BIN" "$@"\n')
+        (fake_bin / 'docker').write_text(textwrap.dedent('''\
+            #!/usr/bin/env python3
+            import json, sys
+            args = sys.argv[1:]
+            joined = " ".join(args)
+            if "derived_generation_purge_event" in joined:
+                print(json.dumps({"database": "edfinder_v3_phase4c_full_20260827_r5",
+                    "read_only": "on", "ledger_present": True, "unresolved": []}))
+                raise SystemExit(0)
+            if args[:2] == ["context", "show"]:
+                print("default"); raise SystemExit(0)
+            if args[:3] == ["context", "inspect", "default"]:
+                print('{"Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}'); raise SystemExit(0)
+            if args[:1] == ["inspect"]:
+                if "edfinder-v3-archetype-calibration-complete" in joined:
+                    raise SystemExit(1)  # no worker yet
+                if "State.Running" in joined:
+                    print("true")
+                elif "com.docker.compose.service" in joined:
+                    print("api-blue" if "api-active" in joined else "api-green")
+                else:
+                    print("{}")
+                raise SystemExit(0)
+            if args[:1] == ["ps"]:
+                print("api-active"); print("api-other"); raise SystemExit(0)
+            if args[:1] == ["exec"] and "current_derived_generation" in joined:
+                print("ratings_v4_prod_p4_parallel_v1\\tcfc25d36-3bc7-4011-a465-d6460eaaf826\\tPUBLISHED\\t1\\ttrue")
+                raise SystemExit(0)
+            raise SystemExit(2)
+        '''))
+        for name in ('hostname', 'python3.14', 'docker'):
+            (fake_bin / name).chmod(0o755)
+        home = tmp_path / 'home'
+        home.mkdir()
+        env = os.environ.copy()
+        env.update({
+            'PATH': f'{fake_bin}{os.pathsep}{env.get("PATH", "")}',
+            'HOME': str(home),
+            'TEST_PYTHON_BIN': sys.executable,
+            'F2D_OPERATOR_CODE_SHA256_ATTESTED': identity,
+        })
+        result = subprocess.run(
+            ['bash', str(stage / 'scripts/operator/actions/v3-archetype-calibration-complete.sh'),
+             'start', str(stage), source_sha],
+            cwd=stage, env=env, capture_output=True, text=True, check=False,
+        )
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    assert result.returncode == 64, result.stderr
+    assert 'expected exactly one running production API slot, found 2' in result.stderr
+    line = json.loads(result.stdout.strip().splitlines()[-1])
+    assert line['status'] == 'stopped'
+    assert line['failures'] == ['expected_exactly_one_running_production_API_slot_found_2']
