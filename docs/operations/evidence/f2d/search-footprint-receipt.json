@@ -1,0 +1,144 @@
+{
+  "capacity_gate_eligible": true,
+  "content_sha256": "4ab125a1bb6b57ee244189becc35d4874aeb08093dd1b9b8be20c9e7ba52d579",
+  "distribution_source": "declared-synthetic-text-v1",
+  "f2d_operator_code_sha256": "c26d23d08f9f8659e05ec2f5490e7780e0c7047ef2165b2563c39a9b3a4d6279",
+  "fixed": {
+    "heap_bytes": 48193536,
+    "index_bytes": 110198784,
+    "toast_bytes": 49152,
+    "total_bytes": 158441472
+  },
+  "measured_010_delta_bytes_per_row": 83,
+  "migration_004_sha256": "e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2",
+  "migration_010_sha256": "a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf",
+  "migrations_applied": {
+    "post010": [
+      [
+        "sql/v3/migrations/001_v3_baseline.sql",
+        "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e"
+      ],
+      [
+        "sql/v3/migrations/002_v3_accounts_identity.sql",
+        "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"
+      ],
+      [
+        "sql/r1_v3/001_structural_shell.sql",
+        "1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40"
+      ],
+      [
+        "sql/v3/migrations/003_ratings_v4_derived.sql",
+        "c7818f98ad00b4b99b7ce0f7c3fa12ece555e59e761b7b1ca15d437a39c499cb"
+      ],
+      [
+        "sql/v3/migrations/004_v3_search_spatial_clusters.sql",
+        "e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2"
+      ],
+      [
+        "sql/v3/migrations/005_v3_journal_intelligence.sql",
+        "e5c853bcc35da054aff67356a95cbe3d668f6bf2dd1d97b497b9ba7d8cae02ac"
+      ],
+      [
+        "sql/v3/migrations/006_v3_derived_product_lifecycle.sql",
+        "85f38fe5f0251bf3d5f81485a8a5b7de439750b4cc12ef9449755454898767f4"
+      ],
+      [
+        "sql/v3/migrations/008_v3_journal_commander_ownership.sql",
+        "bfb2456cc89cdd389ea5edca55c211e849664f2303b9805cfc5dfa23df3f6d7c"
+      ],
+      [
+        "sql/v3/migrations/009_v3_journal_galaxy_contributions.sql",
+        "d7fa24abff95a91ee81a11493681f6df60b20bbb3840314c3fabb04b59532861"
+      ],
+      [
+        "sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql",
+        "5ca6a12e969392fe9562e7b2217d77988f4f2b27258ffa84845cb2c5314680ee"
+      ],
+      [
+        "sql/v3/migrations/014_v3_watchlist.sql",
+        "6b189f5714c305ccd750c1c3af8a4d2741f1f7c5063ab663af55f575dc15bfe6"
+      ],
+      [
+        "sql/v3/migrations/010_v3_system_search_body_type_counts.sql",
+        "a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf"
+      ]
+    ],
+    "pre010": [
+      [
+        "sql/v3/migrations/001_v3_baseline.sql",
+        "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e"
+      ],
+      [
+        "sql/v3/migrations/002_v3_accounts_identity.sql",
+        "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"
+      ],
+      [
+        "sql/r1_v3/001_structural_shell.sql",
+        "1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40"
+      ],
+      [
+        "sql/v3/migrations/003_ratings_v4_derived.sql",
+        "c7818f98ad00b4b99b7ce0f7c3fa12ece555e59e761b7b1ca15d437a39c499cb"
+      ],
+      [
+        "sql/v3/migrations/004_v3_search_spatial_clusters.sql",
+        "e1c59def52b6a92a337f1da35c921bd0c135877f7843049ca9dec718aa01a1f2"
+      ],
+      [
+        "sql/v3/migrations/005_v3_journal_intelligence.sql",
+        "e5c853bcc35da054aff67356a95cbe3d668f6bf2dd1d97b497b9ba7d8cae02ac"
+      ],
+      [
+        "sql/v3/migrations/006_v3_derived_product_lifecycle.sql",
+        "85f38fe5f0251bf3d5f81485a8a5b7de439750b4cc12ef9449755454898767f4"
+      ],
+      [
+        "sql/v3/migrations/008_v3_journal_commander_ownership.sql",
+        "bfb2456cc89cdd389ea5edca55c211e849664f2303b9805cfc5dfa23df3f6d7c"
+      ],
+      [
+        "sql/v3/migrations/009_v3_journal_galaxy_contributions.sql",
+        "d7fa24abff95a91ee81a11493681f6df60b20bbb3840314c3fabb04b59532861"
+      ],
+      [
+        "sql/v3/migrations/012_v3_spatial_pyramid_decouple.sql",
+        "5ca6a12e969392fe9562e7b2217d77988f4f2b27258ffa84845cb2c5314680ee"
+      ],
+      [
+        "sql/v3/migrations/014_v3_watchlist.sql",
+        "6b189f5714c305ccd750c1c3af8a4d2741f1f7c5063ab663af55f575dc15bfe6"
+      ]
+    ]
+  },
+  "post010": {
+    "heap_bytes": 56934400,
+    "index_bytes": 124608512,
+    "per_index_bytes": {
+      "system_search_name_lower": 16089088,
+      "system_search_pkey": 8142848,
+      "system_search_position_gist": 98983936,
+      "system_search_region": 1392640
+    },
+    "toast_bytes": 49152,
+    "total_bytes": 181592064
+  },
+  "post010_bytes_per_row": 908,
+  "pre010": {
+    "heap_bytes": 42147840,
+    "index_bytes": 122937344,
+    "per_index_bytes": {
+      "system_search_name_lower": 16089088,
+      "system_search_pkey": 8142848,
+      "system_search_position_gist": 97312768,
+      "system_search_region": 1392640
+    },
+    "toast_bytes": 49152,
+    "total_bytes": 165134336
+  },
+  "pre010_bytes_per_row": 826,
+  "rows": 200000,
+  "schema_version": "ed-finder/v3-search-footprint/v1",
+  "search_fixed_bytes_per_row": 793,
+  "server_version_num": 180006,
+  "text_bytes_seeded": 8905476
+}

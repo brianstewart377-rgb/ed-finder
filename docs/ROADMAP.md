@@ -478,8 +478,14 @@ newer dated source wins).
   status run 39311585254 carried the sealed receipt (`content_sha256`
   `2741e831…`, Σ_all 0.5895), committed as
   `docs/operations/evidence/f2d/complete-read-receipt.json` with the sealed
-  owner decision `coefficient-decision.json` (`accepted`). Next: the capacity
-  measurement workflow for the three remaining evidence files, then 7′.
+  owner decision `coefficient-decision.json` (`accepted`). The capacity measurement
+  workflow (run 39322510090, disposable PostgreSQL 18, 200,000 synthetic rows)
+  produced the remaining three evidence files, committed as
+  `calibration-fractions.json` (chained to the receipt's `content_sha256`),
+  `archetype-footprint-receipt.json` (308 fixed bytes/row) and
+  `search-footprint-receipt.json` (83 bytes/row `010` delta), all under the
+  attested identity `c26d23d0…`. All five evidence files are now committed;
+  next: the 7′ gate (`v3-finder-capacity-gate`, read-only).
   The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the

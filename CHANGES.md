@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-19 — F2d capacity-measurement evidence committed
+
+The `V3 Finder capacity measurement` workflow (run 39322510090, disposable
+PostgreSQL 18, 200,000 deterministic synthetic rows per measurement) produced
+the last three step 7′ evidence files, committed under
+`docs/operations/evidence/f2d/`: `calibration-fractions.json` (converted from
+the complete-read receipt `2741e831…`), `archetype-footprint-receipt.json`
+(308 fixed bytes per `system_archetype` row, seal `4b0eef55…`) and
+`search-footprint-receipt.json` (83 bytes per row `010` delta, seal
+`4ab125a1…`). Both footprint receipts are `capacity_gate_eligible` and carry
+the attested operator-code identity `c26d23d0…`. The roadmap and rollout-state
+ledger now point at the 7′ gate as the next step.
+
 > **Current-horizon note (2026-09-05):** dated entries below describe their own
 > repository checkpoint. In particular, the 2026-09-04 foundation entry predates
 > active PR #601. At known PR head
