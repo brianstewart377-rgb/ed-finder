@@ -1,6 +1,7 @@
 """F2c/F3 Task 5: ranking-identity block, confidence/completeness badge, and
-a precise no-legacy static guard for the two repointed V3 Finder endpoints
-(`POST /api/local/search` and `GET /api/archetypes/rankings`).
+a precise no-legacy static guard for the repointed V3 Finder endpoints
+(`POST /api/local/search`, `GET /api/archetypes/rankings`, and since F3
+slice 2 the whole `routers/archetypes.py` module).
 
 Mirrors tests/test_local_search_v3.py's and tests/test_archetype_rankings_v3.py's
 fixture/harness pattern: a disposable PG18 database built with
@@ -10,6 +11,7 @@ same base Ratings V4 generation, then published so `v3_app.*` exposes them.
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import os
 from pathlib import Path
@@ -41,6 +43,7 @@ from edfinder_api.ranking.profile import (  # noqa: E402
     RANKING_VERSION,
     ranking_sha256,
 )
+from edfinder_api.ranking import rerank as rerank_module  # noqa: E402
 from edfinder_api.routers import archetypes  # noqa: E402
 from edfinder_api.routers import search as search_router  # noqa: E402
 
@@ -353,22 +356,27 @@ async def test_all_ranked_envelopes_distinguish_exact_cap_from_sentinel(database
         await pool.close()
 
 
+_FORBIDDEN_LEGACY_TERMS = (
+    'mv_archetype_rankings',
+    'system_archetype_scores',
+    'system_archetype_traits',
+    'system_slot_topology',
+    'economy_pair_synergy',
+    'body_scan_facts',
+    ' from systems ',
+    ' from ratings ',
+    ' from bodies',
+    'public.',
+)
+
+
 def test_no_legacy_relation_scoped_to_v3_ranking_paths():
     """Precise static guard, scoped via `inspect.getsource` to only the exact
-    V3 ranking-identity functions this task touches -- deliberately NOT the
-    whole module, which still legitimately contains legacy strings in
-    untouched functions (`local_db_search`, `local_db_galaxy_search`,
-    `local_db_cluster_search`, `local_db_system`, and archetypes.py's
-    `/rerank`, `/system/{id64}`, `/simulate` routes)."""
-    forbidden = (
-        'mv_archetype_rankings',
-        'system_archetype_scores',
-        'system_archetype_traits',
-        ' from systems ',
-        ' from ratings ',
-        'public.',
-    )
-
+    V3 ranking-identity functions in `local_search`/`search` -- deliberately
+    NOT the whole `local_search` module, which still legitimately contains
+    legacy strings in untouched functions (`local_db_search`,
+    `local_db_galaxy_search`, `local_db_cluster_search`, `local_db_system`).
+    The archetypes router is covered whole by the test below."""
     scoped_functions = (
         local_search.local_db_search_v3,
         local_search._current_derived_generation,
@@ -380,10 +388,15 @@ def test_no_legacy_relation_scoped_to_v3_ranking_paths():
         archetypes.get_archetype_rankings,
         archetypes._system_archetype_explanation_v3,
         archetypes.get_system_archetype_explanation,
+        archetypes._read_system_archetype_rows,
+        archetypes._archetype_rerank_v3,
+        archetypes._system_archetype_v3,
+        archetypes._build_simulate_v3,
+        rerank_module.build_system_archetype_detail_query,
     )
     for fn in scoped_functions:
         src = inspect.getsource(fn).lower()
-        for term in forbidden:
+        for term in _FORBIDDEN_LEGACY_TERMS:
             assert term not in src, f'{fn.__qualname__} unexpectedly contains {term!r}'
 
     # Sanity: prove the assertion set is not vacuous -- the untouched legacy
@@ -393,13 +406,27 @@ def test_no_legacy_relation_scoped_to_v3_ranking_paths():
     legacy_src = inspect.getsource(local_search._build_local_search_sql).lower()
     assert 'from systems' in legacy_src
     assert 'join ratings' in legacy_src
-    # SlowAPI's decorated callable does not reliably retain the complete
-    # function source under Python 3.14 (`inspect.getsource` can return only a
-    # decorator argument). The module text is sufficient for this deliberately
-    # broad sanity check; the actual no-legacy guard above remains precisely
-    # function-scoped.
-    legacy_archetypes_src = (
-        ROOT / 'apps/api/src/routers/archetypes.py'
-    ).read_text().lower()
-    assert 'system_archetype_scores' in legacy_archetypes_src
-    assert 'system_archetype_traits' in legacy_archetypes_src
+
+
+def test_archetypes_router_has_no_legacy_relation_in_any_string_literal():
+    """F3 slice 2 retired the last legacy reads from `routers/archetypes.py`
+    (`/rerank`, `/system/{id64}`, `/simulate`). Walk every string constant in
+    the module (SQL text lives in string literals) except the module docstring,
+    which may name the retired relations when describing their retirement.
+    Comments are not AST nodes and are likewise free to describe history."""
+    source = (ROOT / 'apps/api/src/routers/archetypes.py').read_text()
+    tree = ast.parse(source)
+    docstring = ast.get_docstring(tree, clean=False)
+    literals = [
+        node.value.lower()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and node.value != docstring
+    ]
+    assert any('v3_app.system_archetype' in literal for literal in literals)
+    for literal in literals:
+        for term in _FORBIDDEN_LEGACY_TERMS:
+            assert term not in literal, f'archetypes.py literal contains {term!r}: {literal[:80]!r}'
+    # The module text itself must not reference the legacy Redis cache keys
+    # either -- every slice-2 response is pinned to its own generation snapshot.
+    assert 'arch:v' not in source and 'arch:profiles' not in source and 'arch:rerank' not in source

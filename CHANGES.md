@@ -34,6 +34,60 @@ ledger now point at the 7′ gate as the next step.
 
 ---
 
+## 2026-10-19 — F3 slice 2: `/rerank`, `/system/{id64}`, `/simulate`, `/profiles` on the V3 projections
+
+`apps/api/src/routers/archetypes.py` now reads only the published V3
+`v3_app.system_search` / `v3_app.system_archetype` projections. The last four
+legacy V2 routes were repointed the way slice 1 (#777) repointed
+`/api/local/search` and `/api/archetypes/rankings`: one REPEATABLE READ
+snapshot per request that resolves the published generation through
+`local_search._current_derived_generation` (404 with no PUBLISHED generation;
+503 until both Finder products are READY and published, migration 015's
+product gate) and then reads the wide archetype row (migration 011) through a
+new pure, parameterized builder in `apps/api/src/ranking/rerank.py`. Every
+request shape is validated before any database access so a 422 is never
+masked by that 503. The Redis cache layer, `mv_archetype_rankings`,
+`system_archetype_scores`, `system_archetype_traits`, `systems`,
+`system_slot_topology`, `economy_pair_synergy`, `body_scan_facts` and
+`bodies` references are gone from the router; a static test walks every string
+literal in the module to keep it that way.
+
+Response and request shapes changed where the legacy fields had no V3
+projection (flagged, not null-degraded, per the F2c/F3 design):
+
+- `POST /api/archetypes/rerank` blends the eight V3 archetype fits.
+  `ArchetypeRerankWeights` is one weight per V3 key (the legacy
+  `purity`/`buildability`/`slots`/`expansion`/`logistics` dimensions are
+  rejected); `archetype` takes the V3 keys; `reranked_score` is the blend of
+  the stored `score x confidence x completeness` keys, normalised by the
+  weight sum, ordered DESC then `system_id64`; rows carry `tier`,
+  `original_score`, `confidence`, `completeness`, `primary_archetype`,
+  `secondary_archetype` and no `rationale`; the envelope adds
+  `missing_id64s` and the `ranking` identity block. An unknown `profile` is
+  422, not a silent fallback.
+- `GET /api/archetypes/system/{id64}` returns the wide row (all eight fits
+  with stored tier/confidence/weighted key), the summary, the search evidence
+  badge and a `facts` block; the V2-only `topology`, `economy_pairs`, `tags`,
+  buildability/purity/contamination fields are retired. `id64` is
+  path-bounded to a non-negative bigint. Explanations stay on the sibling
+  `/system/{id64}/explanation` route.
+- `POST /api/archetypes/simulate` scores the planned V3 archetype from its
+  stored fit; `contamination_risk`/`purity_score`/`buildability_score` are
+  retired and the `disclaimer` states that no V3 projection carries them.
+- `GET /api/archetypes/profiles` is one single-archetype preset per V3 key plus
+  `generalist`, derived from `ARCHETYPE_KEYS`.
+
+The rerank blend is deliberately outside the hashed ranking-profile identity
+(weights are per request), so `ranking_sha256` is unchanged and the deployed-
+image attestation in `deploy/v3-production/target-authority.json` still
+matches; a test pins that. Generated TypeScript clients
+(`apps/web/src/lib/api/generated/`, `packages/api-client/src/generated/`) are
+regenerated and `packages/api-client` `DEFAULT_WEIGHTS` moves to the V3 equal
+blend. Tests: `tests/test_ranking_rerank.py` (pure),
+`tests/test_archetype_slice2_v3.py` (PG18 fixture lane), the no-legacy guard
+extended to the whole router, and the integration rerank tests now skip in the
+V2-only lane via `v3_derived_ready`. Operator code and the ranking profile are
+untouched.
 ## 2026-10-19 — DB lanes can no longer pass with zero tests run; known test flakes fixed
 
 Test hygiene only; no application, migration or operator-script change (the

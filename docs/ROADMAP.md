@@ -139,9 +139,12 @@ newer dated source wins).
   (`sha256:1c390ac27a34261ca0aad0e411cf260fe99a30896a45926381a87e5516ae32d9`).
 - **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
   divergence report), then **F3** (point the Finder search/ranking API at the V3
-  projections and retire the legacy relations — `apps/api/src/routers/archetypes.py`
-  still queries `mv_archetype_rankings` / `system_archetype_scores` / `systems`,
-  not `v3_derived.system_archetype`), then the **governed production run** that
+  projections and retire the legacy relations — slice 1 (#777) repointed
+  `/api/local/search` and `/api/archetypes/rankings`; slice 2 repointed
+  `/rerank`, `/system/{id64}`, `/simulate` and `/profiles`, so
+  `apps/api/src/routers/archetypes.py` reads only `v3_app.system_search` /
+  `v3_app.system_archetype` and no longer references `mv_archetype_rankings` /
+  `system_archetype_scores` / `systems`), then the **governed production run** that
   builds the `system_archetype` product to READY and **publishes the owning
   derived generation** (`v3_meta.publish_derived_generation`; a product's own
   lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the

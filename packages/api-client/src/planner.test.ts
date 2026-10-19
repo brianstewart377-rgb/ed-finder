@@ -307,7 +307,7 @@ describe('planner API request body contracts', () => {
     const fetchMock = stubFetch();
     const request: DevelopmentRerankRequest = {
       id64s: [SYSTEM_ID64],
-      archetype: 'trade_logistics',
+      archetype: 'manufacturing_hub',
       profile: null,
     };
 

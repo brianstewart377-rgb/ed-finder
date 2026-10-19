@@ -6,6 +6,8 @@ export type ClientOptions = {
 
 /**
  * ArchetypeProfile
+ *
+ * One static preset rerank blend (F3 slice 2: V3 archetype keys only).
  */
 export type ArchetypeProfile = {
     /**
@@ -23,9 +25,8 @@ export type ArchetypeProfile = {
     /**
      * Archetype
      */
-    archetype?: string | null;
+    archetype?: 'paradise' | 'mining_hub' | 'manufacturing_hub' | 'megacomplex' | 'research_hub' | 'stronghold' | 'population_capital' | 'flexible' | null;
     weights: ArchetypeRerankWeights;
-    [key: string]: unknown;
 };
 
 /**
@@ -162,67 +163,17 @@ export type ArchetypeRankingsResponse = {
 };
 
 /**
- * ArchetypeRationale
- *
- * Structured JSONB rationale for a system's primary archetype.
- * Schema is intentionally flexible (extra='allow') so Frontier
- * mechanic changes can be absorbed without breaking existing consumers.
- */
-export type ArchetypeRationale = {
-    /**
-     * Summary
-     */
-    summary?: string | null;
-    /**
-     * Tier
-     */
-    tier?: 'S' | 'A' | 'B' | 'C' | 'D' | null;
-    /**
-     * Headline
-     */
-    headline?: string | null;
-    /**
-     * Positives
-     */
-    positives?: Array<string>;
-    /**
-     * Risks
-     */
-    risks?: Array<string>;
-    /**
-     * Complexity
-     */
-    complexity?: string | null;
-    /**
-     * Build Path
-     */
-    build_path?: string | null;
-    /**
-     * Tags
-     */
-    tags?: Array<string>;
-    score_breakdown?: ArchetypeScoreBreakdown | null;
-    /**
-     * Data Confidence
-     */
-    data_confidence?: number | null;
-    /**
-     * Canonical Confidence
-     */
-    canonical_confidence?: {
-        [key: string]: unknown;
-    } | null;
-    [key: string]: unknown;
-};
-
-/**
  * ArchetypeRerankRequest
  *
- * Rerank a set of systems by custom archetype weights.
+ * Rerank a set of systems by a client-weighted blend of their stored V3
+ * archetype fits (F3 slice 2).
  *
- * Either provide explicit weights OR a profile ID.
- * If both are given, the profile takes precedence.
- * If neither, default ArchetypeRerankWeights are applied.
+ * Weight resolution order: `profile` (a preset from
+ * `GET /api/archetypes/profiles`; unknown ids are rejected with 422), then
+ * explicit `weights`, then -- when only `archetype` is given -- a blend that
+ * weights that archetype alone, else the generalist equal blend.
+ * `archetype` also selects which raw stored score `original_score` reports
+ * (default: the summary `best_colony_potential`).
  */
 export type ArchetypeRerankRequest = {
     /**
@@ -232,7 +183,7 @@ export type ArchetypeRerankRequest = {
     /**
      * Archetype
      */
-    archetype?: 'refinery_industrial' | 'extraction_refinery' | 'agriculture_terraforming' | 'hitech_tourism' | 'expansion_capital' | 'trade_logistics' | 'population_capital' | 'ax_forward_base' | 'military_industrial' | 'flexible_multirole' | null;
+    archetype?: 'paradise' | 'mining_hub' | 'manufacturing_hub' | 'megacomplex' | 'research_hub' | 'stronghold' | 'population_capital' | 'flexible' | null;
     weights?: ArchetypeRerankWeights | null;
     /**
      * Profile
@@ -258,13 +209,27 @@ export type ArchetypeRerankResponse = {
      */
     results: Array<ArchetypeRerankRow>;
     /**
+     * Missing Id64S
+     */
+    missing_id64s?: Array<number>;
+    /**
      * Query Ms
      */
     query_ms?: number | null;
+    ranking: RankingIdentity;
 };
 
 /**
  * ArchetypeRerankRow
+ *
+ * One reranked system.
+ *
+ * `reranked_score` is the blend of the stored uncertainty-modified keys
+ * (`score x confidence x completeness`, see `ranking.rerank`) on the 0..100
+ * scale and is the ordering key; `tier` is derived from it. `original_score`
+ * is the raw stored score the request's `archetype` selects (or the summary
+ * `best_colony_potential`). V3 stores no rationale; explanations are served
+ * by `GET /api/archetypes/system/{id64}/explanation`.
  */
 export type ArchetypeRerankRow = {
     /**
@@ -276,6 +241,10 @@ export type ArchetypeRerankRow = {
      */
     reranked_score: number;
     /**
+     * Tier
+     */
+    tier: 'S' | 'A' | 'B' | 'C' | 'D';
+    /**
      * Original Score
      */
     original_score?: number | null;
@@ -283,56 +252,76 @@ export type ArchetypeRerankRow = {
      * Confidence
      */
     confidence?: number | null;
-    rationale?: ArchetypeRationale | null;
-    [key: string]: unknown;
+    /**
+     * Completeness
+     */
+    completeness?: number | null;
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
 };
 
 /**
  * ArchetypeRerankWeights
  *
- * Weight dimensions for archetype-based reranking.
- * All weights should sum to ~1.0 but are not enforced to do so
- * (allows intentional emphasis on a single dimension).
+ * Per-archetype blend weights for `POST /api/archetypes/rerank` (F3 slice 2).
  *
- * Default profile: balanced across purity, buildability, slots, expansion, logistics.
+ * One weight per V3 archetype key, each in [0, 1]; at least one must be
+ * greater than zero. The blend is normalised by the weight sum, so the
+ * weights need not sum to 1.0 and a single non-zero weight reranks by
+ * that archetype alone. The default is the generalist (equal) blend.
+ *
+ * The legacy five V2 dimensions (`purity`, `buildability`, `slots`,
+ * `expansion`, `logistics`) have no V3 projection and are retired.
  */
 export type ArchetypeRerankWeights = {
     /**
-     * Purity
-     *
-     * Clean economy stack, low contamination
+     * Paradise
      */
-    purity?: number;
+    paradise?: number;
     /**
-     * Buildability
-     *
-     * Ease of build, CP efficiency, T3 scaling
+     * Mining Hub
      */
-    buildability?: number;
+    mining_hub?: number;
     /**
-     * Slots
-     *
-     * Total slot count and topology quality
+     * Manufacturing Hub
      */
-    slots?: number;
+    manufacturing_hub?: number;
     /**
-     * Expansion
-     *
-     * Overall development potential, growth headroom
+     * Megacomplex
      */
-    expansion?: number;
+    megacomplex?: number;
     /**
-     * Logistics
-     *
-     * Distance from hub, scoopable star accessibility
+     * Research Hub
      */
-    logistics?: number;
+    research_hub?: number;
+    /**
+     * Stronghold
+     */
+    stronghold?: number;
+    /**
+     * Population Capital
+     */
+    population_capital?: number;
+    /**
+     * Flexible
+     */
+    flexible?: number;
 };
 
 /**
  * ArchetypeScore
  *
- * One archetype entry inside SystemArchetypeResponse.archetypes.
+ * One stored V3 archetype fit inside SystemArchetypeResponse.archetypes.
+ *
+ * Read verbatim from the published wide row (migration 011). The on-demand,
+ * version-gated explanation lives at `GET /api/archetypes/system/{id64}/
+ * explanation`; no rationale or stored explanation exists in V3.
  */
 export type ArchetypeScore = {
     /**
@@ -347,45 +336,14 @@ export type ArchetypeScore = {
      * Label
      */
     label: string;
-    rationale?: ArchetypeRationale | null;
     /**
-     * Rank Global
+     * Confidence
      */
-    rank_global?: number | null;
-    [key: string]: unknown;
-};
-
-/**
- * ArchetypeScoreBreakdown
- *
- * Per-component score decomposition for a single archetype.
- */
-export type ArchetypeScoreBreakdown = {
+    confidence: number;
     /**
-     * Body Composition
+     * Weighted E4
      */
-    body_composition?: number | null;
-    /**
-     * Topology
-     */
-    topology?: number | null;
-    /**
-     * Pair Synergy Pts
-     */
-    pair_synergy_pts?: number | null;
-    /**
-     * Purity Factor
-     */
-    purity_factor?: number | null;
-    /**
-     * Contamination Risk
-     */
-    contamination_risk?: number | null;
-    /**
-     * Diversity Factor
-     */
-    diversity_factor?: number | null;
-    [key: string]: unknown;
+    weighted_e4: number;
 };
 
 /**
@@ -850,7 +808,7 @@ export type BuildSimulateRequest = {
     /**
      * Planned Archetype
      */
-    planned_archetype: 'refinery_industrial' | 'extraction_refinery' | 'agriculture_terraforming' | 'hitech_tourism' | 'expansion_capital' | 'trade_logistics' | 'population_capital' | 'ax_forward_base' | 'military_industrial' | 'flexible_multirole';
+    planned_archetype: 'paradise' | 'mining_hub' | 'manufacturing_hub' | 'megacomplex' | 'research_hub' | 'stronghold' | 'population_capital' | 'flexible';
     /**
      * Planned Facilities
      */
@@ -859,6 +817,13 @@ export type BuildSimulateRequest = {
 
 /**
  * BuildSimulateResponse
+ *
+ * Build simulation against the published V3 archetype fit (F3 slice 2).
+ *
+ * `simulation_score` is the system's stored fit for `planned_archetype`.
+ * The legacy `contamination_risk`, `purity_score` and `buildability_score`
+ * estimates have no V3 projection and are retired; `disclaimer` states
+ * that gap on every response.
  */
 export type BuildSimulateResponse = {
     /**
@@ -874,17 +839,29 @@ export type BuildSimulateResponse = {
      */
     simulation_score: number;
     /**
-     * Contamination Risk
+     * Tier
      */
-    contamination_risk?: number | null;
+    tier: 'S' | 'A' | 'B' | 'C' | 'D';
     /**
-     * Purity Score
+     * Confidence
      */
-    purity_score?: number | null;
+    confidence: number;
     /**
-     * Buildability Score
+     * Completeness
      */
-    buildability_score?: number | null;
+    completeness: number;
+    /**
+     * Primary Archetype
+     */
+    primary_archetype: string;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Best Colony Potential
+     */
+    best_colony_potential: number;
     /**
      * Recommendations
      */
@@ -892,7 +869,8 @@ export type BuildSimulateResponse = {
     /**
      * Disclaimer
      */
-    disclaimer?: string | null;
+    disclaimer: string;
+    ranking: RankingIdentity;
 };
 
 /**
@@ -1747,35 +1725,6 @@ export type DerivedFeatureResponse = {
      * Updated At
      */
     updated_at?: string | null;
-};
-
-/**
- * EconomyPairDetail
- *
- * One economy pair synergy entry inside SystemArchetypeResponse.
- */
-export type EconomyPairDetail = {
-    /**
-     * Economy A
-     */
-    economy_a: string;
-    /**
-     * Economy B
-     */
-    economy_b: string;
-    /**
-     * Synergy Score
-     */
-    synergy_score: number;
-    /**
-     * Purity Achievable
-     */
-    purity_achievable?: number | null;
-    /**
-     * Contamination Paths
-     */
-    contamination_paths?: Array<unknown>;
-    [key: string]: unknown;
 };
 
 /**
@@ -7109,9 +7058,81 @@ export type SystemArchetypeExplanationSummary = {
 };
 
 /**
+ * SystemArchetypeFacts
+ *
+ * The `v3_app.system_search` facts carried by SystemArchetypeResponse.
+ */
+export type SystemArchetypeFacts = {
+    /**
+     * Body Count
+     */
+    body_count: number;
+    /**
+     * Landable Count
+     */
+    landable_count: number;
+    /**
+     * Station Count
+     */
+    station_count: number;
+    /**
+     * Has Rings
+     */
+    has_rings: boolean;
+    /**
+     * Has Biologicals
+     */
+    has_biologicals: boolean;
+    /**
+     * Has Geologicals
+     */
+    has_geologicals: boolean;
+    /**
+     * Has Terraformable
+     */
+    has_terraformable: boolean;
+    /**
+     * Elw Count
+     */
+    elw_count?: number | null;
+    /**
+     * Ww Count
+     */
+    ww_count?: number | null;
+    /**
+     * Terraformable Count
+     */
+    terraformable_count?: number | null;
+    /**
+     * Gas Giant Count
+     */
+    gas_giant_count?: number | null;
+    /**
+     * Ring Count
+     */
+    ring_count?: number | null;
+    /**
+     * Bio Signal Total
+     */
+    bio_signal_total?: number | null;
+    /**
+     * Geo Signal Total
+     */
+    geo_signal_total?: number | null;
+};
+
+/**
  * SystemArchetypeResponse
  *
- * Full archetype breakdown for one system.
+ * Full V3 archetype breakdown for one system (F3 slice 2).
+ *
+ * Generation-pinned read of `v3_app.system_search` + the published
+ * `v3_app.system_archetype` wide row. The legacy V2 fields with no V3
+ * projection -- `buildability_score`, `build_complexity`, `cp_efficiency`,
+ * `t3_scaling_viability`, `slot_efficiency`, `purity_score`,
+ * `contamination_risk`, `stable_top_two_prob`, `topology`, `economy_pairs`
+ * and `tags` -- are retired rather than returned as permanent nulls; a later
+ * derived product may restore slot/topology detail.
  */
 export type SystemArchetypeResponse = {
     /**
@@ -7122,15 +7143,23 @@ export type SystemArchetypeResponse = {
      * Name
      */
     name: string;
-    coords?: CoordsModel | null;
+    coords: CoordsModel;
     /**
      * Distance To Sol
      */
-    distance_to_sol?: number | null;
+    distance_to_sol: number;
     /**
-     * Main Star Type
+     * Main Star Class
      */
-    main_star_type?: string | null;
+    main_star_class?: string | null;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    /**
+     * Galaxy Region
+     */
+    galaxy_region?: string | null;
     /**
      * Archetypes
      */
@@ -7140,7 +7169,7 @@ export type SystemArchetypeResponse = {
     /**
      * Primary Archetype
      */
-    primary_archetype?: string | null;
+    primary_archetype: string;
     /**
      * Secondary Archetype
      */
@@ -7148,60 +7177,33 @@ export type SystemArchetypeResponse = {
     /**
      * Archetype Confidence
      */
-    archetype_confidence?: number | null;
+    archetype_confidence: number;
     /**
      * Overall Development Potential
      */
-    overall_development_potential?: number | null;
+    overall_development_potential: number;
     /**
-     * Buildability Score
+     * Best Tier
      */
-    buildability_score?: number | null;
+    best_tier: 'S' | 'A' | 'B' | 'C' | 'D';
     /**
-     * Build Complexity
+     * Weighted Potential
      */
-    build_complexity?: string | null;
-    /**
-     * Cp Efficiency
-     */
-    cp_efficiency?: number | null;
-    /**
-     * T3 Scaling Viability
-     */
-    t3_scaling_viability?: number | null;
-    /**
-     * Slot Efficiency
-     */
-    slot_efficiency?: number | null;
-    /**
-     * Purity Score
-     */
-    purity_score?: number | null;
-    /**
-     * Contamination Risk
-     */
-    contamination_risk?: number | null;
-    /**
-     * Stable Top Two Prob
-     */
-    stable_top_two_prob?: number | null;
+    weighted_potential: number;
     /**
      * Confidence
      */
-    confidence?: number | null;
-    topology?: TopologyDetail | null;
+    confidence: number;
     /**
-     * Economy Pairs
+     * Completeness
      */
-    economy_pairs?: Array<EconomyPairDetail>;
-    /**
-     * Tags
-     */
-    tags?: Array<string>;
+    completeness: number;
+    facts: SystemArchetypeFacts;
     /**
      * Query Ms
      */
     query_ms?: number | null;
+    ranking: RankingIdentity;
 };
 
 /**
@@ -7789,63 +7791,6 @@ export type TopologyContextResponse = {
      * Slot Confidence
      */
     slot_confidence?: number;
-    [key: string]: unknown;
-};
-
-/**
- * TopologyDetail
- *
- * Topology metrics block inside SystemArchetypeResponse.
- */
-export type TopologyDetail = {
-    /**
-     * Estimated Orbital Slots
-     */
-    estimated_orbital_slots?: number | null;
-    /**
-     * Estimated Ground Slots
-     */
-    estimated_ground_slots?: number | null;
-    /**
-     * Estimated Total Slots
-     */
-    estimated_total_slots?: number | null;
-    /**
-     * Strong Link Potential
-     */
-    strong_link_potential?: number | null;
-    /**
-     * Weak Link Stability
-     */
-    weak_link_stability?: number | null;
-    /**
-     * Contamination Risk
-     */
-    contamination_risk?: number | null;
-    /**
-     * Orbital Synergy
-     */
-    orbital_synergy?: number | null;
-    /**
-     * Ground Synergy
-     */
-    ground_synergy?: number | null;
-    /**
-     * Nesting Potential
-     */
-    nesting_potential?: number | null;
-    /**
-     * Build Flexibility
-     */
-    build_flexibility?: number | null;
-    /**
-     * Has Viable Surface Port
-     */
-    has_viable_surface_port?: boolean | null;
-    /**
-     * Has Deep Orbital Anchor
-     */
-    has_deep_orbital_anchor?: boolean | null;
     [key: string]: unknown;
 };
 
@@ -11237,31 +11182,6 @@ export type GetArchetypeRankingsApiArchetypesRankingsGetResponses = {
 
 export type GetArchetypeRankingsApiArchetypesRankingsGetResponse = GetArchetypeRankingsApiArchetypesRankingsGetResponses[keyof GetArchetypeRankingsApiArchetypesRankingsGetResponses];
 
-export type PostArchetypeRerankApiArchetypesRerankPostData = {
-    body: ArchetypeRerankRequest;
-    path?: never;
-    query?: never;
-    url: '/api/archetypes/rerank';
-};
-
-export type PostArchetypeRerankApiArchetypesRerankPostErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type PostArchetypeRerankApiArchetypesRerankPostError = PostArchetypeRerankApiArchetypesRerankPostErrors[keyof PostArchetypeRerankApiArchetypesRerankPostErrors];
-
-export type PostArchetypeRerankApiArchetypesRerankPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: ArchetypeRerankResponse;
-};
-
-export type PostArchetypeRerankApiArchetypesRerankPostResponse = PostArchetypeRerankApiArchetypesRerankPostResponses[keyof PostArchetypeRerankApiArchetypesRerankPostResponses];
-
 export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetData = {
     body?: never;
     path: {
@@ -11304,6 +11224,47 @@ export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetRe
 };
 
 export type GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponse = GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses[keyof GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses];
+
+export type GetProfilesApiArchetypesProfilesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/archetypes/profiles';
+};
+
+export type GetProfilesApiArchetypesProfilesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArchetypesProfilesResponse;
+};
+
+export type GetProfilesApiArchetypesProfilesGetResponse = GetProfilesApiArchetypesProfilesGetResponses[keyof GetProfilesApiArchetypesProfilesGetResponses];
+
+export type PostArchetypeRerankApiArchetypesRerankPostData = {
+    body: ArchetypeRerankRequest;
+    path?: never;
+    query?: never;
+    url: '/api/archetypes/rerank';
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostError = PostArchetypeRerankApiArchetypesRerankPostErrors[keyof PostArchetypeRerankApiArchetypesRerankPostErrors];
+
+export type PostArchetypeRerankApiArchetypesRerankPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArchetypeRerankResponse;
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostResponse = PostArchetypeRerankApiArchetypesRerankPostResponses[keyof PostArchetypeRerankApiArchetypesRerankPostResponses];
 
 export type GetSystemArchetypesApiArchetypesSystemId64GetData = {
     body?: never;
@@ -11359,22 +11320,6 @@ export type PostSimulateApiArchetypesSimulatePostResponses = {
 };
 
 export type PostSimulateApiArchetypesSimulatePostResponse = PostSimulateApiArchetypesSimulatePostResponses[keyof PostSimulateApiArchetypesSimulatePostResponses];
-
-export type GetProfilesApiArchetypesProfilesGetData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/archetypes/profiles';
-};
-
-export type GetProfilesApiArchetypesProfilesGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: ArchetypesProfilesResponse;
-};
-
-export type GetProfilesApiArchetypesProfilesGetResponse = GetProfilesApiArchetypesProfilesGetResponses[keyof GetProfilesApiArchetypesProfilesGetResponses];
 
 export type GetFacilityTemplatesApiFacilityTemplatesGetData = {
     body?: never;

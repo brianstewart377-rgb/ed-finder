@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import inspect
 import os
 from pathlib import Path
 import sys
@@ -43,11 +41,6 @@ from edfinder_api.ranking.profile import (  # noqa: E402
     ranking_sha256,
 )
 from edfinder_api.routers import archetypes  # noqa: E402
-
-
-LEGACY_HANDLER_SHA256 = (
-    "70eb954d12bb320ed211ec160145740d68ee834b942510978e1cbb512eacd8ba"
-)
 
 
 @pytest.fixture
@@ -609,8 +602,3 @@ async def test_publication_mid_request_uses_exactly_one_snapshot(
         ).fetchone()[0]
         == new_generation
     )
-
-
-def test_legacy_system_archetype_handler_is_byte_for_byte_unchanged():
-    source = inspect.getsource(archetypes.get_system_archetypes).encode()
-    assert hashlib.sha256(source).hexdigest() == LEGACY_HANDLER_SHA256
