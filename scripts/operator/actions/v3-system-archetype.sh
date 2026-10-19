@@ -115,7 +115,25 @@ archiver_status() {
   )::text FROM pg_stat_archiver a; COMMIT;"
 }
 
+# The archive target is the rclone mount of the Hetzner Storage Box. With it
+# unmounted an idle server shows no .ready backlog and no archiver failure, so
+# mount presence is required outright (read from the mount table as root; no
+# network probe). The table path is overridable only so tests can stand in.
+ARCHIVE_TARGET_MOUNT="/mnt/ed-storagebox"
+ARCHIVE_TARGET_FSTYPE="fuse.rclone"
+MOUNT_TABLE="${V3_MOUNT_TABLE:-/proc/mounts}"
+archive_target_mounted() {
+  awk -v target="$ARCHIVE_TARGET_MOUNT" -v fstype="$ARCHIVE_TARGET_FSTYPE" \
+    '$2 == target && $3 == fstype { found = 1 } END { print (found ? "true" : "false") }' \
+    "$MOUNT_TABLE" 2>/dev/null || echo false
+}
+
+require_archive_target_mounted() {
+  [ "$(archive_target_mounted)" = "true" ] || fail "wal_archive_target_unmounted"
+}
+
 require_archiver_healthy() {
+  require_archive_target_mounted
   local status verdict
   status="$(archiver_status)" || fail "wal_archiver_query_failed"
   verdict="$("$PYTHON_BIN" - "$ARCHIVER_SILENCE_SECONDS" "$ARCHIVER_WAL_FILE_LIMIT" "$status" <<'PY'
@@ -717,6 +735,7 @@ status_operation() {
   docker ps -a --filter "label=${OPERATION_LABEL}" --format '  {{.Names}}\t{{.Status}}\t{{.Image}}' || true
   printf 'latest_status=%s\n' "$(latest_status)"
   printf 'archiver_status=%s\n' "$(archiver_status)"
+  printf 'archive_target_mounted=%s\n' "$(archive_target_mounted)"
   emit_receipt_status
   if docker inspect "$WORKER" >/dev/null 2>&1; then
     printf 'latest_worker_log_tail:\n'

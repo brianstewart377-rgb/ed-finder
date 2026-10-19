@@ -44,7 +44,10 @@ the state root before `docker rm` and reported by `status`; a failed
 `docker run -d` is guarded so it stops with a receipt (and the created
 container's log) rather than exiting silently under `set -e`; the launch proof
 window is ten minutes (a resume installs wheels and lists ~198k chunks first);
-`start` reads `pg_stat_archiver`, `pg_ls_waldir()` and the archive_status
+`start` requires the Storage Box rclone mount at `/mnt/ed-storagebox` in the
+mount table (`wal_archive_target_unmounted` otherwise; an idle server with the
+target unmounted shows no backlog and no failure), reads `pg_stat_archiver`,
+`pg_ls_waldir()` and the archive_status
 `.ready` backlog (a failed query stops with `wal_archiver_query_failed`; `archive_mode` off or
 an empty `archive_command` stops with `wal_archiving_disabled`) and refuses `wal_archiver_unhealthy` when the archiver is
 failing, or silent for 30 minutes while more than 50 unarchived segments wait

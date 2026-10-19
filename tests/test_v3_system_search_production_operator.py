@@ -246,13 +246,14 @@ def _harness(action: str, extra: str) -> str:
         _function_block(source, name)
         for name in (
             "fail", "preserve_worker_log", "preserved_worker_log_tail",
-            "archiver_status", "require_archiver_healthy",
+            "archiver_status", "archive_target_mounted",
+            "require_archive_target_mounted", "require_archiver_healthy",
         )
     )
     settings = "\n".join(
         line for line in source.splitlines()
-        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "WORKER=", "DB_WRITES_STATE=",
-                            "mark_db_writes_possible()"))
+        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "ARCHIVE_TARGET_", "MOUNT_TABLE=",
+                            "WORKER=", "DB_WRITES_STATE=", "mark_db_writes_possible()"))
     )
     return f"set -uo pipefail\n{settings}\n{functions}\n{extra}\n"
 
@@ -364,6 +365,7 @@ def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_pa
     result = subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, check=False,
         env={**os.environ, "ARCHIVER_FIXTURE": json.dumps(status),
+             "V3_MOUNT_TABLE": str(_mounted_table(tmp_path)),
              "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
     )
     if verdict == "healthy":
@@ -520,6 +522,7 @@ def test_a_failed_archiver_query_stops_with_a_receipt(action, tmp_path):
     result = subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, check=False,
         env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+             "V3_MOUNT_TABLE": str(_mounted_table(tmp_path)),
              "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
     )
     assert result.returncode == 64
@@ -529,3 +532,57 @@ def test_a_failed_archiver_query_stops_with_a_receipt(action, tmp_path):
     assert receipt["failures"] == ["wal_archiver_query_failed"]
     assert receipt["db_writes_performed"] is False
     assert 'status="$(archiver_status)" || fail "wal_archiver_query_failed"' in source
+
+
+def _mounted_table(directory, *, fstype="fuse.rclone", target="/mnt/ed-storagebox"):
+    table = directory / "mounts"
+    table.write_text(
+        "/dev/md1 / ext4 rw 0 0\n"
+        f"storagebox: {target} {fstype} rw,nosuid,nodev,allow_other 0 0\n",
+        encoding="utf-8",
+    )
+    return table
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("table", "mounted"), [
+    ({}, True),
+    ({"fstype": "ext4"}, False),
+    ({"target": "/mnt/other"}, False),
+    (None, False),
+])
+def test_start_requires_the_archive_target_mount(action, table, mounted, tmp_path):
+    # An unmounted Storage Box on an idle server shows no .ready backlog and no
+    # archiver failure, so the archive-push target's mount is required
+    # outright, from the mount table; an end-to-end push probe is out of scope.
+    if table is None:
+        table_path = tmp_path / "missing"
+    else:
+        table_path = _mounted_table(tmp_path, **table)
+    stub = (
+        "db_query() { printf '%s\\n' \"$ARCHIVER_FIXTURE\"; }\n"
+        'PYTHON_BIN="$(command -v python3)"\n'
+        'echo "mounted=$(archive_target_mounted)"\n'
+        "require_archiver_healthy && echo ARCHIVER_OK\n"
+    )
+    healthy = {"archive_mode": "on", "archive_command_set": True, "archiver_failing": False,
+               "seconds_since_last_archived": 5, "wal_unarchived_files": 0}
+    result = subprocess.run(
+        ["bash", "-c", _harness(action, stub)], capture_output=True, text=True, check=False,
+        env={**os.environ, "ARCHIVER_FIXTURE": json.dumps(healthy),
+             "V3_MOUNT_TABLE": str(table_path),
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert f"mounted={'true' if mounted else 'false'}" in result.stdout
+    if mounted:
+        assert result.returncode == 0, result.stderr
+        assert "ARCHIVER_OK" in result.stdout
+    else:
+        assert result.returncode == 64
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["failures"] == ["wal_archive_target_unmounted"]
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    assert 'MOUNT_TABLE="${V3_MOUNT_TABLE:-/proc/mounts}"' in source
+    assert "require_archive_target_mounted\n" in _function_block(source, "require_archiver_healthy")
+    status = source[source.index("status_operation()") : source.index("finalize_operation()")]
+    assert "archive_target_mounted=" in status
