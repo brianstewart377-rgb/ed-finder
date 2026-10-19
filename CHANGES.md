@@ -33,7 +33,8 @@ the worker's clean exit and the READY/VERIFIED product before `VACUUM
 from the rows already fetched) and `--validate` remains for operators. Both
 builders now set `plan_cache_mode=force_custom_plan`, `lock_timeout` 30 s and
 `statement_timeout` 30 min on connect; their failure receipts carry a bounded
-`error_detail` and `sqlstate` (never the DSN); a Search coverage mismatch
+`error_detail` and `sqlstate` with credential-bearing URIs and the live DSN
+redacted (libpq errors can echo the password); a Search coverage mismatch
 prints the ordinal and a bounded sample of uncovered id64s before failing. Both
 actions: `fail()` also emits a stopped operation-result JSON line on stdout
 (the workflow records stdout only), defined before the identity preflight so
@@ -44,7 +45,7 @@ the state root before `docker rm` and reported by `status`; a failed
 container's log) rather than exiting silently under `set -e`; the launch proof
 window is ten minutes (a resume installs wheels and lists ~198k chunks first);
 `start` reads `pg_stat_archiver`, `pg_ls_waldir()` and the archive_status
-`.ready` backlog and refuses `wal_archiver_unhealthy` when the archiver is
+`.ready` backlog (a failed query stops with `wal_archiver_query_failed`) and refuses `wal_archiver_unhealthy` when the archiver is
 failing, or silent for 30 minutes while more than 50 unarchived segments wait
 (never the recycled-segment count), since a build writes hundreds of GB of WAL
 through pgBackRest archive-push; `status` reports the archiver. The Archetype

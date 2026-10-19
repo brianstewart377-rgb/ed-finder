@@ -473,3 +473,33 @@ def test_no_adjacent_duplicate_log_preservation(action):
         lines[i] == "preserve_worker_log" and lines[i + 1] == "preserve_worker_log"
         for i in range(len(lines) - 1)
     )
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_a_failed_archiver_query_stops_with_a_receipt(action, tmp_path):
+    # Under set -e the `status="$(archiver_status)"` assignment exited before
+    # fail() could run; the query is guarded so the stdout receipt names it.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\necho 'psql: connection refused' >&2\nexit 2\n", encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    script = _harness(action, _function_block(source, "db_query") + (
+        'POSTGRES_CONTAINER=c DATABASE_USER=u DATABASE_NAME=d\n'
+        'PYTHON_BIN="$(command -v python3)"\n'
+        "require_archiver_healthy\necho UNREACHABLE\n"
+    ))
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+             "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    assert "UNREACHABLE" not in result.stdout
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["status"] == "stopped"
+    assert receipt["failures"] == ["wal_archiver_query_failed"]
+    assert receipt["db_writes_performed"] is False
+    assert 'status="$(archiver_status)" || fail "wal_archiver_query_failed"' in source

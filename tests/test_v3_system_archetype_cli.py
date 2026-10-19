@@ -412,3 +412,12 @@ def _progress_spy(events):
         return real(connection, generation, manifest_sha, rating_chunks)
 
     return spy
+
+
+def test_failure_receipt_never_carries_a_credential_bearing_dsn(monkeypatch):
+    monkeypatch.setenv('V3_SYSTEM_ARCHETYPE_DATABASE_URL', 'postgresql://user:secret@host/db')
+    error = OSError('connection failed: postgresql://user:secret@host/db (see postgres://u2:p2@h2/d2)')
+    text = json.dumps(builder.failure_receipt(error))
+    assert 'secret' not in text and 'p2' not in text and 'user:' not in text
+    assert text.count('<redacted-dsn>') == 2
+    assert builder.redact_credentials('plain text', None) == 'plain text'

@@ -112,7 +112,7 @@ archiver_status() {
 
 require_archiver_healthy() {
   local status verdict
-  status="$(archiver_status)"
+  status="$(archiver_status)" || fail "wal_archiver_query_failed"
   verdict="$("$PYTHON_BIN" - "$ARCHIVER_SILENCE_SECONDS" "$ARCHIVER_WAL_FILE_LIMIT" "$status" <<'PY'
 import json
 import sys

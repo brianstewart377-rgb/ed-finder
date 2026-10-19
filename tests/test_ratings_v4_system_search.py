@@ -370,3 +370,23 @@ def test_missing_chunk_systems_is_bounded_and_read_only(database):
     # A broken query never masks the coverage error: it yields an empty sample.
     broken = search.Generation(**{**generation.__dict__, 'canonical_schema': 'v3_gen_nope'})
     assert search._missing_chunk_systems(connection, broken, 0) == []
+
+
+def test_failure_receipt_never_carries_a_credential_bearing_dsn(monkeypatch):
+    # libpq/psycopg connection errors can echo the full DSN, password included.
+    import json
+
+    import scripts.v3_system_search as search
+
+    monkeypatch.setenv('V3_SYSTEM_SEARCH_DATABASE_URL', 'postgresql://user:secret@host/db')
+    error = OSError(
+        'connection failed: postgresql://user:secret@host/db and also '
+        'postgres://other:hunter2@db.internal:5432/x?sslmode=require'
+    )
+    text = json.dumps(search.failure_receipt(error))
+    assert 'secret' not in text and 'hunter2' not in text
+    assert 'user:' not in text and 'other:' not in text
+    assert '<redacted-dsn>' in text
+    explicit = search.failure_receipt(ValueError('x postgresql://a:b@c/d y'), dsn='postgresql://a:b@c/d')
+    assert explicit['error_detail'] == 'ValueError: x <redacted-dsn> y'
+    assert len(search.failure_receipt(ValueError('postgresql://a:b@c/d ' + 'z' * 900))['error_detail']) == 500

@@ -314,9 +314,23 @@ def configure_session(connection) -> None:
     )
 
 
-def failure_receipt(exc: BaseException) -> dict:
+CREDENTIAL_URI = re.compile(r'[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@', re.IGNORECASE)
+
+
+def redact_credentials(text: str, dsn: str | None = None) -> str:
+    '''Strip credential-bearing URIs (and the live DSN itself) from text.
+
+    libpq/psycopg connection errors can echo the full DSN, password included.
+    '''
+    if dsn:
+        text = text.replace(dsn, '<redacted-dsn>')
+    return CREDENTIAL_URI.sub('<redacted-dsn>@', text)
+
+
+def failure_receipt(exc: BaseException, dsn: str | None = None) -> dict:
     '''Bounded failure receipt: class, message and SQLSTATE, never the DSN.'''
-    detail = f'{type(exc).__name__}: {exc}'
+    dsn = dsn if dsn is not None else os.environ.get('V3_SYSTEM_SEARCH_DATABASE_URL')
+    detail = redact_credentials(f'{type(exc).__name__}: {exc}', dsn)
     receipt = {
         'status': 'FAILED',
         'error': type(exc).__name__,
@@ -872,7 +886,7 @@ def main(argv=None) -> int:
         )
         return 65
     except Exception as exc:
-        print(json.dumps(failure_receipt(exc)), file=sys.stderr)
+        print(json.dumps(failure_receipt(exc, dsn)), file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
     return 0
