@@ -1,0 +1,419 @@
+{
+  "archetype_model_sha256": "dbf62b783fb2220d92202ab84c7f9adf556ed8be43218716c5a69e052c552533",
+  "chunk_plan": {
+    "chunk_count": 198529,
+    "first_chunk_ordinal": 0,
+    "last_chunk_ordinal": 198528,
+    "sha256": "093128457738e453a1b98c58b0b19e6fac9757185b2aaae3fe577a5831a4d006"
+  },
+  "code_identity": {
+    "scripts/v3_system_archetype.py": "c99e38afe30b4de1f14128444377e3fc0fbe2e358c18c37d0f48d67076e8aecf",
+    "scripts/v3_system_archetype_model.py": "2f9638ddfafd1b216d404900b41f4d02a143e115b5410283fab223c5c84279da",
+    "shared_contracts/v3_system_archetype_model.py": "0ef1f18b3fa3e7641525a9ed0269c8421de70c999a8ebdf29dd7764552cdcd6c",
+    "sql/v3/migrations/011_v3_system_archetype.sql": "652982595f7ff86f78452bcadd467e399643980e126fbf9c427854608d8c5e25"
+  },
+  "coefficients": {
+    "alpha": 0.6,
+    "breadth_pot": 55,
+    "breadth_qual": 40,
+    "breadth_target": 4,
+    "cap_floor": 0.6,
+    "cap_span": 0.4,
+    "capacity_target": 8,
+    "spec_floor": 0.85,
+    "spec_span": 0.15,
+    "spec_unknown_conf": 0.85,
+    "synergy_bonus": 5,
+    "synergy_threshold": 60
+  },
+  "complete_version": "v3-archetype-calibration-complete-1",
+  "content_sha256": "2741e831165d963446bb212a3bb1c7457e015c7f4d377fbff740b3994061c431",
+  "db_writes_performed": false,
+  "expected_product_manifest": {
+    "anchors": {
+      "flexible": {
+        "required": [],
+        "supporting": []
+      },
+      "manufacturing_hub": {
+        "required": [
+          2,
+          3
+        ],
+        "supporting": []
+      },
+      "megacomplex": {
+        "required": [
+          7,
+          2,
+          3
+        ],
+        "supporting": []
+      },
+      "mining_hub": {
+        "required": [
+          7,
+          2
+        ],
+        "supporting": []
+      },
+      "paradise": {
+        "required": [
+          1,
+          6
+        ],
+        "supporting": []
+      },
+      "population_capital": {
+        "required": [
+          1,
+          4
+        ],
+        "supporting": []
+      },
+      "research_hub": {
+        "required": [
+          4
+        ],
+        "supporting": [
+          3
+        ]
+      },
+      "stronghold": {
+        "required": [
+          5,
+          3
+        ],
+        "supporting": []
+      }
+    },
+    "archetype_keys": [
+      "paradise",
+      "mining_hub",
+      "manufacturing_hub",
+      "megacomplex",
+      "research_hub",
+      "stronghold",
+      "population_capital",
+      "flexible"
+    ],
+    "archetype_model_sha256": "dbf62b783fb2220d92202ab84c7f9adf556ed8be43218716c5a69e052c552533",
+    "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+    "canonical_publication_sequence": 4,
+    "canonical_schema": "v3_gen_phase4c_full_20260827_r5",
+    "code_sha256": {
+      "scripts/v3_system_archetype.py": "c99e38afe30b4de1f14128444377e3fc0fbe2e358c18c37d0f48d67076e8aecf",
+      "scripts/v3_system_archetype_model.py": "2f9638ddfafd1b216d404900b41f4d02a143e115b5410283fab223c5c84279da",
+      "shared_contracts/v3_system_archetype_model.py": "0ef1f18b3fa3e7641525a9ed0269c8421de70c999a8ebdf29dd7764552cdcd6c",
+      "sql/v3/migrations/011_v3_system_archetype.sql": "652982595f7ff86f78452bcadd467e399643980e126fbf9c427854608d8c5e25"
+    },
+    "coefficients": {
+      "alpha": 0.6,
+      "breadth_pot": 55,
+      "breadth_qual": 40,
+      "breadth_target": 4,
+      "cap_floor": 0.6,
+      "cap_span": 0.4,
+      "capacity_target": 8,
+      "spec_floor": 0.85,
+      "spec_span": 0.15,
+      "spec_unknown_conf": 0.85,
+      "synergy_bonus": 5,
+      "synergy_threshold": 60
+    },
+    "confidence_rounding": "floor(already-six-decimal-confidence * 1000000 + 0.5)",
+    "confidence_storage": "integer-parts-per-million",
+    "cpython_version": "3.14",
+    "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+    "expected_rows": 198528286,
+    "explanation_delivery": "on-demand",
+    "field_policy": {
+      "archetype_score": "round(clamp(core*spec*cap + synergy_bonus, 0, 100)); flexible uses breadth instead of core/spec/cap",
+      "completeness_ppm": "min(system_rating_vector.completeness) * 100 from unscaled smallint[]",
+      "confidence": "min(confidence[a] for a in required anchors) * min(evidence_completeness[a] for a in required anchors), multiplied by spec_unknown_conf when any anchor quality was bounded-null; each factor is within [0, 1] so the product is bounded [0, 1]. flexible uses mean(confidence) * mean(evidence_completeness) over all anchors instead of min.",
+      "confidence_storage": "integer parts per million from the already-six-decimal model confidence using floor(value*1000000+0.5); exact comparison",
+      "primary_archetype": "highest score, ties broken by archetype_keys order",
+      "secondary_archetype": "next highest score; null only if every other score is 0",
+      "source": "pinned Ratings V4 generation system_rating_vector and economy_opportunity only; no public schema reads",
+      "tier": "S>=88, A>=76, B>=60, C>=45, else D",
+      "weighted_key": "((score::bigint * confidence_ppm * completeness_ppm) + 50000000) / 100000000 using non-negative integer division",
+      "weighted_potential": "unrounded best_colony_potential * ((min(confidence)/10000) * (min(completeness)/10000))"
+    },
+    "generation_key": "ratings_v4_prod_p4_parallel_v1",
+    "model_file_sha256": "0ef1f18b3fa3e7641525a9ed0269c8421de70c999a8ebdf29dd7764552cdcd6c",
+    "product_code": "system_archetype",
+    "product_version": "v3-archetype-4",
+    "storage_layout": "one-row-per-system-v1",
+    "wide_columns": [
+      {
+        "column": "derived_generation_id",
+        "rule": "generation identity"
+      },
+      {
+        "column": "system_id64",
+        "rule": "Ratings V4 system identity"
+      },
+      {
+        "column": "archetype_version",
+        "rule": "deployed model version"
+      },
+      {
+        "column": "paradise_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "paradise_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "paradise_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "paradise_weighted_e4",
+        "rule": "((paradise_score::bigint * paradise_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "mining_hub_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "mining_hub_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "mining_hub_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "mining_hub_weighted_e4",
+        "rule": "((mining_hub_score::bigint * mining_hub_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "manufacturing_hub_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "manufacturing_hub_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "manufacturing_hub_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "manufacturing_hub_weighted_e4",
+        "rule": "((manufacturing_hub_score::bigint * manufacturing_hub_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "megacomplex_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "megacomplex_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "megacomplex_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "megacomplex_weighted_e4",
+        "rule": "((megacomplex_score::bigint * megacomplex_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "research_hub_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "research_hub_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "research_hub_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "research_hub_weighted_e4",
+        "rule": "((research_hub_score::bigint * research_hub_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "stronghold_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "stronghold_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "stronghold_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "stronghold_weighted_e4",
+        "rule": "((stronghold_score::bigint * stronghold_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "population_capital_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "population_capital_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "population_capital_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "population_capital_weighted_e4",
+        "rule": "((population_capital_score::bigint * population_capital_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "flexible_score",
+        "rule": "score_raw_system"
+      },
+      {
+        "column": "flexible_tier",
+        "rule": "tier_of(score)"
+      },
+      {
+        "column": "flexible_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "flexible_weighted_e4",
+        "rule": "((flexible_score::bigint * flexible_confidence_ppm * completeness_ppm) + 50000000) / 100000000"
+      },
+      {
+        "column": "primary_archetype",
+        "rule": "summarise"
+      },
+      {
+        "column": "secondary_archetype",
+        "rule": "summarise"
+      },
+      {
+        "column": "best_colony_potential",
+        "rule": "summarise"
+      },
+      {
+        "column": "best_tier",
+        "rule": "summarise"
+      },
+      {
+        "column": "archetype_confidence_ppm",
+        "rule": "floor(round(confidence,6)*1000000+0.5)"
+      },
+      {
+        "column": "weighted_potential",
+        "rule": "unrounded double precision product"
+      },
+      {
+        "column": "completeness_ppm",
+        "rule": "min(system_rating_vector.completeness) * 100"
+      },
+      {
+        "column": "computed_at",
+        "rule": "one explicitly assigned UTC instant per chunk"
+      }
+    ]
+  },
+  "expected_product_manifest_sha256": "438e909a1d645c0d8ff212fb98c8b23a3eafe32147a764e5cd7dbbefb8f0be22",
+  "f2d_operator_code_sha256": "c26d23d08f9f8659e05ec2f5490e7780e0c7047ef2165b2563c39a9b3a4d6279",
+  "generation": {
+    "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+    "canonical_publication_sequence": 4,
+    "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+    "generation_key": "ratings_v4_prod_p4_parallel_v1",
+    "publication_sequence": 1
+  },
+  "mode": "complete",
+  "model_file_sha256": "0ef1f18b3fa3e7641525a9ed0269c8421de70c999a8ebdf29dd7764552cdcd6c",
+  "per_archetype": {
+    "flexible": {
+      "tier_histogram": {
+        "A": 0,
+        "B": 9528040,
+        "C": 9401568,
+        "D": 157915903,
+        "S": 21682775
+      }
+    },
+    "manufacturing_hub": {
+      "tier_histogram": {
+        "A": 56218,
+        "B": 9392015,
+        "C": 6564759,
+        "D": 182515294,
+        "S": 0
+      }
+    },
+    "megacomplex": {
+      "tier_histogram": {
+        "A": 106148,
+        "B": 8087189,
+        "C": 5591384,
+        "D": 184743565,
+        "S": 0
+      }
+    },
+    "mining_hub": {
+      "tier_histogram": {
+        "A": 89941,
+        "B": 7373968,
+        "C": 8023531,
+        "D": 183040846,
+        "S": 0
+      }
+    },
+    "paradise": {
+      "tier_histogram": {
+        "A": 7549,
+        "B": 587315,
+        "C": 4438283,
+        "D": 193495027,
+        "S": 112
+      }
+    },
+    "population_capital": {
+      "tier_histogram": {
+        "A": 735,
+        "B": 195459,
+        "C": 2328348,
+        "D": 196003744,
+        "S": 0
+      }
+    },
+    "research_hub": {
+      "tier_histogram": {
+        "A": 42614,
+        "B": 4649732,
+        "C": 7268413,
+        "D": 186567527,
+        "S": 0
+      }
+    },
+    "stronghold": {
+      "tier_histogram": {
+        "A": 462,
+        "B": 11571062,
+        "C": 16526835,
+        "D": 170429927,
+        "S": 0
+      }
+    }
+  },
+  "per_chunk": {
+    "bytes": 122294873,
+    "chunk_count": 198529,
+    "file": "per-chunk.jsonl",
+    "schema_version": "ed-finder/v3-archetype-calibration-per-chunk/v1",
+    "sha256": "f0e3d663b3685c6b89e1421366f338f51cb091f6bac7020107836df2274aeea2"
+  },
+  "read_only": true,
+  "schema_version": "ed-finder/v3-archetype-calibration-complete/v1",
+  "sigma_all": 0.5895420615276958,
+  "status": "completed",
+  "system_count": 198528286
+}
