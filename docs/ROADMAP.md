@@ -469,12 +469,12 @@ newer dated source wins).
   join, cancelling runs 39155668281 and 39159487598 at the 60 s statement
   timeout). Sampled Σ_all ≈ 0.6 against the 4.0 bound. **Owner decision
   2026-10-19: coefficients accepted as they are**; the sealed
-  `coefficient_decision` file does not exist yet — it is written only after
-  the complete-read receipt is committed, since it must seal that receipt's
-  `content_sha256`.
+  `coefficient_decision` file is committed with the complete-read receipt it
+  seals (below).
   **Second F2d release `0dddc78d` promoted (2026-10-19)** with PRs #854–#857.
   **Complete read done (2026-10-19):** start run 39243944566, worker ran
-  11:21–20:27 UTC over all 198,529 chunks (198,528,286 systems, no failures),
+  from 11:21 UTC and had finished by the 19:31 UTC status check, over all
+  198,529 chunks (198,528,286 systems, no failures);
   status run 39311585254 carried the sealed receipt (`content_sha256`
   `2741e831…`, Σ_all 0.5895), committed as
   `docs/operations/evidence/f2d/complete-read-receipt.json` with the sealed
