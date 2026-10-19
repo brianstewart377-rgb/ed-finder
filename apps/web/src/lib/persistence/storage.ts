@@ -22,7 +22,6 @@ export const PERSISTENCE_KEYS = {
   selectedSystem: 'ed-finder:selected-system-context',
   density: 'ed_density_v1',
   adminToken: SHARED_ADMIN_TOKEN_SESSION_KEY,
-  operatorHandoff: 'ed_operator_selected_source_run',
 } as const;
 
 export const LOCAL_STORAGE_KEYS = [
@@ -41,10 +40,7 @@ export const LOCAL_STORAGE_KEYS = [
   PERSISTENCE_KEYS.density,
 ] as const;
 
-export const SESSION_STORAGE_KEYS = [
-  PERSISTENCE_KEYS.adminToken,
-  PERSISTENCE_KEYS.operatorHandoff,
-] as const;
+export const SESSION_STORAGE_KEYS = [PERSISTENCE_KEYS.adminToken] as const;
 
 export const ADMIN_TOKEN_SESSION_KEY = PERSISTENCE_KEYS.adminToken;
 
@@ -351,17 +347,6 @@ export function createPersistedStore<T>(
     read,
     readStored,
   };
-}
-
-/** Read a session-only raw value without letting API code own Storage access. */
-export function readSessionStorageValue(key: SessionStorageKey): string | null {
-  const storage = storageFor('session');
-  if (!storage) return null;
-  try {
-    return storage.getItem(key);
-  } catch {
-    return null;
-  }
 }
 
 function safeJson(raw: string): { ok: true; value: unknown } | { ok: false } {

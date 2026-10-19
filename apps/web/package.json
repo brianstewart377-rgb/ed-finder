@@ -60,7 +60,6 @@
     "@ed-finder/planner-core": "file:../../packages/planner-core",
     "@lucide/svelte": "1.37.0",
     "@tanstack/svelte-query": "6.1.48",
-    "bits-ui": "2.19.0",
     "json-with-bigint": "3.5.11"
   }
 }

@@ -1,5 +1,3 @@
-import { get } from 'svelte/store';
-
 import {
   DEFAULT_FC_CONFIG,
   PERSISTENCE_KEYS,
@@ -123,12 +121,6 @@ export const adminToken = createPersistedStore({
   initial: () => '',
   codec: rawStringCodec(),
 });
-export const operatorHandoff = createPersistedStore({
-  key: PERSISTENCE_KEYS.operatorHandoff,
-  area: 'session',
-  initial: () => '',
-  codec: rawStringCodec(),
-});
 
 /** Opaque legacy profile payload; there is deliberately no active feature store. */
 export const legacyColonyPassthrough = createPersistedStore<unknown | null>({
@@ -150,7 +142,6 @@ export const applicationStores = {
   profileSyncLast,
   selectedSystem,
   density,
-  operatorHandoff,
 };
 
 let applicationStoresHydrated = false;
@@ -162,26 +153,6 @@ export function hydrateApplicationStores(): void {
   // through the application/profile-sync service inventory.
   adminToken.hydrate();
   for (const store of Object.values(applicationStores)) store.hydrate();
-}
-
-/** Test seam for proving boot idempotence without weakening runtime ownership. */
-export function resetApplicationStoreHydrationForTest(): void {
-  if (import.meta.env.MODE !== 'test')
-    throw new Error('Application-store hydration can only be reset in tests');
-  applicationStoresHydrated = false;
-}
-
-/** Diagnostics are safe to render: they never contain persisted values or session tokens. */
-export function persistenceDiagnostics() {
-  const stores = Object.values(applicationStores) as Array<{
-    subscribe: (
-      run: (value: { diagnostic: unknown | null }) => void,
-    ) => () => void;
-  }>;
-  return stores.flatMap((store) => {
-    const state = get(store);
-    return state.diagnostic ? [state.diagnostic] : [];
-  });
 }
 
 export type MyWorkState = MyWorkCollection;

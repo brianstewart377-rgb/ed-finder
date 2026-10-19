@@ -37,7 +37,6 @@ export type ProfileSyncKey = (typeof PROFILE_SYNC_KEYS)[number];
 /** Credentials and session handoffs which must never enter a profile blob. */
 export const PROFILE_SYNC_SECURITY_DENYLIST = [
   PERSISTENCE_KEYS.adminToken,
-  PERSISTENCE_KEYS.operatorHandoff,
   PERSISTENCE_KEYS.syncKey,
 ] as const;
 
@@ -246,5 +245,3 @@ export function createProfileSyncCommandService(
     },
   };
 }
-
-export const profileSyncCommands = createProfileSyncCommandService();

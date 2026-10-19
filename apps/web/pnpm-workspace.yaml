@@ -9,7 +9,6 @@ minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - '@csstools/css-color-parser@4.2.2'
   - '@csstools/css-syntax-patches-for-csstree@1.1.12'
-  - '@internationalized/date@3.12.4'
   - '@lucide/svelte@1.37.0'
   - '@oxc-project/types@0.148.0'
   - '@rolldown/binding-android-arm-eabi@1.2.7'

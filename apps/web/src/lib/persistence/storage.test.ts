@@ -36,7 +36,6 @@ import {
   expansionPlans,
   fcRoute,
   myWork,
-  operatorHandoff,
   profileSyncKey,
   profileSyncLast,
   selectedSystem,
@@ -66,10 +65,7 @@ describe('persistence compatibility', () => {
       'ed-finder:selected-system-context',
       'ed_density_v1',
     ]);
-    expect(SESSION_STORAGE_KEYS).toEqual([
-      'ed_admin_token',
-      'ed_operator_selected_source_run',
-    ]);
+    expect(SESSION_STORAGE_KEYS).toEqual(['ed_admin_token']);
   });
 
   it('uses the exact current collection envelopes for empty state', () => {
@@ -198,16 +194,6 @@ describe('persistence compatibility', () => {
     );
     expect(localStorage.getItem('ed_admin_token')).toBeNull();
     adminToken.clear();
-  });
-
-  it('keeps the operator handoff session-only', () => {
-    sessionStorage.clear();
-    expect(operatorHandoff.set('run-001')).toBe(true);
-    expect(sessionStorage.getItem(PERSISTENCE_KEYS.operatorHandoff)).toBe(
-      'run-001',
-    );
-    expect(localStorage.getItem(PERSISTENCE_KEYS.operatorHandoff)).toBeNull();
-    operatorHandoff.clear();
   });
 
   it('stores the profile key and last-push receipt as raw strings', () => {
