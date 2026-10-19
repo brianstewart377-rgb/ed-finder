@@ -99,15 +99,24 @@ def test_pre_f2d_accepted_release_shape_remains_valid_without_f2d_fields(deploye
     deployer.validate_release_compatibility_shape(legacy_attestation)
 
 
-def test_current_accepted_release_is_the_complete_first_f2d_release(deployer):
-    # Promotion run 39149980927 accepted release run 39149556699 (f667bb4d) on
-    # 2026-10-18. Later candidates keep its backend as the boundary image and
-    # are judged by the accepted-F2d product-state rule.
+FIRST_F2D_BACKEND = (
+    "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:"
+    "b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3"
+)
+
+
+def test_current_accepted_release_is_a_complete_f2d_release_on_the_first_boundary(deployer):
+    # Promotion run 39149980927 accepted the first F2d release (f667bb4d) on
+    # 2026-10-18; run 39228589346 accepted the second (0dddc78d) on 2026-10-19.
+    # Every later release keeps the first F2d backend as the boundary image,
+    # lists its own backend among the rollback targets, and is judged by the
+    # accepted-F2d product-state rule.
     accepted = current_accepted_release()
     assert set(FIELDS) <= set(accepted)
     deployer.validate_release_compatibility_shape(accepted)
-    assert accepted["minimum_schema_compatible_image"] == accepted["images"]["backend"]
-    assert accepted["rollback_targets"] == [accepted["images"]["backend"]]
+    assert accepted["minimum_schema_compatible_image"] == FIRST_F2D_BACKEND
+    assert accepted["rollback_targets"][0] == FIRST_F2D_BACKEND
+    assert accepted["images"]["backend"] in accepted["rollback_targets"]
     assert deployer.f2d_generation_rule(accepted) == "accepted-f2d-release-allowed-product-states"
     authority = json.loads((ROOT / "deploy/v3-production/target-authority.json").read_text())
     assert deployer.validate_authority(authority) == []

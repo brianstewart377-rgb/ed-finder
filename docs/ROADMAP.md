@@ -96,7 +96,14 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
-- **Production app promoted to `f667bb4d`, the first F2d release (2026-10-18).**
+- **Production app promoted to `0dddc78d`, the second F2d release (2026-10-19).**
+  Release run 39223378017, promote run 39228589346, receipt `received_at`
+  `2026-10-19T09:15:43Z`, active slot green→blue, `status: accepted`; app-only.
+  Carries the PR #854–#857 operator hardening whose operator-code identity the
+  complete read, capacity gate, builds and publish require; the first F2d
+  backend `f667bb4d` stays the minimum schema-compatible image and rollback
+  artifact.
+- **Previously: production app promoted to `f667bb4d`, the first F2d release (2026-10-18).**
   Release run 39149556699, promote run 39149980927, receipt `received_at`
   `2026-10-18T17:32:21Z`, active slot blue→green, `status: accepted`; app-only
   (no migrations, no database writes). Finder routes answer 503 until both
@@ -454,7 +461,17 @@ newer dated source wins).
   candidate removed and rollback verified (receipt alongside). The accepted
   release, now carrying the F2d attestation, is recorded in
   `deploy/v3-production/target-authority.json` and the promotion hold is
-  removed. Next: step 6′.
+  removed. **Step 6′ sample probe done (2026-10-19):** run 39186678592 completed
+  (200,000 systems over 200 of 198,529 chunks, 31 s) after the owner refreshed
+  the planner statistics on `v3_derived.economy_opportunity.system_id64`
+  (`SET STATISTICS 1000`, `n_distinct = -0.13`, ANALYZE; the sampled
+  `n_distinct` of 133,851 had made every literal-value plan a 1.5 B-row hash
+  join, cancelling runs 39155668281 and 39159487598 at the 60 s statement
+  timeout). Sampled Σ_all ≈ 0.6 against the 4.0 bound. **Owner decision
+  2026-10-19: coefficients accepted as they are**; the sealed
+  `coefficient_decision` file is written against the complete-read receipt.
+  **Second F2d release `0dddc78d` promoted (2026-10-19)** with PRs #854–#857.
+  Next: the complete read (6′ complete), then the five evidence files, 7′.
   The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the

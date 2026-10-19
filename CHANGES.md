@@ -21,6 +21,19 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-19 — Second F2d release accepted; sample probe passed after statistics refresh
+
+Promotion run 39228589346 accepted release run 39223378017 (source `0dddc78d`,
+PRs #854–#857) to active slot blue with no migrations or database writes;
+the first F2d backend remains the minimum schema-compatible image and recorded
+rollback artifact. The authority records the release with its attestation
+(`f2d_operator_code_sha256` `c26d23d0…`), and the receipt is under
+`docs/operations/evidence/`. The step 6′ sample probe (run 39186678592)
+completed once the owner refreshed planner statistics on
+`economy_opportunity.system_id64`; the owner accepted the coefficients. The
+first full pgBackRest backup to the restored Storage Box completed on
+2026-10-18 (label `20261018-152336F`, 1,252.9 GB).
+
 ## 2026-10-19 — Step 8′ builder hardening before the first production build
 
 Audit of the two irreversible build actions ahead of their first production
