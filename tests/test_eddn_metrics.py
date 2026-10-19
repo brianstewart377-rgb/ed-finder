@@ -333,6 +333,14 @@ async def _start_metrics_server_on_free_port(listener, *, attempts: int = 5):
                 continue
             writer.close()
             await writer.wait_closed()
+            # The connection may have been accepted by another process that
+            # won the port; only trust it if our server is still running.
+            await asyncio.sleep(0)
+            if server_task.done():
+                exc = server_task.exception()
+                if isinstance(exc, OSError):
+                    break  # lost the bind race after the probe connected; retry
+                raise AssertionError(f'metrics_server exited unexpectedly: {exc!r}')
             return server_task, port
     pytest.fail(f'could not bind metrics_server to a free port in {attempts} attempts')
 
