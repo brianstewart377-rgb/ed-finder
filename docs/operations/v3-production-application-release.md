@@ -311,10 +311,15 @@ rollback artifact. It does not require product READY, receipts, counts,
 `011`, `013`, product-publication `015` and governed-purge `016` are applied
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
-promotion run 39149980927; its attestation is the accepted release in
-`deploy/v3-production/target-authority.json`. Later candidates are therefore
-judged by the accepted-F2d rule (product rows may exist, never `FAILED`) and
-must keep `minimum_schema_compatible_image` at that release's backend digest.
+promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-10-19).** The second F2d release, source `0dddc78d` (release run
+39223378017, PRs #854–#857), was accepted by promotion run 39228589346 to slot
+blue; its attestation (operator-code identity `c26d23d0…`) is now the accepted
+release in `deploy/v3-production/target-authority.json` and governs every
+later F2d operator action. Later candidates are judged by the accepted-F2d
+rule (product rows may exist, never `FAILED`), must keep
+`minimum_schema_compatible_image` at the first F2d backend digest, and must
+list their own backend among `rollback_targets`.
 The F2d release attests only the installed through-016 identity, so the
 completed through-012 → through-016 `schema_transition` is no longer
 replayable: the migration operator refuses with "omits a transition prefix"
