@@ -605,7 +605,7 @@ start_operation() {
     || fail "Archetype has more committed chunks than the Ratings chunk plan"
   [ "$baseline_chunks" -lt "$planned_chunks" ] || validation_only=true
   mark_db_writes_possible
-  docker run -d \
+  if ! docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
     --label "ed-finder.generation-id=${TARGET_GENERATION_ID}" \
@@ -627,7 +627,16 @@ start_operation() {
       exec /app/.venv/bin/python scripts/v3_system_archetype.py \
         --generation-key ratings_v4_prod_p4_parallel_v1 --follow --poll-seconds 5 \
         --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256"
-    ' >/dev/null
+    ' >/dev/null; then
+    # set -e would otherwise exit here with no receipt: keep whatever the
+    # daemon logged for a container that was created, then stop closed.
+    rm -f -- "$env_file"
+    trap - EXIT
+    if docker inspect "$WORKER" >/dev/null 2>&1; then
+      preserve_worker_log
+    fi
+    fail "worker_launch_failed"
+  fi
   rm -f -- "$env_file"
   trap - EXIT
 

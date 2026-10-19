@@ -39,7 +39,9 @@ actions: `fail()` also emits a stopped operation-result JSON line on stdout
 (the workflow records stdout only), defined before the identity preflight so
 those refusals print it too, with `db_writes_performed` null once a worker was
 launched or VACUUM started by that invocation; a crashed worker's log is preserved under
-the state root before `docker rm` and reported by `status`; the launch proof
+the state root before `docker rm` and reported by `status`; a failed
+`docker run -d` is guarded so it stops with a receipt (and the created
+container's log) rather than exiting silently under `set -e`; the launch proof
 window is ten minutes (a resume installs wheels and lists ~198k chunks first);
 `start` reads `pg_stat_archiver`, `pg_ls_waldir()` and the archive_status
 `.ready` backlog and refuses `wal_archiver_unhealthy` when the archiver is

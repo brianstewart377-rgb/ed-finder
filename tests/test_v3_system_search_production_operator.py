@@ -293,7 +293,7 @@ def test_fail_after_a_launch_or_vacuum_reports_unknown_database_writes(action, t
     assert receipt["db_writes_may_have_been_performed"] is True
     source = ACTIONS[action].read_text(encoding="utf-8")
     # The flip precedes the launch and the VACUUM, the two mutation points.
-    assert source.index("mark_db_writes_possible\n  docker run -d") > 0
+    assert source.index("mark_db_writes_possible\n  if ! docker run -d") > 0
     assert 'mark_db_writes_possible\n    db_maintenance "VACUUM (ANALYZE)' in source
 
 
@@ -407,3 +407,69 @@ def test_start_proof_window_is_ten_minutes(action):
     assert "for _ in $(seq 1 300)" in source
     assert "for _ in $(seq 1 30)" not in source
     assert "sleep 2" in source
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_a_failed_worker_launch_stops_with_a_receipt_and_preserved_logs(action, tmp_path):
+    # `docker run -d` failing under set -e used to exit the action before
+    # fail()/preserve_worker_log ran: no stdout receipt, no logs. The launch
+    # is guarded; a created-but-failed container's log is kept first.
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    start = source[source.index("start_operation() {") : source.index("status_operation() {")]
+    begin = start.index("  mark_db_writes_possible\n  if ! docker run -d")
+    end = start.index("  rm -f -- \"$env_file\"\n  trap - EXIT\n", start.index("fail \"worker_launch_failed\"", begin))
+    segment = start[begin:end]
+    assert 'fail "worker_launch_failed"' in segment
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        '  run) echo "daemon refused" >&2; exit 125;;\n'
+        '  inspect) exit "$INSPECT_EXIT";;\n'
+        "  logs) echo created-container-log;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "docker").chmod(0o755)
+    env_file = tmp_path / "builder.env"
+    for inspect_exit, expect_log in (("1", False), ("0", True)):
+        env_file.write_text("X=1\n", encoding="utf-8")
+        script = _harness(
+            action,
+            "WORKER=w REPO_ROOT=/nonexistent SOURCE_SHA=x api_image=img\n"
+            f'env_file="{env_file}"\n'
+            "TARGET_GENERATION_KEY=k TARGET_GENERATION_ID=g TARGET_CPUS=1 TARGET_MEMORY=1g\n"
+            "OPERATION_LABEL=l WORKER_NETWORK=n F2D_IDENTITY=i\n"
+            "run_segment() {\n" + segment + "\n  echo UNREACHABLE\n}\nrun_segment\n",
+        )
+        result = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=False,
+            env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                 "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path),
+                 "INSPECT_EXIT": inspect_exit},
+        )
+        assert result.returncode == 64, result.stderr
+        assert "UNREACHABLE" not in result.stdout
+        receipt = json.loads(result.stdout.strip().splitlines()[-1])
+        assert receipt["status"] == "stopped"
+        assert receipt["failures"] == ["worker_launch_failed"]
+        # The launch was attempted, so the receipt cannot claim no writes.
+        assert receipt["db_writes_performed"] is None
+        logs = sorted(tmp_path.glob("worker-log.*.txt"))
+        assert bool(logs) is expect_log
+        for path in logs:
+            assert "created-container-log" in path.read_text(encoding="utf-8")
+            path.unlink()
+        # The DSN-bearing env file never outlives a failed launch.
+        assert not env_file.exists()
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_no_adjacent_duplicate_log_preservation(action):
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    lines = [line.strip() for line in source.splitlines()]
+    assert not any(
+        lines[i] == "preserve_worker_log" and lines[i + 1] == "preserve_worker_log"
+        for i in range(len(lines) - 1)
+    )
