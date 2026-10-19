@@ -30,8 +30,10 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from types import ModuleType
 from typing import Any
+import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +43,13 @@ from scripts.operator.lib import f2d_operator_identity  # noqa: E402
 
 
 COMPLETE_VERSION = 'v3-archetype-calibration-complete-1'
+# Bounded per-chunk retry for transient database errors (statement timeout
+# under backup I/O contention, a dropped connection). A chunk is only ever
+# checkpointed after it is fully scored, so a retry never double-counts.
+CHUNK_RETRY_ATTEMPTS = 3
+CHUNK_RETRY_BACKOFF_SECONDS = (2.0, 10.0, 30.0)
+ERROR_DETAIL_LIMIT = 500
+
 DEFAULT_DATABASE_URL_ENV = 'V3_ARCHETYPE_COMPLETE_DATABASE_URL'
 DEFAULT_IDENTITY_ENV = 'F2D_OPERATOR_CODE_SHA256_ATTESTED'
 # Per-launch nonce from the operator start action. Written into the checkpoint
@@ -102,7 +111,15 @@ def validate_complete_receipt(receipt: object) -> dict[str, Any]:
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = path.with_name(f'.{path.name}.tmp-{os.getpid()}')
+    # The worker is PID 1 in its container, so a pid-based temporary name is
+    # the same on every run: a hard kill (SIGKILL, OOM, host reboot) inside
+    # the write window left `.checkpoint.json.tmp-1` behind and O_EXCL then
+    # refused every later resume. Clear stale temporaries of this file first
+    # and use a per-write nonce; fsync + rename semantics are unchanged.
+    for stale in path.parent.glob(f'.{path.name}.tmp-*'):
+        if not stale.is_symlink() and stale.is_file():
+            stale.unlink(missing_ok=True)
+    temporary = path.with_name(f'.{path.name}.tmp-{uuid.uuid4().hex}')
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     descriptor = os.open(temporary, flags, 0o600)
     try:
@@ -139,7 +156,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=Path('/app/shared_contracts/v3_system_archetype_model.py'),
     )
-    parser.add_argument('--statement-timeout-ms', type=int, default=60_000)
+    # Five minutes: a single chunk read under concurrent pgBackRest I/O must
+    # not cancel the multi-hour complete read; the probe's 60 s was too tight.
+    parser.add_argument('--statement-timeout-ms', type=int, default=300_000)
     parser.add_argument('--stop-after-chunks', type=int)
     args = parser.parse_args(argv)
     if args.publication_sequence < 1:
@@ -560,20 +579,18 @@ def _receipt_body(
     }
 
 
-def run_complete(
-    connection: Any,
-    args: argparse.Namespace,
-    *,
-    f2d_identity: str,
-    model_file_sha256: str | None = None,
-) -> tuple[int, dict[str, Any] | None]:
+def configure_session(connection: Any, statement_timeout_ms: int) -> None:
+    '''Apply the read-only, bounded, custom-plan session settings.
+
+    Called on the initial connection and again after a reconnect.
+    '''
     connection.read_only = True
     connection.execute(
         "SELECT set_config('default_transaction_read_only','on',false)",
     )
     connection.execute(
         "SELECT set_config('statement_timeout',%s,false)",
-        (f'{args.statement_timeout_ms}ms',),
+        (f'{statement_timeout_ms}ms',),
     )
     # The two shared read constants select their branch with parameter
     # NULL tests. Custom plans fold those per execution so every one of the
@@ -582,6 +599,126 @@ def run_complete(
     connection.execute(
         "SELECT set_config('plan_cache_mode','force_custom_plan',false)",
     )
+    # autocommit is off: the settings above live in a transaction until this
+    # commit, and a later rollback would otherwise discard them.
+    connection.commit()
+
+
+class ChunkReadError(RuntimeError):
+    '''A chunk could not be read after the bounded retries.'''
+
+    def __init__(self, ordinal: int, cause: BaseException) -> None:
+        super().__init__(f'chunk {ordinal}: {_error_detail(cause)}')
+        self.ordinal = ordinal
+        self.cause = cause
+
+
+def _error_detail(exc: BaseException) -> str:
+    text = f'{type(exc).__name__}: {exc}'.replace('\n', ' ')
+    return text[:ERROR_DETAIL_LIMIT]
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    value = getattr(exc, 'sqlstate', None)
+    return value if isinstance(value, str) else None
+
+
+def _is_database_error(exc: BaseException) -> bool:
+    psycopg = sys.modules.get('psycopg')
+    return psycopg is not None and isinstance(exc, psycopg.Error)
+
+
+def _connection_unusable(connection: Any) -> bool:
+    # psycopg marks a connection closed or broken once the server link is
+    # gone; a statement cancel (QueryCanceled is an OperationalError too)
+    # leaves the connection usable after a rollback.
+    return bool(getattr(connection, 'closed', False) or getattr(connection, 'broken', False))
+
+
+def _read_and_score_chunk(
+    connection: Any,
+    *,
+    reconnect: Any,
+    probe: ModuleType,
+    model: ModuleType,
+    generation_id: str,
+    ordinal: int,
+    statement_timeout_ms: int,
+    sleep: Any = time.sleep,
+) -> tuple[Any, dict[str, dict[str, int]], int]:
+    '''Read and score one chunk with bounded retries.
+
+    Returns ``(connection, histograms, row_count)``; the connection is a new
+    one when a reconnect was needed. Nothing is checkpointed here, so a retry
+    can never double-count a chunk.
+    '''
+    last: BaseException | None = None
+    # None means "replace the connection before the next attempt"; a failed
+    # reconnect or session configuration counts against the same budget, so
+    # it can never escape this loop without the chunk ordinal.
+    for attempt in range(CHUNK_RETRY_ATTEMPTS):
+        try:
+            if connection is None:
+                # Keep the connection None until it is fully configured: a
+                # configuration failure must not leave a half-set-up
+                # connection that the next attempt would use unconfigured.
+                candidate = reconnect()
+                try:
+                    configure_session(candidate, statement_timeout_ms)
+                except BaseException:
+                    try:
+                        candidate.close()
+                    except Exception:  # noqa: BLE001 - best effort
+                        pass
+                    raise
+                connection = candidate
+            raw_rows = probe._read_chunk_rows(connection, generation_id, ordinal)
+            histograms, actual_rows = _score_chunk(raw_rows, model)
+            connection.commit()
+            return connection, histograms, actual_rows
+        except Exception as exc:  # noqa: BLE001 - classified below
+            if not _is_database_error(exc):
+                raise
+            last = exc
+            print(
+                f'chunk {ordinal} attempt {attempt + 1}/{CHUNK_RETRY_ATTEMPTS} failed: '
+                f'{_error_detail(exc)}',
+                file=sys.stderr,
+            )
+            if attempt + 1 >= CHUNK_RETRY_ATTEMPTS:
+                break
+            replace = connection is None or _connection_unusable(connection)
+            if not replace:
+                try:
+                    connection.rollback()
+                except Exception as rollback_exc:  # noqa: BLE001
+                    if not _is_database_error(rollback_exc):
+                        raise
+                    replace = True
+            if replace and connection is not None:
+                try:
+                    connection.close()
+                except Exception:  # noqa: BLE001 - the old connection is dead
+                    pass
+                connection = None
+            sleep(CHUNK_RETRY_BACKOFF_SECONDS[min(attempt, len(CHUNK_RETRY_BACKOFF_SECONDS) - 1)])
+    assert last is not None
+    raise ChunkReadError(ordinal, last) from last
+
+
+def run_complete(
+    connection: Any,
+    args: argparse.Namespace,
+    *,
+    f2d_identity: str,
+    model_file_sha256: str | None = None,
+    reconnect: Any = None,
+    sleep: Any = time.sleep,
+) -> tuple[int, dict[str, Any] | None]:
+    configure_session(connection, args.statement_timeout_ms)
+    if reconnect is None:
+        def reconnect() -> Any:
+            raise ValueError('database connection lost and no reconnect is available')
     row = _generation(connection, args.generation_key)
     if row is None:
         raise ValueError('generation not found')
@@ -667,11 +804,16 @@ def run_complete(
     processed_this_run = 0
     for index in range(next_index, len(chunk_plan)):
         chunk = chunk_plan[index]
-        raw_rows = probe._read_chunk_rows(
-            connection, generation_id, chunk['chunk_ordinal'],
+        connection, histograms, actual_rows = _read_and_score_chunk(
+            connection,
+            reconnect=reconnect,
+            probe=probe,
+            model=model,
+            generation_id=generation_id,
+            ordinal=chunk['chunk_ordinal'],
+            statement_timeout_ms=args.statement_timeout_ms,
+            sleep=sleep,
         )
-        histograms, actual_rows = _score_chunk(raw_rows, model)
-        connection.commit()
         record = _chunk_record(
             ordinal=chunk['chunk_ordinal'],
             expected_rows=chunk['row_count'],
@@ -794,8 +936,16 @@ def validate_per_chunk_log(receipt: dict[str, Any], path: Path) -> list[dict[str
     return chunks
 
 
-def _failure_receipt(state_dir: Path, reason: str, identity: str) -> None:
-    body = {
+def _failure_receipt(
+    state_dir: Path,
+    reason: str,
+    identity: str,
+    *,
+    error: str | None = None,
+    sqlstate: str | None = None,
+    chunk_ordinal: int | None = None,
+) -> None:
+    body: dict[str, Any] = {
         'schema_version': RECEIPT_SCHEMA,
         'mode': 'complete',
         'status': 'failed',
@@ -804,10 +954,16 @@ def _failure_receipt(state_dir: Path, reason: str, identity: str) -> None:
         'read_only': True,
         'db_writes_performed': False,
     }
+    if error is not None:
+        body['error'] = error[:ERROR_DETAIL_LIMIT]
+    if sqlstate is not None:
+        body['sqlstate'] = sqlstate
+    if chunk_ordinal is not None:
+        body['chunk_ordinal'] = chunk_ordinal
     try:
         _atomic_json(state_dir / 'failure-receipt.json', seal_receipt(body))
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f'failure receipt could not be written: {_error_detail(exc)}', file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -831,6 +987,11 @@ def main(argv: list[str] | None = None) -> int:
         print('psycopg is not installed in the worker environment', file=sys.stderr)
         return 2
 
+    # psycopg exceptions never carry the connection string; the DSN is read
+    # from the environment and formatted nowhere in this program.
+    def reconnect() -> Any:
+        return psycopg.connect(dsn, autocommit=False)
+
     try:
         model_file_sha256 = require_image_model_match(args.image_model_file)
         with psycopg.connect(dsn, autocommit=False) as connection:
@@ -839,15 +1000,34 @@ def main(argv: list[str] | None = None) -> int:
                 args,
                 f2d_identity=f2d_identity,
                 model_file_sha256=model_file_sha256,
+                reconnect=reconnect,
             )
+    except ChunkReadError as exc:
+        _failure_receipt(
+            args.state_dir, f'database error: {type(exc.cause).__name__}', f2d_identity,
+            error=_error_detail(exc.cause), sqlstate=_sqlstate(exc.cause),
+            chunk_ordinal=exc.ordinal,
+        )
+        print(f'database error on chunk {exc.ordinal}: {_error_detail(exc.cause)}', file=sys.stderr)
+        return 4
     except (ValueError, OSError) as exc:
-        _failure_receipt(args.state_dir, str(exc), f2d_identity)
+        _failure_receipt(args.state_dir, str(exc), f2d_identity, error=_error_detail(exc))
         print(f'complete calibration refused: {exc}', file=sys.stderr)
         return 3
     except psycopg.Error as exc:
-        _failure_receipt(args.state_dir, f'database error: {type(exc).__name__}', f2d_identity)
-        print(f'database error: {type(exc).__name__}', file=sys.stderr)
+        _failure_receipt(
+            args.state_dir, f'database error: {type(exc).__name__}', f2d_identity,
+            error=_error_detail(exc), sqlstate=_sqlstate(exc),
+        )
+        print(f'database error: {_error_detail(exc)}', file=sys.stderr)
         return 4
+    except Exception as exc:  # noqa: BLE001 - every failure must leave a receipt
+        _failure_receipt(
+            args.state_dir, f'internal error: {type(exc).__name__}', f2d_identity,
+            error=_error_detail(exc),
+        )
+        print(f'internal error: {_error_detail(exc)}', file=sys.stderr)
+        return 5
 
     if receipt is not None:
         print(canonical_json(receipt))

@@ -55,6 +55,24 @@ unordered locally, so both now test membership of the attested backend as the
 deployer does (both actions are in the F2d operator-code manifest). Tests
 cover the second-release attestation shape, the workflow refusals and the
 two-digest image case.
+## 2026-10-18 — Complete read: resumable after a hard kill, retries, readable receipts
+
+Pre-production audit of the step 6′′ complete read. `_atomic_json` named its
+temporary `.<file>.tmp-<pid>` with O_EXCL; the worker is PID 1, so a hard kill
+inside the write window would have refused every later resume. Temporaries now
+use a per-write nonce and stale ones are cleared first. A chunk read that hits
+the statement timeout or loses its connection is retried up to three times
+(rollback, or reconnect with the session re-configured) before the run fails;
+the default statement timeout for complete mode is 300 s; the session
+configuration is committed so a rollback keeps it, and a failed reconnect
+counts against the same per-chunk budget. `main()` writes a
+sealed failure receipt for every exception with a bounded `error`, `sqlstate`
+and the chunk in flight. The action's refusals print an
+`operator-operation-result/v1` line on stdout, a stopped worker's logs are saved
+before `docker rm` and their tail is in the status payload, the worker runs
+under `--init`, and the proof-of-life window is ten minutes. The ops workflow
+now routes each Finder action's stderr into its receipt artifact. Both scripts
+are in the F2d operator-code manifest.
 
 ## 2026-10-18 — First F2d release accepted in production (step 5′)
 
