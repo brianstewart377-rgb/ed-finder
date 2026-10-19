@@ -41,12 +41,14 @@ complete read was running; confirmed active with `pending_restart = f`:
 | `checkpoint_timeout` | 5 min | 30 min | fewer full-page images in WAL; **trade-off:** after a crash, PostgreSQL replays WAL from the last checkpoint, so crash recovery can now take up to tens of minutes instead of a few (PITR is a separate restore path and does not shorten this) |
 | `wal_compression` | off | zstd | smaller WAL for the archive stream to the Storage Box |
 
-## Planned (needs a restart; after the complete read, before the builds)
+## Applied by the owner, 2026-10-19 20:35 (one restart)
 
-`shared_buffers = 32GB` and `dynamic_shared_memory_type = mmap` (the 64 MB
-`/dev/shm` would otherwise bound parallel-query scratch space). The restart
-is about thirty seconds; the complete read resumes from its checkpoint and the
-API reconnects. Record the outcome here when done.
+After the complete read finished: `shared_buffers = 32GB` (was 128 MB) and
+`dynamic_shared_memory_type = mmap` (the 64 MB `/dev/shm` would otherwise
+bound parallel-query scratch space), then `docker restart --time 120` of the
+database container. `pg_isready` reported accepting connections within a
+minute, `pg_settings` showed both values active with `pending_restart = f`,
+and `/opt/ed-finder-v3-runtime/health-check.sh` passed.
 
 ## Changing or reverting these settings
 
