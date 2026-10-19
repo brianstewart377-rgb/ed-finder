@@ -26,12 +26,14 @@ fail() {
   printf 'v3 system search f1: %s\n' "$reason" >&2
   reason="${reason//\\/\\\\}"
   reason="${reason//\"/\\\"}"
+  local read_only="false"
+  case "$CURRENT_OPERATION" in *-status) read_only="true" ;; esac
   case "$DB_WRITES_STATE" in
     false) writes="false" ;;
     *) writes="null" ;;
   esac
-  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":%s,"db_writes_may_have_been_performed":%s,"failures":["%s"]}\n' \
-    "$CURRENT_OPERATION" "$writes" "$([ "$writes" = false ] && echo false || echo true)" "$reason"
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":%s,"db_writes_performed":%s,"db_writes_may_have_been_performed":%s,"failures":["%s"]}\n' \
+    "$CURRENT_OPERATION" "$read_only" "$writes" "$([ "$writes" = false ] && echo false || echo true)" "$reason"
   exit 64
 }
 
@@ -90,13 +92,17 @@ preserved_worker_log_tail() {
 # WAL archiving health (pgBackRest archive-push). A build writes hundreds of
 # GB of WAL; an archiver that is failing, or silent while unarchived WAL piles
 # up, would fill the data volume mid-build, so start refuses until it is
-# healthy. The backlog is the archive_status .ready files (segments written
+# healthy. With archive_mode off (or no archive_command) there are no .ready
+# files and no failures, so the payload also carries both settings and start
+# refuses wal_archiving_disabled. The backlog is the archive_status .ready files (segments written
 # but not yet archived), never the pg_wal segment count, which includes
 # recycled and preallocated segments and so always looks full.
 ARCHIVER_SILENCE_SECONDS=1800
 ARCHIVER_WAL_FILE_LIMIT=50
 archiver_status() {
   db_query "BEGIN READ ONLY; SELECT json_build_object(
+    'archive_mode',current_setting('archive_mode'),
+    'archive_command_set',(length(btrim(current_setting('archive_command')))>0),
     'archived_count',a.archived_count,
     'last_archived_wal',a.last_archived_wal,
     'last_archived_time',a.last_archived_time,
@@ -121,6 +127,8 @@ try:
     value = json.loads(sys.argv[3])
 except ValueError:
     print('invalid'); raise SystemExit(0)
+if value.get('archive_mode') not in ('on', 'always') or value.get('archive_command_set') is not True:
+    print('disabled'); raise SystemExit(0)
 if value.get('archiver_failing') is True:
     print('failing'); raise SystemExit(0)
 silent = value.get('seconds_since_last_archived')
@@ -132,7 +140,11 @@ if (silent is None or silent > silence) and files > wal_limit:
 print('healthy')
 PY
 )"
-  [ "$verdict" = "healthy" ] || fail "wal_archiver_unhealthy:${verdict} ${status}"
+  case "$verdict" in
+    healthy) ;;
+    disabled) fail "wal_archiving_disabled ${status}" ;;
+    *) fail "wal_archiver_unhealthy:${verdict} ${status}" ;;
+  esac
 }
 
 # Read-only preflight precedes every operation lock, host write and container change.

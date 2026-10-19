@@ -278,6 +278,20 @@ def test_fail_prints_a_stopped_operation_result_on_stdout(action, tmp_path):
 
 
 @pytest.mark.parametrize("action", sorted(ACTIONS))
+@pytest.mark.parametrize(("suffix", "read_only"), [("-status", True), ("-start", False), ("-finalize", False)])
+def test_stopped_receipt_read_only_follows_the_operation(action, suffix, read_only, tmp_path):
+    slug = ACTIONS[action].name.removesuffix(".sh")
+    script = _harness(action, f'CURRENT_OPERATION="{slug}{suffix}"\nfail "nope"\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["operation"] == f"{slug}{suffix}"
+    assert receipt["read_only"] is read_only
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
 def test_fail_after_a_launch_or_vacuum_reports_unknown_database_writes(action, tmp_path):
     # Once this invocation launched a worker or started VACUUM, a refusal
     # cannot prove what was committed before the stop: the receipt says so
@@ -331,8 +345,12 @@ def test_identity_preflight_refusals_print_a_stopped_receipt(action, tmp_path):
     ({"archiver_failing": False, "seconds_since_last_archived": 7200, "wal_unarchived_files": 51}, "silent"),
     ({"archiver_failing": False, "seconds_since_last_archived": None, "wal_unarchived_files": 51}, "silent"),
     ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 51}, "invalid"),
+    ({"archive_mode": "off", "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "disabled"),
+    ({"archive_command_set": False, "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "disabled"),
+    ({"archive_mode": "always", "archiver_failing": False, "seconds_since_last_archived": 5, "wal_unarchived_files": 0}, "healthy"),
 ])
 def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_path):
+    status = {"archive_mode": "on", "archive_command_set": True, **status}
     # A build writes hundreds of GB of WAL through pgBackRest archive-push; a
     # failing archiver, or one silent for 30 minutes while unarchived WAL
     # (.ready files, never the recycled-segment count) piles up past 50 files,
@@ -355,7 +373,13 @@ def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_pa
         assert result.returncode == 64
         receipt = json.loads(result.stdout.strip().splitlines()[-1])
         assert receipt["status"] == "stopped"
-        assert receipt["failures"][0].startswith(f"wal_archiver_unhealthy:{verdict}")
+        if verdict == "disabled":
+            # archive_mode off leaves no .ready files and no failures, so the
+            # payload carries the settings themselves; a build must never run
+            # with WAL archiving off.
+            assert receipt["failures"][0].startswith("wal_archiving_disabled ")
+        else:
+            assert receipt["failures"][0].startswith(f"wal_archiver_unhealthy:{verdict}")
 
 
 @pytest.mark.parametrize("action", sorted(ACTIONS))
@@ -367,6 +391,8 @@ def test_start_reads_archiver_health_before_the_capacity_gate_and_launch(action)
     assert start.index("run_capacity_gate") < start.index("docker run -d")
     assert "pg_stat_archiver" in source
     assert "pg_ls_archive_statusdir()" in source
+    assert "current_setting('archive_mode')" in source
+    assert "current_setting('archive_command')" in source
     assert "LIKE '%.ready'" in source
     assert "'pg_wal_files'" not in source
     assert "archiver_status=" in status

@@ -38,14 +38,15 @@ redacted (libpq errors can echo the password); a Search coverage mismatch
 prints the ordinal and a bounded sample of uncovered id64s before failing. Both
 actions: `fail()` also emits a stopped operation-result JSON line on stdout
 (the workflow records stdout only), defined before the identity preflight so
-those refusals print it too, with `db_writes_performed` null once a worker was
+those refusals print it too, `read_only` true for `-status`, with `db_writes_performed` null once a worker was
 launched or VACUUM started by that invocation; a crashed worker's log is preserved under
 the state root before `docker rm` and reported by `status`; a failed
 `docker run -d` is guarded so it stops with a receipt (and the created
 container's log) rather than exiting silently under `set -e`; the launch proof
 window is ten minutes (a resume installs wheels and lists ~198k chunks first);
 `start` reads `pg_stat_archiver`, `pg_ls_waldir()` and the archive_status
-`.ready` backlog (a failed query stops with `wal_archiver_query_failed`) and refuses `wal_archiver_unhealthy` when the archiver is
+`.ready` backlog (a failed query stops with `wal_archiver_query_failed`; `archive_mode` off or
+an empty `archive_command` stops with `wal_archiving_disabled`) and refuses `wal_archiver_unhealthy` when the archiver is
 failing, or silent for 30 minutes while more than 50 unarchived segments wait
 (never the recycled-segment count), since a build writes hundreds of GB of WAL
 through pgBackRest archive-push; `status` reports the archiver. The Archetype
