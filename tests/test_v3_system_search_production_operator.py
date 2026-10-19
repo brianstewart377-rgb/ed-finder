@@ -251,7 +251,8 @@ def _harness(action: str, extra: str) -> str:
     )
     settings = "\n".join(
         line for line in source.splitlines()
-        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "WORKER="))
+        if line.startswith(("CURRENT_OPERATION=", "ARCHIVER_", "WORKER=", "DB_WRITES_STATE=",
+                            "mark_db_writes_possible()"))
     )
     return f"set -uo pipefail\n{settings}\n{functions}\n{extra}\n"
 
@@ -271,22 +272,71 @@ def test_fail_prints_a_stopped_operation_result_on_stdout(action, tmp_path):
     assert receipt == {
         "schema_version": "ed-finder/operator-operation-result/v1",
         "operation": "unit-op", "status": "stopped", "read_only": False,
-        "db_writes_performed": False, "failures": ['bad "thing" here'],
+        "db_writes_performed": False, "db_writes_may_have_been_performed": False,
+        "failures": ['bad "thing" here'],
     }
 
 
 @pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_fail_after_a_launch_or_vacuum_reports_unknown_database_writes(action, tmp_path):
+    # Once this invocation launched a worker or started VACUUM, a refusal
+    # cannot prove what was committed before the stop: the receipt says so
+    # (null / may-have-been-performed) instead of a hard-coded false.
+    script = _harness(action, 'mark_db_writes_possible\nfail "after launch"\n')
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "STATE_ROOT": str(tmp_path), "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 64
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["db_writes_performed"] is None
+    assert receipt["db_writes_may_have_been_performed"] is True
+    source = ACTIONS[action].read_text(encoding="utf-8")
+    # The flip precedes the launch and the VACUUM, the two mutation points.
+    assert source.index("mark_db_writes_possible\n  docker run -d") > 0
+    assert 'mark_db_writes_possible\n    db_maintenance "VACUUM (ANALYZE)' in source
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_identity_preflight_refusals_print_a_stopped_receipt(action, tmp_path):
+    # The identity helper check and the attestation check run before anything
+    # else; both must still produce the stdout receipt line.
+    environment = {**os.environ, "HOME": str(tmp_path)}
+    environment.pop("F2D_OPERATOR_CODE_SHA256_ATTESTED", None)
+    result = subprocess.run(
+        ["bash", str(ACTIONS[action]), "status", str(ROOT), "0" * 40],
+        capture_output=True, text=True, check=False, env=environment,
+    )
+    assert result.returncode == 64
+    assert "attested_identity_missing" in result.stderr
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["status"] == "stopped"
+    assert receipt["operation"].endswith("-status")
+    assert receipt["db_writes_performed"] is False
+    assert "attested operator identity refused" in receipt["failures"][0]
+    missing = subprocess.run(
+        ["bash", str(ACTIONS[action]), "status", str(tmp_path), "0" * 40],
+        capture_output=True, text=True, check=False, env=environment,
+    )
+    assert missing.returncode == 64
+    receipt = json.loads(missing.stdout.strip().splitlines()[-1])
+    assert receipt["failures"] == ["identity helper is missing or symlinked"]
+
+
+@pytest.mark.parametrize("action", sorted(ACTIONS))
 @pytest.mark.parametrize(("status", "verdict"), [
-    ({"archiver_failing": False, "seconds_since_last_archived": 30, "pg_wal_files": 500}, "healthy"),
-    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 12}, "healthy"),
-    ({"archiver_failing": True, "seconds_since_last_archived": 5, "pg_wal_files": 1}, "failing"),
-    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 51}, "silent"),
-    ({"archiver_failing": False, "seconds_since_last_archived": None, "pg_wal_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 30, "wal_unarchived_files": 500}, "healthy"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "wal_unarchived_files": 12}, "healthy"),
+    ({"archiver_failing": True, "seconds_since_last_archived": 5, "wal_unarchived_files": 1}, "failing"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "wal_unarchived_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": None, "wal_unarchived_files": 51}, "silent"),
+    ({"archiver_failing": False, "seconds_since_last_archived": 7200, "pg_wal_files": 51}, "invalid"),
 ])
 def test_start_refuses_an_unhealthy_wal_archiver(action, status, verdict, tmp_path):
     # A build writes hundreds of GB of WAL through pgBackRest archive-push; a
-    # failing archiver, or one silent for 30 minutes while WAL piles up past
-    # 50 files, would fill the data volume mid-build.
+    # failing archiver, or one silent for 30 minutes while unarchived WAL
+    # (.ready files, never the recycled-segment count) piles up past 50 files,
+    # would fill the data volume mid-build.
     stub = (
         "db_query() { printf '%s\\n' \"$ARCHIVER_FIXTURE\"; }\n"
         'PYTHON_BIN="$(command -v python3)"\n'
@@ -316,7 +366,9 @@ def test_start_reads_archiver_health_before_the_capacity_gate_and_launch(action)
     assert start.index("require_archiver_healthy") < start.index("run_capacity_gate")
     assert start.index("run_capacity_gate") < start.index("docker run -d")
     assert "pg_stat_archiver" in source
-    assert "pg_ls_waldir()" in source
+    assert "pg_ls_archive_statusdir()" in source
+    assert "LIKE '%.ready'" in source
+    assert "'pg_wal_files'" not in source
     assert "archiver_status=" in status
     assert "BEGIN READ ONLY" in _function_block(source, "archiver_status")
 

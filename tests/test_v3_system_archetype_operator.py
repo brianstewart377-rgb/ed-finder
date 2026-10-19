@@ -26,6 +26,8 @@ def test_archetype_action_checks_attested_identity_before_target_preflight() -> 
     assert source.index("require_f2d_operator_code_identity") < source.index(
         "require_target()"
     )
+    # The receipt emitter is the only thing defined before the identity gate.
+    assert source.index("fail() {") < source.index("require_f2d_operator_code_identity")
 
     environment = os.environ.copy()
     environment.pop("F2D_OPERATOR_CODE_SHA256_ATTESTED", None)
@@ -262,9 +264,10 @@ def test_status_is_read_only_and_reports_receipts() -> None:
 
 def test_action_exposes_only_start_status_and_finalize_modes() -> None:
     source = _source()
-    assert 'start) CURRENT_OPERATION="v3-system-archetype-start"; start_operation' in source
-    assert 'status) CURRENT_OPERATION="v3-system-archetype-status"; status_operation' in source
-    assert 'finalize) CURRENT_OPERATION="v3-system-archetype-finalize"; finalize_operation' in source
+    assert "start) start_operation" in source
+    assert "status) status_operation" in source
+    assert "finalize) finalize_operation" in source
+    assert 'CURRENT_OPERATION="v3-system-archetype-$ACTION"' in source
     assert 'fail "expected start, status, or finalize"' in source
 
 

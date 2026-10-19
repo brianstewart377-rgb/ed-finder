@@ -6,15 +6,43 @@ ACTION="${1:-}"
 REPO_ROOT="${2:-}"
 SOURCE_SHA="${3:-}"
 
-# Identity is intentionally the first preflight in every mode.
-IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
-[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] || {
-  printf '%s\n' 'v3 system archetype: identity helper is missing or symlinked' >&2
+# The receipt emitter precedes every refusal, including the identity
+# preflight, so each stop prints a stopped operation-result line on stdout:
+# the workflow records stdout only, and a reason that went to stderr alone was
+# invisible in the downloadable receipt.
+CURRENT_OPERATION="v3-system-archetype"
+if [[ "$ACTION" =~ ^(start|status|finalize)$ ]]; then
+  CURRENT_OPERATION="v3-system-archetype-$ACTION"
+fi
+# Mutation state for the stopped receipt. "false" until this invocation may
+# have changed the database (a worker launched by it, or VACUUM started);
+# "unknown" afterwards, because a refusal cannot prove what the worker or
+# VACUUM committed before the stop.
+DB_WRITES_STATE="false"
+mark_db_writes_possible() { DB_WRITES_STATE="unknown"; }
+
+fail() {
+  local reason="$*" writes
+  printf 'v3 system archetype: %s\n' "$reason" >&2
+  reason="${reason//\\/\\\\}"
+  reason="${reason//\"/\\\"}"
+  case "$DB_WRITES_STATE" in
+    false) writes="false" ;;
+    *) writes="null" ;;
+  esac
+  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":%s,"db_writes_may_have_been_performed":%s,"failures":["%s"]}\n' \
+    "$CURRENT_OPERATION" "$writes" "$([ "$writes" = false ] && echo false || echo true)" "$reason"
   exit 64
 }
+
+# Identity is intentionally the first preflight in every mode.
+IDENTITY_HELPER="$REPO_ROOT/scripts/operator/lib/f2d_operator_identity.sh"
+[ -f "$IDENTITY_HELPER" ] && [ ! -L "$IDENTITY_HELPER" ] \
+  || fail "identity helper is missing or symlinked"
 # shellcheck source=../lib/f2d_operator_identity.sh
 source "$IDENTITY_HELPER"
-F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" || exit $?
+F2D_IDENTITY="$(require_f2d_operator_code_identity "$REPO_ROOT")" \
+  || fail "attested operator identity refused (see stderr)"
 
 TARGET_HOSTNAME="ed-finder-prod"
 TARGET_FQDN="nb79a3d.mevnode.com"
@@ -41,21 +69,6 @@ TARGET_CPUS="8"
 TARGET_MEMORY="32g"
 PYTHON_BIN=""
 
-CURRENT_OPERATION="v3-system-archetype"
-
-# Every refusal is also a stopped operation-result line on stdout: the
-# workflow records stdout only, so a reason that went to stderr alone was
-# invisible in the downloadable receipt.
-fail() {
-  local reason="$*"
-  printf 'v3 system archetype: %s\n' "$reason" >&2
-  reason="${reason//\\/\\\\}"
-  reason="${reason//\"/\\\"}"
-  printf '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"%s","status":"stopped","read_only":false,"db_writes_performed":false,"failures":["%s"]}\n' \
-    "$CURRENT_OPERATION" "$reason"
-  exit 64
-}
-
 # Keep a crashed worker's log before it is removed; status reports its tail.
 preserve_worker_log() {
   local target
@@ -74,8 +87,11 @@ preserved_worker_log_tail() {
 }
 
 # WAL archiving health (pgBackRest archive-push). A build writes hundreds of
-# GB of WAL; an archiver that is failing, or silent while WAL piles up, would
-# fill the data volume mid-build, so start refuses until it is healthy.
+# GB of WAL; an archiver that is failing, or silent while unarchived WAL piles
+# up, would fill the data volume mid-build, so start refuses until it is
+# healthy. The backlog is the archive_status .ready files (segments written
+# but not yet archived), never the pg_wal segment count, which includes
+# recycled and preallocated segments and so always looks full.
 ARCHIVER_SILENCE_SECONDS=1800
 ARCHIVER_WAL_FILE_LIMIT=50
 archiver_status() {
@@ -88,8 +104,8 @@ archiver_status() {
     'last_failed_time',a.last_failed_time,
     'seconds_since_last_archived',EXTRACT(EPOCH FROM (clock_timestamp()-a.last_archived_time))::bigint,
     'archiver_failing',COALESCE(a.failed_count>0 AND a.last_failed_time>COALESCE(a.last_archived_time,'-infinity'::timestamptz),false),
-    'pg_wal_files',(SELECT count(*) FROM pg_ls_waldir() w WHERE w.name ~ '^[0-9A-F]{24}$'),
-    'pg_wal_bytes',(SELECT COALESCE(sum(w.size),0) FROM pg_ls_waldir() w)
+    'pg_wal_bytes',(SELECT COALESCE(sum(w.size),0) FROM pg_ls_waldir() w),
+    'wal_unarchived_files',(SELECT count(*) FROM pg_ls_archive_statusdir() r WHERE r.name LIKE '%.ready')
   )::text FROM pg_stat_archiver a; COMMIT;"
 }
 
@@ -107,7 +123,9 @@ except ValueError:
 if value.get('archiver_failing') is True:
     print('failing'); raise SystemExit(0)
 silent = value.get('seconds_since_last_archived')
-files = value.get('pg_wal_files') or 0
+files = value.get('wal_unarchived_files')
+if files is None:
+    print('invalid'); raise SystemExit(0)
 if (silent is None or silent > silence) and files > wal_limit:
     print('silent'); raise SystemExit(0)
 print('healthy')
@@ -586,6 +604,7 @@ start_operation() {
   [ "$baseline_chunks" -le "$planned_chunks" ] \
     || fail "Archetype has more committed chunks than the Ratings chunk plan"
   [ "$baseline_chunks" -lt "$planned_chunks" ] || validation_only=true
+  mark_db_writes_possible
   docker run -d \
     --name "$WORKER" --label "$OPERATION_LABEL" \
     --label "ed-finder.generation-key=${TARGET_GENERATION_KEY}" \
@@ -750,6 +769,7 @@ PY
   stats="$(db_query "BEGIN READ ONLY; SELECT COALESCE(last_vacuum::text,'') || E'\\t' || COALESCE(last_analyze::text,'') FROM pg_stat_user_tables WHERE schemaname='v3_derived' AND relname='system_archetype'; COMMIT;")"
   IFS=$'\t' read -r last_vacuum last_analyze <<< "$stats"
   if [ "$(archetype_vacuum_is_current)" != "true" ]; then
+    mark_db_writes_possible
     db_maintenance "VACUUM (ANALYZE) v3_derived.system_archetype;"
     vacuum_performed=true
     stats="$(db_query "BEGIN READ ONLY; SELECT COALESCE(last_vacuum::text,'') || E'\\t' || COALESCE(last_analyze::text,'') FROM pg_stat_user_tables WHERE schemaname='v3_derived' AND relname='system_archetype'; COMMIT;")"
@@ -805,8 +825,8 @@ PY
 }
 
 case "$ACTION" in
-  start) CURRENT_OPERATION="v3-system-archetype-start"; start_operation ;;
-  status) CURRENT_OPERATION="v3-system-archetype-status"; status_operation ;;
-  finalize) CURRENT_OPERATION="v3-system-archetype-finalize"; finalize_operation ;;
+  start) start_operation ;;
+  status) status_operation ;;
+  finalize) finalize_operation ;;
   *) fail "expected start, status, or finalize" ;;
 esac

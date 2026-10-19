@@ -36,12 +36,15 @@ builders now set `plan_cache_mode=force_custom_plan`, `lock_timeout` 30 s and
 `error_detail` and `sqlstate` (never the DSN); a Search coverage mismatch
 prints the ordinal and a bounded sample of uncovered id64s before failing. Both
 actions: `fail()` also emits a stopped operation-result JSON line on stdout
-(the workflow records stdout only); a crashed worker's log is preserved under
+(the workflow records stdout only), defined before the identity preflight so
+those refusals print it too, with `db_writes_performed` null once a worker was
+launched or VACUUM started by that invocation; a crashed worker's log is preserved under
 the state root before `docker rm` and reported by `status`; the launch proof
 window is ten minutes (a resume installs wheels and lists ~198k chunks first);
-`start` reads `pg_stat_archiver` and `pg_ls_waldir()` and refuses
-`wal_archiver_unhealthy` when the archiver is failing, or silent for 30 minutes
-while more than 50 WAL files wait, since a build writes hundreds of GB of WAL
+`start` reads `pg_stat_archiver`, `pg_ls_waldir()` and the archive_status
+`.ready` backlog and refuses `wal_archiver_unhealthy` when the archiver is
+failing, or silent for 30 minutes while more than 50 unarchived segments wait
+(never the recycled-segment count), since a build writes hundreds of GB of WAL
 through pgBackRest archive-push; `status` reports the archiver. The Archetype
 manifest records CPython major.minor only. Every changed file is in the F2d
 operator-code manifest, so the accepted release must be rebuilt and promoted
