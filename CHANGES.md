@@ -34,6 +34,42 @@ ledger now point at the 7′ gate as the next step.
 
 ---
 
+## 2026-10-19 — DB lanes can no longer pass with zero tests run; known test flakes fixed
+
+Test hygiene only; no application, migration or operator-script change (the
+F2d operator identity `c26d23d0…d6279` is unchanged).
+
+- **`EDF_DB_TESTS_REQUIRED=1`** (`tests/helpers/db_isolation.py`:
+  `database_unavailable`, `import_db_module`). Every "the disposable database
+  is not usable" exit in the database-backed tests — unreachable server, unsafe
+  or unset target URL, missing destructive-reset opt-in, missing driver or
+  `bash`/`psql` — now routes through one helper that skips by default and
+  **fails** when the flag is set. The three CI jobs that provide PostgreSQL
+  (`Importer and synchronous tooling`, `Backend integration (PG+Redis)`,
+  `Finder derived-data tests (PostgreSQL 18)`) set the flag in their pytest
+  step `env:`, so a DB lane that lost its database turns red instead of
+  reporting a green run of skips. Converted sites: `tests/ratings_v4_pg_fixture.py`,
+  `tests/integration/conftest.py` (probe failure and `clean_db` opt-in),
+  `test_data_trust_runtime.py`, `test_migration_applier_runtime.py`,
+  `test_migration_ledger_baseline_runtime.py`, the spatial lifecycle/publish/
+  pyramid suites, `test_journal_commander_association.py`,
+  `test_frontier_auth_v3_postgres.py`, the Stage 19 readiness/constraint suites,
+  `test_ratings_v4_resume_upgrade.py`, `test_measure_search_footprint.py`,
+  `test_v3_canonical_bootstrap.py`, and `confirmed_target_or_skip`. Skips about
+  the *state* of a reachable database (V2-only schema, no published generation,
+  missing seed rows) and the integration `Redis not available` skip are lane
+  conditions, keep their specific reasons, and are not affected by the flag.
+- **Flake fixes (tests only):** the deployment cancellation test's child now
+  publishes its pid atomically (temp file + `os.replace`) and the test polls
+  for digits rather than file existence; the purge-controller test's inert
+  action holds 1.5 s so "still running once started" cannot lose a scheduler
+  race; the backup test waits for the `tee`/process-substitution log writer to
+  catch up with the captured stdout instead of a 1 s existence check; the
+  review-lab process-registry test uses a 10 s grace so `running` is recorded
+  after the child has actually exited; the EDDN metrics test starts the server
+  on a probed ephemeral port with EADDRINUSE retry and waits for an accepted
+  connection instead of `sleep(0.1)` (`METRICS_PORT=0` disables the server, so
+  port 0 cannot be used directly).
 ## 2026-10-19 — Svelte web dead-code trim
 
 Deletions only in `apps/web/`, no behaviour change. Removed the unreferenced

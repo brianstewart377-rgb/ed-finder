@@ -36,8 +36,8 @@ def db_conn():
     try:
         conn = psycopg.connect(target.dsn)
     except psycopg.OperationalError as exc:
-        pytest.skip(f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
-        return
+        db_isolation.database_unavailable(
+            f'disposable test Postgres unreachable at {target.redacted_dsn}: {exc}')
     conn.autocommit = False
     try:
         yield conn

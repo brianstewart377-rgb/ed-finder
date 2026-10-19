@@ -197,6 +197,9 @@ jobs:
           REDIS_URL: redis://localhost:6379/15
           CORS_ORIGINS: http://test
           EDDN_SIMULATION_INGEST_ENABLED: "false"
+          # This job provides PostgreSQL: a DB-backed test that cannot reach it
+          # must fail, not skip (tests/helpers/db_isolation.py).
+          EDF_DB_TESTS_REQUIRED: "1"
         run: |
           mapfile -t synchronous_unit_tests < <(
             grep '^tests/test_' tests/synchronous_tooling_test_paths.txt \
@@ -322,6 +325,9 @@ jobs:
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
+          # This job provides PostgreSQL: a DB-backed test that cannot reach it
+          # must fail, not skip (tests/helpers/db_isolation.py).
+          EDF_DB_TESTS_REQUIRED: "1"
         run: >-
           apps/api/.venv/bin/python -m pytest
           tests/integration/
@@ -402,6 +408,9 @@ jobs:
           LOG_LEVEL:    WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
           PYTHONPATH: ${{ github.workspace }}/apps/api/src
+          # This job provides PostgreSQL: a fixture-backed test that cannot reach
+          # it must fail, not skip (tests/helpers/db_isolation.py).
+          EDF_DB_TESTS_REQUIRED: "1"
         run: |
           set -euo pipefail
           mapfile -t fixture_backed < <(

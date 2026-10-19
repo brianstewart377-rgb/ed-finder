@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
+from tests.helpers import db_isolation
 
 
 @contextmanager
@@ -16,7 +16,8 @@ def canonical_database(*, prepare=None):
 
     dsn = os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL')
     if not dsn:
-        pytest.skip('isolated PostgreSQL validation URL not set')
+        db_isolation.database_unavailable(
+            'isolated PostgreSQL validation URL not set (RATINGS_V4_VALIDATION_DATABASE_URL)')
     settings = conninfo_to_dict(dsn)
     if (settings.get('host') not in {'127.0.0.1', 'localhost'} or
             settings.get('dbname') != 'ratings_v4_validation'):

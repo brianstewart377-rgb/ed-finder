@@ -54,17 +54,18 @@ async def v3_auth_pool():
     try:
         target = db_isolation.target_from_env(os.environ)
     except db_isolation.DbIsolationError as exc:
-        pytest.skip(f'V3 auth PostgreSQL checks skipped: unsafe_target:{exc}')
+        db_isolation.database_unavailable(f'V3 auth PostgreSQL checks skipped: unsafe_target:{exc}')
 
     try:
         import asyncpg
     except ImportError:
-        pytest.skip('V3 auth PostgreSQL checks skipped: asyncpg_missing')
+        db_isolation.database_unavailable('V3 auth PostgreSQL checks skipped: asyncpg_missing')
 
     try:
         setup_conn = await asyncpg.connect(target.dsn, statement_cache_size=0)
     except Exception as exc:
-        pytest.skip(f'V3 auth PostgreSQL checks skipped: {type(exc).__name__}')
+        db_isolation.database_unavailable(
+            f'V3 auth PostgreSQL checks skipped: {type(exc).__name__}')
 
     try:
         version = str(await setup_conn.fetchval('SHOW server_version_num'))

@@ -25,13 +25,15 @@ from scripts.ratings_v4.resume_upgrade import (  # noqa: E402
     committed_prefix, verify_origin,
 )
 from scripts.ratings_v4.run_generation import build_generation  # noqa: E402
+from tests.helpers import db_isolation  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 
 @pytest.fixture(scope='module')
 def legacy_root(tmp_path_factory):
     if not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'):
-        pytest.skip('isolated PostgreSQL validation URL not set')
+        db_isolation.database_unavailable(
+            'isolated PostgreSQL validation URL not set (RATINGS_V4_VALIDATION_DATABASE_URL)')
     root = tmp_path_factory.mktemp('legacy-v4')
     freeze = 'docs/development/ratings-v4-freeze/manifest.json'
     recovery = 'docs/development/v3-canonical-source-recovery.json'

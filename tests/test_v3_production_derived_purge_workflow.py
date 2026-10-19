@@ -407,15 +407,20 @@ def test_remote_controller_remains_running_until_its_action_exits(tmp_path):
     script = script[script.index('export GITHUB_RUN_ID='):]
     action = tmp_path / 'scripts/operator/actions/v3-derived-generation-purge.sh'
     action.parent.mkdir(parents=True)
-    action.write_text('touch action-started\nsleep 0.3\ntouch action-finished\nexit 23\n')
+    # The inert action holds for long enough that "controller still running
+    # once the action has started" cannot be lost to scheduler jitter between
+    # the marker appearing and the poll below (0.3 s was too tight on CI).
+    action.write_text('touch action-started\nsleep 1.5\ntouch action-finished\nexit 23\n')
     process = subprocess.Popen(['bash', '-c', script], cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 10
         while not (tmp_path / 'action-started').exists() and time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
             time.sleep(0.01)
-        assert (tmp_path / 'action-started').exists()
+        assert (tmp_path / 'action-started').exists(), process.poll()
         assert process.poll() is None, 'controller returned while remote action was running'
-        process.communicate(timeout=5)
+        process.communicate(timeout=15)
         assert process.returncode == 23
         assert (tmp_path / 'action-finished').exists()
     finally:

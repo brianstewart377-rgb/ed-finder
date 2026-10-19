@@ -1900,10 +1900,14 @@ def test_controlled_cancellation_terminates_and_reaps_active_bounded_child(tmp_p
         from scripts.operator import v3_production_deploy as deployer
 
         deployer.PROCESS_TERMINATION_GRACE = 0.1
+        # Publish the pid atomically: write a temp file, close it, then
+        # os.replace, so the test can never observe an empty/partial pid file.
         child_code = (
             "import os,signal,sys,time;"
             "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
-            "open(sys.argv[1], 'w').write(str(os.getpid()));"
+            "tmp = sys.argv[1] + '.tmp';"
+            "f = open(tmp, 'w'); f.write(str(os.getpid())); f.close();"
+            "os.replace(tmp, sys.argv[1]);"
             "time.sleep(60)"
         )
         try:
@@ -1920,14 +1924,30 @@ def test_controlled_cancellation_terminates_and_reaps_active_bounded_child(tmp_p
         stderr=subprocess.PIPE,
         text=True,
     )
-    deadline = time.monotonic() + 5
-    while not child_pid_file.exists() and time.monotonic() < deadline:
+    deadline = time.monotonic() + 10
+    child_pid_text = ""
+    while time.monotonic() < deadline:
+        if child_pid_file.exists():
+            child_pid_text = child_pid_file.read_text(encoding="utf-8").strip()
+            if child_pid_text.isdigit():
+                break
+        if process.poll() is not None:
+            break
         time.sleep(0.01)
-    assert child_pid_file.exists()
-    child_pid = int(child_pid_file.read_text(encoding="utf-8"))
+    assert child_pid_text.isdigit(), (child_pid_text, process.poll())
+    child_pid = int(child_pid_text)
     process.send_signal(signal.SIGTERM)
-    stdout, stderr = process.communicate(timeout=5)
+    stdout, stderr = process.communicate(timeout=10)
     assert process.returncode == 78, (stdout, stderr)
+    # The deployer must have SIGKILLed and reaped the SIGTERM-ignoring child
+    # before returning; allow the kernel a moment to drop the pid entry.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
 

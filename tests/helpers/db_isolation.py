@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import quote, urlsplit, urlunsplit
 
 
@@ -34,6 +34,13 @@ PRODUCTION_MARKERS = (
 )
 HOST_5432_OPT_IN_ENV = 'EDFINDER_ALLOW_HOST_5432_TEST_DB'
 DESTRUCTIVE_RESET_OPT_IN_ENV = 'EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET'
+# Set to "1" by the CI jobs that provide a database service. Database-backed
+# tests then FAIL instead of skipping when the database is unreachable,
+# unsafe, unconfigured, or a driver is missing, so a DB lane can no longer go
+# green with zero tests run. Skips about the *state* of a reachable database
+# (V2-only schema, no published generation, missing seed rows) are lane
+# conditions, not availability failures, and are not routed through this gate.
+DB_TESTS_REQUIRED_ENV = 'EDF_DB_TESTS_REQUIRED'
 
 _SAFE_SCHEMA_RE = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
 
@@ -108,6 +115,44 @@ def target_from_pg_env(env: Mapping[str, str] | None = None, *, source: str = 'p
     return validate_test_db_target(dsn, env=source_env, source=source)
 
 
+def db_tests_required(env: Mapping[str, str] | None = None) -> bool:
+    source_env = os.environ if env is None else env
+    return source_env.get(DB_TESTS_REQUIRED_ENV) == '1'
+
+
+def database_unavailable(
+    reason: str,
+    *,
+    allow_module_level: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> NoReturn:
+    """Skip a database-backed test, or fail it when ``EDF_DB_TESTS_REQUIRED=1``.
+
+    Every "the disposable database is not usable" exit (unreachable server,
+    unsafe/unconfigured target, missing driver or client tool) must go through
+    here instead of a bare ``pytest.skip`` so that a lane which promised a
+    database cannot pass while the tests it exists for never ran.
+    """
+    import pytest
+
+    if db_tests_required(env):
+        pytest.fail(
+            f'{DB_TESTS_REQUIRED_ENV}=1 but a database-backed test could not run: {reason}',
+            pytrace=False,
+        )
+    pytest.skip(reason, allow_module_level=allow_module_level)
+
+
+def import_db_module(name: str, *, env: Mapping[str, str] | None = None) -> Any:
+    """``pytest.importorskip`` for database drivers, honouring the required gate."""
+    import importlib
+
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        database_unavailable(f'{name} is not importable: {exc}', env=env)
+
+
 def confirmed_target_or_skip(
     *,
     dsn_env: str,
@@ -121,9 +166,10 @@ def confirmed_target_or_skip(
     dsn = source_env.get(dsn_env)
     confirmed = source_env.get(confirm_env) == 'yes'
     if not dsn or not confirmed:
-        pytest.skip(
+        database_unavailable(
             f'{purpose} requires {dsn_env} and {confirm_env}=yes',
             allow_module_level=True,
+            env=source_env,
         )
     try:
         return validate_test_db_target(dsn, env=source_env, source=dsn_env)

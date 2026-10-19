@@ -215,3 +215,54 @@ def test_rollback_transaction_rolls_back_and_closes():
 
     assert fake.rollbacks == 1
     assert fake.closed is True
+
+
+def test_database_unavailable_skips_by_default():
+    with pytest.raises(pytest.skip.Exception, match='no server'):
+        db_isolation.database_unavailable('no server', env={})
+
+
+def test_database_unavailable_fails_when_db_tests_are_required():
+    with pytest.raises(pytest.fail.Exception, match='EDF_DB_TESTS_REQUIRED=1 .* no server'):
+        db_isolation.database_unavailable('no server', env={db_isolation.DB_TESTS_REQUIRED_ENV: '1'})
+
+    # Only the exact value "1" arms the gate; other values keep the skip.
+    with pytest.raises(pytest.skip.Exception):
+        db_isolation.database_unavailable('no server', env={db_isolation.DB_TESTS_REQUIRED_ENV: 'yes'})
+
+
+def test_import_db_module_honours_required_gate():
+    assert db_isolation.import_db_module('json', env={}) is not None
+    with pytest.raises(pytest.skip.Exception, match='not importable'):
+        db_isolation.import_db_module('edf_no_such_driver_module', env={})
+    with pytest.raises(pytest.fail.Exception, match='not importable'):
+        db_isolation.import_db_module(
+            'edf_no_such_driver_module', env={db_isolation.DB_TESTS_REQUIRED_ENV: '1'},
+        )
+
+
+def test_confirmed_target_or_skip_fails_without_opt_in_when_db_tests_are_required():
+    with pytest.raises(pytest.fail.Exception, match='requires DSN and CONFIRM=yes'):
+        db_isolation.confirmed_target_or_skip(
+            dsn_env='DSN', confirm_env='CONFIRM', purpose='probe',
+            env={db_isolation.DB_TESTS_REQUIRED_ENV: '1'},
+        )
+
+
+def test_ci_database_lanes_require_db_tests_to_run():
+    import yaml
+    from pathlib import Path
+
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+    )
+    expected = {
+        'importer-tooling': 'Run importer and synchronous tooling unit and PostgreSQL tests',
+        'integration': 'Run integration test suite',
+        'finder-derived-data': 'Run every validation-fixture-backed Finder test module',
+    }
+    for job_id, step_name in expected.items():
+        job = workflow['jobs'][job_id]
+        assert 'postgres' in job['services'], job_id
+        step = next(step for step in job['steps'] if step.get('name') == step_name)
+        assert step['env'][db_isolation.DB_TESTS_REQUIRED_ENV] == '1', (job_id, step_name)

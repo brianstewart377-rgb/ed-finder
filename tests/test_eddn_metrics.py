@@ -303,15 +303,55 @@ def _unused_tcp_port_or_skip() -> int:
         return sock.getsockname()[1]
 
 
+async def _start_metrics_server_on_free_port(listener, *, attempts: int = 5):
+    """Start ``metrics_server`` on an ephemeral port and wait until it accepts.
+
+    ``METRICS_PORT=0`` disables the server, so the test cannot ask the kernel
+    for a port directly. Instead a probe socket finds a currently free port;
+    the gap between the probe closing and the server binding is a race, so a
+    bind failure (EADDRINUSE) is retried with a fresh port rather than failing
+    the test. Readiness is observed by connecting, not by a fixed sleep.
+    """
+    for _attempt in range(attempts):
+        port = _unused_tcp_port_or_skip()
+        listener.METRICS_PORT = port
+        server_task = asyncio.create_task(listener.metrics_server())
+        deadline = asyncio.get_running_loop().time() + 10
+        while True:
+            if server_task.done():
+                exc = server_task.exception()
+                if isinstance(exc, OSError):
+                    break  # the port was taken before the server bound; retry
+                raise AssertionError(f'metrics_server exited unexpectedly: {exc!r}')
+            try:
+                reader, writer = await asyncio.open_connection('127.0.0.1', port)
+            except OSError:
+                if asyncio.get_running_loop().time() > deadline:
+                    server_task.cancel()
+                    raise AssertionError(f'metrics_server never accepted on port {port}')
+                await asyncio.sleep(0.02)
+                continue
+            writer.close()
+            await writer.wait_closed()
+            # The connection may have been accepted by another process that
+            # won the port; only trust it if our server is still running.
+            await asyncio.sleep(0)
+            if server_task.done():
+                exc = server_task.exception()
+                if isinstance(exc, OSError):
+                    break  # lost the bind race after the probe connected; retry
+                raise AssertionError(f'metrics_server exited unexpectedly: {exc!r}')
+            return server_task, port
+    pytest.fail(f'could not bind metrics_server to a free port in {attempts} attempts')
+
+
 def test_metrics_server_serves_metrics_and_404s_other_paths(listener):
     """End-to-end: bind a listener, hit /metrics, /healthz, /nope, verify
     each returns the right status."""
-    unused_tcp_port = _unused_tcp_port_or_skip()
+    _unused_tcp_port_or_skip()  # surfaces the sandbox socket skip before the loop starts
 
     async def run():
-        listener.METRICS_PORT = unused_tcp_port
-        server_task = asyncio.create_task(listener.metrics_server())
-        await asyncio.sleep(0.1)
+        server_task, unused_tcp_port = await _start_metrics_server_on_free_port(listener)
 
         async def get(path: str) -> tuple[str, str]:
             r, w = await asyncio.open_connection('127.0.0.1', unused_tcp_port)

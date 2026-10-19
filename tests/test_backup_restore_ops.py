@@ -218,8 +218,17 @@ fi
         check=False,
     )
 
-    deadline = time.monotonic() + 1
-    while not log_file.exists() and time.monotonic() < deadline:
+    # run_backup.sh writes its log through `exec > >(tee -a >(... >> LOG))`.
+    # Those process-substitution writers outlive the script, so the log can
+    # still be filling after subprocess.run returns. Every line the script
+    # emitted is in the captured stdout; wait until the log has caught up.
+    expected_lines = len(completed.stdout.splitlines())
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if log_file.exists():
+            written = log_file.read_text(encoding='utf-8').splitlines()
+            if len(written) >= expected_lines:
+                break
         time.sleep(0.01)
 
     metadata_files = list(backup_dir.glob('edfinder_*.dump.json'))
