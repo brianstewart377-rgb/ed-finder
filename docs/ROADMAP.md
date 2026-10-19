@@ -469,7 +469,9 @@ newer dated source wins).
   join, cancelling runs 39155668281 and 39159487598 at the 60 s statement
   timeout). Sampled Σ_all ≈ 0.6 against the 4.0 bound. **Owner decision
   2026-10-19: coefficients accepted as they are**; the sealed
-  `coefficient_decision` file is written against the complete-read receipt.
+  `coefficient_decision` file does not exist yet — it is written only after
+  the complete-read receipt is committed, since it must seal that receipt's
+  `content_sha256`.
   **Second F2d release `0dddc78d` promoted (2026-10-19)** with PRs #854–#857.
   Next: the complete read (6′ complete), then the five evidence files, 7′.
   The step 0 action
