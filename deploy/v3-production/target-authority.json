@@ -24,18 +24,18 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-green",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
-    "api_build_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
-    "web_slot_container": "edfinder-v3-production-web-green",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8fc3db81fe36aec6fd68284cf4e67ad1b031f3a61c5345a49bdeacdf06f63c27",
+    "api_container": "edfinder-v3-production-api-blue",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
+    "api_build_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
+    "web_slot_container": "edfinder-v3-production-web-blue",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:1f086a994d8285f1b93223be37cf4830d238cfa6a70b2a10d33f4fa2d0eb1a79",
     "accepted_promotion": {
-      "received_at": "2026-10-18T17:32:21Z",
-      "release_run_id": "39149556699",
-      "source_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
+      "received_at": "2026-10-19T09:15:43Z",
+      "release_run_id": "39223378017",
+      "source_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
       "mode": "upgrade",
-      "active_slot": "green",
-      "rollback_kind": "authenticated-candidate-schema-compatible-release"
+      "active_slot": "blue",
+      "rollback_kind": "recorded-schema-compatible-release"
     },
     "retired_legacy_containers": [
       "edfinder-v3-api",
@@ -51,29 +51,30 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-f667bb4d",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 39149980927 at 2026-10-18T17:32:21Z binds release run 39149556699 and source f667bb4d64abd879828bfe5effa64000562641c6 to active slot green, promoted from the prior accepted blue release bed755b944eb6cb226e1726b2a51582ba9fa9bdb. This is the first F2d release: staging, active and public smoke (/, /api/health, /api/v1/auth/session, /openapi.json) returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed, with Finder routes answering 503 because neither Finder product is registered yet on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. An earlier promotion attempt, run 39143010163 of release 39140812920, stopped before cutover on f2d_openapi_contract_invalid:search.size with the staged candidate removed and rollback verified (fixed by PR 851). Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-0dddc78d",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 39228589346 at 2026-10-19T09:15:43Z binds release run 39223378017 and source 0dddc78d0a7cce4c3ad22326361328c51bc4a1d9 to active slot blue, promoted from the first F2d release f667bb4d64abd879828bfe5effa64000562641c6 (green), which remains the minimum schema-compatible image and the recorded rollback artifact. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and 503 not-ready behavioural probes passed; no Finder product is registered yet on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "f667bb4d64abd879828bfe5effa64000562641c6",
-    "release_run_id": "39149556699",
-    "manifest_sha256": "b2708ec5797523ef51ffcb52d286a57e61b37438405d563f0a6685f11da64ae5",
+    "source_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
+    "release_run_id": "39223378017",
+    "manifest_sha256": "0cbe206440bebdae1b41fa76968335fdd6822b0882cf7b5d2a6dd9f561d21376",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8fc3db81fe36aec6fd68284cf4e67ad1b031f3a61c5345a49bdeacdf06f63c27"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:1f086a994d8285f1b93223be37cf4830d238cfa6a70b2a10d33f4fa2d0eb1a79"
     },
     "compatible_migration_sets": [
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
       "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc"
     ],
-    "evidence": "Release run 39149556699 built source f667bb4d64abd879828bfe5effa64000562641c6 (includes PR 851 gate fixes) as the first F2d release for the installed through-016 schema (apply run 39113822236, 2026-10-18, identity sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc). Promotion run 39149980927 accepted it at 2026-10-18T17:32:21Z (receipt status accepted, active slot green, migrations_performed and database_writes_performed false, protected resources unchanged). ranking_version and ranking_sha256 come from edfinder_api.ranking.profile at that source and were confirmed in the deployed image; f2d_operator_code_sha256 from scripts/operator/lib/f2d_operator_identity.py compute at that source. Finder routes answer 503 until product publication (behavioural probes verified the not-ready reason). The minimum schema-compatible image and sole rollback target is this backend; the receipt lists the prior bed755b9 backend as an incompatible rollback image.",
+    "evidence": "Release run 39223378017 built source 0dddc78d0a7cce4c3ad22326361328c51bc4a1d9 as the second F2d release for the installed through-016 schema (identity sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc). Promotion run 39228589346 accepted it at 2026-10-19T09:15:43Z (receipt status accepted, active slot blue, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the f667bb4d artifact). It carries PRs 854-857 (custom-plan session settings for the probe and both builders, complete-read resume/retry/receipt hardening, archetype validation inside the detached worker, archiver and archive-mount preflights, deploy/publish gate fixes). Ranking identity unchanged and confirmed in the deployed image; f2d_operator_code_sha256 computed at this source and verified by the promotion workflow. Finder routes answer 503 until product publication. The minimum schema-compatible image remains the first F2d backend; rollback targets list it and this release.",
     "ranking_version": "v3-colony-potential-2",
     "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
-    "f2d_operator_code_sha256": "a4a4b74c338eb2423f819504f67801960191902c5f7d4cac9478c2ef59e90db3",
+    "f2d_operator_code_sha256": "c26d23d08f9f8659e05ec2f5490e7780e0c7047ef2165b2563c39a9b3a4d6279",
     "minimum_schema_compatible_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
     "rollback_targets": [
-      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3"
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57"
     ]
   },
   "schema_transition": {
