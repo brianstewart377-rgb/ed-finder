@@ -21,6 +21,16 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-10-19 — Production PostgreSQL server settings recorded
+
+`docs/operations/v3-postgres-server-settings.md` records the owner-applied
+statistics repair on `economy_opportunity.system_id64` and the move off
+default memory/checkpoint settings (`effective_cache_size` 128 GB, `work_mem`
+32 MB, `maintenance_work_mem` 2 GB, `max_wal_size` 32 GB, `checkpoint_timeout`
+30 min, `wal_compression` zstd; no restart), with `shared_buffers` 32 GB and
+`dynamic_shared_memory_type = mmap` planned for a restart after the complete
+read.
+
 ## 2026-10-19 — Second F2d release accepted; sample probe passed after statistics refresh
 
 Promotion run 39228589346 accepted release run 39223378017 (source `0dddc78d`,
