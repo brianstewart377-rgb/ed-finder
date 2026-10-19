@@ -9635,6 +9635,34 @@ export type TriggerRebuildClustersApiAdminRebuildClustersPostData = {
     url: '/api/admin/rebuild-clusters';
 };
 
+export type TriggerRebuildClustersApiAdminRebuildClustersPostErrors = {
+    /**
+     * RetiredRouteProblem
+     *
+     * RFC 9457 problem detail for a retired route that answers 410 Gone.
+     */
+    410: {
+        /**
+         * Type
+         */
+        type: string;
+        /**
+         * Title
+         */
+        title: string;
+        /**
+         * Status
+         */
+        status: number;
+        /**
+         * Detail
+         */
+        detail: string;
+    };
+};
+
+export type TriggerRebuildClustersApiAdminRebuildClustersPostError = TriggerRebuildClustersApiAdminRebuildClustersPostErrors[keyof TriggerRebuildClustersApiAdminRebuildClustersPostErrors];
+
 export type TriggerRebuildClustersApiAdminRebuildClustersPostResponses = {
     /**
      * Successful Response

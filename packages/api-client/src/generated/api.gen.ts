@@ -8990,6 +8990,24 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Retired V2 route; the problem detail is the only authenticated outcome. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** Type */
+                        type: string;
+                        /** Title */
+                        title: string;
+                        /** Status */
+                        status: number;
+                        /** Detail */
+                        detail: string;
+                    };
+                };
+            };
         };
     };
     trigger_rebuild_ratings_api_admin_rebuild_ratings_post: {

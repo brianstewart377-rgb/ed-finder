@@ -165,3 +165,70 @@ async def test_observed_summary_missing_column_stays_a_warning(monkeypatch):
 
     result = await provider._safe_observed_summary(_Pool(_PresentConn()), 1)
     assert result['_warning'].startswith('Observed evidence could not be summarized safely')
+
+
+class _FailingAcquire:
+    def __init__(self, exc):
+        self.exc = exc
+
+    async def __aenter__(self):
+        raise self.exc
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FailingPool:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def acquire(self):
+        return _FailingAcquire(self.exc)
+
+
+@pytest.mark.parametrize(
+    'exc',
+    [
+        asyncpg.QueryCanceledError('canceling statement due to statement timeout'),
+        asyncpg.InterfaceError('pool is closed'),
+        TimeoutError(),
+    ],
+)
+async def test_observed_probe_failure_is_mapped_not_a_500(exc):
+    """The acquire/to_regclass probe runs before the summary; a timeout or
+    connection failure there must take the same bounded 503 path."""
+    class _TimeoutProbeConn:
+        async def fetchval(self, query, *args):
+            assert 'to_regclass' in query
+            raise exc
+
+    with pytest.raises(provider.PlannerEvidenceQueryError) as excinfo:
+        await provider._safe_observed_summary(_Pool(_TimeoutProbeConn()), 1)
+    assert excinfo.value.stage == 'observed evidence probe'
+    assert excinfo.value.__cause__ is exc
+
+
+async def test_observed_probe_acquire_failure_is_mapped():
+    exc = asyncpg.InterfaceError('cannot acquire connection: pool is closing')
+    with pytest.raises(provider.PlannerEvidenceQueryError) as excinfo:
+        await provider._safe_observed_summary(_FailingPool(exc), 1)
+    assert excinfo.value.stage == 'observed evidence probe'
+    assert 'pool is closing' not in str(excinfo.value)
+
+
+async def test_openapi_declares_the_410_problem_response():
+    import json
+    import os as _os
+    _os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
+    from edfinder_api.routers import admin
+
+    route = next(r for r in admin.router.routes if getattr(r, 'path', '') == '/api/admin/rebuild-clusters')
+    declared = route.responses[410]
+    assert set(declared['content']) == {'application/problem+json'}
+    schema = declared['content']['application/problem+json']['schema']
+    assert schema['required'] == ['type', 'title', 'status', 'detail']
+    assert schema['additionalProperties'] is False
+    # The constant the route actually returns validates against that schema.
+    from edfinder_api.helpers import CLUSTER_REBUILD_GONE_PROBLEM
+    from edfinder_api.models import RetiredRouteProblem
+    RetiredRouteProblem.model_validate(json.loads(json.dumps(CLUSTER_REBUILD_GONE_PROBLEM)))

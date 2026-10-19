@@ -41,11 +41,12 @@ def test_cluster_rebuild_route_is_retired_and_does_not_shell_out(
     admin_source = ADMIN_PATH.read_text(encoding='utf-8')
     assert 'run_cluster_rebuild' not in admin_source
     assert '_run_cluster_rebuild_job' not in admin_source
-    route_block = admin_source.split("@router.post('/api/admin/rebuild-clusters'", 1)[1]
+    route_block = admin_source.split("    '/api/admin/rebuild-clusters',", 1)[1]
     route_block = route_block.split("@router.post('/api/admin/rebuild-ratings'", 1)[0]
     # Auth stays on the route; the body is the 410 problem response only.
     assert 'dependencies=[Depends(require_admin)]' in route_block
     assert 'status_code=410' in route_block
+    assert '410: {' in route_block, 'the 410 problem response must be declared in OpenAPI'
     assert "media_type='application/problem+json'" in route_block
     assert 'background_tasks' not in route_block
     assert 'active_jobs[' not in route_block

@@ -316,10 +316,16 @@ async def _safe_fetchval(conn: asyncpg.Connection, query: str, *args: Any, stage
 
 
 async def _safe_observed_summary(pool: asyncpg.Pool, id64: int) -> dict[str, Any]:
-    async with pool.acquire() as conn:
-        observed_table_present = bool(
-            await conn.fetchval("SELECT to_regclass('public.observed_facts') IS NOT NULL")
-        )
+    # The acquire and the to_regclass probe run under the same mapping as the
+    # summary itself: a pool/connection failure or a timeout here is the same
+    # outage the mapping exists to report, not "evidence is missing".
+    try:
+        async with pool.acquire() as conn:
+            observed_table_present = bool(
+                await conn.fetchval("SELECT to_regclass('public.observed_facts') IS NOT NULL")
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError('observed evidence probe', exc) from exc
     if not observed_table_present:
         return {'_warning': 'Observed evidence storage is unavailable; selected-system evidence currently uses canonical data only.'}
     try:

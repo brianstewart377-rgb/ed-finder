@@ -499,6 +499,16 @@ class StatusResponse(BaseModel):
     reason:               Optional[str]   = None  # populated when available=False
 
 
+class RetiredRouteProblem(BaseModel):
+    """RFC 9457 problem detail for a retired route that answers 410 Gone."""
+    model_config = ConfigDict(extra='forbid')
+
+    type:   str
+    title:  str
+    status: int
+    detail: str
+
+
 class CacheStatsResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 

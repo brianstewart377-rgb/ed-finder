@@ -19,7 +19,7 @@ from edfinder_api.enrichment_operator_status import (
     read_warehouse_status_snapshot,
 )
 from edfinder_api.helpers import CLUSTER_REBUILD_GONE_PROBLEM
-from edfinder_api.models import CacheStatsResponse
+from edfinder_api.models import CacheStatsResponse, RetiredRouteProblem
 from shared_contracts.data_invariant_contracts import (
     ADMIN_DATA_INVARIANT_CHECK_KEYS as _ADMIN_DATA_INVARIANT_CHECK_KEYS,
     COLONISATION_STATUS_AGE_BUCKETS_SQL,
@@ -490,7 +490,18 @@ async def cache_clear(
     }
 
 
-@router.post('/api/admin/rebuild-clusters', dependencies=[Depends(require_admin)])
+@router.post(
+    '/api/admin/rebuild-clusters',
+    dependencies=[Depends(require_admin)],
+    responses={
+        410: {
+            'description': 'Retired V2 route; the problem detail is the only authenticated outcome.',
+            'content': {
+                'application/problem+json': {'schema': RetiredRouteProblem.model_json_schema()},
+            },
+        },
+    },
+)
 @limiter.limit('1/minute')
 async def trigger_rebuild_clusters(
     request: Request,

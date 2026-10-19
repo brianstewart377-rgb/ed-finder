@@ -102,8 +102,9 @@ Six places where the API swallowed a failure and reported itself healthy:
 - **Warehouse planner evidence** (`warehouse_planner_evidence_provider.py`):
   only `UndefinedTableError`/`UndefinedColumnError` count as "missing
   evidence". Timeouts (`QueryCanceledError`), interface errors and other
-  database errors raise `PlannerEvidenceQueryError`, which the route turns
-  into HTTP 503 with a bounded detail (exception class + SQLSTATE only).
+  database errors — including on the connection acquire and `to_regclass`
+  probe — raise `PlannerEvidenceQueryError`, which the route turns into
+  HTTP 503 with a bounded detail (exception class + SQLSTATE only).
 - **Share OG image** (`share_router.py`): the Redis read/write goes through
   `deps.cache_get`/`cache_set` (0.1 s cache I/O timeout) with the PNG
   base64-encoded; the cached payload is validated (PNG signature, size cap)
@@ -114,8 +115,9 @@ Six places where the API swallowed a failure and reported itself healthy:
   `POST /api/admin/rebuild-clusters` answers 410 Gone with a
   `application/problem+json` body. The Docker Compose shell-out — which the V3
   API could never execute — is removed along with `subprocess`; admin auth and
-  the rate limit stay on the route. Only the route's description changed in
-  the generated API clients.
+  the rate limit stay on the route. The 410 `application/problem+json` response
+  is declared in OpenAPI (`RetiredRouteProblem`) and both generated clients
+  are regenerated.
 - **`/api/local/status`** (`routers/meta.py`): a `{available: false}` payload
   is no longer cached for `ttl_status`, and the raw exception text is replaced
   by a fixed reason code (`db_timeout`, `db_schema_missing`, `db_unavailable`,
