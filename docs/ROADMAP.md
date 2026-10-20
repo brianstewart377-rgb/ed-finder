@@ -488,7 +488,12 @@ newer dated source wins).
   `archetype-footprint-receipt.json` (308 fixed bytes/row) and
   `search-footprint-receipt.json` (83 bytes/row `010` delta), all under the
   attested identity `c26d23d0…`. All five evidence files are now committed;
-  next: the 7′ gate (`v3-finder-capacity-gate`, read-only).
+  **7′ passed (2026-10-19 21:35 UTC, run 39328735287, 96 GB headroom);
+  8′ Search build started 21:37 UTC (run 39328946864).** The build ran at
+  ~9 chunks/min until the owner refreshed stale planner statistics on
+  `system_search` on 2026-10-20 (`docs/operations/v3-postgres-server-settings.md`);
+  it then ran at ~244 chunks/min, projecting completion ≈21:40 UTC
+  2026-10-20. Next: Search finalize → Archetype build → publish (9′).
   The step 0 action
   `v3-derived-lifecycle-status` is merged (#798);
   `scripts/operator/actions/v3-derived-data-status.sh` remains the

@@ -50,6 +50,46 @@ database container. `pg_isready` reported accepting connections within a
 minute, `pg_settings` showed both values active with `pending_restart = f`,
 and `/opt/ed-finder-v3-runtime/health-check.sh` passed.
 
+## Applied by the owner, 2026-10-20 09:30 (statistics only, Search build running)
+
+The step 8′ Search build (started 2026-10-19 21:37 UTC, run 39328946864)
+had completed only 5,617 of 198,529 chunks by 07:52 UTC — about 9 chunks a
+minute, a ~15-day projection. `pg_stat_activity` showed each chunk spending
+~4–6.5 s in the per-chunk guard query (`SELECT count(*) FROM
+v3_derived.system_search s JOIN v3_derived.system_rating_vector v … WHERE
+s.derived_generation_id=$1 AND v.chunk_ordinal=$2`). `EXPLAIN (ANALYZE,
+BUFFERS)` showed why: `system_search` had last been analysed on 2026-09-21,
+when it held only the two older generations, so the planner estimated **one**
+row for the new generation `cfc25d36…`, drove the nested loop from
+`system_search` (5.7 M rows and growing) and probed `system_rating_vector`
+once per row (28.7 M buffer hits). Autoanalyze would not have fired until
+~20 M rows had changed (10 % of 204 M), so the build was slowing down as the
+table grew.
+
+Owner-run at the host shell, same boundary as the 2026-10-19 operations:
+
+```sql
+ANALYZE VERBOSE v3_derived.system_search;
+```
+
+(1.2 s; 30,000 of 4,830,135 pages sampled.) The same `EXPLAIN` then started
+from `system_rating_chunk_idx` (1,000 rows) with 1,000 primary-key lookups
+into `system_search`: 6,510 ms → 5 ms. Because the builders force custom
+plans (`plan_cache_mode = force_custom_plan`, #854), the running worker
+picked the new plan up immediately: 2,289 chunks between 08:50:57 and
+09:00:19 UTC (≈244 chunks/min, 27× faster), projecting completion around
+21:40 UTC on 2026-10-20.
+
+**Carry-forward for the Archetype build (8′, second product):**
+`v3_derived.system_archetype` starts empty and has the same guard-query shape
+against `system_rating_vector`, so run `ANALYZE v3_derived.system_archetype;`
+once a few thousand chunks are in (and again if `pg_stat_user_tables`
+shows no fresh `last_autoanalyze`), rather than waiting for autoanalyze. A
+code-side fix (an explicit `ANALYZE` early in the build, or rewriting the
+guard to drive from the chunk index) belongs in the operator builders and
+therefore waits for the post-publish operator-code release — it must not be
+patched while the F2d identity is frozen.
+
 ## Changing or reverting these settings
 
 There is no allowlisted operator action for PostgreSQL server settings; the
