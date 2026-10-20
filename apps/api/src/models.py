@@ -53,7 +53,7 @@ frontend useful types out of the box.
 from __future__ import annotations
 
 import math
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -741,24 +741,24 @@ class ClusterSearchResponse(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 
 # ── Valid archetype keys (single source of truth) ────────────────────
+# The 8 V3-native archetype keys the F2b/F2d `system_archetype` wide row
+# scores every system against. Must stay identical, in order, to
+# `edfinder_api.ranking.profile.ARCHETYPE_KEYS` (tests pin the equality);
+# written out as a literal so the OpenAPI enum is static. The legacy
+# 10-key V2 set (`refinery_industrial`, ...) is retired with F3 slice 2.
 ArchetypeKey = Literal[
-    'refinery_industrial',
-    'extraction_refinery',
-    'agriculture_terraforming',
-    'hitech_tourism',
-    'expansion_capital',
-    'trade_logistics',
+    'paradise',
+    'mining_hub',
+    'manufacturing_hub',
+    'megacomplex',
+    'research_hub',
+    'stronghold',
     'population_capital',
-    'ax_forward_base',
-    'military_industrial',
-    'flexible_multirole',
+    'flexible',
 ]
 
 # ── Valid tier values ─────────────────────────────────────────────────
 TierValue = Literal['S', 'A', 'B', 'C', 'D']
-
-# ── Build complexity ──────────────────────────────────────────────────
-BuildComplexity = Literal['trivial', 'simple', 'moderate', 'advanced', 'expert']
 
 
 class SystemArchetypeExplanationEntry(BaseModel):
@@ -798,133 +798,113 @@ class SystemArchetypeExplanationResponse(BaseModel):
 
 class ArchetypeRerankWeights(BaseModel):
     """
-    Weight dimensions for archetype-based reranking.
-    All weights should sum to ~1.0 but are not enforced to do so
-    (allows intentional emphasis on a single dimension).
+    Per-archetype blend weights for `POST /api/archetypes/rerank` (F3 slice 2).
 
-    Default profile: balanced across purity, buildability, slots, expansion, logistics.
+    One weight per V3 archetype key, each in [0, 1]; every key is required
+    (a partial vector is a 422, never silently filled) and at least one must
+    be greater than zero. The blend is normalised by the weight sum, so the
+    weights need not sum to 1.0 and a single non-zero weight reranks by that
+    archetype alone. A request that omits `weights` entirely gets the
+    generalist (equal) blend from the route, not from field defaults.
+
+    The legacy five V2 dimensions (`purity`, `buildability`, `slots`,
+    `expansion`, `logistics`) have no V3 projection and are retired.
     """
     model_config = ConfigDict(extra='forbid')
 
-    purity:       float = Field(default=0.30, ge=0.0, le=1.0,
-                                description='Clean economy stack, low contamination')
-    buildability: float = Field(default=0.25, ge=0.0, le=1.0,
-                                description='Ease of build, CP efficiency, T3 scaling')
-    slots:        float = Field(default=0.20, ge=0.0, le=1.0,
-                                description='Total slot count and topology quality')
-    expansion:    float = Field(default=0.15, ge=0.0, le=1.0,
-                                description='Overall development potential, growth headroom')
-    logistics:    float = Field(default=0.10, ge=0.0, le=1.0,
-                                description='Distance from hub, scoopable star accessibility')
+    paradise:           float = Field(ge=0.0, le=1.0)
+    mining_hub:         float = Field(ge=0.0, le=1.0)
+    manufacturing_hub:  float = Field(ge=0.0, le=1.0)
+    megacomplex:        float = Field(ge=0.0, le=1.0)
+    research_hub:       float = Field(ge=0.0, le=1.0)
+    stronghold:         float = Field(ge=0.0, le=1.0)
+    population_capital: float = Field(ge=0.0, le=1.0)
+    flexible:           float = Field(ge=0.0, le=1.0)
 
-
-class ArchetypeScoreBreakdown(BaseModel):
-    """Per-component score decomposition for a single archetype."""
-    model_config = ConfigDict(extra='allow')
-
-    body_composition:   Optional[float] = None   # 0-60
-    topology:           Optional[float] = None   # 0-25
-    pair_synergy_pts:   Optional[float] = None   # 0-15
-    purity_factor:      Optional[float] = None   # multiplier
-    contamination_risk: Optional[float] = None   # 0-1
-    diversity_factor:   Optional[float] = None   # multiplier
-
-
-class ArchetypeRationale(BaseModel):
-    """
-    Structured JSONB rationale for a system's primary archetype.
-    Schema is intentionally flexible (extra='allow') so Frontier
-    mechanic changes can be absorbed without breaking existing consumers.
-    """
-    model_config = ConfigDict(extra='allow')
-
-    summary:        Optional[str]                     = None
-    tier:           Optional[TierValue]               = None
-    headline:       Optional[str]                     = None
-    positives:      list[str]                         = Field(default_factory=list)
-    risks:          list[str]                         = Field(default_factory=list)
-    complexity:     Optional[str]                     = None
-    build_path:     Optional[str]                     = None
-    tags:           list[str]                         = Field(default_factory=list)
-    score_breakdown: Optional[ArchetypeScoreBreakdown] = None
-    data_confidence: Optional[float]                  = None
-    canonical_confidence: Optional[dict[str, Any]]   = None  # EDRE-aligned canonical shape
+    @model_validator(mode='after')
+    def _at_least_one_positive(self) -> 'ArchetypeRerankWeights':
+        if sum(self.model_dump().values()) <= 0.0:
+            raise ValueError('at least one rerank weight must be greater than zero')
+        return self
 
 
 class ArchetypeScore(BaseModel):
-    """One archetype entry inside SystemArchetypeResponse.archetypes."""
-    model_config = ConfigDict(extra='allow')
+    """One stored V3 archetype fit inside SystemArchetypeResponse.archetypes.
 
-    score:      float
-    tier:       TierValue
-    label:      str
-    rationale:  Optional[ArchetypeRationale] = None   # only on primary archetype
-    rank_global: Optional[int]               = None   # populated in Phase 4
+    Read verbatim from the published wide row (migration 011). The on-demand,
+    version-gated explanation lives at `GET /api/archetypes/system/{id64}/
+    explanation`; no rationale or stored explanation exists in V3.
+    """
+    model_config = ConfigDict(extra='forbid')
 
-
-class TopologyDetail(BaseModel):
-    """Topology metrics block inside SystemArchetypeResponse."""
-    model_config = ConfigDict(extra='allow')
-
-    estimated_orbital_slots: Optional[int]   = None
-    estimated_ground_slots:  Optional[int]   = None
-    estimated_total_slots:   Optional[int]   = None
-    strong_link_potential:   Optional[float] = None
-    weak_link_stability:     Optional[float] = None
-    contamination_risk:      Optional[float] = None
-    orbital_synergy:         Optional[float] = None
-    ground_synergy:          Optional[float] = None
-    nesting_potential:       Optional[float] = None
-    build_flexibility:       Optional[float] = None
-    has_viable_surface_port: Optional[bool]  = None
-    has_deep_orbital_anchor: Optional[bool]  = None
+    score:       int
+    tier:        TierValue
+    label:       str
+    confidence:  float
+    weighted_e4: int
 
 
-class EconomyPairDetail(BaseModel):
-    """One economy pair synergy entry inside SystemArchetypeResponse."""
-    model_config = ConfigDict(extra='allow')
+class SystemArchetypeFacts(BaseModel):
+    """The `v3_app.system_search` facts carried by SystemArchetypeResponse."""
+    model_config = ConfigDict(extra='forbid')
 
-    economy_a:           str
-    economy_b:           str
-    synergy_score:       float
-    purity_achievable:   Optional[float] = None
-    contamination_paths: list[Any]       = Field(default_factory=list)
+    body_count:          int
+    landable_count:      int
+    station_count:       int
+    has_rings:           bool
+    has_biologicals:     bool
+    has_geologicals:     bool
+    has_terraformable:   bool
+    elw_count:           Optional[int] = None
+    ww_count:            Optional[int] = None
+    terraformable_count: Optional[int] = None
+    gas_giant_count:     Optional[int] = None
+    ring_count:          Optional[int] = None
+    bio_signal_total:    Optional[int] = None
+    geo_signal_total:    Optional[int] = None
 
 
 # ── Response: GET /api/archetypes/system/{id64} ───────────────────────
 class SystemArchetypeResponse(BaseModel):
-    """Full archetype breakdown for one system."""
+    """Full V3 archetype breakdown for one system (F3 slice 2).
+
+    Generation-pinned read of `v3_app.system_search` + the published
+    `v3_app.system_archetype` wide row. The legacy V2 fields with no V3
+    projection -- `buildability_score`, `build_complexity`, `cp_efficiency`,
+    `t3_scaling_viability`, `slot_efficiency`, `purity_score`,
+    `contamination_risk`, `stable_top_two_prob`, `topology`, `economy_pairs`
+    and `tags` -- are retired rather than returned as permanent nulls; a later
+    derived product may restore slot/topology detail.
+    """
     model_config = ConfigDict(extra='forbid')
 
     id64:             int
     name:             str
-    coords:           Optional[CoordsModel] = None
-    distance_to_sol:  Optional[float]       = None
-    main_star_type:   Optional[str]         = None
+    coords:           CoordsModel
+    distance_to_sol:  float
+    main_star_class:  Optional[str] = None
+    galaxy_region_id: Optional[int] = None
+    galaxy_region:    Optional[str] = None
 
-    # Per-archetype score map: archetype_key → ArchetypeScore
+    # Per-archetype fit map: archetype_key -> ArchetypeScore (all 8 V3 keys)
     archetypes:       dict[str, ArchetypeScore]
 
-    primary_archetype:    Optional[str]   = None
-    secondary_archetype:  Optional[str]   = None
-    archetype_confidence: Optional[float] = None
+    primary_archetype:    str
+    secondary_archetype:  Optional[str] = None
+    archetype_confidence: float
 
-    overall_development_potential: Optional[float] = None
-    buildability_score:  Optional[float]  = None
-    build_complexity:    Optional[str]    = None
-    cp_efficiency:       Optional[float]  = None
-    t3_scaling_viability: Optional[float] = None
-    slot_efficiency:     Optional[float]  = None
-    purity_score:        Optional[float]  = None
-    contamination_risk:  Optional[float]  = None
-    stable_top_two_prob: Optional[float]  = None
-    confidence:          Optional[float]  = None
+    # Summary `best_colony_potential` keeps the established response name.
+    overall_development_potential: int
+    best_tier:          TierValue
+    weighted_potential: float
 
-    topology:       Optional[TopologyDetail]    = None
-    economy_pairs:  list[EconomyPairDetail]     = Field(default_factory=list)
-    tags:           list[str]                   = Field(default_factory=list)
-    query_ms:       Optional[int]               = None
-    _cached:        Optional[bool]              = None
+    # Evidence badge from the search projection (unknown != absent).
+    confidence:   float
+    completeness: float
+
+    facts:    SystemArchetypeFacts
+    query_ms: Optional[int] = None
+    ranking:  RankingIdentity
 
 
 # ── Result row: GET /api/archetypes/rankings ─────────────────────────
@@ -982,29 +962,47 @@ class ArchetypeRankingsResponse(BaseModel):
 # ── Request: POST /api/archetypes/rerank ─────────────────────────────
 class ArchetypeRerankRequest(BaseModel):
     """
-    Rerank a set of systems by custom archetype weights.
+    Rerank a set of systems by a client-weighted blend of their stored V3
+    archetype fits (F3 slice 2).
 
-    Either provide explicit weights OR a profile ID.
-    If both are given, the profile takes precedence.
-    If neither, default ArchetypeRerankWeights are applied.
+    Weight resolution order: `profile` (a preset from
+    `GET /api/archetypes/profiles`; unknown ids are rejected with 422), then
+    explicit `weights`, then -- when only `archetype` is given -- a blend that
+    weights that archetype alone, else the generalist equal blend.
+    `archetype` also selects which raw stored score `original_score` reports
+    (default: the summary `best_colony_potential`).
     """
     model_config = ConfigDict(extra='forbid')
 
-    id64s:     list[int]                      = Field(..., min_length=1, max_length=500)
-    archetype: Optional[ArchetypeKey]         = None
+    id64s:     list[Annotated[int, Field(ge=0, le=9_223_372_036_854_775_807)]] = Field(
+        ..., min_length=1, max_length=500,
+    )
+    archetype: Optional[ArchetypeKey]           = None
     weights:   Optional[ArchetypeRerankWeights] = None
-    profile:   Optional[str]                  = None   # profile ID from /api/archetypes/profiles
+    profile:   Optional[str]                    = Field(None, min_length=1, max_length=64)
 
 
 # ── Result row: POST /api/archetypes/rerank ───────────────────────────
 class ArchetypeRerankRow(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    """One reranked system.
 
-    id64:             int
-    reranked_score:   int
-    original_score:   Optional[float]        = None
-    confidence:       Optional[float]        = None
-    rationale:        Optional[ArchetypeRationale] = None
+    `reranked_score` is the blend of the stored uncertainty-modified keys
+    (`score x confidence x completeness`, see `ranking.rerank`) on the 0..100
+    scale and is the ordering key; `tier` is derived from it. `original_score`
+    is the raw stored score the request's `archetype` selects (or the summary
+    `best_colony_potential`). V3 stores no rationale; explanations are served
+    by `GET /api/archetypes/system/{id64}/explanation`.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    id64:                int
+    reranked_score:      int
+    tier:                TierValue
+    original_score:      Optional[float] = None
+    confidence:          Optional[float] = None
+    completeness:        Optional[float] = None
+    primary_archetype:   Optional[str]   = None
+    secondary_archetype: Optional[str]   = None
 
 
 # ── Response: POST /api/archetypes/rerank ─────────────────────────────
@@ -1015,10 +1013,11 @@ class ArchetypeRerankResponse(BaseModel):
     profile_applied: Optional[str]              = None
     weights_applied: ArchetypeRerankWeights
     results:         list[ArchetypeRerankRow]
+    # Requested ids with no published wide row, so a caller can tell an
+    # unknown system from a low-ranked one.
+    missing_id64s:   list[int]                  = Field(default_factory=list)
     query_ms:        Optional[int]              = None
-    _cached:         Optional[bool]             = None
-
-
+    ranking:         RankingIdentity
 
 
 # ── Request: POST /api/archetypes/simulate ───────────────────────────
@@ -1026,31 +1025,42 @@ class PlannedFacility(BaseModel):
     """One facility in a build simulation plan."""
     model_config = ConfigDict(extra='allow')
 
-    type:   str                   # e.g. 'StarPort', 'RefineryHub', 'IndustrialHub'
-    tier:   Optional[int] = None  # 1, 2, or 3
-    body:   Optional[str] = None  # body key or name
+    type:   str = Field(min_length=1, max_length=128)  # e.g. 'StarPort', 'RefineryHub'
+    tier:   Optional[int] = Field(None, ge=1, le=3)
+    body:   Optional[str] = Field(None, max_length=256)  # body key or name
 
 
 class BuildSimulateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    id64:              int
+    id64:              int = Field(ge=0, le=9_223_372_036_854_775_807)
     planned_archetype: ArchetypeKey
-    planned_facilities: list[PlannedFacility] = Field(default_factory=list)
+    planned_facilities: list[PlannedFacility] = Field(default_factory=list, max_length=200)
 
 
 # ── Response: POST /api/archetypes/simulate ──────────────────────────
 class BuildSimulateResponse(BaseModel):
+    """Build simulation against the published V3 archetype fit (F3 slice 2).
+
+    `simulation_score` is the system's stored fit for `planned_archetype`.
+    The legacy `contamination_risk`, `purity_score` and `buildability_score`
+    estimates have no V3 projection and are retired; `disclaimer` states
+    that gap on every response.
+    """
     model_config = ConfigDict(extra='forbid')
 
-    id64:               int
-    planned_archetype:  str
-    simulation_score:   int
-    contamination_risk: Optional[float] = None
-    purity_score:       Optional[float] = None
-    buildability_score: Optional[float] = None
-    recommendations:    list[str]       = Field(default_factory=list)
-    disclaimer:         Optional[str]   = None
+    id64:                  int
+    planned_archetype:     str
+    simulation_score:      int
+    tier:                  TierValue
+    confidence:            float
+    completeness:          float
+    primary_archetype:     str
+    secondary_archetype:   Optional[str] = None
+    best_colony_potential: int
+    recommendations:       list[str]     = Field(default_factory=list)
+    disclaimer:            str
+    ranking:               RankingIdentity
 
 
 # ── Response: simulation/buildability endpoints ───────────────────────
@@ -1448,12 +1458,13 @@ class SimulationSummaryResponse(BaseModel):
 
 # ── Profile entry: GET /api/archetypes/profiles ──────────────────────
 class ArchetypeProfile(BaseModel):
-    model_config = ConfigDict(extra='allow')
+    """One static preset rerank blend (F3 slice 2: V3 archetype keys only)."""
+    model_config = ConfigDict(extra='forbid')
 
     id:          str
     label:       str
     description: str
-    archetype:   Optional[str]             = None
+    archetype:   Optional[ArchetypeKey]    = None
     weights:     ArchetypeRerankWeights
 
 

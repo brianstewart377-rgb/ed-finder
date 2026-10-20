@@ -75,14 +75,14 @@ Avoid scattered raw `fetch()` calls for these endpoints. The central client is t
 
 Development Tuning is the Finder-result reranking helper. It is distinct from the colony optimiser inside Simulation Preview and does not mutate Finder results.
 
-`POST /api/archetypes/rerank` accepts:
+`POST /api/archetypes/rerank` (F3 slice 2: generation-pinned read of the published V3 `v3_app.system_archetype` wide row; 503 until both Finder products are published) accepts:
 
-- `id64s`: required list of current Finder result IDs, bounded to 1-500.
-- `weights`: optional archetype rerank weights (`purity`, `buildability`, `slots`, `expansion`, `logistics`). Missing values use defaults.
-- `profile`: optional profile ID from `GET /api/archetypes/profiles`. If provided, it takes precedence over explicit weights.
-- `archetype`: optional archetype key to rerank against a specific archetype score column.
+- `id64s`: required list of current Finder result IDs, bounded to 1-500, each a non-negative bigint.
+- `weights`: optional per-archetype blend weights, one per V3 archetype key (`paradise`, `mining_hub`, `manufacturing_hub`, `megacomplex`, `research_hub`, `stronghold`, `population_capital`, `flexible`), each 0-1 with at least one greater than zero. The legacy five dimensions (`purity`, `buildability`, `slots`, `expansion`, `logistics`) have no V3 projection and are rejected.
+- `profile`: optional preset ID from `GET /api/archetypes/profiles` (one single-archetype preset per V3 key plus `generalist`). If provided, it takes precedence over explicit weights; an unknown ID is a 422.
+- `archetype`: optional V3 archetype key. It selects which raw stored score `original_score` reports and, when neither `weights` nor `profile` is given, makes the blend weight that archetype alone.
 
-The endpoint returns an archetype rerank response with `weights_applied`, optional `profile_applied`, and `results` containing `id64`, `reranked_score`, optional `original_score`, optional `confidence`, and optional structured `rationale`.
+The endpoint returns `weights_applied`, optional `profile_applied`, `missing_id64s` (requested IDs with no published wide row), the `ranking` identity block, and `results` ordered by the blend of the stored uncertainty-modified keys (`score x confidence x completeness`), each with `id64`, `reranked_score` (0-100), `tier`, `original_score`, `confidence`, `completeness`, `primary_archetype` and `secondary_archetype`. V3 stores no rationale; explanations are served by `GET /api/archetypes/system/{id64}/explanation`.
 
 This endpoint returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, run Simulation Preview, alter Colony Planner state, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.archetypeRerank(...)` in `frontend/src/lib/api/planner.ts`; current UI lives under `frontend/src/features/search-tuning/` and presents as Development Tuning (`#search-tuning` route).
 

@@ -1,34 +1,43 @@
 """
 ED Finder — Archetype API Router
-Version: 1.0
+Version: 2.0 (V3-native)
 
 Endpoints:
-    GET  /api/archetypes/rankings          ranked list by archetype + filters
-    POST /api/archetypes/rerank            rerank a set of systems by archetype weights
-    GET  /api/archetypes/system/{id64}     full archetype breakdown for one system
-    POST /api/archetypes/simulate          build simulation scoring
-    GET  /api/archetypes/profiles          preset rerank profiles
+    GET  /api/archetypes/rankings                 ranked list by archetype (V3, generation-pinned)
+    POST /api/archetypes/rerank                   client-weighted blend of stored V3 archetype fits
+    GET  /api/archetypes/system/{id64}            full V3 archetype breakdown for one system
+    GET  /api/archetypes/system/{id64}/explanation on-demand, version-gated V3 explanations
+    POST /api/archetypes/simulate                 build plan scored against the stored V3 fit
+    GET  /api/archetypes/profiles                 static preset rerank blends (V3 keys)
 
-`/rankings` (F3 Task 4) reads generation-pinned from the published V3
-`v3_app.system_archetype`/`v3_app.system_search` projections via the ranking
-profile (`edfinder_api.ranking`) — it no longer touches the legacy
-`mv_archetype_rankings` materialized view and has no cache layer. The
-remaining routes (`/rerank`, `/system/{id64}`, `/simulate`, `/profiles`) are
-still legacy V2: `/rerank` and `/system/{id64}` read `system_archetype_scores`
-directly; `/simulate` and `/profiles` are unaffected either way. They are out
-of scope for this task (tracked as F3 slice 2).
+Every database-backed route here reads generation-pinned from the published
+V3 `v3_app.system_search` / `v3_app.system_archetype` projections through
+`edfinder_api.ranking` (`/rankings` since F3 Task 4; `/rerank`,
+`/system/{id64}` and `/simulate` since F3 slice 2). The legacy V2 relations
+(`mv_archetype_rankings`, `system_archetype_scores`,
+`system_archetype_traits`, `systems`, `system_slot_topology`,
+`economy_pair_synergy`, `body_scan_facts`, `bodies`) are no longer referenced
+anywhere in this module; a static test pins that.
 
-Cache strategy (legacy routes only):
-    system    → Redis key arch:v{ver}:sys:{id64}                                   TTL 300s
-    rerank    → Redis key arch:v{ver}:rerank:{hash}                                TTL 120s
-    profiles  → Redis key arch:profiles                                            TTL 3600s
+Fail-closed availability: `local_search._current_derived_generation` answers
+404 with no PUBLISHED generation and 503 until both Finder products
+(`system_search`, `system_archetype`) are READY and published (migration
+015's product gate). Request bodies and parameters are validated before any
+database access so a 422 is never masked by that 503.
+
+Known V3 data gaps, flagged rather than silently degraded: no projection
+carries slot/topology estimates, economy-pair synergy, contamination risk,
+purity or buildability, so the legacy `/system` topology/pair/trait fields and
+the legacy `/simulate` risk estimates are retired from the response models.
+
+There is no Redis cache layer in this router any more: every response is
+pinned to the generation resolved inside its own REPEATABLE READ snapshot.
 
 Route scope:
     Development rerank and archetype endpoints live under /api/archetypes/*.
 """
 
 import hashlib
-import json
 import math
 from pathlib import Path as FilePath
 import re
@@ -50,12 +59,7 @@ from shared_contracts.v3_system_archetype_model import (
 )
 
 from edfinder_api.config import log, limiter
-from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
 from edfinder_api.local_search import _current_derived_generation
-from edfinder_api.mechanics.confidence import (
-    ConfidenceLayer,
-    archetype_numeric_confidence_to_canonical,
-)
 from edfinder_api.models import (
     ArchetypeRankingsResponse,
     ArchetypeRerankRequest,
@@ -85,45 +89,26 @@ from edfinder_api.ranking.profile import (
     ranking_sha256,
 )
 from edfinder_api.ranking.ranking_sql import build_count_query, build_ranked_query
-from edfinder_api.state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
+from edfinder_api.ranking.rerank import (
+    PPM,
+    archetype_entry,
+    build_system_archetype_detail_query,
+    equal_weights,
+    rerank_rows,
+    single_archetype_weights,
+    validate_id64s,
+)
+from edfinder_api.state import get_pool_singleton as get_pool
 
 router = APIRouter(prefix='/api/archetypes', tags=['archetypes'])
 
 # ---------------------------------------------------------------------------
-# Archetype metadata (mirrors ARCHETYPE_DEFINITIONS in build_archetype_scores.py)
+# Archetype metadata
 # ---------------------------------------------------------------------------
-_ARCHETYPE_LABELS: dict[str, str] = {
-    'refinery_industrial':       'Refinery / Industrial Megacomplex',
-    'extraction_refinery':       'Extraction / Refinery Mining Hub',
-    'agriculture_terraforming':  'Agriculture / Terraforming Colony',
-    'hitech_tourism':            'HighTech / Tourism Prestige Colony',
-    'expansion_capital':         'Expansion Capital',
-    'trade_logistics':           'Trade / Logistics Hub',
-    'population_capital':        'Population Capital',
-    'ax_forward_base':           'AX Forward Operating Base',
-    'military_industrial':       'Military / Industrial Complex',
-    'flexible_multirole':        'Flexible Multi-Role Colony',
-}
-
-_SCORE_COL: dict[str, str] = {
-    'refinery_industrial':      'score_refinery_industrial',
-    'extraction_refinery':      'score_extraction_refinery',
-    'agriculture_terraforming': 'score_agriculture_terraforming',
-    'hitech_tourism':           'score_hitech_tourism',
-    'expansion_capital':        'score_expansion_capital',
-    'trade_logistics':          'score_trade_logistics',
-    'population_capital':       'score_population_capital',
-    'ax_forward_base':          'score_ax_forward_base',
-    'military_industrial':      'score_military_industrial',
-    'flexible_multirole':       'score_flexible_multirole',
-}
-
-# V3-native archetype labels (F3 Task 4). `ARCHETYPE_KEYS` (imported from
-# `edfinder_api.ranking.profile`) is the 8-key set the V3 `system_archetype`
-# builder (`scripts/v3_system_archetype_model.py`) actually scores every
-# system against -- distinct from the 10-key legacy `_SCORE_COL`/
-# `_ARCHETYPE_LABELS` set above, which stays wired to `/rerank`, `/system`
-# and `/simulate` (untouched by this task).
+# `ARCHETYPE_KEYS` (imported from `edfinder_api.ranking.profile`) is the 8-key
+# set the V3 `system_archetype` builder (`scripts/v3_system_archetype_model.py`)
+# scores every system against. These are the only archetype keys this router
+# accepts; the 10-key legacy V2 set is retired.
 _V3_ARCHETYPE_LABELS: dict[str, str] = {
     'paradise':            'Paradise World',
     'mining_hub':          'Mining Hub',
@@ -238,161 +223,6 @@ SELECT a.archetype_version,
  WHERE a.derived_generation_id = $1
    AND a.system_id64 = $3
 '''
-
-# Preset rerank profiles
-_PROFILES = [
-    {
-        'id':          'industrial_empire',
-        'label':       'Industrial Empire',
-        'description': 'Refinery/Industrial megacomplex — maximum manufacturing output',
-        'archetype':   'refinery_industrial',
-        'weights': {'purity': 0.35, 'buildability': 0.25, 'slots': 0.20,
-                    'expansion': 0.10, 'logistics': 0.10},
-    },
-    {
-        'id':          'space_farms',
-        'label':       'Space Farms',
-        'description': 'Agriculture and terraforming — maximum population growth',
-        'archetype':   'agriculture_terraforming',
-        'weights': {'purity': 0.30, 'buildability': 0.20, 'slots': 0.20,
-                    'expansion': 0.20, 'logistics': 0.10},
-    },
-    {
-        'id':          'prestige_capital',
-        'label':       'Prestige Capital',
-        'description': 'HighTech / Tourism prestige colony — ELW and exotic stars',
-        'archetype':   'hitech_tourism',
-        'weights': {'purity': 0.25, 'buildability': 0.20, 'slots': 0.15,
-                    'expansion': 0.20, 'logistics': 0.20},
-    },
-    {
-        'id':          'ax_logistics',
-        'label':       'AX Logistics Hub',
-        'description': 'Military / HighTech anti-xeno forward base',
-        'archetype':   'ax_forward_base',
-        'weights': {'purity': 0.20, 'buildability': 0.30, 'slots': 0.20,
-                    'expansion': 0.15, 'logistics': 0.15},
-    },
-    {
-        'id':          'expansion_capital',
-        'label':       'Expansion Capital',
-        'description': 'Flexible system for multi-jump colonisation chains',
-        'archetype':   'expansion_capital',
-        'weights': {'purity': 0.15, 'buildability': 0.20, 'slots': 0.25,
-                    'expansion': 0.25, 'logistics': 0.15},
-    },
-    {
-        'id':          'mining_hub',
-        'label':       'Mining Hub',
-        'description': 'Extraction / Refinery — HMC and metal-rich focus',
-        'archetype':   'extraction_refinery',
-        'weights': {'purity': 0.25, 'buildability': 0.30, 'slots': 0.25,
-                    'expansion': 0.10, 'logistics': 0.10},
-    },
-    {
-        'id':          'generalist',
-        'label':       'Generalist',
-        'description': 'Balanced weights — no strong archetype preference',
-        'archetype':   None,
-        'weights': {'purity': 0.20, 'buildability': 0.20, 'slots': 0.20,
-                    'expansion': 0.20, 'logistics': 0.20},
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Cache helpers
-# ---------------------------------------------------------------------------
-
-# A Redis outage degrades every request to a DB read, which is correct
-# behavior — but with a bare `except Exception: pass`, that outage was
-# previously invisible: no log line, no metric, nothing to distinguish it
-# from a mysterious latency regression. Throttled so a sustained outage
-# logs once per interval, not once per request.
-_CACHE_ERROR_LOG_INTERVAL_SECONDS = 60
-# None, not 0.0: time.monotonic()'s reference point is platform-defined and
-# commonly host-boot-relative, not guaranteed far from zero — a literal 0.0
-# sentinel would suppress the first failure (and everything for up to 60s
-# after it) whenever `now` itself is under 60, e.g. shortly after a host
-# reboot. None always compares as "never logged yet" regardless of what
-# time.monotonic() actually returns.
-_last_cache_error_logged_at: float | None = None
-
-
-def _log_cache_error_throttled(where: str, exc: Exception) -> None:
-    global _last_cache_error_logged_at
-    now = time.monotonic()
-    if _last_cache_error_logged_at is None or now - _last_cache_error_logged_at >= _CACHE_ERROR_LOG_INTERVAL_SECONDS:
-        _last_cache_error_logged_at = now
-        log.warning('Archetype cache %s failed, degrading to DB: %s', where, exc)
-
-
-async def _cache_version(redis) -> int:
-    """Return the current cache version counter (default 1)."""
-    if redis is None:
-        return 1
-    try:
-        v = await redis.get('arch:version')
-        return int(v) if v else 1
-    except Exception as exc:
-        _log_cache_error_throttled('version', exc)
-        return 1
-
-
-async def _cache_get(redis, key: str) -> Optional[Any]:
-    if redis is None:
-        return None
-    try:
-        raw = await redis.get(key)
-        return json.loads(raw) if raw else None
-    except Exception as exc:
-        _log_cache_error_throttled('get', exc)
-        return None
-
-
-async def _cache_set(redis, key: str, value: Any, ttl: int = 300):
-    if redis is None:
-        return
-    try:
-        await redis.set(key, json.dumps(value), ex=ttl)
-    except Exception as exc:
-        _log_cache_error_throttled('set', exc)
-
-
-def _json_object(value: Any) -> dict[str, Any]:
-    """Normalise JSON-ish DB values into plain dicts for response models.
-
-    Some environments hand JSONB columns back as already-decoded dicts,
-    while others surface text that still needs json.loads(). Keep the
-    response contract stable either way.
-    """
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-
-
-def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str, Any]:
-    """Enrich archetype rationale with canonical confidence if data_confidence present.
-
-    Converts numeric data_confidence to canonical form for EDRE-aligned workflows.
-    """
-    if not rationale or not isinstance(rationale.get('data_confidence'), (int, float)):
-        return rationale
-
-    data_confidence_score = float(rationale['data_confidence'])
-    canonical = archetype_numeric_confidence_to_canonical(
-        data_confidence_score,
-        layer=ConfidenceLayer.PROJECTED_OPERATIONAL,
-        reason=f'Body-data completeness: {data_confidence_score:.1%}',
-    )
-    rationale['canonical_confidence'] = canonical.to_dict()
-    return rationale
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -672,103 +502,7 @@ async def get_archetype_rankings(
     )
 
 
-# ---------------------------------------------------------------------------
-# POST /api/archetypes/rerank
-# ---------------------------------------------------------------------------
-
-@router.post(
-    '/rerank',
-    response_model=ArchetypeRerankResponse,
-    summary='Rerank systems by custom archetype weights',
-)
-@limiter.limit('30/minute')
-async def post_archetype_rerank(request: Request, body: ArchetypeRerankRequest):
-    t0 = time.monotonic()
-
-    if not body.id64s:
-        raise HTTPException(status_code=422, detail='id64s list is required')
-    if len(body.id64s) > 500:
-        raise HTTPException(status_code=422, detail='Maximum 500 systems per rerank request')
-
-    # Resolve weights: use profile if provided, else body.weights, else defaults
-    weights = _resolve_weights(body)
-
-    # Resolve archetype score column
-    archetype   = body.archetype
-    score_col   = _SCORE_COL.get(archetype, 'overall_development_potential') if archetype else \
-                  'overall_development_potential'
-
-    # Cache key
-    redis = get_redis()
-    cache_key = _rerank_cache_key(body.id64s, weights, archetype)
-    cached = await _cache_get(redis, cache_key)
-    if cached:
-        cached['_cached'] = True
-        return cached
-
-    # Fetch from DB
-    pool = get_pool()
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT
-                    a.system_id64           AS id64,
-                    a.{score_col}           AS archetype_score,
-                    a.purity_score,
-                    a.buildability_score,
-                    t.est_total_slots       AS slots,
-                    a.overall_development_potential AS expansion,
-                    CASE WHEN s.main_star_type IN ('O','B','A','F','G','K','M')
-                         THEN 80 ELSE 40 END AS logistics,
-                    a.confidence,
-                    a.rationale
-                FROM system_archetype_scores a
-                JOIN systems s              ON s.id64 = a.system_id64
-                JOIN system_archetype_traits t ON t.system_id64 = a.system_id64
-                WHERE a.system_id64 = ANY($1::bigint[])
-                  AND a.dirty = FALSE
-            """.format(score_col=score_col), body.id64s)
-    except asyncpg.PostgresError as e:
-        log.error('archetypes.rerank DB error: %s', e)
-        raise HTTPException(
-            status_code=503,
-            detail={'type': 'https://httpstatuses.com/503',
-                    'title': 'Database error', 'status': 503, 'detail': str(e)},
-        )
-
-    # Apply weights
-    reranked = []
-    for row in rows:
-        raw = (
-            float(row['purity_score'] or 0)      * weights.purity +
-            float(row['buildability_score'] or 0) * weights.buildability +
-            float(row['slots'] or 0)              * weights.slots +
-            float(row['expansion'] or 0)          * weights.expansion +
-            float(row['logistics'] or 0)          * weights.logistics
-        )
-        reranked.append({
-            'id64':             row['id64'],
-            'reranked_score':   int(round(raw)),
-            'original_score':   round(float(row['archetype_score'] or 0), 2),
-            'confidence':       round(float(row['confidence'] or 0.85), 3),
-            'rationale':        _rationale_with_canonical_confidence(_json_object(row['rationale'])),
-        })
-
-    reranked.sort(key=lambda r: r['reranked_score'], reverse=True)
-
-    query_ms = int((time.monotonic() - t0) * 1000)
-    response = {
-        'archetype':       archetype,
-        'profile_applied': body.profile,
-        'weights_applied': weights.model_dump(),
-        'results':         reranked,
-        'query_ms':        query_ms,
-    }
-    await _cache_set(redis, cache_key, response, ttl=120)
-    return response
-
-
-def _explanation_identity(
+def _ranking_identity(
     generation_row: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -947,7 +681,7 @@ async def _system_archetype_explanation_v3(
             'weighted_potential': stored_row['weighted_potential'],
         },
         'completeness': stored_row['completeness_ppm'] / 1_000_000.0,
-        'ranking': _explanation_identity(generation_row),
+        'ranking': _ranking_identity(generation_row),
     }
 
 
@@ -981,411 +715,336 @@ async def get_system_archetype_explanation(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/archetypes/system/{id64}
+# Shared F3 slice-2 wide-row read (/rerank, /system/{id64}, /simulate)
 # ---------------------------------------------------------------------------
-
-@router.get(
-    '/system/{id64}',
-    response_model=SystemArchetypeResponse,
-    summary='Full archetype breakdown for a single system',
-)
-@limiter.limit('120/minute')
-async def get_system_archetypes(request: Request, id64: int):
-    t0 = time.monotonic()
-
-    redis     = get_redis()
-    ver       = await _cache_version(redis)
-    cache_key = f"arch:v{ver}:sys:{id64}"
-
-    cached = await _cache_get(redis, cache_key)
-    if cached:
-        cached['_cached'] = True
-        return cached
-
-    pool = get_pool()
+# One generation-pinned read of `v3_app.system_search` joined to the published
+# `v3_app.system_archetype` wide row for a bounded id64 list. The caller has
+# already validated the request shape (422 before any DB access). The
+# generation pin and the row read share one REPEATABLE READ snapshot so a
+# governed publish mid-request cannot pair rows from one generation with the
+# identity block of another.
+async def _read_system_archetype_rows(
+    pool: asyncpg.Pool,
+    id64s: list[int],
+    *,
+    surface: str,
+) -> tuple[dict[str, Any], list[asyncpg.Record]]:
+    sql, params = build_system_archetype_detail_query(PROFILE_SPEC, id64s=id64s)
     try:
         async with pool.acquire() as conn:
-            # System + archetype scores
-            row = await conn.fetchrow("""
-                SELECT
-                    s.id64, s.name, s.x, s.y, s.z,
-                    SQRT(s.x*s.x + s.y*s.y + s.z*s.z) AS distance_to_sol,
-                    s.main_star_type,
-                    a.primary_archetype, a.secondary_archetype,
-                    a.archetype_confidence,
-                    a.score_refinery_industrial,
-                    a.score_extraction_refinery,
-                    a.score_agriculture_terraforming,
-                    a.score_hitech_tourism,
-                    a.score_expansion_capital,
-                    a.score_trade_logistics,
-                    a.score_population_capital,
-                    a.score_ax_forward_base,
-                    a.score_military_industrial,
-                    a.score_flexible_multirole,
-                    a.overall_development_potential,
-                    a.buildability_score, a.build_complexity,
-                    a.cp_efficiency, a.t3_scaling_viability, a.slot_efficiency,
-                    a.purity_score, a.contamination_risk, a.stable_top_two_prob,
-                    a.confidence,
-                    a.rationale,
-                    a.score_breakdown
-                FROM systems s
-                JOIN system_archetype_scores a ON a.system_id64 = s.id64
-                WHERE s.id64 = $1
-                  AND a.dirty = FALSE
-            """, id64)
-
-            if row is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f'System {id64} not found or archetype scores not yet computed',
-                )
-
-            # Topology
-            topo_row = await conn.fetchrow("""
-                SELECT estimated_orbital_slots, estimated_ground_slots,
-                       estimated_total_slots, strong_link_potential,
-                       weak_link_stability, contamination_risk AS topo_contamination,
-                       orbital_synergy, ground_synergy, nesting_potential,
-                       build_flexibility, has_viable_surface_port,
-                       has_deep_orbital_anchor, has_ringed_gas_giant
-                FROM system_slot_topology WHERE system_id64 = $1
-            """, id64)
-
-            # Pair synergy rows
-            pair_rows = await conn.fetch("""
-                SELECT economy_a, economy_b, synergy_score, purity_achievable,
-                       contamination_paths
-                FROM economy_pair_synergy
-                WHERE system_id64 = $1
-                ORDER BY synergy_score DESC
-                LIMIT 10
-            """, id64)
-
-            # Traits
-            trait_row = await conn.fetchrow("""
-                SELECT display_tags, est_total_slots, landable_count,
-                       elw_count, gas_giant_count, total_body_count
-                FROM system_archetype_traits WHERE system_id64 = $1
-            """, id64)
-
-            slot_fact_rows = await conn.fetch("""
-                SELECT
-                    system_address,
-                    body_id,
-                    body_name,
-                    radius,
-                    gravity,
-                    surface_temp,
-                    planet_class,
-                    terraform_state,
-                    atmosphere,
-                    volcanism,
-                    has_geo,
-                    has_bio,
-                    geo_signal_count,
-                    bio_signal_count,
-                    is_landable,
-                    is_terraformable,
-                    CASE
-                        WHEN EXISTS (
-                            SELECT 1
-                              FROM bodies b
-                              JOIN body_rings br
-                                ON br.system_id64 = b.system_id64
-                               AND br.body_id = b.id
-                               AND br.association_status = 'local_matched'
-                             WHERE b.system_id64 = body_scan_facts.system_address
-                               AND (
-                                   b.id = body_scan_facts.body_id::bigint
-                                   OR b.name = body_scan_facts.body_name
-                               )
-                        ) THEN TRUE
-                        WHEN body_scan_facts.is_ringed IS FALSE THEN FALSE
-                        ELSE NULL
-                    END AS is_ringed
-                FROM body_scan_facts
-                WHERE system_address = $1
-                ORDER BY body_id
-            """, id64)
-            if slot_fact_rows:
-                slot_facts = [dict(r) for r in slot_fact_rows]
-            else:
-                slot_facts = [
-                    {
-                        'system_address': id64,
-                        'body_id': r['id'],
-                        'body_name': r['name'],
-                        'radius': r['radius'],
-                        'gravity': r['gravity'],
-                        'surface_temp': r['surface_temp'],
-                        'planet_class': r['subtype'],
-                        'terraform_state': None,
-                        'atmosphere': None,
-                        'volcanism': None,
-                        'has_geo': (r['geo_signal_count'] or 0) > 0,
-                        'has_bio': (r['bio_signal_count'] or 0) > 0,
-                        'geo_signal_count': r['geo_signal_count'],
-                        'bio_signal_count': r['bio_signal_count'],
-                        'is_landable': r['is_landable'],
-                        'is_terraformable': r['is_terraformable'],
-                        'is_ringed': r['is_ringed'],
-                    }
-                    for r in await conn.fetch("""
-                        SELECT id, name, subtype, radius, gravity, surface_temp,
-                               geo_signal_count, bio_signal_count,
-                               is_landable, is_terraformable,
-                               CASE
-                                   WHEN EXISTS (
-                                       SELECT 1
-                                       FROM body_rings br
-                                       WHERE br.system_id64 = bodies.system_id64
-                                         AND br.body_id = bodies.id
-                                         AND br.association_status = 'local_matched'
-                                   ) THEN TRUE
-                                   ELSE NULL
-                               END AS is_ringed
-                        FROM bodies
-                        WHERE system_id64 = $1 AND body_type != 'Star'
-                        ORDER BY id
-                    """, id64)
-                ]
-
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
+                generation_row = await _current_derived_generation(conn)
+                rows = await conn.fetch(sql, *params)
+    except HTTPException:
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        log.error('%s missing relation: %r (sqlstate=%s)',
+                  surface, exc, getattr(exc, 'sqlstate', None))
+        raise HTTPException(503, f'{surface} is unavailable') from exc
     except asyncpg.PostgresError as e:
-        log.error('archetypes.system DB error: %s', e)
+        log.error('%s DB error: %s', surface, e)
         raise HTTPException(
             status_code=503,
             detail={'type': 'https://httpstatuses.com/503',
                     'title': 'Database error', 'status': 503, 'detail': str(e)},
         )
+    return generation_row, list(rows)
 
-    query_ms = int((time.monotonic() - t0) * 1000)
-    slot_prediction = predict_system_slots(slot_facts) if slot_facts else {
-        'predicted_orbital_slots_total': None,
-        'predicted_ground_slots_total': None,
-        'prediction_status': 'unknown',
+
+def _distance_to_sol(row: asyncpg.Record) -> float:
+    x, y, z = float(row['x_ly']), float(row['y_ly']), float(row['z_ly'])
+    return round(math.sqrt(x * x + y * y + z * z), 2)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/archetypes/profiles — static preset rerank blends
+# ---------------------------------------------------------------------------
+# One single-archetype preset per V3 key plus the generalist equal blend.
+# Derived from `ARCHETYPE_KEYS`, never hand-tuned: a preset is a documented
+# weight vector, not product tuning.
+_PROFILES: list[dict[str, Any]] = [
+    {
+        'id':          key,
+        'label':       _V3_ARCHETYPE_LABELS[key],
+        'description': f'{_V3_ARCHETYPE_LABELS[key]} fit only',
+        'archetype':   key,
+        'weights':     single_archetype_weights(key),
     }
+    for key in ARCHETYPE_KEYS
+] + [
+    {
+        'id':          'generalist',
+        'label':       'Generalist',
+        'description': 'Equal weight on every V3 archetype fit',
+        'archetype':   None,
+        'weights':     equal_weights(),
+    },
+]
+_PROFILE_BY_ID: dict[str, dict[str, Any]] = {profile['id']: profile for profile in _PROFILES}
 
-    # Build per-archetype score dict
-    archetypes_out = {}
-    for key, col in _SCORE_COL.items():
-        s = float(row[col] or 0)
-        archetypes_out[key] = {
-            'score':       s,
-            'tier':        _tier(s),
-            'label':       _ARCHETYPE_LABELS[key],
-        }
-    # Add rationale to primary archetype entry
-    primary = row['primary_archetype']
-    if primary in archetypes_out and row['rationale']:
-        archetypes_out[primary]['rationale'] = _rationale_with_canonical_confidence(_json_object(row['rationale']))
-
-    topology_out = None
-    if topo_row:
-        topology_out = {
-            'estimated_orbital_slots': slot_prediction.get('predicted_orbital_slots_total'),
-            'estimated_ground_slots':  slot_prediction.get('predicted_ground_slots_total'),
-            'estimated_total_slots': (
-                (slot_prediction.get('predicted_orbital_slots_total') or 0)
-                + (slot_prediction.get('predicted_ground_slots_total') or 0)
-                if slot_prediction.get('predicted_orbital_slots_total') is not None
-                and slot_prediction.get('predicted_ground_slots_total') is not None
-                else None
-            ),
-            'strong_link_potential':   topo_row['strong_link_potential'],
-            'weak_link_stability':     topo_row['weak_link_stability'],
-            'contamination_risk':      topo_row['topo_contamination'],
-            'orbital_synergy':         topo_row['orbital_synergy'],
-            'ground_synergy':          topo_row['ground_synergy'],
-            'nesting_potential':       topo_row['nesting_potential'],
-            'build_flexibility':       topo_row['build_flexibility'],
-            'has_viable_surface_port': topo_row['has_viable_surface_port'],
-            'has_deep_orbital_anchor': topo_row['has_deep_orbital_anchor'],
-            'prediction_status':       slot_prediction.get('prediction_status', 'unknown'),
-            'slot_prediction_note': (
-                None if slot_prediction.get('prediction_status') != 'unknown'
-                else f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.'
-            ),
-        }
-
-    economy_pairs_out = [
-        {
-            'economy_a':          pr['economy_a'],
-            'economy_b':          pr['economy_b'],
-            'synergy_score':      pr['synergy_score'],
-            'purity_achievable':  pr['purity_achievable'],
-            'contamination_paths': pr['contamination_paths'] or [],
-        }
-        for pr in pair_rows
-    ]
-
-    response = {
-        'id64':               row['id64'],
-        'name':               row['name'],
-        'coords':             {'x': row['x'], 'y': row['y'], 'z': row['z']},
-        'distance_to_sol':    row['distance_to_sol'],
-        'main_star_type':     row['main_star_type'],
-        'archetypes':         archetypes_out,
-        'primary_archetype':  row['primary_archetype'],
-        'secondary_archetype':row['secondary_archetype'],
-        'archetype_confidence': row['archetype_confidence'],
-        'overall_development_potential': row['overall_development_potential'],
-        'buildability_score': row['buildability_score'],
-        'build_complexity':   row['build_complexity'],
-        'cp_efficiency':      row['cp_efficiency'],
-        't3_scaling_viability': row['t3_scaling_viability'],
-        'slot_efficiency':    row['slot_efficiency'],
-        'purity_score':       row['purity_score'],
-        'contamination_risk': row['contamination_risk'],
-        'stable_top_two_prob': row['stable_top_two_prob'],
-        'confidence':         row['confidence'],
-        'topology':           topology_out,
-        'economy_pairs':      economy_pairs_out,
-        'tags':               list(trait_row['display_tags'] or []) if trait_row else [],
-        'query_ms':           query_ms,
-    }
-
-    await _cache_set(redis, cache_key, response, ttl=300)
-    return response
-
-
-# ---------------------------------------------------------------------------
-# POST /api/archetypes/simulate
-# ---------------------------------------------------------------------------
-
-@router.post(
-    '/simulate',
-    response_model=BuildSimulateResponse,
-    summary='Build simulation — score a system against a planned build',
-)
-@limiter.limit('20/minute')
-async def post_simulate(request: Request, body: BuildSimulateRequest):
-    """
-    Given a planned build (list of facility placements), estimate the
-    resulting economy distribution and score the system against the plan.
-
-    NOTE: This is a best-effort estimate. Economy outcomes depend on exact
-    construction order and Frontier's internal economy weighting, which is
-    not publicly documented.
-    """
-    pool = get_pool()
-    try:
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT a.score_breakdown, a.rationale, a.contamination_risk,
-                       a.purity_score, a.buildability_score,
-                       a.primary_archetype
-                FROM system_archetype_scores a
-                WHERE a.system_id64 = $1 AND a.dirty = FALSE
-            """, body.id64)
-    except asyncpg.PostgresError as e:
-        log.error('archetypes.simulate DB error: %s', e)
-        raise HTTPException(
-            status_code=503,
-            detail={'type': 'https://httpstatuses.com/503',
-                    'title': 'Database error', 'status': 503, 'detail': str(e)},
-        )
-
-    if row is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f'System {body.id64} not found or scores not yet computed',
-        )
-
-    planned = body.planned_archetype
-    score_breakdown = _json_object(row['score_breakdown'])
-    pa_score = score_breakdown.get('per_archetype', {}).get(planned, {})
-    sim_score = int(pa_score.get('score', 0)) if pa_score else 0
-
-    recs: list[str] = []
-    cont_risk = float(row['contamination_risk'] or 0) / 100
-    if cont_risk > 0.40:
-        recs.append(
-            f'High contamination risk ({cont_risk:.0%}). '
-            'Add dedicated Refinery Hubs on contaminating bodies to suppress third-economy bleed.'
-        )
-    if row['buildability_score'] and float(row['buildability_score']) < 50:
-        recs.append(
-            'Low buildability score. Ensure you have sufficient strong-link anchors '
-            'before attempting T3 scaling.'
-        )
-    if len(body.planned_facilities) > 0:
-        t3_count = sum(1 for f in body.planned_facilities if f.tier == 3)
-        if t3_count > 0:
-            recs.append(
-                f'{t3_count} T3 facilities planned. '
-                'T3 scaling requires at least one strong-link anchor body.'
-            )
-
-    return {
-        'id64':               body.id64,
-        'planned_archetype':  planned,
-        'simulation_score':   sim_score,
-        'contamination_risk': cont_risk,
-        'purity_score':       round(float(row['purity_score'] or 0), 2),
-        'buildability_score': round(float(row['buildability_score'] or 0), 2),
-        'recommendations':    recs or ['Build plan looks viable — proceed with standard order.'],
-        'disclaimer':         (
-            'This is an estimate based on body-composition analysis. '
-            'Actual economy outcomes depend on construction order and '
-            'Frontier\'s internal economy weighting.'
-        ),
-    }
-
-
-# ---------------------------------------------------------------------------
-# GET /api/archetypes/profiles
-# ---------------------------------------------------------------------------
 
 @router.get(
     '/profiles',
     response_model=ArchetypesProfilesResponse,
-    summary='Preset rerank weight profiles',
+    summary='Preset rerank weight profiles (V3 archetype keys)',
 )
 @limiter.limit('120/minute')
 async def get_profiles(request: Request):
-    redis     = get_redis()
-    cache_key = 'arch:profiles'
-
-    cached = await _cache_get(redis, cache_key)
-    if cached:
-        return cached
-
-    response = {'profiles': _PROFILES}
-    await _cache_set(redis, cache_key, response, ttl=3600)
-    return response
+    return {'profiles': _PROFILES}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# POST /api/archetypes/rerank (F3 slice 2 — V3, generation-pinned)
 # ---------------------------------------------------------------------------
 
-def _tier(score) -> str:
-    s = float(score or 0)
-    if s >= 88: return 'S'
-    if s >= 76: return 'A'
-    if s >= 60: return 'B'
-    if s >= 45: return 'C'
-    return 'D'
+def _resolve_rerank_weights(
+    body: ArchetypeRerankRequest,
+) -> tuple[ArchetypeRerankWeights, Optional[str]]:
+    """Resolve the effective blend before any database access.
+
+    Order: `profile` (unknown id -> 422, never a silent fallback), explicit
+    `weights`, a single-archetype blend when only `archetype` is given, else
+    the generalist equal blend.
+    """
+    if body.profile is not None:
+        preset = _PROFILE_BY_ID.get(body.profile)
+        if preset is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Unknown profile {body.profile!r}. "
+                    f"Valid values: {sorted(_PROFILE_BY_ID)}"
+                ),
+            )
+        return ArchetypeRerankWeights(**preset['weights']), preset['id']
+    if body.weights is not None:
+        return body.weights, None
+    if body.archetype is not None:
+        return ArchetypeRerankWeights(**single_archetype_weights(body.archetype)), None
+    return ArchetypeRerankWeights(**equal_weights()), None
 
 
-def _resolve_weights(body: ArchetypeRerankRequest) -> ArchetypeRerankWeights:
-    """Resolve effective weights from profile ID or explicit weights."""
-    if body.profile:
-        for p in _PROFILES:
-            if p['id'] == body.profile:
-                return ArchetypeRerankWeights(**p['weights'])
+async def _archetype_rerank_v3(*, body: ArchetypeRerankRequest, pool: asyncpg.Pool) -> dict:
+    t0 = time.monotonic()
+    weights, profile_applied = _resolve_rerank_weights(body)
+    try:
+        id64s = validate_id64s(body.id64s)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if body.weights:
-        return body.weights
+    generation_row, rows = await _read_system_archetype_rows(
+        pool, id64s, surface='Archetype rerank',
+    )
+    results = rerank_rows(
+        rows,
+        weights=weights.model_dump(),
+        picked_archetype=body.archetype,
+    )
+    found = {result['id64'] for result in results}
+    query_ms = int((time.monotonic() - t0) * 1000)
+    return {
+        'archetype':       body.archetype,
+        'profile_applied': profile_applied,
+        'weights_applied': weights.model_dump(),
+        'results':         results,
+        'missing_id64s':   [id64 for id64 in id64s if id64 not in found],
+        'query_ms':        query_ms,
+        'ranking':         _ranking_identity(generation_row),
+    }
 
-    return ArchetypeRerankWeights()   # defaults
+
+@router.post(
+    '/rerank',
+    response_model=ArchetypeRerankResponse,
+    summary='Rerank systems by a weighted blend of their V3 archetype fits',
+    description=(
+        'Reorders the supplied systems by a client-weighted blend of their '
+        'stored, uncertainty-modified V3 archetype keys, read generation-pinned '
+        'from the published `v3_app.system_archetype` projection. Runs no new '
+        'search and persists nothing.'
+    ),
+)
+@limiter.limit('30/minute')
+async def post_archetype_rerank(request: Request, body: ArchetypeRerankRequest):
+    return await _archetype_rerank_v3(body=body, pool=get_pool())
 
 
-def _rerank_cache_key(id64s: list, weights: ArchetypeRerankWeights, archetype: Optional[str]) -> str:
-    digest = hashlib.sha256(
-        json.dumps({'ids': sorted(id64s), 'w': weights.model_dump(), 'arch': archetype},
-                   sort_keys=True).encode()
-    ).hexdigest()[:16]
-    return f"arch:rerank:{digest}"
+# ---------------------------------------------------------------------------
+# GET /api/archetypes/system/{id64} (F3 slice 2 — V3, generation-pinned)
+# ---------------------------------------------------------------------------
+
+def _build_system_archetype_detail(
+    row: asyncpg.Record,
+    generation_row: dict[str, Any],
+    query_ms: int,
+) -> dict[str, Any]:
+    archetypes_out = {
+        key: {**archetype_entry(row, key), 'label': _V3_ARCHETYPE_LABELS[key]}
+        for key in ARCHETYPE_KEYS
+    }
+    return {
+        'id64':             row['system_id64'],
+        'name':             row['name'],
+        'coords':           {'x': row['x_ly'], 'y': row['y_ly'], 'z': row['z_ly']},
+        'distance_to_sol':  _distance_to_sol(row),
+        'main_star_class':  row['main_star_class'],
+        'galaxy_region_id': row['galaxy_region_id'],
+        'galaxy_region':    row['region_name'],
+        'archetypes':       archetypes_out,
+        'primary_archetype':    row['primary_archetype'],
+        'secondary_archetype':  row['secondary_archetype'],
+        'archetype_confidence': round(int(row['archetype_confidence_ppm']) / PPM, 6),
+        'overall_development_potential': int(row['best_colony_potential']),
+        'best_tier':          row['best_tier'],
+        'weighted_potential': float(row['weighted_potential']),
+        'confidence':   float(row['confidence']),
+        'completeness': float(row['completeness']),
+        'facts': {
+            'body_count':          row['body_count'],
+            'landable_count':      row['landable_count'],
+            'station_count':       row['station_count'],
+            'has_rings':           row['has_rings'],
+            'has_biologicals':     row['has_biologicals'],
+            'has_geologicals':     row['has_geologicals'],
+            'has_terraformable':   row['has_terraformable'],
+            'elw_count':           row.get('elw_count'),
+            'ww_count':            row.get('ww_count'),
+            'terraformable_count': row.get('terraformable_count'),
+            'gas_giant_count':     row.get('gas_giant_count'),
+            'ring_count':          row.get('ring_count'),
+            'bio_signal_total':    row.get('bio_signal_total'),
+            'geo_signal_total':    row.get('geo_signal_total'),
+        },
+        'query_ms': query_ms,
+        'ranking':  _ranking_identity(generation_row),
+    }
+
+
+async def _system_archetype_v3(*, id64: int, pool: asyncpg.Pool) -> dict[str, Any]:
+    t0 = time.monotonic()
+    generation_row, rows = await _read_system_archetype_rows(
+        pool, [id64], surface='Archetype detail',
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f'No published archetype row for system {id64}',
+        )
+    query_ms = int((time.monotonic() - t0) * 1000)
+    return _build_system_archetype_detail(rows[0], generation_row, query_ms)
+
+
+@router.get(
+    '/system/{id64}',
+    response_model=SystemArchetypeResponse,
+    summary='Full V3 archetype breakdown for a single system',
+    description=(
+        'Reads the published `v3_app.system_archetype` wide row and the '
+        '`v3_app.system_search` facts for one system, generation-pinned. '
+        'Explanations are served on demand by `/system/{id64}/explanation`.'
+    ),
+)
+@limiter.limit('120/minute')
+async def get_system_archetypes(
+    request: Request,
+    id64: int = Path(ge=0, le=9_223_372_036_854_775_807),
+):
+    return await _system_archetype_v3(id64=id64, pool=get_pool())
+
+
+# ---------------------------------------------------------------------------
+# POST /api/archetypes/simulate (F3 slice 2 — V3, generation-pinned)
+# ---------------------------------------------------------------------------
+
+_SIMULATE_DISCLAIMER = (
+    'simulation_score is the published V3 archetype fit for the planned '
+    'archetype. It does not model construction order or facility placement, '
+    'and no V3 projection carries contamination, purity, buildability or '
+    'slot-topology estimates.'
+)
+_LOW_COMPLETENESS_THRESHOLD = 0.5
+
+
+def _simulation_recommendations(
+    row: asyncpg.Record,
+    *,
+    planned: str,
+    planned_fit: dict[str, Any],
+    planned_facilities: list,
+) -> list[str]:
+    recs: list[str] = []
+    primary = row['primary_archetype']
+    if primary != planned:
+        primary_fit = archetype_entry(row, primary)
+        recs.append(
+            f'The published V3 model rates this system strongest as '
+            f'{_V3_ARCHETYPE_LABELS.get(primary, primary)} '
+            f'({primary_fit["score"]}, tier {primary_fit["tier"]}); the planned '
+            f'{_V3_ARCHETYPE_LABELS[planned]} fit scores {planned_fit["score"]} '
+            f'(tier {planned_fit["tier"]}).'
+        )
+    completeness = float(row['completeness'])
+    if completeness < _LOW_COMPLETENESS_THRESHOLD:
+        recs.append(
+            f'Body data is {completeness:.0%} complete and the planned fit\'s '
+            f'confidence is {planned_fit["confidence"]:.0%}. Scan more bodies '
+            'before committing to this plan.'
+        )
+    t3_count = sum(1 for facility in planned_facilities if facility.tier == 3)
+    if t3_count > 0:
+        recs.append(
+            f'{t3_count} T3 facilities planned. '
+            'T3 scaling requires at least one strong-link anchor body.'
+        )
+    return recs or ['No V3 model warnings for this plan.']
+
+
+async def _build_simulate_v3(*, body: BuildSimulateRequest, pool: asyncpg.Pool) -> dict[str, Any]:
+    generation_row, rows = await _read_system_archetype_rows(
+        pool, [body.id64], surface='Build simulation',
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f'No published archetype row for system {body.id64}',
+        )
+    row = rows[0]
+    planned = body.planned_archetype
+    planned_fit = archetype_entry(row, planned)
+    return {
+        'id64':                  body.id64,
+        'planned_archetype':     planned,
+        'simulation_score':      planned_fit['score'],
+        'tier':                  planned_fit['tier'],
+        'confidence':            planned_fit['confidence'],
+        'completeness':          float(row['completeness']),
+        'primary_archetype':     row['primary_archetype'],
+        'secondary_archetype':   row['secondary_archetype'],
+        'best_colony_potential': int(row['best_colony_potential']),
+        'recommendations':       _simulation_recommendations(
+            row,
+            planned=planned,
+            planned_fit=planned_fit,
+            planned_facilities=body.planned_facilities,
+        ),
+        'disclaimer':            _SIMULATE_DISCLAIMER,
+        'ranking':               _ranking_identity(generation_row),
+    }
+
+
+@router.post(
+    '/simulate',
+    response_model=BuildSimulateResponse,
+    summary='Build simulation — score a planned archetype against the V3 fit',
+    description=(
+        'Scores a planned build against the system\'s published V3 fit for the '
+        'planned archetype, generation-pinned. Best-effort guidance only: '
+        'economy outcomes depend on construction order and undocumented '
+        'Frontier weighting, and no V3 projection carries contamination, purity '
+        'or buildability estimates.'
+    ),
+)
+@limiter.limit('20/minute')
+async def post_simulate(request: Request, body: BuildSimulateRequest):
+    return await _build_simulate_v3(body=body, pool=get_pool())

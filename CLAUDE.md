@@ -37,8 +37,9 @@ Finder routes answer 503 until both products are published; it carries the
 identity/journal shipped; Finder `system_search` post-`010` build not yet started; Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
-read the V3 projections, while `/rerank`, `/system/{id64}` and `/simulate` are
-F3 slice 2 and still query legacy relations. **Capacity decision 2026-10-10 (owner, A + B):**
+read the V3 projections; **F3 slice 2** repointed `/rerank`, `/system/{id64}`,
+`/simulate` and `/profiles` onto them, so `routers/archetypes.py` references
+no legacy archetype relation. **Capacity decision 2026-10-10 (owner, A + B):**
 the fresh-generation route is superseded — the unapplied migration `011` is being
 rewritten as one wide archetype row per system (F2d design, PR #806), both Finder
 products attach to the already-published `ratings_v4_prod_p4_parallel_v1`

@@ -381,7 +381,9 @@ def test_ring_consumers_require_local_body_id_not_unresolved_name_fallback():
         'apps/api/src/routers/systems.py',
         'apps/api/src/routers/simulate.py',
         'apps/api/src/routers/simulation.py',
-        'apps/api/src/routers/archetypes.py',
+        # `apps/api/src/routers/archetypes.py` left this list with F3 slice 2:
+        # it reads only the V3 `v3_app.*` projections and no longer joins
+        # `bodies`/`body_rings`, so it is not a ring consumer any more.
         'sql/008_body_filter_aggregates.sql',
     ]
     forbidden = re.compile(

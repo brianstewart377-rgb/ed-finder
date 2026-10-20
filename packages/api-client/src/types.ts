@@ -1400,12 +1400,18 @@ export interface RegionalAnalysisResponse {
 
 // ─── Frontend-side constants ──────────────────────────────────────────────
 
+// F3 slice 2: `/api/archetypes/rerank` blends the 8 V3 archetype fits; the
+// legacy five dimensions (purity/buildability/slots/expansion/logistics) are
+// retired. This is the server's generalist (equal) default.
 export const DEFAULT_WEIGHTS: DevelopmentRerankWeights = {
-  purity:       0.30,
-  buildability: 0.25,
-  slots:        0.20,
-  expansion:    0.15,
-  logistics:    0.10,
+  paradise:           0.125,
+  mining_hub:         0.125,
+  manufacturing_hub:  0.125,
+  megacomplex:        0.125,
+  research_hub:       0.125,
+  stronghold:         0.125,
+  population_capital: 0.125,
+  flexible:           0.125,
 };
 
 // ─── Optimiser Candidate Generation / Ranking (Stages 5A-5C) ────────────────

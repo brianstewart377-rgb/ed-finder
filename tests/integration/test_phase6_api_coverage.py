@@ -13,64 +13,10 @@ Covers the endpoints the per-phase tests didn't already touch:
   * RFC 7807 problem-details on 503 / 410
 """
 import pytest
-import json
 
 pytestmark = pytest.mark.asyncio
 
 ADMIN_TOKEN = 'test-admin-token'
-
-
-async def _seed_archetype_rerank_rows(pool, count: int) -> list[int]:
-    async with pool.acquire() as conn:
-        ids = [r['id64'] for r in await conn.fetch('SELECT id64 FROM systems ORDER BY id64 LIMIT $1', count)]
-        score_payload = []
-        trait_payload = []
-        for idx, id64 in enumerate(ids, start=1):
-            score_payload.append((
-                id64,
-                55 + idx,
-                50 + idx,
-                40 + idx,
-                0.82,
-                json.dumps({'summary': f'Seeded rationale {idx}'}),
-            ))
-            trait_payload.append((id64, 8 + idx))
-
-        await conn.executemany(
-            """
-            INSERT INTO system_archetype_scores (
-                system_id64,
-                primary_archetype,
-                overall_development_potential,
-                purity_score,
-                buildability_score,
-                confidence,
-                rationale,
-                dirty
-            )
-            VALUES ($1, 'flexible_multirole', $2, $3, $4, $5, $6::jsonb, FALSE)
-            ON CONFLICT (system_id64) DO UPDATE SET
-                primary_archetype = EXCLUDED.primary_archetype,
-                overall_development_potential = EXCLUDED.overall_development_potential,
-                purity_score = EXCLUDED.purity_score,
-                buildability_score = EXCLUDED.buildability_score,
-                confidence = EXCLUDED.confidence,
-                rationale = EXCLUDED.rationale,
-                dirty = FALSE
-            """,
-            score_payload,
-        )
-        await conn.executemany(
-            """
-            INSERT INTO system_archetype_traits (system_id64, est_total_slots, display_tags)
-            VALUES ($1, $2, ARRAY['Seeded'])
-            ON CONFLICT (system_id64) DO UPDATE SET
-                est_total_slots = EXCLUDED.est_total_slots,
-                display_tags = EXCLUDED.display_tags
-            """,
-            trait_payload,
-        )
-    return ids
 
 
 # --- Health / status -------------------------------------------------------
@@ -155,40 +101,66 @@ async def test_systems_batch(client, pool):
 
 
 # --- Development rerank ----------------------------------------------------
+# `POST /api/archetypes/rerank` reads the published V3 `v3_app.system_archetype`
+# wide row (F3 slice 2); it no longer touches `system_archetype_scores` /
+# `system_archetype_traits`, so nothing is seeded here. `v3_derived_ready`
+# skips in the V2-only lane where no V3 generation is published.
 
-async def test_archetype_rerank_default_weights(client, pool):
-    ids = await _seed_archetype_rerank_rows(pool, 3)
+async def _published_archetype_ids(pool, count: int) -> list[int]:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT system_id64 FROM v3_app.system_archetype ORDER BY system_id64 LIMIT $1',
+            count,
+        )
+    return [r['system_id64'] for r in rows]
+
+
+async def test_archetype_rerank_default_weights(client, pool, v3_derived_ready):
+    from edfinder_api.ranking.profile import ARCHETYPE_KEYS, RANKING_VERSION
+
+    ids = await _published_archetype_ids(pool, 3)
+    assert ids, 'published V3 archetype rows expected'
     r = await client.post('/api/archetypes/rerank', json={
         'id64s': ids,
     })
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     body = r.json()
-    assert 'weights_applied' in body
-    assert 'results' in body
-    assert len(body['results']) == 3
+    assert set(body['weights_applied']) == set(ARCHETYPE_KEYS)
+    assert body['missing_id64s'] == []
+    assert body['ranking']['ranking_version'] == RANKING_VERSION
+    assert len(body['results']) == len(ids)
+    scores = [row['reranked_score'] for row in body['results']]
+    assert scores == sorted(scores, reverse=True)
     for row in body['results']:
         assert row['id64'] in ids
         assert isinstance(row['reranked_score'], int)
-        assert isinstance(row['rationale'], dict)
-        assert row['rationale']['summary'].startswith('Seeded rationale')
+        assert row['tier'] in ('S', 'A', 'B', 'C', 'D')
+        assert 'rationale' not in row
 
 
-async def test_archetype_rerank_custom_weights(client, pool):
-    ids = await _seed_archetype_rerank_rows(pool, 5)
+async def test_archetype_rerank_custom_weights(client, pool, v3_derived_ready):
+    from edfinder_api.ranking.profile import ARCHETYPE_KEYS
+
+    ids = await _published_archetype_ids(pool, 5)
+    weights = {key: 0.0 for key in ARCHETYPE_KEYS}
+    weights['mining_hub'] = 1.0
     r = await client.post('/api/archetypes/rerank', json={
         'id64s': ids,
-        'weights': {
-            'purity': 1.0,
-            'buildability': 0.0,
-            'slots': 0.0,
-            'expansion': 0.0,
-            'logistics': 0.0,
-        },
+        'weights': weights,
     })
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     body = r.json()
-    assert body['weights_applied']['purity'] == 1.0
-    assert len(body['results']) == 5
+    assert body['weights_applied']['mining_hub'] == 1.0
+    assert len(body['results']) == len(ids)
+
+
+async def test_archetype_rerank_rejects_legacy_weight_dimensions(client):
+    """The V2 five-dimension weights have no V3 projection: 422 before any DB read."""
+    r = await client.post('/api/archetypes/rerank', json={
+        'id64s': [1],
+        'weights': {'purity': 1.0, 'buildability': 0.0},
+    })
+    assert r.status_code == 422, r.text
 
 # --- Profile sync (rate limited per audit §S3) ----------------------------
 

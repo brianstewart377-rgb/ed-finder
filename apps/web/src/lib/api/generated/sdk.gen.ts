@@ -749,7 +749,19 @@ export const mapSystemsApiMapSystemsGet = <ThrowOnError extends boolean = false>
 export const getArchetypeRankingsApiArchetypesRankingsGet = <ThrowOnError extends boolean = false>(options: Options<GetArchetypeRankingsApiArchetypesRankingsGetData, ThrowOnError>): RequestResult<GetArchetypeRankingsApiArchetypesRankingsGetResponses, GetArchetypeRankingsApiArchetypesRankingsGetErrors, ThrowOnError> => (options.client ?? client).get<GetArchetypeRankingsApiArchetypesRankingsGetResponses, GetArchetypeRankingsApiArchetypesRankingsGetErrors, ThrowOnError>({ url: '/api/archetypes/rankings', ...options });
 
 /**
- * Rerank systems by custom archetype weights
+ * On-demand V3 archetype explanations for a single system
+ */
+export const getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet = <ThrowOnError extends boolean = false>(options: Options<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetData, ThrowOnError>): RequestResult<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses, GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors, ThrowOnError> => (options.client ?? client).get<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses, GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors, ThrowOnError>({ url: '/api/archetypes/system/{id64}/explanation', ...options });
+
+/**
+ * Preset rerank weight profiles (V3 archetype keys)
+ */
+export const getProfilesApiArchetypesProfilesGet = <ThrowOnError extends boolean = false>(options?: Options<GetProfilesApiArchetypesProfilesGetData, ThrowOnError>): RequestResult<GetProfilesApiArchetypesProfilesGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetProfilesApiArchetypesProfilesGetResponses, unknown, ThrowOnError>({ url: '/api/archetypes/profiles', ...options });
+
+/**
+ * Rerank systems by a weighted blend of their V3 archetype fits
+ *
+ * Reorders the supplied systems by a client-weighted blend of their stored, uncertainty-modified V3 archetype keys, read generation-pinned from the published `v3_app.system_archetype` projection. Runs no new search and persists nothing.
  */
 export const postArchetypeRerankApiArchetypesRerankPost = <ThrowOnError extends boolean = false>(options: Options<PostArchetypeRerankApiArchetypesRerankPostData, ThrowOnError>): RequestResult<PostArchetypeRerankApiArchetypesRerankPostResponses, PostArchetypeRerankApiArchetypesRerankPostErrors, ThrowOnError> => (options.client ?? client).post<PostArchetypeRerankApiArchetypesRerankPostResponses, PostArchetypeRerankApiArchetypesRerankPostErrors, ThrowOnError>({
     url: '/api/archetypes/rerank',
@@ -761,24 +773,16 @@ export const postArchetypeRerankApiArchetypesRerankPost = <ThrowOnError extends 
 });
 
 /**
- * On-demand V3 archetype explanations for a single system
- */
-export const getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet = <ThrowOnError extends boolean = false>(options: Options<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetData, ThrowOnError>): RequestResult<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses, GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors, ThrowOnError> => (options.client ?? client).get<GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetResponses, GetSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGetErrors, ThrowOnError>({ url: '/api/archetypes/system/{id64}/explanation', ...options });
-
-/**
- * Full archetype breakdown for a single system
+ * Full V3 archetype breakdown for a single system
+ *
+ * Reads the published `v3_app.system_archetype` wide row and the `v3_app.system_search` facts for one system, generation-pinned. Explanations are served on demand by `/system/{id64}/explanation`.
  */
 export const getSystemArchetypesApiArchetypesSystemId64Get = <ThrowOnError extends boolean = false>(options: Options<GetSystemArchetypesApiArchetypesSystemId64GetData, ThrowOnError>): RequestResult<GetSystemArchetypesApiArchetypesSystemId64GetResponses, GetSystemArchetypesApiArchetypesSystemId64GetErrors, ThrowOnError> => (options.client ?? client).get<GetSystemArchetypesApiArchetypesSystemId64GetResponses, GetSystemArchetypesApiArchetypesSystemId64GetErrors, ThrowOnError>({ url: '/api/archetypes/system/{id64}', ...options });
 
 /**
- * Build simulation — score a system against a planned build
+ * Build simulation — score a planned archetype against the V3 fit
  *
- * Given a planned build (list of facility placements), estimate the
- * resulting economy distribution and score the system against the plan.
- *
- * NOTE: This is a best-effort estimate. Economy outcomes depend on exact
- * construction order and Frontier's internal economy weighting, which is
- * not publicly documented.
+ * Scores a planned build against the system's published V3 fit for the planned archetype, generation-pinned. Best-effort guidance only: economy outcomes depend on construction order and undocumented Frontier weighting, and no V3 projection carries contamination, purity or buildability estimates.
  */
 export const postSimulateApiArchetypesSimulatePost = <ThrowOnError extends boolean = false>(options: Options<PostSimulateApiArchetypesSimulatePostData, ThrowOnError>): RequestResult<PostSimulateApiArchetypesSimulatePostResponses, PostSimulateApiArchetypesSimulatePostErrors, ThrowOnError> => (options.client ?? client).post<PostSimulateApiArchetypesSimulatePostResponses, PostSimulateApiArchetypesSimulatePostErrors, ThrowOnError>({
     url: '/api/archetypes/simulate',
@@ -788,11 +792,6 @@ export const postSimulateApiArchetypesSimulatePost = <ThrowOnError extends boole
         ...options.headers
     }
 });
-
-/**
- * Preset rerank weight profiles
- */
-export const getProfilesApiArchetypesProfilesGet = <ThrowOnError extends boolean = false>(options?: Options<GetProfilesApiArchetypesProfilesGetData, ThrowOnError>): RequestResult<GetProfilesApiArchetypesProfilesGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetProfilesApiArchetypesProfilesGetResponses, unknown, ThrowOnError>({ url: '/api/archetypes/profiles', ...options });
 
 /**
  * Get Facility Templates
