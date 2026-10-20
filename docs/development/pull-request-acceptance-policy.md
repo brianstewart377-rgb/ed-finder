@@ -83,6 +83,17 @@ spend review credits automatically. Repository policy cannot prove that remote
 service setting, so operators must verify it separately; an accidental
 per-push review does not create a policy requirement to keep doing so.
 
+**Configured 2026-10-20 (owner):** the self-hosted Octopus instance
+(`octopus.ed-finder.app`, the `octopus-web-1` container on the production host,
+image `ghcr.io/octopusreview/octopus-selfhost:1.0.122`) now has Auto Review
+**off** for `ed-finder` and a spend limit set, so pushes no longer trigger a
+review. A review is requested manually, once per final-candidate head, by
+posting the PR comment `@octopus-review`; the review it returns is valid only
+for the head SHA that was current when the comment was posted. This records the
+remote setting at that date; it does not prove the setting on any later date,
+and operators should still check it when Octopus reviews appear without being
+asked for.
+
 This cadence changes *when* Octopus is invoked, not the exact-head safety rule.
 A stale Octopus review from an earlier SHA can never contribute to merge
 eligibility.
@@ -103,6 +114,14 @@ unavailable, never because it is pending or still reviewing. The waiver must:
 
 Without all of those conditions, the PR must wait for the reviewer service to
 recover and complete.
+
+An Octopus response of HTTP `429` with a "no credits remaining" (or equivalent
+spend-limit) message is a **service-unavailability failure** of the kind this
+section covers: it is an account billing/spend-limit condition on the Octopus
+side, not a finding about the code and not a review of the head. It must not be
+recorded as a clean review, and it does not waive the gate; either the owner
+restores credits (or raises the spend limit) and the review is re-requested for
+the same head, or the owner issues the written waiver above.
 
 ## Auto-merge transition
 

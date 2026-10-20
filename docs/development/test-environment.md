@@ -105,6 +105,8 @@ The project registers these local markers:
 
 Real-service tests must use the applicable service markers and skip explicitly when the service, credentials, or required local baseline data are absent. They must not silently pass by falling back to unit fakes.
 
+Since PR #865 (2026-10-19) that skip is conditional on the lane. Every "the disposable database is not usable" exit in the database-backed tests routes through `tests/helpers/db_isolation.py` (`database_unavailable`, `import_db_module`), which skips by default and **fails** when `EDF_DB_TESTS_REQUIRED=1` is set. The three CI jobs that provide PostgreSQL (`Importer and synchronous tooling`, `Backend integration (PG+Redis)`, `Finder derived-data tests (PostgreSQL 18)`) set that variable in their pytest step, so a DB lane that has lost its database turns red instead of reporting a green run of skips. Locally, leave the variable unset to keep the skip behaviour; set it to `1` only when you have a confirmed disposable database and want a missing one to be a failure.
+
 ## Make Targets
 
 The Makefile includes:

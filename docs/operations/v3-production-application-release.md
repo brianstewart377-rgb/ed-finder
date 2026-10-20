@@ -287,7 +287,11 @@ Compose command from this runbook.
 
 The F3 change (PR #777) repoints `POST /api/local/search` and
 `GET /api/archetypes/rankings` off legacy relations onto the published
-`v3_app.*` V3 projections. **Merging #777 is not authorization to promote it.**
+`v3_app.*` V3 projections; F3 slice 2 (PR #862, merged 2026-10-20) does the
+same for `/api/archetypes/rerank`, `/system/{id64}` and `/simulate` (and
+`/profiles` now serves V3-key presets without a database), so every
+database-backed route in `routers/archetypes.py` sits behind the same product
+gate. **Merging #777 or #862 is not authorization to promote them.**
 
 The F2d release gate replaces the former products-first gate. Deploy the
 bounded ranking image **before any Finder product exists on the target**, then
