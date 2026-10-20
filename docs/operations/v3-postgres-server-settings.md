@@ -59,7 +59,9 @@ minute, a ~15-day projection. `pg_stat_activity` showed each chunk spending
 v3_derived.system_search s JOIN v3_derived.system_rating_vector v … WHERE
 s.derived_generation_id=$1 AND v.chunk_ordinal=$2`). `EXPLAIN (ANALYZE,
 BUFFERS)` showed why: `system_search` had last been analysed on 2026-09-21,
-when it held only the two older generations, so the planner estimated **one**
+when it held only the one older generation's rows (`ratings_v4_prod_p4_opt1`;
+`ratings_v4_prod_p4` never had Search rows — see the 2026-10-10 lifecycle
+receipt), so the planner estimated **one**
 row for the new generation `cfc25d36…`, drove the nested loop from
 `system_search` (5.7 M rows and growing) and probed `system_rating_vector`
 once per row (28.7 M buffer hits). Autoanalyze would not have fired until
@@ -83,8 +85,11 @@ picked the new plan up immediately: 2,289 chunks between 08:50:57 and
 **Carry-forward for the Archetype build (8′, second product):**
 `v3_derived.system_archetype` starts empty and has the same guard-query shape
 against `system_rating_vector`, so run `ANALYZE v3_derived.system_archetype;`
-once a few thousand chunks are in (and again if `pg_stat_user_tables`
-shows no fresh `last_autoanalyze`), rather than waiting for autoanalyze. A
+once a few thousand chunks are in, rather than waiting for autoanalyze.
+Before repeating it, check `greatest(last_analyze, last_autoanalyze)` in
+`pg_stat_user_tables` — a manual `ANALYZE` is recorded in `last_analyze`, not
+`last_autoanalyze` — and only re-run when neither is newer than the build's
+start. A
 code-side fix (an explicit `ANALYZE` early in the build, or rewriting the
 guard to drive from the chunk index) belongs in the operator builders and
 therefore waits for the post-publish operator-code release — it must not be

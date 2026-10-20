@@ -15,7 +15,9 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 Records the owner's 2026-10-20 `ANALYZE v3_derived.system_search` in
 `docs/operations/v3-postgres-server-settings.md`: stale planner statistics
-(last analysed 2026-09-21, before the new generation existed) made the Search
+(last analysed 2026-09-21, before this generation's `system_search` rows
+existed — the generation itself was created 2026-09-14 and published
+2026-09-16) made the Search
 build's per-chunk guard query scan the growing `system_search` table
 (6.5 s/chunk, ~15-day projection); after the refresh the same query takes
 5 ms and the build runs ~244 chunks/min. Also records that the 7′ capacity

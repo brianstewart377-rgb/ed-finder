@@ -506,9 +506,12 @@ newer dated source wins).
   For step 6, the read-only action `v3-archetype-calibration-probe` is merged
   (#800); the probe reads the already-published `parallel_v1` ratings vectors and
   may run once step 0 is closed.
-  For step 8, **NO governed action — must be built:** the step 5 and step 7 build
-  actions must expose and receipt the validation path (search: inline in `run()`;
-  archetype: `--validate`) so READY is reached through a reviewed route.
+  For step 8 (now 8′), the build actions exist and expose/receipt the validation
+  path (search: validation inside the detached worker, `v3-system-search-f1-*`;
+  archetype: validation inside the detached worker, `v3-system-archetype-*`,
+  #857), and the Search build is running (2026-10-19 21:37 UTC, run 39328946864;
+  see the 2026-10-19 status entry above). The earlier "NO governed action — must
+  be built" statement here is superseded.
 
   **Superseded (kept for history, not for execution).** The paragraph that used to
   follow here described the pre-wide-row route: it called retaining `opt1`'s

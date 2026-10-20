@@ -34,7 +34,8 @@ fail-closed target authority — being authorized is not blanket permission to
 promote. Current programme status (prod app on `0dddc78d`, the second F2d release, whose
 Finder routes answer 503 until both products are published; it carries the
 `bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
-identity/journal shipped; Finder `system_search` post-`010` build not yet started; Finder
+identity/journal shipped; Finder `system_search` post-`010` build **running** (8′ started
+2026-10-19 21:37 UTC after the 7′ gate passed; `docs/ROADMAP.md` status entry); Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
 read the V3 projections; **F3 slice 2** repointed `/rerank`, `/system/{id64}`,
