@@ -45,9 +45,11 @@ def test_cluster_rebuild_route_is_retired_and_does_not_shell_out(
     route_block = route_block.split("@router.post('/api/admin/rebuild-ratings'", 1)[0]
     # Auth stays on the route; the body is the 410 problem response only.
     assert 'dependencies=[Depends(require_admin)]' in route_block
-    assert 'status_code=410' in route_block
-    assert '410: {' in route_block, 'the 410 problem response must be declared in OpenAPI'
-    assert "media_type='application/problem+json'" in route_block
+    assert 'status_code=410,' in route_block, '410 must be the primary (only) declared status'
+    assert 'response_model=RetiredRouteProblem' in route_block
+    assert 'response_class=_ProblemJSONResponse' in route_block
+    assert "media_type = 'application/problem+json'" in admin_source
+    assert 'responses={' not in route_block, 'no secondary responses: the implicit 200 is impossible'
     assert 'background_tasks' not in route_block
     assert 'active_jobs[' not in route_block
 

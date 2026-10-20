@@ -63,6 +63,24 @@ class Stage19bbCloseoutMetadata:
 
 
 async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlannerEvidenceResult:
+    """Load selected-system evidence; every database failure is classified.
+
+    The pool acquire, system lookup, count/probe queries and the bounded
+    staging query are direct calls; a timeout, lost connection or other
+    database error on any of them is the same outage the bounded mapping
+    exists to report, so it is raised as `PlannerEvidenceQueryError` rather
+    than escaping as an unclassified 500. `_safe_fetchval` keeps its own,
+    narrower "missing schema means None" handling inside.
+    """
+    try:
+        return await _load_live_planner_evidence(pool, id64)
+    except PlannerEvidenceQueryError:
+        raise
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError('canonical evidence', exc) from exc
+
+
+async def _load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlannerEvidenceResult:
     warnings: list[str] = []
 
     async with pool.acquire() as conn:

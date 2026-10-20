@@ -490,17 +490,17 @@ async def cache_clear(
     }
 
 
+class _ProblemJSONResponse(JSONResponse):
+    media_type = 'application/problem+json'
+
+
 @router.post(
     '/api/admin/rebuild-clusters',
+    status_code=410,
+    response_model=RetiredRouteProblem,
+    response_class=_ProblemJSONResponse,
+    response_description='Retired V2 route; the problem detail is the only authenticated outcome.',
     dependencies=[Depends(require_admin)],
-    responses={
-        410: {
-            'description': 'Retired V2 route; the problem detail is the only authenticated outcome.',
-            'content': {
-                'application/problem+json': {'schema': RetiredRouteProblem.model_json_schema()},
-            },
-        },
-    },
 )
 @limiter.limit('1/minute')
 async def trigger_rebuild_clusters(
@@ -516,11 +516,9 @@ async def trigger_rebuild_clusters(
     # API, so the shell-out failed on every call and recorded a "failed"
     # admin job that looked like a transient error. Nothing is executed or
     # recorded here; the problem detail lives in helpers.CLUSTER_REBUILD_GONE_PROBLEM.
-    return JSONResponse(
-        status_code=410,
-        media_type='application/problem+json',
-        content=dict(CLUSTER_REBUILD_GONE_PROBLEM),
-    )
+    # 410 is the route's primary (and only) status, declared on the decorator
+    # so the generated clients carry no impossible 200 branch.
+    return dict(CLUSTER_REBUILD_GONE_PROBLEM)
 
 
 @router.post('/api/admin/rebuild-ratings', dependencies=[Depends(require_admin)])

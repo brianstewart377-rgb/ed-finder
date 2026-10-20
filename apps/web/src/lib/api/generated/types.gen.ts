@@ -5359,6 +5359,30 @@ export type RegionalAnalysisResponse = {
 };
 
 /**
+ * RetiredRouteProblem
+ *
+ * RFC 9457 problem detail for a retired route that answers 410 Gone.
+ */
+export type RetiredRouteProblem = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Status
+     */
+    status: number;
+    /**
+     * Detail
+     */
+    detail: string;
+};
+
+/**
  * ReviewRequest
  */
 export type ReviewRequest = {
@@ -9637,38 +9661,12 @@ export type TriggerRebuildClustersApiAdminRebuildClustersPostData = {
 
 export type TriggerRebuildClustersApiAdminRebuildClustersPostErrors = {
     /**
-     * RetiredRouteProblem
-     *
-     * RFC 9457 problem detail for a retired route that answers 410 Gone.
+     * Retired V2 route; the problem detail is the only authenticated outcome.
      */
-    410: {
-        /**
-         * Type
-         */
-        type: string;
-        /**
-         * Title
-         */
-        title: string;
-        /**
-         * Status
-         */
-        status: number;
-        /**
-         * Detail
-         */
-        detail: string;
-    };
+    410: RetiredRouteProblem;
 };
 
 export type TriggerRebuildClustersApiAdminRebuildClustersPostError = TriggerRebuildClustersApiAdminRebuildClustersPostErrors[keyof TriggerRebuildClustersApiAdminRebuildClustersPostErrors];
-
-export type TriggerRebuildClustersApiAdminRebuildClustersPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
 
 export type TriggerRebuildRatingsApiAdminRebuildRatingsPostData = {
     body?: never;

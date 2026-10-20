@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import time
 import zlib
 from typing import Optional, TYPE_CHECKING
@@ -339,21 +340,51 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
                 _raise_if_flush_threshold_exceeded(flushed)
 
     finally:
-        # Final flush before reconnect
-        if pending_journal or pending_facts:
-            flushed = False
-            try:
-                flushed = await _flush_batch(pool, pending_journal, pending_facts)
-            except Exception as e:
-                log.warning(f'EDDN final flush error: {e}')
-            # Liveness is refreshed by _flush_batch itself when, and only
-            # when, the write succeeded. Do NOT refresh unconditionally here:
-            # a dead connection breaks into this block with nothing pending,
-            # and a failed final flush is not liveness either.
-            if not flushed:
-                log.debug('EDDN final flush did not succeed; liveness not refreshed')
-        socket.close()
-        ctx.term()
+        # Final flush before reconnect. On the normal exit paths (quiet-feed
+        # timeout, recv error → break) nothing is propagating and the
+        # breaker applies exactly as it does in the loop; when an exception
+        # is already in flight (cancellation, or the in-loop breaker) we
+        # must not raise from here, because that would replace it.
+        try:
+            await _flush_pending_on_exit(
+                pool, pending_journal, pending_facts,
+                exception_in_flight=sys.exception() is not None,
+            )
+        finally:
+            socket.close()
+            ctx.term()
+
+
+async def _flush_pending_on_exit(
+    pool: 'asyncpg.Pool',
+    pending_journal: list[dict],
+    pending_facts: list[dict],
+    *,
+    exception_in_flight: bool,
+) -> None:
+    """Flush what is pending when the connection loop exits.
+
+    Liveness is refreshed by `_flush_batch` itself when, and only when, the
+    write succeeded. Never refresh it unconditionally here: a dead
+    connection reaches this with nothing pending, and a failed final flush
+    is not liveness either. A failed final flush counts towards the
+    consecutive-failure breaker like any other — a low-volume outage where
+    every batch is flushed from this path must still trip it — unless an
+    exception is already propagating out of the loop.
+    """
+    if not pending_journal and not pending_facts:
+        return
+    flushed = False
+    try:
+        flushed = await _flush_batch(pool, pending_journal, pending_facts)
+    except Exception as e:
+        log.warning(f'EDDN final flush error: {e}')
+    if flushed:
+        return
+    log.debug('EDDN final flush did not succeed; liveness not refreshed')
+    if exception_in_flight:
+        return
+    _raise_if_flush_threshold_exceeded(False)
 
 
 def _raise_if_flush_threshold_exceeded(flushed: bool) -> None:

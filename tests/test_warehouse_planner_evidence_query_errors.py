@@ -216,19 +216,71 @@ async def test_observed_probe_acquire_failure_is_mapped():
     assert 'pool is closing' not in str(excinfo.value)
 
 
-async def test_openapi_declares_the_410_problem_response():
-    import json
+async def test_rebuild_clusters_route_declares_410_as_its_only_status():
     import os as _os
     _os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
+    from edfinder_api.helpers import CLUSTER_REBUILD_GONE_PROBLEM
+    from edfinder_api.models import RetiredRouteProblem
     from edfinder_api.routers import admin
 
     route = next(r for r in admin.router.routes if getattr(r, 'path', '') == '/api/admin/rebuild-clusters')
-    declared = route.responses[410]
-    assert set(declared['content']) == {'application/problem+json'}
-    schema = declared['content']['application/problem+json']['schema']
-    assert schema['required'] == ['type', 'title', 'status', 'detail']
-    assert schema['additionalProperties'] is False
-    # The constant the route actually returns validates against that schema.
-    from edfinder_api.helpers import CLUSTER_REBUILD_GONE_PROBLEM
-    from edfinder_api.models import RetiredRouteProblem
-    RetiredRouteProblem.model_validate(json.loads(json.dumps(CLUSTER_REBUILD_GONE_PROBLEM)))
+    assert route.status_code == 410
+    assert route.response_model is RetiredRouteProblem
+    assert route.response_class.media_type == 'application/problem+json'
+    assert route.responses == {}, 'no secondary responses — the implicit 200 branch must not exist'
+    # The constant the handler returns validates against the declared model.
+    body = RetiredRouteProblem.model_validate(CLUSTER_REBUILD_GONE_PROBLEM)
+    assert body.status == 410
+    assert 'return dict(CLUSTER_REBUILD_GONE_PROBLEM)' in ROOT.joinpath('apps', 'api', 'src', 'routers', 'admin.py').read_text(encoding='utf-8')
+
+
+class _AcquireTimeoutPool:
+    def acquire(self):
+        raise TimeoutError()
+
+
+class _SystemLookupBrokenConn:
+    async def fetchrow(self, query, *args):
+        raise asyncpg.InterfaceError('connection is closed')
+
+
+class _CountQueryCanceledConn:
+    async def fetchrow(self, query, *args):
+        return {'id64': 1, 'name': 'Sol'}
+
+    async def fetchval(self, query, *args):
+        raise asyncpg.QueryCanceledError('canceling statement due to statement timeout')
+
+
+class _BoundedStagingBrokenConn(_TimeoutOnCanonicalConn):
+    async def fetchval(self, query, *args):
+        if 'SELECT MAX(ts)::text' in query:
+            return None
+        if 'to_regclass' in query:
+            return True
+        return 0
+
+    async def fetchrow(self, query, *args):
+        if 'SELECT id64, name FROM systems' in query:
+            return {'id64': 1, 'name': 'Sol'}
+        raise asyncpg.QueryCanceledError('canceling statement due to statement timeout')
+
+
+@pytest.mark.parametrize(
+    ('pool', 'expected_type'),
+    [
+        (_AcquireTimeoutPool(), 'TimeoutError'),
+        (_Pool(_SystemLookupBrokenConn()), 'InterfaceError'),
+        (_Pool(_CountQueryCanceledConn()), 'QueryCanceledError'),
+        (_Pool(_BoundedStagingBrokenConn()), 'QueryCanceledError'),
+    ],
+)
+async def test_every_direct_query_in_load_live_planner_evidence_is_mapped(pool, expected_type):
+    """Pool acquire, system lookup, count/probe queries and the bounded
+    staging query are direct calls; each must surface as the bounded error."""
+    with pytest.raises(provider.PlannerEvidenceQueryError) as excinfo:
+        await provider.load_live_planner_evidence(pool, 1)
+    assert excinfo.value.stage == 'canonical evidence'
+    assert excinfo.value.error_type == expected_type
+    assert 'statement timeout' not in str(excinfo.value)
+    assert 'connection is closed' not in str(excinfo.value)

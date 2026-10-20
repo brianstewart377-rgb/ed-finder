@@ -89,7 +89,9 @@ Six places where the API swallowed a failure and reported itself healthy:
   `..._consecutive_flush_failures` and
   `..._last_successful_flush_timestamp_seconds`. After
   `EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES` (default 5, bounded
-  1..1000) consecutive failures the loop raises and reconnects. The ingest
+  1..1000) consecutive failures the loop raises and reconnects; the breaker
+  also applies to the exit-path flush (quiet-feed timeout) unless an
+  exception is already propagating. The ingest
   remains the named runtime exception in `CLAUDE.md`; no journal-import
   automation was added.
 - **EDDN→SSE bridge** (`apps/api/src/routers/events.py`, `main.py`,
@@ -102,8 +104,9 @@ Six places where the API swallowed a failure and reported itself healthy:
 - **Warehouse planner evidence** (`warehouse_planner_evidence_provider.py`):
   only `UndefinedTableError`/`UndefinedColumnError` count as "missing
   evidence". Timeouts (`QueryCanceledError`), interface errors and other
-  database errors — including on the connection acquire and `to_regclass`
-  probe — raise `PlannerEvidenceQueryError`, which the route turns into
+  database errors — on any of the loader's direct calls (pool acquire, system
+  lookup, counts/probes, bounded staging) as well as the helpers — raise
+  `PlannerEvidenceQueryError`, which the route turns into
   HTTP 503 with a bounded detail (exception class + SQLSTATE only).
 - **Share OG image** (`share_router.py`): the Redis read/write goes through
   `deps.cache_get`/`cache_set` (0.1 s cache I/O timeout) with the PNG
@@ -115,9 +118,9 @@ Six places where the API swallowed a failure and reported itself healthy:
   `POST /api/admin/rebuild-clusters` answers 410 Gone with a
   `application/problem+json` body. The Docker Compose shell-out — which the V3
   API could never execute — is removed along with `subprocess`; admin auth and
-  the rate limit stay on the route. The 410 `application/problem+json` response
-  is declared in OpenAPI (`RetiredRouteProblem`) and both generated clients
-  are regenerated.
+  the rate limit stay on the route. 410 is the route's primary and only declared
+  status (`response_model=RetiredRouteProblem`, `application/problem+json`),
+  so the generated clients carry no 200 branch; both clients are regenerated.
 - **`/api/local/status`** (`routers/meta.py`): a `{available: false}` payload
   is no longer cached for `ttl_status`, and the raw exception text is replaced
   by a fixed reason code (`db_timeout`, `db_schema_missing`, `db_unavailable`,

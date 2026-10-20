@@ -246,3 +246,46 @@ async def test_metrics_endpoint_renders_values():
     assert 'ed_finder_eddn_simulation_ingest_flush_failures_total 2\n' in body
     assert 'ed_finder_eddn_simulation_ingest_consecutive_flush_failures 2\n' in body
     assert 'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds 0\n' in body
+
+
+async def test_final_flush_on_quiet_feed_exit_applies_the_breaker(monkeypatch):
+    """One relevant event, then the normal 30 s quiet-feed timeout: the batch
+    is flushed only from the exit path. A low-volume outage where every
+    batch takes this path must still trip the breaker."""
+    monkeypatch.setattr(eddn_client, 'max_consecutive_flush_failures', lambda: 2)
+
+    await eddn_client._flush_pending_on_exit(_FailingPool(), [_journal_row()], [], exception_in_flight=False)
+    assert eddn_client.consecutive_flush_failures() == 1
+
+    with pytest.raises(eddn_client.EddnFlushFailureThresholdExceeded):
+        await eddn_client._flush_pending_on_exit(_FailingPool(), [_journal_row()], [], exception_in_flight=False)
+    assert eddn_client.consecutive_flush_failures() == 2
+    assert eddn_client.seconds_since_last_flush() >= 999, 'failed final flushes are not liveness'
+
+
+async def test_final_flush_never_raises_while_an_exception_is_propagating(monkeypatch):
+    """Cancellation (or the in-loop breaker) must keep propagating; raising
+    from the exit path would replace it."""
+    monkeypatch.setattr(eddn_client, 'max_consecutive_flush_failures', lambda: 1)
+
+    await eddn_client._flush_pending_on_exit(_FailingPool(), [_journal_row()], [], exception_in_flight=True)
+    assert eddn_client.consecutive_flush_failures() == 1  # still counted, just not raised
+
+
+async def test_final_flush_success_refreshes_liveness_and_resets():
+    eddn_client._record_flush_failure()
+    await eddn_client._flush_pending_on_exit(_OkPool(), [_journal_row()], [], exception_in_flight=False)
+    assert eddn_client.consecutive_flush_failures() == 0
+    assert eddn_client.seconds_since_last_flush() < 5
+
+
+async def test_final_flush_with_nothing_pending_is_a_no_op():
+    before = eddn_client._last_flush_at
+    await eddn_client._flush_pending_on_exit(_FailingPool(), [], [], exception_in_flight=False)
+    assert eddn_client._last_flush_at == before
+    assert eddn_client.flush_failures_total() == 0
+
+
+def test_exit_path_passes_cancellation_state_from_sys_exception():
+    source = (ROOT / 'apps' / 'api' / 'src' / 'ingest' / 'eddn_client.py').read_text(encoding='utf-8')
+    assert 'exception_in_flight=sys.exception() is not None' in source
