@@ -18,7 +18,7 @@ import sys
 from typing import Optional
 
 import sentry_sdk
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     # why this is NOT the same thing as the still-deferred "journal-import
     # canonical promotion" work.
     eddn_simulation_ingest_enabled: bool = True
+    # Write-path breaker for the same task: after this many *consecutive*
+    # failed DB flushes the ingest loop raises, drops its socket and
+    # reconnects after RECONNECT_DELAY instead of continuing to receive
+    # events it cannot persist while reporting itself live. Bounded 1..1000
+    # (eddn_client.py clamps again) so an env typo cannot disable it.
+    eddn_simulation_ingest_max_consecutive_flush_failures: int = Field(
+        default=5, ge=1, le=1000,
+    )
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 

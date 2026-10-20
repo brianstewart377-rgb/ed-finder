@@ -703,9 +703,9 @@ export interface paths {
         put?: never;
         /**
          * Trigger Rebuild Clusters
-         * @description Kick a background cluster rebuild (dirty anchors only).
+         * @description Retired V2 route — always answers 410 Gone.
          *
-         *     Returns 409 if a rebuild is already running. X-Admin-Token required.
+         *     V2 shelled into Docker from the API container; the V3 API has no container runtime, so cluster rebuilds run only through the governed operator workflows. Admin auth is still required.
          */
         post: operations["trigger_rebuild_clusters_api_admin_rebuild_clusters_post"];
         delete?: never;
@@ -5796,6 +5796,20 @@ export interface components {
             /** Computed At */
             computed_at?: unknown | null;
         };
+        /**
+         * RetiredRouteProblem
+         * @description RFC 9457 problem detail for a retired route that answers 410 Gone.
+         */
+        RetiredRouteProblem: {
+            /** Type */
+            type: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: number;
+            /** Detail */
+            detail: string;
+        };
         /** ReviewRequest */
         ReviewRequest: {
             /** Contribution Ids */
@@ -8981,13 +8995,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            200: {
+            /** @description Retired V2 route; the problem detail is the only authenticated outcome. */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/problem+json": components["schemas"]["RetiredRouteProblem"];
                 };
             };
         };

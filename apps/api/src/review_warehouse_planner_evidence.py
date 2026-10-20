@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from edfinder_api.deps import get_pool
@@ -9,7 +9,10 @@ from edfinder_api.review_contract_store import load_review_warehouse_contract
 from edfinder_api.review_environment_fixtures import REVIEW_FALLBACK_SYSTEM_ID64
 from edfinder_api.warehouse_planner_evidence import build_warehouse_planner_evidence
 from edfinder_api.warehouse_planner_evidence_models import WarehousePlannerEvidenceContract
-from edfinder_api.warehouse_planner_evidence_provider import load_live_planner_evidence
+from edfinder_api.warehouse_planner_evidence_provider import (
+    PlannerEvidenceQueryError,
+    load_live_planner_evidence,
+)
 
 
 router = APIRouter(tags=['colony-planner'])
@@ -44,5 +47,8 @@ async def warehouse_planner_evidence(
     review_contract = await load_review_warehouse_contract(pool, id64)
     if review_contract is not None:
         return review_contract
-    live_result = await load_live_planner_evidence(pool, id64)
+    try:
+        live_result = await load_live_planner_evidence(pool, id64)
+    except PlannerEvidenceQueryError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
     return build_warehouse_planner_evidence(id64, live_result=live_result)

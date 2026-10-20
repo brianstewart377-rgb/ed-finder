@@ -15,44 +15,43 @@ ADMIN_PATH = ROOT / 'apps' / 'api' / 'src' / 'routers' / 'admin.py'
 MAINTENANCE_PATH = ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_maintenance.sh'
 
 
-def test_cluster_rebuild_uses_importer_entrypoint_without_duplicate_python(
+def test_cluster_rebuild_route_is_retired_and_does_not_shell_out(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    """V2 shelled into `docker compose ... run importer build_clusters.py` from
+    the API container. V3 never mounts a container runtime into the API, so
+    that call failed on every invocation and surfaced only as a "failed" admin
+    job. The route is now an explicit 410 Gone with a problem detail, and the
+    helper module must not reach for subprocess or Docker at all."""
     api_src = ROOT / 'apps' / 'api' / 'src'
     monkeypatch.syspath_prepend(str(api_src))
     from edfinder_api import helpers
 
-    calls = []
-    monkeypatch.setenv('COMPOSE_PROJECT_DIR', '/tmp/disposable-ed-finder')
-    monkeypatch.setattr(
-        helpers.subprocess,
-        'run',
-        lambda command, **_kwargs: calls.append(command),
-    )
-    active_jobs = {'cluster_rebuild': {}}
+    assert not hasattr(helpers, 'run_cluster_rebuild')
+    assert not hasattr(helpers, 'subprocess')
+    helpers_source = (api_src / 'helpers.py').read_text(encoding='utf-8')
+    assert 'import subprocess' not in helpers_source
+    assert "'docker'" not in helpers_source
 
-    helpers.run_cluster_rebuild(active_jobs)
+    problem = helpers.CLUSTER_REBUILD_GONE_PROBLEM
+    assert problem['status'] == 410
+    assert problem['type'].startswith('https://ed-finder.local/problem/')
+    assert 'rebuild-clusters' in problem['detail']
 
-    assert calls == [[
-        'docker', 'compose',
-        '--project-directory', '/tmp/disposable-ed-finder',
-        '--profile', 'import',
-        'run', '--rm', '--entrypoint', 'python3', 'importer',
-        'build_clusters.py', '--dirty-only', '--workers', '6',
-    ]]
-    assert active_jobs['cluster_rebuild']['status'] == 'completed'
-
-
-def test_cluster_rebuild_job_offloads_blocking_subprocess_to_thread():
-    # _run_cluster_rebuild_job is an async BackgroundTask that runs on the API
-    # worker's event loop; run_cluster_rebuild() blocks on a synchronous
-    # subprocess.run for the whole rebuild. It must be offloaded to a thread, not
-    # awaited-inline, or it freezes health checks and every other request on the
-    # worker for the duration of the rebuild.
-    source = ADMIN_PATH.read_text(encoding='utf-8')
-    assert 'await asyncio.to_thread(run_cluster_rebuild, active_jobs)' in source
-    # Regression guard against a return to a direct synchronous call in the job.
-    assert '\n    run_cluster_rebuild(active_jobs)\n' not in source
+    admin_source = ADMIN_PATH.read_text(encoding='utf-8')
+    assert 'run_cluster_rebuild' not in admin_source
+    assert '_run_cluster_rebuild_job' not in admin_source
+    route_block = admin_source.split("    '/api/admin/rebuild-clusters',", 1)[1]
+    route_block = route_block.split("@router.post('/api/admin/rebuild-ratings'", 1)[0]
+    # Auth stays on the route; the body is the 410 problem response only.
+    assert 'dependencies=[Depends(require_admin)]' in route_block
+    assert 'status_code=410,' in route_block, '410 must be the primary (only) declared status'
+    assert 'response_model=RetiredRouteProblem' in route_block
+    assert 'response_class=_ProblemJSONResponse' in route_block
+    assert "media_type = 'application/problem+json'" in admin_source
+    assert 'responses={' not in route_block, 'no secondary responses: the implicit 200 is impossible'
+    assert 'background_tasks' not in route_block
+    assert 'active_jobs[' not in route_block
 
 
 def _bash_path(path: Path) -> str:

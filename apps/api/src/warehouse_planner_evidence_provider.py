@@ -63,6 +63,24 @@ class Stage19bbCloseoutMetadata:
 
 
 async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlannerEvidenceResult:
+    """Load selected-system evidence; every database failure is classified.
+
+    The pool acquire, system lookup, count/probe queries and the bounded
+    staging query are direct calls; a timeout, lost connection or other
+    database error on any of them is the same outage the bounded mapping
+    exists to report, so it is raised as `PlannerEvidenceQueryError` rather
+    than escaping as an unclassified 500. `_safe_fetchval` keeps its own,
+    narrower "missing schema means None" handling inside.
+    """
+    try:
+        return await _load_live_planner_evidence(pool, id64)
+    except PlannerEvidenceQueryError:
+        raise
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError('canonical evidence', exc) from exc
+
+
+async def _load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlannerEvidenceResult:
     warnings: list[str] = []
 
     async with pool.acquire() as conn:
@@ -167,6 +185,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             WHERE id64 = $1
             """,
             id64,
+            stage='system status',
         )
         if latest_canonical_at is None:
             warnings.append(
@@ -281,26 +300,60 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
     )
 
 
-async def _safe_fetchval(conn: asyncpg.Connection, query: str, *args: Any) -> Any:
+class PlannerEvidenceQueryError(RuntimeError):
+    """A selected-system evidence query failed for a reason other than missing schema.
+
+    Raised instead of silently reporting "evidence unavailable" when a query
+    times out, is cancelled, or fails in any way that is not an undefined
+    table/column. The message is bounded and built only from the exception
+    class name and SQLSTATE — never the raw database message, which can
+    carry SQL text, host names or DSN fragments.
+    """
+
+    def __init__(self, stage: str, exc: BaseException) -> None:
+        sqlstate = getattr(exc, 'sqlstate', None)
+        code = f' sqlstate={sqlstate}' if isinstance(sqlstate, str) and sqlstate.isalnum() else ''
+        self.stage = stage[:64]
+        self.error_type = type(exc).__name__[:64]
+        super().__init__(f'{self.stage} query failed: {self.error_type}{code}')
+
+
+# Only these mean "the evidence is not there to read". Everything else —
+# QueryCanceledError (statement_timeout), asyncio timeouts, connection
+# loss, permission errors — is an error and must surface as one.
+_MISSING_SCHEMA_ERRORS = (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError)
+
+
+async def _safe_fetchval(conn: asyncpg.Connection, query: str, *args: Any, stage: str = 'canonical evidence') -> Any:
     try:
         return await conn.fetchval(query, *args)
-    except asyncpg.PostgresError:
+    except _MISSING_SCHEMA_ERRORS:
         return None
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError(stage, exc) from exc
 
 
 async def _safe_observed_summary(pool: asyncpg.Pool, id64: int) -> dict[str, Any]:
-    async with pool.acquire() as conn:
-        observed_table_present = bool(
-            await conn.fetchval("SELECT to_regclass('public.observed_facts') IS NOT NULL")
-        )
+    # The acquire and the to_regclass probe run under the same mapping as the
+    # summary itself: a pool/connection failure or a timeout here is the same
+    # outage the mapping exists to report, not "evidence is missing".
+    try:
+        async with pool.acquire() as conn:
+            observed_table_present = bool(
+                await conn.fetchval("SELECT to_regclass('public.observed_facts') IS NOT NULL")
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError('observed evidence probe', exc) from exc
     if not observed_table_present:
         return {'_warning': 'Observed evidence storage is unavailable; selected-system evidence currently uses canonical data only.'}
     try:
         summary = await observed_fact_summary(pool, id64)
         if isinstance(summary, dict):
             return summary
-    except asyncpg.PostgresError:
+    except _MISSING_SCHEMA_ERRORS:
         return {'_warning': 'Observed evidence could not be summarized safely; selected-system evidence currently uses canonical data only.'}
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+        raise PlannerEvidenceQueryError('observed evidence', exc) from exc
     return {'_warning': 'Observed evidence summary returned an unexpected shape; selected-system evidence currently uses canonical data only.'}
 
 

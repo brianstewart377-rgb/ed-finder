@@ -47,12 +47,16 @@ async def test_checkpoint_startup_skips_admin_operation_reap(api_main, monkeypat
     async def create_pool(**_kwargs):
         return pool
 
-    def unavailable_redis(*_args, **_kwargs):
+    async def unavailable_redis(*_args, **_kwargs):
         raise ConnectionError('cache unavailable in focused startup test')
 
     reap = AsyncMock()
     monkeypatch.setattr(api_main.asyncpg, 'create_pool', create_pool)
-    monkeypatch.setattr(api_main.aioredis, 'from_url', unavailable_redis)
+    # Boot-time connect and the SSE bridge's background retry share
+    # deps.connect_redis; keep both offline so the test never touches a socket.
+    monkeypatch.setattr(api_main, 'connect_redis', unavailable_redis)
+    from edfinder_api.routers import events as api_events
+    monkeypatch.setattr(api_events, 'connect_redis', unavailable_redis)
     monkeypatch.setattr(api_main, 'reap_stale_admin_operation_runs', reap)
     monkeypatch.setattr(
         api_main.settings,

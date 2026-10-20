@@ -30,7 +30,6 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import asyncpg
-import redis.asyncio as aioredis
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,7 +42,9 @@ from slowapi.errors import RateLimitExceeded
 # Shared config, state, deps
 from edfinder_api.config import settings, log, limiter
 from edfinder_api.request_logging import redact_frontier_oauth_target
+from edfinder_api.deps import connect_redis
 from edfinder_api.state import (
+    get_redis_singleton,
     metrics as _metrics,
     observe_request_duration,
     set_pool,
@@ -205,15 +206,7 @@ async def lifespan(app: FastAPI):
 
     redis = None
     try:
-        redis = aioredis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-            max_connections=settings.redis_max_connections,
-            socket_connect_timeout=3,
-            socket_timeout=3,
-            retry_on_timeout=True,
-        )
-        await redis.ping()
+        redis = await connect_redis()
         set_redis(redis)
         log.info("Redis connected ✓ (pool max=%d)", settings.redis_max_connections)
     except Exception as e:
@@ -221,9 +214,15 @@ async def lifespan(app: FastAPI):
         set_redis(None)
         redis = None
 
-    if redis is not None:
-        _sse_pubsub_task = asyncio.create_task(eddn_pubsub_bridge())
-        log.info("EDDN→SSE pub/sub bridge started ✓")
+    # The bridge always starts. When Redis was down at boot it keeps
+    # retrying the connection in the background with capped exponential
+    # backoff and installs the client (set_redis) once it succeeds, so the
+    # live feed — and the cache — recover without an API restart.
+    _sse_pubsub_task = asyncio.create_task(eddn_pubsub_bridge())
+    log.info(
+        "EDDN→SSE pub/sub bridge started ✓%s",
+        '' if redis is not None else ' (Redis unavailable at boot; bridge will retry in the background)',
+    )
 
     if settings.eddn_simulation_ingest_enabled:
         _eddn_simulation_ingest_task = asyncio.create_task(run_eddn_simulation_ingest(pool))
@@ -272,7 +271,11 @@ async def lifespan(app: FastAPI):
     if readonly_pool and readonly_pool is not pool:
         await readonly_pool.close()
     if pool:   await pool.close()
+    # The bridge may have connected Redis after boot; close whatever client
+    # is installed now, not only the one this function created.
+    redis = get_redis_singleton() or redis
     if redis:  await redis.aclose()
+    set_redis(None)
     log.info("Shutdown complete")
 
 

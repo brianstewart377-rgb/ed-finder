@@ -4,13 +4,12 @@ Every write endpoint in this module is guarded by `require_admin`, which
 is disabled entirely unless the ADMIN_TOKEN env var is set. Nginx further
 restricts /api/admin/* to 127.0.0.1 as defence in depth.
 """
-import asyncio
 from datetime import datetime, timezone
 from typing   import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from edfinder_api.config import limiter, log, settings
@@ -19,8 +18,8 @@ from edfinder_api.enrichment_operator_status import (
     read_enrichment_status_snapshot,
     read_warehouse_status_snapshot,
 )
-from edfinder_api.helpers import run_cluster_rebuild
-from edfinder_api.models import CacheStatsResponse
+from edfinder_api.helpers import CLUSTER_REBUILD_GONE_PROBLEM
+from edfinder_api.models import CacheStatsResponse, RetiredRouteProblem
 from shared_contracts.data_invariant_contracts import (
     ADMIN_DATA_INVARIANT_CHECK_KEYS as _ADMIN_DATA_INVARIANT_CHECK_KEYS,
     COLONISATION_STATUS_AGE_BUCKETS_SQL,
@@ -260,29 +259,6 @@ async def _load_recent_admin_operation_runs(
     return history
 
 
-async def _run_cluster_rebuild_job(
-    pool: asyncpg.Pool,
-    *,
-    job_run_id: int,
-) -> None:
-    # run_cluster_rebuild() blocks on a synchronous subprocess.run for the full
-    # duration of a cluster rebuild (potentially many minutes over ~186M
-    # systems). This coroutine runs as a FastAPI BackgroundTask on the worker's
-    # event loop, so calling it directly would freeze health checks and every
-    # other request on this worker. Offload it to a thread.
-    await asyncio.to_thread(run_cluster_rebuild, active_jobs)
-    job_state = dict(active_jobs.get('cluster_rebuild') or {})
-    async with pool.acquire() as conn:
-        await _finalize_admin_job_run(
-            conn,
-            job_run_id=job_run_id,
-            status=str(job_state.get('status') or 'failed'),
-            finished_at=str(job_state.get('end_time') or datetime.now(timezone.utc).isoformat()),
-            exit_code=job_state.get('exit_code'),
-            error_text=job_state.get('error'),
-        )
-
-
 async def _reap_stale_admin_job_runs(conn: asyncpg.Connection) -> int:
     return int(
         await conn.fetchval(
@@ -514,49 +490,35 @@ async def cache_clear(
     }
 
 
-@router.post('/api/admin/rebuild-clusters', dependencies=[Depends(require_admin)])
+class _ProblemJSONResponse(JSONResponse):
+    media_type = 'application/problem+json'
+
+
+@router.post(
+    '/api/admin/rebuild-clusters',
+    status_code=410,
+    response_model=RetiredRouteProblem,
+    response_class=_ProblemJSONResponse,
+    response_description='Retired V2 route; the problem detail is the only authenticated outcome.',
+    dependencies=[Depends(require_admin)],
+)
 @limiter.limit('1/minute')
 async def trigger_rebuild_clusters(
     request: Request,
-    background_tasks: BackgroundTasks,
-    pool: asyncpg.Pool = Depends(get_pool),
 ):
-    """Kick a background cluster rebuild (dirty anchors only).
+    """Retired V2 route — always answers 410 Gone.
 
-    Returns 409 if a rebuild is already running. X-Admin-Token required.
+    V2 shelled into Docker from the API container; the V3 API has no container runtime, so cluster rebuilds run only through the governed operator workflows. Admin auth is still required.
     """
-    job_id = 'cluster_rebuild'
-    started_at = datetime.now(timezone.utc).isoformat()
-    async with active_jobs_lock:
-        current = active_jobs.get(job_id, {})
-        if current.get('status') == 'running':
-            return JSONResponse(
-                status_code=409,
-                content={
-                    'message': 'A cluster rebuild is already in progress.',
-                    'job': current,
-                },
-            )
-        # Claim the slot before the task runs so concurrent requests 409 cleanly.
-        active_jobs[job_id] = {
-            'status':     'running',
-            'start_time': started_at,
-            'end_time':   None,
-            'exit_code':  None,
-            'error':      None,
-        }
-
-    async with pool.acquire() as conn:
-        job_run_id = await _create_admin_job_run(
-            conn,
-            job_key=job_id,
-            started_at=started_at,
-            details={'requested_via': 'admin_api'},
-        )
-
-    active_jobs[job_id]['job_run_id'] = job_run_id
-    background_tasks.add_task(_run_cluster_rebuild_job, pool, job_run_id=job_run_id)
-    return {'message': 'Cluster rebuild triggered in background.', 'job_id': job_id}
+    # Why 410 rather than the old background job: V2 ran
+    # `docker compose run importer build_clusters.py` from inside the API
+    # container. V3 never mounts a Docker socket or compose project into the
+    # API, so the shell-out failed on every call and recorded a "failed"
+    # admin job that looked like a transient error. Nothing is executed or
+    # recorded here; the problem detail lives in helpers.CLUSTER_REBUILD_GONE_PROBLEM.
+    # 410 is the route's primary (and only) status, declared on the decorator
+    # so the generated clients carry no impossible 200 branch.
+    return dict(CLUSTER_REBUILD_GONE_PROBLEM)
 
 
 @router.post('/api/admin/rebuild-ratings', dependencies=[Depends(require_admin)])

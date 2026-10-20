@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import time
 import zlib
 from typing import Optional, TYPE_CHECKING
@@ -59,17 +60,91 @@ RECONNECT_DELAY  = 5     # seconds between reconnect attempts
 # same kind of thing (a long-lived EDDN consumer). Set at import time
 # (process start), not left unset, so a freshly-started process doesn't
 # immediately read as stalled before its first flush cycle completes.
-# Updated after every flush attempt regardless of whether the write inside
-# it actually succeeded — _flush_batch() catches its own exceptions and
-# never raises, so this is a "the flush loop is still cycling" liveness
-# signal, the same semantic the eddn_listener.py original already uses
-# (it resets _last_flush even on a failed flush, explicitly to avoid
-# misreading a transient write error as a dead task).
+#
+# Liveness semantics (tightened 2026-10-19 after the July 2026 outage
+# shape — "the loop kept cycling, every flush failed, the gauge never
+# moved"): the timestamp advances on a *successful* flush, and on a
+# received message only while the write path is healthy (no consecutive
+# flush failures outstanding). A failed flush never advances it, so a
+# broken write path lets seconds_since_last_flush() grow and trip the
+# existing EddnSimulationIngestFlushStalled alert instead of hiding
+# behind "the loop is still cycling".
 _last_flush_at: float = time.time()
+
+# Write-path health. `_last_successful_flush_at` is 0.0 until the first
+# successful DB flush of this process (Prometheus gauge: unix timestamp;
+# 0 means "never"). `_flush_failures_total` is monotonic for the process
+# lifetime; `_consecutive_flush_failures` resets on the next success.
+_last_successful_flush_at: float = 0.0
+_flush_failures_total: int = 0
+_consecutive_flush_failures: int = 0
+
+# Bounds for EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES (the
+# configured value is read via config.Settings; these clamp any value that
+# reaches this module so a misconfiguration cannot disable the breaker).
+MIN_CONSECUTIVE_FLUSH_FAILURES = 1
+MAX_CONSECUTIVE_FLUSH_FAILURES = 1000
+DEFAULT_MAX_CONSECUTIVE_FLUSH_FAILURES = 5
+
+
+class EddnFlushFailureThresholdExceeded(RuntimeError):
+    """Raised out of the ingest loop once N consecutive flushes have failed.
+
+    The outer `run_eddn_simulation_ingest` loop catches it, logs it at
+    warning level and reconnects after RECONNECT_DELAY. The pending batch
+    is dropped (the same outcome as a single failed flush today) but the
+    loop stops pretending to be live: `_last_flush_at` is not advanced on
+    the way out, and the metrics below carry the count.
+    """
 
 
 def seconds_since_last_flush() -> float:
     return time.time() - _last_flush_at
+
+
+def last_successful_flush_timestamp() -> float:
+    """Unix timestamp of the last successful DB flush, or 0.0 if none yet."""
+    return _last_successful_flush_at
+
+
+def flush_failures_total() -> int:
+    return _flush_failures_total
+
+
+def consecutive_flush_failures() -> int:
+    return _consecutive_flush_failures
+
+
+def max_consecutive_flush_failures() -> int:
+    """Clamped breaker threshold from settings (falls back to the default)."""
+    try:
+        from edfinder_api.config import settings
+        configured = int(settings.eddn_simulation_ingest_max_consecutive_flush_failures)
+    except Exception:
+        configured = DEFAULT_MAX_CONSECUTIVE_FLUSH_FAILURES
+    return max(MIN_CONSECUTIVE_FLUSH_FAILURES, min(MAX_CONSECUTIVE_FLUSH_FAILURES, configured))
+
+
+def _record_flush_success() -> None:
+    global _last_flush_at, _last_successful_flush_at, _consecutive_flush_failures
+    now = time.time()
+    _last_flush_at = now
+    _last_successful_flush_at = now
+    _consecutive_flush_failures = 0
+
+
+def _record_flush_failure() -> int:
+    """Count a failed flush; returns the new consecutive-failure count."""
+    global _flush_failures_total, _consecutive_flush_failures
+    _flush_failures_total += 1
+    _consecutive_flush_failures += 1
+    return _consecutive_flush_failures
+
+
+def _write_path_healthy() -> bool:
+    return _consecutive_flush_failures == 0
+
+
 DIRTY_MARK_BATCH_SIZE = 500
 DIRTY_MARK_STATEMENT_TIMEOUT_MS = 5000
 
@@ -148,6 +223,12 @@ async def run_eddn_simulation_ingest(pool: 'asyncpg.Pool') -> None:
         except asyncio.CancelledError:
             log.info('EDDN simulation ingest task cancelled — shutting down')
             raise
+        except EddnFlushFailureThresholdExceeded as e:
+            log.warning(
+                'EDDN simulation ingest write path unhealthy: %s — reconnecting in %ss',
+                e, RECONNECT_DELAY,
+            )
+            await asyncio.sleep(RECONNECT_DELAY)
         except Exception as e:
             log.warning(f'EDDN simulation ingest loop error: {e} — reconnecting in {RECONNECT_DELAY}s')
             await asyncio.sleep(RECONNECT_DELAY)
@@ -201,7 +282,13 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
             # dead/silent connection (recv keeps timing out or erroring, never
             # reaching this line) correctly lets seconds_since_last_flush() grow
             # and trip the stall alarm.
-            _last_flush_at = time.time()
+            #
+            # Only while the write path is healthy: once a flush has failed and
+            # not yet been followed by a success, receiving more messages we
+            # cannot persist is not liveness, and advancing here is exactly how
+            # the July 2026 outage stayed invisible for 13 days.
+            if _write_path_healthy():
+                _last_flush_at = time.time()
 
             # ── Decode ────────────────────────────────────────────────────
             try:
@@ -243,40 +330,90 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
             now = time.monotonic()
             if (now - last_flush >= FLUSH_INTERVAL
                     or len(pending_journal) >= MAX_BATCH_SIZE):
-                await _flush_batch(pool, pending_journal, pending_facts)
+                flushed = await _flush_batch(pool, pending_journal, pending_facts)
                 pending_journal.clear()
                 pending_facts.clear()
                 last_flush = now
-                _last_flush_at = time.time()
+                # Liveness advances only on a successful flush (see
+                # _record_flush_success). A failed flush leaves the gauge
+                # where it was; `_flush_batch` has already counted it.
+                _raise_if_flush_threshold_exceeded(flushed)
 
     finally:
-        # Final flush before reconnect
-        if pending_journal or pending_facts:
-            try:
-                await _flush_batch(pool, pending_journal, pending_facts)
-            except Exception as e:
-                log.warning(f'EDDN final flush error: {e}')
-            finally:
-                # A final flush happened, so the loop was live — refresh liveness.
-                # Do NOT refresh unconditionally here: a dead connection breaks
-                # into this block with nothing pending, and refreshing then would
-                # mask a stalled ingest from the monitor.
-                _last_flush_at = time.time()
-        socket.close()
-        ctx.term()
+        # Final flush before reconnect. On the normal exit paths (quiet-feed
+        # timeout, recv error → break) nothing is propagating and the
+        # breaker applies exactly as it does in the loop; when an exception
+        # is already in flight (cancellation, or the in-loop breaker) we
+        # must not raise from here, because that would replace it.
+        try:
+            await _flush_pending_on_exit(
+                pool, pending_journal, pending_facts,
+                exception_in_flight=sys.exception() is not None,
+            )
+        finally:
+            socket.close()
+            ctx.term()
+
+
+async def _flush_pending_on_exit(
+    pool: 'asyncpg.Pool',
+    pending_journal: list[dict],
+    pending_facts: list[dict],
+    *,
+    exception_in_flight: bool,
+) -> None:
+    """Flush what is pending when the connection loop exits.
+
+    Liveness is refreshed by `_flush_batch` itself when, and only when, the
+    write succeeded. Never refresh it unconditionally here: a dead
+    connection reaches this with nothing pending, and a failed final flush
+    is not liveness either. A failed final flush counts towards the
+    consecutive-failure breaker like any other — a low-volume outage where
+    every batch is flushed from this path must still trip it — unless an
+    exception is already propagating out of the loop.
+    """
+    if not pending_journal and not pending_facts:
+        return
+    flushed = False
+    try:
+        flushed = await _flush_batch(pool, pending_journal, pending_facts)
+    except Exception as e:
+        log.warning(f'EDDN final flush error: {e}')
+    if flushed:
+        return
+    log.debug('EDDN final flush did not succeed; liveness not refreshed')
+    if exception_in_flight:
+        return
+    _raise_if_flush_threshold_exceeded(False)
+
+
+def _raise_if_flush_threshold_exceeded(flushed: bool) -> None:
+    """Trip the breaker once N consecutive flushes have failed."""
+    if flushed:
+        return
+    failures = _consecutive_flush_failures
+    limit = max_consecutive_flush_failures()
+    if failures >= limit:
+        raise EddnFlushFailureThresholdExceeded(
+            f'{failures} consecutive EDDN flush failures (limit {limit})'
+        )
 
 
 async def _flush_batch(
     pool: 'asyncpg.Pool',
     journal_rows: list[dict],
     fact_rows: list[dict],
-) -> None:
+) -> bool:
     """
     Write a batch of journal events and body_scan_facts to DB.
-    Errors are logged but do not propagate — we never crash on a flush failure.
+
+    Returns True when the batch was committed, False when the write failed.
+    Errors are logged but do not propagate — the caller decides whether the
+    consecutive-failure count has crossed the configured threshold. An
+    empty batch is a no-op and returns True (nothing to fail).
     """
     if not journal_rows and not fact_rows:
-        return
+        return True
 
     dirty_system_ids: set[int] = set()
     try:
@@ -434,9 +571,16 @@ async def _flush_batch(
             f'EDDN flush: {len(journal_rows)} journal events, '
             f'{len(fact_rows)} body_scan_facts'
         )
+        _record_flush_success()
+        return True
 
     except Exception as e:
-        log.warning(f'EDDN flush failed: {e}')
+        consecutive = _record_flush_failure()
+        log.warning(
+            'EDDN flush failed (%s consecutive, %s total this process): %s',
+            consecutive, _flush_failures_total, e,
+        )
+        return False
 
 
 def _ring_rows_from_scan_facts(fact_rows: list[dict]) -> list[dict]:

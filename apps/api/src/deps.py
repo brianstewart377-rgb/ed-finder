@@ -55,6 +55,34 @@ async def get_redis() -> Optional[aioredis.Redis]:
     return get_redis_singleton()
 
 
+async def connect_redis() -> aioredis.Redis:
+    """Build the process Redis client from settings and verify it with PING.
+
+    Shared by the lifespan (boot-time connect) and the EDDN→SSE bridge
+    (background reconnect when Redis was down at boot) so both use the
+    same bounded socket timeouts. Raises on failure; the caller decides
+    whether that is fatal (it never is — Redis is a cache, not truth).
+    The connection URL is never logged here.
+    """
+    client = aioredis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        max_connections=settings.redis_max_connections,
+        socket_connect_timeout=3,
+        socket_timeout=3,
+        retry_on_timeout=True,
+    )
+    try:
+        await asyncio.wait_for(client.ping(), timeout=3.0)
+    except BaseException:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+        raise
+    return client
+
+
 # ── Admin bearer-token auth. ────────────────────────────────────────────
 async def require_admin(request: Request) -> None:
     token = settings.admin_token
