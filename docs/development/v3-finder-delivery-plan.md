@@ -110,9 +110,15 @@ data do not yet exist.
 `/api/local/search` and `/api/archetypes/rankings`, slice 2 (PR #862)
 repointed `/rerank`, `/system/{id64}`, `/simulate` and `/profiles`, and
 `apps/api/src/routers/archetypes.py` references no legacy archetype relation
-(pinned by a static test). F4 is therefore UI-only work now; it is gated only
-on the Finder products being published in production (ROADMAP step 9′; the 8′
-Search build started 2026-10-19, run 39328946864), not on further backend work.
+(pinned by a static test; `/profiles` is static and database-free). F4 no
+longer waits on backend work. Its own gates in
+`docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`
+section 1 are unchanged: F4a/F4b are code-only increments developed against
+disposable fixtures behind a default-off feature flag; F4b is not enabled
+anywhere until slice 1c lands with its representative-scale timing proof; and
+the flag is not enabled in any governed production/release build until both
+Finder products are published (ROADMAP step 9′; the 8′ Search build started
+2026-10-19, run 39328946864) and F4c/F4e have landed.
 
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration

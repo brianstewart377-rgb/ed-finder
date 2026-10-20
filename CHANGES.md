@@ -19,9 +19,11 @@ statements overtaken by this week's merges and operations:
 - `CLAUDE.md` and `docs/ROADMAP.md` ("Programme status — 2026-09-26", the
   V2→V3 parity bullet): the Finder archetype UI (F4) was still described as
   gated on F2c/F3 backend work. F2c and F3 slice 1 merged in #777 and F3
-  slice 2 in #862, so F4 is now UI-only work gated only on the Finder products
-  being published (step 9′). The roadmap keeps the dated text and adds a
-  supersession note in its usual form; next execution focus is 8′ → 9′, then F4.
+  slice 2 in #862, so F4 no longer waits on backend work. F4's own gates from
+  its design (fixture-based F4a/F4b behind a default-off flag; slice 1c scale
+  proof before F4b is enabled; product publication at 9′ plus F4c/F4e before
+  the flag is enabled in a governed build) are restated unchanged. The roadmap
+  keeps the dated text and adds a supersession note in its usual form.
 - `docs/development/v3-finder-delivery-plan.md`: dated 2026-10-20 status
   added after the 2026-09-26 one, which still said F3 was unfinished.
 - `docs/operations/v3-production-application-release.md` (F3 cutover gate):
@@ -34,7 +36,8 @@ statements overtaken by this week's merges and operations:
   "no credits remaining" response is a service-unavailability (billing)
   failure under the reviewer-failure section, not a code finding.
 - `docs/development/test-environment.md`: documents the #865
-  `EDF_DB_TESTS_REQUIRED=1` behaviour of the three PostgreSQL CI lanes.
+  `EDF_DB_TESTS_REQUIRED=1` behaviour of the three instrumented PostgreSQL CI
+  lanes, and names the DB lanes and bare `pytest.skip` sites it does not cover.
 
 ## 2026-10-20 — Search build statistics repair recorded; builds running
 

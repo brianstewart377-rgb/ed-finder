@@ -52,9 +52,12 @@ run 39113822236; receipts under `docs/operations/evidence/`). **Amendment
 purge ordering is superseded, and the governed purge of `ratings_v4_prod_p4`
 and `ratings_v4_prod_p4_opt1` (`docs/development/v3-governed-derived-purge-design.md`;
 ROADMAP step P) runs after go-live, with its design and gates unchanged; the
-step 7′ capacity gate still guards the builds. The Finder archetype UI (F4) is now
-UI-only work: F2c and both F3 slices have merged (#777, #862), so it waits only on
-the Finder products being published at step 9′, the go-live) is in `docs/ROADMAP.md` "Programme status —
+step 7′ capacity gate still guards the builds. The Finder archetype UI (F4) no
+longer waits on backend work — F2c and both F3 slices have merged (#777, #862) —
+but keeps its own gates from the F4 design: fixture-based F4a/F4b may proceed
+behind the default-off feature flag, while enabling the flag in any governed
+build still requires product publication at step 9′, slice 1c's scale proof and
+F4c/F4e) is in `docs/ROADMAP.md` "Programme status —
 2026-09-26" and its "Capacity decision" paragraph; the live promotion boundary is
 `docs/operations/v3-production-application-release.md`.
 
