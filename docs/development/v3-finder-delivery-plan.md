@@ -106,6 +106,20 @@ sliders + S/A/B/C/D tiers) become genuinely UI-only; today the result fields are
 typed in `apps/web/src/lib/api/client.ts` but the ranking API and prod archetype
 data do not yet exist.
 
+**Status (2026-10-20):** F2c and F3 are complete — slice 1 (PR #777) repointed
+`/api/local/search` and `/api/archetypes/rankings`, slice 2 (PR #862)
+repointed `/rerank`, `/system/{id64}`, `/simulate` and `/profiles`, and
+`apps/api/src/routers/archetypes.py` references no legacy archetype relation
+(pinned by a static test; `/profiles` is static and database-free). F4 no
+longer waits on backend work. Its own gates in
+`docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`
+section 1 are unchanged: F4a/F4b are code-only increments developed against
+disposable fixtures behind a default-off feature flag; F4b is not enabled
+anywhere until slice 1c lands with its representative-scale timing proof; and
+the flag is not enabled in any governed production/release build until both
+Finder products are published (ROADMAP step 9′; the 8′ Search build started
+2026-10-19, run 39328946864) and F4c/F4e have landed.
+
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration
 `010`. Those counts are not queryable in production until a **rebuild and

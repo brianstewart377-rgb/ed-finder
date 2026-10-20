@@ -613,6 +613,25 @@ newer dated source wins).
   `apps/web/src/lib/api/client.ts`. Next execution focus: **F2c → F3**, then the
   Finder archetype UI (F4). Lower-priority UI-mostly gaps: region/cluster search,
   My Work drafts hub, search tuning, owner/ops surfaces.
+  **Superseded (2026-10-20) — the F2c/F3 gate on F4 is cleared.** F2c and F3
+  slice 1 merged in #777 and F3 slice 2 in #862: every database-backed route in
+  `apps/api/src/routers/archetypes.py` (`/rankings`, `/rerank`, `/system/{id64}`,
+  `/system/{id64}/explanation`, `/simulate`) and `/api/local/search` read the
+  V3 `v3_app.system_search` / `v3_app.system_archetype` projections behind the
+  migration `015` product gate (`/profiles` is a static preset list with no
+  database access and is not product-gated), and a static test pins that no
+  legacy archetype relation is referenced. The rank-by-archetype API therefore
+  exists, so the **Finder advanced ranking UI (F4) no longer waits on backend
+  work**. F4's own gates are unchanged and still apply
+  (`docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`
+  section 1): the code-only F4a/F4b increments may be developed now against
+  disposable fixtures behind the default-off build feature gate; F4b may not be
+  enabled anywhere until slice 1c has landed with its representative-scale
+  timing proof; and the flag may not be enabled in any governed production or
+  release build until both Finder products are published (step 9′, the go-live
+  — the 8′ Search build is running, run 39328946864) and F4c/F4e have landed.
+  Next execution focus is **8′ → 9′**, with F4a/F4b fixture-based implementation
+  able to proceed alongside. The Colony Planner statement above is unchanged.
 
 ## Programme status — 2026-09-19
 
