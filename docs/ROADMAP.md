@@ -644,6 +644,25 @@ newer dated source wins).
   — the 8′ Search build is running, run 39328946864) and F4c/F4e have landed.
   Next execution focus is **8′ → 9′**, with F4a/F4b fixture-based implementation
   able to proceed alongside. The Colony Planner statement above is unchanged.
+- **Owner decision 2026-10-21: publish the Finder on the frozen Ratings V4.0 /
+  `v3-archetype-4` rules as attested.** The Mega Guide audit found Finder-rule
+  conflicts — notably native+modifier inheritance scored 85 vs 75 (guide p8/p50:
+  no stacking) and the terraformable Agriculture boost applied although the
+  guide marks it bugged (p55/p93) — to be addressed in a versioned Ratings V4.1
+  (new `MECHANICS_VERSION`/`SCORER_VERSION`, freeze manifest, rebuilt derived
+  generation) as the first post-go-live mechanics work; see the audit evidence
+  file
+  [`docs/development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md`](development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md)
+  (guide text committed under
+  [`docs/reference/colonisation/sources/mega-guide-v2.3.0/`](reference/colonisation/sources/mega-guide-v2.3.0/README.md);
+  page numbers are PDF pages). The same-day CRE/CPE utilisation audit
+  ([`docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`](development/evidence/2026-10-21-cre-cpe-utilisation-audit.md))
+  found that no ed-finder code consumes the CRE, that the CPE is documentation
+  only, and that the planner code is V2-only and unreachable on V3. Owner
+  decisions D1 (CRE purpose), D2 (CPE as a repo or a module), D3 (first real
+  Plan feature and the dead Plan links) and the purpose of the journal research
+  export are open. This entry changes no step order or gate: steps 8′ → 9′ and
+  the F4 gates above stand as written.
 
 ## Programme status — 2026-09-19
 

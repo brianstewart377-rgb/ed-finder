@@ -18,3 +18,5 @@ scripts/v3_system_search_parallel.py text eol=lf
 sql/v3/migrations/006_v3_derived_product_lifecycle.sql text eol=lf
 sql/v3/migrations/010_v3_system_search_body_type_counts.sql text eol=lf
 sql/v3/migrations/013_v3_system_search_parallel.sql text eol=lf
+# Committed reference text whose SHA-256 is recorded in its README.
+docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt -text
