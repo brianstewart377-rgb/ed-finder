@@ -129,8 +129,11 @@ A system from the Spansh file enters a layer only if its **V3-relevant
 content** differs from the version the app shows now (newest active layer,
 otherwise base).
 
-- The comparison is a SHA-256 over the normalised V3 rows the importer would
-  write for that system: bodies, rings, signals and fixed stations.
+- The comparison is a SHA-256 over **every** normalised V3 row the importer
+  would write for that system: the `systems` row itself (name, coordinates and
+  every other V3 system field), bodies, rings, signals, compositions, parent
+  evidence and fixed stations. A change to the system row alone (for example a
+  name or coordinate correction) is therefore admitted.
 - Faction, population and influence churn is ignored, because V3 canonical
   data has no such columns (refresh study 1.3 rule 13).
 - The "currently shown" hash is computed on demand for the systems in the
@@ -155,10 +158,17 @@ otherwise base).
   generation, migration `012`). Density changes by a fraction of a percent a
   month (refresh study, estimate). Rebuilding it on the folded base is a
   separate, later spatial publication (open item D-F).
-- **Responses** report the base identity **plus** the fold sequence and the
-  newest active layer sequence, so every answer says exactly what data it
-  came from. Inspect can say "updated since snapshot" for systems served from
-  a layer or changed by a fold.
+- **Stack revision.** Every change to what readers see — a layer activated,
+  switched off or re-enabled, a fold switched in, a fold undone — advances one
+  **stack revision** counter and records a digest of the ordered set of
+  active layer ids with the fold sequence. "Newest active layer sequence" is
+  not enough: switching off an older layer changes results while the newest
+  sequence stays the same.
+- **Responses** report the base identity **plus** the fold sequence, the stack
+  revision and its digest, so every answer says exactly what data it came
+  from, and any cache keyed by that identity is invalidated by every change.
+  Inspect can say "updated since snapshot" for systems served from a layer or
+  changed by a fold.
 
 ### 3.4 Derived rows for changed systems only
 
@@ -191,17 +201,34 @@ confirmed in the tooling review:
 
 ### 3.6 Publishing and switching off a layer
 
+- **Order is source time, enforced.** Each layer records the Spansh effective
+  time of its source file and the stack revision it was admitted against.
+  Winners are ordered by that source time, never by approval order.
+  Publication **refuses** a layer whose source time is not strictly later than
+  every active or folded layer's, and refuses a layer whose admission stack
+  revision is not the current one (compare-and-swap). With manual approval an
+  older READY layer approved after a newer night is therefore refused, and the
+  missed window is rebuilt from `galaxy_7days`/`galaxy_1month` as a
+  `RECOVERY` layer admitted against the current view.
 - **Publish** (one transaction): check the layer is `READY` and its
-  validation receipt and seals match; check no purge event is unresolved and
-  no fold is running; set it `ACTIVE`; update the winner index for its
-  `id64`s; run the bounded-plan probe on the union views (section 7) on the
-  same connection before commit; write the publication receipt.
+  validation receipt and seals match; check the source-time and stack-revision
+  conditions above; check no purge event is unresolved and no fold is
+  running; set it `ACTIVE`; update the winner index for its `id64`s; advance
+  the stack revision; run the bounded-plan probe on the union views
+  (section 7) on the same connection before commit; write the publication
+  receipt.
 - **Switch off** (one transaction): set the layer `DISABLED`; recompute the
   winner index for its `id64`s (each falls back to the next-newest active
-  layer or to the base); probe; receipt. No rows are deleted. A disabled
-  layer can be re-enabled the same way, or dropped later.
+  layer or to the base); advance the stack revision; probe; receipt. No rows
+  are deleted. A disabled layer can be re-enabled the same way (the source-time
+  rule then places it in its original position), or dropped later.
 - Switching off a middle layer is safe: every layer holds complete records,
-  so the systems simply show an older, still-consistent version.
+  so the systems simply show an older, still-consistent version. Because later
+  layers admitted only *changes* against a view that included the switched-off
+  layer, a system that was in the bad layer and did not change again shows its
+  older version until it next appears in a nightly file; if that matters, a
+  `RECOVERY` layer rebuilt from `galaxy_7days`/`galaxy_1month` restores it
+  sooner.
 
 ### 3.7 The weekly fold
 
@@ -221,11 +248,33 @@ change, at one commit.
    the layer's rows. While this runs the layers are still `ACTIVE`, so readers
    keep seeing the layer copy, which is the same content: **nothing visible
    changes**.
+   **Chunk and generation metadata are part of the fold.** Ratings rows
+   reference `v3_derived.build_chunk` by `(derived_generation_id,
+   chunk_ordinal)` (`003_ratings_v4_derived.sql:84-126`), and the chunk
+   records, the Search and Archetype product chunk records and the generation
+   and product counts carry counts and content seals of what they hold. So the
+   fold, in the same chunked pass:
+   - copies every chunk record it touches, and the generation and product
+     count/seal fields it will change, into the history tables first;
+   - keeps a replaced system in its existing chunk, and puts systems that are
+     new to the base into **new chunks appended after the last ordinal**,
+     created for this fold;
+   - **re-computes and re-seals** every touched or new chunk record and the
+     affected generation and product counts, so no record attests to content
+     it no longer holds.
+   The fold receipt lists every re-sealed chunk with its old and new seal.
+   If the tooling review finds re-sealing in place unsafe, the alternative is
+   to keep folded rows in their own fold-owned chunks that never claim the
+   original chunk validation; either way no original seal may be left
+   describing changed content.
 3. **Tidy:** `VACUUM (ANALYZE)` the touched base tables, so statistics are
    fresh and the visibility map is set (the step 9′ proof requires
    `Heap Fetches: 0`).
-4. **Switch (one transaction):** mark the folded layers `FOLDED`, remove their
-   `id64`s from the winner index, advance the base **fold sequence**, run the
+4. **Switch (one transaction):** mark the folded layers `FOLDED`; for every
+   `id64` in them, **recompute** its winner as the newest *remaining* active
+   layer that holds it (a newer, unfolded layer keeps winning), and remove
+   the entry only when no active layer holds it; advance the base **fold
+   sequence** and the stack revision; run the
    bounded-plan probe on the same connection before commit, and write the
    **fold receipt**: layers folded, systems changed and added, per-relation
    row counts, history rows kept, and a seal of the base before and after.
@@ -233,8 +282,11 @@ change, at one commit.
    been checked.
 
 **Undo a fold** (folds are undone newest first): in one transaction, delete
-the base rows the fold inserted, re-insert that fold's history rows, delete
-the systems the fold added, mark the fold `REVERSED`, write the undo receipt;
+the base rows the fold inserted (this also removes the systems the fold
+added), re-insert that fold's history rows, restore the chunk, generation and
+product records and seals from history (dropping the chunks the fold
+appended), advance the stack revision, mark the fold `REVERSED`, and write the
+undo receipt;
 then `VACUUM (ANALYZE)` and run the plan probe. MVCC makes the transaction
 atomic for readers. If the rehearsal shows that transaction is too long, the
 alternative is to expose the fold's history partition as a temporary layer
@@ -254,6 +306,16 @@ carries an adjacent comment saying so. The design also proposes adding the
 same guard triggers to the canonical generation relations, so that the fold
 is the only path that can write them, as the amendment requires.
 
+**Recovery gate for the first fold.** The history tables live in the same
+database as the base, so they do not protect against a fold that damages the
+database itself. The fold is the first operation that rewrites the published
+base, so the existing roadmap gate "V3 DB maintenance/recovery" applies to it:
+infrastructure status says repository-driven restore/PITR is not authorized
+and no restore has been rehearsed. **No production fold may run until a
+reviewed, executable PostgreSQL 18 restore/PITR procedure exists and one
+restore has been rehearsed successfully** (step L7 below). Layers alone are
+additive and do not need this gate.
+
 **History retention (open, D-B):** recommendation: keep the history of the
 last 4 folds (about a month), partitioned by fold id so expiry is a cheap
 `DROP`.
@@ -266,16 +328,24 @@ steady-state bloat is about one week's replaced rows (estimate). No
 
 ### 3.8 The one-time catch-up
 
-- Stream the current `galaxy.json.gz` once; keep systems whose newest
-  `updateTime` (system, body or station) is after 2026-08-24 05:32:35 UTC (the
-  base file's Spansh effective time). The V3 adapter already reads
-  `updateTime`.
+- Stream the current `galaxy.json.gz` once; keep systems whose **newest
+  observation time** is after 2026-08-24 05:32:35 UTC (the base file's Spansh
+  effective time). The observation time must use the adapter's own
+  normalisation, not a bare `updateTime` lookup: the system time is
+  `record.get("date") or record.get("updateTime")`
+  (`apps/importer/src/v3_spansh/adapter.py:424`), and bodies, stations and
+  signal containers carry their own `updateTime` (`:497, :580-630, :678`). The
+  filter takes the maximum over all of them, parsed with the adapter's
+  timestamp helper (imported, not edited).
+- A system with **no** parseable timestamp anywhere is **kept** (the filter
+  fails toward admission; change-only admission then drops it if nothing
+  changed), and the receipt counts such systems.
 - Apply the same change-only admission and publish the result as the first
   layer (kind `CATCH_UP`). Nightly layers follow from the catch-up file's own
   date; a gap is closed with `galaxy_7days` or `galaxy_1month`.
 - The 110 GiB file need not sit on the production disk: it can be streamed, or
   filtered off-production down to the changed systems.
-- Risk: some changes may not bump `updateTime`. The catch-up run hashes a
+- Risk: some changes may not bump any timestamp. The catch-up run hashes a
   random sample of *unflagged* systems against the base and reports the
   mismatch rate in its receipt.
 - It runs after the purge P (owner decision 4); before P there is only
@@ -349,9 +419,24 @@ nightly Spansh work (owner decision 5):
   observations, using the existing `v3_source` ledger (`source`,
   `source_rights_policy`, `source_run` with `BULK_SNAPSHOT`/`DELTA`/
   `STREAM_WINDOW`, `source_checkpoint`). Sketch: scoping report appendix T1.
-- **One append-only table** of station states. A row is inserted only when a
-  station's research-relevant state hash is new for that source
-  (`ON CONFLICT DO NOTHING`); no hot-row updates.
+- **State changes: one append-only table.** A row is inserted when a
+  station's research-relevant state hash differs from **that station's latest
+  state row for the same source** — not "any state ever seen" — so an
+  A→B→A change keeps all three rows. This replaces the scoping report's
+  appendix key `(source_id, market_id, state_sha256)`, which would drop the
+  second A. The worker is the only EDDN consumer and flushes in order; the
+  insert compares against the latest row for that station inside the same
+  statement, and a unique key on `(source_id, market_id, observed_at)` keeps
+  replays idempotent.
+- **Last seen: one small table, one row per station per source.** Repeated
+  `Docked` events with an unchanged state still matter, because they are what
+  makes a sighting "minutes fresh". They update `last_seen_at` (and a counter)
+  in a `station_last_seen` row, **at most once per station every 10 minutes**.
+  The row count is bounded by the number of stations (≈ 830k at most); the
+  updated columns are not indexed and the table is created with a lower fill
+  factor, so updates stay heap-only and their dead space is reused by
+  ordinary vacuum. This is the one deliberate exception to "no hot-row
+  updates", and it is bounded in size and rate, unlike V2's churn.
 - **State hash covers:** station type, sorted economies with rounded
   proportions, sorted services, body, landing pads. It leaves out faction,
   government, allegiance and timestamps.
@@ -366,10 +451,16 @@ nightly Spansh work (owner decision 5):
 - **Retention:** change-only rows kept indefinitely; alert at 1 GB, review at
   5 GB; hourly checkpoint rows may be trimmed after 90 days (scoping
   recommendation).
-- **Role:** a NOLOGIN role (`INSERT`/`SELECT` on `v3_observe`, and only its own
-  `v3_source` run/checkpoint rows) reached by `SET ROLE` on the existing
-  credentials. `edfinder_v3` is a superuser, so this is a guardrail against
-  mistakes, not a security boundary.
+- **Role:** a NOLOGIN role reached by `SET ROLE` on the existing credentials.
+  It gets `INSERT`/`SELECT` on the `v3_observe` tables (and `UPDATE` of the
+  last-seen columns only), and **no direct grants on `v3_source` tables**,
+  because a table grant cannot limit a role to "its own" rows. Instead it may
+  `EXECUTE` a few narrow `SECURITY DEFINER` functions, created by the
+  migration with a fixed `search_path`, that open, checkpoint and close a
+  `source_run` **only for the EDDN and Spansh station sources** and refuse any
+  other `source_id` or a run that belongs to another source. `edfinder_v3` is
+  a superuser, so this is a guardrail against mistakes, not a security
+  boundary.
 - **Rights:** recorded as internal use, not redistributed. No request to Spansh
   is needed before scheduled downloads (owner decision 6).
 - **Journal uploads stay separate:** commanders' own journal station
@@ -397,8 +488,9 @@ From the refresh study (3.3):
   (`docs/development/ratings-v4-freeze/README.md:64-66`). **Open (D-E):** the
   new importer/layer driver identity enters each layer's lineage; treat it
   like the PR #647 adapter repin?
-- **Finder envelopes** carry base identity plus fold sequence and layer
-  sequence. The ranking identity (coefficients) does not change.
+- **Finder envelopes** carry base identity plus fold sequence, stack
+  revision and stack digest (section 3.3). The ranking identity
+  (coefficients) does not change.
 - **Union views** replace the `015` views, and the step 9′ bounded-plan proof —
   all 24 archetype/floor pairs plus both no-pick requests, `Heap Fetches: 0` —
   must be **re-proved for the union shape**, at every layer publication,
@@ -435,6 +527,7 @@ R1 below measure the real numbers.
 | History kept per fold | ≈ 2–10 GB (this design's arithmetic: ≈ 210k–560k distinct systems a week × 11–17 KB) |
 | Dead space after a fold, reused by the next | about the same as the history kept |
 | EDDN station rows stored (change-only) | under 1 GB a year (scoping report) |
+| Station last-seen table | ≤ ≈ 830k rows, ≈ 50–100 MB (this design's arithmetic) |
 | Spansh station baseline | at most ≈ 830k stations × a few hundred bytes, ≈ 0.2–0.4 GB (this design's arithmetic) |
 
 **Disk.** Free space is about 120 GB after both Finder builds and about
@@ -517,10 +610,14 @@ completed purge P.
   `apps/importer/src/v3_spansh/*` is imported, not edited.
 - **R5 [repo].** Draft migrations under `sql/v3/proposals/` only, **not**
   registered: layer registry, partitioned layer tables, winner index, union
-  view definitions, fold ledger, history tables, fold capability and guard
-  triggers; and the `v3_observe` schema with its NOLOGIN role and `v3_source`
-  seed rows. Tested on disposable PostgreSQL 18, including activate,
-  switch-off, fold and undo.
+  view definitions, stack revision and digest, source-time and
+  compare-and-swap publication checks, fold ledger, history tables (including
+  chunk, generation and product records), chunk re-sealing, fold capability
+  and guard triggers; and the `v3_observe` schema with its state-change and
+  last-seen tables, its NOLOGIN role, the narrow `SECURITY DEFINER`
+  source-run functions and `v3_source` seed rows. Tested on disposable
+  PostgreSQL 18, including activate, out-of-order refusal, switch-off, fold
+  with a newer unfolded layer overlapping, and undo.
 - **R6 [repo].** Pure normalisers (EDDN envelope → observation rows; Spansh
   system record → station rows) and the EDDN worker module, default off,
   writing `v3_observe` only, with the purge-ledger refusal, breaker,
@@ -591,8 +688,11 @@ completed purge P.
   approval for the first weeks; review each receipt (counts, time, disk,
   WAL).
 - **L7 [OWNER GO].** First weekly fold (it also folds the catch-up layer),
-  with its receipt; confirm the undo path works on the rehearsal before this
-  step.
+  with its receipt. **Gated on:** a reviewed, executable PostgreSQL 18
+  restore/PITR procedure and one successful restore rehearsal (the roadmap's
+  "V3 DB maintenance/recovery" gate; section 3.7), and the undo path proven on
+  the A7 rehearsal. Until then nightly layers continue without folds; the
+  overlay simply grows (≈ 10–18 GB a week, estimate).
 - **L8 [OWNER GO].** Install the nightly schedule; switch to automatic
   publication only if the owner decides so (D-A).
 - **Later [OWNER DECISION].** A full new generation when rules or the table
@@ -606,7 +706,8 @@ completed purge P.
   folds.
 - **D-B.** History retention: recommendation, the last 4 folds.
 - **D-C.** Ignore carrier-only changes in layer admission? Recommendation: yes.
-- **D-D.** EDDN system and body sightings in `v3_observe`, shown in Inspect as
+- **D-D.** EDDN system and body sightings in `v3_observe` (state changes plus
+  a rate-limited last-seen row, as for stations), shown in Inspect as
   labelled observations, and never written to canonical data or layers in the
   first version? Recommendation: yes.
 - **D-E.** Treat the layer driver identity in ratings lineage like the PR #647

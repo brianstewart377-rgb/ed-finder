@@ -482,4 +482,7 @@ ops action or production step for layers or folds may start until the tooling
 design in [`v3-live-data-design.md`](v3-live-data-design.md) is accepted by the
 owner and recorded in `docs/ROADMAP.md`. Production order is unchanged: the
 Finder go-live (step 9′) first, then the governed purge P, then this work, and
-every production step needs the owner's explicit go.
+every production step needs the owner's explicit go. Because a fold rewrites
+the published base, the roadmap's "V3 DB maintenance/recovery" gate also
+applies: no production fold may run until a reviewed, executable PostgreSQL 18
+restore/PITR procedure exists and one restore has been rehearsed successfully.
