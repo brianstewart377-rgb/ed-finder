@@ -45,9 +45,11 @@ from edfinder_observe.sightings import (  # noqa: E402
 from edfinder_observe.worker import (  # noqa: E402
     FinalFlushFailed,
     FlushFailureThresholdExceeded,
+    RECEIVE_QUEUE_BYTE_BUDGET,
     PostgresWriter,
     Worker,
     ZmqSubscriber,
+    receive_high_water_mark,
 )
 
 pytestmark = pytest.mark.unit
@@ -793,6 +795,7 @@ def test_zmq_subscriber_bounds_inbound_bytes_before_allocation():
     first = ZmqSubscriber(endpoint, max_message_bytes=1024)
     try:
         assert first._socket.getsockopt(zmq.MAXMSGSIZE) == 1024
+        assert first._socket.getsockopt(zmq.RCVHWM) == receive_high_water_mark(1024)
         assert pump_until_small(first, 10)       # connection established
         publisher.send(b'x' * 4096)              # oversized: ZeroMQ drops the peer
         # The oversized frame is never delivered, and this socket goes quiet;
@@ -992,3 +995,12 @@ def test_metrics_http_endpoints():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_receive_queue_is_bounded_by_bytes_not_message_count():
+    for limit in (1024, 262_144, 1_048_576):
+        hwm = receive_high_water_mark(limit)
+        assert hwm >= 1
+        assert hwm * limit <= RECEIVE_QUEUE_BYTE_BUDGET
+    assert receive_high_water_mark(262_144) == 512
+    assert receive_high_water_mark(1_048_576) == 128

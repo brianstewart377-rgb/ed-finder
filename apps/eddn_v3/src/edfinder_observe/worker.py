@@ -55,6 +55,19 @@ class RelaySubscriber(Protocol):
     def close(self) -> None: ...
 
 
+# Upper bound on bytes ZeroMQ may hold in its receive queue before frames reach
+# the bounded application buffer. The queue limit (RCVHWM) counts messages, so
+# it is derived from this byte budget and the largest frame allowed: 512 frames
+# at the default 256 KiB limit, 128 at the 1 MiB maximum. Frames beyond it are
+# dropped by ZeroMQ (EDDN is lossy by design; the Spansh nightly is the net).
+RECEIVE_QUEUE_BYTE_BUDGET = 128 * 1024 * 1024
+
+
+def receive_high_water_mark(max_message_bytes: int) -> int:
+    """Message-count queue limit that keeps the queue within the byte budget."""
+    return max(1, RECEIVE_QUEUE_BYTE_BUDGET // max(1, max_message_bytes))
+
+
 class ZmqSubscriber:
     """A ZeroMQ SUB socket on the EDDN relay with bounded queueing."""
 
@@ -66,7 +79,7 @@ class ZmqSubscriber:
         self._socket = self._context.socket(zmq.SUB)
         self._socket.setsockopt(zmq.SUBSCRIBE, b'')
         self._socket.setsockopt(zmq.LINGER, 0)
-        self._socket.setsockopt(zmq.RCVHWM, 10_000)
+        self._socket.setsockopt(zmq.RCVHWM, receive_high_water_mark(max_message_bytes))
         # Bound bytes before allocation: an oversized inbound frame makes ZeroMQ
         # drop that connection instead of buffering it. ZeroMQ does not redial
         # after that protocol error, so the feed goes quiet and the worker's
