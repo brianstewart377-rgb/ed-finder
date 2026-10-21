@@ -84,6 +84,16 @@ and CI inventory. Because some captures depict the Frontier-derived region map
 or ESO background, they must not be repurposed for commercial media without a
 new per-file review and the applicable credits.
 
+## Addition 2026-10-21
+
+One entry was added without a full re-audit:
+`docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt`,
+the CC BY-SA 4.0 Elite Dangerous Colonization Mega Guide text kept as
+colonisation reference material. It is recorded as `noncommercial_only` and
+Frontier-derived. The manifest `audit_date` moved to 2026-10-21 so that this
+entry's approval date is valid. The other entries keep their 2026-08-12
+approval dates.
+
 See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for distributed
 credits and license notices. Re-run the audit when asset locations, build
 pipelines, remote font imports, or commercial posture changes.

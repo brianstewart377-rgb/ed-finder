@@ -7,7 +7,7 @@ Snapshots audited: ed-finder `main` at `c396eb21` (2026-10-21); CRE (`elite-dang
 
 ## Executive summary (plain language)
 
-1. **CRE today gives the live app nothing at runtime.** No code, build step, test or CI job in ed-finder reads any CRE file. That covers its CSV exports, its mechanics documents and its claim, rule or mechanic IDs. The only trace of CRE in the code is a confidence vocabulary that was copied by hand, with CRE IDs in its comments.
+1. **CRE today gives the live app nothing at runtime.** No code, build step, test or CI job in ed-finder reads any CRE file. That covers its CSV exports, its mechanics documents and its claim, rule or mechanic IDs. The only trace of CRE *mechanics* in the code is a confidence vocabulary that was copied by hand, with CRE IDs in its comments. (Separately, the journal research export in item 7 and section 2 names CRE as its purpose and audience, but it sends data toward CRE and reads nothing from it.)
 2. **ed-finder keeps its own copy of the game rules, written by hand, sometimes two or three times over.** I counted 13 mechanic areas. 0 of them come from CRE with a traceable ID. 11 are hand-coded in ed-finder, and 2 (population, system score) are missing from ed-finder entirely.
 3. **Where the two disagree, CRE is sometimes the one that is right.** ed-finder's port construction-point cost table is invented (its own comment says the curve is "NOT publicly documented"). CRE has the exact table from the Mega Guide, and ed-finder never used it.
 4. **The live Finder ratings (V4) were researched straight from Frontier patch notes and the Mega Guide.** The list of evidence sources behind them does not mention CRE at all.

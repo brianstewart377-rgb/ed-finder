@@ -51,6 +51,12 @@ the value above.
 `.gitattributes` marks the `.txt` as `-text` so Git never rewrites its line
 endings; its checksum therefore stays the one listed above on every checkout.
 
+The `.txt` is registered in [`assets/PROVENANCE.json`](../../../../../assets/PROVENANCE.json)
+with this SHA-256 and its rights chain, and credited in
+[`THIRD_PARTY_NOTICES.md`](../../../../../THIRD_PARTY_NOTICES.md). CI runs
+`scripts/checks/asset_provenance.py`, which fails if the file's checksum
+drifts from the manifest.
+
 ## How the text was made, and what is missing
 
 - It is an **unmodified machine extraction**: `pdftotext -layout` (poppler

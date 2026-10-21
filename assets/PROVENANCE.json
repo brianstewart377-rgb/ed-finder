@@ -1,7 +1,7 @@
 {
   "$schema": "./PROVENANCE.schema.json",
   "schema_version": 1,
-  "audit_date": "2026-08-12",
+  "audit_date": "2026-10-21",
   "policy": "assets/README.md",
   "entries": [
     {
@@ -57,6 +57,24 @@
       "commercial_use_approved": false,
       "notice_reference": "apps/importer/src/region_map.py",
       "notes": "The adaptation is MIT-compatible, but its normal use depends on Frontier-derived region data whose project approval is noncommercial only."
+    },
+    {
+      "filename": "docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt",
+      "asset_type": "data",
+      "distribution": "bundled_source",
+      "source_kind": "community_creator",
+      "source_url": "https://forums.frontier.co.uk/threads/colonization-mega-guide-v1-0b-released.638126/",
+      "license": "CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/), as stated in the guide; the guide also states it was made with Frontier Developments plc's permission for non-commercial purposes",
+      "creator": "CMDR Mechan, with input/additions/comments/suggestions/corrections from dozens of CMDRs (guide author and contributors); Frontier Developments plc (underlying Elite Dangerous game and mechanics)",
+      "frontier_derived": true,
+      "attribution_text": "Elite Dangerous Colonization Mega Guide, version 2.3.0 (2.4.0 WIP), written by CMDR Mechan with input from dozens of CMDRs, licensed under CC BY-SA 4.0. Unmodified pdftotext extraction; images omitted. Not endorsed by Frontier Developments.",
+      "approval_date": "2026-10-21",
+      "verification_method": "Owner-supplied 121-page PDF (SHA-256 aaabd23cf5ed6161a9b2dadb76a6a7d6b385e4d8c73e87de3bca0339087b69d5) inspected; its title page carries the CC BY-SA 4.0 grant and Frontier non-endorsement notice quoted in the folder README; text produced by pdftotext -layout (poppler 24.02.0) with no edits; Frontier Forums release thread located for the source URL.",
+      "sha256": "359e8fd00d3df3da0f10562f19012c7f71d06cf82933d09bfcf89d1fb296fbd3",
+      "rights_status": "noncommercial_only",
+      "commercial_use_approved": false,
+      "notice_reference": "docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt",
+      "notes": "Reference text for citation and review only; not read by any build or runtime. The PDF and its Frontier imagery are not committed. Held conservatively as noncommercial_only because the guide's Frontier permission covers non-commercial purposes and the text reproduces Elite Dangerous mechanics; the CC BY-SA 4.0 share-alike terms apply to any redistribution or adaptation."
     },
     {
       "filename": "frontend/public/assets/elite-dangerous-region-map.LICENSE.txt",
