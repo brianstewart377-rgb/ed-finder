@@ -29,6 +29,7 @@ from edfinder_api.helpers import (
 from edfinder_api.ingest.eddn_client import (
     consecutive_flush_failures as eddn_simulation_ingest_consecutive_flush_failures,
     flush_failures_total as eddn_simulation_ingest_flush_failures_total,
+    last_flush_attempt_timestamp as eddn_simulation_ingest_last_flush_attempt_timestamp,
     last_successful_flush_timestamp as eddn_simulation_ingest_last_successful_flush_timestamp,
     max_consecutive_flush_failures as eddn_simulation_ingest_max_consecutive_flush_failures,
     seconds_since_last_flush as eddn_simulation_ingest_seconds_since_flush,
@@ -277,6 +278,9 @@ async def metrics_endpoint():
         '# HELP ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds Unix time of the last successful EDDN simulation ingest DB flush (0 = none since process start)',
         '# TYPE ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds gauge',
         f'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds {eddn_simulation_ingest_last_successful_flush_timestamp():.0f}',
+        '# HELP ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds Unix time at which the last non-empty EDDN simulation ingest DB flush started, success or failure (0 = none since process start)',
+        '# TYPE ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds gauge',
+        f'ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds {eddn_simulation_ingest_last_flush_attempt_timestamp():.0f}',
         '# HELP ed_finder_eddn_simulation_ingest_enabled Whether the EDDN simulation ingest task is enabled in this process (EDDN_SIMULATION_INGEST_ENABLED)',
         '# TYPE ed_finder_eddn_simulation_ingest_enabled gauge',
         f'ed_finder_eddn_simulation_ingest_enabled {1 if settings.eddn_simulation_ingest_enabled else 0}',

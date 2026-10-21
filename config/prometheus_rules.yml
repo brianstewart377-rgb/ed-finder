@@ -61,22 +61,22 @@ groups:
           description: "apps/api/src/ingest/eddn_client.py has been failing database flushes for ten minutes ({{ $value | humanize }} failed flushes/min over 5m). Each failed flush drops its batch of journal_events/body_scan_facts rows. Before PR #864 this failure advanced the liveness clock and never fired EddnSimulationIngestFlushStalled (the July 2026 outage shape); check the api log for 'flush failed' and the database for lock waits, statement timeouts or a missing table."
 
       - alert: EddnSimulationIngestFlushBreakerNear
-        expr: ed_finder_eddn_simulation_ingest_consecutive_flush_failures >= (ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures - 1)
+        expr: ed_finder_eddn_simulation_ingest_consecutive_flush_failures > 0 and ed_finder_eddn_simulation_ingest_consecutive_flush_failures >= (ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures - 1)
         for: 1m
         labels:
           severity: warning
         annotations:
           summary: "EDDN simulation ingest is one failed flush from its reconnect breaker"
-          description: "{{ $value }} consecutive flushes have failed; at EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES (default 5) the ingest loop drops its pending batch and reconnects. One more failure means data loss for that batch, not just a delay. The gauge resets to 0 on the next successful flush, so this clears itself once the write path recovers."
+          description: "{{ $value }} consecutive flushes have failed; at EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES (default 5) the ingest loop drops its pending batch and reconnects. One more failure means data loss for that batch, not just a delay. The gauge resets to 0 on the next successful flush, so this clears itself once the write path recovers. The explicit > 0 guard keeps a threshold of 1 (the allowed minimum, where threshold - 1 is 0) from matching the healthy zero value."
 
       - alert: EddnSimulationIngestNoSuccessfulFlush
-        expr: (time() - ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds) > 1800 and ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds > 0 and ed_finder_eddn_simulation_ingest_enabled == 1
+        expr: (time() - ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds) > 1800 and ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds > ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds and ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds > 0 and ed_finder_eddn_simulation_ingest_enabled == 1
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "EDDN simulation ingest has not written to the database for 30 minutes"
-          description: "The ingest task is enabled and had flushed successfully at least once since process start, but nothing has reached the database in thirty minutes ({{ $value | humanizeDuration }}). Unlike EddnSimulationIngestFlushStalled (which the receive path keeps fresh while the write path is healthy) this only clears on a successful DB flush, so a wedged or persistently failing write path cannot hide behind a live ZMQ feed. A fresh process that has never flushed reports 0 and is covered by EddnSimulationIngestFlushStalled instead."
+          description: "The ingest task is enabled, had flushed successfully at least once since process start, and has started at least one non-empty flush since that success, yet nothing has reached the database in thirty minutes ({{ $value | humanizeDuration }}). Unlike EddnSimulationIngestFlushStalled (which the receive path keeps fresh while the write path is healthy) this only clears on a successful DB flush, so a wedged or persistently failing write path cannot hide behind a live ZMQ feed. The attempt-after-success condition keeps a healthy relay that simply carries no Scan/FSSBodySignals/SAASignalsFound events for a while (nothing to write, nothing attempted) from counting as a failure. A fresh process that has never flushed reports 0 and is covered by EddnSimulationIngestFlushStalled instead."
 
       - alert: SseBridgeUnhealthy
         expr: ed_finder_sse_bridge_state != 2

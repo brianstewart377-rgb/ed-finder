@@ -49,6 +49,7 @@ NEW_ALERTS = {
         'for': '1m',
         'severity': 'warning',
         'expr_contains': [
+            'ed_finder_eddn_simulation_ingest_consecutive_flush_failures > 0 and ',
             'ed_finder_eddn_simulation_ingest_consecutive_flush_failures >= '
             '(ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures - 1)',
         ],
@@ -59,6 +60,8 @@ NEW_ALERTS = {
         'severity': 'critical',
         'expr_contains': [
             '(time() - ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds) > 1800',
+            'ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds > '
+            'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds',
             'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds > 0',
             'ed_finder_eddn_simulation_ingest_enabled == 1',
         ],
@@ -142,10 +145,31 @@ def test_no_successful_flush_alert_cannot_fire_on_a_fresh_or_disabled_process():
     assert ' and ed_finder_eddn_simulation_ingest_enabled == 1' in expr
 
 
+def test_no_successful_flush_alert_is_gated_on_an_attempt_since_the_last_success():
+    """A healthy relay that carries no Scan/FSSBodySignals/SAASignalsFound
+    events attempts no flush, so the success timestamp ages without any
+    write having failed. The rule must require an attempt after the last
+    success (attempt timestamp ahead of success timestamp)."""
+    expr = ' '.join(_rules_by_name()['EddnSimulationIngestNoSuccessfulFlush']['expr'].split())
+    assert (
+        ' and ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds > '
+        'ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds'
+    ) in expr
+
+
 def test_breaker_alert_reads_the_threshold_from_the_api_not_a_literal():
     expr = _rules_by_name()['EddnSimulationIngestFlushBreakerNear']['expr']
     assert 'ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures' in expr
     assert '>= 4' not in expr
+
+
+def test_breaker_alert_cannot_match_the_healthy_zero_at_threshold_one():
+    """EDDN_SIMULATION_INGEST_MAX_CONSECUTIVE_FLUSH_FAILURES=1 is allowed
+    (Field ge=1, MIN_CONSECUTIVE_FLUSH_FAILURES=1); threshold - 1 is then 0
+    and the healthy gauge value is 0, so an explicit positive guard is
+    required."""
+    expr = ' '.join(_rules_by_name()['EddnSimulationIngestFlushBreakerNear']['expr'].split())
+    assert expr.startswith('ed_finder_eddn_simulation_ingest_consecutive_flush_failures > 0 and ')
 
 
 def test_metrics_endpoint_exports_the_two_config_gauges_the_rules_need():
@@ -179,6 +203,40 @@ async def test_metrics_endpoint_renders_the_config_gauges(monkeypatch):
     assert 'ed_finder_eddn_simulation_ingest_enabled 0\n' in body
 
 
+async def test_flush_attempt_timestamp_moves_on_attempt_not_only_on_success(monkeypatch):
+    """The attempt gauge is what lets the NoSuccessfulFlush rule tell an idle
+    relevant feed (no attempt) from a failing or hung write path (attempt
+    after the last success)."""
+    from edfinder_api.ingest import eddn_client
+    from edfinder_api.routers import meta
+
+    monkeypatch.setattr(eddn_client, '_last_flush_attempt_at', 0.0)
+    monkeypatch.setattr(eddn_client, '_last_successful_flush_at', 0.0)
+    monkeypatch.setattr(eddn_client, '_consecutive_flush_failures', 0)
+
+    class _FailingPool:
+        def acquire(self):
+            raise RuntimeError('db down')
+
+    # An empty batch is a no-op: no attempt recorded.
+    assert await eddn_client._flush_batch(_FailingPool(), [], []) is True
+    assert eddn_client.last_flush_attempt_timestamp() == 0.0
+
+    before = eddn_client.time.time()
+    assert await eddn_client._flush_batch(_FailingPool(), [{'x': 1}], []) is False
+    attempt = eddn_client.last_flush_attempt_timestamp()
+    assert attempt >= before
+    assert eddn_client.last_successful_flush_timestamp() == 0.0
+    assert attempt > eddn_client.last_successful_flush_timestamp()
+
+    body = await meta.metrics_endpoint()
+    assert f'ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds {attempt:.0f}\n' in body
+
+    # After a success the attempt timestamp is never ahead of the success one.
+    eddn_client._record_flush_success()
+    assert eddn_client.last_flush_attempt_timestamp() <= eddn_client.last_successful_flush_timestamp()
+
+
 def test_every_alerted_series_is_actually_exported_by_the_api():
     """A rule on a series the API never emits is permanently silent."""
     meta_source = (API_SRC / 'routers' / 'meta.py').read_text(encoding='utf-8')
@@ -187,6 +245,7 @@ def test_every_alerted_series_is_actually_exported_by_the_api():
     for extra in (
         'ed_finder_eddn_simulation_ingest_enabled',
         'ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures',
+        'ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds',
     ):
         assert f'# TYPE {extra} gauge' in meta_source
 

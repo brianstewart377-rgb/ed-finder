@@ -39,16 +39,27 @@ Closes the two items PR #864 deferred. No request/response schema changed
   defence in depth. The failure branch is still never cached.
 - **Alert rules for the #864 series:** `config/prometheus_rules.yml` gains
   `EddnSimulationIngestFlushFailing` (flush-failure rate > 0 for 10 m, warning),
-  `EddnSimulationIngestFlushBreakerNear` (consecutive failures ≥ threshold − 1,
-  warning), `EddnSimulationIngestNoSuccessfulFlush` (no successful DB flush for
-  30 m while the ingest is enabled and has flushed at least once, critical),
+  `EddnSimulationIngestFlushBreakerNear` (consecutive failures > 0 and
+  ≥ threshold − 1, warning — the positive guard matters at the allowed
+  threshold of 1), `EddnSimulationIngestNoSuccessfulFlush` (no successful DB
+  flush for 30 m while the ingest is enabled, has flushed at least once, and has
+  *started* a non-empty flush since that success — so a healthy relay that
+  simply carries no relevant events is not a failure; critical),
   `SseBridgeUnhealthy` (bridge state ≠ subscribed for 10 m, warning) and
   `SseBridgeReconnecting` (reconnect rate > 0 for 15 m, warning), in the file's
   existing style. To make the threshold and the enabled condition expressible
   in PromQL, `/api/metrics` exports two config gauges:
   `ed_finder_eddn_simulation_ingest_enabled` (0/1) and
   `ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures` (the
-  clamped breaker threshold). `config/grafana/dashboards/ed-finder.json` gains
+  clamped breaker threshold), plus
+  `ed_finder_eddn_simulation_ingest_last_flush_attempt_timestamp_seconds`
+  (set in `eddn_client._flush_batch` when a non-empty batch starts flushing,
+  before a hung write would block) so "attempted since the last success" is
+  observable. **Scope note:** `config/prometheus_rules.yml` and the Grafana
+  dashboard are mounted only by the root `docker-compose.yml` `monitoring`
+  profile (repository/opt-in tooling); no current V3 production authority
+  deploys a Prometheus/Grafana stack, and this entry does not create one —
+  wiring monitoring into the governed V3 host is a separate owner decision. `config/grafana/dashboards/ed-finder.json` gains
   four matching panels (flush failures + consecutive/threshold, last-successful-flush
   age, bridge state with value mappings, reconnects/min). The rules file was
   validated with `promtool check rules` and a fire/no-fire `promtool test rules`

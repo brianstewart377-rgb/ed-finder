@@ -76,6 +76,13 @@ _last_flush_at: float = time.time()
 # 0 means "never"). `_flush_failures_total` is monotonic for the process
 # lifetime; `_consecutive_flush_failures` resets on the next success.
 _last_successful_flush_at: float = 0.0
+# `_last_flush_attempt_at` is set when a non-empty batch *starts* flushing
+# (success or failure, and before a hung write would block). Together with
+# `_last_successful_flush_at` it tells "a relevant batch has been attempted
+# since the last success" apart from "the relevant feed has simply been
+# idle" — an idle feed leaves both timestamps alone, a failing or hung write
+# path leaves the attempt timestamp ahead of the success one.
+_last_flush_attempt_at: float = 0.0
 _flush_failures_total: int = 0
 _consecutive_flush_failures: int = 0
 
@@ -107,6 +114,11 @@ def last_successful_flush_timestamp() -> float:
     return _last_successful_flush_at
 
 
+def last_flush_attempt_timestamp() -> float:
+    """Unix timestamp at which the last non-empty flush started, or 0.0."""
+    return _last_flush_attempt_at
+
+
 def flush_failures_total() -> int:
     return _flush_failures_total
 
@@ -131,6 +143,11 @@ def _record_flush_success() -> None:
     _last_flush_at = now
     _last_successful_flush_at = now
     _consecutive_flush_failures = 0
+
+
+def _record_flush_attempt() -> None:
+    global _last_flush_attempt_at
+    _last_flush_attempt_at = time.time()
 
 
 def _record_flush_failure() -> int:
@@ -415,6 +432,7 @@ async def _flush_batch(
     if not journal_rows and not fact_rows:
         return True
 
+    _record_flush_attempt()
     dirty_system_ids: set[int] = set()
     try:
         async with pool.acquire() as conn:
