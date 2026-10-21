@@ -2873,6 +2873,10 @@ export type GalaxySearchRequest = {
      * Offset
      */
     offset?: number;
+    /**
+     * Include Colonised
+     */
+    include_colonised?: boolean | null;
 };
 
 /**

@@ -344,8 +344,9 @@ async def galaxy_search(
     # access path, ranking profile, generation pin, product gate and
     # `SearchResponse` envelope as `POST /api/local/search` with
     # `galaxy_wide=true`. Legacy request features with no V3 projection
-    # (a concrete `economy`, `min_score > 0`, uncolonised-only) answer 422
-    # before any database access; the legacy route's implicit
+    # (a concrete `economy`, `min_score > 0`, `include_colonised=false`, any
+    # undeclared field) answer 422 before any database access; the legacy
+    # route's implicit
     # uncolonised-only restriction is gone because `v3_app.system_search`
     # carries no population column.
     background_tasks.add_task(inc_metric, 'db_queries')
@@ -356,6 +357,9 @@ async def galaxy_search(
         'min_score': req.min_score,
         'limit':     req.limit,
         'offset':    req.offset,
+        # Forwarded so an explicit legacy uncolonised-only request reaches the
+        # V3 validator (422) instead of being silently widened to all systems.
+        'include_colonised': req.include_colonised,
     }
 
     # Reject a disallowed request shape (422) before any database access, so

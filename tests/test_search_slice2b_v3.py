@@ -170,6 +170,10 @@ async def _asyncpg_pool(connection):
     )
 
 
+def envelope_results(response):
+    return response.json()["results"]
+
+
 def _test_app(pool) -> FastAPI:
     app = FastAPI()
     app.state.limiter = limiter
@@ -334,6 +338,9 @@ async def test_galaxy_search_v3_is_the_galaxy_wide_any_window(published_client):
     # Through the route, with the default request body.
     response = await client.post("/api/search/galaxy", json={})
     assert response.status_code == 200, response.text
+    assert (
+        await client.post("/api/search/galaxy", json={"include_colonised": True})
+    ).json()["results"] == envelope_results(response)
     envelope = response.json()
     assert [row["id64"] for row in envelope["results"]] == expected_order
     assert envelope["ranking"] == direct["ranking"]
@@ -360,6 +367,45 @@ async def test_galaxy_route_answers_422_before_the_product_gate(monkeypatch):
     assert "economy" in concrete.text
     assert floored.status_code == 422, floored.text
     assert "min_score" in floored.text
+
+
+@pytest.mark.asyncio
+async def test_galaxy_route_forwards_include_colonised_and_forbids_unknown_fields(monkeypatch):
+    """Codex P1 on #869: an explicit legacy uncolonised-only request (and any
+    other undeclared legacy field) must reach a 422 through the public route,
+    never be silently discarded by the request model."""
+    async def _boom(_pool):
+        raise AssertionError("resolve_published_generation must not run for a 422")
+
+    monkeypatch.setattr(local_search, "resolve_published_generation", _boom)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_test_app(object())), base_url="http://test",
+    ) as client:
+        uncolonised = await client.post(
+            "/api/search/galaxy", json={"economy": "any", "include_colonised": False},
+        )
+        region = await client.post(
+            "/api/search/galaxy", json={"economy": "any", "galaxy_region_id": 31},
+        )
+    assert uncolonised.status_code == 422, uncolonised.text
+    assert "include_colonised" in uncolonised.text
+    assert region.status_code == 422, region.text
+    assert "galaxy_region_id" in region.text
+
+
+def test_galaxy_request_model_declares_include_colonised_and_forbids_extras():
+    from pydantic import ValidationError
+
+    from edfinder_api.models import GalaxySearchRequest
+
+    assert GalaxySearchRequest().include_colonised is None
+    assert GalaxySearchRequest(include_colonised=False).include_colonised is False
+    with pytest.raises(ValidationError):
+        GalaxySearchRequest(galaxy_region_id=31)
+    # `include_colonised=true` / omitted is the documented all-systems ranking.
+    assert local_search.prepare_galaxy_search_v3(
+        {"economy": "any", "include_colonised": True},
+    )["galaxy_wide"] is True
 
 
 @pytest.mark.asyncio

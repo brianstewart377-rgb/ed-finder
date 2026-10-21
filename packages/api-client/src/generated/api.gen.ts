@@ -4238,6 +4238,8 @@ export interface components {
              * @default 0
              */
             offset: number;
+            /** Include Colonised */
+            include_colonised?: boolean | null;
         };
         /** GenerationResponse */
         GenerationResponse: {

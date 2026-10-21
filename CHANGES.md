@@ -30,13 +30,17 @@ database access, parameterized generation-pinned SQL, no legacy relation).
   (slice-1 rule): a concrete `economy` (no per-economy potential projection;
   `economy="any"` ranks by best colony potential), `min_score > 0` (a hard
   filter on a galaxy-wide Any request, refused by the F2d bounded-access
-  contract), an explicit `include_colonised=false`, and `galaxy_region_id`.
-  **Flagged shape change:** the legacy route silently forced uncolonised-only
-  results; `v3_app.system_search` carries no population column, so the V3
-  galaxy search ranks every system in the published generation. Request and
-  response models are unchanged (OpenAPI is byte-identical; no client
-  regeneration). `GALAXY_CACHE_VERSION` bumped `v4` → `v5`; the key is scoped
-  to the ranking identity and the pinned generation like `/api/local/search`.
+  contract), an explicit `include_colonised=false`, and any undeclared field
+  such as a legacy `galaxy_region_id`. **Flagged shape change:** the legacy
+  route silently forced uncolonised-only results; `v3_app.system_search`
+  carries no population column, so the V3 galaxy search ranks every system in
+  the published generation. `GalaxySearchRequest` now declares the optional
+  `include_colonised` field (forwarded to the validator, so `false` is a 422
+  through the public route rather than silently dropped) and is
+  `extra='forbid'`; both generated TypeScript clients are regenerated (one
+  additive optional field). The response model is unchanged.
+  `GALAXY_CACHE_VERSION` bumped `v4` → `v5`; the key is scoped to the ranking
+  identity and the pinned generation like `/api/local/search`.
 - **`POST /api/search/cluster`** → `local_search.local_db_cluster_search_v3`
   — **fail-closed, flagged data gap.** The legacy read over the V2
   `cluster_summary` macro-grid (per-anchor counts of economy-viable systems
