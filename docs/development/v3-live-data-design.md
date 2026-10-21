@@ -134,6 +134,15 @@ otherwise base).
   every other V3 system field), bodies, rings, signals, compositions, parent
   evidence and fixed stations. A change to the system row alone (for example a
   name or coordinate correction) is therefore admitted.
+- The hash **also covers every source field a derived build reads from the
+  source file rather than from canonical rows**. Today that is the ratings
+  bridge's compact body projection — `id64`, `bodyId`, `type`, `subType` —
+  which it re-reads from the source artifact because the canonical body row
+  keeps only the generic `type` (`scripts/ratings_v4/canonical_stream.py:4,
+  184-200`). A change to a body's `subType` alone therefore admits the system,
+  so its Ratings, Search and Archetype rows are rebuilt. The list of such
+  derived-only inputs is part of the versioned projection, and a test fails if
+  a builder reads a source field the projection does not cover.
 - The hash is over a defined **semantic projection** of those rows, not the
   raw rows. It **excludes** every per-run and lifecycle bookkeeping field the
   importer writes fresh on each run — `source_run_id`, `last_present_run_id`,
@@ -405,9 +414,17 @@ steady-state bloat is about one week's replaced rows (estimate). No
   date; a gap is closed with `galaxy_7days` or `galaxy_1month`.
 - The 110 GiB file need not sit on the production disk: it can be streamed, or
   filtered off-production down to the changed systems.
-- Risk: some changes may not bump any timestamp. The catch-up run hashes a
-  random sample of *unflagged* systems against the base and reports the
-  mismatch rate in its receipt.
+- Risk: some changes may not bump any timestamp — for example a body or
+  station removed from a system whose surviving records keep their old
+  times. The catch-up therefore also hashes a random sample of *unflagged*
+  systems against the base, and **fails closed on any mismatch**: nothing is
+  published, and the catch-up is re-run as a **complete semantic
+  comparison** — every system in the file is hashed and compared with the
+  base, with no timestamp filter, which also catches removals inside a
+  system. (For that run the base's semantic hashes are first written to a
+  temporary table, ≈ 198.5 M × ~40 bytes ≈ 8 GB plus index, this design's
+  arithmetic, and dropped afterwards.) The receipt records the sample size,
+  the mismatch count and which mode published.
 - It runs after the purge P (owner decision 4); before P there is only
   ≈ 120 GB free over a 100 GB floor (refresh study, estimate).
 
@@ -486,10 +503,16 @@ nightly Spansh work (owner decision 5):
   appendix key `(source_id, market_id, state_sha256)`, which would drop the
   second A. The worker is the only EDDN consumer and flushes in order; the
   insert compares against the latest row for that station inside the same
-  statement, and a unique key on `(source_id, market_id, observed_at,
+  statement, and a unique key on `(source_id, station_key, observed_at,
   state_sha256)` keeps exact replays idempotent without discarding two
   different states reported for the same station in the same second (journal
   timestamps are second-granularity).
+- **Station key.** Rows are keyed by `station_key`, the canonical adapter's
+  deterministic station key: the Market ID when the station has one, otherwise
+  the adapter's stable derived key (`apps/importer/src/v3_spansh/adapter.py:671-675`).
+  `market_id` is stored but **nullable**, so Spansh stations without a Market
+  ID are loaded, not skipped. EDDN `Docked` always carries `MarketID`, which
+  is the same key, so EDDN and Spansh rows for a station line up.
 - **Last seen: one small table, one row per station per source.** Repeated
   `Docked` events with an unchanged state still matter, because they are what
   makes a sighting "minutes fresh". They update `last_seen_at` (and a counter)
@@ -564,7 +587,7 @@ From the refresh study (3.3):
   current base is verified as "original seal + the ordered fold receipts".
   The F2d complete-read receipt and capacity-gate inputs remain historical
   build evidence; a future full build re-measures them.
-- **New attested release:** all of this ships after go-live in a new release
+- **New attested release:** all of this ships after go-live and the purge P in a new release
   whose attestation records the new operator-code identity.
 - **Fences:** the nightly job, layer publish/switch-off, the fold and its undo
   are governed mutators. Each refuses while a purge event is unresolved
@@ -645,10 +668,13 @@ From the refresh study, plus what this design adds:
 ## 10. Ordered steps
 
 Legend: **[repo]** = a reviewed pull request with no production access.
-**[repo, after go-live]** = touches a file listed in
+**[repo, after 9′ and P]** = touches a file listed in
 `deploy/v3-production/f2d-operator-code.txt` (or an authority file that goes
-with it) and must wait until step 9′ is recorded; it then ships in a new
-attested release. **[OWNER GO]** = a production step that needs the owner's
+with it) and must wait until go-live 9′ is recorded **and the governed purge P
+has completed**: merging it earlier would change the F2d operator-code
+identity that P itself checks, and P could then not run until a new release
+was promoted — which section 10.3 does not allow before P. It ships in a new
+attested release (L3). **[OWNER GO]** = a production step that needs the owner's
 explicit go. Nothing in production starts before go-live 9′ **and** the
 completed purge P.
 
@@ -688,15 +714,18 @@ completed purge P.
 - **R7 [repo].** Spansh station-store loader CLI (streaming, bounded memory,
   artifact SHA-256, change-only inserts, resumable), tested on fixtures.
 
-### 10.2 Repo-only, after go-live 9′ is recorded (frozen files)
+### 10.2 Repo-only, after go-live 9′ and the completed purge P (frozen files)
 
-- **A1 [repo, after go-live].** Register the new migrations: move them to
+These may be *drafted* on branches earlier, but none may merge until 9′ is
+recorded and P's completion receipt exists.
+
+- **A1 [repo, after 9′ and P].** Register the new migrations: move them to
   `sql/v3/migrations/`, append to `sql/v3/migration-manifest.txt` (frozen),
   add the schema transition and compatibility attestation in
   `deploy/v3-production/target-authority.json`, pin the schema identity. This
   changes the F2d operator-code identity, so a new release must be promoted
   and recorded before any further F2d action.
-- **A2 [repo, after go-live].** Retarget the builders to an explicit layer or
+- **A2 [repo, after 9′ and P].** Retarget the builders to an explicit layer or
   unpublished generation and add the early `ANALYZE` (tool 3):
   `scripts/v3_system_search.py`, `scripts/v3_system_search_parallel.py`,
   `scripts/v3_system_archetype.py`,
@@ -706,7 +735,7 @@ completed purge P.
   `scripts/v3_publish_derived_products.py` (all frozen), plus the ratings
   bridge `scripts/ratings_v4/canonical_stream.py` (not frozen, but it ships
   with them).
-- **A3 [repo, after go-live].** Union views and layer-aware API reads for
+- **A3 [repo, after 9′ and P].** Union views and layer-aware API reads for
   **every** reader of canonical or derived data (Inspect, Finder, name
   autocomplete, viewport map, Ratings V4 endpoints, system detail) with the
   static no-bypass test and stack-revision cache keys (section 3.3), Finder
@@ -716,16 +745,16 @@ completed purge P.
   `scripts/v3_plan_probe_statements.py` are frozen). Re-prove all 24 pairs
   plus both no-pick requests on disposable PostgreSQL 18 at representative
   layer sizes.
-- **A4 [repo, after go-live].** Purge awareness: the purge quiesces the
+- **A4 [repo, after 9′ and P].** Purge awareness: the purge quiesces the
   `eddn-*` worker and refuses while a nightly job or fold is open
   (`scripts/operator/lib/v3_purge_delete.py`, `v3_purge_state.py`,
   `v3-purge-state.sh` are frozen).
-- **A5 [repo, after go-live].** Ops actions: catch-up; nightly layer
+- **A5 [repo, after 9′ and P].** Ops actions: catch-up; nightly layer
   (download, verify size/SHA-256/end-of-file, admit, import, build, validate,
   disk/WAL/backup gates, then publish or wait for approval per D-A); layer
   switch-off; fold; fold undo; layer and history drop; Spansh station load;
   the schedule install action (a reviewed host timer, like the backup timers).
-- **A6 [repo, after go-live].** EDDN worker in the deploy authority:
+- **A6 [repo, after 9′ and P].** EDDN worker in the deploy authority:
   `deploy/v3-production/compose.yml`, `scripts/operator/v3_production_deploy.py`,
   `deploy/v3-production/target-authority.json`, the release runbook, and the
   host health check.

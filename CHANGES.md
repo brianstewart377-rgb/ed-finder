@@ -33,7 +33,8 @@ F2d-frozen file change.
   undo, the EDDN worker, the `v3_observe` station sightings store, privacy,
   labelled volume/disk/WAL/backup estimates, Finder and attestation
   requirements, the missing tools, and an ordered step list split into
-  repo-only before go-live, repo-only after go-live (F2d-frozen files) and
+  repo-only before go-live, repo-only after go-live and the purge (F2d-frozen
+  files) and
   production steps that each need the owner's go.
 - `docs/development/evidence/2026-10-21-v3-canonical-refresh-study.md` and
   `docs/development/evidence/2026-10-21-eddn-v3-scoping.md`: the two read-only
