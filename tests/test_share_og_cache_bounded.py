@@ -57,7 +57,17 @@ class _Request:
     class app:
         class state:
             redis = 'sentinel-redis'
-            pool = None
+
+
+GENERATION = '00000000-0000-0000-0000-00000000c0de'
+
+
+class _Row(dict):
+    pass
+
+
+async def _fake_generation(pool):
+    return 'v3_gen_fixture', GENERATION
 
 
 async def test_og_image_reads_and_writes_through_deps_helpers(monkeypatch):
@@ -70,36 +80,26 @@ async def test_og_image_reads_and_writes_through_deps_helpers(monkeypatch):
     async def fake_set(key, value, ttl, redis=None):
         calls['set'].append((key, value, ttl, redis))
 
+    async def fake_lookup(pool, schema, generation_id, id64):
+        assert (schema, generation_id) == ('v3_gen_fixture', GENERATION)
+        return share_router.ShareSystem(generation_id, _Row(
+            id64=id64, name='Sol', x_ly=0.0, y_ly=0.0, z_ly=0.0, loaded_body_count=41))
+
     monkeypatch.setattr(share_router, 'cache_get', fake_get)
     monkeypatch.setattr(share_router, 'cache_set', fake_set)
+    monkeypatch.setattr(share_router, '_resolve_generation', _fake_generation)
+    monkeypatch.setattr(share_router, '_lookup_system', fake_lookup)
     monkeypatch.setattr(share_router, '_render_card', lambda **kwargs: PNG)
 
-    class _Conn:
-        async def fetchrow(self, query, *args, **kwargs):
-            return {'name': 'Sol', 'x': 0.0, 'y': 0.0, 'z': 0.0, 'score': 50, 'confidence': 0.5, 'rationale': None}
+    response = await share_router.og_image(10477373803, request=_Request(), generation=None, pool=object())
 
-    class _Acquire:
-        async def __aenter__(self):
-            return _Conn()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    class _Pool:
-        def acquire(self):
-            return _Acquire()
-
-    request = _Request()
-    request.app.state.pool = _Pool()
-
-    response = await share_router.og_image(10477373803, request)
-
+    key = f'og:v3:{GENERATION}:10477373803'
     assert response.body == PNG
     assert response.headers['X-Cache'] == 'MISS'
-    assert calls['get'] == [('og:10477373803', 'sentinel-redis')]
+    assert calls['get'] == [(key, 'sentinel-redis')]
     assert len(calls['set']) == 1
-    key, value, ttl, redis = calls['set'][0]
-    assert key == 'og:10477373803'
+    set_key, value, ttl, redis = calls['set'][0]
+    assert set_key == key
     assert value == share_router._encode_cached_png(PNG)
     assert ttl == share_router.OG_CACHE_TTL_SECONDS == 7 * 24 * 3600
     assert redis == 'sentinel-redis'
@@ -112,11 +112,28 @@ async def test_og_image_cache_hit_streams_cached_png(monkeypatch):
     async def fail_set(*args, **kwargs):
         raise AssertionError('cache_set must not be called on a hit')
 
+    async def fail_lookup(*args, **kwargs):
+        raise AssertionError('a cache hit must not read the system row')
+
     monkeypatch.setattr(share_router, 'cache_get', fake_get)
     monkeypatch.setattr(share_router, 'cache_set', fail_set)
+    monkeypatch.setattr(share_router, '_resolve_generation', _fake_generation)
+    monkeypatch.setattr(share_router, '_lookup_system', fail_lookup)
 
-    response = await share_router.og_image(1, _Request())
+    response = await share_router.og_image(1, request=_Request(), generation=None, pool=object())
 
     assert response.body == PNG
     assert response.headers['X-Cache'] == 'HIT'
     assert response.media_type == 'image/png'
+
+
+def test_share_lookups_never_read_legacy_v2_relations():
+    """V3 production has no V2 systems/ratings relations (CHANGES.md); the
+    preview reads only the generation-pinned canonical schema."""
+    source = (API_SRC / 'share_router.py').read_text(encoding='utf-8')
+    assert 'FROM systems' not in source
+    assert 'JOIN ratings' not in source and 'FROM ratings' not in source
+    assert 'current_canonical_generation' in source
+    assert '{schema}.systems' in source
+    assert '/inspect?system=' in source
+    assert '/#system/' not in source

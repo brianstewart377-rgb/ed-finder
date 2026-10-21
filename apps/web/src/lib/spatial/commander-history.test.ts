@@ -18,7 +18,6 @@ describe('commander history contribution', () => {
           visitCount: 4,
           firstVisitedAt: '2025-01-01T00:00:00Z',
           lastVisitedAt: '2026-09-14T00:00:00Z',
-          completionState: 'complete',
         },
       ],
       12,

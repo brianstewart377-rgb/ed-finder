@@ -8,7 +8,7 @@ Covers the endpoints the per-phase tests didn't already touch:
   * /api/systems/batch
   * /api/archetypes/rerank
   * /api/profile/sync/{key}  (rate limit + round-trip)
-  * /api/share/og/{id64}     (image generation)
+  * /s/{id64}                (human redirect to canonical Inspect)
   * Admin endpoints respect ADMIN_TOKEN
   * RFC 7807 problem-details on 503 / 410
 """
@@ -190,38 +190,13 @@ async def test_profile_sync_short_key_rejected(client):
     assert r.status_code == 422   # FastAPI Path validation
 
 
-# --- OG share image --------------------------------------------------------
+# --- Share link ------------------------------------------------------------
+# The OG card and bot stop page read the published V3 canonical generation;
+# their real coverage runs on a fresh PG18 V3 database in
+# tests/test_v3_inspect_share_travel_postgres.py (this lane seeds V2 only).
 
-async def test_share_og_renders_png(client, pool):
-    async with pool.acquire() as conn:
-        id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')
-    r = await client.get(f'/api/share/og/{id64}')
-    assert r.status_code == 200, r.text
-    assert r.headers['content-type'] == 'image/png'
-    # PNG magic bytes
-    assert r.content[:8] == b'\x89PNG\r\n\x1a\n', \
-        f"expected PNG header, got {r.content[:8]!r}"
-
-
-async def test_share_og_renders_png_when_coords_are_unknown(client, pool):
-    async with pool.acquire() as conn:
-        id64 = await conn.fetchval(
-            'SELECT id64 FROM systems WHERE id64 != 10477373803 LIMIT 1'
-        )
-        await conn.execute(
-            'UPDATE systems SET x = 0, y = 0, z = 0 WHERE id64 = $1',
-            id64,
-        )
-    r = await client.get(f'/api/share/og/{id64}')
-    assert r.status_code == 200, r.text
-    assert r.headers['content-type'] == 'image/png'
-    assert r.content[:8] == b'\x89PNG\r\n\x1a\n'
-
-
-async def test_share_stop_page_redirects_humans_to_supported_hash_route(client, pool):
-    async with pool.acquire() as conn:
-        id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')
-
+async def test_share_stop_page_redirects_humans_to_canonical_inspect(client):
+    id64 = 10477373803
     r = await client.get(
         f'/s/{id64}',
         headers={'user-agent': 'Mozilla/5.0'},
@@ -229,7 +204,20 @@ async def test_share_stop_page_redirects_humans_to_supported_hash_route(client, 
     )
 
     assert r.status_code == 302
-    assert r.headers['location'].endswith(f'/#system/{id64}')
+    assert r.headers['location'].endswith(f'/inspect?system={id64}')
+
+
+async def test_share_og_fails_closed_without_a_v3_publication(client, pool):
+    async with pool.acquire() as conn:
+        published = await conn.fetchval(
+            "SELECT to_regclass('v3_meta.current_canonical_generation') IS NOT NULL"
+        )
+    if published:
+        pytest.skip('V3 canonical schema present; covered by the PG18 V3 suite')
+    r = await client.get('/api/share/og/10477373803')
+    assert r.status_code == 503, r.text
+
+
 # --- Admin auth ------------------------------------------------------------
 
 async def test_admin_endpoint_requires_token(client):

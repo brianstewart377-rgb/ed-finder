@@ -796,7 +796,6 @@ describe('Babylon spatial adapter boundary', () => {
           visitCount: 2,
           firstVisitedAt: '2025-01-01T00:00:00Z',
           lastVisitedAt: '2025-02-01T00:00:00Z',
-          completionState: 'partial',
           cellSizeLy: 50,
         },
         {
@@ -807,7 +806,6 @@ describe('Babylon spatial adapter boundary', () => {
           visitCount: 18,
           firstVisitedAt: '2025-01-01T00:00:00Z',
           lastVisitedAt: '2026-09-14T00:00:00Z',
-          completionState: 'complete',
           cellSizeLy: 50,
         },
       ],

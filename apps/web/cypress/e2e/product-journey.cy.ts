@@ -235,6 +235,42 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     });
   });
 
+  it('opens a real system directly in Inspect from the V3 canonical generation', () => {
+    // Release-smoke candidate: one real system page, read only through the
+    // generation-pinned V3 routes. The V2-backed /api/system route (absent
+    // tables in V3 production) must never be called.
+    cy.intercept('GET', '/api/system/*').as('legacySystem');
+    cy.intercept('GET', '/api/v1/systems/10477373803000').as('v3System');
+    cy.intercept('GET', '/api/v1/systems/10477373803000/bodies').as('v3Bodies');
+    cy.intercept('GET', '/api/v1/systems/10477373803000/rings').as('v3Rings');
+    cy.intercept('GET', '/api/v1/systems/10477373803000/stations').as(
+      'v3Stations',
+    );
+    cy.visit('/inspect?system=10477373803000');
+    for (const alias of ['@v3System', '@v3Bodies', '@v3Rings', '@v3Stations'])
+      cy.wait(alias).its('response.statusCode').should('eq', 200);
+    cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
+      .should('contain.text', 'Achenar')
+      .and('contain.text', '10477373803000');
+    cy.focused().should('have.prop', 'tagName', 'H1');
+    cy.contains('dt', 'Main star').next('dd').should('have.text', 'G2 V');
+    cy.contains('dt', 'Bodies returned').next('dd').should('have.text', '41');
+    cy.get('[data-unavailable-fields]')
+      .should('have.length', 2)
+      .each(($row) => expect($row).to.contain.text('Not available yet'));
+    cy.get('[aria-label="System bodies"] button')
+      .first()
+      .should('contain.text', 'Star · G2 V');
+    cy.injectAxe();
+    cy.checkA11y();
+
+    cy.intercept('GET', '/api/v1/systems/4242').as('v3Missing');
+    cy.visit('/inspect?system=4242');
+    cy.wait('@v3Missing').its('response.statusCode').should('eq', 404);
+    cy.contains('h1', 'System not found').should('be.visible');
+    cy.get('@legacySystem.all').should('have.length', 0);
+  });
+
   it('preserves an unsafe-sized id64 through API, selection, route, detail and reload', () => {
     const unsafeId = '9007199254740993';
     visitExplore();
