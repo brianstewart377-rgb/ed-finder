@@ -30,6 +30,14 @@ MAX_DAILY_EVENTS_PER_ACCOUNT = 200_000
 # statement stays well under parameter-count and work-memory limits.
 EVENT_INSERT_CHUNK_SIZE = 5_000
 
+# Event types whose verified-import identity also carries the observation
+# (``RecordHash`` = the journal line hash, ``ObservedAt`` = its timestamp) on
+# top of the V3.0 semantic key from identity.py, so repeated observations of
+# the same subject are kept as history instead of collapsing to the first.
+# Replaying the same journal line stays idempotent (same hash and time).
+# Unverified (``commander_id=None``) imports keep the plain semantic key.
+OBSERVATION_HISTORY_EVENTS: frozenset[str] = frozenset({'Scan', 'Docked'})
+
 _SOURCE_CODE = 'frontier_journal'
 _RIGHTS_POLICY_VERSION = '1.0'
 _ARTIFACT_KIND = 'JOURNAL_FILE'
@@ -514,11 +522,14 @@ async def import_journal_batch(
                     record_hash,
                     event_timestamp=_normalize_ts(event.get('event_timestamp'), required=True),
                 )
-                if owner_commander_id is not None and event_type == 'Scan':
+                if owner_commander_id is not None and event_type in OBSERVATION_HISTORY_EVENTS:
                     # Verified imports retain distinct scan observations for
                     # freshness reconciliation. Replaying the same observation
                     # remains idempotent; a later scan must not be discarded as
                     # if it were the earlier scan merely because BodyID matches.
+                    # Docked follows the same rule: a later docking at the
+                    # same station is a new before/after observation of its
+                    # economy mix and services, not a duplicate of the first.
                     event_key['RecordHash'] = record_hash.hex()
                     event_key['ObservedAt'] = _normalize_ts(
                         event.get('event_timestamp'), required=True,

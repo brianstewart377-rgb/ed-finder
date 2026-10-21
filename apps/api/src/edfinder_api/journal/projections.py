@@ -296,3 +296,171 @@ async def sale_history(
         item['bio_data'] = _as_object(item.get('bio_data'))
         result.append(item)
     return result
+
+
+# Station history for in-game experiments ("dock, note the economy mix and
+# services, build a facility, dock again later"). Reads only the caller's own
+# Docked rows. A journal line re-imported after the 2026-10-21 Docked identity
+# change can exist twice (once under the plain V3.0 key, once under the
+# verified-import observation key); DISTINCT ON the line hash keeps one copy.
+# Stations without a valid decimal MarketID are not addressable and are
+# skipped. All values are bound parameters.
+_STATION_OBSERVATIONS_SQL = r'''
+    WITH docked AS (
+        SELECT DISTINCT ON (e.source_record_hash)
+               e.event_payload->>'MarketID' AS market_id,
+               e.event_timestamp,
+               e.event_payload,
+               e.source_record_hash
+          FROM v3_private.journal_event e
+         WHERE e.owner_account_id = $1
+           AND e.event_type = 'Docked'
+           AND (e.event_payload->>'MarketID') ~ '^[0-9]{1,20}$'
+           AND ($5::text IS NULL OR e.event_payload->>'MarketID' = $5::text)
+         ORDER BY e.source_record_hash, e.created_at, e.journal_event_id
+    ),
+    stations AS (
+        SELECT market_id,
+               count(*)::int AS observation_count,
+               min(event_timestamp) AS first_docked_at,
+               max(event_timestamp) AS last_docked_at
+          FROM docked
+         GROUP BY market_id
+         ORDER BY last_docked_at DESC, market_id
+         OFFSET $2 LIMIT $3
+    ),
+    ranked AS (
+        SELECT d.market_id, d.event_timestamp, d.event_payload, d.source_record_hash,
+               row_number() OVER (
+                   PARTITION BY d.market_id
+                   ORDER BY d.event_timestamp DESC, d.source_record_hash DESC
+               ) AS recency
+          FROM docked d
+          JOIN stations s USING (market_id)
+    )
+    SELECT s.market_id, s.observation_count, s.first_docked_at, s.last_docked_at,
+           r.event_timestamp AS observed_at, r.event_payload AS payload
+      FROM stations s
+      JOIN ranked r USING (market_id)
+     WHERE r.recency <= $4
+     ORDER BY s.last_docked_at DESC, s.market_id, r.event_timestamp, r.source_record_hash
+'''
+
+# Output bounds for one observation (journal values are the caller's own,
+# but the response stays bounded regardless of what was stored).
+MAX_STATION_ECONOMIES = 32
+MAX_STATION_SERVICES = 128
+_MAX_TEXT = 256
+
+
+def _text(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()[:_MAX_TEXT]
+    return None
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    return number if number == number and number not in (float('inf'), float('-inf')) else None
+
+
+def _decimal_id(value: object) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return str(value)
+    if isinstance(value, str) and value.strip().isdigit() and len(value.strip()) <= 20:
+        return value.strip()
+    return None
+
+
+def docked_observation(observed_at: object, payload: object) -> dict[str, Any]:
+    """Shape one stored Docked payload into the typed station observation."""
+    data = _as_object(payload)
+    if not isinstance(data, dict):
+        data = {}
+    economies = []
+    raw_economies = data.get('StationEconomies')
+    for item in raw_economies if isinstance(raw_economies, list) else []:
+        if len(economies) >= MAX_STATION_ECONOMIES:
+            break
+        if not isinstance(item, dict) or _text(item.get('Name')) is None:
+            continue
+        economies.append({
+            'name': _text(item.get('Name')),
+            'name_localised': _text(item.get('Name_Localised')),
+            'proportion': _number(item.get('Proportion')),
+        })
+    raw_services = data.get('StationServices')
+    services = [
+        text for text in (
+            _text(item) for item in (raw_services if isinstance(raw_services, list) else [])
+        ) if text is not None
+    ][:MAX_STATION_SERVICES]
+    return {
+        'observed_at': observed_at,
+        'system_id64': _decimal_id(data.get('SystemAddress')),
+        'system_name': _text(data.get('StarSystem')),
+        'station_name': _text(data.get('StationName')),
+        'station_type': _text(data.get('StationType')),
+        'station_government': _text(data.get('StationGovernment')),
+        'station_allegiance': _text(data.get('StationAllegiance')),
+        'dist_from_star_ls': _number(data.get('DistFromStarLS')),
+        'economies': economies,
+        'services': services,
+    }
+
+
+async def station_observations(
+    pool: asyncpg.Pool,
+    account_id: object,
+    *,
+    offset: int = 0,
+    limit: int = 25,
+    max_observations: int = 50,
+    market_id: str | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Owner-scoped Docked history per station (MarketID), newest station first.
+
+    Returns ``(stations, has_more)``. Each station carries its total
+    observation count and at most ``max_observations`` observations — the
+    most recent ones — listed oldest first so a before/after reads top-down.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            _STATION_OBSERVATIONS_SQL,
+            account_id,
+            offset,
+            limit + 1,
+            max_observations,
+            market_id,
+        )
+    stations: list[dict[str, Any]] = []
+    by_market: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = _as_dict(row)
+        key = str(item['market_id'])
+        station = by_market.get(key)
+        if station is None:
+            station = {
+                'market_id': key,
+                'observation_count': int(item['observation_count']),
+                'first_docked_at': item['first_docked_at'],
+                'last_docked_at': item['last_docked_at'],
+                'observations': [],
+            }
+            by_market[key] = station
+            stations.append(station)
+        station['observations'].append(docked_observation(item['observed_at'], item['payload']))
+    has_more = len(stations) > limit
+    return stations[:limit], has_more

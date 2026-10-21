@@ -11,6 +11,37 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Journal: keep repeat dockings and read back station history
+
+Manual journal import only; no migration, no scheduler/automation, no
+canonical promotion, no research export (still paused), no web UI, no
+workflow, operator or deploy change.
+
+- `apps/api/src/edfinder_api/journal/store.py`: verified (commander-owned)
+  imports now key `Docked` like `Scan` — the V3.0 semantic key
+  (`SystemAddress`, `StationName`) plus `RecordHash` (journal line SHA-256)
+  and `ObservedAt` (UTC event time), via the new `OBSERVATION_HISTORY_EVENTS`.
+  A second docking at the same station is now kept instead of being dropped
+  as a duplicate; replaying the same line stays idempotent. Unverified imports
+  keep the plain key. Existing rows are not rewritten.
+- New owner-scoped read route `GET /api/v1/journal/station-observations`
+  (`listV3JournalStationObservations`): per station (MarketID), newest station
+  first, the time-ordered Docked observations (system, station name/type,
+  economy mix with proportions, services, government, allegiance, distance).
+  Bounded (`limit` 1–100, `offset` ≤ 100,000, `max_observations` 1–200,
+  optional digits-only `market_id`), parameterized, reads only
+  `v3_private.journal_event`, and de-duplicates the legacy-key copy of a
+  re-imported line by `source_record_hash`. Generated TS clients regenerated.
+- `docs/colonisation-redesign/in-game-experiment-recording.md`: plain-language
+  steps for recording a before/after colonisation test, how to read it back,
+  how it feeds CRE (manually), and why the five colonisation journal events
+  (verified against the v38 journal manual and the community journal schemas)
+  are not kept yet: the event-type CHECK in migration `005` needs migration
+  `017`, which follows after go-live.
+- `docs/development/journal-commander-contributions.md` records the identity
+  contract change; tests: store key unit tests, route contract/bounds tests,
+  and a fresh-PG18 before/after, scoping, pagination and legacy-dedupe test.
+
 ## 2026-10-21 — Finder F4b prerequisites: owner answers and Product fixture-output contract
 
 Docs and tests only; no `apps/api`, `apps/web`, workflow, operator or deploy

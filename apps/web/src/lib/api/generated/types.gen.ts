@@ -7867,6 +7867,52 @@ export type V3CodexEntryRow = {
 };
 
 /**
+ * V3DockedObservation
+ */
+export type V3DockedObservation = {
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * System Id64
+     */
+    system_id64: string | null;
+    /**
+     * System Name
+     */
+    system_name: string | null;
+    /**
+     * Station Name
+     */
+    station_name: string | null;
+    /**
+     * Station Type
+     */
+    station_type: string | null;
+    /**
+     * Station Government
+     */
+    station_government: string | null;
+    /**
+     * Station Allegiance
+     */
+    station_allegiance: string | null;
+    /**
+     * Dist From Star Ls
+     */
+    dist_from_star_ls: number | null;
+    /**
+     * Economies
+     */
+    economies: Array<V3StationEconomyShare>;
+    /**
+     * Services
+     */
+    services: Array<string>;
+};
+
+/**
  * V3HeldJournalFile
  */
 export type V3HeldJournalFile = {
@@ -8265,6 +8311,76 @@ export type V3SaleRow = {
      * Observed At
      */
     observed_at: string;
+};
+
+/**
+ * V3StationEconomyShare
+ */
+export type V3StationEconomyShare = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Name Localised
+     */
+    name_localised: string | null;
+    /**
+     * Proportion
+     */
+    proportion: number | null;
+};
+
+/**
+ * V3StationHistory
+ */
+export type V3StationHistory = {
+    /**
+     * Market Id
+     */
+    market_id: string;
+    /**
+     * Observation Count
+     */
+    observation_count: number;
+    /**
+     * First Docked At
+     */
+    first_docked_at: string;
+    /**
+     * Last Docked At
+     */
+    last_docked_at: string;
+    /**
+     * Observations Truncated
+     */
+    observations_truncated: boolean;
+    /**
+     * Observations
+     */
+    observations: Array<V3DockedObservation>;
+};
+
+/**
+ * V3StationObservationsPage
+ */
+export type V3StationObservationsPage = {
+    /**
+     * Offset
+     */
+    offset: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Has More
+     */
+    has_more: boolean;
+    /**
+     * Stations
+     */
+    stations: Array<V3StationHistory>;
 };
 
 /**
@@ -12451,6 +12567,48 @@ export type ListV3JournalSalesResponses = {
 };
 
 export type ListV3JournalSalesResponse = ListV3JournalSalesResponses[keyof ListV3JournalSalesResponses];
+
+export type ListV3JournalStationObservationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Max Observations
+         */
+        max_observations?: number;
+        /**
+         * Market Id
+         */
+        market_id?: string | null;
+    };
+    url: '/api/v1/journal/station-observations';
+};
+
+export type ListV3JournalStationObservationsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3JournalStationObservationsError = ListV3JournalStationObservationsErrors[keyof ListV3JournalStationObservationsErrors];
+
+export type ListV3JournalStationObservationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3StationObservationsPage;
+};
+
+export type ListV3JournalStationObservationsResponse = ListV3JournalStationObservationsResponses[keyof ListV3JournalStationObservationsResponses];
 
 export type GetV3ResearchConsentData = {
     body?: never;
