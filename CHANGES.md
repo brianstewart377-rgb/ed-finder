@@ -11,6 +11,41 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — V3 EDDN station-sighting worker and `v3_observe` proposal (code only)
+
+Code and tests only. Nothing is deployed, scheduled or applied: no
+`deploy/`, `scripts/operator/`, deploy workflow, `sql/v3/migration-manifest.txt`
+or `sql/v3/migrations/` change, and the F2d operator-code identity is unchanged.
+
+- `sql/v3/proposals/017_v3_observe_station_sightings.sql` (UNREGISTERED
+  proposal): new `v3_observe` schema; append-only, change-only
+  `station_sighting` history (market id, system id64, station name/type,
+  economies JSONB, services, landing pads, optional Spansh body, source
+  `spansh|eddn`, source/gateway/observed/first-seen times, state SHA-256; no
+  uploader column), bounded by CHECK constraints; a `station_current` view per
+  `(source, market_id)`; a source binding to two new `v3_source.source` rows
+  with `INTERNAL_USE`, non-distributable rights policies; and the restricted
+  NOLOGIN `v3_station_observer` role (SELECT/INSERT only).
+- `apps/eddn_v3/`: a small CPython 3.14 worker (`psycopg` + `pyzmq`, own
+  `pyproject.toml` and frozen `uv.lock`) that subscribes to the EDDN relay,
+  keeps only `journal/1` `Docked` (no fleet carriers, no Legacy), validates and
+  bounds every field, and writes a row only when a station's state hash
+  changes — batched, parameterised, one transaction per batch, under
+  `SET ROLE v3_station_observer`. `/metrics` and `/healthz` follow the #864
+  liveness pattern; N consecutive failed flushes exit the process. The
+  `uploaderID` header field is never read, stored or logged. The sighting
+  model and `record_sightings` writer are source-agnostic for the later
+  Spansh loader. A non-root Dockerfile is included but wired into nothing.
+  This worker is the EDDN observation path only; it is not journal-import
+  automation or canonical promotion.
+- Tests: `tests/test_eddn_v3_worker.py` (unit lane) and
+  `tests/test_eddn_v3_station_sightings_pg18.py` (Finder derived-data PG18
+  lane, discovered by its `RATINGS_V4_VALIDATION_DATABASE_URL` reference).
+  `tests/test_v3_python_runtime_validation.py` now accepts the second uv lock.
+- Post-go-live, each with the owner's go: register as migration 017, add the
+  worker to the production deploy authority, grant/verify the role on the
+  application login, make the worker refuse to run during the governed purge,
+  then the first run.
 ## 2026-10-21 — Spansh delta measurement (canonical-refresh study step S1)
 
 Repository tooling only: no production access, no secrets, no database, no
