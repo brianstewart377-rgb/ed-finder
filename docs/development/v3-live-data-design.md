@@ -134,6 +134,17 @@ otherwise base).
   every other V3 system field), bodies, rings, signals, compositions, parent
   evidence and fixed stations. A change to the system row alone (for example a
   name or coordinate correction) is therefore admitted.
+- The hash is over a defined **semantic projection** of those rows, not the
+  raw rows. It **excludes** every per-run and lifecycle bookkeeping field the
+  importer writes fresh on each run — `source_run_id`, `last_present_run_id`,
+  `first_missing_run_id`, `freshness_checked_at`, lifecycle/status columns,
+  generated surrogate keys — and the source observation/update timestamps
+  themselves (`date`, `updateTime`), because Spansh can bump a timestamp
+  without changing content (`apps/importer/src/v3_spansh/adapter.py:424-440,
+  671-691`). Otherwise every unchanged system in a daily file would hash
+  differently and be admitted. The projection's field list is versioned and
+  pinned by a test, and a fixture with an unchanged system re-imported under a
+  new run must hash identically.
 - Faction, population and influence churn is ignored, because V3 canonical
   data has no such columns (refresh study 1.3 rule 13).
 - The "currently shown" hash is computed on demand for the systems in the
@@ -148,12 +159,30 @@ otherwise base).
 - A small **winner index** maps each `id64` that appears in any active layer
   to the newest active layer holding it. It is rewritten for the affected
   `id64`s in the same transaction that activates, disables or folds a layer.
+  Precedence, highest first: the newest active normal layer by source time,
+  then a fold-undo overlay if one exists (section 3.7), then the base. An
+  overlay entry may be a **tombstone** (the system reads as absent); tombstones
+  exist only inside an undo overlay, never in Spansh-built layers.
 - **Inspect** looks the system up in the winner index first; if present it
   reads that layer's rows, otherwise the base.
 - **Finder views** (`v3_app.system_search`, `v3_app.system_archetype`, today
   defined by migration `015`) become **union views**: base rows whose `id64`
   is not in the winner index, plus the winning layer rows. The superseded set
   is at most the systems in active layers, which the weekly fold keeps small.
+- **Every other read of canonical or derived data** must use the same
+  layer-aware resolution, not only Inspect and Finder. Known readers today
+  that query the generation directly: name autocomplete
+  (`apps/api/src/routers/search.py:129-140`, called by the Svelte Explore UI),
+  the viewport map (`apps/api/src/routers/map.py:620-670`), and the Ratings V4
+  endpoints (`apps/api/src/routers/ratings_v4.py:193-233`, which select
+  `current_derived_generation` and read `system_rating_vector` /
+  `body_mechanics` directly — they would return stale scores, or 404 for a
+  layer-only system). All of them move onto layer-aware views or a shared
+  resolver, report the stack identity below, and key their caches by it. A
+  static test fails if any API module reads a `v3_gen_*` schema,
+  `current_generation_schema`, `current_derived_generation` or a `v3_derived`
+  relation other than through that resolver, so a new reader cannot bypass
+  the layers.
 - **Map density pyramid** stays on the base pyramid (keyed to the canonical
   generation, migration `012`). Density changes by a fraction of a percent a
   month (refresh study, estimate). Rebuilding it on the folded base is a
@@ -210,6 +239,12 @@ confirmed in the tooling review:
   older READY layer approved after a newer night is therefore refused, and the
   missed window is rebuilt from `galaxy_7days`/`galaxy_1month` as a
   `RECOVERY` layer admitted against the current view.
+- **The base has a chronology too.** Each fold records the base's **source
+  high-water mark**: the newest source time among the layers it folded. No
+  layer may be `ACTIVE` with a source time at or below the base's high-water
+  mark, because the base would then hold newer data than the layer and a stale
+  layer would win. Folds take a **prefix in source-time order**, so every
+  layer left active after a fold is newer than the base.
 - **Publish** (one transaction): check the layer is `READY` and its
   validation receipt and seals match; check the source-time and stack-revision
   conditions above; check no purge event is unresolved and no fold is
@@ -220,8 +255,12 @@ confirmed in the tooling review:
 - **Switch off** (one transaction): set the layer `DISABLED`; recompute the
   winner index for its `id64`s (each falls back to the next-newest active
   layer or to the base); advance the stack revision; probe; receipt. No rows
-  are deleted. A disabled layer can be re-enabled the same way (the source-time
-  rule then places it in its original position), or dropped later.
+  are deleted. A disabled layer can be re-enabled the same way, taking its
+  original source-time position among the active layers, **only while its
+  source time is above the base's high-water mark**. Once a later fold has
+  passed it, re-enabling is refused: the layer can only be dropped, and any
+  wanted content comes back through a `RECOVERY` layer admitted against the
+  current view.
 - Switching off a middle layer is safe: every layer holds complete records,
   so the systems simply show an older, still-consistent version. Because later
   layers admitted only *changes* against a view that included the switched-off
@@ -237,7 +276,8 @@ small. It is one governed operation with one receipt, and readers see one
 change, at one commit.
 
 1. **Prepare (read-only):** pick the layers to fold (all `ACTIVE` layers up to
-   a chosen sequence), compute the newest version of each system across them,
+   a chosen source time — a prefix in source-time order; disabled layers are
+   never folded), compute the newest version of each system across them,
    and write a fold manifest (fold id, layer ids and seals, the `id64` list,
    expected row counts). Refuse if any purge event is unresolved or any
    nightly job is running.
@@ -281,17 +321,37 @@ change, at one commit.
 5. **Later:** drop the folded layers' partitions (cheap) once the fold has
    been checked.
 
-**Undo a fold** (folds are undone newest first): in one transaction, delete
-the base rows the fold inserted (this also removes the systems the fold
-added), re-insert that fold's history rows, restore the chunk, generation and
-product records and seals from history (dropping the chunks the fold
-appended), advance the stack revision, mark the fold `REVERSED`, and write the
-undo receipt;
-then `VACUUM (ANALYZE)` and run the plan probe. MVCC makes the transaction
-atomic for readers. If the rehearsal shows that transaction is too long, the
-alternative is to expose the fold's history partition as a temporary layer
-first (instant), then restore the base underneath it, as in step 2. Layers
-published after the fold stay valid, because they hold complete records.
+**Undo a fold** (folds are undone newest first). The undo changes what
+readers see, so — like the fold — it is validated **before** it becomes
+visible, and the old view stays live until one switch transaction commits:
+
+1. **Stage an undo overlay (invisible).** Expose the fold's history partition
+   as a special `UNDO` overlay: it holds the pre-fold rows of the systems the
+   fold replaced, plus **tombstone** entries for the systems the fold added
+   (so they read as absent). It is staged `READY`, not visible; `VACUUM
+   (ANALYZE)` runs on it.
+2. **Switch to the overlay (one transaction).** Activate the overlay; it sits
+   **directly above the base and below every normal layer**, so layers
+   published after the fold still win for their systems. Lower the base's
+   source high-water mark back to the pre-fold value. Advance the stack
+   revision and run the bounded-plan probe on the same connection before
+   commit; **if the probe fails, the transaction rolls back and the fold stays
+   in place, visible and unchanged.**
+3. **Restore the base underneath (chunked, resumable, invisible).** Delete the
+   base rows the fold inserted (this also removes the systems it added),
+   re-insert the history rows, and restore the chunk, generation and product
+   records and seals from history (dropping the chunks the fold appended).
+   Readers keep seeing the overlay, which is the same content. Then `VACUUM
+   (ANALYZE)` the touched base tables.
+4. **Retire the overlay (one transaction).** Deactivate the overlay, advance
+   the stack revision, probe before commit (roll back on failure, leaving the
+   overlay serving the same content), mark the fold `REVERSED`, and write the
+   undo receipt.
+
+Folded layers stay `FOLDED` after an undo and are never re-enabled (their
+content is what was undone); wanted content returns through a `RECOVERY`
+layer. Layers published after the fold stay valid, because they hold
+complete records. Only one `UNDO` overlay may exist at a time.
 
 **Write capability.** The base relations refuse writes today (derived triggers
 in `003:196-214`; insert-only products in `006:130-204`; canonical immutability
@@ -426,8 +486,10 @@ nightly Spansh work (owner decision 5):
   appendix key `(source_id, market_id, state_sha256)`, which would drop the
   second A. The worker is the only EDDN consumer and flushes in order; the
   insert compares against the latest row for that station inside the same
-  statement, and a unique key on `(source_id, market_id, observed_at)` keeps
-  replays idempotent.
+  statement, and a unique key on `(source_id, market_id, observed_at,
+  state_sha256)` keeps exact replays idempotent without discarding two
+  different states reported for the same station in the same second (journal
+  timestamps are second-granularity).
 - **Last seen: one small table, one row per station per source.** Repeated
   `Docked` events with an unchanged state still matter, because they are what
   makes a sighting "minutes fresh". They update `last_seen_at` (and a counter)
@@ -441,8 +503,8 @@ nightly Spansh work (owner decision 5):
   proportions, sorted services, body, landing pads. It leaves out faction,
   government, allegiance and timestamps.
 - **Fleet carriers excluded** (the adapter already identifies them).
-- **Spansh first:** the station baseline comes from the catch-up pass over the
-  full file, then nightly from the station content of each `galaxy_1day` (no
+- **Spansh first:** the station baseline is loaded in the same single stream
+  of the full file as the catch-up layer (step L4), then nightly from the station content of each `galaxy_1day` (no
   extra download). Spansh gives body association where it nests the station
   under a body.
 - **Then EDDN:** `Docked` rows from the live worker, told apart by
@@ -494,7 +556,7 @@ From the refresh study (3.3):
 - **Union views** replace the `015` views, and the step 9′ bounded-plan proof —
   all 24 archetype/floor pairs plus both no-pick requests, `Heap Fetches: 0` —
   must be **re-proved for the union shape**, at every layer publication,
-  layer switch-off and fold. A base index scan with an anti-join on the
+  layer switch-off, fold switch and undo switch. A base index scan with an anti-join on the
   superseded set, merged with a small layer index scan, is expected to be
   boundable because the weekly fold keeps the superseded set small; that is a
   design expectation, not yet proved.
@@ -644,8 +706,12 @@ completed purge P.
   `scripts/v3_publish_derived_products.py` (all frozen), plus the ratings
   bridge `scripts/ratings_v4/canonical_stream.py` (not frozen, but it ships
   with them).
-- **A3 [repo, after go-live].** Union views and API reads, Finder envelope
-  fields, Inspect "updated since snapshot", and the bounded-plan probe for the
+- **A3 [repo, after go-live].** Union views and layer-aware API reads for
+  **every** reader of canonical or derived data (Inspect, Finder, name
+  autocomplete, viewport map, Ratings V4 endpoints, system detail) with the
+  static no-bypass test and stack-revision cache keys (section 3.3), Finder
+  and Ratings envelope fields, Inspect "updated since snapshot", and the
+  bounded-plan probe for the
   union shape (`scripts/v3_archetype_plan_probe.py` and
   `scripts/v3_plan_probe_statements.py` are frozen). Re-prove all 24 pairs
   plus both no-pick requests on disposable PostgreSQL 18 at representative
@@ -678,12 +744,17 @@ completed purge P.
   A1 migrations.
 - **L3 [OWNER GO].** Governed release carrying A2–A6 (EDDN worker may ship
   disabled); record its attestation and the new operator-code identity.
-- **L4 [OWNER GO].** Catch-up: stream and filter the full file, import, build,
-  validate, publish as the first layer; verify the live app; the layer stays
-  switch-off-able.
-- **L5 [OWNER GO].** Spansh station baseline load into `v3_observe`; then
-  enable the EDDN worker; review its numbers after 24–72 h (rows a day, size,
-  drops, failures).
+- **L4 [OWNER GO].** Catch-up: in **one** stream of the full file, filter,
+  import, build, validate and publish the first layer, **and load the Spansh
+  station baseline into `v3_observe` in the same pass** (every non-carrier
+  station of every system in the file, not only admitted systems), so the
+  110 GiB file is read once; verify the live app; the layer stays
+  switch-off-able. The receipt records both outputs. If the station load
+  fails, the stream's bounded station extract is kept as a sealed, receipted
+  artifact so the load can be retried without a second full download.
+- **L5 [OWNER GO].** Enable the EDDN worker (the Spansh baseline is already
+  loaded in L4); review its numbers after 24–72 h (rows a day, size, drops,
+  failures).
 - **L6 [OWNER GO].** Nightly layers, each published only on the owner's
   approval for the first weeks; review each receipt (counts, time, disk,
   WAL).
