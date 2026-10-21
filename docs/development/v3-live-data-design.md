@@ -92,8 +92,9 @@ now, the station store, and no prior request to Spansh.
 Rules for every Spansh download (owner decision 6): at most daily, off-peak,
 delta files where offered; record the artifact's size, SHA-256 and Spansh
 effective date in `v3_source.source_artifact`; verify end-of-file before use.
-The full file is fetched once for the catch-up and again only for a full new
-generation.
+The full file is fetched once for the catch-up (and kept as a sealed copy
+until the catch-up layer is published, section 3.8) and again only for a full
+new generation.
 
 EDDN facts (scoping report B0): the journal schema lists no `Colonisation*`
 event, so EDDN gives only indirect colonisation evidence (construction-depot
@@ -338,8 +339,11 @@ change, at one commit.
    bounded-plan probe on the same connection before commit, and write the
    **fold receipt**: layers folded, systems changed and added, per-relation
    row counts, history rows kept, and a seal of the base before and after.
-5. **Later:** drop the folded layers' partitions (cheap) once the **next**
-   fold has succeeded; until then they make an undo instant (see below).
+5. **Later:** the folded layers' partitions are **kept for the whole undo
+   window** — the same retention as the fold's history (D-B) — and dropped
+   (cheap) together with that fold's history when it expires. They are the
+   only record of each layer's own version of a system when several layers in
+   one fold held the same `id64`, so an undo needs them.
 
 **Undo a fold** (folds are undone newest first). A fold is a storage step:
 it changes where the week's content is kept, not what readers see. Undoing it
@@ -348,13 +352,12 @@ folded layers active again** — and does not by itself change what readers
 see. Throwing away a layer's content is a separate, ordinary operation:
 switching that layer off (section 3.6) after the undo.
 
-1. **Make the folded content available as layers again.** If the fold's layer
-   partitions still exist (they are kept until the next fold has succeeded,
-   step 5 above), use them. Otherwise rebuild them from the base: because
-   folds are undone newest first, the base rows for the fold's `id64`s are
-   exactly the folded content, so they are copied into reconstructed layer
-   partitions, re-sealed and checked against the fold receipt's seals before
-   use.
+1. **Check the folded layers are still held.** The fold's layer partitions
+   are retained for the undo window (step 5), so each layer's own rows and
+   seals are intact, including older versions of a system that a newer layer
+   in the same fold superseded. Their seals are re-verified against the fold
+   receipt. A fold whose layers have been dropped is past its undo window and
+   cannot be undone; the undo refuses.
 2. **Switch the layers back on (one transaction).** Mark the folded layers
    `ACTIVE` again in their original source-time positions, recompute the
    winner index for their `id64`s, lower the base's source high-water mark to
@@ -399,9 +402,10 @@ reviewed, executable PostgreSQL 18 restore/PITR procedure exists and one
 restore has been rehearsed successfully** (step L7 below). Layers alone are
 additive and do not need this gate.
 
-**History retention (open, D-B):** recommendation: keep the history of the
-last 4 folds (about a month), partitioned by fold id so expiry is a cheap
-`DROP`.
+**Undo window and retention (open, D-B):** recommendation: keep the history
+**and the folded layer partitions** of the last 4 folds (about a month), both
+partitioned by layer or fold id so expiry is a cheap `DROP`. A shorter window
+saves disk (section 8).
 
 **Bloat:** each fold leaves dead tuples about the size of the rows it
 replaced. Ordinary `VACUUM` makes that space reusable by the next fold, so
@@ -426,8 +430,13 @@ steady-state bloat is about one week's replaced rows (estimate). No
 - Apply the same change-only admission and publish the result as the first
   layer (kind `CATCH_UP`). Nightly layers follow from the catch-up file's own
   date; a gap is closed with `galaxy_7days` or `galaxy_1month`.
-- The 110 GiB file need not sit on the production disk: it can be streamed, or
-  filtered off-production down to the changed systems.
+- The downloaded 110 GiB file is **kept as a sealed artifact** (size and
+  SHA-256 in `v3_source.source_artifact`) until the catch-up layer is
+  published, so the fail-closed fallback below can read it again without a
+  second download. It is kept **off the database volume's free-space budget**
+  — on the Storage Box or another non-database location with room, chosen at
+  step L1 from measured space; if no such location exists, the catch-up
+  waits.
 - Risk: some changes may not bump any timestamp — for example a body or
   station removed from a system whose surviving records keep their old
   times. The catch-up therefore also hashes a random sample of *unflagged*
@@ -446,10 +455,20 @@ steady-state bloat is about one week's replaced rows (estimate). No
 
 Shared journal facts are applied only to a never-published candidate, and a
 candidate that omits an eligible observation is refused
-(`docs/development/journal-commander-contributions.md:80-93`). A layer is a
+(`docs/development/journal-commander-contributions.md:86-101`). A layer is a
 candidate until it is published, so enrichment applies to each layer before
-publication; the fold only moves already-published layer rows. The tooling
-review must confirm the enrichment guard accepts the layer kind.
+publication; the fold only moves already-published layer rows.
+
+Spansh-only admission is not enough here: a system with an eligible,
+not-yet-applied journal contribution may be absent from `galaxy_1day` or
+unchanged in it, and the guard only finds contributions whose bodies are
+already in the candidate (`009_v3_journal_galaxy_contributions.sql:128-140`).
+So the layer's **admission scope also includes every system with an eligible
+contribution decided since the previous layer and not yet applied in the
+visible data**; for those systems the current visible version is copied into
+the layer, enrichment is applied, and admission compares the
+**post-enrichment** projection with the visible version. The tooling review
+must confirm the enrichment guard accepts the layer kind.
 
 ### 3.10 When a full new generation is still needed
 
@@ -472,8 +491,10 @@ nightly Spansh work (owner decision 5):
   from the same backend image with a different command. `pyzmq` is already a
   dependency.
 - Deployed through the production compose authority and deployer as
-  `eddn-blue`/`eddn-green`; only the active slot's worker runs; it starts
-  after the public smoke passes and stops on rollback. This changes
+  `eddn-blue`/`eddn-green`; only the active slot's worker runs, and only
+  once it has been enabled by its governed enable operation (it ships
+  disabled; step L5); when enabled it starts after the public smoke passes
+  and stops on rollback. This changes
   `deploy/v3-production/compose.yml`, `scripts/operator/v3_production_deploy.py`,
   `deploy/v3-production/target-authority.json` and the release runbook.
 - Writes **only** the `v3_observe` schema, through the existing application
@@ -641,11 +662,15 @@ R1 below measure the real numbers.
 
 **Disk.** Free space is about 120 GB after both Finder builds and about
 500–520 GB after the purge P, if its rewrites return the modelled ≈ 400 GB
-(refresh study 1.1). Steady state for this design (estimate): up to two
-weeks of layers (≤ 36 GB; the folded week's are kept until the next fold
-succeeds) + 4 folds of history (≤ 40 GB) + one fold's reusable dead
-space (≤ 10 GB) + the catch-up's one-off history (≤ 50 GB until it expires)
-+ the station store (< 2 GB): under about 140 GB. This fits after P, not
+(refresh study 1.1). Steady state for this design (estimate), with the
+recommended 4-fold undo window: the current week of layers (≤ 18 GB) + the
+retained layers of the last 4 folds (≤ 72 GB) + 4 folds of history (≤ 40 GB)
++ one fold's reusable dead space (≤ 10 GB) + the catch-up's one-off layer and
+history (≤ 100 GB until its undo window expires) + the station store
+(< 2 GB): about 240 GB at peak, about 140 GB once the catch-up's window
+has passed. A 2-fold window roughly halves the retained layers and history.
+The sealed 110 GiB catch-up source copy is held off the database volume
+(section 3.8). This fits after P, not
 before it, which is one reason for the ordering. Every job checks free space
 against the 100 GB floor that the purge design keeps for WAL before it writes.
 
@@ -783,7 +808,9 @@ recorded and P's completion receipt exists.
 - **A6 [repo, after 9′ and P].** EDDN worker in the deploy authority:
   `deploy/v3-production/compose.yml`, `scripts/operator/v3_production_deploy.py`,
   `deploy/v3-production/target-authority.json`, the release runbook, and the
-  host health check.
+  host health check; the worker ships **disabled by default**, and a governed
+  enable/disable operation switches it on only after the Spansh station
+  baseline receipt exists (step L5).
 - **A7 [repo + OWNER GO for the dispatch].** A ≈ 1% disposable rehearsal:
   synthetic base, catch-up layer, 7 nightly layers, one switch-off, one fold,
   one undo, a fake EDDN feed; it measures disk, WAL and timings. The
@@ -797,18 +824,21 @@ recorded and P's completion receipt exists.
   `galaxy_1day` against the base (the real admitted count).
 - **L2 [OWNER GO].** Migration workflow `plan`, review, then `apply` for the
   A1 migrations.
-- **L3 [OWNER GO].** Governed release carrying A2–A6 (EDDN worker may ship
-  disabled); record its attestation and the new operator-code identity.
+- **L3 [OWNER GO].** Governed release carrying A2–A6, with the EDDN worker
+  **disabled** (mandatory: the Spansh station baseline does not exist yet);
+  record its attestation and the new operator-code identity.
 - **L4 [OWNER GO].** Catch-up: in **one** stream of the full file, filter,
   import, build, validate and publish the first layer, **and load the Spansh
   station baseline into `v3_observe` in the same pass** (every non-carrier
   station of every system in the file, not only admitted systems), so the
-  110 GiB file is read once; verify the live app; the layer stays
+  110 GiB file is fetched once and normally read once (the sealed copy is read
+  a second time only by the fail-closed fallback); verify the live app; the layer stays
   switch-off-able. The receipt records both outputs. If the station load
   fails, the stream's bounded station extract is kept as a sealed, receipted
   artifact so the load can be retried without a second full download.
-- **L5 [OWNER GO].** Enable the EDDN worker (the Spansh baseline is already
-  loaded in L4); review its numbers after 24–72 h (rows a day, size, drops,
+- **L5 [OWNER GO].** Enable the EDDN worker through its governed enable
+  operation (A6), which refuses unless the Spansh station baseline from L4 is
+  loaded and receipted; review its numbers after 24–72 h (rows a day, size, drops,
   failures).
 - **L6 [OWNER GO].** Nightly layers, each published only on the owner's
   approval for the first weeks; review each receipt (counts, time, disk,
@@ -830,7 +860,8 @@ recorded and P's completion receipt exists.
   Recommendation: manual for the first weeks, then automatic. The same
   question applies to the weekly fold; recommendation: manual for the first
   folds.
-- **D-B.** History retention: recommendation, the last 4 folds.
+- **D-B.** Undo window (history and folded layers kept): recommendation, the
+  last 4 folds; 2 folds if disk is tight.
 - **D-C.** Ignore carrier-only changes in layer admission? Recommendation: yes.
 - **D-D.** EDDN system and body sightings in `v3_observe` (state changes plus
   a rate-limited last-seen row, as for stations), shown in Inspect as
