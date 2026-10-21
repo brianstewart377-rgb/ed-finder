@@ -11,6 +11,38 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Live galaxy data: owner decisions, derived-data amendment and design
+
+Docs only; no `apps/`, `sql/`, `scripts/`, workflow, operator, deploy or
+F2d-frozen file change.
+
+- `docs/development/v3-search-spatial-derived-data-decision.md`: new dated
+  section "Amendment 2026-10-21 (owner): changes layers and weekly fold". It
+  allows nightly changes layers (complete replacement records for admitted
+  systems, with their own Ratings, Search and Archetype rows; newest active
+  layer wins; a layer is switched off in one transaction) and a weekly fold of
+  the week's layers into the base in one undoable, receipted step with the
+  replaced rows kept in history tables. This relaxes "published data never
+  changes" to "the base changes only through the weekly fold". Unchanged: full
+  validated, atomic publication of derived products; the Ratings V4.0 freeze;
+  a full new generation for scoring-rule or table-layout changes. No
+  implementation may start until the new design is accepted.
+- `docs/development/v3-live-data-design.md` (new): the end-to-end design —
+  sources (Spansh `galaxy_1day` nightly, EDDN live, a one-time catch-up from
+  the full `galaxy.json`), the changes-layer model, the weekly fold and its
+  undo, the EDDN worker, the `v3_observe` station sightings store, privacy,
+  labelled volume/disk/WAL/backup estimates, Finder and attestation
+  requirements, the missing tools, and an ordered step list split into
+  repo-only before go-live, repo-only after go-live (F2d-frozen files) and
+  production steps that each need the owner's go.
+- `docs/development/evidence/2026-10-21-v3-canonical-refresh-study.md` and
+  `docs/development/evidence/2026-10-21-eddn-v3-scoping.md`: the two read-only
+  studies of 2026-10-21, committed as dated evidence (not execution authority)
+  with a repo-relative cross-reference.
+- `docs/ROADMAP.md`: one dated entry recording the owner's 2026-10-21 live-data
+  decisions (nightly publication automatic vs manual is still undecided) and
+  pointing at the design. No step order or gate changes.
+
 ## 2026-10-21 — Finder F4b prerequisites: owner answers and Product fixture-output contract
 
 Docs and tests only; no `apps/api`, `apps/web`, workflow, operator or deploy

@@ -2,6 +2,7 @@
 
 **Status:** merged V3 architecture authority (PR #645); implementation and production publication require their own validation
 **Scope:** PostgreSQL 18 search, spatial indexing, map aggregation, clustering, Ratings V4, archetype judgement, derived-data generation and publication
+**Amended:** 2026-10-21 (owner) — changes layers and weekly fold; see [the amendment at the end](#amendment-2026-10-21-owner-changes-layers-and-weekly-fold). Where the amendment and earlier text differ, the amendment wins.
 
 ## Why this decision exists
 
@@ -406,3 +407,79 @@ Before production authority:
 - partial builds cannot publish;
 - API reads an explicit published generation;
 - canonical/derived/mechanics/scorer/archetype/ranking/pyramid/cluster versions appear in operational receipts.
+
+## Amendment 2026-10-21 (owner): changes layers and weekly fold
+
+**Status:** owner decision, 2026-10-21. Decided, not implemented. The
+end-to-end design is [`v3-live-data-design.md`](v3-live-data-design.md); the
+evidence behind it is the two read-only studies of the same day,
+[`evidence/2026-10-21-v3-canonical-refresh-study.md`](evidence/2026-10-21-v3-canonical-refresh-study.md)
+and [`evidence/2026-10-21-eddn-v3-scoping.md`](evidence/2026-10-21-eddn-v3-scoping.md).
+
+**Why.** V3 production receives no new galaxy data today: there is no EDDN
+listener and no Spansh refresh. Canonical data is the Spansh `galaxy.json` of
+2026-08-24, imported 2026-08-27 and published 2026-08-28. A full new canonical
+generation per refresh does not fit the production disk. The owner chose a
+middle path between "rebuild everything" and "edit published data in place".
+
+**What is now allowed.**
+
+1. **Changes layers.** Each night's changes (from Spansh `galaxy_1day.json.gz`)
+   may be published as a small, separately validated *changes layer*: a
+   complete replacement record for every admitted system (the system and all
+   of its bodies, rings, signals and stations), plus that layer's own Ratings
+   V4, Search and Archetype rows for exactly those systems. A layer is complete
+   for its own declared scope ("every admitted system in its source file"), so
+   a validated layer is **not** a partial build under boundary 7 above.
+2. **Read rule.** The application reads *base ∪ active layers*, keyed by system
+   `id64`, and the newest active layer that holds a system wins over older
+   layers and over the base.
+3. **Switching a layer off.** A bad night is undone by switching its layer off
+   in one transaction. Its systems then read from the next-newest active layer
+   or from the base again. No rows are deleted to do this.
+4. **Weekly fold.** Once a week, the week's active layers may be folded into
+   the base canonical and derived data in **one controlled, undoable step**:
+   - every base row that the fold replaces or removes is first copied, as it
+     was, into a **history table** tagged with the fold's identifier;
+   - the fold writes a **receipt** naming the layers folded, the systems
+     changed, row counts, the history rows kept and seals of the base before
+     and after;
+   - the fold can be **reversed** from its history rows, newest fold first,
+     with its own receipt;
+   - the fold runs only through a governed operation with a dedicated, narrow
+     write capability on the published base relations; it never uses
+     replica-mode trigger suppression.
+5. This **relaxes** the rule that published data never changes (section 1
+   "stay immutable"; the canonical schema comment "immutable after
+   publication"). The rule is now: **the base changes only through the weekly
+   fold, in one undoable, receipted step.** No other path may write published
+   base rows.
+
+**What is unchanged.**
+
+- Derived products are still built in full for their scope, validated, and
+  published atomically. A layer's Ratings, Search and Archetype rows are built
+  and validated before the layer becomes visible, and a failed or incomplete
+  layer can never become visible.
+- Ratings V4.0 stays frozen: layers and folds run the same scorer, mechanics,
+  archetype and ranking versions as the base. Scores depend only on the system
+  itself, so a layer's rows equal what a full rebuild would give for those
+  systems.
+- Owner decision, recorded as stated: "A full new canonical generation is
+  still used when scoring rules or table layout change." Rule and layout
+  changes never travel through layers or folds. (The acceptance bar above —
+  "changing scorer, pyramid or cluster algorithm requires derived rebuild only"
+  — is unchanged: a scoring-rule change needs at least a full derived rebuild;
+  a canonical table-layout change needs a new canonical generation.)
+- Section 10's pipeline, section 11's resource rules and the previous
+  generation retained for rollback still apply to full generations.
+- The F2d bounded-plan proof, the purge fences (every governed mutator refuses
+  while a purge event is unresolved) and the bulk-write safety rules apply to
+  layers and folds as to any other governed write.
+
+**What must happen before any implementation.** No migration, builder change,
+ops action or production step for layers or folds may start until the tooling
+design in [`v3-live-data-design.md`](v3-live-data-design.md) is accepted by the
+owner and recorded in `docs/ROADMAP.md`. Production order is unchanged: the
+Finder go-live (step 9′) first, then the governed purge P, then this work, and
+every production step needs the owner's explicit go.
