@@ -78,9 +78,10 @@ describe('ED-Finder V3 foundation', () => {
       failOnStatusCode: false,
     }).then(({ headers, status }) => {
       // FastAPI currently owns this valid numeric share route and redirects
-      // browser user agents. A Svelte fallback would instead return HTML 200.
+      // browser user agents to canonical Inspect. A Svelte fallback would
+      // instead return HTML 200.
       expect(status).to.eq(302);
-      expect(headers.location).to.include('/#system/0');
+      expect(headers.location).to.include('/inspect?system=0');
     });
 
     cy.request({ url: '/apiary', failOnStatusCode: false }).then(

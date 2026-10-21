@@ -1125,6 +1125,10 @@ footer {
 .detail-grid dd {
   margin: 0;
 }
+.detail-grid .detail-unavailable dd {
+  color: var(--muted);
+  font-style: italic;
+}
 .system-map-panel {
   margin-top: 2rem;
   border: 1px solid #2a4054;

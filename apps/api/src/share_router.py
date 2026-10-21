@@ -5,12 +5,20 @@ Exposes two endpoints used to make shared system links unfurl into
 rich-media preview cards in Discord, Reddit, Twitter, Slack, etc.
 
   GET /s/{id64}              ── HTML page with OG meta tags. Bots stop
-                                here and read the meta. Humans get a
-                                tiny inline script that 302s them to
-                                `/#system/{id64}` on the SPA.
+                                here and read the meta. Humans are 302'd
+                                to the canonical Inspect route
+                                `/inspect?system={id64}` without any
+                                database read.
   GET /api/share/og/{id64}   ── PNG (1200x630) preview card rendered
                                 with Pillow. Lazy: cached in Redis for
-                                7 days under  `og:{id64}`.
+                                7 days under `og:v3:{generation_id}:{id64}`.
+
+Both lookups read the published V3 canonical generation through the same
+generation-pinned resolver as `/api/v1/systems/{id}` (`routers/v3.py`). The
+legacy V2 `systems`/`ratings` relations do not exist in V3 production, so
+the card carries only canonical facts (name, coordinates, catalogued body
+count) — there is no V3 single "score"/rationale to show. An unknown system
+is a clean 404; no published generation or a failed read is a 503.
 
 The router is installed by `main.py` via `app.include_router(...)`.
 Adding a router (rather than inlining in main.py) keeps the OG-image
@@ -19,18 +27,24 @@ path and the 2k-line main module.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import html
 import io
 import logging
 import os
+import re
+import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Request, Response, HTTPException
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, ImageDraw, ImageFont
 
-from edfinder_api.deps import cache_get, cache_set
+from edfinder_api.deps import cache_get, cache_set, get_readonly_pool
+from edfinder_api.routers.v3 import current_canonical_generation
 
 log = logging.getLogger(__name__)
 
@@ -82,56 +96,186 @@ def _wrap(text: str, max_chars: int) -> list[str]:
     return lines
 
 
+INT64_MAX = 9_223_372_036_854_775_807
+LOOKUP_TIMEOUT_SECONDS = 5.0
+_DB_ERRORS = (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, TimeoutError)
+ShareId64 = Path(ge=0, description="Unsigned decimal system id64")
+
+
+class ShareSystem:
+    """Canonical facts the preview may show, from one pinned generation."""
+
+    __slots__ = ("generation_id", "id64", "name", "x", "y", "z", "body_count")
+
+    def __init__(self, generation_id: str, row: asyncpg.Record) -> None:
+        self.generation_id = generation_id
+        self.id64 = int(row["id64"])
+        self.name = str(row["name"])
+        self.x = float(row["x_ly"])
+        self.y = float(row["y_ly"])
+        self.z = float(row["z_ly"])
+        self.body_count = int(row["loaded_body_count"])
+
+
+async def _resolve_generation(pool: asyncpg.Pool) -> tuple[str, str]:
+    """(relation_schema, generation_id) of the published canonical generation.
+
+    Bounded by the same lookup timeout as the system read. Raises 503 when
+    nothing is published or the read fails or stalls: the preview never falls
+    back to legacy V2 relations or invents a system.
+    """
+    try:
+        schema, generation = await asyncio.wait_for(
+            current_canonical_generation(pool), timeout=LOOKUP_TIMEOUT_SECONDS,
+        )
+    except HTTPException:
+        raise
+    except _DB_ERRORS as exc:
+        log.warning("share canonical generation lookup failed: %s", type(exc).__name__)
+        raise HTTPException(503, "System preview is unavailable") from exc
+    return schema, generation.generation_id
+
+
+_GENERATION_SCHEMA = re.compile(r"v3_gen_[a-z][a-z0-9_]{0,30}")
+
+
+async def _resolve_pinned_generation(pool: asyncpg.Pool,
+                                     generation_id: uuid.UUID) -> tuple[str, str]:
+    """(relation_schema, generation_id) of a specific, once-published generation.
+
+    Only a generation that was published and whose relations still exist can
+    be pinned; anything else is a 404 (the link outlived its generation).
+    """
+    try:
+        row = await asyncio.wait_for(
+            pool.fetchrow(
+                """SELECT relation_schema
+                     FROM v3_meta.canonical_generation
+                    WHERE generation_id=$1 AND published_at IS NOT NULL
+                      AND lifecycle_state IN ('PUBLISHED','RETIRED')
+                      AND to_regnamespace(relation_schema) IS NOT NULL""",
+                generation_id,
+                timeout=LOOKUP_TIMEOUT_SECONDS,
+            ),
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+        )
+    except _DB_ERRORS as exc:
+        log.warning("share pinned generation lookup failed: %s", type(exc).__name__)
+        raise HTTPException(503, "System preview is unavailable") from exc
+    if row is None:
+        raise HTTPException(404, "Preview generation is not available")
+    schema = str(row["relation_schema"])
+    if not _GENERATION_SCHEMA.fullmatch(schema):
+        raise HTTPException(500, "Unsafe canonical generation relation schema")
+    return schema, str(generation_id)
+
+
+async def _lookup_system(pool: asyncpg.Pool, schema: str, generation_id: str,
+                         id64: int) -> Optional[ShareSystem]:
+    """One bounded read of the canonical system row; None when absent."""
+    if id64 > INT64_MAX:
+        # Canonical id64 is a signed bigint: a larger unsigned id cannot exist.
+        return None
+    try:
+        # Bound the whole pool operation: Pool.fetchrow does not apply its
+        # timeout to connection acquisition, so a saturated pool must still
+        # become the retryable 503 within the lookup bound.
+        row = await asyncio.wait_for(
+            pool.fetchrow(
+                f"""SELECT id64,name,x_ly,y_ly,z_ly,loaded_body_count
+                      FROM {schema}.systems WHERE id64=$1""",
+                id64,
+                timeout=LOOKUP_TIMEOUT_SECONDS,
+            ),
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+        )
+    except _DB_ERRORS as exc:
+        log.warning("share system lookup failed for %s: %s", id64, type(exc).__name__)
+        raise HTTPException(503, "System preview is unavailable") from exc
+    return ShareSystem(generation_id, row) if row is not None else None
+
+
+def _summary(system: ShareSystem) -> str:
+    bodies = "1 catalogued body" if system.body_count == 1 else f"{system.body_count:,} catalogued bodies"
+    return f"{bodies}. Open in ED-Finder to inspect its stars and worlds."
+
+
+_PUBLIC_HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?")
+_DEFAULT_PUBLIC_HOST = "ed-finder.app"
+
+
+def _public_base(request: Request) -> str:
+    """Absolute public origin for OG tags (bots fetch og:image themselves).
+
+    Built from the X-Forwarded-* headers nginx sets rather than
+    request.base_url (the proxy-internal http://127.0.0.1). Both header values
+    are untrusted input: the proto must be exactly http/https and the host a
+    plain hostname[:port]; anything else falls back to the public default.
+    """
+    host = request.headers.get("x-forwarded-host") or request.url.hostname or ""
+    proto = request.headers.get("x-forwarded-proto") or "https"
+    if not _PUBLIC_HOST.fullmatch(host):
+        host = _DEFAULT_PUBLIC_HOST
+    if proto not in ("http", "https"):
+        proto = "https"
+    return f"{proto}://{host}"
+
+
+def _plain_page(status_code: int, title: str, message: str, inspect_url: str) -> HTMLResponse:
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{_html_escape(title)}</title>
+  <meta name="robots" content="noindex">
+</head>
+<body>
+  <h1>{_html_escape(title)}</h1>
+  <p>{_html_escape(message)}</p>
+  <p><a href="{_html_escape(inspect_url)}">Open in ED Finder</a></p>
+</body>
+</html>"""
+    return HTMLResponse(html, status_code=status_code)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # HTML stop-page for bots
 # ─────────────────────────────────────────────────────────────────────────
 @router.get("/s/{id64}")
-async def share_stop_page(id64: int, request: Request):
+async def share_stop_page(id64: int = ShareId64, *, request: Request,
+                          pool: asyncpg.Pool = Depends(get_readonly_pool)):
     """
     Bots → static HTML with OG/Twitter meta tags pointing at the PNG
-    endpoint below. Real users → 302 to the SPA's `#system/{id64}` deep-link
-    so the existing client-side router takes over.
+    endpoint below. Real users → 302 to the canonical Inspect route
+    (`/inspect?system={id64}`), which owns its own found/not-found states.
     """
     ua = (request.headers.get("user-agent") or "").lower()
     is_bot = any(b in ua for b in BOT_UAS)
 
-    # Build the public URL from X-Forwarded-* headers (set by nginx) instead
-    # of request.base_url, which would otherwise return the proxy-internal
-    # http://127.0.0.1 — useless to bots like Discord/Slack/Twitter that
-    # fetch og:image from their own infra. nginx is the source of truth here.
-    fwd_host  = request.headers.get("x-forwarded-host")  or request.url.hostname or "ed-finder.app"
-    fwd_proto = request.headers.get("x-forwarded-proto") or "https"
-    base = f"{fwd_proto}://{fwd_host}"
-    sys_url = f"{base}/#system/{id64}"
-    img_url = f"{base}/api/share/og/{id64}"
-
-    # Fetch system name + score for human-readable title. If the lookup
-    # fails (404 / db down), fall back to a generic title — we still want
-    # the preview to render even if the system is unknown.
-    name, score, rationale = None, None, None
-    try:
-        pool = request.app.state.pool  # type: ignore[attr-defined]
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT s.name, r.score, r.rationale
-                FROM systems s
-                LEFT JOIN ratings r ON r.system_id64 = s.id64
-                WHERE s.id64 = $1
-            """, id64, timeout=5)
-            if row:
-                name, score, rationale = row["name"], row["score"], row["rationale"]
-    except Exception as e:
-        log.debug(f"share OG lookup failed for {id64}: {e}")
-
-    title = f"{name or f'System #{id64}'} — ED Finder"
-    if score is not None:
-        title += f" · score {score}"
-    desc = rationale or "Elite Dangerous system rating, exploration data, and economy potential."
-
     if not is_bot:
-        # Real user → bounce to the SPA. Includes a <noscript> fallback
-        # link in case JS is off (rare but not zero).
-        return RedirectResponse(url=sys_url, status_code=302)
+        # Real user → bounce to the SPA before any database work. The target
+        # is same-origin and relative: no request header shapes the redirect.
+        return RedirectResponse(url=f"/inspect?system={int(id64)}", status_code=302)
+
+    base = _public_base(request)
+    sys_url = f"{base}/inspect?system={id64}"
+
+    try:
+        schema, generation_id = await _resolve_generation(pool)
+        system = await _lookup_system(pool, schema, generation_id, id64)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return _plain_page(503, "ED Finder", "System preview is temporarily unavailable.", sys_url)
+        raise
+    # The advertised card is pinned to the generation this page describes.
+    img_url = f"{base}/api/share/og/{id64}?generation={generation_id}"
+    if system is None:
+        return _plain_page(404, "System not found — ED Finder",
+                           f"No catalogue system exists for id64 {id64}.", sys_url)
+
+    title = f"{system.name} — ED Finder"
+    desc = (f"Coordinates {system.x:.1f} / {system.y:.1f} / {system.z:.1f} ly · "
+            f"{_summary(system)}")
 
     # Bot → serve OG-tagged HTML.
     html = f"""<!doctype html>
@@ -145,38 +289,32 @@ async def share_stop_page(id64: int, request: Request):
   <meta property="og:type" content="website">
   <meta property="og:title" content="{_html_escape(title)}">
   <meta property="og:description" content="{_html_escape(desc)}">
-  <meta property="og:image" content="{img_url}">
+  <meta property="og:image" content="{_html_escape(img_url)}">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:url" content="{sys_url}">
+  <meta property="og:url" content="{_html_escape(sys_url)}">
   <meta property="og:site_name" content="ED Finder">
 
   <!-- Twitter Card — Twitter / X -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{_html_escape(title)}">
   <meta name="twitter:description" content="{_html_escape(desc)}">
-  <meta name="twitter:image" content="{img_url}">
+  <meta name="twitter:image" content="{_html_escape(img_url)}">
 
-  <link rel="canonical" href="{sys_url}">
+  <link rel="canonical" href="{_html_escape(sys_url)}">
 </head>
 <body>
   <h1>{_html_escape(title)}</h1>
   <p>{_html_escape(desc)}</p>
-  <p><a href="{sys_url}">Open in ED Finder</a></p>
+  <p><a href="{_html_escape(sys_url)}">Open in ED Finder</a></p>
 </body>
 </html>"""
     return HTMLResponse(html)
 
 
-def _html_escape(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )
+def _html_escape(value: str) -> str:
+    """Escape text and attribute values for the HTML pages (stdlib escaper)."""
+    return html.escape(value or "", quote=True)
 
 
 OG_CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -209,13 +347,27 @@ def _decode_cached_png(value: object) -> Optional[bytes]:
 # OG image renderer
 # ─────────────────────────────────────────────────────────────────────────
 @router.get("/api/share/og/{id64}")
-async def og_image(id64: int, request: Request):
+async def og_image(id64: int = ShareId64, *, request: Request,
+                   generation: Optional[uuid.UUID] = Query(default=None),
+                   pool: asyncpg.Pool = Depends(get_readonly_pool)):
     """
-    Render a 1200×630 PNG preview card for the given system. Cached in
-    Redis for 7 days; falls through to live render if cache is missing.
+    Render a 1200×630 PNG preview card for the given system.
+
+    The stop page advertises the image pinned to the generation it described
+    (`?generation=<id>`), so a publication between the two bot fetches cannot
+    pair one generation's title with another's card; a pinned card is
+    immutable and cacheable for 7 days. Without the pin the card follows the
+    current publication and is cached publicly for only an hour. Redis keys
+    always carry the generation.
     """
     redis = getattr(request.app.state, "redis", None)
-    cache_key = f"og:{id64}"
+    if generation is None:
+        schema, generation_id = await _resolve_generation(pool)
+        cache_control = "public, max-age=3600"
+    else:
+        schema, generation_id = await _resolve_pinned_generation(pool, generation)
+        cache_control = "public, max-age=604800, immutable"
+    cache_key = f"og:v3:{generation_id}:{id64}"
 
     # 1. Cache hit — stream straight from Redis. Goes through deps.cache_get
     #    so the shared cache I/O timeout applies: a slow or wedged Redis must
@@ -227,46 +379,19 @@ async def og_image(id64: int, request: Request):
         return Response(
             content=cached_png,
             media_type="image/png",
-            headers={"Cache-Control": "public, max-age=604800",
-                     "X-Cache": "HIT"},
+            headers={"Cache-Control": cache_control, "X-Cache": "HIT"},
         )
 
-    # 2. Live fetch system data.
-    name, score, conf, rationale, x, y, z = None, None, None, None, None, None, None
-    try:
-        pool = request.app.state.pool  # type: ignore[attr-defined]
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT s.name, s.x, s.y, s.z,
-                       r.score, r.confidence, r.rationale
-                FROM systems s
-                LEFT JOIN ratings r ON r.system_id64 = s.id64
-                WHERE s.id64 = $1
-            """, id64, timeout=5)
-            if row:
-                name      = row["name"]
-                score     = row["score"]
-                conf      = row["confidence"]
-                rationale = row["rationale"]
-                _rx, _ry, _rz = row["x"], row["y"], row["z"]
-                if _rx is not None and _ry is not None and _rz is not None:
-                    x, y, z = float(_rx), float(_ry), float(_rz)
-                    # Detect fake (0,0,0) for non-Sol systems
-                    if x == 0.0 and y == 0.0 and z == 0.0 and id64 != 10477373803:
-                        x, y, z = None, None, None
-    except Exception as e:
-        log.warning(f"og system lookup failed for {id64}: {e}")
-
-    if not name:
+    # 2. Live fetch canonical system facts from the same pinned generation.
+    system = await _lookup_system(pool, schema, generation_id, id64)
+    if system is None:
         raise HTTPException(404, f"System {id64} not found")
 
     # 3. Render the image.
     png = _render_card(
-        title=name,
-        score=score,
-        confidence=conf,
-        rationale=rationale,
-        coords=(x, y, z),
+        title=system.name,
+        summary=_summary(system),
+        coords=(system.x, system.y, system.z),
         id64=id64,
     )
 
@@ -276,15 +401,13 @@ async def og_image(id64: int, request: Request):
     return Response(
         content=png,
         media_type="image/png",
-        headers={"Cache-Control": "public, max-age=604800", "X-Cache": "MISS"},
+        headers={"Cache-Control": cache_control, "X-Cache": "MISS"},
     )
 
 
 def _render_card(
     title: str,
-    score: Optional[int],
-    confidence: Optional[float],
-    rationale: Optional[str],
+    summary: str,
     coords: tuple[float | None, float | None, float | None],
     id64: int,
 ) -> bytes:
@@ -293,22 +416,22 @@ def _render_card(
 
     Layout (left-aligned, dark theme):
       ┌──────────────────────────────────────────────────────────────┐
-      │  ED FINDER                                          ◆ 92%    │
+      │  ED FINDER                                                   │
       │                                                              │
       │  System Name                                                 │
       │  Coords  -1234.56 / 12.34 / 5678.90 LY                       │
       │                                                              │
-      │  ▸ Strong agriculture via 2 ELW + 3 terraformable HMC       │
+      │  ▸ 41 catalogued bodies. Open in ED-Finder to inspect …     │
       │                                                              │
-      │                                            ┌──── 87 ────┐   │
-      │                                            │  /100      │   │
-      │                                            └────────────┘   │
+      │  ED-Finder  ·  /s/{id64}                                     │
       └──────────────────────────────────────────────────────────────┘
+
+    Only canonical V3 facts are drawn: there is no V3 single score,
+    confidence or rationale, so none is shown.
     """
     W, H = 1200, 630
     BG, FG, DIM = (10, 8, 18), (255, 240, 220), (170, 160, 150)
     ORANGE = (255, 170, 60)
-    GOLD   = (255, 215, 90)
 
     img  = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(img)
@@ -325,18 +448,9 @@ def _render_card(
     img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    # ── Header strip (brand top-left + confidence top-right) ──────────
+    # ── Header strip (brand top-left) ─────────────────────────────────
     f_brand = _font(28)
     draw.text((48, 36), "ED FINDER", font=f_brand, fill=ORANGE)
-    if confidence is not None:
-        pct = int(round(confidence * 100))
-        f_conf = _font(26)
-        txt = f"◆ {pct}%"
-        # Right-align by measuring the text bbox.
-        bbox = draw.textbbox((0, 0), txt, font=f_conf)
-        tw = bbox[2] - bbox[0]
-        col = GOLD if pct >= 90 else ORANGE if pct >= 70 else DIM
-        draw.text((W - 48 - tw, 36), txt, font=f_conf, fill=col)
 
     # ── Title (system name) ───────────────────────────────────────────
     # Truncate long names so the layout never overflows.
@@ -354,41 +468,17 @@ def _render_card(
         coord_str = "Coords  unavailable"
     draw.text((48, 200), coord_str, font=f_sub, fill=DIM)
 
-    # ── Rationale (wrapped) ────────────────────────────────────────────
+    # ── Canonical summary (wrapped) ────────────────────────────────────
     f_rat = _font(28)
-    rat   = (rationale or "Elite Dangerous system — open in ED Finder for the full briefing.")
-    lines = _wrap(rat, max_chars=58)[:3]   # cap at 3 wrapped lines
+    lines = _wrap(summary, max_chars=58)[:3]   # cap at 3 wrapped lines
     y0 = 280
     for i, ln in enumerate(lines):
         prefix = "▸ " if i == 0 else "   "
         draw.text((48, y0 + i * 42), prefix + ln, font=f_rat, fill=FG)
 
-    # ── Score badge (bottom-right) ─────────────────────────────────────
-    if score is not None:
-        bx, by, bw, bh = W - 280, H - 200, 232, 152
-        # Badge background — orange-tinted card with a thin border.
-        draw.rectangle([bx, by, bx + bw, by + bh],
-                       fill=(35, 22, 10), outline=ORANGE, width=3)
-        f_score = _font(96)
-        s_txt = str(score)
-        bbox = draw.textbbox((0, 0), s_txt, font=f_score)
-        tw = bbox[2] - bbox[0]
-        # Pick the colour from the same palette the frontend uses.
-        if score >= 80:
-            col = GOLD
-        elif score >= 60:
-            col = ORANGE
-        elif score >= 40:
-            col = (250, 204, 21)
-        else:
-            col = DIM
-        draw.text((bx + (bw - tw) / 2 - 4, by + 16), s_txt, font=f_score, fill=col)
-        f_sm = _font(22)
-        draw.text((bx + bw / 2 - 32, by + bh - 36), "/100", font=f_sm, fill=DIM)
-
     # ── Footer URL ─────────────────────────────────────────────────────
     f_foot = _font(20)
-    draw.text((48, H - 50), f"ed-finder.app  /  #s={id64}", font=f_foot, fill=DIM)
+    draw.text((48, H - 50), f"ED-Finder  ·  /s/{id64}", font=f_foot, fill=DIM)
 
     # Encode to PNG bytes.
     buf = io.BytesIO()

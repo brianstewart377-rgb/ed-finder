@@ -1,0 +1,165 @@
+name: Spansh delta measurement
+
+# Step S1 of the V3 canonical-refresh study: measure what Spansh's full-detail
+# delta dump (galaxy_1day.json.gz, same schema as galaxy.json.gz) contains each
+# night, so the nightly delta-layer design is sized from evidence, not estimates.
+#
+# Public download on a GitHub-hosted runner only: no secrets, no database, no
+# production host. The previous night's digest index travels in the Actions
+# cache so consecutive nights can be compared (overlap and real content change).
+# docs/development/spansh-delta-measurement.md explains the output.
+
+on:
+  schedule:
+    # After Spansh's nightly dump generation; once a day. Scheduled runs are
+    # skipped unless the repository variable SPANSH_DELTA_NIGHTLY is
+    # 'enabled', which the owner sets only once decision D5 (asking Spansh
+    # about recurring downloads) is resolved. Manual runs are always allowed.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dump:
+        description: Spansh full-detail delta dump to measure
+        required: true
+        default: galaxy_1day.json.gz
+        type: choice
+        options:
+          - galaxy_1day.json.gz
+          - galaxy_7days.json.gz
+          - galaxy_1month.json.gz
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spansh-delta-measure-${{ inputs.dump || 'galaxy_1day.json.gz' }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: Measure a Spansh full-detail delta dump (no secrets, no database)
+    if: github.event_name == 'workflow_dispatch' || vars.SPANSH_DELTA_NIGHTLY == 'enabled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      DUMP: ${{ inputs.dump || 'galaxy_1day.json.gz' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Install the pinned streaming JSON fallback parser
+        run: python -m pip install ijson==3.5.1
+
+      - name: Validate the dump name
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$DUMP" in
+            galaxy_1day.json.gz|galaxy_7days.json.gz|galaxy_1month.json.gz) ;;
+            *) echo "unsupported dump: $DUMP" >&2; exit 64 ;;
+          esac
+          case "$DUMP" in
+            galaxy_1day.json.gz) echo "WINDOW_HOURS=24" >> "$GITHUB_ENV" ;;
+            galaxy_7days.json.gz) echo "WINDOW_HOURS=168" >> "$GITHUB_ENV" ;;
+            galaxy_1month.json.gz) echo "WINDOW_HOURS=768" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Restore the previous night's ETag, stats and digest index
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/spansh-delta-state
+          key: spansh-delta-state-${{ env.DUMP }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            spansh-delta-state-${{ env.DUMP }}-
+
+      - name: Download the dump (conditional on the previous ETag)
+        id: download
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/spansh-delta-state"
+          work="$RUNNER_TEMP/spansh-delta"
+          mkdir -p "$state" "$work/previous" "$work/out"
+          # Keep last night's state aside; tonight's replaces it only on success.
+          find "$state" -maxdepth 1 -type f -exec cp {} "$work/previous/" \;
+          etag_args=(--etag-save "$work/etag.txt")
+          if [[ -s "$work/previous/etag.txt" ]]; then
+            etag_args+=(--etag-compare "$work/previous/etag.txt")
+          fi
+          status="$(curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --retry 5 --retry-all-errors --retry-delay 30 \
+            --connect-timeout 30 --max-time 7200 --remote-time \
+            --dump-header "$work/headers.txt" --output "$work/$DUMP" \
+            --write-out '%{http_code}' "${etag_args[@]}" \
+            "https://downloads.spansh.co.uk/$DUMP")"
+          echo "HTTP status: $status"
+          case "$status" in
+            200) ;;
+            304) echo "Spansh has not regenerated $DUMP since the last measured ETag." ;;
+            *) echo "unexpected HTTP status $status" >&2; exit 1 ;;
+          esac
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Measure the dump
+        if: steps.download.outputs.status == '200'
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/spansh-delta-state"
+          work="$RUNNER_TEMP/spansh-delta"
+          previous_args=()
+          if [[ -s "$work/previous/index.bin" ]]; then
+            previous_args+=(--previous-index "$work/previous/index.bin")
+          fi
+          if [[ -s "$work/previous/stats.json" ]]; then
+            previous_args+=(--previous-stats "$work/previous/stats.json")
+          fi
+          python scripts/dev/measure_spansh_delta.py \
+            --input "$work/$DUMP" \
+            --http-headers "$work/headers.txt" \
+            --window-hours "$WINDOW_HOURS" \
+            --output "$work/out/stats.json" \
+            --write-index "$work/index.bin" \
+            --markdown-summary "$GITHUB_STEP_SUMMARY" \
+            "${previous_args[@]}"
+          cp "$work/headers.txt" "$work/out/headers.txt"
+          rm -f "$state"/*
+          cp "$work/index.bin" "$work/out/stats.json" "$state/"
+          if [[ -s "$work/etag.txt" ]]; then cp "$work/etag.txt" "$state/etag.txt"; fi
+
+      - name: Record an unchanged dump
+        if: steps.download.outputs.status == '304'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/spansh-delta"
+          cp "$work/headers.txt" "$work/out/headers.txt"
+          {
+            echo '{'
+            echo '  "schema": "ed-finder.spansh-delta-not-modified/1",'
+            echo '  "not_modified": true,'
+            printf '  "file_name": "%s",\n' "$DUMP"
+            printf '  "checked_at": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo '}'
+          } > "$work/out/stats.json"
+          echo "### $DUMP not regenerated since the previous measurement (HTTP 304)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save tonight's ETag, stats and digest index for tomorrow
+        if: steps.download.outputs.status == '200'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/spansh-delta-state
+          key: spansh-delta-state-${{ env.DUMP }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload the measurement
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: spansh-delta-stats-${{ env.DUMP }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/spansh-delta/out/
+          if-no-files-found: error
+          retention-days: 30

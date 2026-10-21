@@ -8,7 +8,6 @@ export type CommanderVisitPoint = Readonly<{
   visitCount: number;
   firstVisitedAt: string;
   lastVisitedAt: string;
-  completionState: 'complete' | 'partial';
   cellSizeLy?: number;
   systemId64?: Id64;
   systemName?: string;
@@ -30,7 +29,6 @@ export type CommanderViewportVisit = Readonly<{
   visitCount: number;
   firstVisitedAt: string;
   lastVisitedAt: string;
-  completionState: 'complete' | 'partial';
   cellSizeLy?: number | null;
 }>;
 
@@ -45,7 +43,6 @@ export function createCommanderHistoryContribution(
     visitCount: visit.visitCount,
     firstVisitedAt: visit.firstVisitedAt,
     lastVisitedAt: visit.lastVisitedAt,
-    completionState: visit.completionState,
     ...(visit.cellSizeLy != null && { cellSizeLy: visit.cellSizeLy }),
     ...(visit.systemId64 && { systemId64: visit.systemId64 }),
     ...(visit.systemName && { systemName: visit.systemName }),

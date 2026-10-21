@@ -123,7 +123,7 @@ def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport()
         "AutocompleteHit",
         "LocalSearchRequest",
         "SearchResponse",
-        "SystemDetailRow",
+        "SystemV1",
     ):
         assert generated_type in client
     # Ordinary operations delegate to the generated Hey API SDK; the facade

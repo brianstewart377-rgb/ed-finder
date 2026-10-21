@@ -1,7 +1,14 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '$lib/api/client';
 import { queryClient } from '$lib/api/query';
+import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 
@@ -20,7 +27,8 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
     searchExploreSystems: vi.fn(),
     getArchetypeRankings: vi.fn(),
     getCatalogueViewportSystems: vi.fn(),
-    getCommanderViewportVisits: vi.fn(),
+    getCommanderTravelHeatmap: vi.fn(),
+    getAuthSession: vi.fn(),
     getMapHeatmap: vi.fn(),
   };
 });
@@ -128,11 +136,15 @@ function mockFacadeDefaults(): void {
     systems: [],
     truncated: false,
   });
-  vi.mocked(api.getCommanderViewportVisits).mockResolvedValue({
+  vi.mocked(api.getCommanderTravelHeatmap).mockResolvedValue({
     mode: 'markers',
     visits: [],
     count: 0,
     truncated: false,
+  });
+  vi.mocked(api.getAuthSession).mockResolvedValue({
+    authenticated: false,
+    user: null,
   });
 }
 
@@ -252,5 +264,166 @@ describe('ExploreWorkspace Finder F4 gate (default off)', () => {
     await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
     await screen.findByText(/exact stars/);
     expect(mockedGoto).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient.clear();
+    stubRuntime();
+    mockFacadeDefaults();
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function signIn(): Promise<void> {
+    vi.mocked(api.getAuthSession).mockResolvedValue({
+      authenticated: true,
+      user: {
+        account_id: 'account-a',
+        commander_name: 'CMDR Test',
+        is_owner: false,
+      },
+    });
+    await auth.bootstrap();
+  }
+
+  async function showTravel(): Promise<HTMLElement> {
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Show my travel heatmap' }),
+    );
+    return screen.findByText(
+      (_, element) =>
+        element?.hasAttribute('data-commander-history-state') ?? false,
+    );
+  }
+
+  it('asks a signed-out visitor to sign in and never requests travel', async () => {
+    await auth.bootstrap();
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/exact stars/);
+
+    const status = await showTravel();
+
+    await waitFor(() =>
+      expect(status).toHaveAttribute(
+        'data-commander-history-state',
+        'signed-out',
+      ),
+    );
+    expect(
+      screen.getByRole('link', { name: 'Sign in and import your journals' }),
+    ).toHaveAttribute('href', '/account');
+    expect(api.getCommanderTravelHeatmap).not.toHaveBeenCalled();
+  });
+
+  it('offers a retry, not a sign-in prompt, when the account check fails', async () => {
+    vi.mocked(api.getAuthSession).mockRejectedValueOnce(
+      new api.ApiError(503, '/api/v1/auth/session', {}),
+    );
+    await auth.bootstrap();
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/exact stars/);
+
+    const status = await showTravel();
+
+    await waitFor(() =>
+      expect(status).toHaveAttribute(
+        'data-commander-history-state',
+        'auth-error',
+      ),
+    );
+    expect(
+      screen.queryByRole('link', { name: 'Sign in and import your journals' }),
+    ).not.toBeInTheDocument();
+    expect(api.getCommanderTravelHeatmap).not.toHaveBeenCalled();
+    await fireEvent.click(
+      Array.from(status.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Retry',
+      )!,
+    );
+    await waitFor(() =>
+      expect(status).toHaveAttribute(
+        'data-commander-history-state',
+        'signed-out',
+      ),
+    );
+  });
+
+  it('reads the signed-in account travel from the V3 route and counts it', async () => {
+    await signIn();
+    vi.mocked(api.getCommanderTravelHeatmap).mockResolvedValue({
+      mode: 'markers',
+      visits: [
+        {
+          kind: 'marker',
+          systemId64: null,
+          systemName: 'Sol',
+          x: 0,
+          y: 0,
+          z: 0,
+          visitCount: 3,
+          firstVisitedAt: '2026-01-01T00:00:00Z',
+          lastVisitedAt: '2026-01-02T00:00:00Z',
+          cellSizeLy: null,
+        },
+      ],
+      count: 1,
+      truncated: false,
+    });
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/exact stars/);
+
+    const status = await showTravel();
+
+    await waitFor(() =>
+      expect(status).toHaveAttribute('data-commander-history-state', 'ready'),
+    );
+    expect(status).toHaveAttribute('data-commander-history-count', '1');
+    expect(status.textContent).toMatch(/1 visited\s+systems/u);
+    const [request, distance] = vi.mocked(api.getCommanderTravelHeatmap).mock
+      .calls[0]!;
+    expect(request).toEqual(
+      expect.objectContaining({
+        minX: expect.any(Number),
+        limit: expect.any(Number),
+      }),
+    );
+    expect(distance).toBeGreaterThan(0);
+  });
+
+  it('shows an honest empty state and a sign-in prompt on a 401', async () => {
+    await signIn();
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/exact stars/);
+    const status = await showTravel();
+    await waitFor(() =>
+      expect(status).toHaveAttribute('data-commander-history-state', 'empty'),
+    );
+    expect(status.textContent).toContain(
+      'No imported journal travel in this view',
+    );
+    cleanup();
+    queryClient.clear();
+
+    vi.mocked(api.getCommanderTravelHeatmap).mockRejectedValue(
+      new api.ApiError(401, '/api/v1/journal/travel-heatmap', {}),
+    );
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/exact stars/);
+    const expired = await showTravel();
+    await waitFor(() =>
+      expect(expired).toHaveAttribute(
+        'data-commander-history-state',
+        'signed-out',
+      ),
+    );
+    expect(api.getCommanderTravelHeatmap).toHaveBeenCalledTimes(2);
   });
 });

@@ -57,6 +57,7 @@ CHECKED_WORKFLOWS = (
     'remove-ollama-production.yml',
     'review-lab.yml',
     'semgrep.yml',
+    'spansh-delta-measure.yml',
     'v3-application-live-checkpoint-preflight.yml',
     'v3-application-release.yml',
     'v3-derived-data-status.yml',

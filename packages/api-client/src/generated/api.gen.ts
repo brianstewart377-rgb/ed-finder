@@ -14,8 +14,8 @@ export interface paths {
         /**
          * Share Stop Page
          * @description Bots → static HTML with OG/Twitter meta tags pointing at the PNG
-         *     endpoint below. Real users → 302 to the SPA's `#system/{id64}` deep-link
-         *     so the existing client-side router takes over.
+         *     endpoint below. Real users → 302 to the canonical Inspect route
+         *     (`/inspect?system={id64}`), which owns its own found/not-found states.
          */
         get: operations["share_stop_page_s__id64__get"];
         put?: never;
@@ -35,8 +35,14 @@ export interface paths {
         };
         /**
          * Og Image
-         * @description Render a 1200×630 PNG preview card for the given system. Cached in
-         *     Redis for 7 days; falls through to live render if cache is missing.
+         * @description Render a 1200×630 PNG preview card for the given system.
+         *
+         *     The stop page advertises the image pinned to the generation it described
+         *     (`?generation=<id>`), so a publication between the two bot fetches cannot
+         *     pair one generation's title with another's card; a pinned card is
+         *     immutable and cacheable for 7 days. Without the pin the card follows the
+         *     current publication and is cached publicly for only an hour. Redis keys
+         *     always carry the generation.
          */
         get: operations["og_image_api_share_og__id64__get"];
         put?: never;
@@ -2252,6 +2258,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/journal/travel-heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get V3 Journal Travel Heatmap
+         * @description The signed-in account's imported travel (FSDJump/CarrierJump/Location
+         *     star positions) inside one viewport box, aggregated server-side.
+         */
+        get: operations["getV3JournalTravelHeatmap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/summary": {
         parameters: {
             query?: never;
@@ -2904,6 +2931,13 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** BodySignalV1 */
+        BodySignalV1: {
+            /** Signal Type */
+            signal_type: string;
+            /** Count */
+            count: number;
+        };
         /**
          * BodySlotPrediction
          * @description One body row returned by GET /api/systems/{id64}/slot-predictions.
@@ -2972,6 +3006,14 @@ export interface components {
             name: string;
             /** Body Type */
             body_type: string | null;
+            /** Is Main Star */
+            is_main_star: boolean | null;
+            /** Spectral Class */
+            spectral_class: string | null;
+            /** Luminosity Class */
+            luminosity_class: string | null;
+            /** Is Landable */
+            is_landable: boolean | null;
             /** Radius Km */
             radius_km: number | null;
             /** Planet Mass Earth */
@@ -2984,6 +3026,10 @@ export interface components {
             semi_major_axis_km: number | null;
             /** Distance From Arrival Ls */
             distance_from_arrival_ls: number | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
+            /** Signals */
+            signals: components["schemas"]["BodySignalV1"][];
         };
         /** BuildSimulateRequest */
         BuildSimulateRequest: {
@@ -6738,6 +6784,8 @@ export interface components {
             body_id: string | null;
             /** Association State */
             association_state: string;
+            /** Lifecycle State */
+            lifecycle_state: string;
             /** Economies */
             economies: components["schemas"]["StationEconomyV1"][];
         };
@@ -7641,6 +7689,46 @@ export interface components {
             /** Stations */
             stations: components["schemas"]["V3StationHistory"][];
         };
+        /** V3TravelHeatmapPoint */
+        V3TravelHeatmapPoint: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "marker" | "density";
+            /** System Id64 */
+            system_id64: string | null;
+            /** System Name */
+            system_name: string | null;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z */
+            z: number;
+            /** Visit Count */
+            visit_count: number;
+            /** First Visited At */
+            first_visited_at: string;
+            /** Last Visited At */
+            last_visited_at: string;
+        };
+        /** V3TravelHeatmapResponse */
+        V3TravelHeatmapResponse: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "markers" | "density";
+            /** Cell Size Ly */
+            cell_size_ly: number | null;
+            /** Points */
+            points: components["schemas"]["V3TravelHeatmapPoint"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** V3VerifiedImportReceipt */
         V3VerifiedImportReceipt: {
             /** Import Ids */
@@ -7788,6 +7876,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Unsigned decimal system id64 */
                 id64: number;
             };
             cookie?: never;
@@ -7816,9 +7905,12 @@ export interface operations {
     };
     og_image_api_share_og__id64__get: {
         parameters: {
-            query?: never;
+            query?: {
+                generation?: string | null;
+            };
             header?: never;
             path: {
+                /** @description Unsigned decimal system id64 */
                 id64: number;
             };
             cookie?: never;
@@ -11759,6 +11851,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GalaxyImpactSummary"];
+                };
+            };
+        };
+    };
+    getV3JournalTravelHeatmap: {
+        parameters: {
+            query: {
+                min_x: number;
+                max_x: number;
+                min_y: number;
+                max_y: number;
+                min_z: number;
+                max_z: number;
+                zoom: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3TravelHeatmapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

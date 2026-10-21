@@ -1,4 +1,4 @@
-import type { SystemDetail } from '$lib/api/client';
+import type { SystemDetail, SystemDetailBody } from '$lib/api/client';
 
 import type {
   BodyVisualDescriptor,
@@ -13,49 +13,94 @@ const factual = <T>(value: T, source: string): Truth<T> => ({
   provenance: [{ source }],
 });
 
-function bodyDisplayRadius(
-  body: NonNullable<SystemDetail['bodies']>[number],
-): number {
-  const identity =
-    `${body.body_type ?? ''} ${body.subtype ?? ''}`.toLowerCase();
-  if (identity.includes('star')) return identity.includes('dwarf') ? 1.45 : 2.2;
+const derived = <T>(value: T, source: string, note: string): Truth<T> => ({
+  value,
+  representation: 'DERIVED',
+  provenance: [{ source, note }],
+});
+
+const BODY_TYPE_LABELS: Readonly<Record<string, string>> = {
+  star: 'Star',
+  planet: 'Planet',
+  barycentre: 'Barycentre',
+  belt_cluster: 'Belt cluster',
+};
+
+/** Display label for a V3 public body-type code. */
+export function bodyTypeLabel(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return BODY_TYPE_LABELS[code] ?? code.replaceAll('_', ' ');
+}
+
+/** Spectral + luminosity class as catalogued, e.g. `G2 V`. */
+export function stellarClassification(
+  body: Pick<SystemDetailBody, 'spectralClass' | 'luminosityClass'>,
+): string | null {
+  const spectral = body.spectralClass?.trim();
+  if (!spectral) return null;
+  const luminosity = body.luminosityClass?.trim();
+  return luminosity ? `${spectral} ${luminosity}` : spectral;
+}
+
+/**
+ * Presentation-only stellar subtype phrased the way the shared stellar
+ * presentation recognises classes (e.g. `G (G2 V) Star`, `White Dwarf (DA)
+ * Star`). Derived from the catalogued spectral/luminosity class; never shown
+ * as a catalogue fact.
+ */
+export function stellarPresentationSubtype(
+  body: Pick<
+    SystemDetailBody,
+    'bodyType' | 'spectralClass' | 'luminosityClass'
+  >,
+): string | null {
+  if (body.bodyType !== 'star') return null;
+  const spectral = body.spectralClass?.trim();
+  const full = stellarClassification(body);
+  if (!spectral || !full) return null;
+  // Catalogued classes carry numeric subclasses (`N0`, `H0`, `DA6`, `WC8`);
+  // match on the family with the trailing subclass removed.
+  const family = spectral.replace(/\d+(?:\.\d+)?$/u, '');
+  if (/^N$/i.test(family)) return 'Neutron Star';
+  if (/^SupermassiveBlackHole$/i.test(family)) return 'Supermassive Black Hole';
+  if (/^H$/i.test(family)) return 'Black Hole';
+  if (/^D/i.test(family)) return `White Dwarf (${full}) Star`;
+  if (/^W/i.test(family)) return `Wolf-Rayet (${full}) Star`;
+  if (/^TTS$/i.test(family)) return `T Tauri (${full}) Star`;
+  if (/^AeBe$/i.test(family)) return `Herbig Ae/Be (${full}) Star`;
+  if (/^(?:C|CN|CJ|CH|CHd|CS|MS|S)$/.test(family))
+    return `${full} (Carbon) Star`;
+  const letter = spectral.charAt(0).toUpperCase();
+  if ('OBAFGKMLTY'.includes(letter)) return `${letter} (${full}) Star`;
+  return `${full} Star`;
+}
+
+function bodyDisplayRadius(body: SystemDetailBody): number {
+  const identity = `${bodyTypeLabel(body.bodyType) ?? ''} ${
+    stellarPresentationSubtype(body) ?? ''
+  }`.toLowerCase();
   if (identity.includes('black hole')) return 1.6;
-  if (identity.includes('gas giant')) return 1.1;
+  if (identity.includes('star')) return identity.includes('dwarf') ? 1.45 : 2.2;
   if (identity.includes('belt')) return 0.28;
   return 0.68;
 }
 
 function ringDescriptor(
-  body: NonNullable<SystemDetail['bodies']>[number],
+  body: SystemDetailBody,
+  source: string,
 ): BodyVisualDescriptor['rings'] {
-  const state =
-    body.ring_state === 'ringed'
-      ? 'PRESENT'
-      : body.ring_state === 'not_ringed'
-        ? 'ABSENT'
-        : 'UNKNOWN';
+  const rings = body.rings.filter((ring) => ring.kind === 'RING');
   return {
-    state,
-    bands: (body.rings ?? []).map((ring, index) => ({
-      id: ring.ring_name ?? `${body.id}:ring:${index}`,
-      ...(ring.ring_class
-        ? { ringClass: factual(ring.ring_class, ring.source ?? 'catalogue') }
+    // The V3 catalogue lists known rings; it does not assert absence.
+    state: rings.length > 0 ? 'PRESENT' : 'UNKNOWN',
+    bands: rings.map((ring) => ({
+      id: ring.ringKey,
+      ...(ring.ringType ? { ringClass: factual(ring.ringType, source) } : {}),
+      ...(typeof ring.innerRadiusKm === 'number'
+        ? { innerRadiusM: factual(ring.innerRadiusKm * 1000, source) }
         : {}),
-      ...(typeof ring.inner_radius === 'number'
-        ? {
-            innerRadiusM: factual(
-              ring.inner_radius,
-              ring.source ?? 'catalogue',
-            ),
-          }
-        : {}),
-      ...(typeof ring.outer_radius === 'number'
-        ? {
-            outerRadiusM: factual(
-              ring.outer_radius,
-              ring.source ?? 'catalogue',
-            ),
-          }
+      ...(typeof ring.outerRadiusKm === 'number'
+        ? { outerRadiusM: factual(ring.outerRadiusKm * 1000, source) }
         : {}),
     })),
   };
@@ -66,30 +111,45 @@ export function buildSystemScene(
   revision: number,
   selectedBodyId?: number,
 ): SystemSceneContract {
-  const source = 'ED-Finder catalogue / system detail';
-  const bodies = (system.bodies ?? [])
+  const source = 'ED-Finder V3 canonical catalogue';
+  const bodies = system.bodies
     .filter(
       (body): body is typeof body & { id: number } =>
         typeof body.id === 'number' && Number.isSafeInteger(body.id),
     )
-    .map((body): BodyVisualDescriptor => ({
-      ref: { systemId64: system.id64, bodyId: body.id },
-      name: body.name ?? `Body ${body.id}`,
-      ...(body.body_type ? { class: factual(body.body_type, source) } : {}),
-      ...(body.subtype ? { subtype: factual(body.subtype, source) } : {}),
-      ...(typeof body.radius === 'number' && body.radius > 0
-        ? { physicalRadiusM: factual(body.radius, source) }
-        : {}),
-      ...(typeof body.distance_from_star === 'number' &&
-      body.distance_from_star >= 0
-        ? {
-            distanceFromArrivalLs: factual(body.distance_from_star, source),
-          }
-        : {}),
-      displayRadius: bodyDisplayRadius(body),
-      orbital: { placement: 'DETERMINISTIC_SCHEMATIC' },
-      rings: ringDescriptor(body),
-    }));
+    .map((body): BodyVisualDescriptor => {
+      const label = bodyTypeLabel(body.bodyType);
+      const subtype = stellarPresentationSubtype(body);
+      return {
+        ref: { systemId64: system.id64, bodyId: body.id },
+        name: body.name,
+        ...(label ? { class: factual(label, source) } : {}),
+        ...(subtype
+          ? {
+              subtype: derived(
+                subtype,
+                source,
+                'presentation phrase derived from the catalogued spectral class',
+              ),
+            }
+          : {}),
+        ...(typeof body.radiusKm === 'number' && body.radiusKm > 0
+          ? { physicalRadiusM: factual(body.radiusKm * 1000, source) }
+          : {}),
+        ...(typeof body.distanceFromArrivalLs === 'number' &&
+        body.distanceFromArrivalLs >= 0
+          ? {
+              distanceFromArrivalLs: factual(
+                body.distanceFromArrivalLs,
+                source,
+              ),
+            }
+          : {}),
+        displayRadius: bodyDisplayRadius(body),
+        orbital: { placement: 'DETERMINISTIC_SCHEMATIC' },
+        rings: ringDescriptor(body, source),
+      };
+    });
   const focus: SpatialTarget =
     selectedBodyId !== undefined &&
     bodies.some((body) => body.ref.bodyId === selectedBodyId)

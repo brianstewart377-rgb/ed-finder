@@ -339,9 +339,7 @@ function isCommanderHistoryPayload(
         Number.isSafeInteger(visit.visitCount) &&
         (visit.visitCount ?? 0) > 0 &&
         typeof visit.firstVisitedAt === 'string' &&
-        typeof visit.lastVisitedAt === 'string' &&
-        (visit.completionState === 'complete' ||
-          visit.completionState === 'partial')
+        typeof visit.lastVisitedAt === 'string'
       );
     })
   );

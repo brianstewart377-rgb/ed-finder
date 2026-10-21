@@ -47,11 +47,15 @@ import {
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
-  getExplorationViewportVisitsApiExplorationViewportVisitsGet,
-  getSystemApiSystemId64Get,
+  getV3CurrentGeneration,
+  getV3JournalTravelHeatmap,
+  getV3System,
   getWatchlistApiV2WatchlistSyncKeyGet,
   healthApiHealthGet,
   listIdentitiesApiV1AuthIdentitiesGet,
+  listV3SystemBodies,
+  listV3SystemRings,
+  listV3SystemStations,
   listVerifiedCommanders,
   createVerifiedJournalImport,
   offerJournalGalaxyFacts,
@@ -74,16 +78,23 @@ import type {
   ExternalIdentityResponse,
   HealthResponse,
   LocalSearchRequest,
-  ExplorationViewportVisitsResponse,
+  BodyV1,
   MapViewportResponse,
   RankingIdentity,
+  RingV1,
   SearchResponse,
-  SystemDetailRow,
+  StationV1,
   SystemRow,
+  SystemV1,
   V3JournalImportRequest,
+  V3TravelHeatmapResponse,
 } from './generated';
 
 export type {
+  BodyV1,
+  RingV1,
+  StationV1,
+  SystemV1,
   VerifiedCommanderResponse,
   V3JournalImportRequest,
   V3VerifiedImportReceipt,
@@ -408,39 +419,70 @@ export type ArchetypeRankingsPage = Readonly<{
   query_ms?: number | null;
 }>;
 
-export type SystemDetail = Readonly<
-  Pick<
-    SystemDetailRow,
-    | 'name'
-    | 'x'
-    | 'y'
-    | 'z'
-    | 'population'
-    | 'primary_economy'
-    | 'secondary_economy'
-    | 'security'
-    | 'allegiance'
-    | 'government'
-    | 'is_colonised'
-    | 'is_being_colonised'
-    | 'main_star_type'
-    | 'main_star_subtype'
-    | 'primary_archetype'
-    | 'secondary_archetype'
-    | 'archetype_confidence'
-    | 'overall_development_potential'
-    | 'buildability_score'
-    | 'build_complexity'
-    | 'est_total_slots'
-    | 'elw_count'
-    | 'ww_count'
-    | 'terraformable_count'
-    | 'bio_signal_total'
-    | 'geo_signal_total'
-    | 'bodies'
-    | 'stations'
-  > & { id64: Id64 }
->;
+/** One catalogued ring or belt of a body (V3 canonical generation). */
+export type SystemDetailRing = Readonly<{
+  /** Canonical V3 ring key (lossless decimal). */
+  ringKey: string;
+  name: string;
+  kind: 'RING' | 'BELT';
+  ringType: string | null;
+  innerRadiusKm: number | null;
+  outerRadiusKm: number | null;
+}>;
+
+/** One catalogued body as Inspect renders it (V3 canonical generation). */
+export type SystemDetailBody = Readonly<{
+  /**
+   * Frontier in-system BodyID: the 3D map / selection reference. Null when the
+   * catalogue has none (or it is not a unique safe integer); such a body is
+   * counted but cannot be selected in the system map.
+   */
+  id: number | null;
+  /** Canonical V3 body key (lossless decimal). */
+  bodyKey: string;
+  name: string;
+  /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
+  bodyType: string | null;
+  isMainStar: boolean | null;
+  spectralClass: string | null;
+  luminosityClass: string | null;
+  isLandable: boolean | null;
+  radiusKm: number | null;
+  distanceFromArrivalLs: number | null;
+  rings: readonly SystemDetailRing[];
+  signals: readonly Readonly<{ signalType: string; count: number }>[];
+}>;
+
+export type SystemDetailStation = Readonly<{
+  /** Canonical V3 station key (lossless decimal). */
+  stationKey: string;
+  name: string;
+  stationType: string | null;
+  distanceFromArrivalLs: number | null;
+}>;
+
+/**
+ * Inspect's system detail, read from the published V3 canonical generation
+ * (`/api/v1/systems/{id}` + `/bodies`, `/rings`, `/stations`). Only ACTIVE
+ * bodies, rings and stations are current catalogue objects; rows the
+ * generation retains as MISSING_CANDIDATE or RETIRED are omitted. Population,
+ * economy, security, allegiance, government and development fit are not part
+ * of the V3 canonical catalogue, so they are deliberately absent here.
+ */
+export type SystemDetail = Readonly<{
+  id64: Id64;
+  name: string;
+  /** The system's own catalogue lifecycle: ACTIVE, MISSING_CANDIDATE, RETIRED. */
+  lifecycleState: string;
+  x: number;
+  y: number;
+  z: number;
+  sourceBodyCount: number | null;
+  loadedBodyCount: number;
+  sourceUpdatedAt: string | null;
+  bodies: readonly SystemDetailBody[];
+  stations: readonly SystemDetailStation[];
+}>;
 
 export type AutocompleteSystemsResponse = Omit<
   AutocompleteResponse,
@@ -517,7 +559,7 @@ export type MapHeatmapResponse =
   | MapHeatmapPyramidResponse
   | { source: 'legacy-fallback'; [k: string]: unknown };
 
-export type CommanderViewportVisitsResponse = Readonly<{
+export type CommanderTravelHeatmapResponse = Readonly<{
   mode: 'markers' | 'density';
   visits: readonly Readonly<{
     kind: 'marker' | 'density';
@@ -529,7 +571,6 @@ export type CommanderViewportVisitsResponse = Readonly<{
     visitCount: number;
     firstVisitedAt: string;
     lastVisitedAt: string;
-    completionState: 'complete' | 'partial';
     cellSizeLy?: number | null;
   }>[];
   count: number;
@@ -924,63 +965,203 @@ export const getMapHeatmap = async (
   (await mapHeatmapApiMapHeatmapGet({ query, throwOnError: true, signal }))
     .data as MapHeatmapResponse;
 
-export async function getCommanderViewportVisits(
-  syncKey: string,
+/**
+ * The signed-in account's imported journal travel (V3 journal store) inside
+ * one viewport box, aggregated server-side. Rejects with a 401 ApiError when
+ * signed out.
+ */
+export async function getCommanderTravelHeatmap(
   request: CatalogueViewportRequest,
   cameraDistanceLy: number,
   signal?: AbortSignal,
-): Promise<CommanderViewportVisitsResponse> {
-  const { data } =
-    await getExplorationViewportVisitsApiExplorationViewportVisitsGet({
-      throwOnError: true,
-      query: {
-        sync_key: syncKey,
-        min_x: request.minX,
-        max_x: request.maxX,
-        min_y: request.minY,
-        max_y: request.maxY,
-        min_z: request.minZ,
-        max_z: request.maxZ,
-        zoom: Math.min(5_000, Math.max(0.001, cameraDistanceLy)),
-        limit: Math.min(20_000, request.limit),
-      },
-      signal,
-    });
-  const response = data as ExplorationViewportVisitsResponse;
+): Promise<CommanderTravelHeatmapResponse> {
+  const { data } = await getV3JournalTravelHeatmap({
+    throwOnError: true,
+    query: {
+      min_x: request.minX,
+      max_x: request.maxX,
+      min_y: request.minY,
+      max_y: request.maxY,
+      min_z: request.minZ,
+      max_z: request.maxZ,
+      zoom: Math.min(5_000, Math.max(0.001, cameraDistanceLy)),
+      limit: Math.min(20_000, request.limit),
+    },
+    signal,
+  });
+  const response = data as V3TravelHeatmapResponse;
   return {
     mode: response.mode,
-    visits: (response.visits ?? []).map((visit) => ({
-      kind: visit.kind,
+    visits: response.points.map((point) => ({
+      kind: point.kind,
       systemId64:
-        visit.system_id64 == null ? null : losslessId64(visit.system_id64),
-      systemName: visit.system_name,
-      x: visit.x,
-      y: visit.y,
-      z: visit.z,
-      visitCount: visit.visit_count,
-      firstVisitedAt: visit.first_visited_at,
-      lastVisitedAt: visit.last_visited_at,
-      completionState: visit.completion_state,
-      cellSizeLy: visit.cell_size,
+        point.system_id64 == null ? null : parseId64(point.system_id64),
+      systemName: point.system_name,
+      x: point.x,
+      y: point.y,
+      z: point.z,
+      visitCount: point.visit_count,
+      firstVisitedAt: point.first_visited_at,
+      lastVisitedAt: point.last_visited_at,
+      cellSizeLy: response.cell_size_ly,
     })),
     count: response.count,
     truncated: response.truncated,
   };
 }
 
+const SAFE_DECIMAL = /^(0|[1-9][0-9]{0,15})$/;
+const ACTIVE = 'ACTIVE';
+
+/** Unique, safe Frontier BodyIDs keyed by canonical body key. */
+function frontierBodyIds(bodies: readonly BodyV1[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const body of bodies) {
+    const raw = body.frontier_body_id;
+    if (raw != null) counts.set(raw, (counts.get(raw) ?? 0) + 1);
+  }
+  const ids = new Map<string, number>();
+  for (const body of bodies) {
+    const raw = body.frontier_body_id;
+    if (raw == null || counts.get(raw) !== 1 || !SAFE_DECIMAL.test(raw))
+      continue;
+    const value = Number(raw);
+    if (Number.isSafeInteger(value)) ids.set(body.body_id, value);
+  }
+  return ids;
+}
+
+/** Main star first, then by arrival distance (unknown last), then name. */
+function bodyOrder(left: SystemDetailBody, right: SystemDetailBody): number {
+  const main =
+    Number(right.isMainStar === true) - Number(left.isMainStar === true);
+  if (main !== 0) return main;
+  const leftDistance = left.distanceFromArrivalLs ?? Number.POSITIVE_INFINITY;
+  const rightDistance = right.distanceFromArrivalLs ?? Number.POSITIVE_INFINITY;
+  if (leftDistance !== rightDistance)
+    return leftDistance < rightDistance ? -1 : 1;
+  return left.name.localeCompare(right.name);
+}
+
+/** Pure V3 canonical → Inspect mapping; exported for tests. */
+export function systemDetailFromV3(
+  system: SystemV1,
+  bodies: readonly BodyV1[],
+  rings: readonly RingV1[],
+  stations: readonly StationV1[],
+): SystemDetail {
+  const current = bodies.filter((body) => body.lifecycle_state === ACTIVE);
+  const ids = frontierBodyIds(current);
+  const ringsByBody = new Map<string, SystemDetailRing[]>();
+  for (const ring of rings) {
+    if (ring.lifecycle_state !== ACTIVE) continue;
+    const list = ringsByBody.get(ring.body_id) ?? [];
+    list.push({
+      ringKey: ring.ring_id,
+      name: ring.name,
+      kind: ring.kind,
+      ringType: ring.ring_type,
+      innerRadiusKm: ring.inner_radius_km,
+      outerRadiusKm: ring.outer_radius_km,
+    });
+    ringsByBody.set(ring.body_id, list);
+  }
+  return {
+    id64: parseId64(system.id64),
+    name: system.name,
+    lifecycleState: system.lifecycle_state,
+    x: system.x_ly,
+    y: system.y_ly,
+    z: system.z_ly,
+    sourceBodyCount: system.source_body_count,
+    loadedBodyCount: system.loaded_body_count,
+    sourceUpdatedAt: system.source_updated_at,
+    bodies: current
+      .map((body): SystemDetailBody => ({
+        id: ids.get(body.body_id) ?? null,
+        bodyKey: body.body_id,
+        name: body.name,
+        bodyType: body.body_type,
+        isMainStar: body.is_main_star,
+        spectralClass: body.spectral_class,
+        luminosityClass: body.luminosity_class,
+        isLandable: body.is_landable,
+        radiusKm: body.radius_km,
+        distanceFromArrivalLs: body.distance_from_arrival_ls,
+        rings: ringsByBody.get(body.body_id) ?? [],
+        signals: body.signals.map((signal) => ({
+          signalType: signal.signal_type,
+          count: signal.count,
+        })),
+      }))
+      .sort(bodyOrder),
+    stations: stations
+      .filter((station) => station.lifecycle_state === ACTIVE)
+      .map((station) => ({
+        stationKey: station.station_id,
+        name: station.name,
+        stationType: station.station_type,
+        distanceFromArrivalLs: station.distance_from_arrival_ls,
+      })),
+  };
+}
+
+/** Attempts before a read that keeps straddling publications fails closed. */
+const INSPECT_GENERATION_ATTEMPTS = 2;
+
+/**
+ * Inspect's system read: the generation-pinned V3 canonical routes, fetched in
+ * parallel. Each route resolves the canonical pointer on its own, so the four
+ * reads are fenced by the published generation identity read before and after
+ * them: an unchanged generation and publication sequence proves no publication
+ * happened in between and every part came from one immutable generation. Any
+ * part's error (a 404 included) is only reported once the fence holds. A read
+ * that straddles a publication is retried once, then fails closed with a
+ * retryable 503. An unknown system rejects with the system route's 404
+ * ApiError; no published generation rejects with 503.
+ */
 export async function getSystem(
   id64: Id64,
   signal?: AbortSignal,
 ): Promise<SystemDetail> {
-  const { data } = await getSystemApiSystemId64Get({
-    throwOnError: true,
-    // The path carries the lossless decimal id64; the generated OpenAPI type is
-    // a JS number, so bridge it explicitly rather than coercing through Number().
-    path: { id64: parseId64(id64) as unknown as number },
-    signal,
-  });
-  const detail = data.record ?? data.system;
-  return { ...detail, id64: losslessId64(detail.id64) };
+  const path = { system_id: parseId64(id64) };
+  for (let attempt = 0; attempt < INSPECT_GENERATION_ATTEMPTS; attempt += 1) {
+    const before = await getV3CurrentGeneration({ throwOnError: true, signal });
+    // Settle every part (including a 404) before judging it: a system that
+    // was absent from the old generation may exist in a newly published one.
+    const [system, bodies, rings, stations] = await Promise.allSettled([
+      getV3System({ path, throwOnError: true, signal }),
+      listV3SystemBodies({ path, throwOnError: true, signal }),
+      listV3SystemRings({ path, throwOnError: true, signal }),
+      listV3SystemStations({ path, throwOnError: true, signal }),
+    ]);
+    const after = await getV3CurrentGeneration({ throwOnError: true, signal });
+    if (
+      before.data.generation_id !== after.data.generation_id ||
+      before.data.publication_sequence !== after.data.publication_sequence
+    )
+      continue;
+    for (const part of [system, bodies, rings, stations])
+      if (part.status === 'rejected') throw part.reason;
+    if (
+      system.status === 'fulfilled' &&
+      bodies.status === 'fulfilled' &&
+      rings.status === 'fulfilled' &&
+      stations.status === 'fulfilled'
+    )
+      return systemDetailFromV3(
+        system.value.data,
+        bodies.value.data,
+        rings.value.data,
+        stations.value.data,
+      );
+  }
+  throw new ApiError(
+    503,
+    `/api/v1/systems/${path.system_id}`,
+    null,
+    'The catalogue was republished while this system was loading',
+  );
 }
 
 /** Existing sync-key watchlist rows; optional snapshots may be absent or null. */

@@ -1,14 +1,16 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
+  import { fromStore } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import { onMount, tick } from 'svelte';
   import { ArrowRight, LocateFixed, Search, Sparkles } from '@lucide/svelte';
   import {
+    ApiError,
     autocompleteSystems,
     getCatalogueViewportSystems,
-    getCommanderViewportVisits,
+    getCommanderTravelHeatmap,
     getMapHeatmap,
     searchExploreSystems,
     type AutocompleteSystem,
@@ -18,6 +20,7 @@
     type ExploreSystem,
   } from '$lib/api/client';
   import { queryKeys } from '$lib/api/query';
+  import { auth } from '$lib/auth/auth';
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
   import {
@@ -70,7 +73,13 @@
     withinGalaxyDisk,
   } from '$lib/spatial/galaxy-star-stream';
 
-  const { selectedSystem, syncKey, pins, compare } = usePersistenceContext();
+  const { selectedSystem, pins, compare } = usePersistenceContext();
+  const session = fromStore(auth);
+  // The travel heatmap is the signed-in account's own V3 journal travel; the
+  // cache key carries the account so a sign-out/switch never reuses rows.
+  const travelAccountId = $derived(
+    session.current.loading ? null : (session.current.user?.account_id ?? null),
+  );
   const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
   let query = $state('');
   let activeSuggestion = $state(-1);
@@ -224,8 +233,8 @@
     }
   });
   const commanderVisits = createQuery(() => ({
-    queryKey: queryKeys.commanderViewport(
-      $syncKey.value.state.syncKey,
+    queryKey: queryKeys.commanderTravel(
+      travelAccountId ?? '',
       viewportRequest ?? {
         minX: 0,
         maxX: 0,
@@ -239,17 +248,47 @@
     queryFn: ({ signal }) => {
       if (!viewportRequest || !starViewport)
         throw new Error('No commander-history viewport requested');
-      return getCommanderViewportVisits(
-        $syncKey.value.state.syncKey,
+      return getCommanderTravelHeatmap(
         viewportRequest,
         starViewport.cameraDistanceLy,
         signal,
       );
     },
-    enabled: showTravelHeatmap && viewportRequest !== null,
+    enabled:
+      showTravelHeatmap && viewportRequest !== null && travelAccountId !== null,
     staleTime: 20_000,
-    placeholderData: (previousData) => previousData,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 401) && failureCount < 1,
+    // Keep the previous viewport's points while panning, but never carry one
+    // account's travel into another account's view.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[3] === travelAccountId ? previousData : undefined,
   }));
+  const travelHeatmapState = $derived.by(
+    ():
+      | 'checking'
+      | 'auth-error'
+      | 'signed-out'
+      | 'zoom'
+      | 'loading'
+      | 'error'
+      | 'empty'
+      | 'ready' => {
+      if (session.current.loading) return 'checking';
+      // A failed session check is not "signed out": the visitor may well be
+      // signed in, so offer a retry rather than a sign-in prompt.
+      if (travelAccountId === null)
+        return session.current.error ? 'auth-error' : 'signed-out';
+      if (!starViewport) return 'zoom';
+      if (commanderVisits.isError)
+        return commanderVisits.error instanceof ApiError &&
+          commanderVisits.error.status === 401
+          ? 'signed-out'
+          : 'error';
+      if (!commanderVisits.data) return 'loading';
+      return commanderVisits.data.count === 0 ? 'empty' : 'ready';
+    },
+  );
   // Normalize the raw camera distance to the discrete voxel size once, then key
   // the query AND its request params by it, so several nearby zoom stops that
   // round to the same voxel size reuse one cached response instead of issuing a
@@ -338,7 +377,12 @@
       : null,
   );
   const commanderHistoryContribution = $derived(
-    showTravelHeatmap && commanderVisits.data
+    // Never render cached private travel once the query is failing (an expired
+    // session keeps the last data alongside a 401).
+    showTravelHeatmap &&
+      travelAccountId !== null &&
+      !commanderVisits.isError &&
+      commanderVisits.data
       ? createCommanderHistoryContribution(
           commanderVisits.data.mode,
           commanderVisits.data.visits,
@@ -1005,16 +1049,36 @@
         </span>
         {#if showTravelHeatmap}<span
             data-commander-history-count={commanderVisits.data?.count ?? 0}
+            data-commander-history-state={travelHeatmapState}
           >
-            {#if !starViewport}
+            {#if travelHeatmapState === 'checking'}
+              Checking your sign-in…
+            {:else if travelHeatmapState === 'auth-error'}
+              Account check unavailable · <button
+                type="button"
+                onclick={() => void auth.bootstrap()}>Retry</button
+              >
+            {:else if travelHeatmapState === 'signed-out'}
+              <a href={resolve('/account')}>Sign in and import your journals</a> to
+              see your travel heatmap
+            {:else if travelHeatmapState === 'zoom'}
               Travel history appears when individual-star range is active
-            {:else if commanderVisits.isPending}
+            {:else if travelHeatmapState === 'loading'}
               Reading imported journal visits…
-            {:else if commanderVisits.isError}
-              No journal heatmap is available for this local profile
+            {:else if travelHeatmapState === 'error'}
+              Travel heatmap unavailable · <button
+                type="button"
+                onclick={() => commanderVisits.refetch()}>Retry</button
+              >
+            {:else if travelHeatmapState === 'empty'}
+              No imported journal travel in this view
             {:else}
               {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
-              {commanderVisits.data?.mode === 'density' ? ' cells' : ' systems'}
+              {commanderVisits.data?.mode === 'density'
+                ? ' cells'
+                : ' systems'}{commanderVisits.data?.truncated
+                ? ' · bounded view'
+                : ''}
             {/if}
           </span>{/if}
       </div>
