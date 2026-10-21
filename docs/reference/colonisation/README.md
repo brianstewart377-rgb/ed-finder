@@ -6,7 +6,10 @@ colonisation and Colony Planner mechanics work.
 It intentionally does not include restricted guide files, spreadsheets, PDFs,
 screenshots, or extracted third-party assets unless their redistribution status
 is explicitly safe. Where a source cannot be committed safely, this reference
-pack records an inventory entry and citation rule instead.
+pack records an inventory entry and citation rule instead. The Elite Dangerous
+Colonization Mega Guide is the exception that is committed: it is licensed
+CC BY-SA 4.0, and its extracted text is under
+[`sources/mega-guide-v2.3.0/`](./sources/mega-guide-v2.3.0/README.md).
 
 ## Read Order
 
@@ -34,10 +37,14 @@ Committed now:
 - Source-priority rules.
 - Source inventory and placeholders.
 - Future Codex prompt snippet.
+- Elite Dangerous Colonization Mega Guide v2.3.0 (2.4.0 WIP), inspected
+  2026-10-21, as extracted text with attribution, licence (CC BY-SA 4.0) and
+  checksums: [`sources/mega-guide-v2.3.0/`](./sources/mega-guide-v2.3.0/README.md).
+  Page numbers cited for it in this repository are PDF page numbers.
 
 Not committed:
 
-- Elite Dangerous Colonization Mega Guide source files.
+- The Mega Guide source PDF (about 95 MB) and its images.
 - OASIS guide source files.
 - Fandom, Frontier, or AetherWave PDFs.
 - DaftMav workbook files.

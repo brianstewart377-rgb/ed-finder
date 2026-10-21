@@ -8,7 +8,7 @@ and source-sensitive UI copy.
 
 | Priority | Source | Authority and use |
 |---:|---|---|
-| 1 | Elite Dangerous Colonization Mega Guide | Primary mechanics authority. If another source conflicts, prefer the Mega Guide unless newer verified evidence is explicitly documented. |
+| 1 | Elite Dangerous Colonization Mega Guide | Primary mechanics authority. If another source conflicts, prefer the Mega Guide unless newer verified evidence is explicitly documented. Committed as v2.3.0 (2.4.0 WIP) text, inspected 2026-10-21, CC BY-SA 4.0 with attribution: [`sources/mega-guide-v2.3.0/`](./sources/mega-guide-v2.3.0/README.md); cite PDF page numbers. |
 | 2 | User empirical findings and spreadsheet analysis | High-value evidence, especially surface-slot prediction and anomaly analysis. Prediction evidence is not confirmed truth unless backed by observed/imported Architect evidence. |
 | 3 | DaftMav Colonization Construction spreadsheet | Catalogue, construction, support, comparison, and structure-table reference. Use for facility/catalogue enrichment where redistribution and versioning are safe. |
 | 4 | OASIS Guide for Bootstrapping a Bubble | Planning workflow support, bootstrapping strategy, and operator/player workflow context. Not higher authority than the Mega Guide for mechanics conflicts. |

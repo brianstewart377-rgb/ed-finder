@@ -11,6 +11,50 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Mega Guide v2.3.0 reference text, mechanics and CRE/CPE audits, owner decision
+
+Docs only; no `apps/`, workflow, script, operator, deploy or frozen-ruleset
+change.
+
+- `docs/reference/colonisation/sources/mega-guide-v2.3.0/`: the Elite
+  Dangerous Colonization Mega Guide (CMDR Mechan with contributors), version
+  2.3.0 with the 2.4.0 WIP revision row, committed as an unmodified
+  `pdftotext -layout` extraction of the owner-supplied 121-page PDF, under the
+  guide's CC BY-SA 4.0 licence. The README quotes the guide's attribution and
+  Frontier non-endorsement notice, records the guide's caveat that the 4.2.2.0
+  nerf is not incorporated, lists the SHA-256 of the PDF (not committed, 95 MB)
+  and of the text, and states that images and image-only tables are absent and
+  that Mega Guide page numbers in this repository are PDF page numbers.
+  `.gitattributes` marks the text `-text` so its checksum stays stable.
+- `docs/reference/colonisation/` README, `source-inventory.md` and
+  `source-priority.md`: the Mega Guide is now recorded as committed, CC BY-SA
+  4.0 with attribution, inspected version 2.3.0 (2.4.0 WIP) on 2026-10-21. The
+  inventory row also notes that the "Colonization Mega Guide" URL listed in
+  `docs/development/ratings-v4-mechanics-evidence.md` could not be retrieved,
+  so whether it is CMDR Mechan's guide is unverified; that file is hash-pinned
+  by the Ratings V4.0 freeze manifest and is left unchanged.
+- `docs/development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md` and
+  `docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`: the two
+  read-only audits of 2026-10-21, committed as dated evidence (not execution
+  authority) with local paths removed.
+- `docs/ROADMAP.md`: owner decision 2026-10-21 — publish the Finder on the
+  frozen Ratings V4.0 / `v3-archetype-4` rules as attested, and address the
+  Mega Guide conflicts in a versioned Ratings V4.1 as the first post-go-live
+  mechanics work. The same entry gives the CRE/CPE audit headline and records
+  the owner's 2026-10-21 decisions on it (decided, not yet implemented): D1,
+  the CRE becomes a versioned, machine-readable rulebook that ed-finder reads;
+  D2, the CPE becomes a bounded module inside ed-finder with a boundary test;
+  D3, the first Plan feature is a construction-point budget and port-order
+  calculator, and until then `/plan` is to say plainly that planning is being
+  rebuilt; D4, the journal research export is to be paused (the route is still
+  mounted today). No step order or gate changes.
+- `docs/development/cross-repo-workspace.md`: the planning-engine working rules
+  now follow D2 (CPE as a bounded module in `ed-finder`).
+- `assets/PROVENANCE.json`, `THIRD_PARTY_NOTICES.md`, `assets/README.md`: the
+  guide text is registered with its rights chain (CC BY-SA 4.0, Frontier-derived,
+  `noncommercial_only`) and SHA-256, so the CI asset-provenance guard fails on
+  any drift; the manifest `audit_date` moves to 2026-10-21 for this one entry.
+
 ## 2026-10-21 — Journal: keep repeat dockings and read back station history
 
 Manual journal import only; no migration, no scheduler/automation, no

@@ -67,6 +67,30 @@ not transferable permission for ED-Finder. Any future EDAssets-sourced file
 requires its own source URL, named creator credit, media license or written
 grant, Frontier-derived flag, and approval record before it is added.
 
+## Elite Dangerous Colonization Mega Guide
+
+`docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt`
+is an unmodified text extraction (images omitted) of the **Elite Dangerous
+Colonization Mega Guide**, version 2.3.0 (2.4.0 WIP), written by CMDR Mechan
+with input from dozens of CMDRs, and released through the Frontier Forums
+thread
+[Colonization Mega Guide](https://forums.frontier.co.uk/threads/colonization-mega-guide-v1-0b-released.638126/).
+It is redistributed under the guide's licence,
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); any adaptation
+must be shared under the same licence. The guide states:
+
+> This Elite Dangerous Colonization Mega Guide was created using assets and
+> imagery from Elite Dangerous, with the permission of Frontier Developments
+> plc, for non-commercial purposes. It is not endorsed by nor reflects the views
+> or opinions of Frontier Developments and no employee of Frontier Developments
+> was involved in the making of it. This guide is made available to you under
+> CC BY-SA 4.0.
+
+No Frontier assets or imagery from the guide are committed. The text is held as
+reference material within ED-Finder's Frontier noncommercial fan-project
+posture because it describes Elite Dangerous game mechanics. Attribution,
+checksums and extraction details are in the folder's `README.md`.
+
 ## Frontier Developments fan-media boundary
 
 Frontier's [official Elite Dangerous media guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media)

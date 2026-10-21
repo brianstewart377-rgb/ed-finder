@@ -644,6 +644,38 @@ newer dated source wins).
   — the 8′ Search build is running, run 39328946864) and F4c/F4e have landed.
   Next execution focus is **8′ → 9′**, with F4a/F4b fixture-based implementation
   able to proceed alongside. The Colony Planner statement above is unchanged.
+- **Owner decision 2026-10-21: publish the Finder on the frozen Ratings V4.0 /
+  `v3-archetype-4` rules as attested.** The Mega Guide audit found Finder-rule
+  conflicts — notably native+modifier inheritance scored 85 vs 75 (guide p8/p50:
+  no stacking) and the terraformable Agriculture boost applied although the
+  guide marks it bugged (p55/p93) — to be addressed in a versioned Ratings V4.1
+  (new `MECHANICS_VERSION`/`SCORER_VERSION`, freeze manifest, rebuilt derived
+  generation) as the first post-go-live mechanics work; see the audit evidence
+  file
+  [`docs/development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md`](development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md)
+  (guide text committed under
+  [`docs/reference/colonisation/sources/mega-guide-v2.3.0/`](reference/colonisation/sources/mega-guide-v2.3.0/README.md);
+  page numbers are PDF pages). The same-day CRE/CPE utilisation audit
+  ([`docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`](development/evidence/2026-10-21-cre-cpe-utilisation-audit.md))
+  found that no ed-finder code consumes the CRE, that the CPE is documentation
+  only, and that the planner code is V2-only and unreachable on V3. **Owner
+  decisions 2026-10-21 on that audit's open questions** (decided, not yet
+  implemented; each needs its own change): (D1) the CRE's purpose is a
+  versioned rulebook that ed-finder reads — a pinned, machine-readable rules
+  file with stable IDs, sources and exact values — not an open-ended research
+  lab; (D2) the CPE is to live inside ed-finder as a bounded module (for
+  example `apps/api/src/cpe/`) guarded by a boundary test, and the
+  `colony-planning-engine` repository README is to become a pointer to it
+  (`docs/development/cross-repo-workspace.md` is updated to match); (D3) the
+  first real Plan feature is a construction-point budget and port-order
+  calculator on V3 data using the guide/CRE cost rules — until it ships, the
+  three Plan buttons stay and the `/plan` page is to say plainly that planning
+  is being rebuilt (a visual change, so it needs visual validation); (D4) the
+  journal research export is to be paused (switched off, with a note saying
+  why) until it can carry colonisation events the CRE can use — as of this
+  entry the export route is still mounted and has not been switched off. None
+  of these decisions changes the go-live sequence or any gate: steps 8′ → 9′
+  and the F4 gates above stand as written.
 
 ## Programme status — 2026-09-19
 
