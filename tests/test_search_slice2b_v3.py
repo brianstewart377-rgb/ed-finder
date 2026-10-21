@@ -601,6 +601,38 @@ async def test_cluster_search_refuses_a_published_finder_run_without_a_read_cont
 
 
 @pytest.mark.asyncio
+async def test_cluster_route_rejects_partial_reference_coords_before_the_gate(monkeypatch):
+    """Codex P2 on #869: a partial anchor must be a pre-database 422, not
+    collapsed to "no reference point" and sent on to the product gate."""
+    async def _boom(_body, _pool):
+        raise AssertionError("cluster read must not run for a 422")
+
+    monkeypatch.setattr(local_search, "local_db_cluster_search_v3", _boom)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_test_app(object())), base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/search/cluster",
+            json={
+                "requirements": [{"economy": "Agriculture", "min_count": 1}],
+                "reference_coords": {"x": 1, "y": 2},
+            },
+        )
+    assert response.status_code == 422, response.text
+    assert "reference_coords" in response.text
+
+
+def test_galaxy_route_publishes_the_search_response_schema():
+    """Codex P2 on #869: the galaxy route declares `SearchResponse`, so the
+    generated clients type the 200 body and FastAPI validates it."""
+    spec = _test_app(object()).openapi()
+    ok = spec["paths"]["/api/search/galaxy"]["post"]["responses"]["200"]
+    assert ok["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/SearchResponse"
+    }
+
+
+@pytest.mark.asyncio
 async def test_cluster_route_is_404_without_a_published_generation(database):
     connection, _, _, _ = database
     _build_ready_generation(database)   # READY but never published

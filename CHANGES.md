@@ -38,7 +38,10 @@ database access, parameterized generation-pinned SQL, no legacy relation).
   `include_colonised` field (forwarded to the validator, so `false` is a 422
   through the public route rather than silently dropped) and is
   `extra='forbid'`; both generated TypeScript clients are regenerated (one
-  additive optional field). The response model is unchanged.
+  additive optional field). The route now declares
+  `response_model=SearchResponse` (the envelope it actually returns, as
+  `/api/local/search` does), so FastAPI validates it and the generated clients
+  type the 200 body instead of `unknown`.
   `GALAXY_CACHE_VERSION` bumped `v4` → `v5`; the key is scoped to the ranking
   identity and the pinned generation like `/api/local/search`.
 - **`POST /api/search/cluster`** → `local_search.local_db_cluster_search_v3`
@@ -50,7 +53,8 @@ database access, parameterized generation-pinned SQL, no legacy relation).
   but no Finder cluster builder exists, no run has ever been published, and
   the per-economy viability summary the `ClusterResult` fields need is a
   builder-defined `cluster.summary` contract that has not been designed. The
-  route validates the request (422), pins the published generation behind the
+  route validates the request (422 — including a partial `reference_coords`,
+  which is no longer collapsed to "no anchor"), pins the published generation behind the
   Finder product gate, reads the Finder-owned (`owner_domain='finder'`)
   `cluster_run` state for that generation and answers 503 naming exactly what
   is missing (run states, or a published run with no read contract). It never

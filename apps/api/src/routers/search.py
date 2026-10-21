@@ -329,7 +329,7 @@ def _galaxy_cache_key(body_dict: dict, generation_row) -> str:
     )
 
 
-@router.post('/api/search/galaxy')
+@router.post('/api/search/galaxy', response_model=SearchResponse)
 @limiter.limit(settings.rate_limit_search)
 async def galaxy_search(
     request: Request,
@@ -462,7 +462,12 @@ async def cluster_search(
     if req.slots and len(req.slots) > 10:
         raise HTTPException(400, 'Maximum 10 slots')
 
-    reference_coords = _complete_coords(req.reference_coords)
+    # Pass the raw coordinates (not `_complete_coords`, which collapses a
+    # partial object to None) so the V3 validator rejects a partial anchor
+    # with 422 instead of silently treating it as "no reference point".
+    reference_coords = (
+        req.reference_coords.model_dump() if req.reference_coords is not None else None
+    )
     body_dict: dict[str, Any] = {
         'limit':            req.limit,
         'offset':           req.offset,
