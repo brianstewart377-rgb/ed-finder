@@ -658,11 +658,21 @@ newer dated source wins).
   page numbers are PDF pages). The same-day CRE/CPE utilisation audit
   ([`docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`](development/evidence/2026-10-21-cre-cpe-utilisation-audit.md))
   found that no ed-finder code consumes the CRE, that the CPE is documentation
-  only, and that the planner code is V2-only and unreachable on V3. Owner
-  decisions D1 (CRE purpose), D2 (CPE as a repo or a module), D3 (first real
-  Plan feature and the dead Plan links) and the purpose of the journal research
-  export are open. This entry changes no step order or gate: steps 8′ → 9′ and
-  the F4 gates above stand as written.
+  only, and that the planner code is V2-only and unreachable on V3. **Owner
+  decisions 2026-10-21 on that audit's open questions:** (D1) the CRE's purpose
+  is a versioned rulebook that ed-finder reads — a pinned, machine-readable
+  rules file with stable IDs, sources and exact values — not an open-ended
+  research lab; (D2) the CPE lives inside ed-finder as a bounded module (for
+  example `apps/api/src/cpe/`) guarded by a boundary test, and the
+  `colony-planning-engine` repository README becomes a pointer to it; (D3) the
+  first real Plan feature is a construction-point budget and port-order
+  calculator on V3 data using the guide/CRE cost rules — until it ships, the
+  three Plan buttons stay and the `/plan` page says plainly that planning is
+  being rebuilt (a visual change, so it needs visual validation); (D4) the
+  journal research export is paused (switched off, with a note saying why)
+  until it can carry colonisation events the CRE can use. None of these
+  decisions changes the go-live sequence or any gate: steps 8′ → 9′ and the F4
+  gates above stand as written.
 
 ## Programme status — 2026-09-19
 

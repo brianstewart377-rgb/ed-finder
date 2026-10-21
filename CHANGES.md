@@ -40,6 +40,13 @@ change.
 - `docs/ROADMAP.md`: owner decision 2026-10-21 — publish the Finder on the
   frozen Ratings V4.0 / `v3-archetype-4` rules as attested, and address the
   Mega Guide conflicts in a versioned Ratings V4.1 as the first post-go-live
+  mechanics work. The same entry gives the CRE/CPE audit headline and records
+  the owner's 2026-10-21 decisions on it: D1, the CRE becomes a versioned,
+  machine-readable rulebook that ed-finder reads; D2, the CPE becomes a bounded
+  module inside ed-finder with a boundary test; D3, the first Plan feature is a
+  construction-point budget and port-order calculator, and until then `/plan`
+  says plainly that planning is being rebuilt; D4, the journal research export
+  is paused. No step order or gate changes.
   mechanics work; the CRE/CPE audit headline and the open owner decisions are
   noted. No step order or gate changes.
 ## 2026-10-21 — Journal: keep repeat dockings and read back station history
