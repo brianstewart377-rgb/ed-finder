@@ -652,3 +652,89 @@ describe('Any (local search) page envelope normalization', () => {
     expect(page.page.total).toBe(1);
   });
 });
+
+describe('facade page size versus clamped wire limit near the 10,000 ceiling', () => {
+  const nearCeiling = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      headers: { 'content-type': 'application/json' },
+    });
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('Any (?page_size=50&offset=9975): wire size 25, envelope page_size 50', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      nearCeiling({
+        results: [],
+        total: 10_000,
+        count: 0,
+        total_is_capped: true,
+        ranking: provenance,
+      }),
+    );
+    const response = await searchExploreSystems(
+      { galaxy_wide: true, sort_by: 'development', size: 25, from: 9_975 },
+      undefined,
+      null,
+      50,
+    );
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(await request.clone().json()).toMatchObject({
+      size: 25,
+      from: 9_975,
+    });
+    expect(response.page).toMatchObject({
+      page_size: 50,
+      offset: 9_975,
+      total: 10_000,
+      navigable_total: 10_000,
+    });
+    // Without an explicit facade size (the live default-off path) the wire
+    // size is the page size, and an invalid facade size never dispatches.
+    expect(
+      normalizeAnySearchResponse(
+        { results: [], total: 3, ranking: provenance },
+        { galaxy_wide: true, size: 24, from: 0 },
+      ).page.page_size,
+    ).toBe(24);
+    await expect(
+      searchExploreSystems(
+        { galaxy_wide: true, size: 25 },
+        undefined,
+        null,
+        51,
+      ),
+    ).rejects.toThrow(RangeError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('selected (?archetype=flexible&page_size=50&offset=9975): wire limit 25, envelope page_size 50', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      nearCeiling({
+        archetype: 'flexible',
+        archetype_label: 'Flexible Multi-Role Colony',
+        results: [],
+        total: 10_000,
+        count: 0,
+        is_truncated: true,
+        ranking: provenance,
+      }),
+    );
+    const page = await getArchetypeRankings({
+      archetype: 'flexible',
+      min_score: 60,
+      page_size: 50,
+      offset: 9_975,
+    });
+    const url = new URL((fetchMock.mock.calls[0]?.[0] as Request).url);
+    expect(url.searchParams.get('limit')).toBe('25');
+    expect(url.searchParams.get('offset')).toBe('9975');
+    expect(page.page).toMatchObject({
+      page_size: 50,
+      offset: 9_975,
+      total: 10_000,
+      truncation: { source: 'rankings', is_truncated: true },
+    });
+  });
+});

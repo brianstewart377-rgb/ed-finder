@@ -25,10 +25,15 @@ export const queryKeys = {
   system: (id64: Id64) => [...queryKeys.all, 'system', id64] as const,
   autocomplete: (query: string) =>
     [...queryKeys.all, 'explore', 'autocomplete', query] as const,
-  /** Any-mode results: the wire request (page size included) + anchor identity. */
+  /**
+   * Any-mode results: the wire request, the facade page size (distinct from
+   * the clamped wire `size` near the 10,000 ceiling, and recorded in the
+   * normalized envelope) and the committed anchor identity.
+   */
   explore: (
     request: ExploreSearchRequest,
     anchor: DistanceAnchor | null = null,
+    pageSize: number | null = null,
   ) =>
     [
       ...queryKeys.all,
@@ -36,6 +41,7 @@ export const queryKeys = {
       'results',
       JSON.stringify(request),
       anchorIdentity(anchor),
+      pageSize ?? request.size ?? null,
     ] as const,
   /** Selected-archetype rankings: archetype, floor, facade page size, offset. */
   rankings: (request: ArchetypeRankingsRequest) =>

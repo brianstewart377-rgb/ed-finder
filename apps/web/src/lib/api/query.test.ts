@@ -110,4 +110,19 @@ describe('Finder ranking query keys', () => {
       queryKeys.rankings(base),
     );
   });
+
+  it('keys Any results by the facade page size even when the clamped wire request is identical', () => {
+    const clamped = {
+      galaxy_wide: true,
+      sort_by: 'development',
+      size: 25,
+      from: 9_975,
+    };
+    expect(queryKeys.explore(clamped, null, 50)).not.toEqual(
+      queryKeys.explore(clamped, null, 25),
+    );
+    expect(queryKeys.explore(clamped, null, 25)).toEqual(
+      queryKeys.explore(clamped),
+    );
+  });
 });

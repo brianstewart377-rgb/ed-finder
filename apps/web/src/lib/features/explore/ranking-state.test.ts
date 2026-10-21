@@ -296,6 +296,7 @@ describe('request selection', () => {
         size: 24,
         from: 0,
       },
+      pageSize: 24,
     });
     expect(selectFinderRequest(hand.state, anchor, { enabled: false })).toEqual(
       {
@@ -307,6 +308,7 @@ describe('request selection', () => {
           size: 24,
           from: 0,
         },
+        pageSize: 24,
       },
     );
     expect(LEGACY_EXPLORE_PAGE_SIZE).toBe(24);
@@ -329,6 +331,7 @@ describe('request selection', () => {
         size: 50,
         from: 0,
       },
+      pageSize: 50,
     });
     const page = selectFinderRequest(
       parse('page_size=1&offset=2').state,
@@ -344,6 +347,7 @@ describe('request selection', () => {
         size: 1,
         from: 2,
       },
+      pageSize: 1,
     });
     expect(page.request).not.toHaveProperty('min_development_score');
   });
@@ -419,5 +423,37 @@ describe('request selection', () => {
         from: 0,
       });
     }
+  });
+
+  it('keeps the facade page size distinct from the clamped wire size near the ceiling in both modes', () => {
+    const any = selectFinderRequest(
+      parse('page_size=50&offset=9975').state,
+      null,
+      { enabled: true },
+    );
+    expect(any).toEqual({
+      kind: 'any',
+      request: {
+        galaxy_wide: true,
+        sort_by: 'development',
+        size: 25,
+        from: 9_975,
+      },
+      pageSize: 50,
+    });
+    const selected = selectFinderRequest(
+      parse('archetype=flexible&page_size=50&offset=9975').state,
+      null,
+      { enabled: true },
+    );
+    expect(selected).toEqual({
+      kind: 'rankings',
+      request: {
+        archetype: 'flexible',
+        min_score: 60,
+        page_size: 50,
+        offset: 9_975,
+      },
+    });
   });
 });

@@ -380,7 +380,15 @@ export type AnchorCoordinates = Readonly<{
 }>;
 
 export type FinderRequest =
-  | Readonly<{ kind: 'any'; request: ExploreSearchRequest }>
+  | Readonly<{
+      kind: 'any';
+      request: ExploreSearchRequest;
+      /**
+       * Facade/URL page size. Near the ceiling the wire `size` is clamped
+       * below it; the envelope and Previous/Next keep this value.
+       */
+      pageSize: number;
+    }>
   | Readonly<{ kind: 'rankings'; request: ArchetypeRankingsRequest }>;
 
 const finiteCoordinate = (value: unknown): value is number =>
@@ -447,7 +455,11 @@ export function selectFinderRequest(
   options: { enabled: boolean },
 ): FinderRequest {
   if (!options.enabled) {
-    return { kind: 'any', request: legacyExploreRequest(anchor) };
+    return {
+      kind: 'any',
+      request: legacyExploreRequest(anchor),
+      pageSize: LEGACY_EXPLORE_PAGE_SIZE,
+    };
   }
   const state = normalizeRankingState(input);
   const window = rankingWireWindow(state);
@@ -467,7 +479,7 @@ export function selectFinderRequest(
           size: window.limit,
           from: window.offset,
         };
-    return { kind: 'any', request };
+    return { kind: 'any', request, pageSize: state.pageSize };
   }
   return {
     kind: 'rankings',

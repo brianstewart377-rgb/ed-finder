@@ -671,15 +671,43 @@ export function normalizeAnySearchRow(
 }
 
 /**
+ * The facade/URL page size of an Any request. It is distinct from the wire
+ * `size`, which is clamped to `min(page_size, 10000 - offset)` near the
+ * navigation ceiling: Previous/Next must keep stepping by the facade page
+ * size, exactly as the rankings path does. Without an explicit value (the
+ * live default-off request) the wire size is the page size.
+ */
+function anyFacadePageSize(
+  request: ExploreSearchRequest,
+  pageSize: number | undefined,
+): number {
+  if (pageSize === undefined)
+    return finderPageSize(request.size, FINDER_PAGE_SIZE_DEFAULT);
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < FINDER_PAGE_SIZE_MIN ||
+    pageSize > FINDER_PAGE_SIZE_MAX
+  )
+    throw new RangeError(
+      `page_size must be an integer from ${FINDER_PAGE_SIZE_MIN} to ${FINDER_PAGE_SIZE_MAX}`,
+    );
+  return pageSize;
+}
+
+/**
  * Normalize an Any (`/api/local/search`) response into the lossless page
  * envelope. `reference` is the committed anchor's `{ id64, name }` when the
  * request is anchored (F4 design section 6); pass `null` for galaxy-wide.
+ * `pageSize` is the facade/URL page size when it differs from the clamped
+ * wire `size`.
  */
 export function normalizeAnySearchResponse(
   data: SearchResponse,
   request: ExploreSearchRequest,
   reference: DistanceAnchor | null = null,
+  pageSize?: number,
 ): ExploreSearchResponse {
+  const facadePageSize = anyFacadePageSize(request, pageSize);
   const provenance = normalizeRankingProvenance(data.ranking);
   const distanceReference = request.reference_coords
     ? distanceReferenceForAnchor(reference)
@@ -691,7 +719,7 @@ export function normalizeAnySearchResponse(
     ...data,
     results,
     page: pageEnvelope(
-      finderPageSize(request.size, FINDER_PAGE_SIZE_DEFAULT),
+      facadePageSize,
       finderPageSize(request.from, 0),
       results.length,
       data.total,
@@ -707,13 +735,16 @@ export async function searchExploreSystems(
   request: ExploreSearchRequest,
   signal?: AbortSignal,
   reference: DistanceAnchor | null = null,
+  pageSize?: number,
 ): Promise<ExploreSearchResponse> {
+  // Validate before dispatch so a bad page size never reaches the API.
+  const facadePageSize = anyFacadePageSize(request, pageSize);
   const { data } = await localSearchEndpointApiLocalSearchPost({
     throwOnError: true,
     body: request,
     signal,
   });
-  return normalizeAnySearchResponse(data, request, reference);
+  return normalizeAnySearchResponse(data, request, reference, facadePageSize);
 }
 
 /**
