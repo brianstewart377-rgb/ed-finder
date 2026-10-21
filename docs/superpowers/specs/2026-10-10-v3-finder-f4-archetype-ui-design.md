@@ -5,8 +5,11 @@
 **Status: Design only; not implemented — 2026-10-10 — base `origin/main` `3b6ee91a2e4b076a97a2564cc38310411b534beb`.**
 
 **Status update — 2026-10-21:** PR F4a (typed ranking foundation, section 8) is
-implemented on `main`, behind the default-off `VITE_FINDER_F4_ENABLED` gate;
-F4b–F4e remain unimplemented and every gate below is unchanged.
+implemented on `main` (#870), behind the default-off `VITE_FINDER_F4_ENABLED` gate;
+F4a's Product fixture-output contract in `tests/test_seed_cypress_v3_generation.py`
+(section 7) landed in a separate 2026-10-21 follow-up, because #870 was
+`apps/web`-only. Owner questions 1 and 5 are answered (section 9, “Owner answers
+(2026-10-21)”). F4b–F4e remain unimplemented and every gate below is unchanged.
 
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
@@ -279,7 +282,10 @@ contract requires the committed corpus to match the Review identities
 builder (`scripts/dev/seed_review_v3_generation.py:108-124`).
 
 No committed fixture expectation yet pins the exact archetype, score, tier,
-confidence or completeness for any of those six systems. Existing Product
+confidence or completeness for any of those six systems. (**2026-10-21:** the
+three Product systems are now pinned by the fixture-output contract in
+`tests/test_seed_cypress_v3_generation.py`; the three Review Lab systems are
+still unpinned.) Existing Product
 Cypress asserts system presence and selection, not archetype output
 (`apps/web/cypress/e2e/product-journey.cy.ts:43-53`,
 `apps/web/cypress/e2e/product-journey.cy.ts:105-182`). Before an E2E test names an
@@ -574,7 +580,10 @@ selected and the preceding rule forbids the word "fit" in Any-mode visible and
 accessible text; a classification confidence is about which archetype a system
 resembles most, which is meaningful without a chosen archetype, whereas "fit"
 implies one. It must not be folded into the evidence badge
-(`apps/api/src/routers/archetypes.py:433-459`).
+(`apps/api/src/routers/archetypes.py:433-459`). **Owner answer 2026-10-21
+(section 9, question 1):** F4b ships this label, worded **Clear fit** / **Close
+fit**, which replaces the provisional selected-mode wording above; where it
+appears, and the still-open “close” threshold, are recorded in that answer.
 
 ### Loading, empty and error states
 
@@ -1243,9 +1252,10 @@ F4b**. This is representative-scale evidence, not a claim of full
 the contract.
 
 The receipt passes only if it also meets explicit latency budgets; stable but
-slow timings fail. Proposed budgets for the 1,000,000-row PostgreSQL 18 fixture
-(owner question 5 confirms or adjusts them; they are recorded in the receipt
-and the Cypress/integration test that reads it):
+slow timings fail. Budgets for the 1,000,000-row PostgreSQL 18 fixture
+(proposed here and **accepted unchanged by the owner on 2026-10-21** — section 9,
+owner question 5; they are recorded in the receipt and the Cypress/integration
+test that reads it):
 
 | Query (selected mode, tier floor B, galaxy-wide) | Warm (median of 5 runs) | PostgreSQL-buffer-cold (first run after `pg_ctl restart`; see note) |
 |---|---:|---:|
@@ -2436,6 +2446,46 @@ product/implementation choices are:
    validation plan — warm ≤ 300 ms first page, ≤ 600 ms near-ceiling page and
    within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms — as the pass/fail
    line for the receipt that unblocks F4b?
+
+#### Owner answers (2026-10-21)
+
+Given by the repository owner in conversation on 2026-10-21. The questions above
+are kept verbatim; these answers govern where they differ from earlier text.
+
+- **Question 1 — Yes.** F4b adds a separate primary/secondary classification
+  label, **Clear fit** or **Close fit**, alongside (never inside) the evidence
+  badge. It is driven only by the row's `archetype_confidence` — the summary
+  classification separation, `min(2 × (primary − secondary) / primary, 1)` in
+  `shared_contracts/v3_system_archetype_model.py` `summarise` — and never by the
+  selected-fit `confidence`. The “close” threshold on that margin is **not set
+  now**: it is chosen from published production data (for example the
+  `archetype_confidence` p10/p50/p90 distribution that
+  `scripts/v3_archetype_calibration_probe.py` reports) before F4b's copy is
+  finalised, and recorded here when chosen; F4b must not guess it, and no
+  Cypress assertion may name a label for a fixture row until it exists (the
+  Product fixture's values are 0.36, 0.52 and 0.48, pinned in
+  `tests/test_seed_cypress_v3_generation.py`). The label obeys section 5's
+  rule that “fit” is forbidden in Any-mode visible and accessible text, so it
+  appears **only in selected-archetype mode** (rows from
+  `/api/archetypes/rankings`, when the committed URL carries `archetype=`): on
+  each result card, beside item 4's **Primary**/**Secondary** line (section 5,
+  “Result row/card anatomy”), as its own element with matching accessible text,
+  separate from item 3's selected-fit score and from item 5's evidence badge.
+  It replaces section 5's provisional selected-mode wording **Clear primary
+  fit**/**Close alternative**. In **Any** mode neither “Clear fit” nor “Close
+  fit” is rendered in visible or accessible text; section 5's mode-neutral
+  classification rule (**Clear primary classification**) is unchanged by this
+  answer.
+- **Question 5 — Yes.** The proposed slice 1c latency budgets are accepted
+  unchanged as the pass/fail line: warm ≤ 300 ms first page and ≤ 600 ms for the
+  near-ceiling page and the within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms
+  (section 7, “Slice 1c API and representative-scale proof”). If the receipt
+  misses any budget, the miss is reported to the owner **with the measured
+  numbers**; the budgets are not loosened by the implementing PR or the receipt,
+  and F4b stays blocked until the owner decides.
+- **Questions 2, 3 and 4 — still open.** None of them blocks F4b: question 2
+  concerns custom weights after slice 2 (F4d), question 3 the later governed
+  enablement build, and question 4 an Any-mode tier control (slice 1d).
 
 ### Review dispositions (2026-10-10)
 
