@@ -2,6 +2,7 @@ import { writable, type Readable } from 'svelte/store';
 import { ADMIN_TOKEN_SESSION_KEY as SHARED_ADMIN_TOKEN_SESSION_KEY } from '@ed-finder/api-client/core';
 
 import { parseId64, type Id64 } from '../domain/id64';
+import { isArchetypeKey } from '../features/explore/archetypes';
 
 /**
  * The one browser-storage key authority for the Svelte application. Runtime
@@ -551,8 +552,9 @@ export function snapshotRankingIdentity(
     score_kind: (SNAPSHOT_SCORE_KINDS as readonly unknown[]).includes(scoreKind)
       ? (scoreKind as SnapshotScoreKind)
       : 'unknown',
-    selected_archetype:
-      typeof archetype === 'string' && archetype.length > 0 ? archetype : null,
+    // Only a canonical V3 key is a selected-fit identity; anything else is
+    // unknown rather than a value two corrupted entries could agree on.
+    selected_archetype: isArchetypeKey(archetype) ? archetype : null,
     distance_reference: normaliseSnapshotDistanceReference(
       entry.distance_reference,
     ),
@@ -568,6 +570,26 @@ export function snapshotRankingIdentity(
 function normaliseSnapshotRankingFields<T extends JsonRecord>(entry: T): T {
   if (!RANKING_IDENTITY_FIELDS.some((field) => field in entry)) return entry;
   return { ...entry, ...snapshotRankingIdentity(entry) };
+}
+
+/**
+ * Recover an invalid nested distance reference locally, before the recursive
+ * id64 canonicalization runs: a malformed `distance_reference.id64` would
+ * otherwise poison its entry and make the whole collection decode as
+ * `invalid-shape`, discarding every valid snapshot for one optional field.
+ */
+function recoverSnapshotReferences(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry) =>
+    isRecord(entry) && 'distance_reference' in entry
+      ? {
+          ...entry,
+          distance_reference: normaliseSnapshotDistanceReference(
+            entry.distance_reference,
+          ),
+        }
+      : entry,
+  );
 }
 
 export const DEFAULT_FC_CONFIG = {
@@ -1023,7 +1045,7 @@ export function replaceExpansionPlanSlotSystem(
 export const pinnedCodec = jsonCodec<PinnedEntry[]>(
   (value) =>
     entryArray<PinnedEntry>(
-      value,
+      recoverSnapshotReferences(value),
       (entry): entry is PinnedEntry =>
         typeof entry.name === 'string' &&
         entry.name.trim().length > 0 &&
@@ -1033,7 +1055,7 @@ export const pinnedCodec = jsonCodec<PinnedEntry[]>(
 export const compareCodec = jsonCodec<CompareEntry[]>(
   (value) =>
     entryArray<CompareEntry>(
-      value,
+      recoverSnapshotReferences(value),
       (entry): entry is CompareEntry =>
         typeof entry.name === 'string' && entry.name.trim().length > 0,
     )?.map(normaliseSnapshotRankingFields) ?? null,

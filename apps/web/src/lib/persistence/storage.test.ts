@@ -898,4 +898,54 @@ describe('persistence compatibility', () => {
       }),
     ).toEqual({ kind: 'anchor', id64: '158872029', name: 'HD 38179' });
   });
+
+  it('normalizes an unknown persisted selected archetype to null', () => {
+    expect(
+      snapshotRankingIdentity({
+        score_kind: 'selected_fit',
+        selected_archetype: 'agri_hub',
+      }).selected_archetype,
+    ).toBeNull();
+    expect(
+      snapshotRankingIdentity({
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+      }).selected_archetype,
+    ).toBe('flexible');
+  });
+
+  it('recovers a malformed nested distance reference without discarding the collection', () => {
+    const raw = JSON.stringify([
+      {
+        id64: '42',
+        name: 'Corrupt reference',
+        score_kind: 'overall_potential',
+        distance_reference: { kind: 'anchor', id64: 'not-an-id', name: 'X' },
+      },
+      { id64: '43', name: 'Valid neighbour' },
+    ]);
+    for (const codec of [compareCodec]) {
+      const decoded = codec.decode(raw);
+      expect(decoded.ok).toBe(true);
+      if (!decoded.ok) continue;
+      expect(decoded.value).toHaveLength(2);
+      expect(decoded.value[0]).toMatchObject({
+        id64: '42',
+        distance_reference: null,
+      });
+      expect(decoded.value[1]).toMatchObject({ id64: '43' });
+    }
+    const pins = pinnedCodec.decode(
+      JSON.stringify([
+        {
+          id64: '42',
+          name: 'Pinned',
+          pinned_at: '2026-10-21T00:00:00Z',
+          distance_reference: { kind: 'sol', id64: -1, name: 'Sol' },
+        },
+      ]),
+    );
+    expect(pins.ok).toBe(true);
+    if (pins.ok) expect(pins.value[0]?.distance_reference).toBeNull();
+  });
 });
