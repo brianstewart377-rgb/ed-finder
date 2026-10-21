@@ -1,5 +1,6 @@
 """Task 3: the Cypress seed publishes a real V3 derived generation and the
-journey id64s are exposed through ``v3_app.system_search``.
+journey id64s are exposed through ``v3_app.system_search``; F4a: the Product
+fixture-output contract pins the archetype results Product E2E may assert.
 
 Skips unless the isolated local PostgreSQL validation service is configured
 (see reference_local_test_database)."""
@@ -665,5 +666,348 @@ def test_seed_idempotence_rejects_different_publication_actor():
                         publication_actor='someone-else',
                         publication_note='cypress v3 finder journey',
                     )
+        finally:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))
+
+
+# ---------------------------------------------------------------------------
+# Product fixture-output contract (F4 design section 7, PR F4a)
+# ---------------------------------------------------------------------------
+# docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md asks
+# for a PostgreSQL contract that builds the committed Product E2E corpus with
+# the real seed (Ratings V4 encoder -> F1 search builder -> F2d wide archetype
+# builder -> product publication) and pins, for all three systems, the
+# primary/secondary classification, Best Colony Potential, every
+# selected-archetype score/tier, confidence and completeness -- and that proves
+# the Flexible / minimum-tier-B journey admits all three in a fixed order
+# before any Cypress test copies exact values. A model, encoder or fixture
+# change that moves any of these numbers must update this table explicitly;
+# it can no longer surface first as a silent screenshot change.
+HD_38179 = 158872029
+PRODUCT_FIXTURE_NAMES = {
+    LOSSLESS: 'V3 Lossless Reach',
+    ACHENAR: 'Achenar',
+    HD_38179: 'HD 38179',
+}
+
+# Stored wide row per system: key -> (score, tier, confidence_ppm, weighted_e4).
+EXPECTED_WIDE_ARCHETYPES = {
+    LOSSLESS: {
+        'paradise': (64, 'B', 957215, 397037),
+        'mining_hub': (68, 'B', 453984, 200074),
+        'manufacturing_hub': (67, 'B', 623838, 270887),
+        'megacomplex': (68, 'B', 453984, 200074),
+        'research_hub': (82, 'A', 1000000, 531442),
+        'stronghold': (63, 'B', 893735, 364915),
+        'population_capital': (75, 'B', 957215, 465278),
+        'flexible': (100, 'S', 866514, 561588),
+    },
+    ACHENAR: {
+        'paradise': (58, 'C', 914970, 337302),
+        'mining_hub': (69, 'B', 441825, 193769),
+        'manufacturing_hub': (72, 'B', 638315, 292113),
+        'megacomplex': (72, 'B', 441825, 202193),
+        'research_hub': (73, 'B', 973359, 451627),
+        'stronghold': (74, 'B', 750958, 353209),
+        'population_capital': (67, 'B', 914970, 389642),
+        'flexible': (100, 'S', 848637, 539394),
+    },
+    HD_38179: {
+        'paradise': (0, 'D', 678747, 0),
+        'mining_hub': (13, 'D', 522067, 42825),
+        'manufacturing_hub': (7, 'D', 514580, 22729),
+        'megacomplex': (15, 'D', 514580, 48705),
+        'research_hub': (0, 'D', 1000000, 0),
+        'stronghold': (57, 'C', 514580, 185079),
+        'population_capital': (0, 'D', 678747, 0),
+        'flexible': (75, 'B', 803002, 380021),
+    },
+}
+
+# Summary per system: (primary, secondary, best_colony_potential, best_tier,
+# archetype_confidence_ppm, completeness_ppm). archetype_confidence is the
+# primary/secondary classification separation, min(2 * (first - second) /
+# first, 1): V3 Lossless Reach (100 - 82) -> 0.36, Achenar (100 - 74) -> 0.52,
+# HD 38179 (75 - 57) / 75 -> 0.48.
+EXPECTED_SUMMARY = {
+    LOSSLESS: ('flexible', 'research_hub', 100, 'S', 360000, 648100),
+    ACHENAR: ('flexible', 'stronghold', 100, 'S', 520000, 635600),
+    HD_38179: ('flexible', 'stronghold', 75, 'B', 480000, 631000),
+}
+
+# Search projection evidence used by the Any-mode badge: (confidence, completeness).
+EXPECTED_SEARCH_EVIDENCE = {
+    LOSSLESS: (0.8241, 0.6481),
+    ACHENAR: (0.8178, 0.6356),
+    HD_38179: (0.8155, 0.631),
+}
+
+# `GET /api/archetypes/rankings?archetype=<key>&min_score=60` page order (the
+# canonical `<key>_weighted_e4 DESC, system_id64 ASC` window order). Flexible
+# is the only archetype whose B floor admits all three Product systems, so it
+# is the only key that can drive the three one-row pages of the E2E journey.
+EXPECTED_B_FLOOR_ORDER = {
+    'paradise': (LOSSLESS,),
+    'mining_hub': (LOSSLESS, ACHENAR),
+    'manufacturing_hub': (ACHENAR, LOSSLESS),
+    'megacomplex': (ACHENAR, LOSSLESS),
+    'research_hub': (LOSSLESS, ACHENAR),
+    'stronghold': (LOSSLESS, ACHENAR),
+    'population_capital': (LOSSLESS, ACHENAR),
+    'flexible': (LOSSLESS, ACHENAR, HD_38179),
+}
+
+# The Flexible B journey exactly as Product Cypress will assert it (section 7
+# step 4): selected score/tier, selected-fit confidence, completeness,
+# primary/secondary, classification confidence and Best Colony Potential.
+EXPECTED_FLEXIBLE_B_ROWS = (
+    {
+        'id64': LOSSLESS, 'name': 'V3 Lossless Reach', 'score': 100.0, 'tier': 'S',
+        'selected_archetype': 'flexible', 'confidence': 0.8665, 'completeness': 0.6481,
+        'primary_archetype': 'flexible', 'secondary_archetype': 'research_hub',
+        'archetype_confidence': 0.36, 'overall_development_potential': 100.0,
+    },
+    {
+        'id64': ACHENAR, 'name': 'Achenar', 'score': 100.0, 'tier': 'S',
+        'selected_archetype': 'flexible', 'confidence': 0.8486, 'completeness': 0.6356,
+        'primary_archetype': 'flexible', 'secondary_archetype': 'stronghold',
+        'archetype_confidence': 0.52, 'overall_development_potential': 100.0,
+    },
+    {
+        'id64': HD_38179, 'name': 'HD 38179', 'score': 75.0, 'tier': 'B',
+        'selected_archetype': 'flexible', 'confidence': 0.803, 'completeness': 0.631,
+        'primary_archetype': 'flexible', 'secondary_archetype': 'stronghold',
+        'archetype_confidence': 0.48, 'overall_development_potential': 75.0,
+    },
+)
+
+# Explore's Any-mode galaxy-wide request (the exact disabled-gate body the
+# F4a regression deep-compares) and its development order.
+ANY_EXPLORE_BODY = {'galaxy_wide': True, 'sort_by': 'development', 'size': 24, 'from': 0}
+EXPECTED_ANY_ROWS = (
+    {
+        'id64': LOSSLESS, 'name': 'V3 Lossless Reach',
+        'archetype_score': 100.0, 'archetype_tier': 'S',
+        'primary_archetype': 'flexible', 'secondary_archetype': 'research_hub',
+        'archetype_confidence': 0.36, 'overall_development_potential': 100.0,
+        'confidence': 0.8241, 'completeness': 0.6481,
+    },
+    {
+        'id64': ACHENAR, 'name': 'Achenar',
+        'archetype_score': 100.0, 'archetype_tier': 'S',
+        'primary_archetype': 'flexible', 'secondary_archetype': 'stronghold',
+        'archetype_confidence': 0.52, 'overall_development_potential': 100.0,
+        'confidence': 0.8178, 'completeness': 0.6356,
+    },
+    {
+        'id64': HD_38179, 'name': 'HD 38179',
+        'archetype_score': 75.0, 'archetype_tier': 'B',
+        'primary_archetype': 'flexible', 'secondary_archetype': 'stronghold',
+        'archetype_confidence': 0.48, 'overall_development_potential': 75.0,
+        'confidence': 0.8155, 'completeness': 0.631,
+    },
+)
+
+
+def test_product_fixture_contract_tables_are_internally_consistent():
+    """Pure checks on the pinned tables, independent of PostgreSQL: every pinned
+    tier is the API-owned threshold tier of its score, every weighted key is the
+    model's integer weighting of score x fit confidence x completeness, the
+    summary agrees with the wide row, and each B-floor order is exactly the
+    weighted window order over the systems scoring at least 60."""
+    from edfinder_api.ranking.profile import TIER_THRESHOLDS
+    from shared_contracts.v3_system_archetype_model import weighted_key_e4
+
+    def tier_of(score):
+        for tier in ('S', 'A', 'B', 'C'):
+            if score >= TIER_THRESHOLDS[tier]:
+                return tier
+        return 'D'
+
+    assert set(EXPECTED_WIDE_ARCHETYPES) == set(PRODUCT_FIXTURE_NAMES)
+    for id64, archetypes in EXPECTED_WIDE_ARCHETYPES.items():
+        assert tuple(archetypes) == ARCHETYPE_KEYS
+        completeness_ppm = EXPECTED_SUMMARY[id64][5]
+        for score, tier, confidence_ppm, weighted in archetypes.values():
+            assert tier == tier_of(score)
+            assert weighted == weighted_key_e4(score, confidence_ppm, completeness_ppm)
+        primary, secondary, best, best_tier, separation_ppm, _ = EXPECTED_SUMMARY[id64]
+        assert archetypes[primary][:2] == (best, best_tier)
+        assert archetypes[secondary][0] < best
+        assert separation_ppm == round(
+            min((best - archetypes[secondary][0]) / max(best, 1) * 2, 1.0) * 1_000_000
+        )
+        assert EXPECTED_SEARCH_EVIDENCE[id64][1] * 1_000_000 == pytest.approx(completeness_ppm)
+
+    for key, order in EXPECTED_B_FLOOR_ORDER.items():
+        admitted = [
+            id64 for id64, archetypes in EXPECTED_WIDE_ARCHETYPES.items()
+            if archetypes[key][0] >= 60
+        ]
+        assert tuple(sorted(
+            admitted,
+            key=lambda id64: (-EXPECTED_WIDE_ARCHETYPES[id64][key][3], id64),
+        )) == order
+    assert [key for key, order in EXPECTED_B_FLOOR_ORDER.items() if len(order) == 3] == [
+        'flexible',
+    ]
+    # Section 3: Manufacturing Hub cannot be the B-floor pagination fixture,
+    # because HD 38179 scores 7/D on it.
+    assert EXPECTED_WIDE_ARCHETYPES[HD_38179]['manufacturing_hub'][:2] == (7, 'D')
+    assert [row['id64'] for row in EXPECTED_FLEXIBLE_B_ROWS] == list(
+        EXPECTED_B_FLOOR_ORDER['flexible']
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get('RATINGS_V4_VALIDATION_DATABASE_URL'),
+    reason='isolated PostgreSQL validation URL not set',
+)
+@pytest.mark.asyncio
+async def test_seeded_product_fixture_archetype_output_contract(monkeypatch):
+    """Seed the committed Product corpus exactly as the Cypress lane does, then
+    read it back through the stored projections and through the real ranking
+    handlers (`_archetype_rankings_v3` for selected mode, `local_db_search_v3`
+    for Any) and compare every field to the pinned tables above."""
+    if not os.environ.get('CORS_ORIGINS'):
+        monkeypatch.setenv('CORS_ORIGINS', 'https://seed-cypress-v3-contract.invalid')
+
+    import asyncpg
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    from edfinder_api import local_search
+    from edfinder_api.routers import archetypes as archetypes_router
+    from scripts.dev.seed_cypress_v3_generation import seed_cypress_v3_generation
+    from tests.helpers.db_isolation import validate_test_db_target
+
+    dsn = validate_test_db_target(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']).dsn
+    db = 'seed_output_contract_test_' + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(db)))
+        try:
+            with psycopg.connect(make_conninfo(dsn, dbname=db), autocommit=True) as conn:
+                conn.execute((ROOT / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
+                assert seed_cypress_v3_generation(conn) == 1
+
+                wide_columns = ', '.join(
+                    f'{key}_score, {key}_tier, {key}_confidence_ppm, {key}_weighted_e4'
+                    for key in ARCHETYPE_KEYS
+                )
+                wide = {
+                    row[0]: {
+                        key: tuple(row[1 + 4 * index:5 + 4 * index])
+                        for index, key in enumerate(ARCHETYPE_KEYS)
+                    }
+                    for row in conn.execute(
+                        f'SELECT system_id64, {wide_columns} FROM v3_app.system_archetype'
+                    ).fetchall()
+                }
+                assert wide == EXPECTED_WIDE_ARCHETYPES
+
+                summary = {
+                    row[0]: tuple(row[1:])
+                    for row in conn.execute(
+                        'SELECT system_id64, primary_archetype, secondary_archetype, '
+                        'best_colony_potential, best_tier, archetype_confidence_ppm, '
+                        'completeness_ppm FROM v3_app.system_archetype'
+                    ).fetchall()
+                }
+                assert summary == EXPECTED_SUMMARY
+                view = {
+                    row[0]: tuple(row[1:])
+                    for row in conn.execute(
+                        'SELECT system_id64, primary_archetype, secondary_archetype, '
+                        'best_colony_potential, best_tier, archetype_confidence '
+                        'FROM v3_app.system_archetype_summary'
+                    ).fetchall()
+                }
+                assert view == {
+                    id64: (primary, secondary, best, best_tier, separation_ppm / 1_000_000)
+                    for id64, (primary, secondary, best, best_tier, separation_ppm, _)
+                    in EXPECTED_SUMMARY.items()
+                }
+
+                search = {
+                    row[0]: (row[1], (float(row[2]), float(row[3])))
+                    for row in conn.execute(
+                        'SELECT system_id64, name, confidence, completeness '
+                        'FROM v3_app.system_search'
+                    ).fetchall()
+                }
+                assert search == {
+                    id64: (PRODUCT_FIXTURE_NAMES[id64], EXPECTED_SEARCH_EVIDENCE[id64])
+                    for id64 in PRODUCT_FIXTURE_NAMES
+                }
+
+            settings = conninfo_to_dict(dsn)
+            pool = await asyncpg.create_pool(
+                host=settings.get('host'),
+                port=int(settings.get('port', 5432)),
+                user=settings.get('user'),
+                password=settings.get('password'),
+                database=db,
+                min_size=1, max_size=2, statement_cache_size=0,
+            )
+            try:
+                async def rankings(key, *, limit=50, offset=0):
+                    return await archetypes_router._archetype_rankings_v3(
+                        archetype=key, min_score=60, galaxy_region=None,
+                        max_distance_ly=None, has_elw=None, min_slots=None,
+                        max_contamination=None, limit=limit, offset=offset, pool=pool,
+                    )
+
+                for key, order in EXPECTED_B_FLOOR_ORDER.items():
+                    page = await rankings(key)
+                    assert [row['id64'] for row in page['results']] == list(order), key
+                    assert (page['total'], page['count'], page['is_truncated']) == (
+                        len(order), len(order), False,
+                    ), key
+                    for row in page['results']:
+                        score, tier, confidence_ppm, _ = EXPECTED_WIDE_ARCHETYPES[row['id64']][key]
+                        primary, secondary, best, _, separation_ppm, completeness_ppm = (
+                            EXPECTED_SUMMARY[row['id64']]
+                        )
+                        assert row['name'] == PRODUCT_FIXTURE_NAMES[row['id64']]
+                        assert (row['score'], row['tier']) == (float(score), tier), key
+                        assert row['selected_archetype'] == key
+                        assert row['confidence'] == round(confidence_ppm / 1_000_000, 4), key
+                        assert row['completeness'] == pytest.approx(completeness_ppm / 1_000_000)
+                        assert (row['primary_archetype'], row['secondary_archetype']) == (
+                            primary, secondary,
+                        )
+                        assert row['archetype_confidence'] == separation_ppm / 1_000_000
+                        assert row['overall_development_potential'] == float(best)
+                        # Slice 1b has not landed: no ranking row carries the
+                        # summary `best_tier`, so F4a/F4b must omit the headline
+                        # tier (design section 8, PR F4a).
+                        assert 'best_tier' not in row
+
+                flexible = await rankings('flexible')
+                assert [
+                    {field: row[field] for field in EXPECTED_FLEXIBLE_B_ROWS[0]}
+                    for row in flexible['results']
+                ] == list(EXPECTED_FLEXIBLE_B_ROWS)
+
+                # The E2E pagination contract: page_size=1 -> wire limit=1 gives
+                # three deterministic one-row pages at offsets 0, 1 and 2 over
+                # the same window, then an empty page.
+                for offset, expected in enumerate(EXPECTED_FLEXIBLE_B_ROWS):
+                    page = await rankings('flexible', limit=1, offset=offset)
+                    assert [row['id64'] for row in page['results']] == [expected['id64']]
+                    assert (page['total'], page['count'], page['is_truncated']) == (3, 1, False)
+                past_end = await rankings('flexible', limit=1, offset=3)
+                assert (past_end['results'], past_end['total'], past_end['count']) == ([], 3, 0)
+
+                any_page = await local_search.local_db_search_v3(dict(ANY_EXPLORE_BODY), pool)
+                assert [
+                    {field: row[field] for field in EXPECTED_ANY_ROWS[0]}
+                    for row in any_page['results']
+                ] == list(EXPECTED_ANY_ROWS)
+                assert (any_page['total'], any_page['count']) == (3, 3)
+                assert not any('best_tier' in row for row in any_page['results'])
+            finally:
+                await pool.close()
         finally:
             admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(db)))

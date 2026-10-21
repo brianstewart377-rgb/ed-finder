@@ -11,6 +11,34 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Finder F4b prerequisites: owner answers and Product fixture-output contract
+
+Docs and tests only; no `apps/api`, `apps/web`, workflow, operator or deploy
+change.
+
+- `docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`:
+  section 9 records the owner's 2026-10-21 answers. Question 1 — yes: F4b adds
+  a **Clear fit** / **Close fit** classification label (driven by
+  `archetype_confidence`) beside the Primary/Secondary line, in
+  selected-archetype mode only, never inside the evidence badge; the “close”
+  threshold is set later from published production data. Question 5 — yes:
+  the slice 1c latency budgets are accepted unchanged, and a miss is reported
+  with measured numbers rather than loosening them. Questions 2–4 stay open
+  (not blocking F4b). Section 1 notes F4a (#870); sections 3, 5 and 7 point
+  at the answers.
+- `tests/test_seed_cypress_v3_generation.py`: the Product fixture-output
+  contract F4a's section 7/8 assigns. It seeds the committed three-system
+  corpus through the real Cypress seed, then pins every stored wide-row
+  score/tier/fit-confidence/weighted key, the summary (primary, secondary,
+  Best Colony Potential, best tier, classification confidence, completeness),
+  the search evidence, every archetype's `min_score=60` page through
+  `_archetype_rankings_v3`, the Flexible one-row pages at offsets 0/1/2, and
+  Explore's Any request through `local_db_search_v3`. Flexible at B is
+  confirmed as the only floor admitting all three, in the order V3 Lossless
+  Reach (100/S) → Achenar (100/S) → HD 38179 (75/B). It runs in the Finder
+  derived-data lane, which discovers the module by its
+  `RATINGS_V4_VALIDATION_DATABASE_URL` reference.
+
 ## 2026-10-21 — Finder F4a: typed ranking foundation (default-off, no visible change)
 
 PR F4a of `docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`
