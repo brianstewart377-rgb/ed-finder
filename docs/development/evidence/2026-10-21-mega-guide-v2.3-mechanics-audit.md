@@ -114,7 +114,7 @@ Version note for every V4 row: a fix needs a new `MECHANICS_VERSION` and `SCORER
 ## Method and limits
 
 - **Guide:** read in full from the layout extract (lines 1–4419) and mapped to PDF pages using form feeds. Image-only or garbled pages were rendered and viewed: services pp45-46, compatibility matrix p72, population formula p78, codex p115-116. Codex pages 117-121 were not transcribed; they reproduce the in-game codex.
-- **App:** every claim comes from reading the code. P1, P3, P4, P5 and P9 were also confirmed by running the real modules against the bundled catalogue in an isolated scratch directory, using `python3 -I` and a symlinked package. That run used CPython 3.13, not the repo's 3.14 lane; the code paths involved are plain Python.
+- **App:** every claim comes from reading the code. P1, P3, P4, P5 and P9 were also confirmed by running the real modules against the bundled catalogue in an isolated scratch directory, using `python3 -I` and a symlinked package. That run used the scratch machine's older CPython (minor version 13), not the repo's 3.14 lane; the code paths involved are plain Python.
 - **Not verified:**
   - which `facility_templates` catalogue production loads (DB seed or JSON);
   - whether the evidence doc's "2026 fixes" for terraformable or tidal lock exist;
