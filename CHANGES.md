@@ -29,10 +29,10 @@ change.
 - `docs/reference/colonisation/` README, `source-inventory.md` and
   `source-priority.md`: the Mega Guide is now recorded as committed, CC BY-SA
   4.0 with attribution, inspected version 2.3.0 (2.4.0 WIP) on 2026-10-21. The
-  inventory row also corrects the "Colonization Mega Guide" URL listed in
-  `docs/development/ratings-v4-mechanics-evidence.md`, which is not CMDR
-  Mechan's guide; that file is hash-pinned by the Ratings V4.0 freeze manifest
-  and is left unchanged.
+  inventory row also notes that the "Colonization Mega Guide" URL listed in
+  `docs/development/ratings-v4-mechanics-evidence.md` could not be retrieved,
+  so whether it is CMDR Mechan's guide is unverified; that file is hash-pinned
+  by the Ratings V4.0 freeze manifest and is left unchanged.
 - `docs/development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md` and
   `docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`: the two
   read-only audits of 2026-10-21, committed as dated evidence (not execution
