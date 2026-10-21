@@ -28,7 +28,11 @@ from typing import Any, Dict, Optional
 import asyncpg
 from fastapi import HTTPException
 
-from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
+from edfinder_api.helpers import (
+    SOL_ID64,
+    safe_coords_from_row,
+    status_failure_reason_code_for_exception,
+)
 from edfinder_api.ranking.profile import (
     LOCAL_SEARCH_ANCHORED_RADIUS_REJECTION_REASON,
     LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY,
@@ -1841,8 +1845,13 @@ async def local_db_status(pool: asyncpg.Pool) -> dict:
             "has_cluster_summary":  cluster_count > 0,
         }
     except Exception as exc:
-        log.warning("local_db_status error: %s", exc)
-        return {"available": False, "reason": str(exc)}
+        # The raw exception text (which can carry SQL, host names or DSN
+        # fragments) stays in the server log; the caller only ever sees one
+        # of the fixed STATUS_REASON_CODES. Callers must not cache this
+        # branch — a cached failure hides recovery for the whole TTL.
+        reason = status_failure_reason_code_for_exception(exc)
+        log.warning("local_db_status error (%s): %s: %s", reason, type(exc).__name__, exc)
+        return {"available": False, "reason": reason}
 
 
 # ---------------------------------------------------------------------------
