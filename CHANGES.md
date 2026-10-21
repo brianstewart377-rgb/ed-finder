@@ -11,6 +11,41 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Spansh delta measurement (canonical-refresh study step S1)
+
+Repository tooling only: no production access, no secrets, no database, no
+migration, operator, deploy or F2d-frozen file. The F2d operator identity is
+unchanged.
+
+- `apps/importer/src/spansh_delta/`: a bounded-memory streaming parser for
+  Spansh full-detail dumps (`galaxy_1day` / `_7days` / `_1month`, same schema
+  as `galaxy.json.gz`). The default parser reads Spansh's one-system-per-line
+  layout and falls back to `ijson` for any other layout; truncated or corrupt
+  files fail closed and only an EOF read yields a receipt (size, SHA-256).
+  Each system is mapped through the frozen `v3_spansh` adapter and COPY
+  contract (imported, not edited) to the V3 canonical rows, provenance removed.
+  A material-change classifier compares those rows with base canonical rows
+  (`new` / `changed` / `unchanged`, with changed tables and columns), so
+  faction, population and market churn that V3 does not store never admits a
+  system. Two policies: `strict` (every stored column) and `stable` (ignores
+  the orbital position at scan time); fleet carriers can be excluded.
+- `scripts/dev/measure_spansh_delta.py`: streams one dump and writes JSON stats
+  (systems, bodies, fixed stations and fleet carriers separately, canonical
+  rows per table, bytes, update-time distributions, a timestamp touch proxy),
+  plus a 40-byte-per-system digest index. Given the previous night's index or
+  file it reports the overlap and how many repeat systems really changed.
+- `.github/workflows/spansh-delta-measure.yml`: GitHub-hosted, `contents: read`,
+  no secrets. On demand (`galaxy_1day`, `_7days` or `_1month`), plus a 04:17
+  UTC nightly schedule that is skipped unless the repository variable
+  `SPANSH_DELTA_NIGHTLY` is `enabled` (set only once decision D5, Spansh's
+  terms for recurring downloads, is resolved); ETag-conditional download, stats artifact kept 30 days, the
+  digest index carried night to night in the Actions cache.
+- `docs/development/spansh-delta-measurement.md`: how to run it and read the
+  stats; seven nights of results feed the delta-layer design (S3).
+- `tests/test_spansh_delta.py`: uses the committed real fixture. Against the
+  published 2026-08-24 base, 9 of 12 systems differ under `strict` but only 3
+  under `stable` (real signal changes); the other 6 differ only in orbital
+  position. `tests/test_ci_stall_detection.py` lists the new workflow.
 ## 2026-10-21 — Inspect, share preview and travel heatmap read V3 data
 
 Inspect (`/inspect?system=<id64>` and the Explore system pop-up), the share
