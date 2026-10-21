@@ -657,12 +657,22 @@ export function normalizeAnySearchRow(
   provenance: RankingProvenance | null,
 ): ExploreSystem {
   const tier = system.archetype_tier;
+  // The Any ranking score is the overall potential only: never fall back to a
+  // semantically different value under `score_kind: 'overall_potential'`.
+  const overall = finiteNumber(system.overall_development_potential)
+    ? system.overall_development_potential
+    : null;
+  // `archetype_tier` is the API's tier of `archetype_score`; it travels with
+  // the overall score only when it was derived from that same value.
+  const tierOfOverall =
+    overall !== null && system.archetype_score === overall && isTier(tier)
+      ? tier
+      : null;
   return {
     ...system,
     id64: losslessId64(system.id64),
-    ranking_score:
-      system.archetype_score ?? system.overall_development_potential ?? null,
-    ranking_tier: isTier(tier) ? tier : null,
+    ranking_score: overall,
+    ranking_tier: tierOfOverall,
     score_kind: 'overall_potential',
     selected_archetype: null,
     distance_reference: finiteNumber(system.distance) ? reference : null,

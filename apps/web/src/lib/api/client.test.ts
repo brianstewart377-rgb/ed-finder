@@ -549,8 +549,10 @@ describe('Any (local search) page envelope normalization', () => {
     });
     expect(page.results[0]).toMatchObject({
       id64: '42',
-      ranking_score: 81,
-      ranking_tier: 'A',
+      // The overall potential, never the differing primary-archetype score,
+      // and no tier because the API's tier belongs to that other score.
+      ranking_score: 84,
+      ranking_tier: null,
       score_kind: 'overall_potential',
       selected_archetype: null,
       distance_reference: {
@@ -735,6 +737,41 @@ describe('facade page size versus clamped wire limit near the 10,000 ceiling', (
       offset: 9_975,
       total: 10_000,
       truncation: { source: 'rankings', is_truncated: true },
+    });
+  });
+});
+
+describe('Any ranking score is the overall potential', () => {
+  it('carries the tier only when it was derived from the overall value, and never falls back', () => {
+    const row = {
+      id64: '7' as unknown as number,
+      name: 'Same',
+      archetype_score: 84,
+      archetype_tier: 'A' as const,
+      overall_development_potential: 84,
+    };
+    const request = { galaxy_wide: true, size: 24, from: 0 };
+    const same = normalizeAnySearchResponse(
+      { results: [row], total: 1, ranking: provenance },
+      request,
+    );
+    expect(same.results[0]).toMatchObject({
+      ranking_score: 84,
+      ranking_tier: 'A',
+      score_kind: 'overall_potential',
+    });
+    const missing = normalizeAnySearchResponse(
+      {
+        results: [{ ...row, overall_development_potential: null }],
+        total: 1,
+        ranking: provenance,
+      },
+      request,
+    );
+    expect(missing.results[0]).toMatchObject({
+      ranking_score: null,
+      ranking_tier: null,
+      archetype_score: 84,
     });
   });
 });
