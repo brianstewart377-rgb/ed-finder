@@ -120,6 +120,16 @@ the flag is not enabled in any governed production/release build until both
 Finder products are published (ROADMAP step 9′; the 8′ Search build started
 2026-10-19, run 39328946864) and F4c/F4e have landed.
 
+**Status (2026-10-21):** F3 slice 2b repointed the last two search routes.
+`/api/search/galaxy` is the galaxy-wide Any-mode window of the V3 ranked
+search (a concrete economy, `min_score > 0` and uncolonised-only answer 422:
+no V3 projection). `/api/search/cluster` reads the Finder-owned
+`v3_spatial.cluster_run` state behind the same product gate and fails closed
+with 503 until a Finder cluster builder publishes a run and defines its
+`cluster.summary` viability contract (open item 1 above is still open and is
+now the named prerequisite for that route). The legacy `cluster_summary`
+readers in `local_search.py` are deleted; `store.py` is unchanged.
+
 **F1 follow-up (2026-09-16):** the `system_search` product is now version
 `v3-system-search-2`, with per-body-type count columns added by migration
 `010`. Those counts are not queryable in production until a **rebuild and

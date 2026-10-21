@@ -56,14 +56,32 @@ async def test_local_search_concrete_economy_returns_422_on_v3(client, v3_derive
 
 
 async def test_galaxy_search_accepts_spaced_high_tech(client):
-    """The /api/search/galaxy endpoint shares the same code path."""
+    """The /api/search/galaxy endpoint shares the same code path: the spaced
+    name normalises to the canonical economy (no 422 from the enum), and the
+    V3 route then rejects the concrete economy itself (F3 slice 2b, no
+    per-economy projection) -- the detail names `economy`, not an enum
+    parse failure."""
     r = await client.post('/api/search/galaxy', json={
         'economy':   'High Tech',
         'min_score': 0,
         'limit':     3,
         'offset':    0,
     })
+    assert r.status_code == 422, r.text
+    assert 'economy-specific ranking is not yet supported' in r.text
+
+
+async def test_galaxy_search_any_economy_ranks_galaxy_wide(client, v3_derived_ready):
+    """`economy: 'any'` is the galaxy-wide Any-mode window (F3 slice 2b)."""
+    from edfinder_api.ranking.profile import RANKING_VERSION
+
+    r = await client.post('/api/search/galaxy', json={
+        'economy': 'any', 'min_score': 0, 'limit': 3, 'offset': 0,
+    })
     assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get('source') == f'v3:{RANKING_VERSION}'
+    assert 'ranking' in body
 
 
 async def test_unknown_economy_returns_422_not_503(client):

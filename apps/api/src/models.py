@@ -686,9 +686,12 @@ class ClusterSearchRequest(BaseModel):
 class ClusterResult(BaseModel):
     # Result model — extra='allow' per models.py strictness policy (SQL
     # projections legitimately carry enriched fields). Fields typed here drive
-    # the generated api.gen.ts; nullability grounded in sql/001_schema.sql +
-    # sql/003_functions.sql. Response shape matched EXACTLY as returned by
-    # local_search.local_db_cluster_search — do not reshape.
+    # the generated api.gen.ts. The shape is the retained legacy
+    # `cluster_summary` row contract; F3 slice 2b repointed the route onto
+    # the V3 cluster product (`local_search.local_db_cluster_search_v3`),
+    # which fails closed (503) until a Finder cluster run and its summary
+    # contract exist -- the reshape onto V3 fields happens with that
+    # product, not before.
     model_config = ConfigDict(extra='allow')
 
     anchor_id64:       int

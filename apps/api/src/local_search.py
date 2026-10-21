@@ -1,10 +1,18 @@
 """
 ED Finder — Search Module (PostgreSQL / asyncpg)
 =================================================
-Version: 4.0
-Target:  PostgreSQL 16 + asyncpg 0.29+
+Version: 5.0 (V3 Finder routes)
+Target:  PostgreSQL 18 + asyncpg
 
-Changes in v4.0:
+Changes in v5.0 (F3 slices 1, 2 and 2b):
+  • `/api/local/search` (`local_db_search_v3`), `/api/search/galaxy`
+    (`local_db_galaxy_search_v3`) and `/api/search/cluster`
+    (`local_db_cluster_search_v3`) read only the published V3 projections
+    behind the migration-015 Finder product gate; the legacy galaxy/cluster
+    readers over `cluster_summary` are deleted. `local_db_search` is kept
+    as an unreachable legacy reference (see the F3 section comment).
+
+Changes in v4.0 (historical):
   • Fixed schema/API disconnect: removed references to non-existent columns
     (main_star_class is now a generated column, needs_permit is now real).
   • Added galaxy_region filter: players can filter by named ED codex region
@@ -43,6 +51,7 @@ from edfinder_api.ranking.profile import (
     LOCAL_SEARCH_RESULT_CAP,
     LOCAL_SEARCH_SIZE_MIN,
     PROFILE_SPEC,
+    RANKING_PAGE_LIMIT_MAX,
     RANKING_VERSION,
     TIER_THRESHOLDS,
     ranking_sha256,
@@ -56,7 +65,6 @@ from edfinder_api.ranking.ranking_sql import (
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
-    cluster_count_column,
     economy_enum_value,
     BODY_FILTER_COLS,
     BODY_FILTER_ALIASES,
@@ -595,19 +603,24 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# V3 ranked search (F3 slice 1) — POST /api/local/search ONLY.
+# V3 ranked search (F3 slice 1) — POST /api/local/search, and since F3
+# slice 2b also the read behind POST /api/search/galaxy.
 # ---------------------------------------------------------------------------
-# `local_db_search` above stays exactly as it was and remains the sole
-# implementation backing `/api/search/galaxy` (via `local_db_galaxy_search`
-# below) and `/api/search/cluster` (via `local_db_cluster_search`), pending
-# their own F3 slice-2 repoint (see
-# docs/superpowers/specs/2026-09-27-v3-finder-f2c-f3-ranking-design.md).
-# `local_db_search_v3` is a **forked**, independent implementation used only
-# by `routers/search.py::local_search_endpoint`. This is not a second
-# implementation of the same route (the "ONE search implementation" rule in
-# this module's header is about a single route never carrying two competing
-# read paths for itself) — do not wire this into `local_db_galaxy_search`
-# or `local_db_cluster_search` without repeating this repoint for them too.
+# No route reads the legacy `local_db_search` above any more. F3 slice 1
+# repointed `/api/local/search` onto `local_db_search_v3`; F3 slice 2b
+# (this section onward) repointed `/api/search/galaxy` onto
+# `local_db_galaxy_search_v3` (a validated galaxy-wide Any-mode call into
+# `local_db_search_v3`) and `/api/search/cluster` onto
+# `local_db_cluster_search_v3` (the V3 `v3_spatial.cluster_run` product gate;
+# see that function for the flagged data gap). The legacy
+# `local_db_galaxy_search` / `local_db_cluster_search` / `_resolve_slot_matches`
+# readers over `cluster_summary` / `systems` / `ratings` were deleted with that
+# repoint. `local_db_search` and its SQL helpers are retained only as the
+# legacy reference implementation (its record builder still serves
+# `local_db_system`, and the data-trust/population contract tests pin it);
+# it is reachable from no route. The "ONE search implementation" rule in
+# `routers/search.py` is per route: each search route has exactly one read
+# path and never a competing fallback.
 #
 # `star_types`, `require_bio`, and `require_geo` map onto the
 # `main_star_class_in` / `has_biologicals` / `has_geologicals`
@@ -1141,426 +1154,336 @@ async def local_db_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Galaxy-wide economy search
+# V3 galaxy-wide search (F3 slice 2b) — POST /api/search/galaxy ONLY.
 # ---------------------------------------------------------------------------
-async def local_db_galaxy_search(body: dict, pool: asyncpg.Pool) -> dict:
-    """Galaxy-wide economy search — no distance filter."""
-    economy       = body.get("economy", "")
-    min_score     = int(body.get("min_score", 0))
-    limit         = min(int(body.get("limit", 100)), 500)
-    offset        = int(body.get("offset", 0))
-    include_col   = bool(body.get("include_colonised", False))
-    galaxy_region = body.get("galaxy_region_id")
-
-    if not economy or economy in ("any", "Any", ""):
-        return {"error": "economy is required for galaxy-wide search", "results": []}
-
-    unified_body = {
-        "galaxy_wide": True,
-        "economy":     economy,
-        "filters": {
-            "population": {} if include_col else {"value": 0, "comparison": "equal"},
-        },
-        "min_development_score": min_score,
-        "sort_by":               "development",
-        "size":             limit,
-        "from":             offset,
-        "galaxy_region_id": galaxy_region,
-    }
-    return await local_db_search(unified_body, pool)
+# On V3 the galaxy route *is* the galaxy-wide Any-mode window of the ranked
+# search: the same bounded access path (`summary_window`, top 10,000 by
+# `weighted_potential`), the same ranking profile, the same generation pin
+# and product gate, and the same envelope as `POST /api/local/search` with
+# `galaxy_wide=true`. Every legacy request feature that has no V3 projection
+# is rejected with 422 before any database access rather than silently
+# dropped (slice-1 rule); see `prepare_galaxy_search_v3`.
+GALAXY_SEARCH_LIMIT_DEFAULT = 100
+_ECONOMY_ANY_VALUES: frozenset[str] = frozenset({'any', 'Any', 'Unknown', ''})
 
 
-# ---------------------------------------------------------------------------
-# Multi-economy cluster search (v4.0 — uses new cluster_summary schema)
-# ---------------------------------------------------------------------------
-# ── Economy name → ratings score column safe allowlist ──────────────────
-_ECO_SCORE_COL: dict[str, str] = {
-    'agriculture': 'score_agriculture',
-    'refinery':    'score_refinery',
-    'industrial':  'score_industrial',
-    'hightech':    'score_hightech',
-    'military':    'score_military',
-    'tourism':     'score_tourism',
-    'extraction':  'score_extraction',
-}
+def _int_or_422(value: Any, field: str, *, default: int | None = None) -> int:
+    """Coerce a request integer, answering 422 (not 503) for garbage."""
+    if value is None:
+        if default is None:
+            raise HTTPException(422, f'{field} is required')
+        return default
+    if isinstance(value, bool):
+        raise HTTPException(422, f'{field} must be an integer')
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, f'{field} must be an integer') from exc
 
 
-async def _resolve_slot_matches(
-    pool: asyncpg.Pool,
-    anchors: list[dict],
-    slots_raw: list[dict],
-    max_matches: int = 3,
-    galaxy_region_id: int | None = None,
-) -> dict[int, list[dict]]:
-    """For each anchor, find the best-matching system for each slot.
+def prepare_galaxy_search_v3(body: dict) -> dict:
+    """Validate a galaxy-wide search request without touching the database
+    and return the equivalent `local_db_search_v3` body.
 
-    Returns a dict keyed by anchor_id64 mapping to a list of slot-match
-    dicts, each containing ``slot_index``, ``label``, ``economies`` and
-    ``matches`` (the top systems for that slot near that anchor).
+    Rejections (HTTP 422), each a legacy feature with no V3 projection:
+
+    - a concrete ``economy``: no per-economy potential projection exists
+      (the slice-1 rule for `/api/local/search`); ``economy="any"`` ranks
+      by best colony potential;
+    - ``min_score`` above 0: a hard filter on a galaxy-wide Any request,
+      which the F2d bounded-access contract refuses
+      (`LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON`);
+    - ``include_colonised=false``: `v3_app.system_search` has no population
+      column. The legacy route silently forced uncolonised-only results;
+      the V3 route ranks every system in the published generation, and a
+      caller that explicitly asks for the restriction is told so;
+    - ``galaxy_region_id``: a galaxy-wide hard filter, rejected by
+      `prepare_local_search_v3`;
+    - a result window outside the ranking window (``limit`` 1..500,
+      ``offset`` >= 0, ``offset + limit`` <= 10,000).
     """
-    import asyncio
+    economy = body.get('economy')
+    if economy is None:
+        economy = 'any'
+    if not isinstance(economy, str):
+        raise HTTPException(422, 'economy must be a string')
 
-    from edfinder_api.search_economies import _canon as canon_econ
-
-    if not anchors or not slots_raw:
-        return {}
-
-    # Validate and index slots
-    indexed_slots: list[dict] = []
-    for i, slot in enumerate(slots_raw):
-        economies = slot.get("economies", [])
-        min_score = int(slot.get("min_score", 65))
-        label = slot.get("label") or " + ".join(economies)
-        indexed_slots.append({
-            "index": i,
-            "economies": economies,
-            "min_score": min_score,
-            "label": label,
-        })
-
-    async def _resolve_one_anchor(anchor: dict) -> tuple[int, list[dict]]:
-        """Resolve slot matches for a single anchor system."""
-        anchor_id64 = anchor["anchor_id64"]
-        ax = float(anchor["anchor_x"])
-        ay = float(anchor["anchor_y"])
-        az = float(anchor["anchor_z"])
-
-        # Look up the anchor's grid_cell_id
-        async with pool.acquire() as conn:
-            cell_row = await conn.fetchrow(
-                "SELECT grid_cell_id FROM systems WHERE id64 = $1",
-                anchor_id64,
-            )
-        if not cell_row or not cell_row["grid_cell_id"]:
-            return (anchor_id64, [])
-
-        anchor_cell = int(cell_row["grid_cell_id"])
-
-        # Decode cell coordinates
-        vcz = anchor_cell % 10000
-        rem = anchor_cell // 10000
-        vcy = rem % 10000
-        vcx = rem // 10000
-
-        # 27-cell neighbourhood (same as build_clusters.py)
-        search_cells = [
-            (vcx + dx) * 100_000_000 + (vcy + dy) * 10_000 + (vcz + dz)
-            for dx in range(-1, 2)
-            for dy in range(-1, 2)
-            for dz in range(-1, 2)
-        ]
-
-        slot_results: list[dict] = []
-
-        for slot in indexed_slots:
-            economies = slot["economies"]
-            min_score = slot["min_score"]
-            label = slot["label"]
-            slot_index = slot["index"]
-
-            # Build the per-slot detail query with safe column names
-            if not economies:
-                slot_results.append({
-                    "slot_index": slot_index,
-                    "label": label,
-                    "economies": [],
-                    "matches": [],
-                })
-                continue
-
-            score_cols = []
-            score_selects = []
-            where_clauses = []
-            detail_params: list[Any] = [search_cells, min_score, ax, ay, az, CLUSTER_RADIUS_LY]
-            region_where = ""
-            if galaxy_region_id is not None:
-                detail_params.append(galaxy_region_id)
-                region_where = "AND s.galaxy_region_id = $7"
-
-            for econ in economies:
-                canon = canon_econ(econ)
-                if canon is None or canon not in _ECO_SCORE_COL:
-                    continue
-                col = _ECO_SCORE_COL[canon]
-                score_cols.append(col)
-                score_selects.append(f"r.{col}")
-                where_clauses.append(f"r.{col} >= $2")
-
-            if not score_cols:
-                slot_results.append({
-                    "slot_index": slot_index,
-                    "label": label,
-                    "economies": list(economies),
-                    "matches": [],
-                })
-                continue
-
-            score_sum = " + ".join(score_selects)
-            score_where = " AND ".join(where_clauses)
-
-            sql = f"""
-                SELECT s.id64, s.name, s.x, s.y, s.z,
-                       {', '.join(score_selects)},
-                       SQRT(POWER(s.x - $3, 2) + POWER(s.y - $4, 2)
-                          + POWER(s.z - $5, 2)) AS dist
-                FROM systems s
-                JOIN ratings r ON r.system_id64 = s.id64
-                WHERE s.grid_cell_id = ANY($1)
-                  AND s.population = 0
-                  AND {score_where}
-                  {region_where}
-                  AND SQRT(POWER(s.x - $3, 2) + POWER(s.y - $4, 2)
-                         + POWER(s.z - $5, 2)) <= $6
-                ORDER BY ({score_sum}) DESC
-                LIMIT {max_matches}
-            """
-
-            try:
-                async with pool.acquire() as conn:
-                    detail_rows = await conn.fetch(sql, *detail_params)
-            except Exception:
-                # Don't let a DB/query fault masquerade as "no matches" — surface it.
-                log.warning("local_search detail query failed; returning no matches for this slot", exc_info=True)
-                detail_rows = []
-
-            matches = []
-            for dr in detail_rows:
-                scores: dict[str, float] = {}
-                for j, econ in enumerate(economies):
-                    canon = canon_econ(econ)
-                    if canon and canon in _ECO_SCORE_COL:
-                        col = _ECO_SCORE_COL[canon]
-                        scores[econ] = float(dr[col]) if dr[col] is not None else 0.0
-
-                dist_from_anchor = float(dr["dist"]) if dr["dist"] is not None else None
-                matches.append({
-                    "system_id64": dr["id64"],
-                    "system_name": dr["name"],
-                    "scores": scores,
-                    "distance_from_anchor_ly": round(dist_from_anchor, 1)
-                    if dist_from_anchor is not None else None,
-                })
-
-            slot_results.append({
-                "slot_index": slot_index,
-                "label": label,
-                "economies": list(economies),
-                "matches": matches,
-            })
-
-        return (anchor_id64, slot_results)
-
-    # Run anchor resolutions concurrently, capped at 10
-    semaphore = asyncio.Semaphore(10)
-
-    async def _resolve_with_limit(anchor: dict) -> tuple[int, list[dict]]:
-        async with semaphore:
-            return await _resolve_one_anchor(anchor)
-
-    tasks = [_resolve_with_limit(a) for a in anchors]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    out: dict[int, list[dict]] = {}
-    for r in results:
-        if isinstance(r, Exception):
-            log.warning("_resolve_slot_matches anchor failed: %r", r)
-            continue
-        aid, slot_list = r
-        out[aid] = slot_list
-
-    return out
-
-
-async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
-    """
-    Multi-economy cluster search using the macro-grid cluster_summary table.
-
-    Each result represents an anchor system whose 500 LY bubble contains
-    viable systems for each requested economy type.
-
-    Supports two formats:
-      - requirements: flat list of economy → min_count (legacy, unchanged)
-      - slots: list of slot groups (1-2 economies per slot); response includes
-        per-slot system matches resolved from ratings at query time.
-
-    v4.0: Updated to use the new cluster_summary schema with per-economy
-    count/best/top_id columns. Supports galaxy_region_id filter.
-    """
-    t0 = time.time()
-
-    requirements    = body.get("requirements", [])
-    slots_raw       = body.get("slots", [])
-    use_slots       = bool(slots_raw)
-    limit           = min(int(body.get("limit", 50)), 200)
-    ref             = body.get("reference_coords") or {}
-    has_ref         = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
-    rx              = float(ref["x"]) if has_ref else 0.0
-    ry              = float(ref["y"]) if has_ref else 0.0
-    rz              = float(ref["z"]) if has_ref else 0.0
-    galaxy_region   = body.get("galaxy_region_id")
-
-    if not requirements and not slots_raw:
-        return {"error": "requirements or slots list is required", "clusters": []}
-
-    # Build WHERE clauses from requirements or slots
-    where_parts = []
-    params      = []
-    p           = 1
-
-    def add(val):
-        nonlocal p
-        params.append(val)
-        idx = p
-        p += 1
-        return f"${idx}"
-
-    if use_slots:
-        # Flatten economy→min_count from slot groups.
-        # Each slot's economies become individual WHERE clauses on cluster_summary.
-        # The same-world constraint is enforced later in detail resolution.
-        seen_econs: set[str] = set()
-        for slot in slots_raw:
-            for econ in slot.get("economies", []):
-                canon = canonical_economy_key(econ)
-                if canon and canon != 'extraction' and canon not in seen_econs:
-                    seen_econs.add(canon)
-                    col = cluster_count_column(canon, alias='cs')
-                    if col:
-                        where_parts.append(f"{col} >= {add(1)}")
-    else:
-        for req in requirements:
-            econ      = req.get("economy")
-            min_count = int(req.get("min_count", 1))
-            col       = cluster_count_column(econ, alias='cs')
-            if col:
-                where_parts.append(f"{col} >= {add(min_count)}")
-
-    if not where_parts:
-        return {"error": "No valid economy requirements provided", "clusters": []}
-
-    if galaxy_region:
-        where_parts.append(f"s.galaxy_region_id = {add(int(galaxy_region))}")
-
-    where_sql = "WHERE " + " AND ".join(where_parts) + " AND cs.coverage_score IS NOT NULL"
-
-    # Distance expression for sorting
-    _COORD_GUARD = (
-        f"CASE WHEN s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64} "
-        "THEN NULL::float ELSE "
-    )
-    if has_ref:
-        dist_expr    = f"{_COORD_GUARD}SQRT(POWER(s.x - {rx}, 2) + POWER(s.y - {ry}, 2) + POWER(s.z - {rz}, 2)) END"
-        order_clause = f"{dist_expr} ASC"
-    else:
-        dist_expr    = "NULL::float"
-        order_clause = "cs.coverage_score DESC NULLS LAST"
-
-    sql = f"""
-        SELECT
-            s.id64              AS anchor_id64,
-            s.name              AS anchor_name,
-            s.x                 AS anchor_x,
-            s.y                 AS anchor_y,
-            s.z                 AS anchor_z,
-            s.population        AS anchor_population,
-            s.galaxy_region_id,
-            gr.name             AS galaxy_region_name,
-            cs.coverage_score,
-            cs.economy_diversity,
-            cs.total_viable,
-            cs.agriculture_count, cs.agriculture_best, cs.agriculture_top_id,
-            cs.refinery_count,    cs.refinery_best,    cs.refinery_top_id,
-            cs.industrial_count,  cs.industrial_best,  cs.industrial_top_id,
-            cs.hightech_count,    cs.hightech_best,    cs.hightech_top_id,
-            cs.military_count,    cs.military_best,    cs.military_top_id,
-            cs.tourism_count,     cs.tourism_best,     cs.tourism_top_id,
-            {dist_expr}         AS distance_ly
-        FROM cluster_summary cs
-        JOIN systems s ON s.id64 = cs.system_id64
-        LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
-        {where_sql}
-        ORDER BY {order_clause}
-        LIMIT {add(limit)}
-    """
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
-
-    clusters = []
-    for row in rows:
-        dist_ly = float(row["distance_ly"]) if row["distance_ly"] is not None else None
-        anchor_coords = _safe_coords({
-            "id64": row["anchor_id64"],
-            "x":    row["anchor_x"],
-            "y":    row["anchor_y"],
-            "z":    row["anchor_z"],
-        })
-        clusters.append({
-            "anchor_id64":          row["anchor_id64"],
-            "system_id64":          row["anchor_id64"],  # alias for compatibility
-            "anchor_name":          row["anchor_name"],
-            "anchor_x":             anchor_coords["x"],
-            "anchor_y":             anchor_coords["y"],
-            "anchor_z":             anchor_coords["z"],
-            "anchor_coords":        anchor_coords,
-            "galaxy_region_id":     row["galaxy_region_id"],
-            "galaxy_region":        row["galaxy_region_name"],
-            "coverage_score":       row["coverage_score"],
-            "economy_diversity":    row["economy_diversity"],
-            "total_viable":         row["total_viable"],
-            "agriculture_count":    row["agriculture_count"],
-            "agriculture_best":     row["agriculture_best"],
-            "agriculture_top_id":   row["agriculture_top_id"],
-            "refinery_count":       row["refinery_count"],
-            "refinery_best":        row["refinery_best"],
-            "refinery_top_id":      row["refinery_top_id"],
-            "industrial_count":     row["industrial_count"],
-            "industrial_best":      row["industrial_best"],
-            "industrial_top_id":    row["industrial_top_id"],
-            "hightech_count":       row["hightech_count"],
-            "hightech_best":        row["hightech_best"],
-            "hightech_top_id":      row["hightech_top_id"],
-            "military_count":       row["military_count"],
-            "military_best":        row["military_best"],
-            "military_top_id":      row["military_top_id"],
-            "tourism_count":        row["tourism_count"],
-            "tourism_best":         row["tourism_best"],
-            "tourism_top_id":       row["tourism_top_id"],
-            "distance_ly":          round(dist_ly, 1) if dist_ly is not None else None,
-            "cluster_radius_ly":    CLUSTER_RADIUS_LY,
-        })
-
-    # ── Slot detail resolution (only when slots format is used) ────────
-    if use_slots and clusters:
-        slot_matches = await _resolve_slot_matches(
-            pool,
-            clusters,
-            slots_raw,
-            galaxy_region_id=galaxy_region,
+    min_score = _int_or_422(body.get('min_score'), 'min_score', default=0)
+    if min_score < 0:
+        raise HTTPException(422, 'min_score must be greater than or equal to 0')
+    if min_score > 0:
+        raise HTTPException(
+            422,
+            f'min_score: {LOCAL_SEARCH_GALAXY_WIDE_FILTER_REJECTION_REASON}',
         )
-        for i, cluster in enumerate(clusters):
-            anchor_id64 = cluster["anchor_id64"]
-            cluster["slots"] = slot_matches.get(anchor_id64, [])
 
-    elapsed = round((time.time() - t0) * 1000)
-    econ_count = len(slots_raw) if use_slots else len(requirements)
-    log.info("cluster_search(%d %s, region=%s, ref=%s): %d clusters in %dms",
-             econ_count, "slots" if use_slots else "requirements",
-             galaxy_region or "any",
-             "yes" if has_ref else "no", len(clusters), elapsed)
+    if body.get('include_colonised') is False:
+        raise HTTPException(
+            422,
+            'include_colonised=false (uncolonised-only) is not supported by V3 '
+            'Finder search (v3_app.system_search has no population column).',
+        )
 
-    response: dict[str, Any] = {
-        "clusters":          clusters,
-        "count":             len(clusters),
-        "cluster_radius_ly": CLUSTER_RADIUS_LY,
-        "query_ms":          elapsed,
+    limit = _int_or_422(body.get('limit'), 'limit', default=GALAXY_SEARCH_LIMIT_DEFAULT)
+    offset = _int_or_422(body.get('offset'), 'offset', default=0)
+    if limit > RANKING_PAGE_LIMIT_MAX:
+        raise HTTPException(
+            422, f'limit must be less than or equal to {RANKING_PAGE_LIMIT_MAX}',
+        )
+
+    local_body: dict[str, Any] = {
+        'galaxy_wide': True,
+        'reference_coords': None,
+        'economy': economy if economy not in _ECONOMY_ANY_VALUES else 'any',
+        'filters': {'economy': economy if economy not in _ECONOMY_ANY_VALUES else 'any'},
+        'min_development_score': 0,
+        'sort_by': 'development',
+        'size': limit,
+        'from': offset,
+        'galaxy_region_id': body.get('galaxy_region_id'),
     }
-    if use_slots:
-        response["slots"] = slots_raw
-    else:
-        response["requirements"] = requirements
+    # The shared validator enforces the window, the concrete-economy
+    # rejection and the galaxy-wide hard-filter rule (region) in one place.
+    prepare_local_search_v3(local_body)
+    return local_body
 
-    return response
+
+async def local_db_galaxy_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
+    """V3 galaxy-wide search for `POST /api/search/galaxy`.
+
+    A validated galaxy-wide Any-mode call into `local_db_search_v3`: reads
+    only `v3_app.system_search` + `v3_app.system_archetype_summary`,
+    generation-pinned inside one REPEATABLE READ snapshot, and returns the
+    same `SearchResponse` envelope (results, sentinel-bounded total, ranking
+    identity) as `/api/local/search`.
+    """
+    local_body = prepare_galaxy_search_v3(body)
+    return await local_db_search_v3(local_body, pool)
+
+
+# ---------------------------------------------------------------------------
+# V3 cluster search (F3 slice 2b) — POST /api/search/cluster ONLY.
+# ---------------------------------------------------------------------------
+# The legacy cluster search read the V2 `cluster_summary` macro-grid table
+# (per-anchor counts of economy-viable systems inside a 500 LY bubble) plus
+# `systems`/`ratings` for slot detail. Its V3 successor is the independent
+# cluster product of migration 004 (`v3_spatial.cluster_run` ->
+# `v3_spatial.cluster` -> `v3_spatial.cluster_member`; decision doc §8):
+# clusters are domain-derived, versioned, generation-scoped outputs that a
+# builder publishes per owner domain and algorithm version.
+#
+# Flagged data gap (not silently degraded): no Finder cluster builder exists
+# in the tree, no `cluster_run` row has ever been published, and the
+# per-economy viability summary the legacy `ClusterResult` fields need is a
+# builder-defined `cluster.summary` contract that has not been designed. The
+# V3 route therefore fails closed: it validates the request, pins the
+# published generation behind the same Finder product gate as every other
+# Finder route, reads the Finder-owned cluster-run state for that generation
+# from `v3_spatial.cluster_run`, and answers 503 naming exactly what is
+# missing. It never reads a legacy relation and never fabricates clusters
+# from a request-time galaxy scan (decision doc §12: no request-time global
+# calculation; clusters are not the search index).
+FINDER_CLUSTER_OWNER_DOMAIN = 'finder'
+CLUSTER_SEARCH_LIMIT_DEFAULT = 50
+CLUSTER_SEARCH_LIMIT_MAX = 200
+CLUSTER_SEARCH_MAX_REQUIREMENTS = 6
+CLUSTER_SEARCH_MAX_SLOTS = 10
+CLUSTER_SEARCH_MAX_SLOT_ECONOMIES = 2
+CLUSTER_SEARCH_MIN_SCORE_DEFAULT = 40
+CLUSTER_SLOT_MIN_SCORE_DEFAULT = 65
+GALAXY_REGION_ID_MIN = 1
+GALAXY_REGION_ID_MAX = 42
+
+
+def _canonical_economy_or_422(value: Any, field: str) -> str:
+    key = canonical_economy_key(value) if isinstance(value, str) else None
+    if key is None:
+        raise HTTPException(422, f'{field}: unknown economy {value!r}')
+    return key
+
+
+def _score_or_422(value: Any, field: str, *, default: int) -> int:
+    score = _int_or_422(value, field, default=default)
+    if score < 0 or score > 100:
+        raise HTTPException(422, f'{field} must be between 0 and 100')
+    return score
+
+
+def prepare_cluster_search_v3(body: dict) -> dict[str, Any]:
+    """Validate a cluster-search request without touching the database.
+
+    Returns the normalised request (canonical economy keys, bounded window,
+    finite reference coordinates or None, bounded region id). Every
+    rejection is a 422 so an unavailable cluster product (503) can never
+    mask a malformed request.
+    """
+    requirements = body.get('requirements') or []
+    slots = body.get('slots') or []
+    if bool(requirements) == bool(slots):
+        raise HTTPException(422, 'provide exactly one of requirements or slots')
+    if len(requirements) > CLUSTER_SEARCH_MAX_REQUIREMENTS:
+        raise HTTPException(
+            422, f'at most {CLUSTER_SEARCH_MAX_REQUIREMENTS} economy requirements',
+        )
+    if len(slots) > CLUSTER_SEARCH_MAX_SLOTS:
+        raise HTTPException(422, f'at most {CLUSTER_SEARCH_MAX_SLOTS} slots')
+
+    normalised_requirements: list[dict[str, Any]] = []
+    for index, requirement in enumerate(requirements):
+        if not isinstance(requirement, dict):
+            raise HTTPException(422, f'requirements[{index}] must be an object')
+        min_count = _int_or_422(
+            requirement.get('min_count'), f'requirements[{index}].min_count', default=1,
+        )
+        if min_count < 1:
+            raise HTTPException(
+                422, f'requirements[{index}].min_count must be greater than or equal to 1',
+            )
+        normalised_requirements.append({
+            'economy': _canonical_economy_or_422(
+                requirement.get('economy'), f'requirements[{index}].economy',
+            ),
+            'min_count': min_count,
+            'min_score': _score_or_422(
+                requirement.get('min_score'), f'requirements[{index}].min_score',
+                default=CLUSTER_SEARCH_MIN_SCORE_DEFAULT,
+            ),
+        })
+
+    normalised_slots: list[dict[str, Any]] = []
+    for index, slot in enumerate(slots):
+        if not isinstance(slot, dict):
+            raise HTTPException(422, f'slots[{index}] must be an object')
+        economies = slot.get('economies') or []
+        if not isinstance(economies, list) or not economies:
+            raise HTTPException(422, f'slots[{index}].economies must name at least one economy')
+        if len(economies) > CLUSTER_SEARCH_MAX_SLOT_ECONOMIES:
+            raise HTTPException(
+                422,
+                f'slots[{index}].economies: at most {CLUSTER_SEARCH_MAX_SLOT_ECONOMIES} '
+                'economies per slot (same-world constraint)',
+            )
+        normalised_slots.append({
+            'economies': [
+                _canonical_economy_or_422(economy, f'slots[{index}].economies')
+                for economy in economies
+            ],
+            'min_score': _score_or_422(
+                slot.get('min_score'), f'slots[{index}].min_score',
+                default=CLUSTER_SLOT_MIN_SCORE_DEFAULT,
+            ),
+            'label': slot.get('label'),
+        })
+
+    limit = _int_or_422(body.get('limit'), 'limit', default=CLUSTER_SEARCH_LIMIT_DEFAULT)
+    if limit < 1 or limit > CLUSTER_SEARCH_LIMIT_MAX:
+        raise HTTPException(422, f'limit must be between 1 and {CLUSTER_SEARCH_LIMIT_MAX}')
+    offset = _int_or_422(body.get('offset'), 'offset', default=0)
+    if offset < 0:
+        raise HTTPException(422, 'offset must be greater than or equal to 0')
+
+    reference_coords: tuple[float, float, float] | None = None
+    ref = body.get('reference_coords') or {}
+    if not isinstance(ref, dict):
+        raise HTTPException(422, 'reference_coords must be an object')
+    present = [axis for axis in ('x', 'y', 'z') if ref.get(axis) is not None]
+    if present and len(present) != 3:
+        raise HTTPException(422, 'reference_coords must include x, y, z')
+    if present:
+        try:
+            coords = tuple(float(ref[axis]) for axis in ('x', 'y', 'z'))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, 'reference_coords must be numeric') from exc
+        if not all(math.isfinite(value) for value in coords):
+            raise HTTPException(422, 'reference_coords must be finite numbers')
+        reference_coords = coords  # type: ignore[assignment]
+
+    galaxy_region_id: int | None = None
+    if body.get('galaxy_region_id') is not None:
+        galaxy_region_id = _int_or_422(body.get('galaxy_region_id'), 'galaxy_region_id')
+        if not GALAXY_REGION_ID_MIN <= galaxy_region_id <= GALAXY_REGION_ID_MAX:
+            raise HTTPException(
+                422,
+                f'galaxy_region_id must be between {GALAXY_REGION_ID_MIN} '
+                f'and {GALAXY_REGION_ID_MAX}',
+            )
+
+    return {
+        'requirements': normalised_requirements,
+        'slots': normalised_slots,
+        'limit': limit,
+        'offset': offset,
+        'reference_coords': reference_coords,
+        'galaxy_region_id': galaxy_region_id,
+    }
+
+
+async def _finder_cluster_runs(
+    connection: asyncpg.Connection, derived_generation_id: Any,
+) -> list[asyncpg.Record]:
+    """Read the Finder-owned cluster runs attached to the pinned generation."""
+    return await connection.fetch(
+        '''
+        SELECT cluster_run_id, algorithm, algorithm_version, lifecycle_state, published_at
+        FROM v3_spatial.cluster_run
+        WHERE derived_generation_id = $1
+          AND owner_domain = $2
+        ORDER BY created_at DESC, cluster_run_id
+        ''',
+        derived_generation_id,
+        FINDER_CLUSTER_OWNER_DOMAIN,
+    )
+
+
+async def local_db_cluster_search_v3(body: dict, pool: asyncpg.Pool) -> dict:
+    """V3 cluster search for `POST /api/search/cluster` — fail-closed.
+
+    Validates the request (422), pins the published generation behind the
+    Finder product gate (404 / 503, `_current_derived_generation`), then
+    reads the Finder-owned cluster-run state for that generation from
+    `v3_spatial.cluster_run` inside the same REPEATABLE READ snapshot and
+    answers 503 naming what is missing. See the section comment above for
+    the flagged data gap: until a Finder cluster builder publishes a run
+    and defines the `cluster.summary` viability contract, no V3 read can
+    honestly produce the `ClusterResult` fields, so this never returns 200
+    and never falls back to a legacy relation.
+    """
+    prepare_cluster_search_v3(body)
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(isolation='repeatable_read', readonly=True):
+                generation_row = await _current_derived_generation(conn)
+                runs = await _finder_cluster_runs(conn, generation_row['derived_generation_id'])
+    except HTTPException:
+        raise
+    except (asyncpg.exceptions.UndefinedTableError,
+            asyncpg.exceptions.InvalidSchemaNameError) as exc:
+        log.error('local_db_cluster_search_v3 missing relation: %r (sqlstate=%s)',
+                  exc, getattr(exc, 'sqlstate', None))
+        raise HTTPException(503, 'Finder cluster search is unavailable') from exc
+
+    published = [run for run in runs if run['lifecycle_state'] == 'PUBLISHED']
+    generation_id = generation_row['derived_generation_id']
+    if not published:
+        state = ', '.join(
+            f"{run['algorithm']}@{run['algorithm_version']}={run['lifecycle_state']}"
+            for run in runs
+        ) or 'none'
+        raise HTTPException(
+            503,
+            'Finder cluster product is not published for the current generation '
+            f'{generation_id} (v3_spatial.cluster_run owner_domain='
+            f'{FINDER_CLUSTER_OWNER_DOMAIN}: {state}); the Finder cluster builder '
+            'and its cluster summary contract are a pending V3 derived product.',
+        )
+    newest = published[0]
+    raise HTTPException(
+        503,
+        f"Finder cluster run {newest['algorithm']}@{newest['algorithm_version']} "
+        f'({newest["cluster_run_id"]}) is published for generation {generation_id}, '
+        'but no Finder cluster read contract exists for it yet; cluster search '
+        'stays unavailable until that contract is designed and implemented.',
+    )
 
 
 # ---------------------------------------------------------------------------

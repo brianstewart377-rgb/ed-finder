@@ -1,6 +1,8 @@
 """Phase 2 — `/api/local/search` and `/api/search/galaxy` should:
 
-  1. Run via `local_search.local_db_search` (the centralised builder).
+  1. Run via the single V3 read path per route (`local_search.
+     local_db_search_v3` / `local_db_galaxy_search_v3` /
+     `local_db_cluster_search_v3`).
   2. Return 200 + a {results, total, count} envelope on success.
   3. Return 503 (Service Unavailable, RFC 7807 problem-details) when
      the underlying DB call raises — NOT silently fall back to a
@@ -209,39 +211,63 @@ async def test_local_search_early_validation_failure_keeps_503_boundary(client):
 
 
 async def test_galaxy_search_returns_503_on_db_failure(client):
+    """`/api/search/galaxy` was repointed onto the V3 galaxy-wide Any-mode
+    path (`local_db_galaxy_search_v3`, F3 slice 2b): an unexpected failure
+    in the ranked read is surfaced as the RFC 7807 503, never masked."""
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')
 
-    with patch('routers.search._ls.local_db_galaxy_search', boom):
+    with (
+        patch('routers.search._ls.resolve_published_generation',
+              AsyncMock(return_value={'derived_generation_id': 'g', 'publication_sequence': 1})),
+        patch('routers.search.cache_get', AsyncMock(return_value=None)),
+        patch('routers.search._ls.local_db_galaxy_search_v3', boom),
+    ):
         r = await client.post('/api/search/galaxy', json={
-            'economy': 'Tourism', 'min_score': 50, 'limit': 5,
+            'economy': 'any', 'min_score': 0, 'limit': 5,
         })
     assert r.status_code == 503
+    assert r.headers['content-type'].startswith('application/problem+json')
+
+
+async def test_galaxy_search_rejects_legacy_only_features_before_the_gate(client):
+    """A concrete economy / min_score floor has no V3 projection on a
+    galaxy-wide request: 422 before the generation pin, never a silently
+    unfiltered page and never masked by an unavailable product (503)."""
+    resolve = AsyncMock(side_effect=AssertionError('must not reach the gate'))
+    with patch('routers.search._ls.resolve_published_generation', resolve):
+        economy = await client.post('/api/search/galaxy', json={
+            'economy': 'Tourism', 'min_score': 0, 'limit': 5,
+        })
+        floored = await client.post('/api/search/galaxy', json={
+            'economy': 'any', 'min_score': 50, 'limit': 5,
+        })
+    assert economy.status_code == 422, economy.text
+    assert floored.status_code == 422, floored.text
+    assert resolve.await_count == 0
 
 
 async def test_cluster_search_returns_503_on_db_failure(client):
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')
 
-    with patch('routers.search._ls.local_db_cluster_search', boom):
+    with patch('routers.search._ls.local_db_cluster_search_v3', boom):
         r = await client.post('/api/search/cluster', json={
             'requirements': [{'economy': 'Agriculture', 'min_count': 1}],
             'limit': 5,
         })
     assert r.status_code == 503
+    assert r.headers['content-type'].startswith('application/problem+json')
 
 
-async def test_cluster_search_passes_named_region_scope_to_sql_builder(client):
+async def test_cluster_search_passes_named_region_scope_to_v3_reader(client):
     captured = {}
 
     async def capture(body, pool):
         captured.update(body)
         return {'clusters': [], 'count': 0, 'query_ms': 1}
 
-    with (
-        patch('routers.search.cache_get', AsyncMock(return_value=None)),
-        patch('routers.search._ls.local_db_cluster_search', capture),
-    ):
+    with patch('routers.search._ls.local_db_cluster_search_v3', capture):
         r = await client.post('/api/search/cluster', json={
             'requirements': [{'economy': 'Agriculture', 'min_count': 1}],
             'galaxy_region_id': 31,
@@ -250,3 +276,21 @@ async def test_cluster_search_passes_named_region_scope_to_sql_builder(client):
 
     assert r.status_code == 200, r.text
     assert captured['galaxy_region_id'] == 31
+
+
+async def test_cluster_search_surfaces_the_v3_product_gate_as_is(client):
+    """The deliberate 503 from the V3 cluster product gate (no Finder cluster
+    run published) passes through unchanged rather than being re-wrapped as
+    the generic RFC 7807 problem."""
+    from fastapi import HTTPException
+
+    async def gate(body, pool):
+        raise HTTPException(503, 'Finder cluster product is not published for the current generation')
+
+    with patch('routers.search._ls.local_db_cluster_search_v3', gate):
+        r = await client.post('/api/search/cluster', json={
+            'requirements': [{'economy': 'Agriculture', 'min_count': 1}],
+            'limit': 5,
+        })
+    assert r.status_code == 503
+    assert r.json()['detail'] == 'Finder cluster product is not published for the current generation'

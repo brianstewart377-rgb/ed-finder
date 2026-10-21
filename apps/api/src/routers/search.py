@@ -8,9 +8,19 @@ had drifted (e.g. it always sorted by `r.score` while the primary path
 sorted by the economy-specific `display_score_col`), causing identical
 requests to return different orderings depending on which path ran.
 
-This file now has ONE search implementation. If the primary path raises,
-we surface RFC 7807 problem-details with HTTP 503 instead of silently
-degrading.
+This file now has ONE search implementation per route. If the primary
+path raises, we surface RFC 7807 problem-details with HTTP 503 instead of
+silently degrading.
+
+V3 (F3): `/api/local/search` (slice 1), `/api/search/galaxy` and
+`/api/search/cluster` (slice 2b) read only the published V3 projections
+through `local_search.local_db_search_v3` / `local_db_galaxy_search_v3` /
+`local_db_cluster_search_v3`, each behind the migration-015 Finder product
+gate (404 without a PUBLISHED generation, 503 until both Finder products
+are READY and published) with request validation before any database
+access. The legacy `cluster_summary` / `systems` / `ratings` readers are
+gone from this module; a static test walks every string literal here to
+keep it that way.
 """
 import json
 import time
@@ -41,8 +51,11 @@ AUTOCOMPLETE_CACHE_VERSION = 'v3'
 # written by the legacy code path (different semantics, no generation/ranking
 # identity) and must never be served after the repoint.
 SEARCH_CACHE_VERSION = 'v5'
-GALAXY_CACHE_VERSION = 'v4'
-CLUSTER_CACHE_VERSION = 'v4'
+# Bumped v4 -> v5 at the F3 slice-2b V3 cutover of `/api/search/galaxy`:
+# pre-cutover `galaxy:v4:*` entries were written by the legacy economy-ranked
+# path and must never be served after the repoint. The cluster route carries
+# no cache any more (see `cluster_search`).
+GALAXY_CACHE_VERSION = 'v5'
 
 
 def _search_cache_key(body_dict: dict, generation_row) -> str:
@@ -302,8 +315,20 @@ async def local_search_endpoint(
 
 
 # ---------------------------------------------------------------------------
-# Galaxy search
+# Galaxy search (V3, F3 slice 2b)
 # ---------------------------------------------------------------------------
+def _galaxy_cache_key(body_dict: dict, generation_row) -> str:
+    """`/api/search/galaxy` cache key: namespace version + ranking identity +
+    the pinned PUBLISHED generation + the full request body, for the same
+    reasons as `_search_cache_key`."""
+    return (
+        f"galaxy:{GALAXY_CACHE_VERSION}:{RANKING_VERSION}:{ranking_sha256()}:"
+        f"g{generation_row['derived_generation_id']}:"
+        f"s{generation_row['publication_sequence']}:"
+        f"{json.dumps(body_dict, sort_keys=True, default=str)}"
+    )
+
+
 @router.post('/api/search/galaxy')
 @limiter.limit(settings.rate_limit_search)
 async def galaxy_search(
@@ -313,36 +338,94 @@ async def galaxy_search(
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
+    # Galaxy-wide ranked search on the V3 projections.
+    # The V3 galaxy search is the galaxy-wide Any-mode window of the ranked
+    # search (`local_search.local_db_galaxy_search_v3`): the same bounded
+    # access path, ranking profile, generation pin, product gate and
+    # `SearchResponse` envelope as `POST /api/local/search` with
+    # `galaxy_wide=true`. Legacy request features with no V3 projection
+    # (a concrete `economy`, `min_score > 0`, uncolonised-only) answer 422
+    # before any database access; the legacy route's implicit
+    # uncolonised-only restriction is gone because `v3_app.system_search`
+    # carries no population column.
     background_tasks.add_task(inc_metric, 'db_queries')
+    t0 = time.time()
 
-    economy   = req.economy.strip()
-    min_score = req.min_score
-    limit     = min(req.limit, 500)
+    body_dict = {
+        'economy':   req.economy.strip() if isinstance(req.economy, str) else req.economy,
+        'min_score': req.min_score,
+        'limit':     req.limit,
+        'offset':    req.offset,
+    }
 
-    cache_key = f'galaxy:{GALAXY_CACHE_VERSION}:{economy}:{min_score}:{limit}:{req.offset}'
+    # Reject a disallowed request shape (422) before any database access, so
+    # an unpublished Finder product (503) can never mask it.
+    try:
+        _ls.prepare_galaxy_search_v3(body_dict)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error(
+            'prepare_galaxy_search_v3 failed: type=%s repr=%r',
+            type(exc).__name__, exc, exc_info=True,
+        )
+        return _search_unavailable(
+            f'galaxy search: {type(exc).__name__}: {exc}',
+            hint='Reduce the result window; if persistent, retry shortly.',
+        )
+
+    # Pin the PUBLISHED generation before consulting the cache (see the
+    # local-search route for why the key must be generation-scoped).
+    try:
+        generation_row = await _ls.resolve_published_generation(pool)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error(
+            'resolve_published_generation failed: type=%s repr=%r sqlstate=%s',
+            type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            exc_info=True,
+        )
+        return _search_unavailable(
+            f'galaxy search: {type(exc).__name__}: {exc}',
+            hint='Retry in a few seconds; if the problem persists, check /api/health.',
+        )
+
+    cache_key = _galaxy_cache_key(body_dict, generation_row)
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
 
-    body_dict = {
-        'economy':           economy,
-        'min_score':         min_score,
-        'limit':             limit,
-        'offset':            req.offset,
-        'include_colonised': False,
-    }
     try:
-        result = await _ls.local_db_galaxy_search(body_dict, pool)
+        result = await _ls.local_db_galaxy_search_v3(body_dict, pool)
+    except HTTPException:
+        # A deliberate 4xx/503 from the V3 path (no published generation,
+        # products not ready) — surface it, don't mask it as a generic 503.
+        raise
     except Exception as exc:
-        log.error('local_db_galaxy_search failed: %r', exc, exc_info=True)
+        log.error(
+            'local_db_galaxy_search_v3 failed: type=%s repr=%r sqlstate=%s',
+            type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            exc_info=True,
+        )
         return _search_unavailable(f'galaxy search: {type(exc).__name__}: {exc}')
 
-    await cache_set(cache_key, result, settings.ttl_search, redis)
+    # Store under the generation the result was ACTUALLY computed under (a
+    # governed publish may land between the pin above and the ranked read).
+    ranking_identity = result.get('ranking') or {}
+    store_key = (
+        _galaxy_cache_key(body_dict, ranking_identity)
+        if ranking_identity.get('derived_generation_id') is not None
+        and ranking_identity.get('publication_sequence') is not None
+        else cache_key
+    )
+    await cache_set(store_key, result, settings.ttl_search, redis)
+    background_tasks.add_task(log_slow, 'galaxy_search', (time.time() - t0) * 1000)
     return result
 
 
 # ---------------------------------------------------------------------------
-# Cluster search
+# Cluster search (V3, F3 slice 2b — fail-closed until the cluster product exists)
 # ---------------------------------------------------------------------------
 @router.post('/api/search/cluster', response_model=ClusterSearchResponse)
 @limiter.limit(settings.rate_limit_search)
@@ -351,8 +434,19 @@ async def cluster_search(
     req: ClusterSearchRequest,
     background_tasks: BackgroundTasks,
     pool: asyncpg.Pool = Depends(get_pool),
-    redis: Optional[aioredis.Redis] = Depends(get_redis),
 ):
+    # Multi-economy cluster search on the V3 cluster product.
+    # Reads only V3 relations (`local_search.local_db_cluster_search_v3`):
+    # the request is validated first (400/422), then the published generation
+    # is pinned behind the Finder product gate (404/503), then the
+    # Finder-owned `v3_spatial.cluster_run` state for that generation is
+    # read. No Finder cluster run has been built or published yet and the
+    # per-economy viability summary the `ClusterResult` fields need has no
+    # V3 contract, so the route currently answers 503 naming that gap rather
+    # than reading the retired V2 macro-grid relation or fabricating
+    # clusters at request time. There is no cache: nothing cacheable is
+    # produced until the product exists, and any future entry must be
+    # generation-scoped like `_search_cache_key`.
     background_tasks.add_task(inc_metric, 'db_queries')
 
     # Validation: either requirements or slots must be provided
@@ -364,26 +458,10 @@ async def cluster_search(
     if req.slots and len(req.slots) > 10:
         raise HTTPException(400, 'Maximum 10 slots')
 
-    # Build cache key — include slots when present
-    if req.slots:
-        payload_json = json.dumps([s.model_dump() for s in req.slots], sort_keys=True, default=str)
-        cache_prefix = 'cluster_slots'
-    else:
-        payload_json = json.dumps([r.model_dump() for r in req.requirements], sort_keys=True)
-        cache_prefix = 'cluster'
     reference_coords = _complete_coords(req.reference_coords)
-    ref_json = json.dumps(reference_coords, sort_keys=True, default=str)
-    region_json = req.galaxy_region_id if req.galaxy_region_id is not None else 'all'
-    cache_key = (
-        f'{cache_prefix}:{CLUSTER_CACHE_VERSION}:{payload_json}:'
-        f'{req.limit}:{req.offset}:{ref_json}:region:{region_json}'
-    )
-    cached = await cache_get(cache_key, redis)
-    if cached:
-        return cached
-
     body_dict: dict[str, Any] = {
         'limit':            req.limit,
+        'offset':           req.offset,
         'reference_coords': reference_coords,
         'galaxy_region_id': req.galaxy_region_id,
     }
@@ -391,11 +469,31 @@ async def cluster_search(
         body_dict['slots'] = [s.model_dump() for s in req.slots]
     else:
         body_dict['requirements'] = [r.model_dump() for r in req.requirements]
+
+    # 422 before any database access, so the 503 product gate can never
+    # mask a malformed request.
     try:
-        result = await _ls.local_db_cluster_search(body_dict, pool)
+        _ls.prepare_cluster_search_v3(body_dict)
+    except HTTPException:
+        raise
     except Exception as exc:
-        log.error('local_db_cluster_search failed: %r', exc, exc_info=True)
+        log.error(
+            'prepare_cluster_search_v3 failed: type=%s repr=%r',
+            type(exc).__name__, exc, exc_info=True,
+        )
         return _search_unavailable(f'cluster search: {type(exc).__name__}: {exc}')
 
-    await cache_set(cache_key, result, settings.ttl_cluster, redis)
+    try:
+        result = await _ls.local_db_cluster_search_v3(body_dict, pool)
+    except HTTPException:
+        # Deliberate 404/503 from the V3 product gate — surface it.
+        raise
+    except Exception as exc:
+        log.error(
+            'local_db_cluster_search_v3 failed: type=%s repr=%r sqlstate=%s',
+            type(exc).__name__, exc, getattr(exc, 'sqlstate', None),
+            exc_info=True,
+        )
+        return _search_unavailable(f'cluster search: {type(exc).__name__}: {exc}')
+
     return result
