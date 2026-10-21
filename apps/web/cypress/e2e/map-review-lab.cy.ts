@@ -283,62 +283,103 @@ describe('Galaxy Map Review Lab density truth slice', () => {
         statusCode: 200,
         body: { authenticated: false, user: null },
       });
-      cy.intercept('GET', '/api/system/42', {
+      // Inspect reads the generation-pinned V3 canonical routes.
+      const body = (overrides: Record<string, unknown>) => ({
+        source_body_id64: null,
+        direct_parent_body_id: null,
+        is_main_star: null,
+        spectral_class: null,
+        luminosity_class: null,
+        is_landable: null,
+        planet_mass_earth: null,
+        stellar_mass_solar: null,
+        surface_pressure_atm: null,
+        semi_major_axis_km: null,
+        lifecycle_state: 'ACTIVE',
+        signals: [],
+        ...overrides,
+      });
+      cy.intercept('GET', '/api/v1/generation', {
         statusCode: 200,
         body: {
-          record: {
-            id64: 42,
-            name: 'Diagnostic Orrery',
-            x: 1,
-            y: 2,
-            z: 3,
-            main_star_type: 'G',
-            main_star_subtype: 'G (White-Yellow) Star',
-            bodies: [
-              {
-                id: 0,
-                name: 'Diagnostic Orrery',
-                body_type: 'Star',
-                subtype: 'G (White-Yellow) Star',
-                distance_from_star: 0,
-                radius: 695700000,
-                is_main_star: true,
-                ring_state: 'not_ringed',
-              },
-              {
-                id: 2,
-                name: 'Diagnostic Orrery 2',
-                body_type: 'Planet',
-                subtype: 'Gas giant with water based life',
-                distance_from_star: 11450,
-                radius: 70000000,
-                ring_state: 'ringed',
-                ring_count: 1,
-                rings: [
-                  {
-                    ring_name: 'Diagnostic Orrery 2 A Ring',
-                    ring_class: 'Icy',
-                    inner_radius: 90000000,
-                    outer_radius: 130000000,
-                    source: 'diagnostic-fixture',
-                  },
-                ],
-              },
-              {
-                id: 5,
-                name: 'Diagnostic Orrery 5',
-                body_type: 'Planet',
-                subtype: 'Earth-like world',
-                distance_from_star: 28400,
-                radius: 6371000,
-                is_landable: false,
-                bio_signal_count: 4,
-                ring_state: 'not_ringed',
-              },
-            ],
-            stations: [],
-          },
+          generation_id: 'diagnostic-generation',
+          generation_key: 'diagnostic',
+          publication_sequence: '1',
+          published_at: '2026-10-01T00:00:00+00:00',
         },
+      });
+      cy.intercept('GET', '/api/v1/systems/42', {
+        statusCode: 200,
+        body: {
+          id64: '42',
+          name: 'Diagnostic Orrery',
+          x_ly: 1,
+          y_ly: 2,
+          z_ly: 3,
+          source_body_count: 3,
+          loaded_body_count: 3,
+          lifecycle_state: 'ACTIVE',
+          source_updated_at: null,
+        },
+      });
+      cy.intercept('GET', '/api/v1/systems/42/bodies', {
+        statusCode: 200,
+        body: [
+          body({
+            body_id: '1000',
+            frontier_body_id: '0',
+            name: 'Diagnostic Orrery',
+            body_type: 'star',
+            is_main_star: true,
+            spectral_class: 'G2',
+            luminosity_class: 'V',
+            radius_km: 695_700,
+            distance_from_arrival_ls: 0,
+          }),
+          body({
+            body_id: '1002',
+            frontier_body_id: '2',
+            name: 'Diagnostic Orrery 2',
+            body_type: 'planet',
+            radius_km: 70_000,
+            distance_from_arrival_ls: 11_450,
+          }),
+          body({
+            body_id: '1005',
+            frontier_body_id: '5',
+            name: 'Diagnostic Orrery 5',
+            body_type: 'planet',
+            is_landable: false,
+            radius_km: 6_371,
+            distance_from_arrival_ls: 28_400,
+            signals: [{ signal_type: 'saa_signaltype_biological', count: 4 }],
+          }),
+        ],
+      });
+      cy.intercept('GET', '/api/v1/systems/42/rings', {
+        statusCode: 200,
+        body: [
+          {
+            ring_id: '2000',
+            body_id: '1002',
+            source_ring_id64: null,
+            kind: 'RING',
+            name: 'Diagnostic Orrery 2 A Ring',
+            ring_type: 'icy',
+            reserve_type: null,
+            inner_radius_km: 90_000,
+            outer_radius_km: 130_000,
+            mass_mt: null,
+            signals_complete: null,
+            source_updated_at: null,
+            lifecycle_state: 'ACTIVE',
+            signals: [],
+          },
+        ],
+      });
+      cy.intercept('GET', '/api/v1/systems/42/stations', {
+        statusCode: 200,
+        body: [],
       });
       cy.visit('/inspect?system=42', {
         onBeforeLoad(window) {

@@ -88,7 +88,13 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     assert "listIdentitiesApiV1AuthIdentitiesGet(" in source
     assert "frontierLinkApiV1AuthFrontierLinkPost(" in source
     assert "unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete(" in source
-    assert "getSystemApiSystemId64Get(" in source
+    # Inspect reads the generation-pinned V3 canonical routes; the V2-backed
+    # /api/system/{id64} (absent tables in V3 production) is not a facade lane.
+    for v3_operation in ("getV3System(", "listV3SystemBodies(", "listV3SystemRings(",
+                         "listV3SystemStations(", "getV3JournalTravelHeatmap("):
+        assert v3_operation in source
+    assert "getSystemApiSystemId64Get" not in source
+    assert "getExplorationViewportVisitsApiExplorationViewportVisitsGet" not in source
     assert "autocompleteApiLocalAutocompleteGet(" in source
     assert "localSearchEndpointApiLocalSearchPost(" in source
 
@@ -111,7 +117,8 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
         "AutocompleteHit",
         "LocalSearchRequest",
         "SearchResponse",
-        "SystemDetailRow",
+        "SystemV1",
+        "BodyV1",
     ):
         assert generated_type in source
 

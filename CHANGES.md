@@ -11,6 +11,84 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Inspect, share preview and travel heatmap read V3 data
+
+Inspect (`/inspect?system=<id64>` and the Explore system pop-up), the share
+link preview (`/s/{id64}`, `/api/share/og/{id64}`) and the map's "Show my
+travel heatmap" read V2 relations (`systems`, `ratings`,
+`mv_archetype_rankings`, `exploration_visits`) that do not exist in V3
+production, so on the live site they very probably failed. A new PG18 test
+reproduces it: against the V3 production database shape, the legacy
+`GET /api/system/{id64}` raises `UndefinedTableError`. This is a visual
+change: Inspect needs visual validation before promotion.
+
+- **Inspect** (`apps/web`): `getSystem` in the API facade now reads the
+  generation-pinned V3 canonical routes `/api/v1/systems/{id}`, `/bodies`,
+  `/rings` and `/stations` in parallel and maps them to a new V3-shaped
+  `SystemDetail` (`systemDetailFromV3`). The four reads are fenced by the
+  published generation identity (`/api/v1/generation`) read before and after
+  them, so a read that straddles a publication (a 404 included) is retried
+  once and then fails closed with a retryable 503 instead of mixing
+  generations. Only ACTIVE bodies, rings and stations are shown; a system that
+  is MISSING_CANDIDATE or RETIRED gets an explicit "Catalogue status" row. The page shows coordinates, the main
+  star's catalogued class, body/station counts and the catalogue date, and
+  states plainly that population, economy, security, allegiance, government
+  and development fit are **not available yet** rather than leaving them
+  blank. Body selection uses the unique Frontier BodyID (a body without one is
+  counted but not selectable); the body card shows class, arrival distance,
+  radius (km), rings, belts, landability and body signals. 404, and 422 for an
+  id64 beyond the catalogue's signed 64-bit key, show "System not found". The
+  3D system map takes V3 classes; star colouring uses a presentation phrase
+  derived from the catalogued spectral class (marked `DERIVED`). The canonical
+  URL and heading-focus behaviour are unchanged.
+- **V3 body route** (`routers/v3.py`): `BodyV1` gains `is_main_star`,
+  `spectral_class`, `luminosity_class`, `is_landable`, `lifecycle_state` and
+  `signals` (from the generation's `body_signal_current`); `StationV1` gains
+  `lifecycle_state`; every canonical read in the router is bounded at 5 s as a
+  whole (connection acquisition included), so a saturated pool is a 503; the generation resolver is public as
+  `current_canonical_generation`. Both TS clients regenerated.
+- **Share preview** (`share_router.py`): the bot page and the PNG card read the
+  published canonical generation through the same resolver (readonly pool;
+  the generation resolution and the system read, connection acquisition
+  included, are each bounded at 5 s). Unknown system → 404 (the bot page drops `og:image`);
+  nothing published or a failed read → 503. The card shows only canonical
+  facts (name, coordinates, catalogued body count): there is no V3 single
+  score/rationale. The bot page pins its `og:image` to the generation it
+  described (`?generation=<id>`, an immutable 7-day card; an unknown or purged
+  generation is a 404); an unpinned card follows the current publication and
+  is publicly cached for one hour. The Redis key is now `og:v3:{generation_id}:{id64}` through
+  the same bounded `deps` helpers. Humans get a relative redirect to
+  `/inspect?system=<id64>` (previously an absolute `/#system/<id64>` built
+  from `X-Forwarded-Host`, which landed on the home page) with no database
+  read. The OG absolute origin accepts only a plain `X-Forwarded-Host`
+  hostname[:port] and an `http`/`https` proto (else `https://ed-finder.app`),
+  and page text is escaped with `html.escape`.
+- **Travel heatmap**: new `GET /api/v1/journal/travel-heatmap`
+  (`getV3JournalTravelHeatmap`) in the V3 journal router — sign-in required
+  (401), owner-scoped by the session account like the other journal routes,
+  `Cache-Control: private, no-store`, 60/minute. It aggregates the account's
+  `FSDJump`/`CarrierJump`/`Location` `StarPos` from
+  `v3_private.journal_event` server-side (per system up close, per cubic cell
+  further out, same thresholds as the V2 contract). Visits are jump arrivals;
+  `Location` (deduplicated by position, not time) only proves presence, so a
+  Location-only system counts as at least one visit. The route validates
+  every coordinate and identity in SQL, and is bounded (1,000,000 travel
+  events → explicit 503, 5 s timeout over connection acquisition and query,
+  ≤ 20,000 points with `truncated`). No migration. The map's
+  toggle uses it (query keyed by account; the private layer is hidden as soon
+  as the query errors, e.g. an expired session) and shows honest states: sign-in
+  prompt, account-check retry (a failed session check is not "signed out"),
+  zoom hint, empty view, retryable error. The V2 `completion_state`
+  is gone from the commander-history layer (V3 does not compute it).
+- Tests: `tests/test_v3_inspect_share_travel_postgres.py` (fresh PG18 V3
+  database, runs in the `finder-derived-data` lane); share unit tests and the
+  V2-lane integration tests updated; Vitest and the map-review-lab Cypress
+  mocks use V3 shapes; Product E2E adds a direct Inspect visit against the
+  seeded V3 fixture that fails if `/api/system/*` is called.
+- Follow-up (not in this change): the production release smoke checks still
+  open only `/`, `/api/health`, `/api/v1/auth/session` and `/openapi.json`;
+  one real `/inspect?system=…` page should be added there.
+
 ## 2026-10-21 — Mega Guide v2.3.0 reference text, mechanics and CRE/CPE audits, owner decision
 
 Docs only; no `apps/`, workflow, script, operator, deploy or frozen-ruleset

@@ -653,6 +653,20 @@ export type BodyRingModel = {
 };
 
 /**
+ * BodySignalV1
+ */
+export type BodySignalV1 = {
+    /**
+     * Signal Type
+     */
+    signal_type: string;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
  * BodySlotPrediction
  *
  * One body row returned by GET /api/systems/{id64}/slot-predictions.
@@ -774,6 +788,22 @@ export type BodyV1 = {
      */
     body_type: string | null;
     /**
+     * Is Main Star
+     */
+    is_main_star: boolean | null;
+    /**
+     * Spectral Class
+     */
+    spectral_class: string | null;
+    /**
+     * Luminosity Class
+     */
+    luminosity_class: string | null;
+    /**
+     * Is Landable
+     */
+    is_landable: boolean | null;
+    /**
      * Radius Km
      */
     radius_km: number | null;
@@ -797,6 +827,14 @@ export type BodyV1 = {
      * Distance From Arrival Ls
      */
     distance_from_arrival_ls: number | null;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
+    /**
+     * Signals
+     */
+    signals: Array<BodySignalV1>;
 };
 
 /**
@@ -6874,6 +6912,10 @@ export type StationV1 = {
      */
     association_state: string;
     /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
+    /**
      * Economies
      */
     economies: Array<StationEconomyV1>;
@@ -8384,6 +8426,74 @@ export type V3StationObservationsPage = {
 };
 
 /**
+ * V3TravelHeatmapPoint
+ */
+export type V3TravelHeatmapPoint = {
+    /**
+     * Kind
+     */
+    kind: 'marker' | 'density';
+    /**
+     * System Id64
+     */
+    system_id64: string | null;
+    /**
+     * System Name
+     */
+    system_name: string | null;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
+    /**
+     * Z
+     */
+    z: number;
+    /**
+     * Visit Count
+     */
+    visit_count: number;
+    /**
+     * First Visited At
+     */
+    first_visited_at: string;
+    /**
+     * Last Visited At
+     */
+    last_visited_at: string;
+};
+
+/**
+ * V3TravelHeatmapResponse
+ */
+export type V3TravelHeatmapResponse = {
+    /**
+     * Mode
+     */
+    mode: 'markers' | 'density';
+    /**
+     * Cell Size Ly
+     */
+    cell_size_ly: number | null;
+    /**
+     * Points
+     */
+    points: Array<V3TravelHeatmapPoint>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+};
+
+/**
  * V3VerifiedImportReceipt
  */
 export type V3VerifiedImportReceipt = {
@@ -8625,6 +8735,8 @@ export type ShareStopPageSId64GetData = {
     path: {
         /**
          * Id64
+         *
+         * Unsigned decimal system id64
          */
         id64: number;
     };
@@ -8653,10 +8765,17 @@ export type OgImageApiShareOgId64GetData = {
     path: {
         /**
          * Id64
+         *
+         * Unsigned decimal system id64
          */
         id64: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Generation
+         */
+        generation?: string | null;
+    };
     url: '/api/share/og/{id64}';
 };
 
@@ -12407,6 +12526,64 @@ export type GetJournalGalaxyImpactResponses = {
 };
 
 export type GetJournalGalaxyImpactResponse = GetJournalGalaxyImpactResponses[keyof GetJournalGalaxyImpactResponses];
+
+export type GetV3JournalTravelHeatmapData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Min X
+         */
+        min_x: number;
+        /**
+         * Max X
+         */
+        max_x: number;
+        /**
+         * Min Y
+         */
+        min_y: number;
+        /**
+         * Max Y
+         */
+        max_y: number;
+        /**
+         * Min Z
+         */
+        min_z: number;
+        /**
+         * Max Z
+         */
+        max_z: number;
+        /**
+         * Zoom
+         */
+        zoom: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/journal/travel-heatmap';
+};
+
+export type GetV3JournalTravelHeatmapErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetV3JournalTravelHeatmapError = GetV3JournalTravelHeatmapErrors[keyof GetV3JournalTravelHeatmapErrors];
+
+export type GetV3JournalTravelHeatmapResponses = {
+    /**
+     * Successful Response
+     */
+    200: V3TravelHeatmapResponse;
+};
+
+export type GetV3JournalTravelHeatmapResponse = GetV3JournalTravelHeatmapResponses[keyof GetV3JournalTravelHeatmapResponses];
 
 export type GetV3JournalSummaryData = {
     body?: never;

@@ -16,7 +16,8 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, Any
+import math
+from typing import Annotated, Any, Literal
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -191,6 +192,27 @@ class V3SaleRow(V1Model):
     observed_at: str
 
 
+class V3TravelHeatmapPoint(V1Model):
+    kind: Literal["marker", "density"]
+    # Lossless decimal SystemAddress in marker mode; None for density cells.
+    system_id64: str | None
+    system_name: str | None
+    x: float
+    y: float
+    z: float
+    visit_count: int = Field(ge=1)
+    first_visited_at: str
+    last_visited_at: str
+
+
+class V3TravelHeatmapResponse(V1Model):
+    mode: Literal["markers", "density"]
+    cell_size_ly: float | None
+    points: list[V3TravelHeatmapPoint]
+    count: int = Field(ge=0)
+    truncated: bool
+
+
 class V3StationEconomyShare(V1Model):
     # Journal economy token (e.g. ``$economy_Industrial;``) and its share of
     # the station's economy mix (0..1) exactly as the game reported it.
@@ -231,6 +253,7 @@ class V3StationObservationsPage(V1Model):
 
 
 Offset = Annotated[int, Query(ge=0)]
+Coordinate = Annotated[float, Query(ge=-200_000, le=200_000)]
 Limit = Annotated[int, Query(ge=1, le=1_000)]
 StationOffset = Annotated[int, Query(ge=0, le=100_000)]
 StationLimit = Annotated[int, Query(ge=1, le=100)]
@@ -541,6 +564,48 @@ async def get_journal_galaxy_impact(
             headers={'Cache-Control': 'private, no-store'},
         ) from exc
     return GalaxyImpactSummary(**counts)
+
+
+@router.get('/travel-heatmap', response_model=V3TravelHeatmapResponse,
+            operation_id='getV3JournalTravelHeatmap')
+@limiter.limit('60/minute')
+async def get_v3_journal_travel_heatmap(
+    request: Request,
+    response: Response,
+    min_x: Coordinate,
+    max_x: Coordinate,
+    min_y: Coordinate,
+    max_y: Coordinate,
+    min_z: Coordinate,
+    max_z: Coordinate,
+    zoom: Annotated[float, Query(ge=0.001, le=5_000)],
+    limit: Annotated[int, Query(ge=1, le=20_000)] = 5_000,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> V3TravelHeatmapResponse:
+    """The signed-in account's imported travel (FSDJump/CarrierJump/Location
+    star positions) inside one viewport box, aggregated server-side."""
+    from edfinder_api.journal.travel import TravelHeatmapUnavailable, travel_heatmap
+
+    user = await _require_user(request)
+    response.headers['Cache-Control'] = 'private, no-store'
+    if not all(math.isfinite(value) for value in (min_x, max_x, min_y, max_y, min_z, max_z, zoom)):
+        raise HTTPException(422, 'viewport bounds and zoom must be finite')
+    try:
+        data = await travel_heatmap(
+            pool, user.account_id,
+            min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y, min_z=min_z, max_z=max_z,
+            zoom=zoom, limit=limit,
+        )
+    except (TravelHeatmapUnavailable, TimeoutError, asyncpg.QueryCanceledError) as exc:
+        raise HTTPException(
+            503, 'Your travel heatmap is unavailable right now. Please try again.',
+            headers={'Cache-Control': 'private, no-store'},
+        ) from exc
+    points = [V3TravelHeatmapPoint(**point) for point in data['points']]
+    return V3TravelHeatmapResponse(
+        mode=data['mode'], cell_size_ly=data['cell_size_ly'], points=points,
+        count=len(points), truncated=data['truncated'],
+    )
 
 
 @router.get("/summary", response_model=V3JournalSummaryResponse, operation_id="getV3JournalSummary")

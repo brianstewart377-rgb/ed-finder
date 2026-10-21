@@ -27,6 +27,7 @@ import {
   getAuthSession,
   getGalaxyImpact,
   getHealth,
+  getCommanderTravelHeatmap,
   getMapHeatmap,
   getSystem,
   searchExploreSystems,
@@ -105,16 +106,88 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     expect(sessionRequest.credentials).toBe('include');
   });
 
-  it('preserves oversized id64 identifiers losslessly through the application facade', async () => {
-    // 18446744073709551615 (uint64 max) is far beyond Number.MAX_SAFE_INTEGER.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{"system":{"id64":18446744073709551615,"name":"Deep"}}', {
-        headers: { 'content-type': 'application/json' },
+  it('surfaces the V3 system 404 as a structured not-found ApiError', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = new URL((input as Request).url).pathname;
+      return path === '/api/v1/systems/42'
+        ? jsonResponse({ detail: 'V3 system 42 not found' }, { status: 404 })
+        : jsonResponse([]);
+    });
+
+    const failure = await getSystem('42' as never).catch((error) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(404);
+  });
+
+  it('reads the signed-in travel heatmap from the V3 journal route', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        mode: 'density',
+        cell_size_ly: 400,
+        points: [
+          {
+            kind: 'density',
+            system_id64: null,
+            system_name: null,
+            x: 200,
+            y: 200,
+            z: 200,
+            visit_count: 5,
+            first_visited_at: '2026-01-01T01:00:00+00:00',
+            last_visited_at: '2026-01-01T05:00:00+00:00',
+          },
+        ],
+        count: 1,
+        truncated: false,
       }),
     );
 
-    const system = await getSystem('18446744073709551615' as never);
-    expect(system.id64).toBe('18446744073709551615');
+    const result = await getCommanderTravelHeatmap(
+      {
+        minX: -1,
+        maxX: 1,
+        minY: -2,
+        maxY: 2,
+        minZ: -3,
+        maxZ: 3,
+        limit: 50_000,
+      },
+      9_000,
+    );
+
+    expect(result).toEqual({
+      mode: 'density',
+      visits: [
+        {
+          kind: 'density',
+          systemId64: null,
+          systemName: null,
+          x: 200,
+          y: 200,
+          z: 200,
+          visitCount: 5,
+          firstVisitedAt: '2026-01-01T01:00:00+00:00',
+          lastVisitedAt: '2026-01-01T05:00:00+00:00',
+          cellSizeLy: 400,
+        },
+      ],
+      count: 1,
+      truncated: false,
+    });
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    const url = new URL(request.url);
+    expect(url.pathname).toBe('/api/v1/journal/travel-heatmap');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      min_x: '-1',
+      max_x: '1',
+      min_y: '-2',
+      max_y: '2',
+      min_z: '-3',
+      max_z: '3',
+      zoom: '5000',
+      limit: '20000',
+    });
+    expect(request.credentials).toBe('include');
   });
 
   it('uses typed generated Explore operations and normalizes every result id64', async () => {

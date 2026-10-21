@@ -61,12 +61,12 @@ export const queryKeys = {
       'catalogue-stars',
       JSON.stringify(request),
     ] as const,
-  commanderViewport: (syncKey: string, request: CatalogueViewportRequest) =>
+  commanderTravel: (accountId: string, request: CatalogueViewportRequest) =>
     [
       ...queryKeys.all,
       'map',
       'commander-history',
-      syncKey,
+      accountId,
       JSON.stringify(request),
     ] as const,
   compare: (id64s: readonly Id64[]) =>

@@ -7,7 +7,8 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Id64 } from '$lib/domain/id64';
-import { getSystem } from '$lib/api/client';
+import { getSystem, systemDetailFromV3 } from '$lib/api/client';
+import { v3System } from '$lib/api/v3-system-fixtures';
 import { queryClient } from '$lib/api/query';
 import SystemOverlayTestHost from './SystemOverlayTestHost.svelte';
 
@@ -30,10 +31,14 @@ const mockedGetSystem = vi.mocked(getSystem);
 beforeEach(() => {
   vi.clearAllMocks();
   queryClient.clear();
-  mockedGetSystem.mockResolvedValue({
-    id64: '42' as Id64,
-    name: 'Test System',
-  });
+  mockedGetSystem.mockResolvedValue(
+    systemDetailFromV3(
+      v3System({ id64: '42', name: 'Test System' }),
+      [],
+      [],
+      [],
+    ),
+  );
   mockedPage.url = new URL(
     'http://localhost/explore?system=42&view=cards#section',
   );
