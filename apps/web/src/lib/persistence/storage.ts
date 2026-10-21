@@ -509,6 +509,14 @@ export function normaliseSnapshotProvenance(
   };
 }
 
+/** Sol's canonical id64 (`apps/api/src/helpers.py` `SOL_ID64`). */
+export const SNAPSHOT_SOL_ID64: Id64 = parseId64('10477373803');
+
+/**
+ * A `sol` reference is trusted only when it carries Sol's id64; an `anchor`
+ * reference whose id64 is Sol normalizes to `sol`, exactly as the facade
+ * normalizes a Sol anchor, so equal origins always compare equal.
+ */
 export function normaliseSnapshotDistanceReference(
   value: unknown,
 ): SnapshotDistanceReference | null {
@@ -517,7 +525,10 @@ export function normaliseSnapshotDistanceReference(
   const id64 = canonicaliseId(value.id64);
   if (id64 === INVALID_PERSISTED_VALUE || typeof value.name !== 'string')
     return null;
-  return { kind: value.kind, id64, name: value.name };
+  if (id64 === SNAPSHOT_SOL_ID64)
+    return { kind: 'sol', id64, name: value.name };
+  if (value.kind === 'sol') return null;
+  return { kind: 'anchor', id64, name: value.name };
 }
 
 /**

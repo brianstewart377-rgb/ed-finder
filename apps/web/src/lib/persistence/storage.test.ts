@@ -23,6 +23,7 @@ import {
   profileSyncKeyCodec,
   rawStringCodec,
   replaceExpansionPlanSlotSystem,
+  normaliseSnapshotDistanceReference,
   selectedRouteCodec,
   snapshotRankingIdentity,
   syncKeyCodec,
@@ -865,5 +866,36 @@ describe('persistence compatibility', () => {
     const pins = pinnedCodec.decode(legacyPersistenceFixtures.pinnedBareArray);
     expect(pins.ok).toBe(true);
     if (pins.ok) expect(pins.value[0]).not.toHaveProperty('ranking_provenance');
+  });
+
+  it("trusts a sol distance reference only with Sol's id64 and normalizes a Sol anchor", () => {
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'sol',
+        id64: '158872029',
+        name: 'Sol',
+      }),
+    ).toBeNull();
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'sol',
+        id64: 10477373803,
+        name: 'Sol',
+      }),
+    ).toEqual({ kind: 'sol', id64: '10477373803', name: 'Sol' });
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'anchor',
+        id64: '10477373803',
+        name: 'Sol',
+      }),
+    ).toEqual({ kind: 'sol', id64: '10477373803', name: 'Sol' });
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'anchor',
+        id64: '158872029',
+        name: 'HD 38179',
+      }),
+    ).toEqual({ kind: 'anchor', id64: '158872029', name: 'HD 38179' });
   });
 });

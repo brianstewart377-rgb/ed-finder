@@ -383,13 +383,22 @@ export type FinderRequest =
   | Readonly<{ kind: 'any'; request: ExploreSearchRequest }>
   | Readonly<{ kind: 'rankings'; request: ArchetypeRankingsRequest }>;
 
+const finiteCoordinate = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * An anchor contributes reference coordinates only when all three are finite.
+ * `NaN`/`Infinity` (for example from a malformed restored anchor) would
+ * serialize to `null` and fail request validation, so they fall back to the
+ * galaxy-wide request instead.
+ */
 const anchoredCoordinates = (
   anchor: AnchorCoordinates | null | undefined,
 ): { x: number; y: number; z: number } | null =>
   anchor &&
-  typeof anchor.x === 'number' &&
-  typeof anchor.y === 'number' &&
-  typeof anchor.z === 'number'
+  finiteCoordinate(anchor.x) &&
+  finiteCoordinate(anchor.y) &&
+  finiteCoordinate(anchor.z)
     ? { x: anchor.x, y: anchor.y, z: anchor.z }
     : null;
 

@@ -397,4 +397,27 @@ describe('request selection', () => {
     });
     expect(nearCeiling.request).toMatchObject({ size: 25, from: 9_975 });
   });
+
+  it('falls back to the galaxy-wide request for non-finite anchor coordinates', () => {
+    for (const bad of [
+      { x: Number.NaN, y: 2, z: 3 },
+      { x: 1, y: Number.POSITIVE_INFINITY, z: 3 },
+      { x: 1, y: 2, z: Number.NEGATIVE_INFINITY },
+    ]) {
+      expect(legacyExploreRequest(bad)).toEqual({
+        galaxy_wide: true,
+        sort_by: 'development',
+        size: 24,
+        from: 0,
+      });
+      expect(
+        selectFinderRequest(parse('').state, bad, { enabled: true }).request,
+      ).toEqual({
+        galaxy_wide: true,
+        sort_by: 'development',
+        size: 50,
+        from: 0,
+      });
+    }
+  });
 });
