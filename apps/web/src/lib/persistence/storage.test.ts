@@ -23,7 +23,9 @@ import {
   profileSyncKeyCodec,
   rawStringCodec,
   replaceExpansionPlanSlotSystem,
+  normaliseSnapshotDistanceReference,
   selectedRouteCodec,
+  snapshotRankingIdentity,
   syncKeyCodec,
   type ExpansionPlanRecord,
 } from './storage';
@@ -789,5 +791,161 @@ describe('persistence compatibility', () => {
     expect(() => store.hydrate()).not.toThrow();
     expect(get(store)).toEqual({ value: '', hydrated: true, diagnostic: null });
     vi.unstubAllGlobals();
+  });
+
+  it('round-trips the F4a ranking identity on compare snapshots and normalizes invalid fields', () => {
+    const provenance = {
+      ranking_version: 'v3-colony-potential-2',
+      ranking_sha256: 'ranking-sha',
+      derived_generation_id: 'generation-id',
+      publication_sequence: 1,
+      archetype_version: 'v3-archetype-1',
+      archetype_manifest_sha256: 'manifest-sha',
+      archetype_model_sha256: 'model-sha',
+    };
+    const raw = JSON.stringify([
+      {
+        id64: '9007199254740993',
+        name: 'Ranked',
+        ranking_score: 100,
+        ranking_tier: 'S',
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+        distance_reference: { kind: 'sol', id64: 10477373803, name: 'Sol' },
+        ranking_provenance: provenance,
+        overall_development_potential: 100,
+      },
+      {
+        id64: '42',
+        name: 'Tampered',
+        ranking_score: 'high',
+        ranking_tier: 'Z',
+        score_kind: 'guess',
+        distance_reference: { kind: 'elsewhere', id64: '1', name: 'X' },
+        ranking_provenance: { ...provenance, archetype_model_sha256: 7 },
+      },
+    ]);
+    const decoded = compareCodec.decode(raw);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value[0]).toMatchObject({
+      id64: '9007199254740993',
+      ranking_score: 100,
+      ranking_tier: 'S',
+      score_kind: 'selected_fit',
+      selected_archetype: 'flexible',
+      distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+      ranking_provenance: provenance,
+    });
+    expect(decoded.value[1]).toMatchObject({
+      ranking_score: null,
+      ranking_tier: null,
+      score_kind: 'unknown',
+      selected_archetype: null,
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+    expect(compareCodec.decode(compareCodec.encode(decoded.value))).toEqual(
+      decoded,
+    );
+  });
+
+  it('keeps legacy pre-F4 snapshots byte-compatible and reads them as unknown mode', () => {
+    const decoded = compareCodec.decode(legacyPersistenceFixtures.compareV2);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value[0]).not.toHaveProperty('score_kind');
+    expect(snapshotRankingIdentity(decoded.value[0])).toEqual({
+      ranking_score: null,
+      ranking_tier: null,
+      score_kind: 'unknown',
+      selected_archetype: null,
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+    const pins = pinnedCodec.decode(legacyPersistenceFixtures.pinnedBareArray);
+    expect(pins.ok).toBe(true);
+    if (pins.ok) expect(pins.value[0]).not.toHaveProperty('ranking_provenance');
+  });
+
+  it("trusts a sol distance reference only with Sol's id64 and normalizes a Sol anchor", () => {
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'sol',
+        id64: '158872029',
+        name: 'Sol',
+      }),
+    ).toBeNull();
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'sol',
+        id64: 10477373803,
+        name: 'Sol',
+      }),
+    ).toEqual({ kind: 'sol', id64: '10477373803', name: 'Sol' });
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'anchor',
+        id64: '10477373803',
+        name: 'Sol',
+      }),
+    ).toEqual({ kind: 'sol', id64: '10477373803', name: 'Sol' });
+    expect(
+      normaliseSnapshotDistanceReference({
+        kind: 'anchor',
+        id64: '158872029',
+        name: 'HD 38179',
+      }),
+    ).toEqual({ kind: 'anchor', id64: '158872029', name: 'HD 38179' });
+  });
+
+  it('normalizes an unknown persisted selected archetype to null', () => {
+    expect(
+      snapshotRankingIdentity({
+        score_kind: 'selected_fit',
+        selected_archetype: 'agri_hub',
+      }).selected_archetype,
+    ).toBeNull();
+    expect(
+      snapshotRankingIdentity({
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+      }).selected_archetype,
+    ).toBe('flexible');
+  });
+
+  it('recovers a malformed nested distance reference without discarding the collection', () => {
+    const raw = JSON.stringify([
+      {
+        id64: '42',
+        name: 'Corrupt reference',
+        score_kind: 'overall_potential',
+        distance_reference: { kind: 'anchor', id64: 'not-an-id', name: 'X' },
+      },
+      { id64: '43', name: 'Valid neighbour' },
+    ]);
+    for (const codec of [compareCodec]) {
+      const decoded = codec.decode(raw);
+      expect(decoded.ok).toBe(true);
+      if (!decoded.ok) continue;
+      expect(decoded.value).toHaveLength(2);
+      expect(decoded.value[0]).toMatchObject({
+        id64: '42',
+        distance_reference: null,
+      });
+      expect(decoded.value[1]).toMatchObject({ id64: '43' });
+    }
+    const pins = pinnedCodec.decode(
+      JSON.stringify([
+        {
+          id64: '42',
+          name: 'Pinned',
+          pinned_at: '2026-10-21T00:00:00Z',
+          distance_reference: { kind: 'sol', id64: -1, name: 'Sol' },
+        },
+      ]),
+    );
+    expect(pins.ok).toBe(true);
+    if (pins.ok) expect(pins.value[0]?.distance_reference).toBeNull();
   });
 });

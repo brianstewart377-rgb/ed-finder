@@ -2,14 +2,23 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '$lib/api/client';
 import { queryClient } from '$lib/api/query';
+import { FINDER_F4_ENABLED } from '$lib/config';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 
+const { mockedPage, mockedGoto } = vi.hoisted(() => ({
+  mockedPage: { url: new URL('http://localhost/explore') },
+  mockedGoto: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('$app/state', () => ({ page: mockedPage }));
+vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
 vi.mock('$lib/api/client', async (loadOriginal) => {
   const original = await loadOriginal<typeof import('$lib/api/client')>();
   return {
     ...original,
     autocompleteSystems: vi.fn(),
     searchExploreSystems: vi.fn(),
+    getArchetypeRankings: vi.fn(),
     getCatalogueViewportSystems: vi.fn(),
     getCommanderViewportVisits: vi.fn(),
     getMapHeatmap: vi.fn(),
@@ -66,55 +75,73 @@ const pyramidFixture: api.MapHeatmapResponse = {
 
 const legacyFixture: api.MapHeatmapResponse = { source: 'legacy-fallback' };
 
+function stubRuntime(): void {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+    },
+  );
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(360);
+  runtimeAdapter.create.mockImplementation(() => ({
+    getStatus: () => ({ state: 'created' as const }),
+    start: vi.fn(async () => ({
+      state: 'ready' as const,
+      backend: 'WEBGL2' as const,
+    })),
+    dispatch: vi.fn(() => ({ status: 'executed' as const })),
+    subscribe: vi.fn(() => vi.fn()),
+    resize: vi.fn(),
+    dispose: vi.fn(),
+  }));
+}
+
+function mockFacadeDefaults(): void {
+  vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
+  mockedPage.url = new URL('http://localhost/explore');
+  vi.mocked(api.searchExploreSystems).mockResolvedValue({
+    results: [],
+    page: {
+      page_size: 24,
+      count: 0,
+      total: 0,
+      navigable_total: 0,
+      offset: 0,
+      navigation_limit: 10_000,
+      truncation: { source: 'local-search', total_is_capped: false },
+    },
+    ranking: {
+      ranking_version: 'v3-colony-potential-2',
+      ranking_sha256: 'ranking-sha',
+      derived_generation_id: 'generation-id',
+      publication_sequence: 1,
+      archetype_version: 'archetype-version',
+      archetype_manifest_sha256: 'manifest-sha',
+      archetype_model_sha256: 'model-sha',
+    },
+  });
+  vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+    systems: [],
+    truncated: false,
+  });
+  vi.mocked(api.getCommanderViewportVisits).mockResolvedValue({
+    mode: 'markers',
+    visits: [],
+    count: 0,
+    truncated: false,
+  });
+}
+
 describe('ExploreWorkspace density cross-fade wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient.clear();
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe = vi.fn();
-        disconnect = vi.fn();
-        unobserve = vi.fn();
-      },
-    );
-    vi.stubGlobal('matchMedia', () => ({ matches: true }));
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(360);
-    runtimeAdapter.create.mockImplementation(() => ({
-      getStatus: () => ({ state: 'created' as const }),
-      start: vi.fn(async () => ({
-        state: 'ready' as const,
-        backend: 'WEBGL2' as const,
-      })),
-      dispatch: vi.fn(() => ({ status: 'executed' as const })),
-      subscribe: vi.fn(() => vi.fn()),
-      resize: vi.fn(),
-      dispose: vi.fn(),
-    }));
-    vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
-    vi.mocked(api.searchExploreSystems).mockResolvedValue({
-      results: [],
-      ranking: {
-        ranking_version: 'v3-colony-potential-2',
-        ranking_sha256: 'ranking-sha',
-        derived_generation_id: 'generation-id',
-        publication_sequence: 1,
-        archetype_version: 'archetype-version',
-        archetype_manifest_sha256: 'manifest-sha',
-        archetype_model_sha256: 'model-sha',
-      },
-    });
-    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
-      systems: [],
-      truncated: false,
-    });
-    vi.mocked(api.getCommanderViewportVisits).mockResolvedValue({
-      mode: 'markers',
-      visits: [],
-      count: 0,
-      truncated: false,
-    });
+    stubRuntime();
+    mockFacadeDefaults();
   });
 
   afterEach(() => {
@@ -155,5 +182,75 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     await screen.findByText(/exact stars/);
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('ExploreWorkspace Finder F4 gate (default off)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient.clear();
+    stubRuntime();
+    mockFacadeDefaults();
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('is built with the gate off', () => {
+    expect(FINDER_F4_ENABLED).toBe(false);
+  });
+
+  it("replace-strips a hand-authored archetype URL, never calls rankings, issues exactly today's request and renders no ranking UI", async () => {
+    mockedPage.url = new URL(
+      'http://localhost/explore?archetype=flexible&min-tier=A&page_size=1&offset=1&selected=9007199254740993&system=158872029&view=cards#results',
+    );
+
+    render(ExploreWorkspaceTestHost);
+
+    await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
+    await waitFor(() => expect(mockedGoto).toHaveBeenCalledTimes(1));
+
+    // F4 parameters are stripped by replacement; `selected`, `system` and
+    // unrelated parameters (plus the hash) survive in their original order.
+    expect(mockedGoto).toHaveBeenCalledWith(
+      '/explore?selected=9007199254740993&system=158872029&view=cards#results',
+      { replaceState: true, noScroll: true, keepFocus: true },
+    );
+
+    // The rankings facade is unreachable and the local-search body is exactly
+    // today's unanchored request: no tier floor, no codec-driven size/from.
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.searchExploreSystems).mock.calls[0]?.[0]).toEqual({
+      galaxy_wide: true,
+      sort_by: 'development',
+      size: 24,
+      from: 0,
+    });
+    // Unanchored: no distance reference is supplied to the facade.
+    expect(vi.mocked(api.searchExploreSystems).mock.calls[0]?.[2]).toBeNull();
+
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/minimum tier/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Best Colony Potential/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Galaxy-wide .* ranking/),
+    ).not.toBeInTheDocument();
+  });
+
+  it('leaves a URL without F4 parameters alone (no replacement navigation)', async () => {
+    mockedPage.url = new URL(
+      'http://localhost/explore?selected=9007199254740993&view=cards',
+    );
+
+    render(ExploreWorkspaceTestHost);
+
+    await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
+    await screen.findByText(/exact stars/);
+    expect(mockedGoto).not.toHaveBeenCalled();
   });
 });

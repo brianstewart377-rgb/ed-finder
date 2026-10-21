@@ -11,12 +11,28 @@ type SelectionResult = { selected: boolean; error: string | null };
 const saveError =
   'Your shortlist could not be saved in this browser. Check browser storage before leaving this page.';
 
+/**
+ * Snapshot a Finder row for pin/compare. The ranking identity the facade
+ * stamped on the row (score kind, selected archetype, distance reference and
+ * all seven provenance fields) is persisted explicitly so a later comparison
+ * can tell a selected fit from an overall potential and one ranking/model
+ * identity from another. A selected fit never enters generic
+ * `archetype_score`: the facade leaves that field null on ranking rows, so the
+ * legacy fallback below only ever sees the overall potential.
+ */
 export function snapshotFromExplore(system: ExploreSystem): CompareEntry {
   return {
     ...system,
     name: system.name?.trim() || `System ${system.id64}`,
     archetype_score:
       system.archetype_score ?? system.overall_development_potential ?? null,
+    overall_development_potential: system.overall_development_potential ?? null,
+    ranking_score: system.ranking_score ?? null,
+    ranking_tier: system.ranking_tier ?? null,
+    score_kind: system.score_kind ?? 'unknown',
+    selected_archetype: system.selected_archetype ?? null,
+    distance_reference: system.distance_reference ?? null,
+    ranking_provenance: system.ranking_provenance ?? null,
   };
 }
 

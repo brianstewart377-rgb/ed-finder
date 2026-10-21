@@ -110,4 +110,63 @@ describe('Finder shortlist actions', () => {
     ).toMatch(/saved/);
     spy.mockRestore();
   });
+
+  it('persists the ranking identity of a selected fit without putting it in archetype_score', () => {
+    const provenance = {
+      ranking_version: 'v3-colony-potential-2',
+      ranking_sha256: 'ranking-sha',
+      derived_generation_id: 'generation-id',
+      publication_sequence: 1,
+      archetype_version: 'v3-archetype-1',
+      archetype_manifest_sha256: 'manifest-sha',
+      archetype_model_sha256: 'model-sha',
+    };
+    const selected = snapshotFromExplore({
+      ...system,
+      archetype_score: null,
+      overall_development_potential: 100,
+      ranking_score: 75,
+      ranking_tier: 'B',
+      score_kind: 'selected_fit',
+      selected_archetype: 'flexible',
+      distance_reference: {
+        kind: 'sol',
+        id64: parseId64('10477373803'),
+        name: 'Sol',
+      },
+      ranking_provenance: provenance,
+    });
+    expect(selected).toMatchObject({
+      archetype_score: 100,
+      overall_development_potential: 100,
+      ranking_score: 75,
+      ranking_tier: 'B',
+      score_kind: 'selected_fit',
+      selected_archetype: 'flexible',
+      distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+      ranking_provenance: provenance,
+    });
+    expect(toggleComparison(compare, selected).selected).toBe(true);
+    expect(get(compare).value[0]).toMatchObject({
+      score_kind: 'selected_fit',
+      ranking_provenance: provenance,
+    });
+    expect(togglePin(pins, selected).selected).toBe(true);
+    expect(get(pins).value[0]).toMatchObject({
+      ranking_score: 75,
+      ranking_provenance: provenance,
+    });
+  });
+
+  it('records a pre-F4 row without identity as unknown mode with null provenance', () => {
+    expect(snapshotFromExplore(system)).toMatchObject({
+      archetype_score: 81,
+      ranking_score: null,
+      ranking_tier: null,
+      score_kind: 'unknown',
+      selected_archetype: null,
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+  });
 });

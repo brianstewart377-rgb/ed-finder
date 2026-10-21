@@ -30,6 +30,13 @@ import {
 } from '@ed-finder/api-client/core';
 import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
+import {
+  isArchetypeKey,
+  isTier,
+  type ArchetypeKey,
+  type MinimumScore,
+  type Tier,
+} from '$lib/features/explore/archetypes';
 import { client } from './generated/client.gen';
 import {
   addWatchlistApiV2WatchlistSyncKeyId64Post,
@@ -38,6 +45,7 @@ import {
   autocompleteApiLocalAutocompleteGet,
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
+  getArchetypeRankingsApiArchetypesRankingsGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getExplorationViewportVisitsApiExplorationViewportVisitsGet,
   getSystemApiSystemId64Get,
@@ -58,6 +66,8 @@ import {
   unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
 } from './generated/sdk.gen';
 import type {
+  ArchetypeRankingRow,
+  ArchetypeRankingsResponse,
   AuthSessionResponse,
   AutocompleteHit,
   AutocompleteResponse,
@@ -66,6 +76,7 @@ import type {
   LocalSearchRequest,
   ExplorationViewportVisitsResponse,
   MapViewportResponse,
+  RankingIdentity,
   SearchResponse,
   SystemDetailRow,
   SystemRow,
@@ -259,6 +270,56 @@ export type AutocompleteSystem = Readonly<
   > & { id64: Id64 }
 >;
 
+/**
+ * Sol's lossless id64 (`apps/api/src/helpers.py` `SOL_ID64`), mirrored so an
+ * Any search anchored at Sol normalizes to the same `sol` distance reference
+ * the selected-archetype ranking measures from.
+ */
+export const SOL_ID64: Id64 = parseId64('10477373803');
+export const SOL_NAME = 'Sol';
+
+/** The committed anchor's identity, held by the caller alongside the request. */
+export type DistanceAnchor = Readonly<{ id64: Id64; name: string }>;
+
+/** Which origin a row's `distance` was measured from. */
+export type DistanceReference = Readonly<{
+  kind: 'anchor' | 'sol';
+  id64: Id64;
+  name: string;
+}>;
+
+/**
+ * The seven provenance fields copied from a ranked response envelope onto
+ * every normalized row, so a saved snapshot can be compared like with like
+ * (ranking profile and archetype model identities) and the generation that
+ * produced it can be shown.
+ */
+export type RankingProvenance = Readonly<{
+  ranking_version: string;
+  ranking_sha256: string;
+  derived_generation_id: string;
+  publication_sequence: number;
+  archetype_version: string;
+  archetype_manifest_sha256: string;
+  archetype_model_sha256: string;
+}>;
+
+/**
+ * `unknown` is only the decoder's result for a pre-F4 snapshot carrying the
+ * ambiguous generic `archetype_score`; the facade never produces it.
+ */
+export type ScoreKind = 'overall_potential' | 'selected_fit' | 'unknown';
+
+export type RankingIdentityFields = Readonly<{
+  ranking_score: number | null;
+  /** API-owned tier of `ranking_score`; carried with `score_kind`. */
+  ranking_tier: Tier | null;
+  score_kind: ScoreKind;
+  selected_archetype: ArchetypeKey | null;
+  distance_reference: DistanceReference | null;
+  ranking_provenance: RankingProvenance | null;
+}>;
+
 export type ExploreSystem = Readonly<
   Pick<
     SystemRow,
@@ -293,8 +354,59 @@ export type ExploreSystem = Readonly<
     | 'terraformable_count'
     | 'bio_signal_total'
     | 'geo_signal_total'
-  > & { id64: Id64 }
+    | 'confidence'
+    | 'completeness'
+  > & { id64: Id64 } & Partial<RankingIdentityFields>
 >;
+
+/** Exclusive offset ceiling and navigable window applied to every mode. */
+export const FINDER_NAVIGATION_LIMIT = 10_000;
+export const FINDER_PAGE_SIZE_MIN = 1;
+export const FINDER_PAGE_SIZE_MAX = 50;
+export const FINDER_PAGE_SIZE_DEFAULT = 50;
+
+export type FinderPageTruncation =
+  | Readonly<{
+      source: 'local-search';
+      /** Sentinel-backed: true only when a 10,001st matching row existed. */
+      total_is_capped: boolean;
+    }>
+  | Readonly<{
+      source: 'rankings';
+      /** API-owned: a 10,001st qualifying row existed in canonical order. */
+      is_truncated: boolean;
+    }>;
+
+/** One normalized page envelope; navigation copy derives only from this. */
+export type FinderPageEnvelope = Readonly<{
+  page_size: number;
+  count: number;
+  /** Raw response total (never above 10,000 from either route). */
+  total: number;
+  /** `min(total, navigation_limit)`. */
+  navigable_total: number;
+  offset: number;
+  navigation_limit: number;
+  truncation: FinderPageTruncation;
+}>;
+
+export type ArchetypeRankingsRequest = Readonly<{
+  archetype: ArchetypeKey;
+  min_score: MinimumScore;
+  /** Facade page size 1..50, mapped to the endpoint's wire `limit`. */
+  page_size: number;
+  offset: number;
+}>;
+
+export type ArchetypeRankingsPage = Readonly<{
+  archetype: ArchetypeKey;
+  archetype_label: string;
+  results: readonly ExploreSystem[];
+  page: FinderPageEnvelope;
+  ranking: RankingProvenance;
+  source?: string | null;
+  query_ms?: number | null;
+}>;
 
 export type SystemDetail = Readonly<
   Pick<
@@ -339,6 +451,7 @@ export type AutocompleteSystemsResponse = Omit<
 
 export type ExploreSearchResponse = Omit<SearchResponse, 'results'> & {
   readonly results: readonly ExploreSystem[];
+  readonly page: FinderPageEnvelope;
 };
 
 export type ExploreSearchRequest = LocalSearchRequest;
@@ -448,22 +561,328 @@ export async function autocompleteSystems(
   };
 }
 
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const nonNegativeInteger = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= 0;
+
+/**
+ * Copy the seven provenance fields from a response envelope. An envelope that
+ * does not carry all seven yields `null`: a row without provenance is listed
+ * but never enters a score comparison, which is the honest fallback.
+ */
+export function normalizeRankingProvenance(
+  ranking: Partial<RankingIdentity> | null | undefined,
+): RankingProvenance | null {
+  if (!ranking || typeof ranking !== 'object') return null;
+  const {
+    ranking_version,
+    ranking_sha256,
+    derived_generation_id,
+    publication_sequence,
+    archetype_version,
+    archetype_manifest_sha256,
+    archetype_model_sha256,
+  } = ranking;
+  if (
+    typeof ranking_version !== 'string' ||
+    typeof ranking_sha256 !== 'string' ||
+    typeof derived_generation_id !== 'string' ||
+    !nonNegativeInteger(publication_sequence) ||
+    typeof archetype_version !== 'string' ||
+    typeof archetype_manifest_sha256 !== 'string' ||
+    typeof archetype_model_sha256 !== 'string'
+  )
+    return null;
+  return {
+    ranking_version,
+    ranking_sha256,
+    derived_generation_id,
+    publication_sequence,
+    archetype_version,
+    archetype_manifest_sha256,
+    archetype_model_sha256,
+  };
+}
+
+/** An Any search anchored at Sol measures from the same origin as rankings. */
+export function distanceReferenceForAnchor(
+  anchor: DistanceAnchor | null | undefined,
+): DistanceReference | null {
+  if (!anchor) return null;
+  return anchor.id64 === SOL_ID64
+    ? { kind: 'sol', id64: SOL_ID64, name: anchor.name || SOL_NAME }
+    : { kind: 'anchor', id64: anchor.id64, name: anchor.name };
+}
+
+const SOL_REFERENCE: DistanceReference = {
+  kind: 'sol',
+  id64: SOL_ID64,
+  name: SOL_NAME,
+};
+
+function finderPageSize(value: number | undefined, fallback: number): number {
+  return Number.isInteger(value) ? (value as number) : fallback;
+}
+
+function pageEnvelope(
+  pageSize: number,
+  offset: number,
+  count: number,
+  total: number | undefined,
+  truncation: FinderPageTruncation,
+): FinderPageEnvelope {
+  const rawTotal = nonNegativeInteger(total) ? total : count;
+  return {
+    page_size: pageSize,
+    count,
+    total: rawTotal,
+    navigable_total: Math.min(rawTotal, FINDER_NAVIGATION_LIMIT),
+    offset,
+    navigation_limit: FINDER_NAVIGATION_LIMIT,
+    truncation,
+  };
+}
+
+/**
+ * Normalize one `/api/local/search` (Any) row. The overall score is carried as
+ * `ranking_score` with `score_kind: 'overall_potential'`; the distance
+ * reference is the committed anchor's identity (which the wire request does
+ * not carry, so the caller supplies it), and only when a distance was measured.
+ */
+export function normalizeAnySearchRow(
+  system: SystemRow,
+  reference: DistanceReference | null,
+  provenance: RankingProvenance | null,
+): ExploreSystem {
+  const tier = system.archetype_tier;
+  // The Any ranking score is the overall potential only: never fall back to a
+  // semantically different value under `score_kind: 'overall_potential'`.
+  const overall = finiteNumber(system.overall_development_potential)
+    ? system.overall_development_potential
+    : null;
+  // `archetype_tier` is the API's tier of `archetype_score`; it travels with
+  // the overall score only when it was derived from that same value.
+  const tierOfOverall =
+    overall !== null && system.archetype_score === overall && isTier(tier)
+      ? tier
+      : null;
+  return {
+    ...system,
+    id64: losslessId64(system.id64),
+    ranking_score: overall,
+    ranking_tier: tierOfOverall,
+    score_kind: 'overall_potential',
+    selected_archetype: null,
+    distance_reference: finiteNumber(system.distance) ? reference : null,
+    ranking_provenance: provenance,
+  };
+}
+
+/**
+ * The facade/URL page size of an Any request. It is distinct from the wire
+ * `size`, which is clamped to `min(page_size, 10000 - offset)` near the
+ * navigation ceiling: Previous/Next must keep stepping by the facade page
+ * size, exactly as the rankings path does. Without an explicit value (the
+ * live default-off request) the wire size is the page size.
+ */
+function anyFacadePageSize(
+  request: ExploreSearchRequest,
+  pageSize: number | undefined,
+): number {
+  if (pageSize === undefined)
+    return finderPageSize(request.size, FINDER_PAGE_SIZE_DEFAULT);
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < FINDER_PAGE_SIZE_MIN ||
+    pageSize > FINDER_PAGE_SIZE_MAX
+  )
+    throw new RangeError(
+      `page_size must be an integer from ${FINDER_PAGE_SIZE_MIN} to ${FINDER_PAGE_SIZE_MAX}`,
+    );
+  return pageSize;
+}
+
+/**
+ * Normalize an Any (`/api/local/search`) response into the lossless page
+ * envelope. `reference` is the committed anchor's `{ id64, name }` when the
+ * request is anchored (F4 design section 6); pass `null` for galaxy-wide.
+ * `pageSize` is the facade/URL page size when it differs from the clamped
+ * wire `size`.
+ */
+export function normalizeAnySearchResponse(
+  data: SearchResponse,
+  request: ExploreSearchRequest,
+  reference: DistanceAnchor | null = null,
+  pageSize?: number,
+): ExploreSearchResponse {
+  const facadePageSize = anyFacadePageSize(request, pageSize);
+  const provenance = normalizeRankingProvenance(data.ranking);
+  const distanceReference = request.reference_coords
+    ? distanceReferenceForAnchor(reference)
+    : null;
+  const results = data.results.map((system) =>
+    normalizeAnySearchRow(system, distanceReference, provenance),
+  );
+  return {
+    ...data,
+    results,
+    page: pageEnvelope(
+      facadePageSize,
+      finderPageSize(request.from, 0),
+      results.length,
+      data.total,
+      {
+        source: 'local-search',
+        total_is_capped: data.total_is_capped === true,
+      },
+    ),
+  };
+}
+
 export async function searchExploreSystems(
   request: ExploreSearchRequest,
   signal?: AbortSignal,
+  reference: DistanceAnchor | null = null,
+  pageSize?: number,
 ): Promise<ExploreSearchResponse> {
+  // Validate before dispatch so a bad page size never reaches the API.
+  const facadePageSize = anyFacadePageSize(request, pageSize);
   const { data } = await localSearchEndpointApiLocalSearchPost({
     throwOnError: true,
     body: request,
     signal,
   });
+  return normalizeAnySearchResponse(data, request, reference, facadePageSize);
+}
+
+/**
+ * Normalize one `/api/archetypes/rankings` row onto the Explore shape. The
+ * selected fit is carried as `ranking_score`/`ranking_tier` with
+ * `score_kind: 'selected_fit'` and never enters generic `archetype_score`;
+ * `distance` is the endpoint's Sol distance with a `sol` reference.
+ */
+export function normalizeRankingRow(
+  row: ArchetypeRankingRow,
+  archetype: ArchetypeKey,
+  provenance: RankingProvenance | null,
+): ExploreSystem {
+  if (!finiteNumber(row.score) || !isTier(row.tier))
+    throw new TypeError('The archetype ranking row has no valid score/tier');
+  const distance = finiteNumber(row.distance_to_sol)
+    ? row.distance_to_sol
+    : null;
   return {
-    ...data,
-    results: data.results.map((system) => ({
-      ...system,
-      id64: losslessId64(system.id64),
-    })),
+    id64: losslessId64(row.id64),
+    name: row.name,
+    coords: row.coords ?? null,
+    distance,
+    primary_archetype: row.primary_archetype ?? null,
+    secondary_archetype: row.secondary_archetype ?? null,
+    archetype_confidence: row.archetype_confidence ?? null,
+    overall_development_potential: row.overall_development_potential ?? null,
+    buildability_score: row.buildability_score ?? null,
+    purity_score: row.purity_score ?? null,
+    build_complexity: row.build_complexity ?? null,
+    est_total_slots: row.est_total_slots ?? null,
+    tags: row.tags,
+    elw_count: row.elw_count ?? null,
+    landable_count: row.landable_count ?? null,
+    confidence: row.confidence ?? null,
+    completeness: row.completeness ?? null,
+    archetype_score: null,
+    archetype_tier: null,
+    ranking_score: row.score,
+    ranking_tier: row.tier,
+    score_kind: 'selected_fit',
+    selected_archetype: archetype,
+    distance_reference: distance === null ? null : SOL_REFERENCE,
+    ranking_provenance: provenance,
   };
+}
+
+function validateRankingsRequest(request: ArchetypeRankingsRequest): {
+  archetype: ArchetypeKey;
+  limit: number;
+  offset: number;
+} {
+  if (!isArchetypeKey(request.archetype))
+    throw new RangeError(`Unsupported archetype key: ${request.archetype}`);
+  if (
+    !Number.isInteger(request.page_size) ||
+    request.page_size < FINDER_PAGE_SIZE_MIN ||
+    request.page_size > FINDER_PAGE_SIZE_MAX
+  )
+    throw new RangeError(
+      `page_size must be an integer from ${FINDER_PAGE_SIZE_MIN} to ${FINDER_PAGE_SIZE_MAX}`,
+    );
+  if (
+    !nonNegativeInteger(request.offset) ||
+    request.offset >= FINDER_NAVIGATION_LIMIT
+  )
+    throw new RangeError(
+      `offset must be an integer from 0 below ${FINDER_NAVIGATION_LIMIT}`,
+    );
+  return {
+    archetype: request.archetype,
+    // One navigation ceiling for every mode: the wire page never crosses it.
+    limit: Math.min(
+      request.page_size,
+      FINDER_NAVIGATION_LIMIT - request.offset,
+    ),
+    offset: request.offset,
+  };
+}
+
+export function normalizeRankingsResponse(
+  data: ArchetypeRankingsResponse,
+  request: ArchetypeRankingsRequest,
+): ArchetypeRankingsPage {
+  const { archetype, offset } = validateRankingsRequest(request);
+  const provenance = normalizeRankingProvenance(data.ranking);
+  if (!provenance)
+    throw new TypeError(
+      'The archetype ranking response has no ranking identity',
+    );
+  const results = data.results.map((row) =>
+    normalizeRankingRow(row, archetype, provenance),
+  );
+  const total = nonNegativeInteger(data.total) ? data.total : results.length;
+  if (data.is_truncated === true && total === 0)
+    throw new TypeError(
+      'The archetype ranking response is truncated with no qualifying rows',
+    );
+  return {
+    archetype,
+    archetype_label: data.archetype_label,
+    results,
+    page: pageEnvelope(request.page_size, offset, results.length, total, {
+      source: 'rankings',
+      is_truncated: data.is_truncated === true,
+    }),
+    ranking: provenance,
+    source: data.source,
+    query_ms: data.query_ms,
+  };
+}
+
+/**
+ * Selected-archetype ranking (`GET /api/archetypes/rankings`). The facade
+ * exposes `page_size` 1..50 and maps it to the endpoint's wire `limit`; it
+ * accepts no hard filter, so a picked request can never carry one.
+ */
+export async function getArchetypeRankings(
+  request: ArchetypeRankingsRequest,
+  signal?: AbortSignal,
+): Promise<ArchetypeRankingsPage> {
+  const { archetype, limit, offset } = validateRankingsRequest(request);
+  const { data } = await getArchetypeRankingsApiArchetypesRankingsGet({
+    throwOnError: true,
+    query: { archetype, min_score: request.min_score, limit, offset },
+    signal,
+  });
+  return normalizeRankingsResponse(data, request);
 }
 
 export async function getCatalogueViewportSystems(

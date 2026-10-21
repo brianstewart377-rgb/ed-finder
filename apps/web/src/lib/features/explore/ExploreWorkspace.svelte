@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
+  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
+  import { page } from '$app/state';
   import { onMount, tick } from 'svelte';
   import { ArrowRight, LocateFixed, Search, Sparkles } from '@lucide/svelte';
   import {
@@ -11,11 +13,17 @@
     searchExploreSystems,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
+    type DistanceAnchor,
     type ExploreSearchRequest,
     type ExploreSystem,
   } from '$lib/api/client';
   import { queryKeys } from '$lib/api/query';
+  import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
+  import {
+    hasRankingSearchParams,
+    stripRankingSearchParams,
+  } from './ranking-state';
   import { usePersistenceContext } from '$lib/persistence/context';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
@@ -137,11 +145,37 @@
     }
     return { galaxy_wide: true, sort_by: 'development', size: 24, from: 0 };
   });
+  // The committed anchor's identity is a facade normalization input (every
+  // row's distance reference) and therefore part of the query key: two anchors
+  // at one position with different identities never share cached rows.
+  const anchorReference = $derived<DistanceAnchor | null>(
+    anchor ? { id64: anchor.id64, name: anchor.name } : null,
+  );
   const results = createQuery(() => ({
-    queryKey: queryKeys.explore(searchRequest),
-    queryFn: ({ signal }) => searchExploreSystems(searchRequest, signal),
+    queryKey: queryKeys.explore(searchRequest, anchorReference),
+    queryFn: ({ signal }) =>
+      searchExploreSystems(searchRequest, signal, anchorReference),
     retry: 0,
   }));
+
+  // Finder F4 gate (default off). In a disabled build the F4 URL parameters
+  // are never hydrated: they are replace-stripped so a hand-authored archetype
+  // or page URL cannot activate ranking state or the rankings request, while
+  // `selected`, `system` and unrelated parameters are left intact. The
+  // enabled-build hydration/history contract is a later increment (F4b).
+  $effect(() => {
+    if (FINDER_F4_ENABLED) return;
+    const current = page.url;
+    if (!hasRankingSearchParams(current.searchParams)) return;
+    const search = stripRankingSearchParams(current.searchParams).toString();
+    const destination = `${current.pathname}${search ? `?${search}` : ''}${current.hash}`;
+    // eslint-disable-next-line svelte/no-navigation-without-resolve -- current URL is already resolved
+    void goto(destination, {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true,
+    });
+  });
 
   const starViewport = $derived(galaxyStarViewport(streamCamera));
   const viewportRequest = $derived(
