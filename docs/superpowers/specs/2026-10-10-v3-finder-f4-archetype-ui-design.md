@@ -4,6 +4,10 @@
 
 **Status: Design only; not implemented — 2026-10-10 — base `origin/main` `3b6ee91a2e4b076a97a2564cc38310411b534beb`.**
 
+**Status update — 2026-10-21:** PR F4a (typed ranking foundation, section 8) is
+implemented on `main`, behind the default-off `VITE_FINDER_F4_ENABLED` gate;
+F4b–F4e remain unimplemented and every gate below is unchanged.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and

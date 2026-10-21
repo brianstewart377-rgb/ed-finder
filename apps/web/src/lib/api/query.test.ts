@@ -35,3 +35,79 @@ describe('Svelte Query application contract', () => {
     );
   });
 });
+
+describe('Finder ranking query keys', () => {
+  const request = {
+    reference_coords: { x: 1, y: 2, z: 3 },
+    filters: { distance: { min: 0, max: 500 }, economy: 'any' as const },
+    sort_by: 'distance',
+    size: 50,
+    from: 0,
+  };
+
+  it('partitions Any results by the committed anchor identity, not only its coordinates', () => {
+    const first = queryKeys.explore(request, {
+      id64: parseId64('158872029'),
+      name: 'HD 38179',
+    });
+    const renamed = queryKeys.explore(request, {
+      id64: parseId64('158872029'),
+      name: 'HD 38179 (renamed)',
+    });
+    const twin = queryKeys.explore(request, {
+      id64: parseId64('158872030'),
+      name: 'HD 38179',
+    });
+    expect(first).not.toEqual(renamed);
+    expect(first).not.toEqual(twin);
+    expect(first).toEqual(
+      queryKeys.explore(request, {
+        id64: parseId64('158872029'),
+        name: 'HD 38179',
+      }),
+    );
+    expect(queryKeys.explore(request)).toEqual(
+      queryKeys.explore(request, null),
+    );
+    expect(queryKeys.explore(request)).not.toEqual(first);
+  });
+
+  it('keys Any results by page size and offset through the wire request', () => {
+    expect(queryKeys.explore({ ...request, size: 1 })).not.toEqual(
+      queryKeys.explore(request),
+    );
+    expect(queryKeys.explore({ ...request, from: 2 })).not.toEqual(
+      queryKeys.explore(request),
+    );
+  });
+
+  it('keys selected rankings by archetype, floor, facade page size and offset', () => {
+    const base = {
+      archetype: 'flexible' as const,
+      min_score: 60 as const,
+      page_size: 1,
+      offset: 0,
+    };
+    expect(queryKeys.rankings(base)).toEqual([
+      'ed-finder',
+      'explore',
+      'rankings',
+      'flexible',
+      60,
+      1,
+      0,
+    ]);
+    expect(queryKeys.rankings({ ...base, page_size: 50 })).not.toEqual(
+      queryKeys.rankings(base),
+    );
+    expect(queryKeys.rankings({ ...base, min_score: 88 })).not.toEqual(
+      queryKeys.rankings(base),
+    );
+    expect(queryKeys.rankings({ ...base, offset: 1 })).not.toEqual(
+      queryKeys.rankings(base),
+    );
+    expect(queryKeys.rankings({ ...base, archetype: 'paradise' })).not.toEqual(
+      queryKeys.rankings(base),
+    );
+  });
+});

@@ -421,6 +421,144 @@ export type PinnedEntry = JsonRecord & {
 };
 export type CompareEntry = JsonRecord & { id64: Id64; name: string };
 
+/**
+ * Persisted ranking identity of a pin/compare snapshot (Finder F4a, design
+ * section 6). New saves write every field explicitly; a legacy snapshot that
+ * predates F4a carries none of them and reads as `score_kind: 'unknown'` with
+ * `null` provenance and reference, so it is listed with its stored values but
+ * never enters a score or distance comparison.
+ */
+export const SNAPSHOT_SCORE_KINDS = [
+  'overall_potential',
+  'selected_fit',
+  'unknown',
+] as const;
+export type SnapshotScoreKind = (typeof SNAPSHOT_SCORE_KINDS)[number];
+export const SNAPSHOT_TIERS = ['S', 'A', 'B', 'C', 'D'] as const;
+export type SnapshotTier = (typeof SNAPSHOT_TIERS)[number];
+
+export interface SnapshotDistanceReference extends JsonRecord {
+  kind: 'anchor' | 'sol';
+  id64: Id64;
+  name: string;
+}
+
+export interface SnapshotRankingProvenance extends JsonRecord {
+  ranking_version: string;
+  ranking_sha256: string;
+  derived_generation_id: string;
+  publication_sequence: number;
+  archetype_version: string;
+  archetype_manifest_sha256: string;
+  archetype_model_sha256: string;
+}
+
+export interface SnapshotRankingIdentity extends JsonRecord {
+  ranking_score: number | null;
+  ranking_tier: SnapshotTier | null;
+  score_kind: SnapshotScoreKind;
+  selected_archetype: string | null;
+  distance_reference: SnapshotDistanceReference | null;
+  ranking_provenance: SnapshotRankingProvenance | null;
+}
+
+export const RANKING_IDENTITY_FIELDS = [
+  'ranking_score',
+  'ranking_tier',
+  'score_kind',
+  'selected_archetype',
+  'distance_reference',
+  'ranking_provenance',
+] as const;
+
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+export function normaliseSnapshotProvenance(
+  value: unknown,
+): SnapshotRankingProvenance | null {
+  if (!isRecord(value)) return null;
+  const {
+    ranking_version,
+    ranking_sha256,
+    derived_generation_id,
+    publication_sequence,
+    archetype_version,
+    archetype_manifest_sha256,
+    archetype_model_sha256,
+  } = value;
+  if (
+    typeof ranking_version !== 'string' ||
+    typeof ranking_sha256 !== 'string' ||
+    typeof derived_generation_id !== 'string' ||
+    !Number.isInteger(publication_sequence) ||
+    (publication_sequence as number) < 0 ||
+    typeof archetype_version !== 'string' ||
+    typeof archetype_manifest_sha256 !== 'string' ||
+    typeof archetype_model_sha256 !== 'string'
+  )
+    return null;
+  return {
+    ranking_version,
+    ranking_sha256,
+    derived_generation_id,
+    publication_sequence: publication_sequence as number,
+    archetype_version,
+    archetype_manifest_sha256,
+    archetype_model_sha256,
+  };
+}
+
+export function normaliseSnapshotDistanceReference(
+  value: unknown,
+): SnapshotDistanceReference | null {
+  if (!isRecord(value)) return null;
+  if (value.kind !== 'anchor' && value.kind !== 'sol') return null;
+  const id64 = canonicaliseId(value.id64);
+  if (id64 === INVALID_PERSISTED_VALUE || typeof value.name !== 'string')
+    return null;
+  return { kind: value.kind, id64, name: value.name };
+}
+
+/**
+ * Read a snapshot's ranking identity, normalizing a legacy record (no F4
+ * fields) to unknown/null rather than guessing a mode or reference.
+ */
+export function snapshotRankingIdentity(
+  entry: JsonRecord,
+): SnapshotRankingIdentity {
+  const scoreKind = entry.score_kind;
+  const tier = entry.ranking_tier;
+  const archetype = entry.selected_archetype;
+  return {
+    ranking_score: finiteNumber(entry.ranking_score)
+      ? entry.ranking_score
+      : null,
+    ranking_tier: (SNAPSHOT_TIERS as readonly unknown[]).includes(tier)
+      ? (tier as SnapshotTier)
+      : null,
+    score_kind: (SNAPSHOT_SCORE_KINDS as readonly unknown[]).includes(scoreKind)
+      ? (scoreKind as SnapshotScoreKind)
+      : 'unknown',
+    selected_archetype:
+      typeof archetype === 'string' && archetype.length > 0 ? archetype : null,
+    distance_reference: normaliseSnapshotDistanceReference(
+      entry.distance_reference,
+    ),
+    ranking_provenance: normaliseSnapshotProvenance(entry.ranking_provenance),
+  };
+}
+
+/**
+ * Codec step for pins/compare: validate every ranking identity field that is
+ * present (an invalid value is normalized, never trusted) and leave a legacy
+ * record's stored shape otherwise untouched.
+ */
+function normaliseSnapshotRankingFields<T extends JsonRecord>(entry: T): T {
+  if (!RANKING_IDENTITY_FIELDS.some((field) => field in entry)) return entry;
+  return { ...entry, ...snapshotRankingIdentity(entry) };
+}
+
 export const DEFAULT_FC_CONFIG = {
   jump_range_ly: 500,
   cargo_t: 25_000,
@@ -871,21 +1009,23 @@ export function replaceExpansionPlanSlotSystem(
   };
 }
 
-export const pinnedCodec = jsonCodec<PinnedEntry[]>((value) =>
-  entryArray<PinnedEntry>(
-    value,
-    (entry): entry is PinnedEntry =>
-      typeof entry.name === 'string' &&
-      entry.name.trim().length > 0 &&
-      typeof entry.pinned_at === 'string',
-  ),
+export const pinnedCodec = jsonCodec<PinnedEntry[]>(
+  (value) =>
+    entryArray<PinnedEntry>(
+      value,
+      (entry): entry is PinnedEntry =>
+        typeof entry.name === 'string' &&
+        entry.name.trim().length > 0 &&
+        typeof entry.pinned_at === 'string',
+    )?.map(normaliseSnapshotRankingFields) ?? null,
 );
-export const compareCodec = jsonCodec<CompareEntry[]>((value) =>
-  entryArray<CompareEntry>(
-    value,
-    (entry): entry is CompareEntry =>
-      typeof entry.name === 'string' && entry.name.trim().length > 0,
-  ),
+export const compareCodec = jsonCodec<CompareEntry[]>(
+  (value) =>
+    entryArray<CompareEntry>(
+      value,
+      (entry): entry is CompareEntry =>
+        typeof entry.name === 'string' && entry.name.trim().length > 0,
+    )?.map(normaliseSnapshotRankingFields) ?? null,
 );
 export const fcCodec = jsonCodec<FcState>((value) => {
   const normalised = canonicaliseIds(value);

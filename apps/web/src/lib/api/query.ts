@@ -1,6 +1,20 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import type { Id64 } from '$lib/domain/id64';
-import type { CatalogueViewportRequest, ExploreSearchRequest } from './client';
+import type {
+  ArchetypeRankingsRequest,
+  CatalogueViewportRequest,
+  DistanceAnchor,
+  ExploreSearchRequest,
+} from './client';
+
+/**
+ * Stable fingerprint of the committed anchor's identity. Two anchors with the
+ * same coordinates but different identities (a renamed system, or two
+ * catalogue entries at one position) must never share cached normalized rows,
+ * because the facade stamps every row's `distance_reference` from it.
+ */
+const anchorIdentity = (anchor: DistanceAnchor | null | undefined): string =>
+  anchor ? `${anchor.id64}:${anchor.name}` : '';
 
 export const queryKeys = {
   all: ['ed-finder'] as const,
@@ -11,8 +25,29 @@ export const queryKeys = {
   system: (id64: Id64) => [...queryKeys.all, 'system', id64] as const,
   autocomplete: (query: string) =>
     [...queryKeys.all, 'explore', 'autocomplete', query] as const,
-  explore: (request: ExploreSearchRequest) =>
-    [...queryKeys.all, 'explore', 'results', JSON.stringify(request)] as const,
+  /** Any-mode results: the wire request (page size included) + anchor identity. */
+  explore: (
+    request: ExploreSearchRequest,
+    anchor: DistanceAnchor | null = null,
+  ) =>
+    [
+      ...queryKeys.all,
+      'explore',
+      'results',
+      JSON.stringify(request),
+      anchorIdentity(anchor),
+    ] as const,
+  /** Selected-archetype rankings: archetype, floor, facade page size, offset. */
+  rankings: (request: ArchetypeRankingsRequest) =>
+    [
+      ...queryKeys.all,
+      'explore',
+      'rankings',
+      request.archetype,
+      request.min_score,
+      request.page_size,
+      request.offset,
+    ] as const,
   catalogueViewport: (request: CatalogueViewportRequest) =>
     [
       ...queryKeys.all,

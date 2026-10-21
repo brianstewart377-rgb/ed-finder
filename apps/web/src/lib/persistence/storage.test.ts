@@ -24,6 +24,7 @@ import {
   rawStringCodec,
   replaceExpansionPlanSlotSystem,
   selectedRouteCodec,
+  snapshotRankingIdentity,
   syncKeyCodec,
   type ExpansionPlanRecord,
 } from './storage';
@@ -789,5 +790,80 @@ describe('persistence compatibility', () => {
     expect(() => store.hydrate()).not.toThrow();
     expect(get(store)).toEqual({ value: '', hydrated: true, diagnostic: null });
     vi.unstubAllGlobals();
+  });
+
+  it('round-trips the F4a ranking identity on compare snapshots and normalizes invalid fields', () => {
+    const provenance = {
+      ranking_version: 'v3-colony-potential-2',
+      ranking_sha256: 'ranking-sha',
+      derived_generation_id: 'generation-id',
+      publication_sequence: 1,
+      archetype_version: 'v3-archetype-1',
+      archetype_manifest_sha256: 'manifest-sha',
+      archetype_model_sha256: 'model-sha',
+    };
+    const raw = JSON.stringify([
+      {
+        id64: '9007199254740993',
+        name: 'Ranked',
+        ranking_score: 100,
+        ranking_tier: 'S',
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+        distance_reference: { kind: 'sol', id64: 10477373803, name: 'Sol' },
+        ranking_provenance: provenance,
+        overall_development_potential: 100,
+      },
+      {
+        id64: '42',
+        name: 'Tampered',
+        ranking_score: 'high',
+        ranking_tier: 'Z',
+        score_kind: 'guess',
+        distance_reference: { kind: 'elsewhere', id64: '1', name: 'X' },
+        ranking_provenance: { ...provenance, archetype_model_sha256: 7 },
+      },
+    ]);
+    const decoded = compareCodec.decode(raw);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value[0]).toMatchObject({
+      id64: '9007199254740993',
+      ranking_score: 100,
+      ranking_tier: 'S',
+      score_kind: 'selected_fit',
+      selected_archetype: 'flexible',
+      distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+      ranking_provenance: provenance,
+    });
+    expect(decoded.value[1]).toMatchObject({
+      ranking_score: null,
+      ranking_tier: null,
+      score_kind: 'unknown',
+      selected_archetype: null,
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+    expect(compareCodec.decode(compareCodec.encode(decoded.value))).toEqual(
+      decoded,
+    );
+  });
+
+  it('keeps legacy pre-F4 snapshots byte-compatible and reads them as unknown mode', () => {
+    const decoded = compareCodec.decode(legacyPersistenceFixtures.compareV2);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value[0]).not.toHaveProperty('score_kind');
+    expect(snapshotRankingIdentity(decoded.value[0])).toEqual({
+      ranking_score: null,
+      ranking_tier: null,
+      score_kind: 'unknown',
+      selected_archetype: null,
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+    const pins = pinnedCodec.decode(legacyPersistenceFixtures.pinnedBareArray);
+    expect(pins.ok).toBe(true);
+    if (pins.ok) expect(pins.value[0]).not.toHaveProperty('ranking_provenance');
   });
 });

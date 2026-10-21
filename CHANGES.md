@@ -11,6 +11,36 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — Finder F4a: typed ranking foundation (default-off, no visible change)
+
+PR F4a of `docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`
+(section 8). Code-only, fixture-validated, `apps/web` only. No rendered
+component, picker, card or Product E2E opt-in is added; the build gate
+`VITE_FINDER_F4_ENABLED` defaults to off everywhere and no build sets it.
+
+- `apps/web/src/lib/config.ts`: central fail-closed feature config;
+  Finder F4 is enabled only by the exact value `'1'`.
+- `apps/web/src/lib/features/explore/archetypes.ts`: canonical eight-key V3
+  archetype metadata, S/A/B minimum-tier → 88/76/60 floors (C/D rejected,
+  B default), tier labels, and mode-specific Evidence/Fit confidence wording.
+- `apps/web/src/lib/features/explore/ranking-state.ts`: pure
+  `FinderRankingState` and URL codec (`archetype`, `min-tier`, `page_size`
+  1–50, `offset`; weights reserved until slice 2), one exclusive 10,000
+  offset ceiling applied from the URL before any request, and request
+  selection whose rankings branch is unreachable while the gate is off.
+- `apps/web/src/lib/api/client.ts`: `getArchetypeRankings` facade over the
+  generated operation (`page_size` → wire `limit`); lossless page envelopes
+  for both routes (`total_is_capped` for Any, API-owned `is_truncated` for
+  selected); every row carries `score_kind`, selected archetype, distance
+  reference, confidence/completeness and all seven `ranking_provenance`
+  fields. A selected fit never enters generic `archetype_score`.
+- `apps/web/src/lib/api/query.ts`: rankings query key; the Any key now also
+  carries the committed anchor's `{ id64, name }`.
+- Pin/compare snapshots persist the ranking identity; legacy snapshots decode
+  unchanged and read as unknown mode with null provenance.
+- Explore, in a default-off build, replace-strips F4 URL parameters
+  (preserving `selected`, `system` and unrelated parameters) and keeps
+  today's exact local-search request.
 ## 2026-10-21 — F3 slice 2b: `/api/search/galaxy` and `/api/search/cluster` on the V3 projections
 
 The last two Finder routes still reading the legacy V2 relations are
