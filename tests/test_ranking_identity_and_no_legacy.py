@@ -1,7 +1,8 @@
 """F2c/F3 Task 5: ranking-identity block, confidence/completeness badge, and
 a precise no-legacy static guard for the repointed V3 Finder endpoints
-(`POST /api/local/search`, `GET /api/archetypes/rankings`, and since F3
-slice 2 the whole `routers/archetypes.py` module).
+(`POST /api/local/search`, `GET /api/archetypes/rankings`, since F3
+slice 2 the whole `routers/archetypes.py` module, and since F3 slice 2b
+the galaxy/cluster paths and the whole `routers/search.py` module).
 
 Mirrors tests/test_local_search_v3.py's and tests/test_archetype_rankings_v3.py's
 fixture/harness pattern: a disposable PG18 database built with
@@ -357,6 +358,7 @@ async def test_all_ranked_envelopes_distinguish_exact_cap_from_sentinel(database
 
 
 _FORBIDDEN_LEGACY_TERMS = (
+    'cluster_summary',
     'mv_archetype_rankings',
     'system_archetype_scores',
     'system_archetype_traits',
@@ -372,17 +374,24 @@ _FORBIDDEN_LEGACY_TERMS = (
 
 def test_no_legacy_relation_scoped_to_v3_ranking_paths():
     """Precise static guard, scoped via `inspect.getsource` to only the exact
-    V3 ranking-identity functions in `local_search`/`search` -- deliberately
-    NOT the whole `local_search` module, which still legitimately contains
-    legacy strings in untouched functions (`local_db_search`,
-    `local_db_galaxy_search`, `local_db_cluster_search`, `local_db_system`).
-    The archetypes router is covered whole by the test below."""
+    V3 functions in `local_search`/`search` -- deliberately NOT the whole
+    `local_search` module, which still legitimately contains legacy strings
+    in the retained, route-unreachable legacy reference (`local_db_search`
+    and its SQL helpers) and in `local_db_system`/`local_db_status`. The
+    archetypes and search routers are covered whole by the tests below."""
     scoped_functions = (
         local_search.local_db_search_v3,
         local_search._current_derived_generation,
         local_search._v3_hard_filters,
         local_search._build_v3_system_record,
+        local_search.prepare_galaxy_search_v3,
+        local_search.local_db_galaxy_search_v3,
+        local_search.prepare_cluster_search_v3,
+        local_search._finder_cluster_runs,
+        local_search.local_db_cluster_search_v3,
         search_router.local_search_endpoint,
+        search_router.galaxy_search,
+        search_router.cluster_search,
         archetypes._archetype_rankings_v3,
         archetypes._build_v3_ranking_row,
         archetypes.get_archetype_rankings,
@@ -430,3 +439,22 @@ def test_archetypes_router_has_no_legacy_relation_in_any_string_literal():
     # The module text itself must not reference the legacy Redis cache keys
     # either -- every slice-2 response is pinned to its own generation snapshot.
     assert 'arch:v' not in source and 'arch:profiles' not in source and 'arch:rerank' not in source
+
+
+def test_search_router_has_no_legacy_relation_in_any_string_literal():
+    """F3 slice 2b retired the last legacy reads behind `routers/search.py`
+    (`/api/search/galaxy`, `/api/search/cluster`). Same whole-module string
+    literal walk as the archetypes guard above."""
+    source = (ROOT / 'apps/api/src/routers/search.py').read_text()
+    tree = ast.parse(source)
+    docstring = ast.get_docstring(tree, clean=False)
+    literals = [
+        node.value.lower()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and node.value != docstring
+    ]
+    assert any('local_db_search_v3' in literal for literal in literals)
+    for literal in literals:
+        for term in _FORBIDDEN_LEGACY_TERMS:
+            assert term not in literal, f'search.py literal contains {term!r}: {literal[:80]!r}'

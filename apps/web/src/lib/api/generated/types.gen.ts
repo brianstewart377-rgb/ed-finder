@@ -2873,6 +2873,10 @@ export type GalaxySearchRequest = {
      * Offset
      */
     offset?: number;
+    /**
+     * Include Colonised
+     */
+    include_colonised?: boolean | null;
 };
 
 /**
@@ -10788,8 +10792,10 @@ export type GalaxySearchApiSearchGalaxyPostResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: SearchResponse;
 };
+
+export type GalaxySearchApiSearchGalaxyPostResponse = GalaxySearchApiSearchGalaxyPostResponses[keyof GalaxySearchApiSearchGalaxyPostResponses];
 
 export type ClusterSearchApiSearchClusterPostData = {
     body: ClusterSearchRequest;

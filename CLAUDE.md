@@ -40,7 +40,12 @@ identity/journal shipped; Finder `system_search` post-`010` build **running** (8
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
 read the V3 projections; **F3 slice 2** repointed `/rerank`, `/system/{id64}`,
 `/simulate` and `/profiles` onto them, so `routers/archetypes.py` references
-no legacy archetype relation. **Capacity decision 2026-10-10 (owner, A + B):**
+no legacy archetype relation, and **F3 slice 2b** repointed
+`/api/search/cluster` and `/api/search/galaxy` too (galaxy = the galaxy-wide
+Any-mode ranked window; cluster fails closed with 503 until a Finder cluster
+run is published in `v3_spatial.cluster_run` **and** a Finder cluster
+read/summary contract is designed and implemented — publication alone is not
+sufficient), so no search route reads a legacy relation. **Capacity decision 2026-10-10 (owner, A + B):**
 the fresh-generation route is superseded — the unapplied migration `011` is being
 rewritten as one wide archetype row per system (F2d design, PR #806), both Finder
 products attach to the already-published `ratings_v4_prod_p4_parallel_v1`

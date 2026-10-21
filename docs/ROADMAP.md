@@ -140,11 +140,20 @@ newer dated source wins).
 - **Finder — next (backend before UI).** **F2c** (published ranking profile + V2
   divergence report), then **F3** (point the Finder search/ranking API at the V3
   projections and retire the legacy relations — slice 1 (#777) repointed
-  `/api/local/search` and `/api/archetypes/rankings`; slice 2 repointed
+  `/api/local/search` and `/api/archetypes/rankings`; slice 2 (#862) repointed
   `/rerank`, `/system/{id64}`, `/simulate` and `/profiles`, so
   `apps/api/src/routers/archetypes.py` reads only `v3_app.system_search` /
   `v3_app.system_archetype` and no longer references `mv_archetype_rankings` /
-  `system_archetype_scores` / `systems`), then the **governed production run** that
+  `system_archetype_scores` / `systems`; slice 2b repointed the last two
+  Finder routes: `/api/search/galaxy` is the galaxy-wide Any-mode window of
+  the ranked search (concrete economy, `min_score > 0` and uncolonised-only
+  answer 422 — no V3 projection), and `/api/search/cluster` reads the
+  Finder-owned `v3_spatial.cluster_run` state behind the same product gate
+  and fails closed with 503 until a Finder cluster builder publishes a run
+  and defines its `cluster.summary` viability contract — a flagged data gap,
+  not backend work F4 waits on; the legacy `cluster_summary` readers are
+  deleted and a static test pins that `routers/search.py` references no
+  legacy relation), then the **governed production run** that
   builds the `system_archetype` product to READY and **publishes the owning
   derived generation** (`v3_meta.publish_derived_generation`; a product's own
   lifecycle is only BUILDING/READY/FAILED — you publish the generation, not the
@@ -620,7 +629,10 @@ newer dated source wins).
   V3 `v3_app.system_search` / `v3_app.system_archetype` projections behind the
   migration `015` product gate (`/profiles` is a static preset list with no
   database access and is not product-gated), and a static test pins that no
-  legacy archetype relation is referenced. The rank-by-archetype API therefore
+  legacy archetype relation is referenced. F3 slice 2b then repointed
+  `/api/search/galaxy` (galaxy-wide Any-mode window) and `/api/search/cluster`
+  (fail-closed on the unbuilt `v3_spatial.cluster_run` Finder product), so no
+  search route reads a legacy relation either. The rank-by-archetype API therefore
   exists, so the **Finder advanced ranking UI (F4) no longer waits on backend
   work**. F4's own gates are unchanged and still apply
   (`docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md`

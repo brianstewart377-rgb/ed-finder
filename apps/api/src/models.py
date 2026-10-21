@@ -605,6 +605,11 @@ class LocalSearchRequest(BaseModel):
 
 
 class GalaxySearchRequest(BaseModel):
+    # extra='forbid' (F3 slice 2b): the V3 galaxy search rejects every legacy
+    # feature it cannot honour, so an undeclared field (e.g. a legacy
+    # `galaxy_region_id`) must be a 422, never silently discarded.
+    model_config = ConfigDict(extra='forbid')
+
     # `EconomyFilter` — Agriculture | Refinery | Industrial | HighTech
     # | Military | Tourism | Extraction | 'any'. Old wire forms are
     # accepted via the model's normalising validator; see SearchFilters.
@@ -612,6 +617,10 @@ class GalaxySearchRequest(BaseModel):
     min_score: int = Field(default=0, ge=0, le=100)
     limit:     int = Field(default=100, le=500)
     offset:    int = Field(default=0, ge=0)
+    # Declared so the legacy uncolonised-only request is explicit: `false`
+    # answers 422 (v3_app.system_search has no population column); `true` or
+    # omitted ranks every system in the published generation.
+    include_colonised: Optional[bool] = None
 
 
 class ClusterRequirement(BaseModel):
@@ -686,9 +695,12 @@ class ClusterSearchRequest(BaseModel):
 class ClusterResult(BaseModel):
     # Result model — extra='allow' per models.py strictness policy (SQL
     # projections legitimately carry enriched fields). Fields typed here drive
-    # the generated api.gen.ts; nullability grounded in sql/001_schema.sql +
-    # sql/003_functions.sql. Response shape matched EXACTLY as returned by
-    # local_search.local_db_cluster_search — do not reshape.
+    # the generated api.gen.ts. The shape is the retained legacy
+    # `cluster_summary` row contract; F3 slice 2b repointed the route onto
+    # the V3 cluster product (`local_search.local_db_cluster_search_v3`),
+    # which fails closed (503) until a Finder cluster run and its summary
+    # contract exist -- the reshape onto V3 fields happens with that
+    # product, not before.
     model_config = ConfigDict(extra='allow')
 
     anchor_id64:       int

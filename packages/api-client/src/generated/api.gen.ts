@@ -4238,6 +4238,8 @@ export interface components {
              * @default 0
              */
             offset: number;
+            /** Include Colonised */
+            include_colonised?: boolean | null;
         };
         /** GenerationResponse */
         GenerationResponse: {
@@ -10157,7 +10159,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
             /** @description Validation Error */

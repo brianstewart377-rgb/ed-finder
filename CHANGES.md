@@ -11,6 +11,75 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — F3 slice 2b: `/api/search/galaxy` and `/api/search/cluster` on the V3 projections
+
+The last two Finder routes still reading the legacy V2 relations are
+repointed, following the slice-1/2 pattern (one REPEATABLE READ snapshot per
+request, `local_search._current_derived_generation` as the generation pin and
+migration-015 product gate — 404 without a PUBLISHED generation, 503 until
+both Finder products are READY and published — request validation before any
+database access, parameterized generation-pinned SQL, no legacy relation).
+
+- **`POST /api/search/galaxy`** → `local_search.local_db_galaxy_search_v3`:
+  on V3 the galaxy search *is* the galaxy-wide Any-mode window of the ranked
+  search (`local_db_search_v3` with `galaxy_wide=true`): same bounded access
+  path (top 10,000 by `weighted_potential`), same ranking profile, same
+  `SearchResponse` envelope with the ranking-identity block and the
+  sentinel-bounded total. Legacy request features with no V3 projection are
+  rejected with 422 before the generation pin rather than silently dropped
+  (slice-1 rule): a concrete `economy` (no per-economy potential projection;
+  `economy="any"` ranks by best colony potential), `min_score > 0` (a hard
+  filter on a galaxy-wide Any request, refused by the F2d bounded-access
+  contract), an explicit `include_colonised=false`, and any undeclared field
+  such as a legacy `galaxy_region_id`. **Flagged shape change:** the legacy
+  route silently forced uncolonised-only results; `v3_app.system_search`
+  carries no population column, so the V3 galaxy search ranks every system in
+  the published generation. `GalaxySearchRequest` now declares the optional
+  `include_colonised` field (forwarded to the validator, so `false` is a 422
+  through the public route rather than silently dropped) and is
+  `extra='forbid'`; both generated TypeScript clients are regenerated (one
+  additive optional field). The route now declares
+  `response_model=SearchResponse` (the envelope it actually returns, as
+  `/api/local/search` does), so FastAPI validates it and the generated clients
+  type the 200 body instead of `unknown`.
+  `GALAXY_CACHE_VERSION` bumped `v4` → `v5`; the key is scoped to the ranking
+  identity and the pinned generation like `/api/local/search`.
+- **`POST /api/search/cluster`** → `local_search.local_db_cluster_search_v3`
+  — **fail-closed, flagged data gap.** The legacy read over the V2
+  `cluster_summary` macro-grid (per-anchor counts of economy-viable systems
+  in a 500 LY bubble) plus `systems`/`ratings` slot detail is deleted. Its V3
+  successor is the independent cluster product of migration 004
+  (`v3_spatial.cluster_run` → `cluster` → `cluster_member`, decision doc §8),
+  but no Finder cluster builder exists, no run has ever been published, and
+  the per-economy viability summary the `ClusterResult` fields need is a
+  builder-defined `cluster.summary` contract that has not been designed. The
+  route validates the request (422 — including a partial `reference_coords`,
+  which is no longer collapsed to "no anchor"), pins the published generation behind the
+  Finder product gate, reads the Finder-owned (`owner_domain='finder'`)
+  `cluster_run` state for that generation and answers 503 naming exactly what
+  is missing (run states, or a published run with no read contract). It never
+  fabricates clusters from a request-time galaxy scan (decision doc §12). The
+  cluster route carries no cache any more. Request/response models unchanged.
+  In production both routes already failed (the V2 relations do not exist in
+  V3 prod); the difference is an intentional, named 503 instead of an
+  `UndefinedTableError`.
+- `apps/api/src/local_search.py`: `local_db_galaxy_search`,
+  `local_db_cluster_search` and `_resolve_slot_matches` deleted; the legacy
+  `local_db_search` and its SQL helpers are retained only as the
+  route-unreachable legacy reference (its record builder serves
+  `local_db_system`; the data-trust/population contract tests pin it). The F3
+  section comment and the module header now describe this state; the "ONE
+  search implementation" rule in `routers/search.py` is restated as per route.
+- Tests: new `tests/test_search_slice2b_v3.py` (pure request-validation
+  tables for both routes; PG18 fixture tests — galaxy ordering/identity/paging
+  equals the local-search galaxy-wide window, 404 without a published
+  generation, 503 until both products are published, cluster 503 naming the
+  missing/unpublished/published-without-contract Finder run; whole-module AST
+  string-literal guard for `routers/search.py`). `test_ranking_identity_and_
+  no_legacy.py` extends its scoped guard to the new functions and routes, adds
+  `cluster_summary` to the forbidden terms and the `routers/search.py` literal
+  walk. Integration tests updated for the new read paths; `tests/test_cluster_
+  region_scope.py` (legacy slot resolver) removed; cache-version pin updated.
 ## 2026-10-21 — API silent-failure follow-ups: status reason codes at the producer, alert rules for the #864 series
 
 Closes the two items PR #864 deferred. No request/response schema changed
