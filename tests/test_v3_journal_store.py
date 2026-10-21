@@ -491,3 +491,49 @@ def test_all_sql_is_parameterized():
 def _asyncio_run(coro):
     import asyncio
     return asyncio.run(coro)
+
+
+def _docked(index: int, timestamp: datetime) -> dict:
+    return {
+        'event_type': 'Docked',
+        'event_timestamp': timestamp,
+        'source_record_hash': hashlib.sha256(f'dock-{index}'.encode()).hexdigest(),
+        'source_file': 'Journal.0.log',
+        'source_offset': index * 100,
+        'payload': {
+            'SystemAddress': '10', 'StarSystem': 'Alpha', 'StationName': 'Port',
+            'MarketID': '3700000001', 'StationEconomies': [
+                {'Name': '$economy_Industrial;', 'Proportion': 0.7},
+            ], 'StationServices': ['dock', 'commodities'],
+        },
+    }
+
+
+def test_verified_docked_identity_keeps_each_docking_as_an_observation():
+    conn = _FakeJournalConn()
+    conn.commander_edge_row = {'commander_id': COMMANDER_ID}
+    _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn), account_id=ACCOUNT_ID, commander_id=COMMANDER_ID,
+        parser_version='p1', files=_files(HASH_A),
+        events=[_docked(0, TS1), _docked(1, TS2)],
+    ))
+    keys = conn.calls_of('event_insert')[0][6]
+    assert keys == [
+        {'SystemAddress': '10', 'StationName': 'Port',
+         'RecordHash': hashlib.sha256(b'dock-0').hexdigest(), 'ObservedAt': TS1.isoformat()},
+        {'SystemAddress': '10', 'StationName': 'Port',
+         'RecordHash': hashlib.sha256(b'dock-1').hexdigest(), 'ObservedAt': TS2.isoformat()},
+    ]
+    # Two dockings at the same station are two distinct identities.
+    assert keys[0] != keys[1]
+
+
+def test_unverified_docked_identity_keeps_the_plain_semantic_key():
+    conn = _FakeJournalConn()
+    _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn), account_id=ACCOUNT_ID, commander_id=None,
+        parser_version='p1', files=_files(HASH_A),
+        events=[_docked(0, TS1), _docked(1, TS2)],
+    ))
+    keys = conn.calls_of('event_insert')[0][6]
+    assert keys == [{'SystemAddress': '10', 'StationName': 'Port'}] * 2

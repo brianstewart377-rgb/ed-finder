@@ -36,7 +36,14 @@ Duplicate filenames and ambiguous offsets are also held.
 
 Verified commander groups commit independently. Account, commander and semantic
 event identity prevent overlapping commander histories from collapsing. Later
-Scan observations have their own UTC observation identity. The legacy endpoint
+Scan observations have their own UTC observation identity. Since 2026-10-21 the
+same verified-import rule covers `Docked`: its key is the V3.0 semantic key
+(`SystemAddress`, `StationName`) plus `RecordHash` (journal line SHA-256) and
+`ObservedAt` (UTC event time), so a second docking at the same station is kept
+as a new station observation (before/after colonisation experiments) while
+replaying the same line stays idempotent. Rows stored earlier under the plain
+key are not rewritten; the station-observations read route de-duplicates the
+legacy copy of a re-imported line by `source_record_hash`. The legacy endpoint
 can still store unassigned personal data; it no longer guesses a default owner.
 Old unassigned files require ownership review, with no inferred backfill.
 

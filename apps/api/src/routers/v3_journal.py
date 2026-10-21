@@ -191,8 +191,51 @@ class V3SaleRow(V1Model):
     observed_at: str
 
 
+class V3StationEconomyShare(V1Model):
+    # Journal economy token (e.g. ``$economy_Industrial;``) and its share of
+    # the station's economy mix (0..1) exactly as the game reported it.
+    name: str
+    name_localised: str | None
+    proportion: float | None
+
+
+class V3DockedObservation(V1Model):
+    observed_at: str
+    system_id64: str | None
+    system_name: str | None
+    station_name: str | None
+    station_type: str | None
+    station_government: str | None
+    station_allegiance: str | None
+    dist_from_star_ls: float | None
+    economies: list[V3StationEconomyShare]
+    services: list[str]
+
+
+class V3StationHistory(V1Model):
+    market_id: str
+    observation_count: int = Field(ge=1)
+    first_docked_at: str
+    last_docked_at: str
+    # True when observation_count exceeds the observations returned; the
+    # most recent ``max_observations`` are kept, listed oldest first.
+    observations_truncated: bool
+    observations: list[V3DockedObservation]
+
+
+class V3StationObservationsPage(V1Model):
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    has_more: bool
+    stations: list[V3StationHistory]
+
+
 Offset = Annotated[int, Query(ge=0)]
 Limit = Annotated[int, Query(ge=1, le=1_000)]
+StationOffset = Annotated[int, Query(ge=0, le=100_000)]
+StationLimit = Annotated[int, Query(ge=1, le=100)]
+StationObservationLimit = Annotated[int, Query(ge=1, le=200)]
+MarketIdFilter = Annotated[str | None, Query(pattern=r"^[0-9]{1,20}$")]
 
 
 def _iso(value: object) -> str | None:
@@ -627,3 +670,66 @@ async def list_v3_journal_sales(
         )
         for row in rows
     ]
+
+
+@router.get(
+    "/station-observations",
+    response_model=V3StationObservationsPage,
+    operation_id="listV3JournalStationObservations",
+)
+@limiter.limit("60/minute")
+async def list_v3_journal_station_observations(
+    request: Request,
+    response: Response,
+    offset: StationOffset = 0,
+    limit: StationLimit = 25,
+    max_observations: StationObservationLimit = 50,
+    market_id: MarketIdFilter = None,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> V3StationObservationsPage:
+    """Your own Docked history per station (MarketID), newest station first.
+
+    Built only from journals you imported. Each observation is one docking
+    with the station's economy mix and services at that moment, listed
+    oldest first, so a before/after experiment reads top-down.
+    """
+    user = await _require_user(request)
+    response.headers["Cache-Control"] = "private, no-store"
+    stations, has_more = await _projections().station_observations(
+        pool,
+        user.account_id,
+        offset=offset,
+        limit=limit,
+        max_observations=max_observations,
+        market_id=market_id,
+    )
+    return V3StationObservationsPage(
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+        stations=[
+            V3StationHistory(
+                market_id=str(station["market_id"]),
+                observation_count=int(station["observation_count"]),
+                first_docked_at=_iso(station["first_docked_at"]) or "",
+                last_docked_at=_iso(station["last_docked_at"]) or "",
+                observations_truncated=int(station["observation_count"]) > len(station["observations"]),
+                observations=[
+                    V3DockedObservation(
+                        observed_at=_iso(item["observed_at"]) or "",
+                        system_id64=item["system_id64"],
+                        system_name=item["system_name"],
+                        station_name=item["station_name"],
+                        station_type=item["station_type"],
+                        station_government=item["station_government"],
+                        station_allegiance=item["station_allegiance"],
+                        dist_from_star_ls=item["dist_from_star_ls"],
+                        economies=[V3StationEconomyShare(**economy) for economy in item["economies"]],
+                        services=list(item["services"]),
+                    )
+                    for item in station["observations"]
+                ],
+            )
+            for station in stations
+        ],
+    )

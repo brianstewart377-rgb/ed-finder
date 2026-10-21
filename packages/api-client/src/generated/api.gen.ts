@@ -2354,6 +2354,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/journal/station-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List V3 Journal Station Observations
+         * @description Your own Docked history per station (MarketID), newest station first.
+         *
+         *     Built only from journals you imported. Each observation is one docking
+         *     with the station's economy mix and services at that moment, listed
+         *     oldest first, so a before/after experiment reads top-down.
+         */
+        get: operations["listV3JournalStationObservations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/research-consent": {
         parameters: {
             query?: never;
@@ -7341,6 +7365,29 @@ export interface components {
             /** Last Observed At */
             last_observed_at: string | null;
         };
+        /** V3DockedObservation */
+        V3DockedObservation: {
+            /** Observed At */
+            observed_at: string;
+            /** System Id64 */
+            system_id64: string | null;
+            /** System Name */
+            system_name: string | null;
+            /** Station Name */
+            station_name: string | null;
+            /** Station Type */
+            station_type: string | null;
+            /** Station Government */
+            station_government: string | null;
+            /** Station Allegiance */
+            station_allegiance: string | null;
+            /** Dist From Star Ls */
+            dist_from_star_ls: number | null;
+            /** Economies */
+            economies: components["schemas"]["V3StationEconomyShare"][];
+            /** Services */
+            services: string[];
+        };
         /** V3HeldJournalFile */
         V3HeldJournalFile: {
             /** Name */
@@ -7558,6 +7605,41 @@ export interface components {
             market_id: string | null;
             /** Observed At */
             observed_at: string;
+        };
+        /** V3StationEconomyShare */
+        V3StationEconomyShare: {
+            /** Name */
+            name: string;
+            /** Name Localised */
+            name_localised: string | null;
+            /** Proportion */
+            proportion: number | null;
+        };
+        /** V3StationHistory */
+        V3StationHistory: {
+            /** Market Id */
+            market_id: string;
+            /** Observation Count */
+            observation_count: number;
+            /** First Docked At */
+            first_docked_at: string;
+            /** Last Docked At */
+            last_docked_at: string;
+            /** Observations Truncated */
+            observations_truncated: boolean;
+            /** Observations */
+            observations: components["schemas"]["V3DockedObservation"][];
+        };
+        /** V3StationObservationsPage */
+        V3StationObservationsPage: {
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Has More */
+            has_more: boolean;
+            /** Stations */
+            stations: components["schemas"]["V3StationHistory"][];
         };
         /** V3VerifiedImportReceipt */
         V3VerifiedImportReceipt: {
@@ -11824,6 +11906,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["V3SaleRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listV3JournalStationObservations: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+                max_observations?: number;
+                market_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3StationObservationsPage"];
                 };
             };
             /** @description Validation Error */

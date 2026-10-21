@@ -6,6 +6,11 @@ decision doc): keys are canonical JSON objects built server-side from the
 event payload, with record timestamps deliberately excluded for stable
 identity classes. Travel-chronology events (FSDJump/CarrierJump) are the
 recorded exception: EventTimestamp is part of the key and required.
+
+Verified commander imports extend the key for ``Scan`` and ``Docked`` with
+the observation itself (``RecordHash`` + ``ObservedAt``); that extension lives
+in ``store.OBSERVATION_HISTORY_EVENTS`` because it depends on verified
+ownership, not on the payload alone.
 """
 
 from __future__ import annotations
