@@ -306,6 +306,56 @@
       ],
       "title": "EDDN Simulation Ingest Flush Freshness",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 37 },
+      "id": 20,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "rate(ed_finder_eddn_simulation_ingest_flush_failures_total{job=\"ed-api\"}[5m]) * 60", "legendFormat": "failed flushes / min", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "ed_finder_eddn_simulation_ingest_consecutive_flush_failures{job=\"ed-api\"}", "legendFormat": "consecutive failures", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures{job=\"ed-api\"}", "legendFormat": "breaker threshold", "range": true, "refId": "C" }
+      ],
+      "title": "EDDN Simulation Ingest Flush Failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 900 }, { "color": "red", "value": 1800 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 45 },
+      "id": 21,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "(time() - ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds{job=\"ed-api\"}) and ed_finder_eddn_simulation_ingest_last_successful_flush_timestamp_seconds{job=\"ed-api\"} > 0", "legendFormat": "seconds since last successful DB flush", "range": true, "refId": "A" }
+      ],
+      "title": "EDDN Simulation Ingest Last Successful Flush Age",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [{ "options": { "0": { "color": "gray", "text": "Not started" }, "1": { "color": "yellow", "text": "Connecting" }, "2": { "color": "green", "text": "Subscribed" }, "3": { "color": "orange", "text": "Retrying" }, "4": { "color": "red", "text": "Stopped" } }, "type": "value" }], "max": 4, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "gray", "value": null }, { "color": "yellow", "value": 1 }, { "color": "green", "value": 2 }, { "color": "orange", "value": 3 }, { "color": "red", "value": 4 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 45 },
+      "id": 22,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "ed_finder_sse_bridge_state{job=\"ed-api\"}", "legendFormat": "bridge state (2 = subscribed)", "range": true, "refId": "A" }
+      ],
+      "title": "SSE Bridge State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 45 },
+      "id": 23,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "rate(ed_finder_sse_bridge_reconnects_total{job=\"ed-api\"}[15m]) * 60", "legendFormat": "reconnect attempts / min", "range": true, "refId": "A" }
+      ],
+      "title": "SSE Bridge Reconnects / min",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

@@ -60,7 +60,9 @@ def test_alert_mirrors_the_existing_eddn_flush_stalled_pattern():
     sim_alert_start = rules.index('- alert: EddnSimulationIngestFlushStalled')
     assert eddn_alert_start < sim_alert_start
 
-    sim_alert_end = rules.index('- alert: HealthchecksReportedDown')
+    # The flush-failure alerts added after PR #864 sit directly below this
+    # one (tests/test_monitoring_flush_failure_alerts.py pins them).
+    sim_alert_end = rules.index('- alert: EddnSimulationIngestFlushFailing')
     sim_alert = rules[sim_alert_start:sim_alert_end]
 
     assert 'expr: ed_finder_eddn_simulation_ingest_seconds_since_flush > 300' in sim_alert

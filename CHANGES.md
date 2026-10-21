@@ -11,6 +11,56 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-21 — API silent-failure follow-ups: status reason codes at the producer, alert rules for the #864 series
+
+Closes the two items PR #864 deferred. No request/response schema changed
+(`app.openapi()` is byte-identical to `main`); nothing under
+`scripts/operator/`, `deploy/`, `.github/` or
+`deploy/v3-production/f2d-operator-code.txt` was touched.
+
+- **Bare Redis calls (item 4 follow-up):** re-verified on current `main` —
+  `apps/api/src/routers/archetypes.py` has had no Redis layer since #862
+  (every response is pinned to the generation resolved inside its own
+  REPEATABLE READ snapshot) and `apps/api/src/local_search.py` never
+  references a Redis client. The only direct client calls left in
+  `apps/api/src/` are the timeout-guarded helpers in `deps.py` themselves.
+  Nothing to route through `cache_get`/`cache_set`; no code change.
+- **`local_db_status()` reason text (item 6 follow-up):** the producer in
+  `apps/api/src/local_search.py` now classifies the swallowed exception **by
+  type** (`helpers.status_failure_reason_code_for_exception`) into the same
+  bounded set `routers/meta.py` introduced in #864 — `db_timeout`
+  (`TimeoutError`, `asyncpg.QueryCanceledError`), `db_schema_missing`
+  (undefined table/column/function/object, invalid schema), `db_unavailable`
+  (`asyncpg.InterfaceError`, connection-class errors, too-many-connections,
+  `ConnectionError`/`OSError`) or `db_error` — and returns only that code; the
+  exception class and raw text go to the server log. The code set now lives in
+  `apps/api/src/helpers.py` and `meta.py` imports it; `meta.status_failure_reason_code`
+  passes a producer code through unchanged and keeps its text heuristics as
+  defence in depth. The failure branch is still never cached.
+- **Alert rules for the #864 series:** `config/prometheus_rules.yml` gains
+  `EddnSimulationIngestFlushFailing` (flush-failure rate > 0 for 10 m, warning),
+  `EddnSimulationIngestFlushBreakerNear` (consecutive failures ≥ threshold − 1,
+  warning), `EddnSimulationIngestNoSuccessfulFlush` (no successful DB flush for
+  30 m while the ingest is enabled and has flushed at least once, critical),
+  `SseBridgeUnhealthy` (bridge state ≠ subscribed for 10 m, warning) and
+  `SseBridgeReconnecting` (reconnect rate > 0 for 15 m, warning), in the file's
+  existing style. To make the threshold and the enabled condition expressible
+  in PromQL, `/api/metrics` exports two config gauges:
+  `ed_finder_eddn_simulation_ingest_enabled` (0/1) and
+  `ed_finder_eddn_simulation_ingest_max_consecutive_flush_failures` (the
+  clamped breaker threshold). `config/grafana/dashboards/ed-finder.json` gains
+  four matching panels (flush failures + consecutive/threshold, last-successful-flush
+  age, bridge state with value mappings, reconnects/min). The rules file was
+  validated with `promtool check rules` and a fire/no-fire `promtool test rules`
+  scenario per alert using promtool 3.13.2 (the pinned Prometheus image version).
+- Tests: `tests/test_local_db_status_reason_codes.py` (type classification,
+  producer payload, log-only raw text, end-to-end route) and
+  `tests/test_monitoring_flush_failure_alerts.py` (each rule's expression /
+  `for` / severity, file order, the fresh-process and disabled guards, the two
+  config gauges, dashboard panels and grid non-overlap, `promtool check rules`
+  when a binary is on PATH); `tests/test_eddn_simulation_ingest_metrics.py`
+  re-anchored to the new rule order.
+
 ## 2026-10-20 — Authority-document staleness sweep (docs only)
 
 No code, test, workflow, script or operator change. Corrects current-authority
