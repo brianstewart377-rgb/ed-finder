@@ -36,6 +36,7 @@ F2d-frozen file change.
   repo-only before go-live, repo-only after go-live and the purge (F2d-frozen
   files) and
   production steps that each need the owner's go.
+  It also records 7 open design gaps from review (G1–G7) to close before acceptance.
 - `docs/development/evidence/2026-10-21-v3-canonical-refresh-study.md` and
   `docs/development/evidence/2026-10-21-eddn-v3-scoping.md`: the two read-only
   studies of 2026-10-21, committed as dated evidence (not execution authority)

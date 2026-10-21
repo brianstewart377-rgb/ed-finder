@@ -27,6 +27,7 @@ read at `main` `c396eb21`.
 8. A **live EDDN listener** is built at the same time. It gives minutes-fresh sightings; Spansh stays the safety net.
 9. A small **station sightings store** keeps station changes over time (Spansh first, then EDDN; no fleet carriers; no uploader IDs).
 10. **Order:** Finder go-live first, then the purge, then this work. Every production step needs your go.
+11. **7 design gaps from review are still open** (section 11a). The design is not accepted until they are closed.
 
 ## 1. Owner decisions (2026-10-21)
 
@@ -872,6 +873,62 @@ recorded and P's completion receipt exists.
 - **D-F.** When to rebuild the map density pyramid on the folded base.
 - **D-G.** Layer storage shape (section 3.5): partitioned layer tables, or an
   alternative found in the tooling review.
+
+## 11a. Open design gaps from review (must be closed before implementation)
+
+These gaps were raised in the Codex review of PR #874 after the review-round
+cap was reached. They are recorded here instead of being redesigned now.
+**This design is not accepted, and no implementation starts, until every gap
+below is closed** by a reviewed amendment to this document.
+
+- **G1. Catch-up sampling can miss stale systems** (review thread
+  4341708352). Section 3.8 filters the catch-up by timestamp and checks only a
+  random sample of unflagged systems. A removal or change that bumps no
+  timestamp and falls outside the sample is never detected, and because that
+  period is older than the retained delta files it can stay stale
+  indefinitely. Missing: a deterministic, deletion-capable comparison of every
+  system for the initial catch-up (for example the complete semantic
+  comparison as the default, not only as a fallback).
+- **G2. Journal-only systems lack the `subType` source input** (thread
+  4341708363). Section 3.9 copies the visible canonical rows of a system that
+  has only a journal contribution, but the ratings bridge re-reads `subType`
+  from the layer's source artifact
+  (`scripts/ratings_v4/canonical_stream.py:168-185`), and the canonical body
+  row does not hold it. Missing: a sealed compact source projection for such
+  copied systems, so their Ratings, Search and Archetype rows can be built.
+- **G3. Journal copy-forward can carry bad-layer data** (thread 4341708376).
+  If a journal-only system is copied while a bad Spansh layer is winning, the
+  new layer is a newer complete copy of the bad values, and switching the bad
+  layer off no longer removes them for that system. Missing: building such
+  copies from an independent source version, or recording the dependency and
+  disabling or rebuilding dependent layers when their source layer is
+  switched off.
+- **G4. Moving active layers across a new full generation** (thread
+  4341708389). Section 3.10 says rule or layout changes use a new full
+  generation, but active layers would still carry rows built under the old
+  scorer/mechanics or the old table layout and would keep winning. Missing: an
+  atomic full-generation cutover that either rebuilds compatible layer rows or
+  takes their newest data into the new generation and clears the old stack.
+- **G5. In-batch ordering for several messages per station** (thread
+  4342595749). Section 5 compares each new station state with the latest
+  stored row inside one statement; rows in the same statement cannot see each
+  other, so a batch holding A→B→A for one station keeps only B and leaves the
+  wrong latest state. Missing: per-station ordering inside a batch (for
+  example comparing with the preceding message via `LAG` or an in-memory state
+  machine, or sequential statements per station).
+- **G6. Content check of the rewritten base before marking layers folded**
+  (thread 4342595758). Section 3.7 step 4 runs only the bounded-plan probe,
+  which checks plan shape and speed, not content. A skipped, duplicated or
+  wrong chunk in step 2 could become canonical. Missing: a fail-closed check
+  immediately before the switch that compares the rewritten base's
+  per-relation inventory and content seals with the winning layer projection.
+- **G7. Journal evidence ownership through publish, switch-off, fold and
+  undo** (thread 4342595766). `v3_source.canonical_evidence_group` can only
+  name a canonical `generation_id` (`001_v3_baseline.sql:712-739`), and this
+  design gives journal evidence applied to a layer no layer ownership and no
+  transfer or history through fold and undo. Missing: layer-scoped evidence,
+  rechecked at publication (withdrawal, ownership) and carried through
+  switch-off, fold and undo.
 
 ## 12. Limits of this design
 
