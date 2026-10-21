@@ -168,10 +168,8 @@ otherwise base).
 - A small **winner index** maps each `id64` that appears in any active layer
   to the newest active layer holding it. It is rewritten for the affected
   `id64`s in the same transaction that activates, disables or folds a layer.
-  Precedence, highest first: the newest active normal layer by source time,
-  then a fold-undo overlay if one exists (section 3.7), then the base. An
-  overlay entry may be a **tombstone** (the system reads as absent); tombstones
-  exist only inside an undo overlay, never in Spansh-built layers.
+  Precedence, highest first: the newest active layer by source time, then
+  the base.
 - **Inspect** looks the system up in the winner index first; if present it
   reads that layer's rows, otherwise the base.
 - **Finder views** (`v3_app.system_search`, `v3_app.system_archetype`, today
@@ -187,7 +185,14 @@ otherwise base).
   `current_derived_generation` and read `system_rating_vector` /
   `body_mechanics` directly — they would return stale scores, or 404 for a
   layer-only system). All of them move onto layer-aware views or a shared
-  resolver, report the stack identity below, and key their caches by it. A
+  resolver, report the stack identity below, and key their caches by it.
+  **One snapshot per response:** each request reads the stack identity and
+  runs all of its data queries inside one `REPEATABLE READ READ ONLY`
+  transaction, so the identity it reports always matches the rows it
+  returns, and a multi-query response never mixes two stacks. Cache writes
+  are keyed by the identity captured inside that snapshot; a cache hit is
+  served only after a cheap check that the current stack revision still
+  equals the cached one. A
   static test fails if any API module reads a `v3_gen_*` schema,
   `current_generation_schema`, `current_derived_generation` or a `v3_derived`
   relation other than through that resolver, so a new reader cannot bypass
@@ -310,7 +315,13 @@ change, at one commit.
      created for this fold;
    - **re-computes and re-seals** every touched or new chunk record and the
      affected generation and product counts, so no record attests to content
-     it no longer holds.
+     it no longer holds;
+   - adds each folded layer's source run(s) to the base generation's
+     canonical input manifest `v3_meta.canonical_generation_input` (the
+     canonical finalizer rejects rows whose source run is absent from it,
+     `001_v3_baseline.sql:1390-1433`, and lineage consumers read it as the
+     complete input set), recording the manifest's pre-fold state in history
+     so an undo restores it.
    The fold receipt lists every re-sealed chunk with its old and new seal.
    If the tooling review finds re-sealing in place unsafe, the alternative is
    to keep folded rows in their own fold-owned chunks that never claim the
@@ -327,40 +338,43 @@ change, at one commit.
    bounded-plan probe on the same connection before commit, and write the
    **fold receipt**: layers folded, systems changed and added, per-relation
    row counts, history rows kept, and a seal of the base before and after.
-5. **Later:** drop the folded layers' partitions (cheap) once the fold has
-   been checked.
+5. **Later:** drop the folded layers' partitions (cheap) once the **next**
+   fold has succeeded; until then they make an undo instant (see below).
 
-**Undo a fold** (folds are undone newest first). The undo changes what
-readers see, so — like the fold — it is validated **before** it becomes
-visible, and the old view stays live until one switch transaction commits:
+**Undo a fold** (folds are undone newest first). A fold is a storage step:
+it changes where the week's content is kept, not what readers see. Undoing it
+therefore returns to the exact pre-fold state — the pre-fold base **with the
+folded layers active again** — and does not by itself change what readers
+see. Throwing away a layer's content is a separate, ordinary operation:
+switching that layer off (section 3.6) after the undo.
 
-1. **Stage an undo overlay (invisible).** Expose the fold's history partition
-   as a special `UNDO` overlay: it holds the pre-fold rows of the systems the
-   fold replaced, plus **tombstone** entries for the systems the fold added
-   (so they read as absent). It is staged `READY`, not visible; `VACUUM
-   (ANALYZE)` runs on it.
-2. **Switch to the overlay (one transaction).** Activate the overlay; it sits
-   **directly above the base and below every normal layer**, so layers
-   published after the fold still win for their systems. Lower the base's
-   source high-water mark back to the pre-fold value. Advance the stack
-   revision and run the bounded-plan probe on the same connection before
-   commit; **if the probe fails, the transaction rolls back and the fold stays
-   in place, visible and unchanged.**
+1. **Make the folded content available as layers again.** If the fold's layer
+   partitions still exist (they are kept until the next fold has succeeded,
+   step 5 above), use them. Otherwise rebuild them from the base: because
+   folds are undone newest first, the base rows for the fold's `id64`s are
+   exactly the folded content, so they are copied into reconstructed layer
+   partitions, re-sealed and checked against the fold receipt's seals before
+   use.
+2. **Switch the layers back on (one transaction).** Mark the folded layers
+   `ACTIVE` again in their original source-time positions, recompute the
+   winner index for their `id64`s, lower the base's source high-water mark to
+   its pre-fold value, advance the stack revision, and run the bounded-plan
+   probe on the same connection before commit; if the probe fails the
+   transaction rolls back and the fold stays in place. Readers see the same
+   content as before, now served from the layers.
 3. **Restore the base underneath (chunked, resumable, invisible).** Delete the
    base rows the fold inserted (this also removes the systems it added),
-   re-insert the history rows, and restore the chunk, generation and product
-   records and seals from history (dropping the chunks the fold appended).
-   Readers keep seeing the overlay, which is the same content. Then `VACUUM
-   (ANALYZE)` the touched base tables.
-4. **Retire the overlay (one transaction).** Deactivate the overlay, advance
-   the stack revision, probe before commit (roll back on failure, leaving the
-   overlay serving the same content), mark the fold `REVERSED`, and write the
-   undo receipt.
+   re-insert the history rows, and restore the chunk, generation, product and
+   canonical-input records and seals from history (dropping the chunks the
+   fold appended). Readers keep seeing the layers, so nothing visible changes.
+   Then `VACUUM (ANALYZE)` the touched base tables.
+4. **Close (one transaction).** Mark the fold `REVERSED`, advance the stack
+   revision, probe before commit, and write the undo receipt.
 
-Folded layers stay `FOLDED` after an undo and are never re-enabled (their
-content is what was undone); wanted content returns through a `RECOVERY`
-layer. Layers published after the fold stay valid, because they hold
-complete records. Only one `UNDO` overlay may exist at a time.
+No tombstones or special overlays are needed, because the layers being
+switched back on already describe the post-fold view exactly. Layers
+published after the fold stay valid, because they hold complete records and
+are newer than the restored high-water mark.
 
 **Write capability.** The base relations refuse writes today (derived triggers
 in `003:196-214`; insert-only products in `006:130-204`; canonical immutability
@@ -503,10 +517,16 @@ nightly Spansh work (owner decision 5):
   appendix key `(source_id, market_id, state_sha256)`, which would drop the
   second A. The worker is the only EDDN consumer and flushes in order; the
   insert compares against the latest row for that station inside the same
-  statement, and a unique key on `(source_id, station_key, observed_at,
-  state_sha256)` keeps exact replays idempotent without discarding two
-  different states reported for the same station in the same second (journal
-  timestamps are second-granularity).
+  statement. Idempotency uses a **message digest**, not the timestamp: a
+  unique key on `(source_id, station_key, message_sha256)`, where
+  `message_sha256` is a SHA-256 over the allowlisted, privacy-safe fields of
+  the source message — for EDDN the `gatewayTimestamp` (sub-second
+  precision), the event timestamp and the normalised station fields; for
+  Spansh the artifact SHA-256 plus the station record's normalised fields. An
+  exact replay of the same message has the same digest and is ignored, while
+  distinct messages — including an A→B→A sequence inside one journal second —
+  have different digests and are all kept. No uploader identity enters the
+  digest. Rows are ordered by `(observed_at, gateway time, insert id)`.
 - **Station key.** Rows are keyed by `station_key`, the canonical adapter's
   deterministic station key: the Market ID when the station has one, otherwise
   the adapter's stable derived key (`apps/importer/src/v3_spansh/adapter.py:671-675`).
@@ -541,7 +561,11 @@ nightly Spansh work (owner decision 5):
   last-seen columns only), and **no direct grants on `v3_source` tables**,
   because a table grant cannot limit a role to "its own" rows. Instead it may
   `EXECUTE` a few narrow `SECURITY DEFINER` functions, created by the
-  migration with a fixed `search_path`, that open, checkpoint and close a
+  migration with a fixed `search_path` and with **`EXECUTE` revoked from
+  `PUBLIC`** before the targeted grant (PostgreSQL grants function execution
+  to `PUBLIC` by default; migration `016` does the same revoke for its
+  executor functions, `016_v3_governed_derived_purge.sql:1099-1130`), that
+  open, checkpoint and close a
   `source_run` **only for the EDDN and Spansh station sources** and refuse any
   other `source_id` or a run that belongs to another source. `edfinder_v3` is
   a superuser, so this is a guardrail against mistakes, not a security
@@ -617,10 +641,11 @@ R1 below measure the real numbers.
 
 **Disk.** Free space is about 120 GB after both Finder builds and about
 500–520 GB after the purge P, if its rewrites return the modelled ≈ 400 GB
-(refresh study 1.1). Steady state for this design (estimate): one week of
-layers (≤ 18 GB) + 4 folds of history (≤ 40 GB) + one fold's reusable dead
+(refresh study 1.1). Steady state for this design (estimate): up to two
+weeks of layers (≤ 36 GB; the folded week's are kept until the next fold
+succeeds) + 4 folds of history (≤ 40 GB) + one fold's reusable dead
 space (≤ 10 GB) + the catch-up's one-off history (≤ 50 GB until it expires)
-+ the station store (< 2 GB): under about 120 GB. This fits after P, not
++ the station store (< 2 GB): under about 140 GB. This fits after P, not
 before it, which is one reason for the ordering. Every job checks free space
 against the 100 GB floor that the purge design keeps for WAL before it writes.
 
@@ -700,10 +725,11 @@ completed purge P.
   registered: layer registry, partitioned layer tables, winner index, union
   view definitions, stack revision and digest, source-time and
   compare-and-swap publication checks, fold ledger, history tables (including
-  chunk, generation and product records), chunk re-sealing, fold capability
+  chunk, generation, product and canonical-input manifest records), chunk
+  re-sealing, fold capability
   and guard triggers; and the `v3_observe` schema with its state-change and
   last-seen tables, its NOLOGIN role, the narrow `SECURITY DEFINER`
-  source-run functions and `v3_source` seed rows. Tested on disposable
+  source-run functions (with `EXECUTE` revoked from `PUBLIC`) and `v3_source` seed rows. Tested on disposable
   PostgreSQL 18, including activate, out-of-order refusal, switch-off, fold
   with a newer unfolded layer overlapping, and undo.
 - **R6 [repo].** Pure normalisers (EDDN envelope → observation rows; Spansh
