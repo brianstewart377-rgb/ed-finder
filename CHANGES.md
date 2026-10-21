@@ -54,14 +54,7 @@ change.
   guide text is registered with its rights chain (CC BY-SA 4.0, Frontier-derived,
   `noncommercial_only`) and SHA-256, so the CI asset-provenance guard fails on
   any drift; the manifest `audit_date` moves to 2026-10-21 for this one entry.
-  the owner's 2026-10-21 decisions on it: D1, the CRE becomes a versioned,
-  machine-readable rulebook that ed-finder reads; D2, the CPE becomes a bounded
-  module inside ed-finder with a boundary test; D3, the first Plan feature is a
-  construction-point budget and port-order calculator, and until then `/plan`
-  says plainly that planning is being rebuilt; D4, the journal research export
-  is paused. No step order or gate changes.
-  mechanics work; the CRE/CPE audit headline and the open owner decisions are
-  noted. No step order or gate changes.
+
 ## 2026-10-21 — Journal: keep repeat dockings and read back station history
 
 Manual journal import only; no migration, no scheduler/automation, no
