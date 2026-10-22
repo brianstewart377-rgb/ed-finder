@@ -27,7 +27,7 @@ read at `main` `c396eb21`.
 8. A **live EDDN listener** is built at the same time. It gives minutes-fresh sightings; Spansh stays the safety net.
 9. A small **station sightings store** keeps station changes over time (Spansh first, then EDDN; no fleet carriers; no uploader IDs).
 10. **Order:** Finder go-live first, then the purge, then this work. Every production step needs your go.
-11. **12 design gaps from review are still open** (section 11a). The design is not accepted until they are closed.
+11. **15 design gaps from review are still open** (section 11a). The design is not accepted until they are closed.
 
 ## 1. Owner decisions (2026-10-21)
 
@@ -968,6 +968,28 @@ below is closed** by a reviewed amendment to this document.
   describes strict hashing. Missing: the admission hash defined to exclude
   those fields (or the owner choosing `strict`), and the layer-size and
   runtime estimates redone on that basis.
+- **G13. Withdrawn journal contributions in layers** (thread 4343432924). A
+  withdrawn contribution no longer matches the eligible-contribution admission
+  query, so its system is not rebuilt and the withdrawn enrichment stays
+  public unless Spansh happens to change that system, contrary to
+  `journal-commander-contributions.md:110-114`. Missing: admitting
+  withdrawal-outbox systems and rebuilding them without the withdrawn
+  evidence, with publication failing closed until that is done.
+- **G14. Station removals in the sightings history** (thread 4343432929). The
+  change-only rule records only stations that are present, so a fixed station
+  that vanishes from a complete `galaxy_1day` system snapshot keeps its last
+  present state forever. Missing: comparing each loaded system's previous
+  station set and writing a removal (tombstone) observation.
+- **G15. Spatial builds pinned to a fold revision** (thread 4343432931). The
+  density pyramid's identity is keyed only to the canonical generation, which
+  a fold does not change, so a pyramid built during a chunked fold can mix
+  base states and a count-only reconciliation can still pass. Missing: the
+  fold/stack revision recorded in the spatial generation, with build and
+  publication fenced against fold changes.
+
+Review findings on PR #874 raised after G15 are recorded as deferrals in that
+pull request's review threads; they must be added to this list before the
+design is accepted.
 
 ## 12. Limits of this design
 
