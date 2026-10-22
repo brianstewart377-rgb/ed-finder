@@ -20,6 +20,7 @@ KNOWN_FIXTURE_BACKED_MODULES = (
     "tests/test_local_search_v3.py",
     "tests/test_ranking_identity_and_no_legacy.py",
     "tests/test_v3_derived_product_publication.py",
+    "tests/test_v3_finder_galaxy_window_plan_pg18.py",
     "tests/test_v3_system_archetype_build.py",
     "tests/test_v3_system_archetype_validate.py",
     "tests/test_v3_watchlist_postgres.py",

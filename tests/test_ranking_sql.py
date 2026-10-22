@@ -86,25 +86,50 @@ def test_no_other_floor_can_produce_sql(floor):
             _picked_page(floor=floor)
 
 
+PIN = (
+    "(SELECT pinned.derived_generation_id "
+    "FROM v3_meta.current_derived_generation pinned WHERE pinned.singleton)"
+)
+
+
 def test_picked_page_has_all_four_bounded_stages_and_three_orders():
     sql, params = _picked_page(limit=50, offset=75)
-    assert sql.count("v3_app.system_archetype") == 2
+    assert sql.count("v3_app.system_archetype") == 1
     assert "FROM v3_app.system_archetype ar" in sql
+    # Both fenced reads name the published generation as an InitPlan constant
+    # so the generation-led indexes supply the window order (2026-10-22).
+    assert f"WHERE ar.derived_generation_id = {PIN}" in sql
+    assert f"WHERE s.derived_generation_id = {PIN}" in sql
     assert "LIMIT 10000" in sql
     assert sql.count("ORDER BY") == 3
     assert "ORDER BY ar.paradise_weighted_e4 DESC" in sql
-    assert sql.count("selected_archetype_weighted_e4 DESC") == 2
+    assert sql.count("selected_archetype_weighted_e4 DESC") == 1
     assert "JOIN v3_app.system_search" in sql
-    assert "JOIN v3_app.system_archetype picked" in sql
+    # The final fetch reads the physical row of the page's own generation
+    # (every page row already passed both fenced views) under the alias the
+    # plan probe requires, and sorts the page rows by the fetched key.
+    assert (
+        "JOIN v3_derived.system_archetype picked\n"
+        "  ON picked.derived_generation_id = page.derived_generation_id\n"
+        " AND picked.system_id64 = page.system_id64" in sql
+    )
+    assert sql.endswith("ORDER BY picked.paradise_weighted_e4 DESC, page.system_id64 ASC")
     assert params == [50, 75]
     _assert_no_legacy(sql)
 
 
-def test_picked_count_has_fixed_sentinel_and_no_order():
+def test_picked_count_has_fixed_sentinel_over_the_ordered_window():
     sql, params = _picked_count(floor=88)
     assert "paradise_score >= 88" in sql
-    assert "LIMIT 10001" in sql
-    assert "ORDER BY" not in sql
+    assert f"WHERE ar.derived_generation_id = {PIN}" in sql
+    assert f"WHERE s.derived_generation_id = {PIN}" in sql
+    window, join = sql.split(") aw", 1)
+    # The sentinel bounds the archetype window in the partial index's own
+    # order before the page's search join, exactly like the page window.
+    assert "ORDER BY ar.paradise_weighted_e4 DESC, ar.system_id64 ASC" in window
+    assert "LIMIT 10001" in window
+    assert "JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64" in join
+    assert "LIMIT" not in join
     assert params == []
 
 
@@ -152,6 +177,9 @@ def test_no_pick_keeps_summary_join_and_canonical_order():
     assert "sum.weighted_potential DESC NULLS LAST" in sql
     assert "s.system_id64 ASC" in sql
     assert "LIMIT 10000" in sql
+    window, outer = sql.split(")\nSELECT", 1)
+    assert f"WHERE sum.derived_generation_id = {PIN}" in window
+    assert f"WHERE s.derived_generation_id = {PIN}" in outer
     assert params == [50, 0]
     _assert_no_legacy(sql)
 
@@ -165,8 +193,30 @@ def test_count_cap_means_cap_plus_one_sentinel():
         reference_coords=None,
         cap=10_000,
     )
-    assert "LIMIT $1" in sql
+    window, outer = sql.split(") sum", 1)
+    # The galaxy count is taken over the galaxy page's ordered window; the
+    # literal bound equals the largest sentinel so the parameter decides.
+    assert f"WHERE sum.derived_generation_id = {PIN}" in window
+    assert "ORDER BY sum.weighted_potential DESC NULLS LAST, sum.system_id64 ASC" in window
+    assert "LIMIT 10001" in window
+    assert f"WHERE s.derived_generation_id = {PIN}" in outer
+    assert "LIMIT $1" in outer
     assert params == [10_001]
+
+
+def test_count_sentinel_cannot_exceed_the_literal_window_bound(monkeypatch):
+    import edfinder_api.ranking.ranking_sql as ranking_sql_module
+
+    monkeypatch.setattr(ranking_sql_module, "RANKING_WINDOW_LIMIT", 10_001)
+    with pytest.raises(ValueError, match="sentinel"):
+        ranking_sql_module.build_count_query(
+            PROFILE_SPEC,
+            picked_archetype=None,
+            picked_economy=None,
+            hard_filters={},
+            reference_coords=None,
+            cap=10_001,
+        )
 
 
 def test_anchored_nearest_first_has_knn_order_inside_limit_radius_outside():
@@ -182,6 +232,8 @@ def test_anchored_nearest_first_has_knn_order_inside_limit_radius_outside():
     )
     inner, outer = sql.split(") nearest", 1)
     assert "s.position_ly <@ cube(" in inner
+    assert f"s.derived_generation_id = {PIN}" in inner
+    assert f"sum.derived_generation_id = {PIN}" in inner
     assert "ORDER BY s.position_ly <->" in inner
     assert "sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC" in inner
     assert "LIMIT $5" in inner
@@ -201,9 +253,58 @@ def test_anchored_nearest_first_count_uses_knn_sentinel_inside_radius():
     )
     inner, outer = sql.split(") nearest", 1)
     assert "ORDER BY s.position_ly <->" in inner
-    assert "LIMIT $5" in inner
+    # Search columns alone order the nearest-first window, so the archetype
+    # probe runs once per admitted row after it; the literal bound equals the
+    # largest sentinel, and the parameterized sentinel decides.
+    assert ", s.system_id64 ASC\n" in inner
+    assert "weighted_potential" not in inner
+    assert "system_archetype_summary" not in inner
+    assert "LIMIT 10001" in inner
+    assert "JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = nearest.system_id64" in outer
+    assert f"sum.derived_generation_id = {PIN}" in outer
     assert "nearest.distance_ly <= $4" in outer
+    assert "LIMIT $5" in outer
     assert params[-1] == 10_001
+
+
+def test_anchored_count_keeps_summary_filters_inside_the_nearest_window():
+    sql, params = build_count_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"max_distance_ly": 500.0, "min_development_score": 60},
+        reference_coords=(1.0, 2.0, 3.0),
+        sort="distance",
+        cap=10_000,
+    )
+    inner, outer = sql.split(") nearest", 1)
+    assert "JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64" in inner
+    assert "sum.best_colony_potential >= $5" in inner
+    assert "system_archetype_summary" not in outer
+    assert params == [1.0, 2.0, 3.0, 500.0, 60, 10_001]
+
+
+def test_anchored_score_page_walks_candidates_in_distance_order_without_truncation():
+    sql, params = build_ranked_query(
+        PROFILE_SPEC,
+        picked_archetype=None,
+        picked_economy=None,
+        hard_filters={"max_distance_ly": 500.0},
+        reference_coords=(1.0, 2.0, 3.0),
+        sort="score",
+        limit=24,
+        offset=48,
+    )
+    inner, outer = sql.split(") candidates", 1)
+    assert "s.position_ly <@ cube(" in inner
+    assert "s.position_ly <-> cube(array[$1::double precision" in inner
+    assert "<= $4" in inner
+    assert "ORDER BY s.position_ly <-> cube(" in inner
+    # NULLIF(x, x) is always NULL (LIMIT ALL): no candidate is dropped.
+    assert "LIMIT NULLIF($5::bigint, $5::bigint)" in inner
+    assert "ORDER BY candidates.weighted_potential DESC NULLS LAST, candidates.system_id64 ASC" in outer
+    assert "LIMIT $5 OFFSET $6" in outer
+    assert params == [1.0, 2.0, 3.0, 500.0, 24, 48]
 
 
 def test_anchored_filters_remain_parameterized():
