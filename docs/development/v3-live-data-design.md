@@ -27,7 +27,7 @@ read at `main` `c396eb21`.
 8. A **live EDDN listener** is built at the same time. It gives minutes-fresh sightings; Spansh stays the safety net.
 9. A small **station sightings store** keeps station changes over time (Spansh first, then EDDN; no fleet carriers; no uploader IDs).
 10. **Order:** Finder go-live first, then the purge, then this work. Every production step needs your go.
-11. **7 design gaps from review are still open** (section 11a). The design is not accepted until they are closed.
+11. **12 design gaps from review are still open** (section 11a). The design is not accepted until they are closed.
 
 ## 1. Owner decisions (2026-10-21)
 
@@ -929,6 +929,45 @@ below is closed** by a reviewed amendment to this document.
   transfer or history through fold and undo. Missing: layer-scoped evidence,
   rechecked at publication (withdrawal, ownership) and carried through
   switch-off, fold and undo.
+- **G8. Gaps between rolling source windows** (thread 4342667065). The
+  publication gate checks only that each nightly artifact is newer than the
+  last; `galaxy_1day` covers only the preceding 24 hours, so after a delayed
+  run or a stale upstream dump the uncovered interval is in no layer and its
+  changes can stay stale. Missing: a continuity check on window coverage that
+  refuses the nightly layer and forces a `galaxy_7days` / `galaxy_1month`
+  recovery layer whenever continuous coverage cannot be proven.
+- **G9. Validation evidence rewritten by a fold** (thread 4342667070). A fold
+  that adds, removes or replaces systems changes generation and product counts
+  and content seals, but `003_ratings_v4_derived.sql:44-66` forbids changing
+  expected counts, seals and validation receipts after publication, and the
+  Ratings, Search and Archetype receipts embed the old values. Missing: an
+  atomic post-fold validation and versioning path for every affected manifest,
+  receipt and audit (a new evidence version, never an in-place edit), and its
+  restoration on undo.
+- **G10. Marketless station identity depends on body state** (thread
+  4342721504). The adapter derives a marketless station's key from `body_pk`
+  (`apps/importer/src/v3_spansh/adapter.py:675-677`), so a Spansh correction of
+  its body association splits one station into two histories. Missing: an
+  identity independent of mutable station state, or a defined reconciliation
+  for these records.
+- **G11. Late EDDN observations, out of event-time order** (thread
+  4342721523). Comparing each observation only with the latest stored row
+  mishandles a message that arrives in a later flush but carries an earlier
+  event time (a late `B@t2` between `A@t1` and `B@t3` is dropped; a late
+  `A@t2` is stored as a redundant adjacent `A`). G5 covers ordering within one
+  batch; this is the cross-flush case. Missing: comparison with the event-time
+  predecessor and successor, or an explicit rule that rejects or segregates
+  observations older than the stored frontier.
+- **G12. Orbital scan-position churn admitting systems** (thread 4342721531).
+  Hashing every normalised canonical row includes `mean_anomaly_deg` and
+  distance-from-arrival values, so a rescan with no material change admits the
+  system; on the committed fixture 6 of 9 changed systems differ only in those
+  fields (`docs/development/spansh-delta-measurement.md:89-102`). The
+  2026-10-21 working choice is the measurement tool's `stable` policy
+  (position-only changes do not admit a system), but this design still
+  describes strict hashing. Missing: the admission hash defined to exclude
+  those fields (or the owner choosing `strict`), and the layer-size and
+  runtime estimates redone on that basis.
 
 ## 12. Limits of this design
 
