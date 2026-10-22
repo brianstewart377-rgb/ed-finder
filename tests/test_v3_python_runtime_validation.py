@@ -201,6 +201,7 @@ def test_no_active_dependency_or_python_source_reintroduces_legacy_driver():
         *ROOT.glob("**/requirements*.txt"),
         *ROOT.glob("**/pyproject.toml"),
         ROOT / "apps" / "api" / "uv.lock",
+        ROOT / "apps" / "eddn_v3" / "uv.lock",
         *WORKFLOWS.glob("*.yml"),
         *ROOT.glob("apps/**/Dockerfile*"),
     ]
@@ -240,6 +241,7 @@ def test_repository_legacy_strings_are_only_historical_or_non_python_data():
 
     assert old_version_hits == {
         "apps/api/uv.lock",  # platform-specific wheel filenames for dependencies
+        "apps/eddn_v3/uv.lock",  # same: the V3 EDDN worker's frozen lock
     }
 
 
