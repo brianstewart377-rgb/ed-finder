@@ -676,6 +676,38 @@ newer dated source wins).
   entry the export route is still mounted and has not been switched off. None
   of these decisions changes the go-live sequence or any gate: steps 8′ → 9′
   and the F4 gates above stand as written.
+- **Owner decisions 2026-10-21: live galaxy data (decided, not implemented).**
+  V3 production receives no new galaxy data today (no EDDN listener, no Spansh
+  refresh); canonical data is the Spansh `galaxy.json` of 2026-08-24, imported
+  2026-08-27 and published 2026-08-28. The owner decided: nightly refresh from
+  Spansh `galaxy_1day.json.gz` (full detail: bodies and stations of every
+  system changed in the last 24 h); the "middle path" — each night's changes
+  published as a small, separately validated changes layer (base ∪ layers,
+  newest wins; a bad night is undone by switching its layer off), and once a
+  week the week's layers folded into the base in one controlled, undoable step
+  with the replaced rows kept in a history table, which relaxes "published data
+  never changes" to "the base changes only through the weekly fold, in one
+  undoable, receipted step" (a full new canonical generation is still used when
+  scoring rules or table layout change); a one-time catch-up from the full
+  `galaxy.json`, filtered to systems updated since 2026-08-24, after the purge;
+  a live EDDN listener built at the same time, with Spansh as the safety net;
+  and a station sightings store (Spansh first, then EDDN; after the purge;
+  fleet carriers excluded; change-only rows kept indefinitely, alert at 1 GB,
+  review at 5 GB; a NOLOGIN role via `SET ROLE`; no uploader IDs ever stored;
+  scheduled Spansh downloads at most daily, off-peak, delta files where
+  offered, without first asking Spansh; journal-upload observations stay in
+  `v3_private`). Whether nightly layers publish automatically is **not
+  decided** (recommendation: manual approval for the first weeks, then
+  automatic). Recorded in the
+  [derived-data decision amendment](development/v3-search-spatial-derived-data-decision.md#amendment-2026-10-21-owner-changes-layers-and-weekly-fold);
+  the end-to-end design is
+  [`development/v3-live-data-design.md`](development/v3-live-data-design.md),
+  and its evidence is the two read-only studies under
+  `docs/development/evidence/2026-10-21-*`. **No implementation starts until
+  the owner accepts that design.** Order: go-live 9′ first (the F2d
+  operator-code files stay frozen until then), then the governed purge P, then
+  this work; every production step needs the owner's explicit go. This entry
+  changes no existing step order or gate.
 
 ## Programme status — 2026-09-19
 
