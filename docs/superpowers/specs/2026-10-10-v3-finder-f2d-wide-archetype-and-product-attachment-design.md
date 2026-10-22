@@ -644,6 +644,21 @@ formatted as an identifier (`apps/api/src/routers/archetypes.py:294-316`).
    summary columns, and **repeat the `ORDER BY`** on the outermost `SELECT`,
    because a join may emit the page in any order.
 
+   *Amendment 2026-10-22 (PR #878, after publication run 39808363037 was
+   refused):* the fetch reads `v3_derived.system_archetype picked`, keyed by
+   the page row's own `(derived_generation_id, system_id64)`. Through
+   `v3_app.system_archetype`, PostgreSQL's EXPLAIN names the scanned table by
+   the view's internal alias (`s`, `s_1`, …), so the frozen plan probe's
+   `picked_fetch_alias_matches_sql` assertion could never pass. Visibility is
+   unchanged: every page row has already been admitted by both fenced views
+   for the current published generation, and the fetch reads exactly that
+   generation's row. Stage 1 and stage 2 still read `v3_app`, now with the
+   generation pinned as an InitPlan constant so the partial index supplies the
+   window order. The repeated outer `ORDER BY` uses the fetched
+   `<key>_weighted_e4`, which equals the window's key for the same row.
+   The count now takes its sentinel over the ordered stage-1 window before the
+   stage-2 join.
+
 The count query uses stages 1–2 only. INCLUDE payload on the partials was
 rejected (payload on every indexed row to save ≤ 500 key lookups). The no-pick
 path keeps the `v3_app.system_archetype_summary` join and

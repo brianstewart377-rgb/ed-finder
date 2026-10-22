@@ -3,6 +3,10 @@
 The picked-archetype path reads migration 011's wide row. Identifiers come
 only from ``PROFILE_SPEC``; values remain asyncpg parameters, except for the
 three server-owned score-floor literals required for partial-index planning.
+
+Every statement shape here is also proven against the frozen F2d plan probe
+(``scripts/v3_archetype_plan_probe.py``) as generic plans at production scale:
+see ``tests/test_v3_finder_galaxy_window_plan_pg18.py``.
 """
 
 from __future__ import annotations
@@ -38,7 +42,23 @@ SORT_SCORE: Final[str] = "score"
 SORT_DISTANCE: Final[str] = "distance"
 SUPPORTED_SORTS: Final[frozenset[str]] = frozenset({SORT_SCORE, SORT_DISTANCE})
 
+# The current derived generation as an uncorrelated scalar subquery: PostgreSQL
+# runs it once as an InitPlan, so even a generic plan sees the generation as a
+# pseudo-constant. A ranked window over a whole generation needs this: the
+# v3_app views carry derived_generation_id only through their join to the
+# pointer table, and without a constant the leading index column cannot be
+# skipped, so no generation-led index can supply the window ORDER BY and the
+# planner sorts the entire ~198.5M-row generation (production plan-probe
+# timeout, 2026-10-22). The views still apply the full PUBLISHED/READY/
+# published product fence; the pin only names the same singleton row.
+CURRENT_GENERATION_PIN: Final[str] = (
+    "(SELECT pinned.derived_generation_id "
+    "FROM v3_meta.current_derived_generation pinned WHERE pinned.singleton)"
+)
+
 _BODY_COUNT_COLUMN_SET = frozenset(BODY_COUNT_COLUMNS)
+# Hard filters that read the archetype summary rather than system_search.
+_SUMMARY_FILTER_KEYS = frozenset({"min_development_score"})
 _COUNT_BOUND_OPS = (("_min", ">="), ("_max", "<="))
 
 
@@ -187,6 +207,10 @@ def _no_pick_filters(
     return clauses
 
 
+def _pinned(alias: str) -> str:
+    return f"{alias}.derived_generation_id = {CURRENT_GENERATION_PIN}"
+
+
 def _picked_page_query(
     builder: _ParamBuilder,
     *,
@@ -209,18 +233,26 @@ def _picked_page_query(
         f"picked.{picked_archetype}_confidence_ppm",
     )
 
+    # The final fetch reads the physical row of the generation the fenced
+    # page already came from: every page row was admitted by both v3_app
+    # views, so the fetch adds no visibility, and keyed by (generation,
+    # system) it is one primary-key probe per page row. The fetched weighted
+    # key is the window's own value for that row, so ordering by it returns
+    # the window order; it makes the final sort run over the page rows only.
     return (
         "WITH archetype_window AS (\n"
         "    SELECT ar.system_id64, "
         f"ar.{weighted} AS selected_archetype_weighted_e4\n"
         "    FROM v3_app.system_archetype ar\n"
-        f"    WHERE ar.{score} >= {floor}\n"
+        f"    WHERE {_pinned('ar')}\n"
+        f"      AND ar.{score} >= {floor}\n"
         f"    ORDER BY ar.{weighted} DESC, ar.system_id64 ASC\n"
         f"    LIMIT {RANKING_WINDOW_LIMIT}\n"
         "), ranked_page AS (\n"
         "    SELECT s.*, aw.selected_archetype_weighted_e4\n"
         "    FROM archetype_window aw\n"
         "    JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64\n"
+        f"    WHERE {_pinned('s')}\n"
         f"    ORDER BY {order}\n"
         f"    LIMIT {limit_param} OFFSET {offset_param}\n"
         ")\n"
@@ -236,10 +268,10 @@ def _picked_page_query(
         "AS summary_archetype_confidence,\n"
         "       picked.weighted_potential AS weighted_potential\n"
         "FROM ranked_page page\n"
-        "JOIN v3_app.system_archetype picked "
-        "ON picked.system_id64 = page.system_id64\n"
-        "ORDER BY page.selected_archetype_weighted_e4 DESC, "
-        "page.system_id64 ASC"
+        "JOIN v3_derived.system_archetype picked\n"
+        "  ON picked.derived_generation_id = page.derived_generation_id\n"
+        " AND picked.system_id64 = page.system_id64\n"
+        f"ORDER BY picked.{weighted} DESC, page.system_id64 ASC"
     )
 
 
@@ -251,17 +283,44 @@ def _picked_count_query(
     columns = _picked_columns(picked_archetype)
     floor = _floor_literal(min_score)
     score = columns["score"]
-    # A count has no order. The fixed literal still makes the matching partial
-    # index provable to a generic plan.
+    weighted = columns["weighted_key"]
+    # The count is taken over the same archetype window the page ranks (the
+    # sentinel instead of the 10,000-row window), joined to search exactly as
+    # the page joins it. The window walks the matching partial index in its
+    # own order (the literal floor proves the index to a generic plan) and
+    # stops at the sentinel.
     return (
         "SELECT count(*) FROM (\n"
         "    SELECT 1\n"
-        "    FROM v3_app.system_archetype ar\n"
-        "    JOIN v3_app.system_search s ON s.system_id64 = ar.system_id64\n"
-        f"    WHERE ar.{score} >= {floor}\n"
-        f"    LIMIT {RANKING_COUNT_SENTINEL}\n"
+        "    FROM (\n"
+        "        SELECT ar.system_id64\n"
+        "        FROM v3_app.system_archetype ar\n"
+        f"        WHERE {_pinned('ar')}\n"
+        f"          AND ar.{score} >= {floor}\n"
+        f"        ORDER BY ar.{weighted} DESC, ar.system_id64 ASC\n"
+        f"        LIMIT {RANKING_COUNT_SENTINEL}\n"
+        "    ) aw\n"
+        "    JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64\n"
+        f"    WHERE {_pinned('s')}\n"
         ") t"
     )
+
+
+_NO_PICK_COLUMNS = (
+    "SELECT s.*,\n"
+    "       sum.best_colony_potential AS primary_score,\n"
+    "       s.confidence AS ranking_confidence,\n"
+    "       (s.confidence * s.completeness) AS uncertainty_factor,\n"
+    "       sum.primary_archetype AS summary_primary_archetype,\n"
+    "       sum.secondary_archetype AS summary_secondary_archetype,\n"
+    "       sum.best_colony_potential AS summary_best_colony_potential,\n"
+    "       sum.archetype_confidence AS summary_archetype_confidence,\n"
+    "       sum.weighted_potential AS weighted_potential\n"
+)
+_NO_PICK_FROM = (
+    "FROM v3_app.system_search s\n"
+    "JOIN v3_app.system_archetype_summary sum ON sum.system_id64 = s.system_id64\n"
+)
 
 
 def _no_pick_knn_page(
@@ -276,7 +335,7 @@ def _no_pick_knn_page(
     anchor, bounding_cube, radius_param = _radius_geometry(
         builder, reference_coords, radius
     )
-    clauses = [f"s.position_ly <@ {bounding_cube}"]
+    clauses = [_pinned("s"), _pinned("sum"), f"s.position_ly <@ {bounding_cube}"]
     clauses.extend(
         _no_pick_filters(
             builder,
@@ -288,7 +347,7 @@ def _no_pick_knn_page(
     inner_limit = builder.add(int(offset + limit))
     limit_param = builder.add(int(limit))
     offset_param = builder.add(int(offset))
-    where_sql = " AND ".join(clauses)
+    where_sql = "\n      AND ".join(clauses)
     return (
         "SELECT nearest.*\n"
         "FROM (\n"
@@ -328,31 +387,58 @@ def _no_pick_knn_count(
     anchor, bounding_cube, radius_param = _radius_geometry(
         builder, reference_coords, radius
     )
-    clauses = [f"s.position_ly <@ {bounding_cube}"]
-    clauses.extend(
-        _no_pick_filters(
-            builder,
-            hard_filters=hard_filters,
-            reference_coords=reference_coords,
-            omit_max_distance=True,
-        )
+    filters = _no_pick_filters(
+        builder,
+        hard_filters=hard_filters,
+        reference_coords=reference_coords,
+        omit_max_distance=True,
     )
     sentinel_param = builder.add(int(sentinel))
+    search_clauses = [_pinned("s"), f"s.position_ly <@ {bounding_cube}"]
+    if any(key in hard_filters for key in _SUMMARY_FILTER_KEYS):
+        # A summary-column filter decides which rows are nearest, so the
+        # archetype join stays inside the nearest-first window.
+        inner_from = (
+            "        FROM v3_app.system_search s\n"
+            "        JOIN v3_app.system_archetype_summary sum "
+            "ON sum.system_id64 = s.system_id64\n"
+        )
+        inner_clauses = [*search_clauses, _pinned("sum"), *filters]
+        outer_join = ""
+        outer_clauses = [f"nearest.distance_ly <= {radius_param}"]
+    else:
+        # Both Finder products cover exactly the generation's systems (product
+        # validation and the publication gate), so the nearest search rows
+        # are the nearest ranked rows. Only the distance prefix decides which
+        # rows fall inside the radius, so the tie-break uses search columns
+        # and the archetype probe runs after the nearest-first window, once
+        # per row the sentinel admits.
+        inner_from = "        FROM v3_app.system_search s\n"
+        inner_clauses = [*search_clauses, *filters]
+        outer_join = (
+            "    JOIN v3_app.system_archetype_summary sum "
+            "ON sum.system_id64 = nearest.system_id64\n"
+        )
+        outer_clauses = [_pinned("sum"), f"nearest.distance_ly <= {radius_param}"]
+    inner_where = "\n          AND ".join(inner_clauses)
+    outer_where = "\n      AND ".join(outer_clauses)
+    # The literal window bound equals the largest accepted sentinel, so it
+    # never truncates the parameterized sentinel; it gives a generic plan a
+    # known row bound.
     return (
         "SELECT count(*) FROM (\n"
         "    SELECT nearest.system_id64\n"
         "    FROM (\n"
         "        SELECT s.system_id64, "
         f"s.position_ly <-> {anchor} AS distance_ly\n"
-        "        FROM v3_app.system_search s\n"
-        "        JOIN v3_app.system_archetype_summary sum "
-        "ON sum.system_id64 = s.system_id64\n"
-        f"        WHERE {' AND '.join(clauses)}\n"
-        f"        ORDER BY s.position_ly <-> {anchor}, "
-        "sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
-        f"        LIMIT {sentinel_param}\n"
+        f"{inner_from}"
+        f"        WHERE {inner_where}\n"
+        f"        ORDER BY s.position_ly <-> {anchor}, s.system_id64 ASC\n"
+        f"        LIMIT {RANKING_COUNT_SENTINEL}\n"
         "    ) nearest\n"
-        f"    WHERE nearest.distance_ly <= {radius_param}\n"
+        f"{outer_join}"
+        f"    WHERE {outer_where}\n"
+        f"    LIMIT {sentinel_param}\n"
         ") bounded"
     )
 
@@ -365,46 +451,104 @@ def _no_pick_page(
     limit: int,
     offset: int,
 ) -> str:
-    clauses = _no_pick_filters(
+    if (
+        reference_coords is not None
+        and hard_filters.get("max_distance_ly") is not None
+    ):
+        return _no_pick_radius_score_page(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            limit=limit,
+            offset=offset,
+        )
+    filters = _no_pick_filters(
         builder,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
     )
     limit_param = builder.add(int(limit))
     offset_param = builder.add(int(offset))
-    where_sql = f"WHERE {' AND '.join(clauses)}\n" if clauses else ""
-    select_list = (
-        "SELECT s.*,\n"
-        "       sum.best_colony_potential AS primary_score,\n"
-        "       s.confidence AS ranking_confidence,\n"
-        "       (s.confidence * s.completeness) AS uncertainty_factor,\n"
-        "       sum.primary_archetype AS summary_primary_archetype,\n"
-        "       sum.secondary_archetype AS summary_secondary_archetype,\n"
-        "       sum.best_colony_potential AS summary_best_colony_potential,\n"
-        "       sum.archetype_confidence AS summary_archetype_confidence,\n"
-        "       sum.weighted_potential AS weighted_potential\n"
-    )
-    if not clauses and reference_coords is None:
+    if not filters and reference_coords is None:
         return (
             "WITH summary_window AS (\n"
             "    SELECT sum.*\n"
             "    FROM v3_app.system_archetype_summary sum\n"
+            f"    WHERE {_pinned('sum')}\n"
             "    ORDER BY sum.weighted_potential DESC NULLS LAST, "
             "sum.system_id64 ASC\n"
             f"    LIMIT {RANKING_WINDOW_LIMIT}\n"
             ")\n"
-            f"{select_list}"
+            f"{_NO_PICK_COLUMNS}"
             "FROM summary_window sum\n"
             "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
+            f"WHERE {_pinned('s')}\n"
             "ORDER BY sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
             f"LIMIT {limit_param} OFFSET {offset_param}"
         )
+    where_sql = "\n  AND ".join([_pinned("s"), _pinned("sum"), *filters])
     return (
-        f"{select_list}"
-        "FROM v3_app.system_archetype_summary sum\n"
-        "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
-        f"{where_sql}"
+        f"{_NO_PICK_COLUMNS}"
+        f"{_NO_PICK_FROM}"
+        f"WHERE {where_sql}\n"
         "ORDER BY sum.weighted_potential DESC NULLS LAST, s.system_id64 ASC\n"
+        f"LIMIT {limit_param} OFFSET {offset_param}"
+    )
+
+
+def _no_pick_radius_score_page(
+    builder: _ParamBuilder,
+    *,
+    hard_filters: dict[str, Any],
+    reference_coords: tuple[float, float, float],
+    limit: int,
+    offset: int,
+) -> str:
+    """Score-ordered page inside a radius.
+
+    The candidate subquery is ordered by distance so PostgreSQL walks the
+    bounding box with the GiST index (one probe per candidate per stored
+    generation) instead of a bitmap heap scan joined by hash; the outer ORDER
+    BY alone decides the page order, so the result is unchanged."""
+    radius = float(hard_filters["max_distance_ly"])
+    anchor, bounding_cube, radius_param = _radius_geometry(
+        builder, reference_coords, radius
+    )
+    clauses = [
+        _pinned("s"),
+        _pinned("sum"),
+        f"s.position_ly <@ {bounding_cube}",
+        f"s.position_ly <-> {anchor} <= {radius_param}",
+    ]
+    clauses.extend(
+        _no_pick_filters(
+            builder,
+            hard_filters=hard_filters,
+            reference_coords=reference_coords,
+            omit_max_distance=True,
+        )
+    )
+    limit_param = builder.add(int(limit))
+    offset_param = builder.add(int(offset))
+    where_sql = "\n      AND ".join(clauses)
+    columns = _NO_PICK_COLUMNS.replace("\n", "\n    ").rstrip()
+    # NULLIF(x, x) is always NULL, i.e. LIMIT ALL: no candidate is ever
+    # dropped. Written over a parameter it stays unknown to a generic plan,
+    # which then costs walking the candidates in GiST distance order rather
+    # than a bitmap heap scan plus a full sort; a custom plan folds it away.
+    return (
+        "SELECT candidates.*\n"
+        "FROM (\n"
+        f"    {columns}\n"
+        "    FROM v3_app.system_search s\n"
+        "    JOIN v3_app.system_archetype_summary sum "
+        "ON sum.system_id64 = s.system_id64\n"
+        f"    WHERE {where_sql}\n"
+        f"    ORDER BY s.position_ly <-> {anchor}\n"
+        f"    LIMIT NULLIF({limit_param}::bigint, {limit_param}::bigint)\n"
+        ") candidates\n"
+        "ORDER BY candidates.weighted_potential DESC NULLS LAST, "
+        "candidates.system_id64 ASC\n"
         f"LIMIT {limit_param} OFFSET {offset_param}"
     )
 
@@ -501,6 +645,9 @@ def build_count_query(
         return sql, builder.params
 
     sentinel = int(cap) + 1 if cap is not None else None
+    # The SQL's literal window bounds rely on this: no sentinel exceeds them.
+    if sentinel is not None and sentinel > RANKING_COUNT_SENTINEL:
+        raise ValueError("count sentinel exceeds the ranking window")
     if (
         sort == SORT_DISTANCE
         and reference_coords is not None
@@ -515,17 +662,42 @@ def build_count_query(
         )
         return sql, builder.params
 
-    clauses = _no_pick_filters(
+    filters = _no_pick_filters(
         builder,
         hard_filters=hard_filters,
         reference_coords=reference_coords,
     )
-    where_sql = f"WHERE {' AND '.join(clauses)}\n" if clauses else ""
+    if sentinel is not None and not filters:
+        # The galaxy-wide count is taken over the same summary window the
+        # galaxy page ranks (the sentinel instead of the 10,000-row window),
+        # joined to search exactly as the page joins it. The literal window
+        # bound equals the largest accepted sentinel, so it never truncates the
+        # parameterized sentinel; it gives a generic plan a known row bound.
+        sentinel_param = builder.add(sentinel)
+        sql = (
+            "SELECT count(*) FROM (\n"
+            "    SELECT 1\n"
+            "    FROM (\n"
+            "        SELECT sum.system_id64\n"
+            "        FROM v3_app.system_archetype_summary sum\n"
+            f"        WHERE {_pinned('sum')}\n"
+            "        ORDER BY sum.weighted_potential DESC NULLS LAST, "
+            "sum.system_id64 ASC\n"
+            f"        LIMIT {RANKING_COUNT_SENTINEL}\n"
+            "    ) sum\n"
+            "    JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
+            f"    WHERE {_pinned('s')}\n"
+            f"    LIMIT {sentinel_param}\n"
+            ") bounded"
+        )
+        return sql, builder.params
+    clauses = [_pinned("sum"), _pinned("s"), *filters]
+    where_sql = "\n  AND ".join(clauses)
     base = (
         "SELECT 1\n"
         "FROM v3_app.system_archetype_summary sum\n"
         "JOIN v3_app.system_search s ON s.system_id64 = sum.system_id64\n"
-        f"{where_sql}"
+        f"WHERE {where_sql}\n"
     )
     if sentinel is None:
         sql = "SELECT count(*)\n" + base.replace("SELECT 1\n", "", 1)

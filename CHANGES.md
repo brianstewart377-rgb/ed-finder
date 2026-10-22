@@ -11,6 +11,46 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-22 — Finder ranking SQL: generation-pinned windows that pass the F2d plan probe
+
+API query SQL and tests only. No migration, no `deploy/` or `scripts/operator/`
+change, no response-shape change; the F2d operator-code identity is unchanged
+(`c26d23d0…6279`). It takes effect only through a new governed API release.
+
+- Why: the owner-approved `publish-finder-products` run 39808363037 was refused
+  with nothing committed. Plan-probe statement 72,
+  `galaxy_wide_development_page_24`, hit the 60 s statement timeout under
+  `force_generic_plan`: the galaxy window read `v3_app.system_archetype_summary`,
+  whose generation arrives only through the view's join, so
+  `system_archetype_summary_weighted` could not supply the ORDER BY and
+  PostgreSQL sorted the whole ~198.5M-row generation. Statements 73–79 never ran.
+- `apps/api/src/ranking/ranking_sql.py`: every fenced view read now also names
+  the current generation as an InitPlan constant
+  (`… = (SELECT derived_generation_id FROM v3_meta.current_derived_generation
+  WHERE singleton)`); the views keep the full PUBLISHED/READY/published fence.
+  The galaxy and picked windows are now index-ordered `Limit → Index Scan`.
+  Shapes the frozen probe would also have refused are fixed: the picked page
+  fetches the final row from `v3_derived.system_archetype picked` (a view's
+  table never shows the alias `picked`) and sorts only the page rows; picked,
+  galaxy and nearest-first counts take the sentinel over the same ordered
+  window their page uses (parallel workers no longer overshoot it, and a
+  literal 10,001 bound gives generic plans a known Limit); the nearest-first
+  count orders by search columns so the archetype probe runs after the
+  incremental sort; the score-ordered radius page walks candidates through the
+  GiST index (`LIMIT NULLIF($n, $n)`, always LIMIT ALL).
+- Results are unchanged: 464 old-vs-new comparisons (pages and counts, every
+  filter kind, offsets to 9,990) on a 300,000-system, two-search-generation
+  PostgreSQL 18 database returned identical rows in identical order.
+- `tests/test_v3_finder_galaxy_window_plan_pg18.py` (Finder derived-data lane):
+  seeds that shape, imports production-scale statistics with
+  `pg_restore_relation_stats` (198.5M archetype rows, 397M search rows), and
+  runs all 80 generated statements through the frozen `run_plan_probe` inside
+  an uncommitted product-publication transaction. All 80 pass; the released
+  statement 72 reproduces the whole-generation sort and fails. A third test
+  records a frozen-probe boundary: if the one-page `v3_meta` tables are
+  analyzed, PostgreSQL seq-scans them and `anchored_candidate_gist_only`
+  refuses statements 78–79 whatever the ranking SQL.
+
 ## 2026-10-21 — V3 EDDN station-sighting worker and `v3_observe` proposal (code only)
 
 Code and tests only. Nothing is deployed, scheduled or applied: no

@@ -250,7 +250,11 @@ def test_deployed_picked_page_fetch_is_outside_ranked_page_limit() -> None:
         PROFILE_SPEC, picked_archetype="paradise", picked_economy=None,
         hard_filters={}, reference_coords=None, limit=50, offset=0, min_score=60,
     )
-    assert "JOIN v3_app.system_archetype picked ON picked.system_id64 = page.system_id64" in sql
+    assert (
+        "JOIN v3_derived.system_archetype picked\n"
+        "  ON picked.derived_generation_id = page.derived_generation_id\n"
+        " AND picked.system_id64 = page.system_id64" in sql
+    )
     plan = _deployed_picked_plan()
     assertions = probe.evaluate_plan_assertions(_picked_statement(), plan, generation_count=1)
     assert not _failed(assertions)
