@@ -457,7 +457,7 @@ def test_analyzed_meta_tables_only_trip_the_frozen_no_seq_scan_rule(
     import_production_statistics(connection, meta_analyzed=True)
     receipt = _probe(connection, seeded, generate_statements())
     failed = {(item["statement"], item["assertion"]) for item in receipt["failures"]}
-    assert failed <= {
+    assert failed == {
         ("anchored_filtered_o_star_dense_page_24", "anchored_candidate_gist_only"),
         ("anchored_development_dense_page_24", "anchored_candidate_gist_only"),
     }
