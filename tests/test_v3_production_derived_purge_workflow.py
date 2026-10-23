@@ -19,6 +19,7 @@ WORKFLOW = ROOT / '.github/workflows/v3-production-derived-purge.yml'
 HELPER = ROOT / 'scripts/operator/v3_production_purge_workflow.py'
 SOURCE_SHA = 'a' * 40
 RUN_ID = '123456'
+REHEARSAL_RUN_ID = '345678'
 RELATIONS = ('system-search', 'economy-opportunity', 'body-mechanics', 'system-rating-vector')
 MODES = {
     'plan', 'status', 'authorize', 'verify-system-archetype-empty',
@@ -54,8 +55,8 @@ def test_dispatch_modes_equal_the_actions_closed_list():
     inputs = workflow['on']['workflow_dispatch']['inputs']
     assert set(inputs) == {
         'mode', 'confirm_target', 'plan_run_id', 'plan_sha256',
-        'verification_run_id', 'verification_sha256', 'acknowledge_failed_stop',
-        'wall_clock_seconds',
+        'verification_run_id', 'verification_sha256', 'rehearsal_run_id', 'rehearsal_sha256',
+        'acknowledge_failed_stop', 'wall_clock_seconds',
     }
     assert inputs['mode']['type'] == 'choice'
     assert len(inputs['mode']['options']) == len(MODES)
@@ -74,6 +75,7 @@ def test_dispatch_modes_equal_the_actions_closed_list():
     assert inputs['confirm_target']['required'] == 'true'
     assert inputs['plan_run_id']['required'] == 'false'
     assert inputs['verification_run_id']['required'] == 'false'
+    assert inputs['rehearsal_run_id']['required'] == 'false'
 
 
 def test_production_approval_and_both_authority_leases_are_required():
@@ -135,13 +137,23 @@ def test_pinned_host_trust_and_existing_credential_boundary():
 def test_cross_run_artifacts_have_fixed_names_and_authenticated_receipts():
     steps = _job()['steps']
     downloads = [step for step in steps if step.get('uses', '').startswith('actions/download-artifact@')]
-    assert len(downloads) == 2
-    assert {step['with']['name'] for step in downloads} == {
+    assert len(downloads) == 3
+    named = [step for step in downloads if 'name' in step['with']]
+    assert {step['with']['name'] for step in named} == {
         'v3-derived-purge-plan', 'v3-derived-purge-verification',
     }
+    # The rehearsal artifact name carries its run attempt, so every attempt is
+    # downloaded by an exact run-id prefix into its own directory and only the
+    # authenticated successful attempt is staged.
+    rehearsal = next(step for step in downloads if 'name' not in step['with'])
+    assert rehearsal['if'] == "inputs.mode == 'plan'"
+    assert rehearsal['with']['pattern'] == 'v3-derived-purge-rehearsal-${{ inputs.rehearsal_run_id }}-*'
+    assert rehearsal['with']['merge-multiple'] == 'false'
+    assert rehearsal['with']['path'] == '${{ runner.temp }}/purge-rehearsal'
     assert {step['with']['run-id'] for step in downloads} == {
-        '${{ inputs.plan_run_id }}', '${{ inputs.verification_run_id }}',
+        '${{ inputs.plan_run_id }}', '${{ inputs.verification_run_id }}', '${{ inputs.rehearsal_run_id }}',
     }
+    assert '"$RUNNER_TEMP/purge-rehearsal/receipt.json" "$bundle/artifacts/rehearsal.json"' in _runs()
     for step in downloads:
         assert step['with']['github-token'] == '${{ github.token }}'
         assert step['with']['repository'] == '${{ github.repository }}'
@@ -169,6 +181,8 @@ def _inputs(mode='plan'):
         'INPUT_PLAN_SHA256': '' if mode in ('plan', 'status') else 'b' * 64,
         'INPUT_VERIFICATION_RUN_ID': '',
         'INPUT_VERIFICATION_SHA256': '',
+        'INPUT_REHEARSAL_RUN_ID': REHEARSAL_RUN_ID if mode == 'plan' else '',
+        'INPUT_REHEARSAL_SHA256': 'e' * 64 if mode == 'plan' else '',
         'INPUT_ACKNOWLEDGE_FAILED_STOP': '',
         'INPUT_WALL_CLOCK_SECONDS': '',
         'GITHUB_RUN_ID': '987654',
@@ -584,3 +598,198 @@ def test_transport_failure_receipt_keeps_the_full_sealed_shape_and_unknown_write
                   'migration_execution_performed', 'application_deployment_performed'):
         assert field in sealed and sealed[field] is None
     assert 'transaction_outcome' in sealed and sealed['transaction_outcome'] is None
+
+
+@pytest.mark.parametrize('field', ['INPUT_REHEARSAL_RUN_ID', 'INPUT_REHEARSAL_SHA256'])
+def test_protected_plan_requires_both_rehearsal_identifiers(field):
+    env = _inputs('plan')
+    env[field] = ''
+    with pytest.raises(ValueError, match='invalid_rehearsal_reference'):
+        _helper().validate_inputs(env)
+
+
+@pytest.mark.parametrize('mode', sorted(MODES - {'plan'}))
+@pytest.mark.parametrize('field', ['INPUT_REHEARSAL_RUN_ID', 'INPUT_REHEARSAL_SHA256'])
+def test_rehearsal_identifiers_are_plan_only(mode, field):
+    env = _inputs(mode)
+    env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
+    if mode == 'status' or mode in ('authorize', 'verify-system-archetype-empty'):
+        env.update(INPUT_VERIFICATION_RUN_ID='', INPUT_VERIFICATION_SHA256='')
+    if mode.startswith('delete-'):
+        env['INPUT_WALL_CLOCK_SECONDS'] = '300'
+    _helper().validate_inputs(env)
+    env[field] = REHEARSAL_RUN_ID if field.endswith('RUN_ID') else 'e' * 64
+    with pytest.raises(ValueError, match='rehearsal_reference_not_admitted'):
+        _helper().validate_inputs(env)
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('INPUT_REHEARSAL_RUN_ID', '$(id)'), ('INPUT_REHEARSAL_RUN_ID', '0'),
+    ('INPUT_REHEARSAL_RUN_ID', '345678\n'), ('INPUT_REHEARSAL_SHA256', 'E' * 64),
+    ('INPUT_REHEARSAL_RUN_ID', '987654'),
+])
+def test_hostile_or_self_referencing_rehearsal_identifiers_fail_closed(field, value):
+    env = _inputs('plan')
+    env[field] = value
+    with pytest.raises(ValueError):
+        _helper().validate_inputs(env)
+
+
+def test_rehearsal_run_provenance_is_the_dedicated_rehearsal_workflow_only():
+    module = _helper()
+    run = {**_run(), 'id': int(REHEARSAL_RUN_ID), 'path': module.REHEARSAL_WORKFLOW_PATH}
+    module.validate_run(run, run_id=REHEARSAL_RUN_ID, source_sha=SOURCE_SHA, path=module.REHEARSAL_WORKFLOW_PATH)
+    with pytest.raises(ValueError):
+        module.validate_run(run, run_id=REHEARSAL_RUN_ID, source_sha=SOURCE_SHA)
+    with pytest.raises(ValueError):
+        module.validate_run(run, run_id=REHEARSAL_RUN_ID, source_sha=SOURCE_SHA,
+                            path='.github/workflows/chatgpt-ed-new-ops.yml')
+
+
+def _rehearsal_environment(module, monkeypatch, tmp_path, *, attempt=2, run_updates=None,
+                           receipt_updates=None, stored_attempts=(1, 2)):
+    from tests.test_v3_purge_rehearsal_receipt import example_receipt
+    env = _inputs('plan')
+    env.update(RUNNER_TEMP=str(tmp_path), GITHUB_SHA='d' * 40)
+    receipt = example_receipt(**{'source_git_sha': SOURCE_SHA, **(receipt_updates or {})})
+    root = tmp_path / 'purge-rehearsal'
+    for stored in stored_attempts:
+        directory = root / f'v3-derived-purge-rehearsal-{REHEARSAL_RUN_ID}-{stored}'
+        directory.mkdir(parents=True)
+        # An earlier failed attempt keeps a different, stopped receipt.
+        value = receipt if stored == attempt else example_receipt(
+            source_git_sha=SOURCE_SHA, status='stopped', failures=['crash_gate_failed'])
+        (directory / 'rehearsal-receipt.json').write_text(json.dumps(value))
+    env['INPUT_REHEARSAL_SHA256'] = receipt['content_sha256']
+    original_load = module._load
+    def fetch_run(repository, run_id, token):
+        assert run_id == REHEARSAL_RUN_ID
+        return {**_run(), 'id': int(run_id), 'path': module.REHEARSAL_WORKFLOW_PATH,
+                'run_attempt': attempt, **(run_updates or {})}
+    def load(name, path):
+        if str(path).endswith('scripts/release/v3_release_run.py'):
+            return SimpleNamespace(fetch_run=fetch_run)
+        return original_load(name, path)
+    monkeypatch.setattr(module, '_load', load)
+    return env, receipt
+
+
+def test_successful_attempts_one_percent_rehearsal_is_authenticated_and_staged(monkeypatch, tmp_path):
+    module = _helper()
+    env, receipt = _rehearsal_environment(module, monkeypatch, tmp_path)
+    assert module.authenticate(env)['mode'] == 'plan'
+    staged = tmp_path / 'purge-rehearsal/receipt.json'
+    assert json.loads(staged.read_text()) == receipt
+    assert staged.stat().st_mode & 0o777 == 0o600
+    # The execute step re-authenticates exactly the staged bytes, tokenless.
+    monkeypatch.setattr(module, '_load', _helper()._load)
+    assert module.authenticate(env, fetch=False)['mode'] == 'plan'
+    script = module.remote_script(module.validate_inputs(env), SOURCE_SHA, RUN_ID)
+    assert ('--rehearsal-receipt artifacts/rehearsal.json --rehearsal-receipt-sha256 '
+            + receipt['content_sha256']) in script
+
+
+@pytest.mark.parametrize('defect', (
+    'workflow', 'conclusion', 'branch', 'event', 'attempt', 'attempt_type', 'missing_artifact',
+    'digest', 'smoke', 'crash_gate', 'source', 'symlink', 'oversized',
+))
+def test_rehearsal_receipt_admission_fails_closed(monkeypatch, tmp_path, defect):
+    module = _helper()
+    run_updates, receipt_updates, stored = {}, {}, (1, 2)
+    if defect == 'workflow':
+        run_updates['path'] = module.WORKFLOW_PATH
+    elif defect == 'conclusion':
+        run_updates['conclusion'] = 'failure'
+    elif defect == 'branch':
+        run_updates['head_branch'] = 'feature'
+    elif defect == 'event':
+        run_updates['event'] = 'push'
+    elif defect == 'attempt':
+        run_updates['run_attempt'] = 3
+    elif defect == 'attempt_type':
+        run_updates['run_attempt'] = '2'
+    elif defect == 'missing_artifact':
+        stored = (1,)
+    elif defect == 'smoke':
+        receipt_updates['scale'] = 'smoke'
+    elif defect == 'crash_gate':
+        receipt_updates['gate_10_crash_rehearsal_passed'] = False
+    elif defect == 'source':
+        receipt_updates['source_git_sha'] = 'b' * 40
+    env, receipt = _rehearsal_environment(module, monkeypatch, tmp_path, run_updates=run_updates,
+                                          receipt_updates=receipt_updates, stored_attempts=stored)
+    path = tmp_path / f'purge-rehearsal/v3-derived-purge-rehearsal-{REHEARSAL_RUN_ID}-2/rehearsal-receipt.json'
+    if defect == 'digest':
+        env['INPUT_REHEARSAL_SHA256'] = 'f' * 64
+    elif defect == 'symlink':
+        target = tmp_path / 'elsewhere.json'
+        target.write_text(path.read_text())
+        path.unlink()
+        path.symlink_to(target)
+    elif defect == 'oversized':
+        path.write_text(' ' * (module.MAX_RECEIPT + 1))
+    with pytest.raises(ValueError):
+        module.authenticate(env)
+    assert defect != 'missing_artifact' or not (tmp_path / 'purge-rehearsal/receipt.json').exists()
+
+
+def _bound_plan_environment(module, monkeypatch, tmp_path, reviewed):
+    env = _artifact_environment(module, monkeypatch, tmp_path, 'authorize')
+    env['GITHUB_SHA'] = SOURCE_SHA
+    path = tmp_path / 'purge-plan/receipt.json'
+    body = json.loads(path.read_text())
+    del body['content_sha256']
+    body['reviewed_plan'] = reviewed
+    sealed = _seal(body)
+    path.write_text(json.dumps(sealed))
+    env['INPUT_PLAN_SHA256'] = sealed['content_sha256']
+    return env
+
+
+def test_authorize_admits_a_plan_carrying_reviewed_rehearsal_figures(monkeypatch, tmp_path):
+    from tests.test_v3_purge_rehearsal_receipt import example_receipt, tool
+    module = _helper()
+    reviewed = {}
+    tool.apply_to_plan(reviewed, example_receipt())
+    env = _bound_plan_environment(module, monkeypatch, tmp_path, reviewed)
+    assert module.authenticate(env)['mode'] == 'authorize'
+
+
+def test_authorize_refuses_a_plan_without_reviewed_rehearsal_figures_before_ssh(monkeypatch, tmp_path):
+    module = _helper()
+    env = _bound_plan_environment(module, monkeypatch, tmp_path, {'plan_sha256': '6' * 64})
+    with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
+        module.authenticate(env)
+
+
+def _bundle_paths():
+    source = _runs()
+    command = source[source.index('git archive HEAD') + len('git archive HEAD'):]
+    command = command[:command.index('| tar')]
+    return [token for token in command.replace('\\\n', ' ').split() if token != '\\']
+
+
+def test_transported_source_bundle_can_revalidate_a_reviewed_rehearsal_receipt(tmp_path):
+    """Reproduce the archive's path set and run the remote receipt validation in it."""
+    import shutil
+    from tests.test_v3_purge_rehearsal_receipt import example_receipt, tool
+    bundle = tmp_path / 'bundle'
+    paths = _bundle_paths()
+    for relative in tool.HARNESS_FILES + (str(tool.LIFECYCLE_RECEIPT.relative_to(ROOT)),):
+        assert relative in paths or any(relative.startswith(path + '/') for path in paths), relative
+    tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '--', *paths],
+                             capture_output=True, text=True, check=True).stdout.split()
+    assert tracked
+    for relative in tracked:
+        target = bundle / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    spec = importlib.util.spec_from_file_location(
+        'bundled_rehearsal_receipt', bundle / 'scripts/operator/lib/v3_purge_rehearsal_receipt.py')
+    bundled = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bundled)
+    assert bundled.ROOT == bundle
+    receipt = example_receipt()
+    path = tmp_path / 'rehearsal.json'
+    path.write_text(json.dumps(receipt))
+    assert bundled.load_reviewed(path, receipt['content_sha256'])['content_sha256'] == receipt['content_sha256']

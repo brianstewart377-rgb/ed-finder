@@ -19,6 +19,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = '.github/workflows/v3-production-derived-purge.yml'
+REHEARSAL_WORKFLOW_PATH = '.github/workflows/v3-derived-purge-rehearsal.yml'
+# The rehearsal workflow names its artifact by run id and attempt; the sealed
+# receipt is this fixed file inside it. The workflow downloads every attempt's
+# artifact by pattern; authentication selects only the successful attempt.
+REHEARSAL_ARTIFACT_PREFIX = 'v3-derived-purge-rehearsal-'
+REHEARSAL_RECEIPT = 'rehearsal-receipt.json'
 REPOSITORY = 'brianstewart377-rgb/ed-finder'
 TARGET = 'ed-finder-prod/nb79a3d.mevnode.com'
 RELATIONS = ('system-search', 'economy-opportunity', 'body-mechanics', 'system-rating-vector')
@@ -41,7 +47,8 @@ def _load(name, path):
 
 def validate_inputs(env):
     fields = ('mode', 'confirm_target', 'plan_run_id', 'plan_sha256', 'verification_run_id',
-              'verification_sha256', 'acknowledge_failed_stop', 'wall_clock_seconds')
+              'verification_sha256', 'rehearsal_run_id', 'rehearsal_sha256',
+              'acknowledge_failed_stop', 'wall_clock_seconds')
     request = {key: env.get('INPUT_' + key.upper(), '') for key in fields}
     mode = request['mode']
     if mode not in MODES or request['confirm_target'] != TARGET:
@@ -49,7 +56,12 @@ def validate_inputs(env):
     plan_required = mode not in ('plan', 'status')
     proof_required = mode == 'complete' or mode == 'restore-services' or mode.startswith(
         ('delete-', 'rewrite-', 'abort-relation-'))
-    for prefix, required in (('plan', plan_required), ('verification', proof_required)):
+    # A protected plan exists to be authorized, and authorization binds it to
+    # every later phase. It therefore always carries the reviewed one-percent
+    # rehearsal figures; the ops workflow keeps a figure-less diagnostic plan.
+    rehearsal_required = mode == 'plan'
+    for prefix, required in (('plan', plan_required), ('verification', proof_required),
+                             ('rehearsal', rehearsal_required)):
         run_id, digest = request[prefix + '_run_id'], request[prefix + '_sha256']
         if required:
             if not RUN_ID.fullmatch(run_id) or not SHA256.fullmatch(digest):
@@ -73,10 +85,11 @@ def validate_inputs(env):
     return request
 
 
-def validate_run(run, *, run_id, source_sha):
-    if not RUN_ID.fullmatch(run_id) or not SOURCE_SHA.fullmatch(source_sha):
+def validate_run(run, *, run_id, source_sha, path=WORKFLOW_PATH):
+    if (not RUN_ID.fullmatch(run_id) or not SOURCE_SHA.fullmatch(source_sha)
+            or path not in (WORKFLOW_PATH, REHEARSAL_WORKFLOW_PATH)):
         raise ValueError('invalid_run_identity')
-    expected = {'id': int(run_id), 'path': WORKFLOW_PATH, 'head_branch': 'main',
+    expected = {'id': int(run_id), 'path': path, 'head_branch': 'main',
                 'head_sha': source_sha, 'event': 'workflow_dispatch', 'status': 'completed',
                 'conclusion': 'success'}
     if (any(run.get(key) != value for key, value in expected.items())
@@ -101,11 +114,55 @@ def authenticate_receipt(path, expected_sha, *, mode, run_id, source_sha):
     return value
 
 
+def authenticate_rehearsal(env, request, *, fetch=True):
+    """Admit only a successful protected one-percent rehearsal's sealed receipt.
+
+    With ``fetch`` the run must be the dedicated rehearsal workflow's
+    successful dispatch on main, and the receipt is read from that attempt's
+    artifact and staged at a fixed path for the source bundle. Without it, the
+    execute step re-authenticates those staged bytes, holding no API token. The
+    receipt module verifies the seal, the reviewed SHA-256, one_percent scale,
+    the passed crash gate and the code identity running this plan.
+    """
+    run_id, digest = request['rehearsal_run_id'], request['rehearsal_sha256']
+    if not RUN_ID.fullmatch(run_id) or not SHA256.fullmatch(digest):
+        raise ValueError('invalid_rehearsal_reference')
+    root = Path(env['RUNNER_TEMP']) / 'purge-rehearsal'
+    staged = root / 'receipt.json'
+    source = None
+    if fetch:
+        runs = _load('purge_workflow_runs', ROOT / 'scripts/release/v3_release_run.py')
+        run = runs.fetch_run(REPOSITORY, run_id, env.get('GITHUB_TOKEN', ''))
+        source = run.get('head_sha', '')
+        validate_run(run, run_id=run_id, source_sha=source, path=REHEARSAL_WORKFLOW_PATH)
+        attempt = run.get('run_attempt')
+        if type(attempt) is not int or not 1 <= attempt <= 10_000:
+            raise ValueError('purge_artifact_run_provenance_failed')
+        artifact = root / (REHEARSAL_ARTIFACT_PREFIX + run_id + '-' + str(attempt))
+        path = artifact / REHEARSAL_RECEIPT
+        if (root.is_symlink() or artifact.is_symlink() or path.is_symlink() or not path.is_file()
+                or path.stat().st_size > MAX_RECEIPT or staged.is_symlink()):
+            raise ValueError('purge_artifact_identity_invalid')
+        # Stage exactly the bytes authenticated below; nothing rereads the
+        # downloaded artifact after this point.
+        staged.write_bytes(path.read_bytes())
+        staged.chmod(0o600)
+    if staged.is_symlink() or not staged.is_file() or staged.stat().st_size > MAX_RECEIPT:
+        raise ValueError('purge_artifact_identity_invalid')
+    receipts = _load('purge_workflow_rehearsal', ROOT / 'scripts/operator/lib/v3_purge_rehearsal_receipt.py')
+    value = receipts.load_reviewed(staged, digest)
+    if fetch and value.get('source_git_sha') != source:
+        raise ValueError('purge_artifact_receipt_provenance_failed')
+    return value
+
+
 def authenticate(env, *, fetch=True):
     request = validate_inputs(env)
     source_sha = env.get('GITHUB_SHA', '')
     if not SOURCE_SHA.fullmatch(source_sha):
         raise ValueError('invalid_source_sha')
+    if request['rehearsal_run_id']:
+        authenticate_rehearsal(env, request, fetch=fetch)
     receipts = {}
     for prefix, mode in (('plan', 'plan'), ('verification', 'verify-system-archetype-empty')):
         run_id = request[prefix + '_run_id']
@@ -151,6 +208,11 @@ def authenticate(env, *, fetch=True):
         timeout = config.get('statement_timeout_ms')
         if type(timeout) is not int or not 1 <= timeout <= MAX_REWRITE_MS:
             raise ValueError('rewrite_timeout_outside_workflow_budget')
+    if request['mode'] == 'authorize':
+        # Authorization binds the plan to every later phase. Refuse before SSH
+        # unless its sealed figures came from a reviewed one-percent rehearsal.
+        rehearsal = _load('purge_workflow_rehearsal', ROOT / 'scripts/operator/lib/v3_purge_rehearsal_receipt.py')
+        rehearsal.require_plan_binding(receipts['plan'].get('reviewed_plan'))
     return request
 
 
@@ -163,6 +225,9 @@ def remote_script(request, source_sha, run_id):
         if request[prefix + '_run_id']:
             args += ['--' + prefix, 'artifacts/' + prefix + '.json',
                      '--' + prefix + '-sha256', request[prefix + '_sha256']]
+    if request['rehearsal_run_id']:
+        args += ['--rehearsal-receipt', 'artifacts/rehearsal.json',
+                 '--rehearsal-receipt-sha256', request['rehearsal_sha256']]
     if request['wall_clock_seconds'] is not None:
         args += ['--wall-clock-seconds', str(request['wall_clock_seconds'])]
     if request['acknowledge_failed_stop']:

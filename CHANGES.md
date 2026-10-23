@@ -11,6 +11,50 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Governed purge (P) readiness: postmaster binding, rehearsal transport, archetype survivor proof
+
+Code, tests and docs only. No migration (applied `016` is unchanged), nothing
+run against production, no rehearsal started. After go-live (publish run
+39933842811) the read-only purge `status` run 39962807193 succeeded, but `plan`
+run 39963522021 stopped on `data_directory_unresolved`.
+
+- Postmaster start binding (`scripts/operator/lib/v3_generation_purge.py`):
+  `postmaster.pid` line 3 may now be at most 5 seconds **before**
+  `floor(pg_postmaster_start_time())`, never after. Production read 1792438533
+  from the file and 1792438534 from SQL. The PID, working-directory and PGDATA
+  checks are unchanged; receipts record `postmaster_start_binding`.
+- Rehearsal figures in the protected workflow
+  (`.github/workflows/v3-production-derived-purge.yml`,
+  `scripts/operator/v3_production_purge_workflow.py`): new `rehearsal_run_id`
+  and `rehearsal_sha256` inputs, required for `plan` and refused otherwise. The
+  successful `one_percent` rehearsal run's `rehearsal-receipt.json` is
+  authenticated (run provenance, seal, SHA-256, crash gate, scale, code identity),
+  staged and passed to the action's existing `--rehearsal-receipt` plan options.
+  `authorize` (workflow before SSH, and the action) now refuses a plan without
+  the reviewed one-percent binding, because authorization binds the plan to
+  every later phase.
+- Published archetype survivor proof (`v3_generation_purge.py`,
+  `v3_purge_delete.py`, `v3_purge_rewrite_dispatch.py`): applied `016`'s
+  `purge_snapshot()` covers only the four rewrite relations (so the published
+  Search count is already frozen and rechecked). The plan now also freezes the
+  exact `parallel_v1` `system_archetype` row count and both published product
+  manifests (`reviewed_plan.published_survivors`; production requires both
+  products published with rows equal to `expected_rows`), and authorize,
+  verify, complete, every delete boundary and every rewrite (before any fence,
+  after `VACUUM`, and in recovery of a committed rewrite) compare a fresh read
+  with it. Drift is an integrity stop.
+- The protected source bundle now also carries the three rehearsal harness
+  files and the 2026-10-10 lifecycle receipt, which the remote plan's
+  rehearsal-receipt validation reads.
+- Docs: runbook (postmaster tolerance, rehearsal inputs, survivor proof, the
+  stale "amended, unapplied 016" line), design §1.2, §1.3 and §4.3, and the
+  rollout-state "As of 2026-10-04" line are marked superseded with current facts.
+- F2d operator-code identity changes (purge files are in
+  `deploy/v3-production/f2d-operator-code.txt`; the manifest is unchanged). The
+  new identity ships only through a new governed app release and attestation.
+  The rehearsal receipt binds the purge script identity, so the one-percent
+  rehearsal must run on code carrying this change.
+
 ## 2026-10-23 — Owner decisions: the Finder screen
 
 Docs only. `docs/ROADMAP.md` records the owner's 2026-10-23 decisions on the

@@ -50,6 +50,9 @@ class DispatchModel:
                          'delete': {'system_search': {'batch_limit': 1, 'batch_peak_bytes': 10,
                                                       'rows_per_second': 1,
                                                       'rewrite_allowance_seconds': 600}}}
+        self.archetype_rows = 7
+        self.archetype_drift = False
+        self.reviewed['published_survivors'] = self.survivors()
         self.age_config = {'xid_ceiling': 1_000_000, 'mxid_ceiling': 1_000_000,
                            'xid_rate': 0, 'mxid_rate': 0}
         self.reviewed['autovacuum'] = {'system_search': self.age_config}
@@ -168,6 +171,9 @@ class DispatchModel:
             return dict.fromkeys(('invalid_foreign_keys', 'invalid_indexes', 'invalid_triggers'), 0)
         if sql == self.c.POINTER_IDENTITIES_SQL:
             return self.reviewed['pointer_identities']
+        if sql == self.c.PUBLISHED_SURVIVORS_SQL:
+            self.log.append('published-survivors')
+            return self.survivors(drifted=self.archetype_drift and self.batch_count > 0)
         if sql in self.c.STATUS_RELATION_SQL.values():
             self.log.append('database-counts')
             return {'targets': dict(self.counts)}
@@ -192,6 +198,13 @@ class DispatchModel:
                            'event_sequence': 3, 'relation_code': None})
         events.extend(e for e in self.failures if e['operational_payload']['integrity_failed'])
         return {'unresolved': events}
+
+    def survivors(self, *, drifted=False):
+        return {'system_archetype_rows': self.archetype_rows - int(drifted),
+                'products': {code: {'lifecycle_state': 'READY', 'expected_rows': 7,
+                                    'manifest_sha256': 'e' * 64, 'product_version': code + '-1',
+                                    'published_at': '2026-10-23T12:00:00+00:00'}
+                             for code in ('system_search', 'system_archetype')}}
 
     def targets(self):
         return [{'id': value, 'key': key, 'state': 'FAILED', 'manifest_sha256': 'd' * 64,
@@ -538,6 +551,40 @@ def test_integrity_failure_requires_exact_owner_acknowledgement_before_writer_re
     assert original[-1]['operational_payload']['integrity_failed'] is True
     with pytest.raises(ValueError, match='integrity_failed_stop_requires_restore_services_acknowledgement'):
         model.run()
+
+
+def test_delete_boundaries_prove_the_frozen_published_archetype_survivors(monkeypatch):
+    # 016's snapshot omits the published wide archetype product; the delete
+    # boundary compares the plan's frozen archetype survivors before and after.
+    model = DispatchModel(monkeypatch)
+    report = model.run()
+    assert report['status'] == 'success'
+    assert model.log.count('published-survivors') >= 2
+    assert report['published_survivors_before'] == model.reviewed['published_survivors']
+    assert report['published_survivors_after'] == model.reviewed['published_survivors']
+
+
+def test_published_archetype_survivor_drift_is_an_integrity_stop_that_keeps_writers_fenced(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    model.archetype_drift = True
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        model.run()
+    # Like 016's survivor snapshot, the exact count is a dispatch-boundary
+    # proof: the final boundary refuses logical completion and stops.
+    assert model.batch_count == 3
+    assert 'relation-logically-empty' not in model.log
+    assert model.failures[-1]['operational_payload']['integrity_failed'] is True
+    assert model.failures[-1]['operational_payload']['condition'] == 'published_archetype_survivor_count_drift'
+    assert model.writer and 'writer-restored' not in model.log
+
+
+def test_plan_without_frozen_published_survivors_is_refused_before_any_fence(monkeypatch):
+    model = DispatchModel(monkeypatch)
+    del model.reviewed['published_survivors']
+    with pytest.raises(ValueError, match='published_survivor_proof_missing'):
+        model.run()
+    assert model.mutations == []
+    assert model.counts[model.ids[0]] == 3
 
 
 @pytest.mark.parametrize('integrity', ('canonical', 'survivors', 'retained', 'fk', None))

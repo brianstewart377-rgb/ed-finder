@@ -289,3 +289,44 @@ def test_malformed_raw_measurements_refuse_with_finite_validation_error(raw):
     value['per_relation']['system_search']['raw'] = raw
     with pytest.raises(ValueError, match='measurement_invalid'):
         tool.validate(value)
+
+
+def _bound_plan():
+    value = example_receipt()
+    plan = {'snapshot': {}, 'delete': {}}
+    tool.apply_to_plan(plan, value)
+    return plan
+
+
+def test_plan_binding_accepts_exactly_the_applied_one_percent_figures():
+    plan = _bound_plan()
+    assert tool.require_plan_binding(plan) is plan['rehearsal']
+
+
+@pytest.mark.parametrize('mutation', (
+    'no_binding', 'smoke_scale', 'crash_gate_false', 'digest_invalid',
+    'fallback_throughput', 'missing_relation', 'missing_allowance', 'missing_rewrite_peak',
+    'missing_rewrite_section',
+))
+def test_plan_binding_refuses_a_plan_that_could_authorize_but_never_delete(mutation):
+    plan = _bound_plan()
+    if mutation == 'no_binding':
+        del plan['rehearsal']
+    elif mutation == 'smoke_scale':
+        plan['rehearsal']['scale'] = 'smoke'
+    elif mutation == 'crash_gate_false':
+        plan['rehearsal']['gate_10_crash_rehearsal_passed'] = False
+    elif mutation == 'digest_invalid':
+        plan['rehearsal']['content_sha256'] = 'F' * 64
+    elif mutation == 'fallback_throughput':
+        plan['delete']['body_mechanics']['rows_per_second_source'] = 'conservative_fallback'
+    elif mutation == 'missing_relation':
+        del plan['delete']['system_rating_vector']
+    elif mutation == 'missing_allowance':
+        del plan['delete']['system_search']['rewrite_allowance_seconds']
+    elif mutation == 'missing_rewrite_peak':
+        del plan['rewrite']['economy_opportunity']['rewrite_peak_bytes']
+    else:
+        del plan['rewrite']
+    with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
+        tool.require_plan_binding(plan)

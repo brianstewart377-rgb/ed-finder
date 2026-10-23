@@ -31,6 +31,11 @@ def resolve(c, tx, runtime, report, ids, reviewed, *, relation=None, cancel=True
             runtime.query(rewrite.session_setup(config['statement_timeout_ms']) + command
                           + "\nSELECT jsonb_build_object('analyzed',true);", write=True)
         def receipt():
+            # Only a committed (changed-filenode) rewrite reaches this point.
+            # Prove the published archetype survivors before REWRITE_VERIFIED;
+            # any refusal here becomes resolve_rewrites' integrity FAILED_STOP,
+            # so drift can never be verified or have its writers restored.
+            c.survivor_gate(runtime, reviewed, report, 'published_survivors_after')
             identity = runtime.query(c.IDENTITY_SQL)
             identity['data_directory'] = runtime.data_directory()
             objects = runtime.query(c.OBJECTS_SQL)
@@ -147,6 +152,9 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
     tx._targets(observed.get('targets'), failed=True)
     if observed['snapshot'] != reviewed['snapshot'] or runtime.query(c.POINTER_IDENTITIES_SQL) != reviewed['pointer_identities']:
         raise ValueError('rewrite_integrity_precondition_failed')
+    # Before any fence: the published archetype product, outside 016's
+    # snapshot, still holds exactly the plan's frozen survivor rows.
+    c.survivor_gate(runtime, reviewed, report, 'published_survivors_before')
     objects = runtime.query(c.OBJECTS_SQL)
     if not objects or any(obj.get('valid') is not True for obj in objects):
         raise ValueError('relation_or_index_evidence_invalid')
@@ -219,6 +227,21 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                 controller_alive()
                 measure(config['rewrite_peak_bytes'])
                 backend.command(rewrite.rewrite_command(relation))
+            # The VACUUM command has returned, so its rewrite has committed.
+            # Survivor drift here is an integrity stop that keeps the writer
+            # fence, exactly like a failed verification of a changed filenode.
+            try:
+                c.survivor_gate(runtime, reviewed, report, 'published_survivors_after')
+            except ValueError as exc:
+                failure = {'condition': ('published_archetype_survivor_count_drift'
+                                         if str(exc) == 'published_archetype_survivor_count_drift'
+                                         else 'published_survivor_observation_failed'),
+                           'rewrite_committed': True, 'integrity_failed': True,
+                           'start_event': start['start_event'],
+                           'published_survivors': report.get('published_survivors_after')}
+                report.update(integrity_failed=True, failure_evidence=failure)
+                tx.record_failed_stop(runtime.query, ids, failure, relation)
+                raise rewrite.tx.PurgeTransactionError(failure['condition'], failure) from None
             receipt = measure(0)
             receipt['receipt_sha256'] = c.evidence.canonical_sha256(receipt)
             report['rewrite_result'] = rewrite.verify_rewrite(runtime.query, ids, relation, receipt)

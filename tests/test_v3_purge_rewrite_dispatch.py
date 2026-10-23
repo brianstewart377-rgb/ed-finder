@@ -121,8 +121,16 @@ class RewriteModel(DispatchModel):
         if cancel:
             assert 'backend-open' not in self.log or 'backend-gone' in self.log
         if self.recovery == 'committed':
-            analyze(self.r.analyze_command(relation))
-            assert receipt()['receipt_sha256']
+            try:
+                analyze(self.r.analyze_command(relation))
+                assert receipt()['receipt_sha256']
+            except Exception as exc:
+                # Mirrors resolve_rewrites: a committed rewrite whose recovery
+                # evidence fails is an integrity stop, never a verification.
+                failure = {'condition': 'rewrite_recovery_verification_failed', 'rewrite_committed': True,
+                           'integrity_failed': True, 'start_event': 10}
+                self.failed_stop(query, ids, failure, relation)
+                raise self.r.tx.PurgeTransactionError('rewrite_recovery_verification_failed', failure) from exc
             self.write('REWRITE_VERIFIED-recovered')
             verified, rolled_back = [relation], []
             self.auto = None
@@ -359,3 +367,95 @@ def test_verified_retry_rechecks_integrity_without_opening_fences(monkeypatch, d
         assert model.run_rewrite()['result'] == 'rewrite_already_verified'
     assert model.mutations == []
     assert not model.writer and model.auto is None
+
+
+def test_rewrite_refuses_published_archetype_survivor_drift_before_any_fence(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    model.archetype_rows = 6
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        model.run_rewrite()
+    assert model.mutations == []
+
+
+def test_rewrite_survivor_drift_after_vacuum_is_an_integrity_stop_that_keeps_writers_fenced(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    query = model.runtime.query
+    def drifted(statement, params=None, **kwargs):
+        if (statement == model.c.PUBLISHED_SURVIVORS_SQL
+                and 'VACUUM (FULL, ANALYZE) v3_derived.system_search;' in model.mutations):
+            model.log.append('published-survivors')
+            return model.survivors(drifted=True)
+        return query(statement, params, **kwargs)
+    model.runtime.query = drifted
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        model.run_rewrite()
+    stop = model.failures[-1]['operational_payload']
+    assert stop['integrity_failed'] is True and stop['rewrite_committed'] is True
+    assert stop['start_event'] == 10
+    assert stop['condition'] == 'published_archetype_survivor_count_drift'
+    assert model.report['integrity_failed'] is True
+    # 016 admits owner-acknowledged writer restoration for exactly this shape;
+    # nothing verifies the rewrite or reopens writes automatically.
+    assert 'REWRITE_VERIFIED' not in model.mutations
+    assert model.writer and 'writer-restored' not in model.log
+    assert model.open_rewrite
+
+
+def test_successful_rewrite_records_both_published_survivor_proofs(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    report = model.run_rewrite()
+    assert report['published_survivors_before'] == model.reviewed['published_survivors']
+    assert report['published_survivors_after'] == model.reviewed['published_survivors']
+    assert (model.log.index('published-survivors') < model.log.index('REWRITE_STARTED-committed')
+            and model.log.index('VACUUM (FULL, ANALYZE) v3_derived.system_search;')
+            < len(model.log) - 1 - model.log[::-1].index('published-survivors')
+            < model.log.index('REWRITE_VERIFIED'))
+
+
+def _drift_after_vacuum(model):
+    query = model.runtime.query
+    def drifted(statement, params=None, **kwargs):
+        if (statement == model.c.PUBLISHED_SURVIVORS_SQL
+                and 'VACUUM (FULL, ANALYZE) v3_derived.system_search;' in model.mutations):
+            model.log.append('published-survivors')
+            return model.survivors(drifted=True)
+        return query(statement, params, **kwargs)
+    model.runtime.query = drifted
+
+
+def test_lost_response_committed_rewrite_recovery_refuses_survivor_drift(monkeypatch):
+    # VACUUM commits but its response is lost: the trap's recovery, not the
+    # dispatch's post-VACUUM check, is the first to see the committed rewrite.
+    model = RewriteModel(monkeypatch)
+    model.backend_error = 'rewrite_backend_failed'
+    _drift_after_vacuum(model)
+    with pytest.raises(ValueError, match='rewrite_recovery_verification_failed'):
+        model.run_rewrite()
+    assert 'rewrite-cancel-and-wait' in model.log
+    assert 'REWRITE_VERIFIED-recovered' not in model.mutations
+    stop = model.failures[-1]['operational_payload']
+    assert stop['integrity_failed'] is True and stop['rewrite_committed'] is True
+    assert model.report['integrity_failed'] is True
+    assert model.writer and 'writer-restored' not in model.log
+
+
+def test_redispatch_recovery_of_orphaned_committed_rewrite_refuses_survivor_drift(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    model.open_rewrite = True
+    model.archetype_drift = True
+    model.batch_count = 1  # the model's drift switch: rows changed since the plan
+    with pytest.raises(ValueError, match='rewrite_recovery_verification_failed'):
+        model.run_rewrite()
+    # Recovered ANALYZE may already have run; verification never does.
+    assert model.mutations == ['recovered-ANALYZE', 'FAILED_STOP']
+    assert model.failures[-1]['operational_payload']['integrity_failed'] is True
+    assert 'monitor-started' not in model.log and model.open_rewrite
+
+
+def test_committed_rewrite_recovery_checks_survivors_before_verification(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    model.open_rewrite = True
+    report = model.run_rewrite()
+    assert report['result'] == 'rewrite_verified_recovered'
+    assert report['published_survivors_after'] == model.reviewed['published_survivors']
+    assert model.log.index('recovered-ANALYZE') < len(model.log) - 1 - model.log[::-1].index('published-survivors')

@@ -508,7 +508,7 @@ def _eof(data):
     }
 
 
-def _seed(data, *, survivor_search_built=True):
+def _seed(data, *, survivor_search_built=True, survivor_products_published=False):
     connection, _, _, payloads = data
     snapshot = CanonicalSnapshot.pin(connection)
     records = [payload['system'] for payload in payloads]
@@ -520,15 +520,23 @@ def _seed(data, *, survivor_search_built=True):
         generation, _, manifest_hash = register_product(connection, key)
         if identifier != SURVIVOR or survivor_search_built:
             assert build_available(connection, generation, manifest_hash)['chunks_written'] == 1
+        if identifier == SURVIVOR and survivor_products_published:
+            _build_survivor_archetype(connection, [record['id64'] for record in records])
         if identifier != TARGETS[0][1]:
             seal_source(connection, identifier, _eof(data))
         if identifier == SURVIVOR:
             assert validate_generation(connection, identifier)['status'] == 'VERIFIED'
+            if survivor_products_published:
+                _ready_survivor_products(connection)
             assert connection.execute(
                 'SELECT v3_meta.publish_derived_generation(%s,%s,%s,%s,%s,%s,%s,%s)',
                 (identifier, None, 0, snapshot.generation_id, snapshot.publication_sequence,
                  'fixture', 'published survivor', []),
             ).fetchone()[0] == 1
+            if survivor_products_published:
+                for code in ('system_search', 'system_archetype'):
+                    connection.execute('SELECT v3_meta.publish_derived_product(%s,%s,%s)',
+                                       (SURVIVOR, code, 'fixture'))
     spatial = uuid4()
     connection.execute(
         '''INSERT INTO v3_spatial.spatial_generation(
@@ -545,6 +553,29 @@ def _seed(data, *, survivor_search_built=True):
     connection.execute(
         'SELECT v3_spatial.publish_spatial_pyramid(%s,NULL,0,%s,%s,%s)',
         (spatial, snapshot.generation_id, 'fixture', 'published spatial survivor'),
+    )
+
+
+def _build_survivor_archetype(connection, system_ids):
+    """One wide archetype row per published survivor system, as F2d builds."""
+    from tests.test_v3_derived_product_publication import _insert_archetype_row
+    manifest = {'product_code': 'system_archetype', 'product_version': 'v3-archetype-test'}
+    connection.execute(
+        '''INSERT INTO v3_meta.derived_product (derived_generation_id,product_code,product_version,
+               manifest,manifest_sha256,expected_rows)
+           VALUES (%s,'system_archetype','v3-archetype-test',%s,%s,%s)''',
+        (SURVIVOR, Jsonb(manifest), b'a' * 32, len(system_ids)),
+    )
+    for system_id in system_ids:
+        _insert_archetype_row(connection, SURVIVOR, system_id)
+
+
+def _ready_survivor_products(connection):
+    connection.execute(
+        '''UPDATE v3_meta.derived_product SET lifecycle_state='READY',validation_receipt=%s,
+               validation_sha256=%s,validated_at=transaction_timestamp()
+           WHERE derived_generation_id=%s''',
+        (Jsonb({'status': 'VERIFIED'}), b'v' * 32, SURVIVOR),
     )
 
 
@@ -708,6 +739,55 @@ def test_operator_plan_and_status_observation_sql_is_readonly_under_executor(dat
     assert not any(call['write'] for call in calls)
     assert all('BEGIN READ ONLY' in call['statement'] for call in calls)
     assert _count(connection, 'v3_meta.derived_generation_purge_request') == 0
+
+
+def test_published_survivor_read_freezes_exact_archetype_rows_under_executor(database):
+    connection = database[0]
+    _seed(database, survivor_products_published=True)
+    calls = []
+    query = _operator_query(connection, calls)
+    observed = query(purge_operator.PUBLISHED_SURVIVORS_SQL)
+    systems = _count(connection, 'v3_derived.system_rating_vector', SURVIVOR)
+    assert systems > 0
+    assert observed['system_archetype_rows'] == _count(connection, 'v3_derived.system_archetype', SURVIVOR) == systems
+    assert set(observed['products']) == {'system_search', 'system_archetype'}
+    assert all(product['lifecycle_state'] == 'READY' and isinstance(product['published_at'], str)
+               for product in observed['products'].values())
+    snapshot = query('SET ROLE v3_derived_purge_executor; SELECT v3_meta.purge_snapshot();')
+    assert snapshot['survivors']['system_search'] == systems
+    runtime = SimpleNamespace(query=query)
+    frozen = purge_operator.published_survivors(runtime, snapshot['survivors'], require_published=True)
+    assert frozen == observed
+    report = {}
+    reviewed = {'published_survivors': frozen}
+    assert purge_operator.survivor_gate(runtime, reviewed, report, 'published_survivors_after') == frozen
+    # 016's snapshot does not see the published archetype product: a changed
+    # survivor row count is caught only by this operator read. A guard-free
+    # owner fault injection stands in for drift the guards should prevent.
+    connection.execute('RESET ROLE')
+    connection.execute('ALTER TABLE v3_derived.system_archetype DISABLE TRIGGER USER')
+    connection.execute('DELETE FROM v3_derived.system_archetype WHERE derived_generation_id=%s AND system_id64='
+                       '(SELECT min(system_id64) FROM v3_derived.system_archetype WHERE derived_generation_id=%s)',
+                       (SURVIVOR, SURVIVOR))
+    connection.execute('ALTER TABLE v3_derived.system_archetype ENABLE TRIGGER USER')
+    assert query('SET ROLE v3_derived_purge_executor; SELECT v3_meta.purge_snapshot();') == snapshot
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        purge_operator.survivor_gate(runtime, reviewed, report, 'published_survivors_after')
+    assert not any(call['write'] for call in calls if call['statement'] == purge_operator.PUBLISHED_SURVIVORS_SQL)
+    assert all('BEGIN READ ONLY' in call['statement'] for call in calls
+               if call['statement'] == purge_operator.PUBLISHED_SURVIVORS_SQL)
+
+
+def test_production_survivor_proof_refuses_unpublished_finder_products(database):
+    connection = database[0]
+    _seed(database)
+    query = _operator_query(connection)
+    snapshot = query('SET ROLE v3_derived_purge_executor; SELECT v3_meta.purge_snapshot();')
+    runtime = SimpleNamespace(query=query)
+    observed = purge_operator.published_survivors(runtime, snapshot['survivors'])
+    assert observed['system_archetype_rows'] == 0
+    with pytest.raises(ValueError, match='published_survivor_product_count_unproven'):
+        purge_operator.published_survivors(runtime, snapshot['survivors'], require_published=True)
 
 
 def test_status_relation_sql_isolates_access_exclusive_lock_timeout(database):

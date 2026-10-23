@@ -1,6 +1,14 @@
 # V3 Finder production rollout — actual state & honest remaining path
 
-**As of 2026-10-04.** This document exists because the roadmap and delivery plan
+**As of 2026-10-04 — superseded as a current-state date (2026-10-23).** The
+Finder went live on 2026-10-23: publish run 39933842811 published both Finder
+products (`system_search`, `system_archetype`) on
+`ratings_v4_prod_p4_parallel_v1`. The governed purge (P) is the next step and is
+not yet runnable: its read-only `status` run 39962807193 succeeded (workers
+stopped, purge ledger clear) and its read-only `plan` run 39963522021 stopped on
+`data_directory_unresolved` (addressed in code by the 2026-10-23 purge-readiness
+change in `CHANGES.md`; P's remaining gates are in `docs/ROADMAP.md`). The dated progress notes below remain
+the historical record. This document exists because the roadmap and delivery plan
 described the Finder production rollout as further along, and with more tooling,
 than actually exists. It is **verified evidence** of what is really true in
 production (from a direct read-only inspection of the production database and the

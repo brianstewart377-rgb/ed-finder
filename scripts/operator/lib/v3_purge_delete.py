@@ -25,6 +25,7 @@ INTEGRITY_FAILURES = frozenset((
     'delete_pointer_changed', 'delete_published_survivor_count_drift',
     'delete_retained_metadata_drift', 'delete_fk_or_index_failure',
     'delete_loop_process_outcome_unknown', 'relation_or_index_evidence_invalid',
+    'published_archetype_survivor_count_drift',
 ))
 
 
@@ -446,6 +447,10 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
             raise ValueError('delete_retained_metadata_drift')
         if runtime.query(c.POINTER_IDENTITIES_SQL) != reviewed.get('pointer_identities'):
             raise ValueError('delete_pointer_changed')
+        # 016's snapshot omits the published archetype product: compare its
+        # exact survivor rows with the plan's frozen proof at every boundary.
+        c.survivor_gate(runtime, reviewed, report, 'published_survivors_before'
+                        if report.get('published_survivors_before') is None else 'published_survivors_after')
         checks = runtime.query(tx.COMPLETION_STATE_SQL, {'plan_sha256': reviewed['plan_sha256']})
         if (not isinstance(checks, dict) or any(checks.get(k) != 0
                 for k in ('invalid_foreign_keys', 'invalid_indexes', 'invalid_triggers'))):

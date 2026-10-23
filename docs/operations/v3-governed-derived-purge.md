@@ -145,9 +145,61 @@ fixed container filesystem command because the executor cannot call
 `pg_ls_waldir`; it receives no additional monitoring or filesystem SQL grant.
 The data directory is obtained from the pinned container's `PGDATA` and
 `postmaster.pid`, because the executor also lacks permission to read the
-`data_directory` server setting. The PID must still have that working directory
-and its recorded start epoch must equal `pg_postmaster_start_time()` from the
-live SQL session. Any inconsistency or missing path stops the placement proof.
+`data_directory` server setting. The PID must still have that working directory,
+and its recorded start epoch (line 3, the postmaster's whole-second start time)
+must be at most **5 seconds before**, and never after,
+`floor(pg_postmaster_start_time())` from the live SQL session. PostgreSQL writes
+the file's epoch as the postmaster starts and records the SQL start time later
+in start-up, so exact equality is not guaranteed: production read `1792438533`
+from the file and `1792438534` from SQL (plan run 39963522021 then stopped on
+`data_directory_unresolved`; the earlier exact-equality rule is superseded).
+Receipts record `postmaster_start_binding` with both epochs, the gap and the
+tolerance. A file epoch after the SQL value, a larger gap, or any other
+inconsistency or missing path stops the placement proof.
+
+### Published Finder product survivors
+
+After go-live the published `parallel_v1` generation owns both Finder
+products. Applied migration 016's `purge_snapshot()` freezes and rechecks the
+survivor counts of the four rewrite relations only, so the published Search
+rows (`survivors.system_search`) are already proven unchanged against the
+reviewed plan's frozen non-zero count by 016 itself. The published wide
+`v3_derived.system_archetype` product lies outside that snapshot. 016 is applied
+and is not edited; the action instead runs one fixed read-only executor query
+(`PUBLISHED_SURVIVORS_SQL`; the executor already holds `SELECT` on both
+relations) for the exact `parallel_v1` archetype row count and both published
+product manifests (version, state, manifest SHA-256, `expected_rows`,
+`published_at`).
+
+- `plan` freezes that result as `reviewed_plan.published_survivors`, sealed into
+  the plan and into 016's immutable request. In production it also requires both
+  products to be `READY` and published with exact survivor rows equal to each
+  product's verified `expected_rows` (Search from 016's snapshot, archetype from
+  this read); otherwise it stops with `published_survivor_product_count_unproven`.
+  The disposable rehearsal publishes no Finder product, so it freezes the
+  observed (empty) state without that requirement.
+- `authorize` and `complete` compare a fresh read with the frozen proof
+  immediately before their write and again after it; `verify-system-archetype-empty`
+  checks before and after its read-only count.
+- Every `delete-` dispatch compares at its first and final boundary, exactly
+  where it rechecks 016's survivor snapshot. Drift is an integrity failure: the
+  loop records `FAILED_STOP` with `integrity_failed: true`, records no logical
+  completion and keeps the writer fence for owner review.
+- Every `rewrite-` dispatch compares before opening any fence and again after
+  `VACUUM (FULL, ANALYZE)` returns, before `REWRITE_VERIFIED`. Drift there records
+  `FAILED_STOP` with `rewrite_committed: true`, `integrity_failed: true` and the
+  start event, the shape 016 accepts for owner-acknowledged writer restoration;
+  the rewrite is not verified and writers stay fenced.
+- Recovery of a **committed** rewrite (changed filenode) applies the same check
+  before `REWRITE_VERIFIED`, whichever path resolves it: the dispatch's own
+  trap (for example when `VACUUM` committed but its response was lost), a
+  matching `rewrite-` re-dispatch, or `restore-services`. A refusal there is
+  recovery's existing integrity `FAILED_STOP` with `rewrite_committed: true`, so
+  the rewrite is never verified and writers stay fenced for owner review.
+
+A plan without `published_survivors` cannot drive any of these phases
+(`published_survivor_proof_missing`). Rolled-back rewrite recovery, batch
+recovery, writer restoration and `abort-relation-` do not read it.
 
 The F2d code identity includes the new shared helpers and modified actions.
 Existing accepted-release attestations are not silently regenerated: the normal
@@ -178,6 +230,8 @@ of the dedicated purge workflow. No mutating purge mode is available in ops.
 | `plan_sha256` | The plan receipt's 64-character lowercase hexadecimal `content_sha256`, reviewed with that run's artifact. Required with `plan_run_id`; this is the external receipt seal, distinct from the nested database `plan_sha256`. |
 | `verification_run_id` | Digits-only ID of the successful dedicated-workflow `verify-system-archetype-empty` run on `main`. Required for delete, rewrite, abort, `restore-services`, and `complete`. |
 | `verification_sha256` | The successful exclusion-verification receipt's 64-character lowercase hexadecimal `content_sha256`. Required with `verification_run_id`. |
+| `rehearsal_run_id` | Digits-only ID of the successful [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml) `one_percent` run on `main`. **Required for `plan`** and refused for every other mode. |
+| `rehearsal_sha256` | That run's reviewed `rehearsal-receipt.json` `content_sha256` (64 lowercase hex). Required with `rehearsal_run_id`. |
 | `acknowledge_failed_stop` | Optional digits-only ledger event sequence, admitted only for `restore-services`. After owner review it acknowledges the exact integrity-failed stop for writer restoration; it authorizes no repair or continuation past that stop. |
 | `wall_clock_seconds` | Required integer delete-loop budget, 1–1800 seconds. Leave blank for every other mode. It is not a rewrite timeout or a maintenance-window estimate. |
 
@@ -189,7 +243,22 @@ edited receipt, an ops-workflow artifact, a failed run, or the wrong producing
 mode is refused. The fixed artifact names are `v3-derived-purge-plan` and
 `v3-derived-purge-verification`, each containing `receipt.json`. Keep the reviewed
 plan run ID and seal, then the verification run ID and seal, with the operator's
-phase record. Only `authorize` requires the plan's source SHA to equal the current
+phase record.
+
+The rehearsal receipt is authenticated the same way against the dedicated
+rehearsal workflow: GitHub must report that run as a successful
+`workflow_dispatch` on `main` of this repository, and the receipt's
+`source_git_sha` must equal its `head_sha`. Its artifact is named
+`v3-derived-purge-rehearsal-<run id>-<attempt>`, so the workflow downloads every
+attempt's artifact and reads `rehearsal-receipt.json` only from the attempt
+GitHub reports as the run's successful conclusion. The authentication step then
+stages exactly those bytes, verifies the seal and the supplied SHA-256, and the
+receipt module requires `status: success`, empty failures, `scale: one_percent`,
+JSON boolean `gate_10_crash_rehearsal_passed: true`, verified clean-up, the
+committed lifecycle proportions and the same action/harness/migration-set code
+identity that will run the plan. Only those staged bytes travel to the host,
+where the action repeats the same validation before copying the figures into
+the plan and sealing it. Only `authorize` requires the plan's source SHA to equal the current
 execution SHA. After authorization, later phases and recovery retain the
 original immutable plan and exclusion proof even if `main` advances; each new
 dispatch still executes exact current `main`. This preserves recovery access
@@ -198,13 +267,19 @@ without substituting a new plan for the existing ledger requests.
 After installation and all design execution gates have passed, dispatch in this
 order, reviewing each receipt before approving the next phase:
 
-1. `plan` in the dedicated workflow. Review its complete sealed receipt,
-   exact targets/source/schema identities, stopped workers, unchanged pointers,
-   published counts, storage/WAL evidence and freeze-age horizon. Retain the run
+1. `plan` in the dedicated workflow, with the reviewed `rehearsal_run_id` and
+   `rehearsal_sha256`. Review its complete sealed receipt, exact
+   targets/source/schema identities, stopped workers, unchanged pointers,
+   published counts (including `reviewed_plan.published_survivors`), the
+   rehearsal figures, storage/WAL evidence and freeze-age horizon. Retain the run
    ID and `content_sha256`.
 2. `authorize` with that `plan_run_id` and `plan_sha256`. Authorization requires
    a plan no older than one hour from the exact current execution head; an expired
-   plan or a source change needs a fresh plan and review.
+   plan or a source change needs a fresh plan and review. Both the workflow
+   (before SSH) and the action refuse a plan without the reviewed one-percent
+   rehearsal binding (`plan_rehearsal_figures_required`): authorization binds
+   the plan to every later phase, so a figure-less plan could authorize but never
+   delete, rewrite or abort.
    This marks both immutable targets `FAILED` without deleting payload.
 3. `verify-system-archetype-empty` with the same plan inputs. Review and retain
    its successful sealed artifact, run ID and `content_sha256`. An archetype or
@@ -222,13 +297,11 @@ order, reviewing each receipt before approving the next phase:
    target rows alone do not establish reclamation or completion.
 
 P2d's reviewed rehearsal figures must be present in the sealed plan **before**
-any delete, rewrite, or abort dispatch can run. The action's plan mode now accepts
-a reviewed sealed rehearsal receipt and its explicit content SHA as described
-below. The protected workflow does not yet transport that rehearsal artifact to
-its plan invocation, so its default plan still has no measured rewrite allowance,
-rewrite peak/timeout or autovacuum-release budget and destructive dispatch stays
-fail-closed. Adding governed artifact staging is a separate dispatch integration;
-do not bypass the protected workflow or edit a downloaded plan. Per relation,
+any delete, rewrite, or abort dispatch can run. The protected workflow transports
+the authenticated rehearsal receipt to the plan invocation as described above
+(superseding the earlier note that it had no such input); a plan without it is
+refused by the workflow, and `authorize` refuses a plan that lacks the binding.
+Do not bypass the protected workflow or edit a downloaded plan. Per relation,
 review `delete[relation].rows_per_second`, `rows_per_second_source`,
 `rewrite_allowance_seconds`, `autovacuum_budget_bytes`, and `batch_peak_bytes`,
 plus `rewrite[relation].rewrite_peak_bytes` and `statement_timeout_ms`; JSON
@@ -405,10 +478,13 @@ and reservation, rewrite peak, and statement timeout. The receipt retains raw
 and margin-applied figures separately. Raw batch/rewrite peaks enter the plan;
 production controllers apply the 1.5× margin at admission, exactly once.
 The autovacuum lower-bound budget already carries its recorded margin.
-The protected production workflow currently has no rehearsal artifact transport
-input. Until a reviewed staging integration supplies these plan options while
-preserving workflow artifact provenance, production destructive dispatch remains
-blocked. Do not supply an edited plan or an unreviewed synthetic estimate.
+The protected production workflow supplies these plan options from its
+`rehearsal_run_id`/`rehearsal_sha256` inputs, preserving artifact provenance as
+described under the dispatch runbook above (this supersedes the earlier "no
+rehearsal artifact transport input" statement). Do not supply an edited plan or
+an unreviewed synthetic estimate. Because the recorded script and migration-set
+identities must equal the code running the plan, the rehearsal must be run on a
+`main` whose purge code identity is the one the plan will run.
 
 ## Action modes and receipt order
 
@@ -618,8 +694,9 @@ A batch monitor can cancel only that recorded backend through
 rechecks the gates. A failed gate records `FAILED_STOP` with its measurements
 and starts no further batch. Controller loss stops after at most the current
 batch. A wall-clock stop also preserves all committed batches; the next
-dispatch resumes from database counts. Published-survivor drift, pointer
-change, retained-metadata drift, FK/index failure, or an unknown integrity or
+dispatch resumes from database counts. Published-survivor drift (including
+the published archetype product's `published_archetype_survivor_count_drift`),
+pointer change, retained-metadata drift, FK/index failure, or an unknown integrity or
 FAILED_STOP recording outcome sets `integrity_failed: true`.
 
 When target rows reach zero, the receipt recommends `rewrite-<relation>` and
@@ -673,8 +750,9 @@ progress view shows the relation, then resolved by the rewrite procedure below
 before writer restoration.
 
 After an integrity-failed stop, restoration requires owner review and the exact
-`--acknowledge-failed-stop=<event-sequence>`. The amended, unapplied migration
-016 accepts the optional acknowledgement only on writer restoration. It must
+`--acknowledge-failed-stop=<event-sequence>`. Migration 016 (applied in
+production on 2026-10-18, apply run 39113822236, with this amendment; the
+earlier "amended, unapplied" wording is superseded) accepts the optional acknowledgement only on writer restoration. It must
 name an existing `FAILED_STOP` with `integrity_failed: true` belonging to the
 same plan (including a sibling request); missing, non-integrity, wrong-kind,
 wrong-plan or enable-path acknowledgements refuse. The dedicated

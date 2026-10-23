@@ -58,6 +58,18 @@ TARGETS = {
 }
 PUBLISHED_ID = 'cfc25d36-3bc7-4011-a465-d6460eaaf826'
 PUBLISHED_KEY = 'ratings_v4_prod_p4_parallel_v1'
+# The published Finder products whose survivor rows every destructive phase
+# must leave exactly as the reviewed plan froze them.
+SURVIVOR_PRODUCTS = ('system_search', 'system_archetype')
+# postmaster.pid line 3 is the postmaster's MyStartTime, whole seconds taken as
+# the process starts. pg_postmaster_start_time() is PgStartTime, recorded later
+# in postmaster start-up, after configuration, lock-file and shared-memory
+# set-up. So the file's epoch never follows the SQL value's whole second, and
+# normally equals it or trails it by one: production read 1792438533 from the
+# file and 1792438534 from SQL (plan run 39963522021). Five seconds admits a
+# slow shared-memory start on the 192 GB production host; a different server
+# would also have to match this PID, its working directory and this PGDATA.
+POSTMASTER_START_TOLERANCE_SECONDS = 5
 
 
 def _load(name, path=None):
@@ -207,6 +219,21 @@ def check_placement(data_device, objects, temp_devices, wal_device):
             any(device != data_device for device in temp_devices) or wal_device != data_device):
         raise ValueError('tablespace_or_wal_filesystem_mismatch')
     return True
+
+
+def postmaster_start_binding(pid_file_epoch, sql_epoch):
+    """Bind postmaster.pid to the live SQL server's start, never the reverse.
+
+    The file's start second may precede pg_postmaster_start_time() by at most
+    POSTMASTER_START_TOLERANCE_SECONDS. A file epoch after the SQL value, or a
+    larger gap, is a different start and refuses the placement proof.
+    """
+    if (type(pid_file_epoch) is not int or type(sql_epoch) is not int
+            or not 0 <= sql_epoch - pid_file_epoch <= POSTMASTER_START_TOLERANCE_SECONDS):
+        raise ValueError('data_directory_unresolved')
+    return {'pid_file_epoch': pid_file_epoch, 'sql_epoch': sql_epoch,
+            'gap_seconds': sql_epoch - pid_file_epoch,
+            'tolerance_seconds': POSTMASTER_START_TOLERANCE_SECONDS}
 
 
 def read_sql(body):
@@ -378,6 +405,63 @@ SELECT jsonb_object_agg(id::text,jsonb_build_object(
  'cluster_member',(SELECT count(*) FROM v3_spatial.cluster_member WHERE derived_generation_id=id),
  'system_archetype',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id=id))) FROM ids
 """)
+
+# Applied 016's purge_snapshot() counts survivors in the four rewrite relations
+# only. The published wide archetype product lives outside it, so this fixed
+# read freezes its exact survivor rows and both published product manifests in
+# the plan, and every destructive phase compares a fresh read with them. The
+# executor already holds SELECT on both relations; no 016 change is involved.
+PUBLISHED_SURVIVORS_SQL = read_sql("""
+SELECT jsonb_build_object(
+ 'system_archetype_rows',(SELECT count(*) FROM v3_derived.system_archetype
+  WHERE derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826'),
+ 'products',COALESCE((SELECT jsonb_object_agg(product_code,jsonb_build_object(
+  'product_version',product_version,'lifecycle_state',lifecycle_state,
+  'manifest_sha256',encode(manifest_sha256,'hex'),'expected_rows',expected_rows,
+  'published_at',published_at))
+  FROM v3_meta.derived_product WHERE derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826'
+  AND product_code IN ('system_search','system_archetype')),'{}'::jsonb))
+""")
+
+
+def published_survivors(runtime, survivors=None, *, require_published=False):
+    """Observe the published archetype survivors and both product manifests.
+
+    With ``require_published`` (the production plan), both Finder products must
+    be READY and published, and their exact survivor rows (Search from 016's
+    snapshot, archetype from this read) must equal each product's verified
+    expected_rows: the frozen counts are the published counts.
+    """
+    value = runtime.query(PUBLISHED_SURVIVORS_SQL)
+    rows = value.get('system_archetype_rows') if isinstance(value, dict) else None
+    products = value.get('products') if isinstance(value, dict) else None
+    if (type(rows) is not int or rows < 0 or not isinstance(products, dict)
+            or not set(products) <= set(SURVIVOR_PRODUCTS)
+            or any(not isinstance(product, dict) for product in products.values())):
+        raise ValueError('published_survivor_observation_invalid')
+    if require_published:
+        counts = {'system_search': (survivors or {}).get('system_search'), 'system_archetype': rows}
+        for code in SURVIVOR_PRODUCTS:
+            product = products.get(code)
+            if (not isinstance(product, dict) or product.get('lifecycle_state') != 'READY'
+                    or not isinstance(product.get('published_at'), str)
+                    or type(product.get('expected_rows')) is not int
+                    or type(counts[code]) is not int or counts[code] != product['expected_rows']):
+                raise ValueError('published_survivor_product_count_unproven')
+    return {'system_archetype_rows': rows, 'products': products}
+
+
+def survivor_gate(runtime, reviewed, report, key):
+    """Compare fresh published-product survivors with the plan's frozen proof."""
+    frozen = reviewed.get('published_survivors') if isinstance(reviewed, dict) else None
+    if not isinstance(frozen, dict):
+        raise ValueError('published_survivor_proof_missing')
+    observed = published_survivors(runtime)
+    report[key] = observed
+    if evidence.canonical_json(observed) != evidence.canonical_json(frozen):
+        raise ValueError('published_archetype_survivor_count_drift')
+    return observed
+
 
 # Status never calls purge_snapshot(): that function scans all payload heaps.
 # Catalog/ledger metadata is available even while a heap is being rewritten.
@@ -702,8 +786,10 @@ class Runtime:
                             'sed -n "2,3p" "$PGDATA/postmaster.pid"')
         parts = value.splitlines()
         if (len(parts) != 2 or not parts[0].startswith('/') or '..' in parts[0].split('/')
-                or not parts[1].isdecimal() or int(parts[1]) != self.report.get('postmaster_started_epoch')):
+                or not parts[1].isascii() or not parts[1].isdecimal()):
             raise ValueError('data_directory_unresolved')
+        self.report['postmaster_start_binding'] = postmaster_start_binding(
+            int(parts[1]), self.report.get('postmaster_started_epoch'))
         return parts[0]
 
     def storage(self, identity, objects):
@@ -1001,6 +1087,13 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
     state = (runtime.state(allow_unresolved=True) if mode == 'status'
              else admission_state(runtime, report))
     report['purge_state'] = state
+    if mode == 'authorize' and not getattr(runtime, 'rehearsal', False):
+        # authorize binds this plan to the ledger for every later phase, and
+        # those phases read their measured bounds from it. A production plan
+        # without reviewed one-percent figures could authorize but never delete.
+        if plan is None:
+            raise ValueError('authenticated_plan_required')
+        _load('v3_purge_rehearsal_receipt').require_plan_binding(plan['reviewed_plan'])
     if mode == 'status':
         progress = runtime.query(PROGRESS_SQL)
         report['progress'] = progress
@@ -1101,6 +1194,10 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
                       replication_slots=fresh_wal['slots'], checkpoint_counters=fresh_wal['checkpoints'],
                       temp_bytes=fresh_wal['temp_bytes'])
         require_reviewed_migration_ledger(runtime, entries)
+        if mode != 'plan':
+            # Immediately before the authorize/complete write, after the long
+            # exact scans: the published products still hold the frozen rows.
+            survivor_gate(runtime, reviewed, report, 'published_survivors_before')
 
     if mode != 'plan':
         if plan is None:
@@ -1121,6 +1218,12 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         reviewed = transactions.collect_plan(runtime.query, report['source_git_sha'], actor, reason)
         if reviewed['snapshot'] != observed['snapshot'] or reviewed['targets'] != observed['targets']:
             raise ValueError('plan_snapshot_changed_during_measurement')
+        # The disposable rehearsal publishes no Finder product; production
+        # must prove both published products' exact survivor counts.
+        reviewed['published_survivors'] = published_survivors(
+            runtime, reviewed['snapshot'].get('survivors'),
+            require_published=not getattr(runtime, 'rehearsal', False))
+        report['published_survivors_before'] = reviewed['published_survivors']
         reviewed.update(autovacuum=auto['configuration'], extra_payload_counts=extra_counts,
                         # Until measured/configured cadence is reviewed, reserve
                         # one row per second across dispatches. A rewrite time
@@ -1153,6 +1256,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
             ids = transactions.get_purge_ids(runtime.query, reviewed['plan_sha256'])
             report['purge_id'] = ids
             if mode == 'verify-system-archetype-empty':
+                survivor_gate(runtime, reviewed, report, 'published_survivors_before')
                 result = transactions.verify_empty(runtime.query, purge_ids=ids)
             else:
                 report['system_archetype_verification'] = verification_gate(verification, [
@@ -1181,6 +1285,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         if 'purge_ids' in result:
             report['purge_id'] = result['purge_ids']
         after_snapshot = result.get('snapshot')
+        survivor_gate(runtime, reviewed, report, 'published_survivors_after')
     if after_snapshot is not None:
         report['pointers_after'] = {k: after_snapshot[k] for k in ('canonical', 'derived', 'spatial')}
         report['survivors_after'] = after_snapshot['survivors']
