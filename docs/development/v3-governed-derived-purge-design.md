@@ -24,6 +24,8 @@ The current general operator surface is `.github/workflows/chatgpt-ed-new-ops.ym
 
 ### 1.2 Generations, products, and pointers in the committed 2026-10-10 receipt
 
+> **Superseded as current state (2026-10-23).** This subsection describes the dated 2026-10-10 receipt only. Since then: the governed apply run 39113822236 applied `014`, `010`, the rewritten `011`, `013`, `015` and `016` on 2026-10-18; both Finder products, `system_search` and `system_archetype`, were built on the published `ratings_v4_prod_p4_parallel_v1` and published on 2026-10-23 (publish run 39933842811), so their `parallel_v1` rows are **survivors**, never targets; the generation pointer did not move. The two purge targets and their identities below are unchanged. The read-only purge `status` run 39962807193 (2026-10-23) observed every named worker stopped and a clear purge ledger. Execution still requires a fresh plan (§4.3 step 3), never these figures.
+
 The committed receipt records these derived generations:
 
 | Generation | UUID | State | Systems evidenced | Publication |
@@ -39,6 +41,8 @@ The only recorded derived product is `system_search` version `v3-system-search-1
 The current committed receipt is not sufficient proof that workers are now stopped: it reports `all_named_workers_stopped: false` and the `opt1` ratings worker as paused/running (`docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:1-2`, `docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json:884-916`). The operations evidence says the owner subsequently killed that worker and a second governed run exited successfully, but its receipt is not committed; step 0 therefore remains open (`docs/operations/v3-finder-production-rollout-state.md:253-266`). A new committed, exact-head preflight receipt is mandatory before any purge authorization.
 
 ### 1.3 Every final-schema relation that holds derived-generation-scoped rows
+
+> **Superseded "production status" column (2026-10-23).** The right-hand column reports the dated 2026-10-10 receipt. Every relation below now exists in production (migrations through `016` applied 2026-10-18, apply run 39113822236). `v3_derived.system_archetype` now holds the published `parallel_v1` archetype rows (one wide row per system) and `v3_derived.system_search` the published `parallel_v1` Search rows alongside the retained `opt1` rows; the `parallel_v1` rows are survivors. Target archetype and cluster rows must still be proven zero (§4.3 step 5). Because applied `016`'s `purge_snapshot()` counts survivors in the four rewrite relations only, the published archetype survivors are frozen and rechecked by the operator's separate read-only survivor proof (runbook, "Published Finder product survivors"). `system_archetype_summary` is a view (§1.5).
 
 The following list is exhaustive for relations carrying a `derived_generation_id` in the migrations on this base. Views are listed separately because they hold no rows.
 
@@ -292,6 +296,8 @@ The workflow uses `tee`, uploads receipts with `if: always()` and `if-no-files-f
 ### 4.3 Exact production order and free-space gates
 
 > Ordering superseded by the 2026-10-17 amendment (see the top of this record): steps 11–12 below now precede this purge, which runs after go-live; steps 3–10 and their gates are unchanged.
+>
+> **Status (2026-10-23), superseding the 2026-10-10 state this section was written against:** steps 1 and 2 are done (`016` and the rest of the pending set applied 2026-10-18, apply run 39113822236; the ledger-aware backup wrapper installed, run 39115078455). Steps 11–12 are done through go-live: the 18 Search constraints were validated, and both Finder products were published on 2026-10-23 (publish run 39933842811). Step 3 has not yet produced a plan: the read-only plan run 39963522021 stopped on `data_directory_unresolved` because the postmaster PID file's start second preceded `pg_postmaster_start_time()` by one second; the operator now admits a bounded five-second, never-reversed gap (runbook, "Design and implementation boundaries"). The protected workflow's `plan` now carries the reviewed one-percent rehearsal receipt into the sealed plan, and `authorize` refuses a plan without it. Step 6's survivor proof: applied `016` compares the plan's frozen non-zero `parallel_v1` Search count in every boundary and rewrite verification (`purge_snapshot()`), and the operator additionally freezes and rechecks the published `system_archetype` survivors and both product manifests around every destructive phase. The ROADMAP's three reopened gates still decide when P may run.
 
 1. Merge this docs-only design and ROADMAP amendment. In later reviewed implementation PRs, merge final wide-row `011`, product-publication `015`, purge `016`, action/workflow/runbook, manifest/authority identities, and tests. Those later changes are code only and do not themselves dispatch production work.
 2. Run governed migration `plan`, review, then `apply` the entire exact pending prefix. The migration runner commits each migration and ledger row together and requires the live ledger to be an exact prefix (`docs/operations/v3-production-schema-migration.md:52-70`).

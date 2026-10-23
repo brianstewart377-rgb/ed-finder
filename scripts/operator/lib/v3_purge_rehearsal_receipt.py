@@ -213,6 +213,34 @@ def load_reviewed(path, expected_sha):
     return validate(value)
 
 
+def require_plan_binding(reviewed):
+    """Refuse a production plan that does not carry reviewed one-percent figures.
+
+    ``authorize`` binds its plan immutably to the purge ledger, and every later
+    delete, rewrite and abort reads its measured bounds from that plan. A plan
+    sealed without ``apply_to_plan`` would leave the purge unable to proceed.
+    """
+    binding = reviewed.get('rehearsal') if isinstance(reviewed, dict) else None
+    if (not isinstance(binding, dict) or binding.get('scale') != 'one_percent'
+            or binding.get('gate_10_crash_rehearsal_passed') is not True
+            or not isinstance(binding.get('content_sha256'), str)
+            or re.fullmatch('[0-9a-f]{64}', binding['content_sha256']) is None):
+        raise ValueError('plan_rehearsal_figures_required')
+    source = 'reviewed_rehearsal:' + binding['content_sha256']
+    delete, rewrite = reviewed.get('delete'), reviewed.get('rewrite')
+    for relation in RELATIONS:
+        figures = delete.get(relation) if isinstance(delete, dict) else None
+        bounds = rewrite.get(relation) if isinstance(rewrite, dict) else None
+        if (not isinstance(figures, dict) or figures.get('rows_per_second_source') != source
+                or any(key not in figures for key in (
+                    'batch_limit', 'batch_peak_bytes', 'rows_per_second',
+                    'rewrite_allowance_seconds', 'autovacuum_budget_bytes'))
+                or not isinstance(bounds, dict)
+                or any(key not in bounds for key in ('rewrite_peak_bytes', 'statement_timeout_ms'))):
+            raise ValueError('plan_rehearsal_figures_required')
+    return binding
+
+
 def apply_to_plan(reviewed, rehearsal):
     """Copy authenticated measured inputs into the real action's reviewed plan."""
     validate(rehearsal)

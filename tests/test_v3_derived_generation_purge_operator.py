@@ -628,7 +628,8 @@ def _preflight_runtime(module, monkeypatch, failure):
                               workers=lambda: failure != 'workers',
                               docker=lambda *args, **kwargs: '0 /data/pg_wal')
     plan = {'source_git_sha': '9' * 40, 'script_sha256': '2' * 64,
-            'published_generation': published, 'reviewed_plan': {'plan_sha256': '6' * 64}}
+            'published_generation': published,
+            'reviewed_plan': {'plan_sha256': '6' * 64, **_rehearsal_figures(module)}}
     return report, runtime, plan, calls
 
 
@@ -728,6 +729,21 @@ def test_open_autovacuum_status_reports_both_rates_and_the_nearer_ceiling():
     assert result[0]['ceiling_exceeded'] is False
 
 
+def _rehearsal_figures(module, digest='9' * 64):
+    """The reviewed one-percent binding a production authorize requires."""
+    return {
+        'rehearsal': {'content_sha256': digest, 'scale': 'one_percent',
+                      'gate_10_crash_rehearsal_passed': True},
+        'delete': {code: {'batch_limit': 1000, 'batch_peak_bytes': 1, 'rows_per_second': 1.0,
+                          'rewrite_allowance_seconds': 60, 'autovacuum_budget_bytes': 1,
+                          'autovacuum_budget_source': 'heap_plus_index_lower_bound',
+                          'rows_per_second_source': 'reviewed_rehearsal:' + digest}
+                   for code in module.RELATIONS.values()},
+        'rewrite': {code: {'rewrite_peak_bytes': 1, 'statement_timeout_ms': 60_000}
+                    for code in module.RELATIONS.values()},
+    }
+
+
 def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
     """Exercise real controller/transaction dispatch over a disposable SQL model."""
     transactions = module._load('v3_purge_transactions')
@@ -754,10 +770,15 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
                           'derived': {**snapshot['derived'], 'generation_key': module.PUBLISHED_KEY},
                           'spatial': {**snapshot['spatial'], 'canonical_generation_id': 'canonical',
                                       'pyramid_version': 'spatial-pyramid-v1'}}
+    published_survivors = {'system_archetype_rows': 7, 'products': {
+        code: {'product_version': code + '-1', 'lifecycle_state': 'READY', 'manifest_sha256': '8' * 64,
+               'expected_rows': 7, 'published_at': '2026-10-23T12:00:00+00:00'}
+        for code in module.SURVIVOR_PRODUCTS}}
     reviewed = {'snapshot': snapshot, 'targets': targets, 'workers_stopped': True,
                 'plan_sha256': '6' * 64, 'source_git_sha': report['source_git_sha'],
                 'actor': 'operator', 'reason': 'reviewed purge',
-                'extra_payload_counts': extra_counts, 'pointer_identities': pointer_identities}
+                'extra_payload_counts': extra_counts, 'pointer_identities': pointer_identities,
+                'published_survivors': published_survivors, **_rehearsal_figures(module)}
     plan = {'source_git_sha': report['source_git_sha'], 'script_sha256': report['script_sha256'],
             'reviewed_plan': reviewed, 'published_generation': published}
     ids = list(transactions.TARGET_IDS)
@@ -812,6 +833,9 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
             return extra_counts
         if sql == module.POINTER_IDENTITIES_SQL:
             return pointer_identities
+        if sql == module.PUBLISHED_SURVIVORS_SQL:
+            calls.append(('published-survivors', sql, False))
+            return json.loads(json.dumps(published_survivors))
         if sql == transactions.PLAN_HASH_SQL:
             return {'plan_sha256': '6' * 64}
         if sql == transactions.EXCLUSIONS_SQL:
@@ -899,6 +923,143 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
     if mode == 'complete':
         assert report['fk_check'] is True
         assert report['completion_receipt']['receipt_sha256']
+
+
+def _survivor_reads(module, calls):
+    return [index for index, call in enumerate(calls) if call[0] == 'published-survivors']
+
+
+def test_production_plan_freezes_both_published_products_exact_survivors(monkeypatch):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, 'plan')
+    module.execute('plan', runtime, report)
+    assert report['status'] == 'success'
+    frozen = report['reviewed_plan']['published_survivors']
+    assert frozen == plan['reviewed_plan']['published_survivors']
+    assert frozen['system_archetype_rows'] == 7
+    assert set(frozen['products']) == {'system_search', 'system_archetype'}
+    assert report['published_survivors_before'] == frozen
+
+
+@pytest.mark.parametrize('defect', ('unpublished', 'not_ready', 'archetype_count', 'search_count',
+                                    'missing_product', 'invalid_rows', 'unknown_product'))
+def test_production_plan_refuses_unproven_published_survivor_counts(monkeypatch, defect):
+    module = _action_tool()
+    report, runtime, _plan, calls = _successful_phase(module, monkeypatch, 'plan')
+    query = runtime.query
+    def observed(sql, params=None, *, write=False):
+        value = query(sql, params, write=write)
+        if sql == module.PUBLISHED_SURVIVORS_SQL:
+            products = value['products']
+            if defect == 'unpublished':
+                products['system_archetype']['published_at'] = None
+            elif defect == 'not_ready':
+                products['system_search']['lifecycle_state'] = 'BUILDING'
+            elif defect == 'archetype_count':
+                value['system_archetype_rows'] = 6
+            elif defect == 'search_count':
+                products['system_search']['expected_rows'] = 8
+            elif defect == 'missing_product':
+                del products['system_archetype']
+            elif defect == 'invalid_rows':
+                value['system_archetype_rows'] = True
+            else:
+                products['cluster_run'] = {}
+        return value
+    runtime.query = observed
+    expected = ('published_survivor_observation_invalid' if defect in ('invalid_rows', 'unknown_product')
+                else 'published_survivor_product_count_unproven')
+    with pytest.raises(ValueError, match=expected):
+        module.execute('plan', runtime, report)
+    assert 'reviewed_plan' not in report or report['reviewed_plan'] is None
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+
+
+def test_rehearsal_plan_freezes_survivors_without_requiring_published_products(monkeypatch):
+    module = _action_tool()
+    report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'plan')
+    query = runtime.query
+    runtime.query = lambda sql, params=None, *, write=False: (
+        {'system_archetype_rows': 0, 'products': {}} if sql == module.PUBLISHED_SURVIVORS_SQL
+        else query(sql, params, write=write))
+    runtime.rehearsal = True
+    runtime.prepare_plan = lambda reviewed: None
+    module.execute('plan', runtime, report)
+    assert report['reviewed_plan']['published_survivors'] == {'system_archetype_rows': 0, 'products': {}}
+
+
+@pytest.mark.parametrize('mode', ('authorize', 'verify-system-archetype-empty', 'complete'))
+def test_single_transaction_phases_prove_frozen_published_survivors_around_the_write(monkeypatch, mode):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, mode)
+    verification = {'purge_id': list(module.TARGETS[key][0] for key in module.TARGETS),
+                    'reviewed_plan_sha256': plan['reviewed_plan']['plan_sha256'], 'content_sha256': '7' * 64}
+    module.execute(mode, runtime, report, plan, verification=verification if mode == 'complete' else None)
+    frozen = plan['reviewed_plan']['published_survivors']
+    assert report['published_survivors_before'] == report['published_survivors_after'] == frozen
+    reads = _survivor_reads(module, calls)
+    writes = [index for index, call in enumerate(calls) if call[0] == 'query' and call[2]]
+    assert len(reads) >= 2
+    for write in writes:
+        assert reads[0] < write < reads[-1]
+
+
+@pytest.mark.parametrize('mode', ('authorize', 'verify-system-archetype-empty', 'complete'))
+@pytest.mark.parametrize('field', ('rows', 'manifest'))
+def test_published_archetype_survivor_drift_refuses_before_any_write(monkeypatch, mode, field):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, mode)
+    # Freeze a copy: the disposable database model serves the original rows.
+    frozen = json.loads(json.dumps(plan['reviewed_plan']['published_survivors']))
+    plan['reviewed_plan']['published_survivors'] = frozen
+    if field == 'rows':
+        frozen['system_archetype_rows'] = 8
+    else:
+        frozen['products']['system_archetype']['manifest_sha256'] = '0' * 64
+    verification = {'purge_id': list(module.TARGETS[key][0] for key in module.TARGETS),
+                    'reviewed_plan_sha256': plan['reviewed_plan']['plan_sha256'], 'content_sha256': '7' * 64}
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        module.execute(mode, runtime, report, plan, verification=verification if mode == 'complete' else None)
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+    assert report['db_writes_performed'] is False
+
+
+@pytest.mark.parametrize('mode', ('authorize', 'verify-system-archetype-empty', 'complete'))
+def test_plan_without_frozen_published_survivors_cannot_drive_a_phase(monkeypatch, mode):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, mode)
+    del plan['reviewed_plan']['published_survivors']
+    verification = {'purge_id': list(module.TARGETS[key][0] for key in module.TARGETS),
+                    'reviewed_plan_sha256': plan['reviewed_plan']['plan_sha256'], 'content_sha256': '7' * 64}
+    with pytest.raises(ValueError, match='published_survivor_proof_missing'):
+        module.execute(mode, runtime, report, plan, verification=verification if mode == 'complete' else None)
+    assert not any(call[0] == 'query' and call[2] for call in calls)
+
+
+@pytest.mark.parametrize('mutation', ('missing', 'smoke', 'fallback'))
+def test_production_authorize_requires_reviewed_rehearsal_figures_before_host_access(monkeypatch, mutation):
+    module = _action_tool()
+    report, runtime, plan, calls = _successful_phase(module, monkeypatch, 'authorize')
+    reviewed = plan['reviewed_plan']
+    if mutation == 'missing':
+        del reviewed['rehearsal']
+    elif mutation == 'smoke':
+        reviewed['rehearsal']['scale'] = 'smoke'
+    else:
+        reviewed['delete']['system_search']['rows_per_second_source'] = 'conservative_fallback'
+    with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
+        module.execute('authorize', runtime, report, plan)
+    assert [call[0] for call in calls] == ['state']
+    assert report['db_writes_performed'] is False
+
+
+def test_disposable_rehearsal_authorize_keeps_its_unmeasured_bootstrap_plan(monkeypatch):
+    module = _action_tool()
+    report, runtime, plan, _calls = _successful_phase(module, monkeypatch, 'authorize')
+    del plan['reviewed_plan']['rehearsal']
+    runtime.rehearsal = True
+    module.execute('authorize', runtime, report, plan)
+    assert report['status'] == 'success'
 
 
 @pytest.mark.parametrize('mode', ('plan', 'authorize', 'complete'))
@@ -1011,8 +1172,13 @@ def test_sql_adapter_binds_sha256_parameter_names_used_by_later_phases(monkeypat
 
 
 @pytest.mark.parametrize('response,epoch,valid', (
-    ('/data\n100', 100, True),
-    ('/data\n101', 100, False),
+    ('/data\n100', 100, True),     # equal seconds
+    ('/data\n99', 100, True),      # pid file one second earlier: the production case
+    ('/data\n95', 100, True),      # exactly the tolerance
+    ('/data\n94', 100, False),     # gap larger than the tolerance
+    ('/data\n101', 100, False),    # pid file after the SQL start: wrong direction
+    ('/data\n100', None, False),   # no SQL start epoch observed
+    ('/data\n\u0661\u0660\u0660', 100, False),  # non-ASCII digits
     ('/data', 100, False),
     ('relative\n100', 100, False),
     ('/data/../elsewhere\n100', 100, False),
@@ -1028,6 +1194,35 @@ def test_data_directory_pid_file_must_match_live_sql_start_epoch(monkeypatch, re
     else:
         with pytest.raises(ValueError, match='data_directory_unresolved'):
             runtime.data_directory()
+
+
+def test_production_one_second_pid_file_lag_binds_with_recorded_evidence(monkeypatch):
+    # 2026-10-23 plan run 39963522021: postmaster.pid line 3 read 1792438533
+    # while floor(pg_postmaster_start_time()) was 1792438534.
+    module = _action_tool()
+    report = module.receipt('plan')
+    report['postmaster_started_epoch'] = 1792438534
+    runtime = module.Runtime(report)
+    monkeypatch.setattr(runtime, 'docker', lambda *args, **kwargs:
+                        '/var/lib/postgresql/18/docker\n1792438533')
+    assert runtime.data_directory() == '/var/lib/postgresql/18/docker'
+    assert report['postmaster_start_binding'] == {
+        'pid_file_epoch': 1792438533, 'sql_epoch': 1792438534, 'gap_seconds': 1,
+        'tolerance_seconds': module.POSTMASTER_START_TOLERANCE_SECONDS}
+
+
+@pytest.mark.parametrize('pid_epoch,sql_epoch,valid', (
+    (1000, 1000, True), (999, 1000, True), (995, 1000, True), (994, 1000, False),
+    (1001, 1000, False), (1000, None, False), (True, 1, False), ('999', 1000, False),
+))
+def test_postmaster_start_binding_is_bounded_and_directional(pid_epoch, sql_epoch, valid):
+    module = _action_tool()
+    assert module.POSTMASTER_START_TOLERANCE_SECONDS == 5
+    if valid:
+        assert module.postmaster_start_binding(pid_epoch, sql_epoch)['gap_seconds'] == sql_epoch - pid_epoch
+    else:
+        with pytest.raises(ValueError, match='data_directory_unresolved'):
+            module.postmaster_start_binding(pid_epoch, sql_epoch)
 
 
 def test_data_directory_reads_proc_as_the_server_os_user(monkeypatch):

@@ -359,3 +359,46 @@ def test_verified_retry_rechecks_integrity_without_opening_fences(monkeypatch, d
         assert model.run_rewrite()['result'] == 'rewrite_already_verified'
     assert model.mutations == []
     assert not model.writer and model.auto is None
+
+
+def test_rewrite_refuses_published_archetype_survivor_drift_before_any_fence(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    model.archetype_rows = 6
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        model.run_rewrite()
+    assert model.mutations == []
+
+
+def test_rewrite_survivor_drift_after_vacuum_is_an_integrity_stop_that_keeps_writers_fenced(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    query = model.runtime.query
+    def drifted(statement, params=None, **kwargs):
+        if (statement == model.c.PUBLISHED_SURVIVORS_SQL
+                and 'VACUUM (FULL, ANALYZE) v3_derived.system_search;' in model.mutations):
+            model.log.append('published-survivors')
+            return model.survivors(drifted=True)
+        return query(statement, params, **kwargs)
+    model.runtime.query = drifted
+    with pytest.raises(ValueError, match='published_archetype_survivor_count_drift'):
+        model.run_rewrite()
+    stop = model.failures[-1]['operational_payload']
+    assert stop['integrity_failed'] is True and stop['rewrite_committed'] is True
+    assert stop['start_event'] == 10
+    assert stop['condition'] == 'published_archetype_survivor_count_drift'
+    assert model.report['integrity_failed'] is True
+    # 016 admits owner-acknowledged writer restoration for exactly this shape;
+    # nothing verifies the rewrite or reopens writes automatically.
+    assert 'REWRITE_VERIFIED' not in model.mutations
+    assert model.writer and 'writer-restored' not in model.log
+    assert model.open_rewrite
+
+
+def test_successful_rewrite_records_both_published_survivor_proofs(monkeypatch):
+    model = RewriteModel(monkeypatch)
+    report = model.run_rewrite()
+    assert report['published_survivors_before'] == model.reviewed['published_survivors']
+    assert report['published_survivors_after'] == model.reviewed['published_survivors']
+    assert (model.log.index('published-survivors') < model.log.index('REWRITE_STARTED-committed')
+            and model.log.index('VACUUM (FULL, ANALYZE) v3_derived.system_search;')
+            < len(model.log) - 1 - model.log[::-1].index('published-survivors')
+            < model.log.index('REWRITE_VERIFIED'))
