@@ -31,6 +31,11 @@ def resolve(c, tx, runtime, report, ids, reviewed, *, relation=None, cancel=True
             runtime.query(rewrite.session_setup(config['statement_timeout_ms']) + command
                           + "\nSELECT jsonb_build_object('analyzed',true);", write=True)
         def receipt():
+            # Only a committed (changed-filenode) rewrite reaches this point.
+            # Prove the published archetype survivors before REWRITE_VERIFIED;
+            # any refusal here becomes resolve_rewrites' integrity FAILED_STOP,
+            # so drift can never be verified or have its writers restored.
+            c.survivor_gate(runtime, reviewed, report, 'published_survivors_after')
             identity = runtime.query(c.IDENTITY_SQL)
             identity['data_directory'] = runtime.data_directory()
             objects = runtime.query(c.OBJECTS_SQL)

@@ -40,8 +40,12 @@ run 39963522021 stopped on `data_directory_unresolved`.
   exact `parallel_v1` `system_archetype` row count and both published product
   manifests (`reviewed_plan.published_survivors`; production requires both
   products published with rows equal to `expected_rows`), and authorize,
-  verify, complete, every delete boundary and every rewrite (before any fence and
-  after `VACUUM`) compare a fresh read with it. Drift is an integrity stop.
+  verify, complete, every delete boundary and every rewrite (before any fence,
+  after `VACUUM`, and in recovery of a committed rewrite) compare a fresh read
+  with it. Drift is an integrity stop.
+- The protected source bundle now also carries the three rehearsal harness
+  files and the 2026-10-10 lifecycle receipt, which the remote plan's
+  rehearsal-receipt validation reads.
 - Docs: runbook (postmaster tolerance, rehearsal inputs, survivor proof, the
   stale "amended, unapplied 016" line), design §1.2, §1.3 and §4.3, and the
   rollout-state "As of 2026-10-04" line are marked superseded with current facts.

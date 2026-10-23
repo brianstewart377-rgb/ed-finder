@@ -760,3 +760,36 @@ def test_authorize_refuses_a_plan_without_reviewed_rehearsal_figures_before_ssh(
     env = _bound_plan_environment(module, monkeypatch, tmp_path, {'plan_sha256': '6' * 64})
     with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
         module.authenticate(env)
+
+
+def _bundle_paths():
+    source = _runs()
+    command = source[source.index('git archive HEAD') + len('git archive HEAD'):]
+    command = command[:command.index('| tar')]
+    return [token for token in command.replace('\\\n', ' ').split() if token != '\\']
+
+
+def test_transported_source_bundle_can_revalidate_a_reviewed_rehearsal_receipt(tmp_path):
+    """Reproduce the archive's path set and run the remote receipt validation in it."""
+    import shutil
+    from tests.test_v3_purge_rehearsal_receipt import example_receipt, tool
+    bundle = tmp_path / 'bundle'
+    paths = _bundle_paths()
+    for relative in tool.HARNESS_FILES + (str(tool.LIFECYCLE_RECEIPT.relative_to(ROOT)),):
+        assert relative in paths or any(relative.startswith(path + '/') for path in paths), relative
+    tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '--', *paths],
+                             capture_output=True, text=True, check=True).stdout.split()
+    assert tracked
+    for relative in tracked:
+        target = bundle / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    spec = importlib.util.spec_from_file_location(
+        'bundled_rehearsal_receipt', bundle / 'scripts/operator/lib/v3_purge_rehearsal_receipt.py')
+    bundled = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bundled)
+    assert bundled.ROOT == bundle
+    receipt = example_receipt()
+    path = tmp_path / 'rehearsal.json'
+    path.write_text(json.dumps(receipt))
+    assert bundled.load_reviewed(path, receipt['content_sha256'])['content_sha256'] == receipt['content_sha256']

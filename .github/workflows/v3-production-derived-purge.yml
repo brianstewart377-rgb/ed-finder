@@ -186,7 +186,13 @@ jobs:
           # Keep credential-free Git objects: the action proves HEAD and backup
           # wrapper bytes against committed source, not a caller's source label.
           bundle="$RUNNER_TEMP/purge-bundle"
-          git archive HEAD scripts/operator scripts/release deploy/v3-production sql | tar -xf - -C "$bundle"
+          # The plan's rehearsal-receipt validation also reads the committed
+          # lifecycle proportions and hashes the rehearsal harness files.
+          git archive HEAD scripts/operator scripts/release deploy/v3-production sql \
+            scripts/rehearsal/v3_derived_purge_rehearsal.py scripts/rehearsal/v3_derived_purge_seed.py \
+            scripts/rehearsal/v3_purge_crashes.py \
+            docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json \
+            | tar -xf - -C "$bundle"
           cp -R .git "$bundle/.git"
           rm -f "$bundle/.git/config"
           rm -rf "$bundle/.git/hooks"

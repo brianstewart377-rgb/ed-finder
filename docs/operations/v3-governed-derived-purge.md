@@ -190,10 +190,16 @@ product manifests (version, state, manifest SHA-256, `expected_rows`,
   `FAILED_STOP` with `rewrite_committed: true`, `integrity_failed: true` and the
   start event, the shape 016 accepts for owner-acknowledged writer restoration;
   the rewrite is not verified and writers stay fenced.
+- Recovery of a **committed** rewrite (changed filenode) applies the same check
+  before `REWRITE_VERIFIED`, whichever path resolves it: the dispatch's own
+  trap (for example when `VACUUM` committed but its response was lost), a
+  matching `rewrite-` re-dispatch, or `restore-services`. A refusal there is
+  recovery's existing integrity `FAILED_STOP` with `rewrite_committed: true`, so
+  the rewrite is never verified and writers stay fenced for owner review.
 
 A plan without `published_survivors` cannot drive any of these phases
-(`published_survivor_proof_missing`). `restore-services` and `abort-relation-`
-do not read it, so recovery never depends on it.
+(`published_survivor_proof_missing`). Rolled-back rewrite recovery, batch
+recovery, writer restoration and `abort-relation-` do not read it.
 
 The F2d code identity includes the new shared helpers and modified actions.
 Existing accepted-release attestations are not silently regenerated: the normal
