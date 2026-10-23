@@ -41,6 +41,11 @@ RELATIONS = tuple(controller.RELATIONS.values())
 SEED_BATCH_ROWS = 50_000
 SAMPLE_SECONDS = 0.1
 CRASH_SCENARIOS = figures.CRASH_SCENARIOS
+SURVIVOR_CONTROL_SQL = """SET default_transaction_read_only=off;
+SELECT extract(epoch FROM clock_timestamp());
+VACUUM (FULL, ANALYZE) v3_derived.system_search;
+SELECT extract(epoch FROM clock_timestamp());
+"""
 OBSERVER_SETUP = """
 CREATE ROLE edfinder_purge_observer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE edfinder_purge_observer SET default_transaction_read_only=on;
@@ -51,18 +56,16 @@ GRANT SELECT ON ALL TABLES IN SCHEMA v3_meta,v3_derived,v3_spatial TO edfinder_p
 
 
 def seeding_proportions(scale):
-    """Use receipt rows, including the incomplete BUILDING generation."""
+    """Use receipt rows, including the incomplete BUILDING generation.
+
+    The receipt validator's own function supplies the counts, so the seed and
+    its admission check cannot drift; it adds the post-go-live published
+    survivor Search population (one row per surviving system).
+    """
     lifecycle = json.loads(RECEIPT_PATH.read_text())
     production_systems = lifecycle['derived_generations'][1]['expected_systems']
     proportion = SCALE_SYSTEMS[scale] / production_systems
-    columns = dict(system_search='search_systems', economy_opportunity='ratings_eligible_opportunities',
-                   body_mechanics='ratings_physical_bodies', system_rating_vector='ratings_systems')
-    result = {relation: {} for relation in RELATIONS}
-    for key, raw in lifecycle['footprint']['rows_by_generation'].items():
-        for relation, column in columns.items():
-            count = raw[column]
-            result[relation][key] = max(1, round(count * proportion)) if count else 0
-    return proportion, result
+    return proportion, figures.expected_row_counts(proportion)
 
 
 def bind_sql(statement, parameters):
@@ -124,6 +127,7 @@ class Harness:
         self.volume = self.container + '-data'
         self.token = secrets.token_hex(32)
         self.proportion, self.counts = seeding_proportions(scale)
+        self.survivors = figures.expected_survivor_products(self.proportion)
         self.plan = self.verification = None
         self.refused_action = None
         self.phase = 'not_started'
@@ -222,20 +226,25 @@ class Harness:
             systems = self.counts['system_rating_vector'][key]
             bodies = self.counts['body_mechanics'][key]
             parameters = dict(generation=generation, key=key, systems=systems, bodies=bodies)
+            # The survivor's Search rows are a published product built after
+            # its ratings base was published, exactly as production got them.
+            survivor = key == controller.PUBLISHED_KEY
+            target_search = self.counts['system_search'][key] and not survivor
             self.sql(seed.GENERATION, parameters)
-            if self.counts['system_search'][key]:
+            if target_search:
                 self.sql(seed.SEARCH_PRODUCT, parameters)
             for relation, statement in (('system_rating_vector', seed.VECTOR), ('body_mechanics', seed.BODY),
                                         ('economy_opportunity', seed.ECONOMY), ('system_search', seed.SEARCH)):
-                count = self.counts[relation][key]
-                for first in range(1, count + 1, SEED_BATCH_ROWS):
-                    self.sql(statement, {**parameters, 'first': first, 'last': min(count, first + SEED_BATCH_ROWS - 1)})
-            if self.counts['system_search'][key]:
+                if survivor and relation == 'system_search':
+                    continue
+                self.insert(statement, parameters, self.counts[relation][key])
+            if target_search:
                 self.sql(seed.SEARCH_PRODUCT_READY, {'generation': generation})
             if key != 'ratings_v4_prod_p4':
                 self.sql(seed.FINALIZE, {'generation': generation})
-            if key == controller.PUBLISHED_KEY:
+            if survivor:
                 self.sql(seed.PUBLISH, {'generation': generation})
+                self.publish_survivor_products(generation)
         self.sql('ANALYZE; CHECKPOINT;')
         for relation in RELATIONS:
             actual = json.loads(self.sql('SELECT COALESCE(json_object_agg(derived_generation_id::text,n),\'{}\') '
@@ -244,6 +253,81 @@ class Harness:
             for key, generation in identifiers.items():
                 if actual.get(generation, 0) != self.counts[relation][key]:
                     raise ValueError('seed_count_mismatch')
+        published = json.loads(self.sql(seed.SURVIVOR_PUBLICATION, {'generation': controller.PUBLISHED_ID}))
+        expected = {code: {'version': version, 'state': 'READY', 'status': 'VERIFIED',
+                           'expected_rows': self.survivor_rows(code), 'published': True}
+                    for code, version in seed.SURVIVOR_PRODUCTS}
+        if (published.get('products') != expected or published.get('audit_rows') != len(expected)
+                or published.get('search_rows') != self.survivor_rows('system_search')
+                or published.get('archetype_rows') != self.survivor_rows('system_archetype')
+                or published.get('app_search_rows') != self.survivor_rows('system_search')
+                or published.get('app_archetype_rows') != self.survivor_rows('system_archetype')):
+            raise ValueError('seed_survivor_publication_unproven')
+
+    def insert(self, statement, parameters, count):
+        for first in range(1, count + 1, SEED_BATCH_ROWS):
+            self.sql(statement, {**parameters, 'first': first, 'last': min(count, first + SEED_BATCH_ROWS - 1)})
+
+    def survivor_rows(self, code):
+        # Search survivors are part of the relation counts the receipt binds;
+        # archetype rows reference one survivor rating vector each.
+        rows = (self.counts['system_search'][controller.PUBLISHED_KEY] if code == 'system_search'
+                else self.survivors[code])
+        if not 0 < rows <= self.counts['system_rating_vector'][controller.PUBLISHED_KEY]:
+            raise ValueError('seed_survivor_population_invalid')
+        return rows
+
+    def publish_survivor_products(self, generation):
+        """Register, build, validate and publish both Finder products (015)."""
+        for code, version in seed.SURVIVOR_PRODUCTS:
+            rows = self.survivor_rows(code)
+            self.sql(seed.SURVIVOR_PRODUCT, {'generation': generation, 'product': code,
+                                             'version': version, 'rows': rows})
+            self.insert(seed.SEARCH if code == 'system_search' else seed.ARCHETYPE,
+                        {'generation': generation}, rows)
+            self.sql(seed.PRODUCT_READY, {'generation': generation, 'product': code})
+        self.sql(seed.PUBLISH_PRODUCTS, {'generation': generation})
+
+    def survivor_control_rewrite(self):
+        """Rewrite the survivor-only Search relation once more, after complete.
+
+        The governed rewrite copied the published survivors and also scanned
+        the deleted target tuples. This unaudited VACUUM in the disposable
+        fixture copies the same survivors with no dead target tuples, so the
+        receipt can separate survivor work from target work. Server clock
+        bounds the statement; free-space samples bound its disk peak.
+        """
+        self.sql('CHECKPOINT;')
+        samples, failures, stop = [self.free_bytes()], [], threading.Event()
+        def sample():
+            while not stop.is_set():
+                try:
+                    samples.append(self.free_bytes())
+                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
+                    failures.append('filesystem_sampling_failed')
+                    return
+                stop.wait(SAMPLE_SECONDS)
+        worker = threading.Thread(target=sample)
+        worker.start()
+        try:
+            clock = self.sql(SURVIVOR_CONTROL_SQL).split()
+        finally:
+            stop.set()
+            worker.join(timeout=30)
+        samples.append(self.free_bytes())
+        if failures or worker.is_alive() or len(clock) != 2:
+            raise RuntimeError('survivor_control_rewrite_unmeasured')
+        seconds = float(clock[1]) - float(clock[0])
+        if not seconds > 0:
+            raise RuntimeError('survivor_control_rewrite_unmeasured')
+        receipt = evidence.seal({'phase': 'survivor-control-rewrite-system-search', 'container': self.container,
+                                 'sample_interval_minimum_seconds': SAMPLE_SECONDS,
+                                 'sample_transport': 'docker_exec_stat', 'free_bytes_samples': samples,
+                                 'peak_growth_bytes': maximum_drawdown(samples), 'server_seconds': seconds})
+        path = self.output / 'survivor-control-rewrite-system-search-filesystem-samples.json'
+        path.write_text(evidence.canonical_json(receipt) + '\n')
+        self.filesystem_receipts.append({'path': path.name, 'content_sha256': receipt['content_sha256']})
+        return seconds, maximum_drawdown(samples), len(samples)
 
     def free_bytes(self):
         fields = self.docker('exec', self.container, 'stat', '-f', '-c', '%a %S', '/var/lib/postgresql').split()
@@ -357,7 +441,8 @@ class Harness:
         self.action('authorize')
         report, path, *_ = self.action('verify-system-archetype-empty')
         self.verification = (path, report['content_sha256'])
-        measurements = {}
+        measurements, raws = {}, {}
+        split = None
         for name, relation in controller.RELATIONS.items():
             heap = int(self.sql('SELECT pg_total_relation_size(%(relation)s::regclass);',
                                 {'relation': 'v3_derived.' + relation}))
@@ -399,8 +484,26 @@ class Harness:
                        batch_measurement_scope='sampled_batch_boundaries_with_overlapping_samples',
                        rewrite_measurement_scope='entire_dispatch_conservative_bound_for_vacuum_full_analyze',
                        sample_interval_seconds=SAMPLE_SECONDS)
-            measurements[relation] = figures.relation_figures(raw, self.proportion)
+            raws[relation] = raw
+            if relation == 'system_search':
+                survivors = self.counts[relation][controller.PUBLISHED_KEY]
+                after = int(self.sql('SELECT pg_total_relation_size(%(relation)s::regclass);',
+                                     {'relation': 'v3_derived.' + relation}))
+                split = dict(survivor_rows=survivors, target_rows=total_rows,
+                             heap_index_bytes_before_delete=heap,
+                             survivor_heap_index_bytes_after_rewrite=after,
+                             governed_rewrite_seconds=rewrite_seconds, governed_rewrite_peak_bytes=peak,
+                             target_delete_seconds=delete_dispatch_seconds)
         self.action('complete')
+        seconds, control_peak, count = self.survivor_control_rewrite()
+        split.update(survivor_rewrite_seconds=seconds, survivor_rewrite_peak_bytes=control_peak)
+        search = raws['system_search']
+        # The plan carries the larger of the two measured peaks (fail-closed).
+        search['rewrite_peak_bytes'] = max(search['rewrite_peak_bytes'], control_peak)
+        search['filesystem_sample_count'] += count
+        for relation, raw in raws.items():
+            measurements[relation] = figures.relation_figures(raw, self.proportion)
+        measurements['system_search']['survivor_target_split'] = figures.search_split_figures(split, self.proportion)
         return measurements
 
     def plan_batch_limit(self, relation):
@@ -440,13 +543,13 @@ def main(argv=None):
     if platform.python_implementation() != 'CPython' or sys.version_info[:2] != (3, 14):
         parser.error('CPython 3.14 required')
     harness = Harness(args.scale, args.run_id, args.output_dir)
-    receipt = dict(schema_version='ed-finder/derived-purge-rehearsal/v1', operation='v3-derived-purge-rehearsal',
+    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal',
                    status='stopped', created_at=datetime.now(timezone.utc).isoformat(),
                    scale=args.scale, source_git_sha=harness.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).stdout.strip(),
                    **figures.code_identity(),
                    image_digest=IMAGE, production_proportion=harness.proportion,
                    lifecycle_receipt_sha256=hashlib.sha256(RECEIPT_PATH.read_bytes()).hexdigest(),
-                   row_counts=harness.counts, per_relation={},
+                   row_counts=harness.counts, survivor_products=harness.survivors, per_relation={},
                    crash_scenarios={name: {'passed': False, 'reason': 'not_executed'} for name in CRASH_SCENARIOS},
                    gate_10_crash_rehearsal_passed=False,
                    settings={}, statement_durations=harness.statements,
@@ -456,7 +559,11 @@ def main(argv=None):
                           'requested_systems': SCALE_SYSTEMS[args.scale],
                           'batch_rows': SEED_BATCH_ROWS,
                           'shape': 'typed synthetic vectors, mechanics and opportunities with generation-specific receipt row proportions',
-                          'survivor_search_rows': 'zero, matching the committed lifecycle receipt',
+                          'survivor_search_rows': 'published system_search and system_archetype products on the '
+                                                  'surviving generation, one row per surviving system, READY/VERIFIED '
+                                                  'and published through 015 publish_derived_product as in production',
+                          'survivor_product_versions': dict(seed.SURVIVOR_PRODUCTS),
+                          'search_split_method': 'governed rewrite minus a survivor-only VACUUM FULL after complete',
                           'autovacuum_budget_source': 'heap_plus_index_lower_bound',
                           'autovacuum_budget_caveat': 'equivalent-copy maintenance not measured; current whole relation heap+index bytes used as design lower bound'}
     try:

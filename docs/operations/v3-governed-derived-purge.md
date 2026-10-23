@@ -176,8 +176,9 @@ product manifests (version, state, manifest SHA-256, `expected_rows`,
   products to be `READY` and published with exact survivor rows equal to each
   product's verified `expected_rows` (Search from 016's snapshot, archetype from
   this read); otherwise it stops with `published_survivor_product_count_unproven`.
-  The disposable rehearsal publishes no Finder product, so it freezes the
-  observed (empty) state without that requirement.
+  The disposable rehearsal fixture publishes both Finder products on its
+  surviving generation (see "P2d rehearsal"), so its plan runs the same
+  requirement.
 - `authorize` and `complete` compare a fresh read with the frozen proof
   immediately before their write and again after it; `verify-system-archetype-empty`
   checks before and after its read-only count.
@@ -388,6 +389,40 @@ the four payload relations' generation proportions from the committed
 [2026-10-10 lifecycle receipt](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json),
 records that receipt's SHA, and leaves archetype/cluster target tables empty.
 The survivor uses the current generation-publication function installed by 015.
+
+**Published survivor population (receipt schema v2, ROADMAP step P reopened
+gate 1).** Production's surviving generation `ratings_v4_prod_p4_parallel_v1`
+has held both published Finder products since go-live (publish run
+39933842811): about 198.5 million `system_search` and 198.5 million
+`system_archetype` rows, one per system, `READY`/`VERIFIED` with `published_at`
+set. The 2026-10-10 receipt predates that, so its survivor Search count is
+zero. The fixture now reproduces the published population at the same
+proportion: after the survivor's ratings base is published, it registers
+`system_search` (`v3-system-search-2`) and `system_archetype`
+(`v3-archetype-4`) products with `expected_rows` equal to the survivor's
+systems, inserts one synthetic row per system into each (all guards,
+constraints and the 011 partial ranking indexes active), marks them
+`READY`/`VERIFIED`, and publishes both in one transaction through 015's
+`v3_meta.publish_derived_product`, which writes the publication audit rows.
+The seed then proves both products, both audit rows and both `v3_app` views
+before any action runs (`seed_survivor_publication_unproven` otherwise).
+Because the fixture now has published products, the rehearsal `plan` runs the
+production survivor proof (`published_survivors(..., require_published=True)`)
+instead of freezing an empty state. The target generations' payload is
+unchanged.
+
+At `one_percent` (proportion 2,000,000 / 198,528,286) the journey fixture holds:
+
+| Relation | `p4` (target) | `opt1` (target) | `parallel_v1` (survivor) |
+| --- | ---: | ---: | ---: |
+| `system_search` | 0 | 2,000,000 | 2,000,000 (published) |
+| `system_archetype` | 0 | 0 | 2,000,000 (published) |
+| `economy_opportunity` | 311,266 | 7,454,873 | 7,454,873 |
+| `body_mechanics` | 247,406 | 5,819,919 | 5,819,919 |
+| `system_rating_vector` | 49,746 | 2,000,000 | 2,000,000 |
+
+Crash fixtures use the same rule at smoke scale (100,000 survivor Search and
+archetype rows each).
 Measurement and crash polling use a dedicated read-only observer login, separate
 from the application role recycled when the writer fence changes.
 The real purge action runs in a separate disposable-marker override path;
@@ -418,6 +453,32 @@ Review the uploaded artifact (retained **180 days**) for:
   peak growth, and published survivor counts. A sampled peak below 1 GB is
   required for each batch; a larger peak requires a smaller bound and a new run.
   Sampling is an empirical bound and may miss growth shorter than its interval.
+- The `system_search` survivor/target split
+  (`per_relation.system_search.survivor_target_split`). The governed
+  `rewrite-system-search` copies the published survivors and scans the deleted
+  target tuples. After `complete`, the harness runs one more, unaudited
+  `VACUUM (FULL, ANALYZE)` of the disposable survivor-only relation with the
+  same free-space sampling and server-clock timing. The split records the
+  survivor share (rows, compacted heap-plus-index bytes and bytes per row,
+  control rewrite seconds and peak) and the target share (rows, reclaimed
+  bytes, delete dispatch seconds, and the governed rewrite seconds and peak
+  minus the survivor-only figures, never negative). Its `production` block
+  divides each figure by the recorded proportion, applies the **1.5×** margin
+  and adds the **100 GB** floor:
+  `required_free_bytes_before_rewrite` is the free space the action's own
+  admission rule (`v3_purge_rewrite.start_rewrite`) will demand before the
+  production Search rewrite. The plan carries the larger of the governed and
+  survivor-only raw peaks. The validator refuses a missing, forged or unbound
+  split, a survivor population that differs from the expected one (including
+  zero), a `v1` receipt, and synthetic survivor rows narrower than production
+  (`rehearsal_search_survivor_width_unrepresentative`: compacted bytes per row
+  below the larger of the 2026-10-10 receipt's 405.6 and the owner-reported
+  2026-10-23 175 GB / 397,056,572 rows ≈ 440.7). A local PostgreSQL 18 smoke
+  seed measured about 555 bytes per compacted survivor row, so the extrapolated
+  peak overstates rather than understates the production copy. Gate 1 needs a
+  fresh reviewed `one_percent` receipt of this schema; no rewrite dispatch may
+  rely on an earlier zero-survivor (`v1`) measurement, which the plan now
+  refuses.
 - Raw and production-extrapolated figures, and the owner's **1.5× disk-peak
   margin**. Planning throughput uses sustained delete dispatch elapsed time,
   including safety checks; actual batch statement durations and throughput are

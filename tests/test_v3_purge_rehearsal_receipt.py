@@ -5,6 +5,7 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -27,18 +28,34 @@ def example_receipt(**updates):
         measured['deleted_rows'] = sum(counts[relation][key] for key in ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1'))
         measured['delete_seconds'] = measured['deleted_rows'] / 10_000
         per_relation[relation] = tool.relation_figures(measured, proportion)
+    per_relation['system_search']['survivor_target_split'] = tool.search_split_figures(
+        example_split(per_relation['system_search']['raw'], counts), proportion)
     body = {'schema_version': tool.SCHEMA, 'operation': 'v3-derived-purge-rehearsal',
             **tool.code_identity(),
             'status': 'success', 'source_git_sha': 'a' * 40, 'scale': 'one_percent',
             'production_proportion': proportion,
             'image_digest': 'postgres:18@sha256:' + 'b' * 64,
             'settings': {'autovacuum': 'on', 'archive_mode': 'off', 'wal_level': 'replica'},
-            'row_counts': counts, 'per_relation': per_relation, 'cleanup_verified': True, 'failures': [],
+            'row_counts': counts, 'survivor_products': tool.expected_survivor_products(proportion),
+            'per_relation': per_relation, 'cleanup_verified': True, 'failures': [],
             'crash_scenarios': {name: {'passed': True} for name in tool.CRASH_SCENARIOS},
             'gate_10_crash_rehearsal_passed': True,
             'lifecycle_receipt_sha256': hashlib.sha256(tool.LIFECYCLE_RECEIPT.read_bytes()).hexdigest()}
     body.update(updates)
     return tool._evidence().seal(body)
+
+
+def example_split(raw, counts, **updates):
+    """Measured survivor/target Search figures consistent with the relation raw."""
+    survivors = counts['system_search']['ratings_v4_prod_p4_parallel_v1']
+    split = dict(survivor_rows=survivors, target_rows=raw['deleted_rows'],
+                 heap_index_bytes_before_delete=raw['heap_index_bytes'],
+                 survivor_heap_index_bytes_after_rewrite=survivors * 555,
+                 governed_rewrite_seconds=raw['rewrite_seconds'], governed_rewrite_peak_bytes=raw['rewrite_peak_bytes'],
+                 survivor_rewrite_seconds=1.5, survivor_rewrite_peak_bytes=150,
+                 target_delete_seconds=raw['delete_seconds'])
+    split.update(updates)
+    return split
 
 
 def write_receipt(tmp_path, value):
@@ -330,3 +347,106 @@ def test_plan_binding_refuses_a_plan_that_could_authorize_but_never_delete(mutat
         del plan['rewrite']
     with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
         tool.require_plan_binding(plan)
+
+
+# Post-go-live survivor Search population (ROADMAP step P reopened gate 1).
+
+def test_expected_counts_include_published_survivor_search_and_archetype_rows():
+    proportion = 2_000_000 / 198_528_286
+    counts = tool.expected_row_counts(proportion)
+    assert counts['system_search'] == {'ratings_v4_prod_p4': 0, 'ratings_v4_prod_p4_opt1': 2_000_000,
+                                       'ratings_v4_prod_p4_parallel_v1': 2_000_000}
+    assert tool.expected_survivor_products(proportion) == {'system_search': 2_000_000,
+                                                           'system_archetype': 2_000_000}
+    # Every other relation is still bound to the committed receipt unchanged.
+    assert counts['system_rating_vector']['ratings_v4_prod_p4_parallel_v1'] == 2_000_000
+
+
+def test_search_split_separates_survivor_and_target_work_and_extrapolates_admission():
+    value = example_receipt()
+    split = value['per_relation']['system_search']['survivor_target_split']
+    proportion = value['production_proportion']
+    survivors = value['row_counts']['system_search']['ratings_v4_prod_p4_parallel_v1']
+    assert split['survivor'] == {'rows': survivors, 'heap_index_bytes': survivors * 555,
+                                 'bytes_per_row': 555.0, 'rewrite_seconds': 1.5, 'rewrite_peak_bytes': 150}
+    assert split['target']['rows'] == value['per_relation']['system_search']['raw']['deleted_rows']
+    assert split['target']['rewrite_seconds'] == 0.5
+    assert split['target']['rewrite_peak_bytes'] == 51
+    production = split['production']
+    assert production['survivor_rows'] == round(survivors / proportion)
+    assert production['rewrite_peak_bytes'] == value['per_relation']['system_search']['production']['rewrite_peak_bytes']
+    assert production['rewrite_peak_margin_bytes'] == tool.margin_bytes(production['rewrite_peak_bytes'])
+    assert production['required_free_bytes_before_rewrite'] == 100_000_000_000 + production['rewrite_peak_margin_bytes']
+    assert production['survivor_rewrite_seconds'] == 1.5 / proportion
+    assert production['target_rewrite_seconds'] == 0.5 / proportion
+    assert production['reference_bytes_per_row'] == pytest.approx(175e9 / (2 * 198_528_286))
+
+
+def test_v1_or_zero_survivor_receipt_is_refused(tmp_path):
+    with pytest.raises(ValueError, match='rehearsal_schema_invalid'):
+        tool.validate(example_receipt(schema_version='ed-finder/derived-purge-rehearsal/v1'))
+    zero = example_receipt(survivor_products={'system_search': 0, 'system_archetype': 0})
+    with pytest.raises(ValueError, match='rehearsal_survivor_population_mismatch'):
+        tool.load_reviewed(write_receipt(tmp_path, zero), zero['content_sha256'])
+    counts = deepcopy(example_receipt()['row_counts'])
+    counts['system_search']['ratings_v4_prod_p4_parallel_v1'] = 0
+    with pytest.raises(ValueError, match='rehearsal_row_counts_proportion_mismatch'):
+        tool.validate(example_receipt(row_counts=counts))
+
+
+def _with_split(mutate):
+    value = example_receipt()
+    body = {key: item for key, item in value.items() if key != 'content_sha256'}
+    mutate(body['per_relation']['system_search'], body)
+    return tool._evidence().seal(body)
+
+
+def test_missing_or_forged_search_split_is_refused():
+    with pytest.raises(ValueError, match='rehearsal_search_split_missing'):
+        tool.validate(_with_split(lambda figure, _: figure.pop('survivor_target_split')))
+    def forge(figure, _):
+        figure['survivor_target_split']['production']['required_free_bytes_before_rewrite'] = 1
+    with pytest.raises(ValueError, match='rehearsal_search_split_mismatch'):
+        tool.validate(_with_split(forge))
+
+
+@pytest.mark.parametrize('field,value', [('target_rows', 1), ('survivor_rows', 1),
+                                         ('governed_rewrite_seconds', 9.0), ('target_delete_seconds', 9.0),
+                                         ('heap_index_bytes_before_delete', 1)])
+def test_search_split_must_bind_to_the_measured_relation(field, value):
+    def mutate(figure, body):
+        raw = dict(figure['survivor_target_split']['raw'], **{field: value})
+        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
+    with pytest.raises(ValueError, match='rehearsal_search_split_unbound'):
+        tool.validate(_with_split(mutate))
+
+
+def test_plan_peak_must_be_the_larger_of_governed_and_survivor_only_peaks(tmp_path):
+    def larger_control(figure, body):
+        raw = dict(figure['survivor_target_split']['raw'], survivor_rewrite_peak_bytes=999)
+        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
+    with pytest.raises(ValueError, match='rehearsal_search_split_unbound'):
+        tool.validate(_with_split(larger_control))
+    def carried(figure, body):
+        larger_control(figure, body)
+        figure.update(tool.relation_figures(dict(figure['raw'], rewrite_peak_bytes=999), body['production_proportion']))
+    value = _with_split(carried)
+    plan = tool.apply_to_plan({}, tool.load_reviewed(write_receipt(tmp_path, value), value['content_sha256']))
+    assert plan['rewrite']['system_search']['rewrite_peak_bytes'] == math.ceil(999 / value['production_proportion'])
+
+
+def test_survivor_rows_narrower_than_production_are_refused():
+    def narrow(figure, body):
+        raw = dict(figure['survivor_target_split']['raw'])
+        raw['survivor_heap_index_bytes_after_rewrite'] = raw['survivor_rows'] * 400
+        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
+    with pytest.raises(ValueError, match='rehearsal_search_survivor_width_unrepresentative'):
+        tool.validate(_with_split(narrow), production=False)
+
+
+@pytest.mark.parametrize('field', ('survivor_rows', 'target_rows', 'survivor_heap_index_bytes_after_rewrite'))
+def test_search_split_requires_present_survivors_and_targets(field):
+    raw = example_split(example_receipt()['per_relation']['system_search']['raw'],
+                        tool.expected_row_counts(0.01), **{field: 0})
+    with pytest.raises(ValueError, match='rehearsal_search_survivors_absent'):
+        tool.search_split_figures(raw, 0.01)

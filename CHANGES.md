@@ -11,6 +11,56 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Purge rehearsal re-measures the Search rewrite with published survivors (step P reopened gate 1)
+
+Code, tests and docs only. No migration, nothing run against production, no
+rehearsal dispatched. Since go-live the surviving generation
+`ratings_v4_prod_p4_parallel_v1` holds about 198.5 million published
+`system_search` and 198.5 million published `system_archetype` rows, but the
+disposable 1% rehearsal fixture seeded none, so its `system_search`
+`VACUUM FULL` peak (which admits the production rewrite) was unrepresentative.
+
+- Fixture (`scripts/rehearsal/v3_derived_purge_seed.py`,
+  `scripts/rehearsal/v3_derived_purge_rehearsal.py`): after the survivor's
+  ratings base is published, the seed registers `system_search`
+  (`v3-system-search-2`) and `system_archetype` (`v3-archetype-4`) products,
+  writes one synthetic row per surviving system into each (guards,
+  constraints and 011's partial ranking indexes active), marks them
+  `READY`/`VERIFIED` and publishes both in one transaction through 015's
+  `publish_derived_product`, which writes the audit rows. It then proves the
+  products, audit rows and `v3_app` views. At `one_percent` that is 2,000,000
+  survivor Search rows and 2,000,000 survivor archetype rows beside the
+  unchanged targets (2,000,000 `opt1` Search rows and the existing ratings
+  payload).
+- Measurement: after `complete`, a survivor-only `VACUUM (FULL, ANALYZE)` of
+  the disposable `system_search` separates the governed rewrite into survivor
+  and target shares (`per_relation.system_search.survivor_target_split`), each
+  extrapolated by the recorded proportion, with the 1.5× margin and 100 GB
+  floor giving `required_free_bytes_before_rewrite`. The plan carries the
+  larger of the governed and survivor-only peaks.
+- Receipt validation (`scripts/operator/lib/v3_purge_rehearsal_receipt.py`):
+  schema `ed-finder/derived-purge-rehearsal/v2`. It refuses `v1` receipts, a
+  survivor population other than the expected one (zero included), a missing,
+  forged or unbound split, and synthetic survivor rows narrower than production
+  (about 440.7 bytes per row; the local PostgreSQL 18 smoke seed compacts to
+  about 555). `gate_10_crash_rehearsal_passed` keeps its existing conditions,
+  and the production workflow's rehearsal authentication (scale, crash gate,
+  code identity) is unchanged.
+- The rehearsal plan now runs the production survivor proof
+  (`published_survivors(..., require_published=True)`) in
+  `scripts/operator/lib/v3_generation_purge.py`, because its fixture now
+  publishes both products.
+- Docs: runbook "P2d rehearsal" and the survivor-proof note.
+- F2d operator-manifest file changed: `scripts/operator/lib/v3_generation_purge.py`
+  only (the harness, seed and receipt module are not in the manifest). The
+  operator-code identity changes from
+  `0f0a299176cdbb6d8e50c31f5a373b2f077311f0ec4e05411178d6664e25545e` to
+  `ba5eb045687e2c74ece8f5b634851f43a755cba781334c2fbf3bb0af4438edb2`; it
+  ships only through a new governed app release and attestation. The purge
+  script identity and the rehearsal harness identity also change, so the
+  `one_percent` rehearsal must be dispatched on the `main` that carries this
+  change.
+
 ## 2026-10-23 — Governed purge (P) readiness: postmaster binding, rehearsal transport, archetype survivor proof
 
 Code, tests and docs only. No migration (applied `016` is unchanged), nothing

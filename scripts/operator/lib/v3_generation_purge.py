@@ -427,7 +427,7 @@ SELECT jsonb_build_object(
 def published_survivors(runtime, survivors=None, *, require_published=False):
     """Observe the published archetype survivors and both product manifests.
 
-    With ``require_published`` (the production plan), both Finder products must
+    With ``require_published`` (every plan, production and rehearsal), both Finder products must
     be READY and published, and their exact survivor rows (Search from 016's
     snapshot, archetype from this read) must equal each product's verified
     expected_rows: the frozen counts are the published counts.
@@ -1218,11 +1218,11 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
         reviewed = transactions.collect_plan(runtime.query, report['source_git_sha'], actor, reason)
         if reviewed['snapshot'] != observed['snapshot'] or reviewed['targets'] != observed['targets']:
             raise ValueError('plan_snapshot_changed_during_measurement')
-        # The disposable rehearsal publishes no Finder product; production
-        # must prove both published products' exact survivor counts.
+        # Production and the disposable rehearsal (whose fixture publishes
+        # both Finder products, as production has since go-live) must prove
+        # both published products' exact survivor counts.
         reviewed['published_survivors'] = published_survivors(
-            runtime, reviewed['snapshot'].get('survivors'),
-            require_published=not getattr(runtime, 'rehearsal', False))
+            runtime, reviewed['snapshot'].get('survivors'), require_published=True)
         report['published_survivors_before'] = reviewed['published_survivors']
         reviewed.update(autovacuum=auto['configuration'], extra_payload_counts=extra_counts,
                         # Until measured/configured cadence is reviewed, reserve

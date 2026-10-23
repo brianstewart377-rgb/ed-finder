@@ -7,6 +7,7 @@ small 200-system seed to the existing Finder PG18 discovery lane.
 """
 from contextlib import contextmanager
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import psycopg
@@ -148,6 +149,48 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         assert plan['snapshot']['survivors'] == {
             relation: harness.counts[relation][rehearsal.controller.PUBLISHED_KEY]
             for relation in rehearsal.RELATIONS}
+        # Post-go-live survivors: both Finder products are published on the
+        # surviving generation through 015, and the purge plan's production
+        # survivor proof (counts equal each product's expected_rows) holds.
+        survivors = harness.survivors
+        assert plan['snapshot']['survivors']['system_search'] == survivors['system_search'] == 200
+        products = connection.execute(
+            """SELECT product_code,product_version,lifecycle_state,validation_receipt->>'status',expected_rows,
+                      published_at IS NOT NULL
+               FROM v3_meta.derived_product WHERE derived_generation_id=%s ORDER BY 1""",
+            (rehearsal.controller.PUBLISHED_ID,)).fetchall()
+        assert products == [('system_archetype', 'v3-archetype-4', 'READY', 'VERIFIED', 200, True),
+                            ('system_search', 'v3-system-search-2', 'READY', 'VERIFIED', 200, True)]
+        assert connection.execute(
+            'SELECT product_code,actor FROM v3_meta.derived_product_publication_audit ORDER BY 1',
+        ).fetchall() == [('system_archetype', 'disposable-rehearsal'), ('system_search', 'disposable-rehearsal')]
+        assert connection.execute(
+            'SELECT count(DISTINCT published_at) FROM v3_meta.derived_product WHERE published_at IS NOT NULL',
+        ).fetchone() == (1,)
+        assert connection.execute(
+            'SELECT lifecycle_state,published_at IS NULL FROM v3_meta.derived_product '
+            'WHERE derived_generation_id=%s', (rehearsal.controller.TARGETS['ratings_v4_prod_p4_opt1'][0],),
+        ).fetchone() == ('READY', True)
+        assert connection.execute('SELECT count(*) FROM v3_app.system_search').fetchone() == (200,)
+        assert connection.execute('SELECT count(*) FROM v3_app.system_archetype').fetchone() == (200,)
+        # Each B/A/S partial ranking index holds a share of the archetype rows.
+        tiers = dict(connection.execute(
+            'SELECT paradise_tier,count(*) FROM v3_derived.system_archetype GROUP BY 1').fetchall())
+        assert {'S', 'A', 'B'} <= set(tiers)
+        runtime = SimpleNamespace(query=query)
+        frozen = rehearsal.controller.published_survivors(runtime, plan['snapshot']['survivors'],
+                                                          require_published=True)
+        assert frozen['system_archetype_rows'] == survivors['system_archetype']
+        assert {code: item['expected_rows'] for code, item in frozen['products'].items()} == survivors
+        # The survivor-only control rewrite runs as the harness sends it, one
+        # psql statement at a time, and keeps every survivor row.
+        clock = []
+        for statement in rehearsal.SURVIVOR_CONTROL_SQL.strip().split(';\n'):
+            clock += harness.sql(statement.strip().rstrip(';') + ';').split()
+        assert len(clock) == 2 and float(clock[1]) >= float(clock[0])
+        assert connection.execute(
+            'SELECT count(*) FROM v3_derived.system_search WHERE derived_generation_id=%s',
+            (rehearsal.controller.PUBLISHED_ID,)).fetchone() == (200,)
 
         # Authenticate as the dedicated login, rather than SET ROLE on the
         # application connection: recycling selects the authenticated usename.

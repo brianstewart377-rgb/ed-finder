@@ -119,3 +119,80 @@ UPDATE v3_meta.derived_product SET lifecycle_state='READY',validated_at=now(),
  validation_sha256=decode(repeat('00',32),'hex')
 WHERE derived_generation_id=%(generation)s::uuid AND product_code='system_search';
 """
+
+# Post-go-live survivors. Production built both Finder products on the already
+# PUBLISHED parallel_v1 generation, validated them READY/VERIFIED and published
+# them through 015's publish_derived_product (publish run 39933842811). The
+# seed follows the same lifecycle with the production product versions; the
+# rows are synthetic, every guard and constraint stays enabled.
+SURVIVOR_PRODUCTS = (('system_search', 'v3-system-search-2'), ('system_archetype', 'v3-archetype-4'))
+
+SURVIVOR_PRODUCT = """
+INSERT INTO v3_meta.derived_product(derived_generation_id,product_code,product_version,
+ manifest,manifest_sha256,expected_rows)
+VALUES(%(generation)s::uuid,%(product)s,%(version)s,'{"synthetic":true}',
+ decode(repeat('00',32),'hex'),%(rows)s::bigint);
+"""
+
+PRODUCT_READY = """
+UPDATE v3_meta.derived_product SET lifecycle_state='READY',validated_at=now(),
+ validation_receipt='{"status":"VERIFIED","synthetic":true}',
+ validation_sha256=decode(repeat('00',32),'hex')
+WHERE derived_generation_id=%(generation)s::uuid AND product_code=%(product)s;
+"""
+
+# One transaction, one publication time, one audit row per product, as the
+# production publication run committed both products together.
+PUBLISH_PRODUCTS = """
+BEGIN;
+SELECT v3_meta.publish_derived_product(%(generation)s::uuid,'system_search','disposable-rehearsal');
+SELECT v3_meta.publish_derived_product(%(generation)s::uuid,'system_archetype','disposable-rehearsal');
+COMMIT;
+"""
+
+_ARCHETYPES = ('paradise', 'mining_hub', 'manufacturing_hub', 'megacomplex',
+               'research_hub', 'stronghold', 'population_capital', 'flexible')
+
+
+def _tier(score):
+    return (f"CASE WHEN {score}>=88 THEN 'S' WHEN {score}>=76 THEN 'A' WHEN {score}>=60 THEN 'B' "
+            f"WHEN {score}>=40 THEN 'C' ELSE 'D' END")
+
+
+# One wide row per survivor system (011). Scores vary per archetype so every
+# B/A/S partial ranking index holds a share of rows, as built rows do.
+ARCHETYPE = ("""
+INSERT INTO v3_derived.system_archetype(derived_generation_id,system_id64,archetype_version,"""
+    + ','.join(f'{name}_score,{name}_tier,{name}_confidence_ppm,{name}_weighted_e4' for name in _ARCHETYPES)
+    + """,
+ primary_archetype,secondary_archetype,best_colony_potential,best_tier,archetype_confidence_ppm,
+ weighted_potential,completeness_ppm)
+SELECT %(generation)s::uuid,n,'v3-archetype-4',"""
+    + ','.join(f's[{index}],{_tier(f"s[{index}]")},500000+(n*{index})%%500000,s[{index}]*(9000+n%%1000)'
+               for index in range(1, 9))
+    + """,
+ (ARRAY['paradise','mining_hub','manufacturing_hub','megacomplex','research_hub','stronghold',
+  'population_capital','flexible'])[1+n%%8],
+ (ARRAY['paradise','mining_hub','manufacturing_hub','megacomplex','research_hub','stronghold',
+  'population_capital','flexible'])[1+(n+1)%%8],
+ best,""" + _tier('best') + """,500000+n%%500000,best::float8,1000000
+FROM generate_series(%(first)s::bigint,%(last)s::bigint) n,
+ LATERAL (SELECT ARRAY[(n*7)%%101,(n*11)%%101,(n*13)%%101,(n*17)%%101,(n*19)%%101,
+  (n*23)%%101,(n*29)%%101,(n*31)%%101]::smallint[] AS s) scores,
+ LATERAL (SELECT (SELECT max(v) FROM unnest(s) v) AS best) peak;
+""")
+
+SURVIVOR_PUBLICATION = """
+SELECT jsonb_build_object(
+ 'archetype_rows',(SELECT count(*) FROM v3_derived.system_archetype WHERE derived_generation_id=%(generation)s::uuid),
+ 'search_rows',(SELECT count(*) FROM v3_derived.system_search WHERE derived_generation_id=%(generation)s::uuid),
+ 'products',(SELECT jsonb_object_agg(product_code,jsonb_build_object('version',product_version,
+   'state',lifecycle_state,'status',validation_receipt->>'status','expected_rows',expected_rows,
+   'published',published_at IS NOT NULL))
+   FROM v3_meta.derived_product WHERE derived_generation_id=%(generation)s::uuid),
+ 'audit_rows',(SELECT count(*) FROM v3_meta.derived_product_publication_audit a
+   JOIN v3_meta.derived_product p USING (derived_generation_id,product_code,product_version,manifest_sha256,published_at)
+   WHERE a.derived_generation_id=%(generation)s::uuid),
+ 'app_search_rows',(SELECT count(*) FROM v3_app.system_search),
+ 'app_archetype_rows',(SELECT count(*) FROM v3_app.system_archetype));
+"""
