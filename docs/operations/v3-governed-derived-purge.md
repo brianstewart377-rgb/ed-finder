@@ -425,6 +425,12 @@ Crash fixtures use the same rule at smoke scale (100,000 survivor Search and
 archetype rows each).
 Measurement and crash polling use a dedicated read-only observer login, separate
 from the application role recycled when the writer fence changes.
+During a measured delete the batch ledger is sampled through one observer login
+opened before the action starts and closed after it exits. 016 refuses a batch
+(`competing writing transaction`) while any other client backend of the
+database has a NULL state, which is how every login looks while it starts. A
+new login per sample reproduced the `delete-economy-opportunity` stop of smoke
+run 40032512857 locally.
 The real purge action runs in a separate disposable-marker override path;
 ordinary invocation never enables that override. It requires both `--rehearsal-container` and a 64-hex-character
 `--rehearsal-token`, and independently refuses production host identities. The

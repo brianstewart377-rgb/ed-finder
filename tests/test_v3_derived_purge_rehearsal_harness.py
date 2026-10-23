@@ -1,6 +1,7 @@
 """Disposable harness contracts without a Docker daemon or database."""
 import hashlib
 import json
+import queue
 import threading
 from types import SimpleNamespace
 
@@ -166,35 +167,145 @@ def test_action_executes_real_entrypoint_and_preserves_sealed_statement_measurem
     assert instance.statements[-1]['kind'] == 'action_wall_clock'
 
 
-def test_sampling_survives_application_session_recycle(tmp_path, monkeypatch):
-    instance = harness.Harness('tiny', 'observer-test', tmp_path)
-    recycling = threading.Event()
-    sampled_during_recycle = threading.Event()
-    observed_users = []
+class _ObserverLogins:
+    """Fake `docker exec -i ... psql` observer logins speaking one line per query.
+
+    Records when each login starts relative to the action's own process, and
+    any one-shot psql login made through Harness.docker while it runs.
+    """
+
+    def __init__(self, instance, monkeypatch):
+        self.running = threading.Event()
+        self.users = []
+        self.during_action = []
+        # Set by any batch-ledger sample taken while the action runs.
+        self.answered_during_action = threading.Event()
+        self.closed = []
+        logins = self
+
+        class Process:
+            def __init__(self, argv, **kwargs):
+                assert argv[:5] == ['docker', '--context', 'default', 'exec', '-i']
+                assert argv[5] == instance.container and argv[6] == 'psql'
+                logins.users.append(argv[argv.index('-U') + 1])
+                if logins.running.is_set():
+                    logins.during_action.append(argv)
+                self.answers = queue.Queue()
+                self.stdin = SimpleNamespace(write=self.write, flush=lambda: None, close=self.close)
+                self.stdout = iter(self.answers.get, None)
+                self.returncode = None
+
+            def write(self, text):
+                assert text == harness.BATCH_LEDGER_SQL + '\n'
+                if logins.running.is_set():
+                    logins.answered_during_action.set()
+                self.answers.put('7\n')
+
+            def close(self):
+                logins.closed.append(logins.running.is_set())
+                self.answers.put(None)
+
+            def wait(self, timeout=None):
+                self.returncode = 0
+                return 0
+
+            def kill(self):
+                pass
+
+        monkeypatch.setattr(harness.subprocess, 'Popen', Process)
+
+        def docker(*arguments, **kwargs):
+            if 'psql' in arguments:
+                logins.users.append(arguments[arguments.index('-U') + 1])
+                if logins.running.is_set():
+                    logins.during_action.append(arguments)
+                    logins.answered_during_action.set()
+                return '7'
+            raise AssertionError('unexpected docker call')
+
+        instance.docker = docker
+
+
+def test_delete_sampling_starts_no_database_login_while_the_action_runs(tmp_path, monkeypatch):
+    # 016 refuses a batch (P0001 'competing writing transaction') while any
+    # other client backend has state NULL, which is how a login looks while it
+    # starts. Smoke run 40032512857 stopped on exactly that: the sampler's own
+    # per-sample observer logins raced delete-economy-opportunity's batches.
+    instance = harness.Harness('tiny', 'observer-login-test', tmp_path)
     instance.free_bytes = lambda: 1_000_000
     monkeypatch.setattr(harness, 'SAMPLE_SECONDS', 0.001)
-
-    def docker(*arguments, **kwargs):
-        user = arguments[arguments.index('-U') + 1]
-        observed_users.append(user)
-        if recycling.is_set():
-            if user == harness.USER:
-                raise RuntimeError('application_session_recycled')
-            sampled_during_recycle.set()
-        return '1'
+    logins = _ObserverLogins(instance, monkeypatch)
 
     def command(*arguments, **kwargs):
-        recycling.set()
-        assert sampled_during_recycle.wait(timeout=5), 'no concurrent sample observed'
-        recycling.clear()
+        logins.running.set()
+        try:
+            assert logins.answered_during_action.wait(timeout=5), 'no batch sample while the action ran'
+        finally:
+            logins.running.clear()
         return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
 
-    instance.docker = docker
+    instance.command = command
+    report, _, _, _, count = instance.action('delete-economy-opportunity', measure=True)
+    assert report['status'] == 'success' and count >= 3
+    assert logins.during_action == []
+    # One observer login, opened before and closed after the action.
+    assert logins.users == [harness.OBSERVER_USER]
+    assert logins.closed == [False]
+    receipt = json.loads((tmp_path / '001-delete-economy-opportunity-filesystem-samples.json').read_text())
+    assert len(receipt['batch_event_and_free_bytes_samples']) >= 3
+    assert {event for event, _ in receipt['batch_event_and_free_bytes_samples']} == {7}
+
+
+def test_rewrite_sampling_opens_no_observer_login(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'observer-rewrite-test', tmp_path)
+    instance.free_bytes = lambda: 1_000_000
+    logins = _ObserverLogins(instance, monkeypatch)
+    instance.command = lambda *_args, **_kwargs: SimpleNamespace(
+        returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
+    instance.action('rewrite-economy-opportunity', measure=True)
+    assert logins.users == []
+
+
+def test_sampling_survives_application_session_recycle(tmp_path, monkeypatch):
+    # The single sampling login is the observer role, never the application
+    # role whose sessions the writer fence recycles mid-action.
+    instance = harness.Harness('tiny', 'observer-test', tmp_path)
+    instance.free_bytes = lambda: 1_000_000
+    monkeypatch.setattr(harness, 'SAMPLE_SECONDS', 0.001)
+    logins = _ObserverLogins(instance, monkeypatch)
+
+    def command(*arguments, **kwargs):
+        logins.running.set()
+        try:
+            assert logins.answered_during_action.wait(timeout=5), 'no concurrent sample observed'
+        finally:
+            logins.running.clear()
+        return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
+
     instance.command = command
     report, _, _, _, count = instance.action('delete-system-search', measure=True)
     assert report['status'] == 'success' and count >= 3
-    assert observed_users and set(observed_users) == {harness.OBSERVER_USER}
+    assert logins.users == [harness.OBSERVER_USER]
     assert harness.OBSERVER_USER != harness.USER
+
+
+def test_dead_observer_session_stops_sampling(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'observer-dead-test', tmp_path)
+    instance.free_bytes = lambda: 1_000_000
+    monkeypatch.setattr(harness, 'OBSERVER_QUERY_SECONDS', 1)
+
+    class Dead:
+        def __init__(self, argv, **kwargs):
+            self.stdin = SimpleNamespace(write=lambda text: None, flush=lambda: None, close=lambda: None)
+            self.stdout = iter(())
+
+        def wait(self, timeout=None):
+            return 3
+
+    monkeypatch.setattr(harness.subprocess, 'Popen', Dead)
+    instance.command = lambda *_args, **_kwargs: pytest.fail('action must not start without a sampling session')
+    with pytest.raises(RuntimeError, match='^observer_session_failed$'):
+        instance.action('delete-system-search', measure=True)
 
 
 def test_cleanup_unknown_inspect_requires_successful_absence_probe(tmp_path):

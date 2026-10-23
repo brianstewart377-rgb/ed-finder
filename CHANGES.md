@@ -11,6 +11,34 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Purge rehearsal: no observer login starts while a delete runs
+
+Rehearsal harness and tests only. No migration, no operator-code (F2d
+identity) change, nothing run against production. Smoke rehearsal run
+40032512857 stopped at `delete-economy-opportunity` with
+`bounded_command_failed`. Most likely cause (the run's artifact could not be
+read): during a measured delete the harness sampled
+the batch ledger with a new `docker exec psql` observer login about every
+0.3 s. 016's batch-start, batch, autovacuum-fence and relation-complete
+functions refuse with `competing writing transaction` (SQLSTATE P0001) while
+any other client backend of the database has a NULL `state`, and a starting
+login has one. A refusal in a raw `_result` call (relation complete, fence)
+surfaces as `bounded_command_failed`; inside a batch as
+`purge_batch_write_outcome_unknown`. Reproduced locally at smoke scale with the
+real harness (server log: `competing writing transaction` from
+`purge_start_payload_batch`). Economy opportunity runs the most batches, so it
+met the race first. The earlier one-percent stop at the same mode (run
+39024371827, `purge_state_query_failed`) is consistent with it but not proven.
+
+- `scripts/rehearsal/v3_derived_purge_rehearsal.py`: a measured delete opens
+  one observer `psql` session before the action starts, samples the ledger
+  through it, and closes it after the action exits. A dead or silent session
+  stops sampling (`observer_session_failed`); it is never reopened mid-action.
+  Rewrites still sample free space only.
+- Tests: a delete action starts no database login while it runs (fails on the
+  old per-sample logins); rewrites open none; the session is the observer
+  role; a dead session refuses before the action starts.
+
 ## 2026-10-23 — Purge rehearsal re-measures the Search rewrite with published survivors (step P reopened gate 1)
 
 Code, tests and docs only. No migration, nothing run against production, no
