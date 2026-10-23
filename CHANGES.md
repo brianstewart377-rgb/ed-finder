@@ -55,6 +55,28 @@ run 39963522021 stopped on `data_directory_unresolved`.
   The rehearsal receipt binds the purge script identity, so the one-percent
   rehearsal must run on code carrying this change.
 
+## 2026-10-23 — Owner decisions: the Finder screen
+
+Docs only. `docs/ROADMAP.md` records the owner's 2026-10-23 decisions on the
+Finder screen (own V2-style page, map on demand, best-first default, grade key,
+colony-type picker with "Any type", Clear and descriptions, the V2 body-filter
+groups) and on combining a colony type with body filters (anchored: after purge
+P; galaxy-wide filter-first path: later), plus the 15 s API timeout risk near
+the galactic core. No step order or gate changes beyond the recorded reversal
+of F2d question 9 for anchored searches.
+
+## 2026-10-23 — Finder published (go-live, step 9′)
+
+Owner-approved `publish-finder-products` run 39933842811 published both Finder
+products on `ratings_v4_prod_p4_parallel_v1` at 2026-10-23T09:45:08Z; all 80
+plan-probe statements passed and the live verification served results with the
+expected identities. Docs only:
+
+- `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`:
+  the full, sealed publish receipt (its nested `content_sha256` seals verify).
+- `docs/ROADMAP.md` and `CLAUDE.md`: status — the Finder is live; purge P is the
+  next gated step.
+
 ## 2026-10-23 — Third F2d release (`a031c2da`) accepted in production
 
 Owner-approved preflight (run 39925556950) and promotion (run 39925665010)
