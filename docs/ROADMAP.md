@@ -96,6 +96,21 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
+- **Finder LIVE — step 9′ complete (2026-10-23).** Owner-approved
+  `publish-finder-products` run 39933842811 published `system_search`
+  (`v3-system-search-2`) and `system_archetype` (`v3-archetype-4`) on
+  `ratings_v4_prod_p4_parallel_v1` (seq 1) in one transaction at
+  2026-10-23T09:45:08Z: receipt `status: published`, exit 0, all 80 plan-probe
+  statements passed (slowest: densest-window development page 13.2 s,
+  densest-window O-star page 6.2 s), post-commit audit rows match, and the live
+  Finder verification served results with the expected generation, ranking and
+  archetype identities. Evidence:
+  `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`
+  (plan bodies trimmed; full-receipt SHA-256 recorded inside). Next gated
+  steps: the governed purge P (design and gates unchanged, owner go required),
+  then the post-go-live work recorded in the 2026-10-21 entries. Known
+  follow-ups: the dense-window development sort is slow near the galactic core,
+  and the PR #877 visual polish list.
 - **Production app promoted to `a031c2da`, the third F2d release (2026-10-23).**
   Release run 39921473982, preflight run 39925556950, promote run 39925665010,
   receipt `created_at` `2026-10-23T08:35:49Z`, active slot blue→green,
