@@ -18,7 +18,11 @@ def test_seed_uses_committed_generation_and_relation_proportions(scale, systems)
     assert proportion == systems / 198_528_286
     assert counts['system_rating_vector']['ratings_v4_prod_p4_opt1'] == systems
     assert counts['system_search']['ratings_v4_prod_p4'] == 0
-    assert counts['system_search']['ratings_v4_prod_p4_parallel_v1'] == 0
+    # Post-go-live: the surviving generation holds one published Search row per
+    # system, as production does, alongside the same count of archetype rows.
+    assert counts['system_search']['ratings_v4_prod_p4_parallel_v1'] == systems
+    assert counts['system_search']['ratings_v4_prod_p4_opt1'] == systems
+    assert figures.expected_survivor_products(proportion) == {'system_search': systems, 'system_archetype': systems}
     assert counts['body_mechanics']['ratings_v4_prod_p4_opt1'] == round(577_709_320 * proportion)
     assert counts['economy_opportunity']['ratings_v4_prod_p4_opt1'] == round(740_001_532 * proportion)
     assert counts['system_rating_vector']['ratings_v4_prod_p4'] == max(1, round(4_938_000 * proportion))
@@ -53,7 +57,7 @@ def test_seed_keeps_constraints_triggers_and_bounded_bulk_writes():
     assert 'DISABLE TRIGGER' not in sql
     assert 'session_replication_role' not in sql
     assert harness.SEED_BATCH_ROWS <= 100_000
-    for statement in (seed.BODY, seed.ECONOMY, seed.VECTOR, seed.SEARCH):
+    for statement in (seed.BODY, seed.ECONOMY, seed.VECTOR, seed.SEARCH, seed.ARCHETYPE):
         assert '%(first)s' in statement and '%(last)s' in statement
         bound = harness.bind_sql(statement, dict(first=1, last=10, systems=10, bodies=20, generation='uuid'))
         assert '%%' not in bound
@@ -68,12 +72,20 @@ def test_receipt_seals_raw_and_margin_figures_without_promoting_missing_crashes(
                    status='success', source_git_sha='a'*40, scale='tiny',
                    **figures.code_identity(),
                    image_digest=harness.IMAGE, production_proportion=proportion,
-                   row_counts=counts, lifecycle_receipt_sha256=hashlib.sha256(harness.RECEIPT_PATH.read_bytes()).hexdigest(),
+                   row_counts=counts, survivor_products=figures.expected_survivor_products(proportion),
+                   lifecycle_receipt_sha256=hashlib.sha256(harness.RECEIPT_PATH.read_bytes()).hexdigest(),
                    settings={'autovacuum': 'on'}, gate_10_crash_rehearsal_passed=False,
                    crash_scenarios={name: {'passed': False} for name in harness.CRASH_SCENARIOS},
                    per_relation={relation: figures.relation_figures(
                        {**raw, 'deleted_rows': sum(counts[relation][key] for key in harness.controller.TARGETS)},
                        proportion) for relation in harness.RELATIONS})
+    search = receipt['per_relation']['system_search']
+    search['survivor_target_split'] = figures.search_split_figures(dict(
+        survivor_rows=counts['system_search']['ratings_v4_prod_p4_parallel_v1'],
+        target_rows=search['raw']['deleted_rows'], heap_index_bytes_before_delete=65536,
+        survivor_heap_index_bytes_after_rewrite=200 * 8192, governed_rewrite_seconds=0.1,
+        governed_rewrite_peak_bytes=8192, survivor_rewrite_seconds=0.05, survivor_rewrite_peak_bytes=4096,
+        target_delete_seconds=1.0), proportion)
     sealed = evidence.seal(receipt)
     path = tmp_path / 'receipt.json'
     path.write_text(json.dumps(sealed))
@@ -284,3 +296,115 @@ def test_action_arguments_match_controller_admission(tmp_path, mode, plan, verif
     assert ('--plan' in argv) is plan and ('--plan-sha256' in argv) is plan
     assert ('--verification' in argv) is verification
     assert ('--verification-sha256' in argv) is verification
+
+
+def test_seed_publishes_survivor_products_through_015_after_base_publication(tmp_path):
+    instance = harness.Harness('tiny', 'seed-order-test', tmp_path)
+    executed = []
+    def sql(statement, parameters=None):
+        executed.append((statement, dict(parameters or {})))
+        if statement == seed.SURVIVOR_PUBLICATION:
+            rows = instance.counts['system_search'][harness.controller.PUBLISHED_KEY]
+            return json.dumps({'products': {code: {'version': version, 'state': 'READY', 'status': 'VERIFIED',
+                                                   'expected_rows': rows, 'published': True}
+                                            for code, version in seed.SURVIVOR_PRODUCTS},
+                               'audit_rows': 2, 'search_rows': rows, 'archetype_rows': rows,
+                               'app_search_rows': rows, 'app_archetype_rows': rows})
+        if statement.startswith('SELECT COALESCE(json_object_agg'):
+            relation = statement.split('FROM v3_derived.')[1].split()[0]
+            identities = {key: value[0] for key, value in harness.controller.TARGETS.items()}
+            identities[harness.controller.PUBLISHED_KEY] = harness.controller.PUBLISHED_ID
+            return json.dumps({identities[key]: count for key, count in instance.counts[relation].items() if count})
+        return ''
+    instance.sql = sql
+    instance.seed()
+    order = [statement for statement, _ in executed]
+    published = harness.controller.PUBLISHED_ID
+    survivor_search = [index for index, (statement, parameters) in enumerate(executed)
+                       if statement == seed.SEARCH and parameters.get('generation') == published]
+    base_publish = order.index(seed.PUBLISH)
+    products_publish = order.index(seed.PUBLISH_PRODUCTS)
+    # Survivor Search and archetype rows are written only after the base is
+    # PUBLISHED, and the products are published only after both are READY.
+    assert survivor_search and min(survivor_search) > base_publish
+    archetype = [index for index, statement in enumerate(order) if statement == seed.ARCHETYPE]
+    assert archetype and min(archetype) > base_publish and max(archetype) < products_publish
+    ready = [index for index, (statement, parameters) in enumerate(executed) if statement == seed.PRODUCT_READY]
+    assert [executed[index][1]['product'] for index in ready] == ['system_search', 'system_archetype']
+    assert max(ready) < products_publish < order.index(seed.SURVIVOR_PUBLICATION)
+    registered = [parameters for statement, parameters in executed if statement == seed.SURVIVOR_PRODUCT]
+    assert [(item['product'], item['version'], item['rows']) for item in registered] == [
+        ('system_search', 'v3-system-search-2', 200), ('system_archetype', 'v3-archetype-4', 200)]
+    # The opt1 target keeps its own unpublished v3-system-search-1 product.
+    assert [parameters['generation'] for statement, parameters in executed if statement == seed.SEARCH_PRODUCT] == [
+        harness.controller.TARGETS['ratings_v4_prod_p4_opt1'][0]]
+
+
+def test_seed_refuses_unproven_survivor_publication(tmp_path):
+    instance = harness.Harness('tiny', 'seed-refusal-test', tmp_path)
+    def sql(statement, parameters=None):
+        if statement == seed.SURVIVOR_PUBLICATION:
+            return json.dumps({'products': {}, 'audit_rows': 0})
+        if statement.startswith('SELECT COALESCE(json_object_agg'):
+            relation = statement.split('FROM v3_derived.')[1].split()[0]
+            identities = {key: value[0] for key, value in harness.controller.TARGETS.items()}
+            identities[harness.controller.PUBLISHED_KEY] = harness.controller.PUBLISHED_ID
+            return json.dumps({identities[key]: count for key, count in instance.counts[relation].items() if count})
+        return ''
+    instance.sql = sql
+    with pytest.raises(ValueError, match='seed_survivor_publication_unproven'):
+        instance.seed()
+
+
+def test_journey_records_survivor_and_target_search_rewrite_separately(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'journey-test', tmp_path)
+    plan = tmp_path / 'plan.json'
+    plan.write_text(json.dumps({'reviewed_plan': {'delete': {relation: {'batch_limit': 10_000}
+                                                             for relation in harness.RELATIONS}}}))
+    remaining = {relation: sum(instance.counts[relation][key] for key in harness.controller.TARGETS)
+                 for relation in harness.RELATIONS}
+    current = {}
+    def action(mode, *, measure=False, allow_partial_delete=False):
+        report = {'content_sha256': 'c' * 64, 'statement_durations': []}
+        if mode.startswith('delete-'):
+            relation = harness.controller.RELATIONS[mode.removeprefix('delete-')]
+            current['relation'] = relation
+            report.update(rows_affected_this_run=remaining[relation], statement_durations=[
+                {'kind': 'payload_batch', 'duration_seconds': 0.5}])
+            remaining[relation] = 0
+            return report, plan, 2.0, 100, 3
+        if mode.startswith('rewrite-'):
+            report['statement_durations'] = [{'kind': 'vacuum_full_analyze', 'duration_seconds': 0.4}]
+            return report, plan, 0.6, 4096, 3
+        return report, plan, 0.1, 0, 0
+    sizes = iter([65536, 200 * 8192] + [65536] * 3)
+    def sql(statement, parameters=None):
+        if statement.startswith('SELECT pg_total_relation_size'):
+            return str(next(sizes))
+        if statement.startswith('SELECT count(*)'):
+            return str(remaining[statement.split('FROM v3_derived.')[1].split()[0]])
+        return ''
+    monkeypatch.setattr(instance, 'action', action)
+    monkeypatch.setattr(instance, 'sql', sql)
+    # The survivor-only control rewrite measures a larger peak than the
+    # governed one: the plan must carry the larger (fail-closed).
+    monkeypatch.setattr(instance, 'survivor_control_rewrite', lambda: (0.3, 6000, 4))
+    measurements = instance.journey()
+    search = measurements['system_search']
+    split = search['survivor_target_split']
+    assert split['raw']['survivor_rows'] == instance.counts['system_search']['ratings_v4_prod_p4_parallel_v1'] == 200
+    assert split['raw']['governed_rewrite_peak_bytes'] == 4096
+    assert split['survivor']['rewrite_seconds'] == 0.3 and split['survivor']['rewrite_peak_bytes'] == 6000
+    assert split['target']['rewrite_seconds'] == pytest.approx(0.1) and split['target']['rewrite_peak_bytes'] == 0
+    assert search['raw']['rewrite_peak_bytes'] == 6000
+    assert search['production']['rewrite_peak_bytes'] == split['production']['rewrite_peak_bytes']
+    assert all('survivor_target_split' not in measurements[relation]
+               for relation in harness.RELATIONS if relation != 'system_search')
+    # The receipt validator accepts exactly these recorded figures.
+    counts = instance.counts
+    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal', status='stopped',
+                   source_git_sha='a' * 40, scale='tiny', **figures.code_identity(), image_digest=harness.IMAGE,
+                   production_proportion=instance.proportion, row_counts=counts,
+                   survivor_products=instance.survivors, settings={'autovacuum': 'on'},
+                   gate_10_crash_rehearsal_passed=False, crash_scenarios={}, per_relation=measurements)
+    assert figures.validate(receipt, production=False) is receipt

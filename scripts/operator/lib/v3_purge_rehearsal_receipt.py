@@ -4,6 +4,12 @@ Disk peaks in ``production`` remain raw: the production controllers apply the
 owner's 1.5 margin immediately before admission. ``margin_applied`` is retained
 for review, never fed back to those controllers. Batch peaks are not multiplied
 by database scale because production uses the exact measured batch row bound.
+
+Schema v2 (post-go-live): the fixture's surviving generation holds published
+``system_search`` and ``system_archetype`` products, as production has since
+2026-10-23, and the ``system_search`` rewrite is recorded separately for its
+survivor copy and for the deleted target data. A v1 receipt measured a
+zero-survivor Search rewrite and is refused.
 """
 from __future__ import annotations
 
@@ -15,7 +21,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[3]
-SCHEMA = 'ed-finder/derived-purge-rehearsal/v1'
+SCHEMA = 'ed-finder/derived-purge-rehearsal/v2'
 RELATIONS = ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector')
 CRASH_SCENARIOS = ('batch_client_before_commit', 'batch_client_after_commit',
                    'rewrite_monitor_cancel', 'rewrite_terminate_backend',
@@ -26,16 +32,54 @@ HARNESS_FILES = ('scripts/rehearsal/v3_derived_purge_rehearsal.py',
                  'scripts/rehearsal/v3_purge_crashes.py')
 LIFECYCLE_RECEIPT = ROOT / 'docs/operations/evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json'
 MAX_RECEIPT_BYTES = 8 * 1024 * 1024
+SURVIVOR_KEY = 'ratings_v4_prod_p4_parallel_v1'
+TARGET_KEYS = ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1')
+SURVIVOR_PRODUCTS = ('system_search', 'system_archetype')
+# The action's admission rule (v3_purge_rewrite.start_rewrite): a rewrite
+# starts only if free bytes cover the 100 GB floor plus 1.5x its raw peak.
+FREE_FLOOR_BYTES = 100_000_000_000
+# Owner-reported 2026-10-23 production v3_derived.system_search size (about
+# 175 GB) across the published parallel_v1 Search rows and the opt1 target
+# rows, one row per system each. Only used to keep the width check strict.
+REPORTED_SEARCH_BYTES = 175_000_000_000
+REPORTED_SEARCH_ROWS = 2 * 198_528_286
 
 
 def expected_row_counts(proportion):
-    """Bind declared seed counts to the dated, committed lifecycle evidence."""
+    """Bind declared seed counts to the dated, committed lifecycle evidence.
+
+    The receipt predates go-live, so its surviving generation has no Search
+    rows. Both Finder products have since been published on that generation
+    with one row per system (``expected_rows`` = its 198,528,286 systems,
+    publish run 39933842811), so the survivor Search count is its
+    ``ratings_systems`` at the same proportion.
+    """
     lifecycle = json.loads(LIFECYCLE_RECEIPT.read_text())
     columns = dict(system_search='search_systems', economy_opportunity='ratings_eligible_opportunities',
                    body_mechanics='ratings_physical_bodies', system_rating_vector='ratings_systems')
-    return {relation: {generation: max(1, round(counts[column] * proportion)) if counts[column] else 0
-                       for generation, counts in lifecycle['footprint']['rows_by_generation'].items()}
-            for relation, column in columns.items()}
+    rows = lifecycle['footprint']['rows_by_generation']
+    result = {relation: {generation: max(1, round(counts[column] * proportion)) if counts[column] else 0
+                         for generation, counts in rows.items()}
+              for relation, column in columns.items()}
+    result['system_search'][SURVIVOR_KEY] = max(1, round(rows[SURVIVOR_KEY]['ratings_systems'] * proportion))
+    return result
+
+
+def expected_survivor_products(proportion):
+    """Published Finder product rows on the surviving generation (one per system)."""
+    survivors = expected_row_counts(proportion)['system_search'][SURVIVOR_KEY]
+    return {code: survivors for code in SURVIVOR_PRODUCTS}
+
+
+def production_search_bytes_per_row():
+    """The larger of the committed and the owner-reported production widths."""
+    lifecycle = json.loads(LIFECYCLE_RECEIPT.read_text())
+    measured = [item for item in lifecycle['footprint']['relations']
+                if item.get('schema') == 'v3_derived' and item.get('name') == 'system_search']
+    if len(measured) != 1 or not measured[0].get('n_live_tup'):
+        raise ValueError('rehearsal_production_search_width_unknown')
+    committed = measured[0]['total_bytes'] / measured[0]['n_live_tup']
+    return max(committed, REPORTED_SEARCH_BYTES / REPORTED_SEARCH_ROWS)
 
 
 def _evidence():
@@ -122,6 +166,93 @@ def relation_figures(raw, proportion):
     }}
 
 
+SPLIT_FIELDS = ('survivor_rows', 'target_rows', 'heap_index_bytes_before_delete',
+                'survivor_heap_index_bytes_after_rewrite', 'governed_rewrite_peak_bytes',
+                'survivor_rewrite_peak_bytes')
+SPLIT_SECONDS = ('governed_rewrite_seconds', 'survivor_rewrite_seconds', 'target_delete_seconds')
+
+
+def search_split_figures(raw, proportion):
+    """Separate the measured Search rewrite into survivor and target shares.
+
+    The governed ``rewrite-system-search`` copies the published survivors and
+    scans the deleted target tuples. A second, survivor-only ``VACUUM (FULL,
+    ANALYZE)`` of the same disposable relation after ``complete`` measures the
+    survivor copy alone; the target share is the governed figure minus it
+    (never negative). Production figures divide by the recorded proportion,
+    the owner's method for whole-relation work. The admission figure is the
+    action's own rule: 100 GB floor plus 1.5x the raw peak the plan carries.
+    """
+    if not _positive(proportion) or proportion > 1 or not isinstance(raw, dict):
+        raise ValueError('rehearsal_search_split_invalid')
+    for field in SPLIT_FIELDS:
+        if type(raw.get(field)) is not int or not 0 <= raw[field] < 2**63:
+            raise ValueError('rehearsal_search_split_invalid')
+    for field in SPLIT_SECONDS:
+        if not _positive(raw.get(field)):
+            raise ValueError('rehearsal_search_split_invalid')
+    if raw['survivor_rows'] <= 0 or raw['target_rows'] <= 0 or raw['survivor_heap_index_bytes_after_rewrite'] <= 0:
+        raise ValueError('rehearsal_search_survivors_absent')
+    plan_peak = max(raw['governed_rewrite_peak_bytes'], raw['survivor_rewrite_peak_bytes'])
+    survivor_bytes = raw['survivor_heap_index_bytes_after_rewrite']
+    survivor = {
+        'rows': raw['survivor_rows'], 'heap_index_bytes': survivor_bytes,
+        'bytes_per_row': survivor_bytes / raw['survivor_rows'],
+        'rewrite_seconds': raw['survivor_rewrite_seconds'],
+        'rewrite_peak_bytes': raw['survivor_rewrite_peak_bytes'],
+    }
+    target = {
+        'rows': raw['target_rows'],
+        'reclaimed_heap_index_bytes': max(0, raw['heap_index_bytes_before_delete'] - survivor_bytes),
+        'delete_seconds': raw['target_delete_seconds'],
+        'rewrite_seconds': max(0.0, raw['governed_rewrite_seconds'] - raw['survivor_rewrite_seconds']),
+        'rewrite_peak_bytes': max(0, raw['governed_rewrite_peak_bytes'] - raw['survivor_rewrite_peak_bytes']),
+    }
+    peak = math.ceil(plan_peak / proportion)
+    reference = production_search_bytes_per_row()
+    production = {
+        'survivor_rows': round(raw['survivor_rows'] / proportion),
+        'target_rows': round(raw['target_rows'] / proportion),
+        'survivor_heap_index_bytes': math.ceil(survivor_bytes / proportion),
+        'target_reclaimed_heap_index_bytes': math.ceil(target['reclaimed_heap_index_bytes'] / proportion),
+        'survivor_rewrite_seconds': survivor['rewrite_seconds'] / proportion,
+        'target_rewrite_seconds': target['rewrite_seconds'] / proportion,
+        'target_delete_seconds': target['delete_seconds'] / proportion,
+        'survivor_rewrite_peak_bytes': math.ceil(survivor['rewrite_peak_bytes'] / proportion),
+        'target_rewrite_peak_bytes': math.ceil(target['rewrite_peak_bytes'] / proportion),
+        'rewrite_peak_bytes': peak,
+        'rewrite_peak_margin_bytes': margin_bytes(peak),
+        'free_floor_bytes': FREE_FLOOR_BYTES,
+        'required_free_bytes_before_rewrite': FREE_FLOOR_BYTES + margin_bytes(peak),
+        'reference_bytes_per_row': reference,
+        'fixture_bytes_per_row': survivor['bytes_per_row'],
+        'method': 'raw_peak_and_seconds_divided_by_proportion_margin_1_5_plus_100gb_floor',
+    }
+    return {'raw': dict(raw), 'survivor': survivor, 'target': target, 'production': production,
+            'plan_rewrite_peak_bytes': plan_peak}
+
+
+def _validate_search_split(value, counts, proportion):
+    figure = value['per_relation']['system_search']
+    split = figure.get('survivor_target_split')
+    if not isinstance(split, dict) or not isinstance(split.get('raw'), dict):
+        raise ValueError('rehearsal_search_split_missing')
+    recomputed = search_split_figures(split['raw'], proportion)
+    if any(split.get(key) != recomputed[key] for key in recomputed):
+        raise ValueError('rehearsal_search_split_mismatch')
+    raw, measured = split['raw'], figure['raw']
+    if (raw['survivor_rows'] != counts['system_search'][SURVIVOR_KEY]
+            or raw['target_rows'] != measured['deleted_rows']
+            or raw['heap_index_bytes_before_delete'] != measured['heap_index_bytes']
+            or raw['governed_rewrite_seconds'] != measured['rewrite_seconds']
+            or raw['target_delete_seconds'] != measured['delete_seconds']
+            or measured['rewrite_peak_bytes'] != recomputed['plan_rewrite_peak_bytes']):
+        raise ValueError('rehearsal_search_split_unbound')
+    # Synthetic rows narrower than production would understate the copy.
+    if recomputed['production']['fixture_bytes_per_row'] < recomputed['production']['reference_bytes_per_row']:
+        raise ValueError('rehearsal_search_survivor_width_unrepresentative')
+
+
 def validate(value, *, production=True):
     """Validate schema and recompute every derived bound, refusing forged maths."""
     if (not isinstance(value, dict) or value.get('schema_version') != SCHEMA
@@ -156,6 +287,9 @@ def validate(value, *, production=True):
         raise ValueError('rehearsal_relations_invalid')
     if counts != expected_row_counts(proportion):
         raise ValueError('rehearsal_row_counts_proportion_mismatch')
+    # Zero published survivors cannot stand in for production since go-live.
+    if value.get('survivor_products') != expected_survivor_products(proportion):
+        raise ValueError('rehearsal_survivor_population_mismatch')
     for relation in RELATIONS:
         generations = counts[relation]
         if (not isinstance(generations, dict) or not generations
@@ -173,6 +307,7 @@ def validate(value, *, production=True):
         recomputed = relation_figures(figure.get('raw'), proportion)
         if any(figure.get(key) != recomputed[key] for key in ('production', 'margin_applied')):
             raise ValueError('rehearsal_derived_figures_mismatch')
+    _validate_search_split(value, counts, proportion)
     if type(value.get('gate_10_crash_rehearsal_passed')) is not bool:
         raise ValueError('rehearsal_crash_gate_invalid')
     scenarios = value.get('crash_scenarios')

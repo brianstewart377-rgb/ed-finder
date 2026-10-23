@@ -975,7 +975,9 @@ def test_production_plan_refuses_unproven_published_survivor_counts(monkeypatch,
     assert not any(call[0] == 'query' and call[2] for call in calls)
 
 
-def test_rehearsal_plan_freezes_survivors_without_requiring_published_products(monkeypatch):
+def test_rehearsal_plan_requires_published_products_exactly_as_production(monkeypatch):
+    # The disposable fixture publishes both Finder products on its survivor, as
+    # production has since go-live, so a rehearsal plan with none must refuse.
     module = _action_tool()
     report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'plan')
     query = runtime.query
@@ -984,8 +986,19 @@ def test_rehearsal_plan_freezes_survivors_without_requiring_published_products(m
         else query(sql, params, write=write))
     runtime.rehearsal = True
     runtime.prepare_plan = lambda reviewed: None
+    with pytest.raises(ValueError, match='published_survivor_product_count_unproven'):
+        module.execute('plan', runtime, report)
+
+
+def test_rehearsal_plan_freezes_published_survivor_products(monkeypatch):
+    module = _action_tool()
+    report, runtime, _plan, _calls = _successful_phase(module, monkeypatch, 'plan')
+    runtime.rehearsal = True
+    runtime.prepare_plan = lambda reviewed: None
     module.execute('plan', runtime, report)
-    assert report['reviewed_plan']['published_survivors'] == {'system_archetype_rows': 0, 'products': {}}
+    frozen = report['reviewed_plan']['published_survivors']
+    assert set(frozen['products']) == {'system_search', 'system_archetype'}
+    assert all(product['published_at'] for product in frozen['products'].values())
 
 
 @pytest.mark.parametrize('mode', ('authorize', 'verify-system-archetype-empty', 'complete'))
