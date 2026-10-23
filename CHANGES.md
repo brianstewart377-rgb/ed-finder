@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Owner decisions: the Finder screen
+
+Docs only. `docs/ROADMAP.md` records the owner's 2026-10-23 decisions on the
+Finder screen (own V2-style page, map on demand, best-first default, grade key,
+colony-type picker with "Any type", Clear and descriptions, the V2 body-filter
+groups) and on combining a colony type with body filters (anchored: after purge
+P; galaxy-wide filter-first path: later), plus the 15 s API timeout risk near
+the galactic core. No step order or gate changes beyond the recorded reversal
+of F2d question 9 for anchored searches.
+
 ## 2026-10-23 — Finder published (go-live, step 9′)
 
 Owner-approved `publish-finder-products` run 39933842811 published both Finder

@@ -96,6 +96,38 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
+- **Owner decisions 2026-10-23: the Finder screen (decided, not implemented).**
+  After go-live the owner reviewed the live Explore page and confirmed it is an
+  interim surface, not the intended Finder. Decided from layout mock-ups
+  (private design canvas "Finder layout options", option A):
+  (1) the Finder is its **own page**, laid out like the V2 Finder — filters on
+  the left, ranked results with scores in the middle — and the results map
+  opens **on demand** ("Show on map"), with "Open in Explore" for the full
+  galaxy map; Explore stays the galaxy map;
+  (2) default sort is **best first**; the separate minimum-tier control is
+  removed — a "Hide weak matches (below B)" option appears only with
+  "Nearest first", and a grade key (S 88+ … D below 45) sits above the results;
+  (3) the colony-type picker starts with **"Any type"**, re-clicking the chosen
+  type or "Clear" unpicks it, and a description box explains the chosen type
+  (text from `apps/web/src/lib/features/explore/archetypes.ts`);
+  (4) every V2 body-count filter returns, grouped as in V2 (valuable worlds,
+  stars, landing/walking, planet classes, rings/signals) plus terraformable;
+  (5) tuning sliders wait until their V3 factors are agreed; "uncolonised only"
+  waits for live colony data.
+  **Colony type + body filters (reverses F2d question 9 for anchored searches):**
+  option 1 — anchored (near a system) picked-archetype requests accept body
+  filters with exact results, walking the 500 ly box and ranking by the picked
+  archetype; ships **after purge P** (one generation halves the box walk) with a
+  new probe statement and re-attestation. Option 3 — a filter-first database
+  path (for example a partial index on systems with Earth-like worlds) so
+  galaxy-wide picked + filtered searches are exact and fast — is **on the
+  roadmap for later**, starting with measuring how many systems qualify.
+  Galaxy-wide picked searches keep body filters disabled with an explanation
+  until then. Known risk recorded: the API's 15 s per-statement limit sits
+  close to the measured 12–13 s anchored development page at the densest
+  window; purge P is expected to roughly halve it, and the UI must fail
+  gracefully meanwhile. Order: clear outstanding work first (purge P readiness,
+  Inspect polish, open PRs), then the Finder screen.
 - **Finder LIVE — step 9′ complete (2026-10-23).** Owner-approved
   `publish-finder-products` run 39933842811 published `system_search`
   (`v3-system-search-2`) and `system_archetype` (`v3-archetype-4`) on
