@@ -11,6 +11,25 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Third F2d release (`a031c2da`) accepted in production
+
+Owner-approved preflight (run 39925556950) and promotion (run 39925665010)
+accepted release run 39921473982, source `a031c2da` (PRs #877 and #878), to
+active slot green at 2026-10-23T08:35:49Z. App-only: no migration, no database
+writes, protected resources unchanged; the `0dddc78d` backend is the recorded
+rollback artifact and `f667bb4d` stays the minimum schema-compatible image.
+
+- `deploy/v3-production/target-authority.json`: `observed_runtime` and
+  `accepted_release_schema_compatibility` now bind the new release (images,
+  manifest checksum, run ids; ranking and F2d operator-code identities
+  unchanged; rollback targets gain the new backend).
+- `docs/operations/evidence/2026-10-23-v3-production-promotion-receipt-run-39925665010.json`:
+  the accepted promotion receipt.
+- `docs/ROADMAP.md`, `docs/operations/v3-production-application-release.md`,
+  `CLAUDE.md`: status lines. The ROADMAP entry also records why the first
+  `publish-finder-products` attempt (run 39808363037) was refused with nothing
+  committed (plan-probe statement 72 timed out on the 0dddc78d SQL).
+
 ## 2026-10-22 — Finder ranking SQL: generation-pinned windows that pass the F2d plan probe
 
 API query SQL and tests only. No migration, no `deploy/` or `scripts/operator/`

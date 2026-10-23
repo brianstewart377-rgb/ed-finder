@@ -27,11 +27,12 @@ checkpoint remains a separate rehearsal boundary. The app-only V3 production
 promotion path is now `authorized` and has accepted governed promotions
 (2026-09-10 bootstrap; identity 2026-09-16; density-swirl `8055f268` 2026-09-23;
 `bed755b9` 2026-09-25; first F2d release `f667bb4d` 2026-10-18; second F2d
-release `0dddc78d` 2026-10-19 per the accepted-release attestation), with exact CPython
+release `0dddc78d` 2026-10-19; third F2d release `a031c2da` 2026-10-23 per the
+accepted-release attestation), with exact CPython
 3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
-promote. Current programme status (prod app on `0dddc78d`, the second F2d release, whose
+promote. Current programme status (prod app on `a031c2da`, the third F2d release, whose
 Finder routes answer 503 until both products are published; it carries the
 `bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; Finder `system_search` post-`010` build **running** (8′ started
