@@ -19,7 +19,7 @@ plan-probe statements passed and the live verification served results with the
 expected identities. Docs only:
 
 - `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`:
-  the publish receipt with plan bodies trimmed (full-receipt SHA-256 inside).
+  the full, sealed publish receipt (its nested `content_sha256` seals verify).
 - `docs/ROADMAP.md` and `CLAUDE.md`: status — the Finder is live; purge P is the
   next gated step.
 

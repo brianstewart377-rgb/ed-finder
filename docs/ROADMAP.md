@@ -106,7 +106,7 @@ newer dated source wins).
   Finder verification served results with the expected generation, ranking and
   archetype identities. Evidence:
   `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`
-  (plan bodies trimmed; full-receipt SHA-256 recorded inside). Next gated
+  (the full sealed receipt; its nested seals verify). Next gated
   steps: the governed purge P (design and gates unchanged, owner go required),
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
@@ -122,7 +122,8 @@ newer dated source wins).
   because the 0dddc78d SQL sorted the whole archetype generation. #878 fixes it;
   all 80 probe statements pass on a production-statistics PG18 test, and the
   densest-window statement 79 measured 11.7 s (warm) on production data.
-  Publication is the next owner-approved step. The `0dddc78d` backend is the
+  Publication followed the same day (run 39933842811; see the go-live entry
+  above). The `0dddc78d` backend is the
   recorded rollback artifact; `f667bb4d` stays the minimum schema-compatible image.
 - **Previously: production app promoted to `0dddc78d`, the second F2d release (2026-10-19).**
   Release run 39223378017, promote run 39228589346, receipt `received_at`
@@ -669,9 +670,10 @@ newer dated source wins).
   enabled anywhere until slice 1c has landed with its representative-scale
   timing proof; and the flag may not be enabled in any governed production or
   release build until both Finder products are published (step 9′, the go-live
-  — the 8′ Search build is running, run 39328946864) and F4c/F4e have landed.
-  Next execution focus is **8′ → 9′**, with F4a/F4b fixture-based implementation
-  able to proceed alongside. The Colony Planner statement above is unchanged.
+  — completed 2026-10-23, publish run 39933842811) and F4c/F4e have landed.
+  The 8′ → 9′ focus recorded here is complete (superseded by the 2026-10-23
+  go-live entry at the top of this section); F4a/F4b fixture-based
+  implementation continues. The Colony Planner statement above is unchanged.
 - **Owner decision 2026-10-21: publish the Finder on the frozen Ratings V4.0 /
   `v3-archetype-4` rules as attested.** The Mega Guide audit found Finder-rule
   conflicts — notably native+modifier inheritance scored 85 vs 75 (guide p8/p50:
