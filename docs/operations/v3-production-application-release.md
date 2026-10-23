@@ -325,9 +325,10 @@ the minimum schema-compatible image. Receipt:
 `docs/operations/evidence/2026-10-23-v3-production-promotion-receipt-run-39925665010.json`.
 **Status (2026-10-19).** The second F2d release, source `0dddc78d` (release run
 39223378017, PRs #854–#857), was accepted by promotion run 39228589346 to slot
-blue; its attestation (operator-code identity `c26d23d0…`) is now the accepted
-release in `deploy/v3-production/target-authority.json` and governs every
-later F2d operator action. Later candidates are judged by the accepted-F2d
+blue; its attestation (operator-code identity `c26d23d0…`) was the accepted
+release in `deploy/v3-production/target-authority.json` until the third F2d
+release above superseded it on 2026-10-23; its backend is now the recorded
+rollback artifact. Later candidates are judged by the accepted-F2d
 rule (product rows may exist, never `FAILED`), must keep
 `minimum_schema_compatible_image` at the first F2d backend digest, and must
 list their own backend among `rollback_targets`.
