@@ -96,7 +96,20 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
-- **Production app promoted to `0dddc78d`, the second F2d release (2026-10-19).**
+- **Production app promoted to `a031c2da`, the third F2d release (2026-10-23).**
+  Release run 39921473982, preflight run 39925556950, promote run 39925665010,
+  receipt `created_at` `2026-10-23T08:35:49Z`, active slot blue→green,
+  `status: accepted`; app-only, no migration, no database writes. Carries
+  PR #877 (Inspect, share card and travel heatmap on V3 routes) and PR #878
+  (generation-pinned Finder ranking windows). The first `publish-finder-products`
+  attempt (run 39808363037, 2026-10-22, owner-approved) was refused with nothing
+  committed: plan-probe statement 72 (galaxy-wide page) hit its 60 s timeout
+  because the 0dddc78d SQL sorted the whole archetype generation. #878 fixes it;
+  all 80 probe statements pass on a production-statistics PG18 test, and the
+  densest-window statement 79 measured 11.7 s (warm) on production data.
+  Publication is the next owner-approved step. The `0dddc78d` backend is the
+  recorded rollback artifact; `f667bb4d` stays the minimum schema-compatible image.
+- **Previously: production app promoted to `0dddc78d`, the second F2d release (2026-10-19).**
   Release run 39223378017, promote run 39228589346, receipt `received_at`
   `2026-10-19T09:15:43Z`, active slot green→blue, `status: accepted`; app-only.
   Carries the PR #854–#857 operator hardening whose operator-code identity the

@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
-    "api_build_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:1f086a994d8285f1b93223be37cf4830d238cfa6a70b2a10d33f4fa2d0eb1a79",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:d8d7603e79c2213c4fc6534f16967f51498e73a80743e00d444d0b1c6f87db67",
+    "api_build_sha": "a031c2dace11647fbc2f7ed6974e74d44140ce5e",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:c39a415b2c71072ad99a36a01cee1ac4d521eaff1d0d5a39119a59beee5bb9bb",
     "accepted_promotion": {
-      "received_at": "2026-10-19T09:15:43Z",
-      "release_run_id": "39223378017",
-      "source_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
+      "received_at": "2026-10-23T08:35:49Z",
+      "release_run_id": "39921473982",
+      "source_sha": "a031c2dace11647fbc2f7ed6974e74d44140ce5e",
       "mode": "upgrade",
-      "active_slot": "blue",
+      "active_slot": "green",
       "rollback_kind": "recorded-schema-compatible-release"
     },
     "retired_legacy_containers": [
@@ -51,30 +51,31 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-0dddc78d",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 39228589346 at 2026-10-19T09:15:43Z binds release run 39223378017 and source 0dddc78d0a7cce4c3ad22326361328c51bc4a1d9 to active slot blue, promoted from the first F2d release f667bb4d64abd879828bfe5effa64000562641c6 (green), which remains the minimum schema-compatible image and the recorded rollback artifact. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and 503 not-ready behavioural probes passed; no Finder product is registered yet on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-a031c2da",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 39925665010 at 2026-10-23T08:35:49Z binds release run 39921473982 and source a031c2dace11647fbc2f7ed6974e74d44140ce5e to active slot green, promoted from the second F2d release 0dddc78d0a7cce4c3ad22326361328c51bc4a1d9 (blue), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and 503 not-ready behavioural probes passed; both Finder products are READY/VERIFIED and not yet published on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "0dddc78d0a7cce4c3ad22326361328c51bc4a1d9",
-    "release_run_id": "39223378017",
-    "manifest_sha256": "0cbe206440bebdae1b41fa76968335fdd6822b0882cf7b5d2a6dd9f561d21376",
+    "source_sha": "a031c2dace11647fbc2f7ed6974e74d44140ce5e",
+    "release_run_id": "39921473982",
+    "manifest_sha256": "753f3ab02c6c928db0e52d162db2e6fa298045ce0517dcb8013779ce4270515d",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:1f086a994d8285f1b93223be37cf4830d238cfa6a70b2a10d33f4fa2d0eb1a79"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:d8d7603e79c2213c4fc6534f16967f51498e73a80743e00d444d0b1c6f87db67",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:c39a415b2c71072ad99a36a01cee1ac4d521eaff1d0d5a39119a59beee5bb9bb"
     },
     "compatible_migration_sets": [
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
       "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc"
     ],
-    "evidence": "Release run 39223378017 built source 0dddc78d0a7cce4c3ad22326361328c51bc4a1d9 as the second F2d release for the installed through-016 schema (identity sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc). Promotion run 39228589346 accepted it at 2026-10-19T09:15:43Z (receipt status accepted, active slot blue, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the f667bb4d artifact). It carries PRs 854-857 (custom-plan session settings for the probe and both builders, complete-read resume/retry/receipt hardening, archetype validation inside the detached worker, archiver and archive-mount preflights, deploy/publish gate fixes). Ranking identity unchanged and confirmed in the deployed image; f2d_operator_code_sha256 computed at this source and verified by the promotion workflow. Finder routes answer 503 until product publication. The minimum schema-compatible image remains the first F2d backend; rollback targets list it and this release.",
+    "evidence": "Release run 39921473982 built source a031c2dace11647fbc2f7ed6974e74d44140ce5e as the third F2d release for the installed through-016 schema (identity sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc). Promotion run 39925665010 accepted it at 2026-10-23T08:35:49Z (receipt status accepted, active slot green, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the 0dddc78d artifact) after preflight run 39925556950 passed. It carries PR 877 (Inspect, share card and travel heatmap read V3 routes) and PR 878 (generation-pinned Finder ranking windows that pass the frozen F2d plan probe; publish run 39808363037 had been refused when plan_probe_72 hit its 60 s statement timeout on the 0dddc78d SQL, with nothing committed). Ranking identity unchanged and confirmed in the deployed image; f2d_operator_code_sha256 unchanged at this source and verified by the promotion workflow. Finder routes answer 503 until product publication. The minimum schema-compatible image remains the first F2d backend; rollback targets list it, the 0dddc78d backend and this release.",
     "ranking_version": "v3-colony-potential-2",
     "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
     "f2d_operator_code_sha256": "c26d23d08f9f8659e05ec2f5490e7780e0c7047ef2165b2563c39a9b3a4d6279",
     "minimum_schema_compatible_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
     "rollback_targets": [
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
-      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57"
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:d8d7603e79c2213c4fc6534f16967f51498e73a80743e00d444d0b1c6f87db67"
     ]
   },
   "schema_transition": {

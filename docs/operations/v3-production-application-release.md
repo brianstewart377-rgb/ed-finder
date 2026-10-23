@@ -316,11 +316,19 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-10-23).** The third F2d release, source `a031c2da` (release run
+39921473982, PRs #877 and #878), passed preflight run 39925556950 and was
+accepted by promotion run 39925665010 to slot green; its attestation is now the
+accepted release in `deploy/v3-production/target-authority.json`, with the
+`0dddc78d` backend as the recorded rollback artifact and `f667bb4d` unchanged as
+the minimum schema-compatible image. Receipt:
+`docs/operations/evidence/2026-10-23-v3-production-promotion-receipt-run-39925665010.json`.
 **Status (2026-10-19).** The second F2d release, source `0dddc78d` (release run
 39223378017, PRs #854–#857), was accepted by promotion run 39228589346 to slot
-blue; its attestation (operator-code identity `c26d23d0…`) is now the accepted
-release in `deploy/v3-production/target-authority.json` and governs every
-later F2d operator action. Later candidates are judged by the accepted-F2d
+blue; its attestation (operator-code identity `c26d23d0…`) was the accepted
+release in `deploy/v3-production/target-authority.json` until the third F2d
+release above superseded it on 2026-10-23; its backend is now the recorded
+rollback artifact. Later candidates are judged by the accepted-F2d
 rule (product rows may exist, never `FAILED`), must keep
 `minimum_schema_compatible_image` at the first F2d backend digest, and must
 list their own backend among `rollback_targets`.
