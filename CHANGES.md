@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-23 — Finder published (go-live, step 9′)
+
+Owner-approved `publish-finder-products` run 39933842811 published both Finder
+products on `ratings_v4_prod_p4_parallel_v1` at 2026-10-23T09:45:08Z; all 80
+plan-probe statements passed and the live verification served results with the
+expected identities. Docs only:
+
+- `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`:
+  the full, sealed publish receipt (its nested `content_sha256` seals verify).
+- `docs/ROADMAP.md` and `CLAUDE.md`: status — the Finder is live; purge P is the
+  next gated step.
+
 ## 2026-10-23 — Third F2d release (`a031c2da`) accepted in production
 
 Owner-approved preflight (run 39925556950) and promotion (run 39925665010)

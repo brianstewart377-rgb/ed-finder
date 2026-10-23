@@ -32,14 +32,13 @@ accepted-release attestation), with exact CPython
 3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
-promote. Current programme status (prod app on `a031c2da`, the third F2d release, whose
-Finder routes answer 503 until both products are published; it carries the
+promote. Current programme status (prod app on `a031c2da`, the third F2d release; the
+**Finder is LIVE** — both products published 2026-10-23 09:45 UTC; it carries the
 `bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; both Finder products (`system_search`, `system_archetype`) are
-built, finalized and **READY/VERIFIED but not yet published** on
-`ratings_v4_prod_p4_parallel_v1` — the first publish attempt (run 39808363037) was refused
-with nothing committed, and publication at step 9′ is the next owner-approved step
-(`docs/ROADMAP.md` status entry); Finder
+READY/VERIFIED and **published** on `ratings_v4_prod_p4_parallel_v1` (owner-approved publish
+run 39933842811 after the first attempt, run 39808363037, was refused with nothing
+committed); the governed purge P is the next gated step (`docs/ROADMAP.md` status entry); Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
 read the V3 projections; **F3 slice 2** repointed `/rerank`, `/system/{id64}`,

@@ -96,6 +96,21 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
+- **Finder LIVE — step 9′ complete (2026-10-23).** Owner-approved
+  `publish-finder-products` run 39933842811 published `system_search`
+  (`v3-system-search-2`) and `system_archetype` (`v3-archetype-4`) on
+  `ratings_v4_prod_p4_parallel_v1` (seq 1) in one transaction at
+  2026-10-23T09:45:08Z: receipt `status: published`, exit 0, all 80 plan-probe
+  statements passed (slowest: densest-window development page 13.2 s,
+  densest-window O-star page 6.2 s), post-commit audit rows match, and the live
+  Finder verification served results with the expected generation, ranking and
+  archetype identities. Evidence:
+  `docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json`
+  (the full sealed receipt; its nested seals verify). Next gated
+  steps: the governed purge P (design and gates unchanged, owner go required),
+  then the post-go-live work recorded in the 2026-10-21 entries. Known
+  follow-ups: the dense-window development sort is slow near the galactic core,
+  and the PR #877 visual polish list.
 - **Production app promoted to `a031c2da`, the third F2d release (2026-10-23).**
   Release run 39921473982, preflight run 39925556950, promote run 39925665010,
   receipt `created_at` `2026-10-23T08:35:49Z`, active slot blue→green,
@@ -107,7 +122,8 @@ newer dated source wins).
   because the 0dddc78d SQL sorted the whole archetype generation. #878 fixes it;
   all 80 probe statements pass on a production-statistics PG18 test, and the
   densest-window statement 79 measured 11.7 s (warm) on production data.
-  Publication is the next owner-approved step. The `0dddc78d` backend is the
+  Publication followed the same day (run 39933842811; see the go-live entry
+  above). The `0dddc78d` backend is the
   recorded rollback artifact; `f667bb4d` stays the minimum schema-compatible image.
 - **Previously: production app promoted to `0dddc78d`, the second F2d release (2026-10-19).**
   Release run 39223378017, promote run 39228589346, receipt `received_at`
@@ -654,9 +670,10 @@ newer dated source wins).
   enabled anywhere until slice 1c has landed with its representative-scale
   timing proof; and the flag may not be enabled in any governed production or
   release build until both Finder products are published (step 9′, the go-live
-  — the 8′ Search build is running, run 39328946864) and F4c/F4e have landed.
-  Next execution focus is **8′ → 9′**, with F4a/F4b fixture-based implementation
-  able to proceed alongside. The Colony Planner statement above is unchanged.
+  — completed 2026-10-23, publish run 39933842811) and F4c/F4e have landed.
+  The 8′ → 9′ focus recorded here is complete (superseded by the 2026-10-23
+  go-live entry at the top of this section); F4a/F4b fixture-based
+  implementation continues. The Colony Planner statement above is unchanged.
 - **Owner decision 2026-10-21: publish the Finder on the frozen Ratings V4.0 /
   `v3-archetype-4` rules as attested.** The Mega Guide audit found Finder-rule
   conflicts — notably native+modifier inheritance scored 85 vs 75 (guide p8/p50:
