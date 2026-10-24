@@ -11,6 +11,37 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-24 — Purge P: rehearsal result, owner decision, copy-and-drop design proposed
+
+Docs and evidence only. No code, no migration and no workflow change; nothing
+was run against production.
+
+**Evidence.** Added
+`docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json`,
+the 1% rehearsal receipt from run 40074011789.
+- It was copied byte for byte, so its seal still verifies: `content_sha256`
+  `94a522dd…73dd`, checked with
+  `v3_purge_rehearsal_receipt.load_reviewed`.
+- It was scanned for secrets before committing.
+
+**`docs/ROADMAP.md`.** A new entry dated 2026-10-24 records:
+- that the rehearsal passed;
+- its production-scale projections: about 147 h of deletes, rewrite peaks of
+  134.5–224.8 GB, and a 4.2 h Search outage that needs 267.8 GB free when about
+  105 GB is available;
+- that purge P as designed is impractical at production scale;
+- the owner's decision: A now, B designed, C priced separately.
+
+**`docs/development/v3-purge-copy-and-drop-design.md`** (proposed, not accepted)
+describes option B:
+- For each relation, copy only the published survivor rows into a table built
+  from the live catalog. Build its indexes, verify counts, digests and the
+  catalog, then swap it in with a short catalog-only transaction. Drop the old
+  table only after verification.
+- With about 105 GB free, nothing fits on the main volume. The first step needs
+  267.8 GB free. A temporary tablespace on an added disk is the alternative, and
+  it is priced in GB.
+
 ## 2026-10-23 — Purge rehearsal: no observer login starts while a delete runs
 
 Rehearsal harness and tests only. No migration, no operator-code (F2d
