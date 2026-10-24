@@ -137,12 +137,46 @@ def test_004_never_touches_canonical_truth():
 
 
 def test_governed_purge_is_registered_immediately_after_product_publication():
-    assert _entries()[-2:] == [
+    assert _entries()[-3:] == [
         ("015_v3_derived_product_publication.sql",
          "sql/v3/migrations/015_v3_derived_product_publication.sql"),
         ("016_v3_governed_derived_purge.sql",
          "sql/v3/migrations/016_v3_governed_derived_purge.sql"),
+        ("019_v3_purge_copy_and_drop.sql",
+         "sql/v3/migrations/019_v3_purge_copy_and_drop.sql"),
     ]
+
+
+def test_019_only_installs_copy_and_drop_capability():
+    source = (ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text()
+    for relation in ("derived_purge_copy_request", "derived_purge_copy_event"):
+        assert f"CREATE TABLE v3_meta.{relation}" in source
+    for function in (
+        "purge_copy_prepare", "purge_copy_chunk", "purge_copy_build_indexes", "purge_copy_verify",
+        "purge_copy_swap", "purge_copy_swap_back", "purge_copy_validate_fks", "purge_copy_drop",
+        "purge_copy_complete", "purge_copy_fingerprint", "purge_copy_backup_skip",
+    ):
+        assert f"CREATE FUNCTION v3_meta.{function}(" in source
+    # Function bodies run only when later invoked; everything left executes at
+    # installation and must not copy, swap, drop or delete payload.
+    top_level = re.sub(
+        r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    top_level = re.sub(r"--[^\n]*", "", top_level)
+    assert not re.search(r"\b(?:DELETE\s+FROM|INSERT\s+INTO|DROP\s+TABLE|VACUUM|SET\s+SCHEMA|TRUNCATE\s+v3)\b",
+                         top_level, re.IGNORECASE)
+    assert not re.search(r"\b(?:SELECT|PERFORM|CALL)\s+v3_meta\.purge_copy_", top_level, re.IGNORECASE)
+    # Every DROP (retired table, abandoned staging copy) is RESTRICT, never CASCADE.
+    assert "CASCADE" not in re.sub(r"--[^\n]*", "", source)
+    assert "SET search_path=pg_catalog" in source
+    assert re.search(r"CHECK\(event_kind IN \((.*?)\)\)", source, re.DOTALL)
+    kinds = set(re.findall(r"'([A-Z_]+)'", re.search(
+        r"event_kind text NOT NULL CHECK\(event_kind IN \((.*?)\)\)", source, re.DOTALL).group(1)))
+    assert kinds == {
+        "COPY_STARTED", "CHUNK_COPIED", "INDEXES_BUILT", "VERIFIED", "SWAPPED",
+        "SWAPPED_BACK", "FK_VALIDATED", "DROPPED", "COMPLETED", "FAILED_STOP",
+    }
 
 
 def test_016_installs_the_governed_ledger_and_recovery_functions():

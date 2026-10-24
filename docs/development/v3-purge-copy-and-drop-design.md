@@ -245,6 +245,13 @@ spans it still gets one consistent answer.
 
 The DROP locks only the retired table, which nothing reads.
 
+**Correction from implementation (migration 019, PG 18 measured):** dropping a
+retired child also takes `ACCESS EXCLUSIVE` on its live parent for a moment,
+to remove the FK triggers the retired table's own outgoing FKs installed there.
+Dropping retired Search, for example, briefly locks the live vector and
+`v3_meta.derived_generation`. Drop and abandon therefore use the swap's 2 s
+lock timeout, so the stall is bounded the same way.
+
 ## 4. Safety, undo, ledger, migration
 
 | Point | Undo |

@@ -148,7 +148,7 @@ def test_search_finalize_is_verified_receipted_and_vacuums_outside_transaction()
     assert "idempotent_reverification" in finalize
 
 
-def test_target_authority_reviews_transition_from_through_012_to_finder_lineage():
+def test_target_authority_reviews_transition_from_through_016_to_copy_and_drop_lineage():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -156,11 +156,13 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     document = module.build(ROOT)
-    # Reproduce the installed prefix independently and assert both endpoints of
-    # the through-012 -> through-012-014-010-011-013-015-016 transition.
+    # The Finder transition (through-012 -> ...-016) was applied on 2026-10-18
+    # (apply run 39113822236). Reproduce that installed through-016 prefix
+    # independently and assert both endpoints of the through-016 -> through-019
+    # copy-and-drop registration.
     desired_document = dict(document)
     entries = document['migration_set_entries']
-    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '012_v3_spatial_pyramid_decouple.sql') + 1
+    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '016_v3_governed_derived_purge.sql') + 1
     prefix = entries[:stop]
     document = {**document, 'migration_set_entries': prefix,
                 'migration_set_identity': module.migration_set_identity(prefix)}
@@ -169,11 +171,11 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     transition = authority["schema_transition"]
     assert transition["from_schema_identity_sha256"] == expected_sha
-    assert expected_sha == "4cae7d2be2e1909d468b82c6802b265118303cc0fe1c257c2f6c9e963f3a39f5"
+    assert expected_sha == "d7efe68932293813b4e5ec569a7b46d48ea660ef3de36b02c913110eedd7c4e6"
     assert transition["from_migration_set_identity"] == document["migration_set_identity"]
-    assert transition["from_migration_set_identity"] == "sha256:17263a9748eb936d3c6a7f3e3f75224a40d5e48e011276aedf511946abfff4fe"
-    assert document["migration_set_entries"][-1]["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql"
-    assert [row['ledger_name'] for row in entries[stop:]] == [
+    assert transition["from_migration_set_identity"] == "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc"
+    assert [row['ledger_name'] for row in prefix[-7:]] == [
+        '012_v3_spatial_pyramid_decouple.sql',
         '014_v3_watchlist.sql',
         '010_v3_system_search_body_type_counts.sql',
         '011_v3_system_archetype.sql',
@@ -181,22 +183,15 @@ def test_target_authority_reviews_transition_from_through_012_to_finder_lineage(
         '015_v3_derived_product_publication.sql',
         '016_v3_governed_derived_purge.sql',
     ]
+    assert [row['ledger_name'] for row in entries[stop:]] == ['019_v3_purge_copy_and_drop.sql']
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
-    assert transition["to_migration_set_identity"] == "sha256:c274b55ca590265e3a111edb608ce7d907f7c7c5fcfad95cdde6e4f5433e95fc"
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
-    assert authority["external_authority"]["schema_identity_sha256"] == "d7efe68932293813b4e5ec569a7b46d48ea660ef3de36b02c913110eedd7c4e6"
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # The transition was applied on 2026-10-18 (apply run 39113822236). The
-    # accepted release is now the first F2d release, which requires 016: it
-    # attests only the installed through-016 identity, never the superseded
-    # through-012 source or the intermediate prefixes.
-    intermediate = {
-        module.migration_set_identity(entries[:prefix_length])
-        for prefix_length in range(stop, len(entries))
-    }
+    # The accepted release must stay attested on both endpoints: the installed
+    # through-016 schema and the through-019 target once 019 is applied.
+    assert transition['from_migration_set_identity'] in compatible
     assert transition['to_migration_set_identity'] in compatible
-    assert not intermediate & set(compatible)
 
 
 def test_search_status_is_read_only_and_reports_both_products():

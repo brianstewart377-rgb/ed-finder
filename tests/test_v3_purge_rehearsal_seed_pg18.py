@@ -92,8 +92,12 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         ledger = connection.execute(
             "SELECT encode(migration_sha256,'hex'),migration_name FROM v3_meta.schema_migration",
         ).fetchall()
-        assert sorted(ledger) == sorted(tuple(entry) for entry in manifest)
-        assert manifest[-1][1] == rehearsal.controller.MIGRATION
+        # The harness applies the manifest through 016 and stops there; later
+        # entries (019 copy-and-drop) join the rehearsal when it is extended.
+        through = next(index for index, entry in enumerate(manifest)
+                       if entry[1] == rehearsal.controller.MIGRATION) + 1
+        assert sorted(ledger) == sorted(tuple(entry) for entry in manifest[:through])
+        assert [entry[1] for entry in manifest[through:]] == ['019_v3_purge_copy_and_drop.sql']
 
         harness.seed()
         identities = {key: identity for key, (identity, _) in rehearsal.controller.TARGETS.items()}
