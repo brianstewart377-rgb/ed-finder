@@ -137,6 +137,9 @@ repository) runs `rclone mount storagebox: /mnt/ed-storagebox` with
   INFO lines, mostly per-file upload records). `edfinder-rclone-mount.logrotate`
   rotates it weekly or past 200 MB and keeps four compressed copies, using
   `copytruncate` so nothing is restarted.
+  Owner-installed 2026-10-24: a forced first rotation compressed the 392 MB
+  log to a 26.5 MB `rclone-mount.log.1.gz`, and rclone's next line landed at
+  offset 0 of the truncated file (170 bytes), confirming it appends.
 
 Changing the mount's own flags (a quieter `--log-level NOTICE`, a
 `--vfs-cache-max-size` cap) needs the mount restarted, and the PostgreSQL
