@@ -133,6 +133,15 @@ run 39963522021 stopped on `data_directory_unresolved`.
   The rehearsal receipt binds the purge script identity, so the one-percent
   rehearsal must run on code carrying this change.
 
+## 2026-10-24 — Record owner-run SSH and runner hardening (prod and Contabo)
+
+Docs only. `docs/operations/infrastructure-status.md` records the owner-run host
+changes of 2026-10-24: key-only SSH on `ed-finder-prod` and on Contabo (a
+`00-hardening.conf` drop-in that outranks `50-cloud-init.conf`), and a
+`needrestart` override so daily updates no longer restart the GitHub runners
+mid-job (the cause of the cancelled 1% purge rehearsal run 40053756082),
+and fail2ban's `sshd` jail on both hosts.
+
 ## 2026-10-23 — Owner decisions: the Finder screen
 
 Docs only. `docs/ROADMAP.md` records the owner's 2026-10-23 decisions on the

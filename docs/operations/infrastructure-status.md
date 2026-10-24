@@ -21,7 +21,7 @@ the source of truth for the deployed build; deploys still run **only** through
 the governed application-promotion workflow and its fail-closed target authority.
 See [`v3-production-application-release.md`](v3-production-application-release.md).
 
-The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. **Backup state (2026-10-18):** a new Hetzner Storage Box was mounted on 2026-10-18 (`docs/operations/v3-storage-box-restoration.md`), WAL archiving resumed and the first full pgBackRest backup completed that evening (label `20261018-152336F`, 1,252.9 GB); the scheduled full/diff/verify timers now run against it. Copies older than the retirement are unavailable, and no restore has yet been rehearsed. See `deploy/v3-production/backup/README.md`. **Server settings (2026-10-19):** the owner moved the production PostgreSQL 18 server off its default memory/checkpoint settings and repaired the `economy_opportunity.system_id64` statistics; see `docs/operations/v3-postgres-server-settings.md`. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
+The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. **Backup state (2026-10-18):** a new Hetzner Storage Box was mounted on 2026-10-18 (`docs/operations/v3-storage-box-restoration.md`), WAL archiving resumed and the first full pgBackRest backup completed that evening (label `20261018-152336F`, 1,252.9 GB); the scheduled full/diff/verify timers now run against it. Copies older than the retirement are unavailable, and no restore has yet been rehearsed. See `deploy/v3-production/backup/README.md`. **Server settings (2026-10-19):** the owner moved the production PostgreSQL 18 server off its default memory/checkpoint settings and repaired the `economy_opportunity.system_id64` statistics; see `docs/operations/v3-postgres-server-settings.md`. Production actions must use only current V3 runbooks and workflows that explicitly target this environment. **SSH (2026-10-24, owner-run):** password logins are disabled on `ed-finder-prod` — `/etc/ssh/sshd_config.d/00-hardening.conf` sets `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and `PermitRootLogin prohibit-password` (it sorts before any other drop-in, so it wins); `sshd -T` confirmed `passwordauthentication no` / `permitrootlogin without-password`, and a fresh key login succeeded. Key-based workflow SSH is unaffected. **fail2ban (2026-10-24, owner-run):** installed with `python3-systemd`; `/etc/fail2ban/jail.d/sshd.local` enables the `sshd` jail on the systemd backend (5 failures in 10 min → 1 h ban, increasing to at most 1 week; the owner's home address and loopback are ignored). The OpenSSH on this host logs failures as `sshd-session`; the jail's `_SYSTEMD_UNIT=ssh.service` match covers them, and `fail2ban-client status sshd` was counting failures shortly after start.
 
 The reviewed V3 application promotion boundary is
 [`v3-production-application-release.md`](v3-production-application-release.md).
@@ -52,6 +52,27 @@ disposable purge rehearsal only. A dedicated fourth runner, running as its own
 (`--no-default-labels`), is the only account in the `docker` group. The three
 Codex runners keep no container runtime access, and no Codex workflow can land
 on the rehearsal runner because it has no `self-hosted`/`Linux`/`X64` label.
+
+Owner-run host changes on Contabo, 2026-10-24:
+- **needrestart no longer restarts the runners.** The daily `apt-daily-upgrade`
+  (06:10 CEST; the host clock is Europe/Berlin) had `needrestart` restart
+  `actions.runner.*` services, which cancelled the 1% purge rehearsal run
+  40053756082 mid-job (and fits the 2026-10-17 run 39024371827).
+  `/etc/needrestart/conf.d/50-github-runners.conf` now sets
+  `$nrconf{override_rc}{qr(^actions\.runner\..+\.service$)} = 0;`. Updates
+  still install; runners pick them up on their next restart.
+- **Key-only SSH.** `50-cloud-init.conf` (`PasswordAuthentication yes`) had been
+  overriding the earlier `60-cloudimg-settings.conf` (`no`), because sshd keeps
+  the first value it reads; internet password-guessing was visible in the
+  journal. `/etc/ssh/sshd_config.d/00-hardening.conf` sets
+  `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and
+  `PermitRootLogin prohibit-password`; `sshd -T` confirmed it and a fresh key
+  login succeeded.
+- **fail2ban** with the same `sshd` jail settings as production
+  (`/etc/fail2ban/jail.d/sshd.local`, systemd backend); it banned its first
+  address within a minute of starting.
+- The leftover rehearsal container and volume from the cancelled run were
+  removed by label (`io.ed-finder.purge-rehearsal=true`).
 
 Read-only inspection on 2026-09-06 proved host identity
 `vmi3542235` / `vmi3542235.contaboserver.net`, `x86_64`, 8 logical CPUs,
