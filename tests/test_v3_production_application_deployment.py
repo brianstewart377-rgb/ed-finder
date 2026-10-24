@@ -558,7 +558,7 @@ def test_production_schema_identity_is_derived_from_the_v3_lineage(tmp_path):
     assert len(pairs) >= len(LIVE_V3_LEDGER)
     assert document["migration_set_identity"] == identity.migration_set_identity(entries)
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
-    assert entries[-1]["ledger_name"] == "016_v3_governed_derived_purge.sql"
+    assert entries[-1]["ledger_name"] == "019_v3_purge_copy_and_drop.sql"
     assert authority["schema_transition"]["to_migration_set_identity"] == document["migration_set_identity"]
     target_payload = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(target_payload).hexdigest()
