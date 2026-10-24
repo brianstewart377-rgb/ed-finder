@@ -133,8 +133,19 @@ newer dated source wins).
   - **(B)** Design a purge that copies the live rows into fresh tables and drops
     the old tables whole. That design is
     [`v3-purge-copy-and-drop-design.md`](development/v3-purge-copy-and-drop-design.md),
-    and it is **proposed, not accepted**.
+    and it was proposed at that point; it was accepted later the same day (below).
   - **(C)** Price more disk separately.
+
+  **Owner decision 2026-10-24 (later the same day):** the copy-and-drop design
+  (B) is **accepted**, with its §8 answers: in place on the main filesystem
+  (the host clean-up left 295 GiB free, so **C is not needed**), a few seconds'
+  stall per swap without a maintenance window, each retired table dropped the
+  same day once its swap verifies, migration `019`, the 016 delete/rewrite modes
+  disabled once B's modes land, and scheduled backups skipping while a relation
+  is between `COPY_STARTED` and `DROPPED`. Acceptance authorizes building it;
+  step P still runs only after `019`, the operator modes, a passing 1% rehearsal
+  and a release carrying them, with each production dispatch approved by the
+  owner.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the

@@ -1,9 +1,13 @@
 # V3 purge by copy-and-drop (option B)
 
-**Status: Proposed — not accepted.** Design only. It changes no code, migration,
-workflow or production state and grants no production authority. The
+**Status: Accepted by the owner on 2026-10-24** with the answers recorded in
+§8. Acceptance authorizes building and rehearsing it; it grants no production
+authority. Nothing runs in production until migration `019`, the operator
+modes and a passing 1% rehearsal exist, and each production dispatch still needs
+its own owner approval. Until then the
 [governed purge design](v3-governed-derived-purge-design.md) and its
-[runbook](../operations/v3-governed-derived-purge.md) stay the current authority.
+[runbook](../operations/v3-governed-derived-purge.md) remain the recorded
+authority for the parts B reuses (§4).
 
 A/B/C are the owner's 2026-10-24 options: **A** leave the old data in place
 (chosen for now), **B** copy the live rows to fresh tables and drop the old
@@ -364,19 +368,26 @@ Either route ends at about 498 GB free on main, a net gain of about 393 GB.
 - **Cluster tables:** zero target rows (`016:198-211`). Only `cluster_member`'s
   FK is re-pointed, at the vector swap.
 
-## 8. Open questions for the owner
+## 8. Owner answers (2026-10-24)
 
-1. Option C in place (≥ 268 GB free on main), or the added-disk route (mirrored
-   disk, container restart)?
-2. Re-measure free space now with the read-only `v3-disk-inventory`. Is the
-   ≈142 GB host clean-up already counted in the ~105 GB?
-   *Answered 2026-10-24:* no; the clean-up ran afterwards, and `/` now has
-   295 GiB (≈317 GB) free (§5 update).
-3. Accept a stall of a few seconds per swap without a maintenance window?
-4. How long should a retired table be kept before its DROP?
-5. Accept migration number `019`?
-6. Remove the 016 delete/rewrite modes once B is accepted?
-7. Does the Storage Box have room for ~0.5 TB of extra WAL until the next full
-   backup?
-8. Copy phases: hold the backup schedule lock throughout, or count the
-   77.9 GiB backup write-cache peak in gate 2's floor?
+1. **Disk:** in place on the main filesystem; no option C. The 2026-10-24
+   clean-up left 295 GiB (≈317 GB) free (§5 update). Gate 2 still re-measures
+   before every chunk.
+2. **Free space:** measured after the clean-up (§5 update).
+3. **Swap stall:** accepted. A stall of a few seconds per swap needs no
+   maintenance window.
+4. **Retired-table retention:** drop it the same day, once the swap has verified
+   (the Finder answers and every re-pointed FK has validated). Each DROP funds the
+   next relation; `swap-back-R` remains the undo until then.
+5. **Migration number:** `019`.
+6. **016 delete/rewrite modes:** disabled once B's operator modes land. The parts
+   B reuses (§4) stay.
+7. **Storage Box WAL headroom:** to be confirmed from a measured `df` of the
+   Storage Box before the first production copy; recorded here when known.
+8. **Backups during a copy:** scheduled pgBackRest backups skip from a
+   relation's `COPY_STARTED` until its `DROPPED` (or its abandonment), through
+   the backup wrapper's existing ledger-driven `SKIP`, and every copy dispatch
+   also holds the schedule lock for its whole run. WAL archiving continues, so
+   point-in-time recovery from the last full backup is not interrupted. Reason:
+   the mount's write cache (77.9 GiB peak) exceeds the space margin, and the
+   first diff after a copy would carry the whole new table.
