@@ -45,6 +45,14 @@
 #                                 append-only ledger and recovery fences; installation
 #                                 performs no purge, payload DELETE or VACUUM.
 #                                 Registration is not application.
+#
+#   019_v3_purge_copy_and_drop.sql is declared after 016 (owner-accepted
+#                                 copy-and-drop design, 2026-10-24). It installs the
+#                                 staging/retired schemas, the append-only copy ledger
+#                                 and the copy/swap/drop definers; installation copies,
+#                                 swaps, drops or deletes no payload row. It must be
+#                                 applied before purge plan and authorize.
+#                                 Registration is not application.
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
@@ -62,3 +70,4 @@ a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf  010_v3_system_
 2f3c444b30339aa414fe1555fbcc917d30649fb9516d28a86c9d25a3b0086041  013_v3_system_search_parallel.sql  v3/migrations/013_v3_system_search_parallel.sql
 319a4655478e2da9b8d7f7e0c44d7d0c2b3548b8b2934a9564a3b6af897c5791  015_v3_derived_product_publication.sql  v3/migrations/015_v3_derived_product_publication.sql
 559fa7ea35fc9ad43635e90cdedcbefd47b2f30dcf479843911bfba0b3dfb0aa  016_v3_governed_derived_purge.sql  v3/migrations/016_v3_governed_derived_purge.sql
+111f1aac4b6b8b0aea74e1c57ba1edd32f9ab39fa583d9969129e9208cfbee46  019_v3_purge_copy_and_drop.sql  v3/migrations/019_v3_purge_copy_and_drop.sql

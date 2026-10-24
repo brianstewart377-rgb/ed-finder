@@ -11,6 +11,43 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-24 — Purge P (option B): migration 019 copy-and-drop capability registered
+
+Capability only. Nothing was run against production, and 019 is **registered,
+not applied**.
+
+**`sql/v3/migrations/019_v3_purge_copy_and_drop.sql`** implements the
+owner-accepted design `docs/development/v3-purge-copy-and-drop-design.md`:
+schemas `v3_purge_staging` and `v3_retired`; an append-only copy
+request/event ledger keyed to 016's `purge_id`; definer functions for prepare,
+chunk copy (≤ 100,000 rows per transaction, keyset order, per-chunk SHA-256
+digest), index build under canonical names, verify (counts, digests, chunk
+receipts, FKs, catalog fingerprint), swap and swap-back (one transaction,
+2 s lock timeout), FK validation, drop (`RESTRICT`), abandon and complete; a
+catalog fingerprint; and read-only `purge_copy_status()` and
+`purge_copy_backup_skip()`. Installation copies, swaps, drops and deletes no
+payload row and changes no existing object. Prepare copies each column's
+statistics target and `n_distinct` option (production's
+`economy_opportunity.system_id64` carries both) and refuses before copying if
+staging and live differ.
+
+**Registration.** `sql/v3/migration-manifest.txt` registers 019 after 016.
+`deploy/v3-production/target-authority.json` records the reviewed transition
+from the installed through-016 identity (`d7efe689…c4e6`, set
+`sha256:c274b55c…95fc`) to through-019 (`0f4a19ad…db65`, set
+`sha256:70468da0…d88d`) and attests the accepted `a031c2da` release for both.
+Because the authority now names the through-019 schema identity, application
+promotions refuse until 019 is applied through the governed migration
+workflow; that apply comes first.
+
+**Tests.** `tests/test_v3_purge_copy_and_drop.py` (PG 18) covers the design's
+§6 list; the lineage, migration-operation, deployment-authority, Search
+operator and watchlist tests now pin the through-016 → through-019 transition.
+
+**Still to do before purge P runs:** the operator modes and workflow, the
+shared fence and backup-wrapper reading `purge_copy_backup_skip()`, the 1%
+rehearsal, and a release carrying the new operator code.
+
 ## 2026-10-24 — Purge P: rehearsal result, owner decision, copy-and-drop design proposed
 
 Docs and evidence only. No code, no migration and no workflow change; nothing

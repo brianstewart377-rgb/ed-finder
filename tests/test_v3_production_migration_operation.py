@@ -83,6 +83,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "013_v3_system_search_parallel.sql",
         "015_v3_derived_product_publication.sql",
         "016_v3_governed_derived_purge.sql",
+        "019_v3_purge_copy_and_drop.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -95,24 +96,22 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     deployer = _load_path(DEPLOYER, "registered_transition_deployer")
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     desired = module.desired_entries(ROOT)
+    # The Finder transition (through-012 -> through-016) was applied on
+    # 2026-10-18 (apply run 39113822236). The registered transition is now the
+    # copy-and-drop capability: installed through-016, pending [019].
     installed_count = next(
         index + 1 for index, entry in enumerate(desired)
-        if entry["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql"
+        if entry["ledger_name"] == "016_v3_governed_derived_purge.sql"
     )
-    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == [
-        "014", "010", "011", "013", "015", "016",
-    ]
+    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["019"]
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    # This transition was applied on 2026-10-18. The accepted release is now
-    # the first F2d release, which requires 016, so only the installed target
-    # is attested; replaying the completed transition therefore fails closed
-    # until a new reviewed transition is committed.
+    # The accepted release runs on the installed through-016 schema and is
+    # attested for every reachable prefix up to the through-019 target.
     compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
-    assert reachable[-1] in compatible
-    assert not set(reachable[:-1]) & set(compatible)
+    assert set(reachable) <= set(compatible)
     assert deployer.validate_authority(authority) == []
 
 
@@ -140,6 +139,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "013_v3_system_search_parallel.sql",
         "015_v3_derived_product_publication.sql",
         "016_v3_governed_derived_purge.sql",
+        "019_v3_purge_copy_and_drop.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
@@ -345,7 +345,7 @@ def test_transition_binds_live_prefix_target_identity_and_every_rollback_prefix(
         )
 
 
-@pytest.mark.parametrize("omitted_migration", ["014", "010", "011", "013", "015", "016"])
+@pytest.mark.parametrize("omitted_migration", ["019"])
 def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, omitted_migration):
     module = _load()
     deployer = _load_path(DEPLOYER, "committed_prefix_deployer")
@@ -358,10 +358,9 @@ def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, o
                  if entry["ledger_name"].startswith(omitted_migration + "_"))
     omitted_identity = identity.migration_set_identity(desired[:count])
     installed_count = next(index + 1 for index, entry in enumerate(desired)
-                           if entry["ledger_name"] == "012_v3_spatial_pyramid_decouple.sql")
-    # Reconstruct the fully attested pre-apply set (the committed accepted
-    # release is now the F2d release, which attests only the target), then
-    # drop exactly one prefix so the refusal names that omission alone.
+                           if entry["ledger_name"] == "016_v3_governed_derived_purge.sql")
+    # Reconstruct the fully attested pre-apply set, then drop exactly one
+    # pending prefix so the refusal names that omission alone.
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
     authority["accepted_release_schema_compatibility"]["compatible_migration_sets"] = sorted(
         item for item in reachable if item != omitted_identity
