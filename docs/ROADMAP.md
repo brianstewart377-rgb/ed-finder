@@ -96,6 +96,52 @@ or override this set.
 Current position (supersedes the 2026-09-19 snapshot below where they differ;
 newer dated source wins).
 
+- **Purge P: 1% rehearsal result and owner decision (2026-10-24).**
+
+  **Rehearsal.** The disposable 1% purge rehearsal, run 40074011789, passed:
+  `status: success`, `gate_10_crash_rehearsal_passed: true`, receipt
+  `content_sha256` `94a522dd20b977704b91d56c9fa4112ead1c23b0ece29ef5ce8ffe0b171873dd`.
+  The receipt is committed verbatim at
+  `docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json`.
+
+  **What it projects at production scale:**
+  - **Delete time:**
+    - Search ~12.6 h;
+    - `economy_opportunity` ~43 h (740 M rows at ~4,795 rows/s);
+    - `body_mechanics` ~52 h (577.7 M rows at ~3,087 rows/s);
+    - `system_rating_vector` ~39 h (198.5 M rows plus the p4 rows, at
+      ~1,397 rows/s).
+
+    Each delete dispatch is capped at 30 minutes and needs `v3-production`
+    approval, so this means hundreds of approvals.
+  - **`VACUUM FULL` peaks, with the 1.5× margin:** Search 167.8 GB, opportunity
+    224.8 GB, mechanics 216.9 GB, vectors 134.5 GB.
+  - **Search survivor rewrite:**
+    - It needs 267.8 GB free, which includes the 100 GB floor.
+    - It holds `ACCESS EXCLUSIVE` for ~15,240 s (~4.2 h), which takes the live
+      Finder offline.
+    - That is beyond the workflow's 120-minute rewrite cap.
+  - **Free disk now:** about 105 GB, estimated. The last measurement was
+    180.2 GB on 2026-10-21, before the ~73 GB archetype build. It has not been
+    measured since.
+
+  **Conclusion: purge P as designed is impractical at production scale.**
+
+  **Owner decision:**
+  - **(A)** Leave the `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1` data in
+    place for now.
+  - **(B)** Design a purge that copies the live rows into fresh tables and drops
+    the old tables whole. That design is
+    [`v3-purge-copy-and-drop-design.md`](development/v3-purge-copy-and-drop-design.md),
+    and it is **proposed, not accepted**.
+  - **(C)** Price more disk separately.
+
+  **What does not change:**
+  - Step P stays not runnable, and its design and gates are unchanged until the
+    owner accepts a replacement.
+  - Work that waits on P keeps waiting. This includes the anchored
+    picked-archetype body filters below.
+
 - **Owner decisions 2026-10-23: the Finder screen (decided, not implemented).**
   After go-live the owner reviewed the live Explore page and confirmed it is an
   interim surface, not the intended Finder. Decided from layout mock-ups
