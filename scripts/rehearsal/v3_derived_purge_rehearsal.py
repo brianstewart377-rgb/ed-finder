@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import queue
 import re
 import secrets
 import subprocess
@@ -46,6 +47,9 @@ SELECT extract(epoch FROM clock_timestamp());
 VACUUM (FULL, ANALYZE) v3_derived.system_search;
 SELECT extract(epoch FROM clock_timestamp());
 """
+BATCH_LEDGER_SQL = ("SELECT COALESCE(max(event_sequence),0) FROM "
+                    "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';")
+OBSERVER_QUERY_SECONDS = 30
 OBSERVER_SETUP = """
 CREATE ROLE edfinder_purge_observer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE edfinder_purge_observer SET default_transaction_read_only=on;
@@ -116,6 +120,51 @@ def batch_peak_growth(observations):
     return max(peak, maximum_drawdown(window))
 
 
+class ObserverSession:
+    """One read-only observer login that answers one line per fixed query.
+
+    psql flushes each result when reading a pipe. A dead client, an error
+    (ON_ERROR_STOP) or a silent server ends the session; it is never reopened
+    while an action runs, because a new login is itself a competing backend.
+    """
+
+    def __init__(self, argv, env):
+        self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, env=env, text=True, bufsize=1)
+        self.lines = queue.Queue()
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+
+    def _read(self):
+        for line in self.process.stdout:
+            self.lines.put(line)
+        self.lines.put(None)
+
+    def query(self, statement):
+        if '\n' in statement or not statement.endswith(';'):
+            raise ValueError('observer_statement_invalid')
+        try:
+            self.process.stdin.write(statement + '\n')
+            self.process.stdin.flush()
+            line = self.lines.get(timeout=OBSERVER_QUERY_SECONDS)
+        except (OSError, ValueError, queue.Empty):
+            raise RuntimeError('observer_session_failed') from None
+        if line is None:
+            raise RuntimeError('observer_session_failed')
+        return line.strip()
+
+    def close(self):
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=30)
+
+
 class Harness:
     def __init__(self, scale, run_id, output_dir):
         if scale not in SCALE_SYSTEMS or re.fullmatch('[A-Za-z0-9_-]{1,80}', run_id) is None:
@@ -160,6 +209,12 @@ class Harness:
     def observe(self, statement, parameters=None):
         """Read probes survive application-role session recycling at either fence."""
         return self._sql(statement, parameters, user=OBSERVER_USER)
+
+    def observer_session(self):
+        """Open the observer login before an action starts; see action()."""
+        return ObserverSession(['docker', '--context', 'default', 'exec', '-i', self.container, 'psql', '-X',
+                                '--no-psqlrc', '--no-password', '-U', OBSERVER_USER, '-d', DATABASE, '-Atq',
+                                '--set', 'ON_ERROR_STOP=1'], self.environment)
 
     def _sql(self, statement, parameters, *, user):
         started = time.monotonic()
@@ -362,38 +417,45 @@ class Harness:
                 try:
                     free = self.free_bytes()
                     samples.append(free)
-                    if mode.startswith('delete-'):
-                        event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
-                                             "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
-                        batch_observations.append((event, free))
+                    if session:
+                        batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
                 except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
                     failures.append('filesystem_sampling_failed')
                     return
                 stop.wait(SAMPLE_SECONDS)
         worker = threading.Thread(target=sample) if measure else None
-        if worker:
-            free = self.free_bytes()
-            samples.append(free)
-            if mode.startswith('delete-'):
-                event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
-                                     "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
-                batch_observations.append((event, free))
-            worker.start()
-        started = time.monotonic()
+        # 016 refuses a batch while any other client backend of this database
+        # has state NULL, which is how a login appears while it is starting.
+        # So the batch ledger is sampled through one observer login opened
+        # before the action starts and closed after it exits: no new database
+        # session starts while the action runs.
+        session = self.observer_session() if worker and mode.startswith('delete-') else None
         try:
-            result = self.command(argv, check=False, timeout=3600)
-        finally:
-            stop.set()
             if worker:
-                worker.join(timeout=30)
-        duration = time.monotonic() - started
-        if worker:
-            free = self.free_bytes()
-            samples.append(free)
-            if mode.startswith('delete-'):
-                event = int(self.observe("SELECT COALESCE(max(event_sequence),0) FROM "
-                                     "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';"))
-                batch_observations.append((event, free))
+                free = self.free_bytes()
+                samples.append(free)
+                if session:
+                    batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
+                worker.start()
+            started = time.monotonic()
+            try:
+                result = self.command(argv, check=False, timeout=3600)
+            finally:
+                stop.set()
+                if worker:
+                    worker.join(timeout=30)
+            duration = time.monotonic() - started
+            if worker:
+                if worker.is_alive():
+                    # Never share the session with a sampler still waiting on it.
+                    raise RuntimeError('filesystem_sampling_failed')
+                free = self.free_bytes()
+                samples.append(free)
+                if session:
+                    batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
+        finally:
+            if session:
+                session.close()
         if failures or worker and worker.is_alive():
             raise RuntimeError('filesystem_sampling_failed')
         report = json.loads(result.stdout)
