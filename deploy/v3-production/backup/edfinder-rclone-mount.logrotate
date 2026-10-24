@@ -1,0 +1,14 @@
+# Rotation for the Storage Box rclone mount log.
+# Installed on the production host at /etc/logrotate.d/edfinder-rclone-mount.
+# rclone opens --log-file in append mode and is never restarted for this, so
+# copytruncate is used: restarting the mount would also require restarting the
+# PostgreSQL container (it binds /mnt/ed-storagebox with rprivate propagation).
+/root/backup-v3/rclone-mount.log {
+    weekly
+    maxsize 200M
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
