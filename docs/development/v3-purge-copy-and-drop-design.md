@@ -299,6 +299,14 @@ therefore means about 163 GB more on the main filesystem. That filesystem is a
 1.948 TB volume (`v3-governed-derived-purge-design.md:119`), so the space would
 come from larger disks.
 
+**Update, 2026-10-24 (measured after the host clean-up):** `df -h /` reports
+295 GiB free (about 317 GB in the decimal units of these tables), up from
+109 GiB before the clean-up recorded in `docs/operations/infrastructure-status.md`.
+That is above step 1's 267.8 GB with about 49 GB to spare, so the in-place
+route fits without option C, provided free space still clears 267.8 GB when
+step 1's gate is evaluated. Gate 2 re-measures before every chunk regardless;
+this note does not replace that check.
+
 **Alternative: a temporary tablespace on an added disk.** Copy Search and
 opportunity to the added disk; copy body and vector in place; then copy Search
 and opportunity back, using the same mechanism.
@@ -355,6 +363,8 @@ Either route ends at about 498 GB free on main, a net gain of about 393 GB.
    disk, container restart)?
 2. Re-measure free space now with the read-only `v3-disk-inventory`. Is the
    ≈142 GB host clean-up already counted in the ~105 GB?
+   *Answered 2026-10-24:* no; the clean-up ran afterwards, and `/` now has
+   295 GiB (≈317 GB) free (§5 update).
 3. Accept a stall of a few seconds per swap without a maintenance window?
 4. How long should a retired table be kept before its DROP?
 5. Accept migration number `019`?
