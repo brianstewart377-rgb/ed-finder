@@ -128,7 +128,7 @@ jobs:
         run: python scripts/operator/v3_checkpoint_bundle.py provision --source "$SOURCE_SHA" --output "$RUNNER_TEMP/operation.tar"
       - name: Upload sealed provisioning bundle
         id: bundle-artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: checkpoint-provision-operation
           path: ${{ runner.temp }}/operation.tar
@@ -161,7 +161,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: ignored-by-immutable-bootstrap
       - name: Upload v3-live-checkpoint-authority-candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: v3-live-checkpoint-authority-candidate
           path: /tmp/v3-live-checkpoint-authority-candidate-${{ github.run_id }}-${{ github.run_attempt }}.json

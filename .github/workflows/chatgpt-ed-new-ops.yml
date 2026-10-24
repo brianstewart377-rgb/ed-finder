@@ -361,7 +361,7 @@ jobs:
 
       - name: Upload V3 derived lifecycle status receipt
         if: always() && steps.request.outputs.operation == 'v3-derived-lifecycle-status'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-derived-lifecycle-status-receipt
           path: ${{ runner.temp }}/v3-derived-lifecycle-status.json
@@ -440,7 +440,7 @@ jobs:
 
       - name: Upload V3 host clean-up receipt
         if: always() && steps.request.outputs.operation == 'v3-host-cleanup'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-host-cleanup-receipt
           path: ${{ runner.temp }}/v3-host-cleanup-receipt.json
@@ -481,7 +481,7 @@ jobs:
 
       - name: Upload V3 disk inventory receipt
         if: always() && steps.request.outputs.operation == 'v3-disk-inventory'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-disk-inventory-receipt
           path: ${{ runner.temp }}/v3-disk-inventory-receipt.json
@@ -592,7 +592,7 @@ jobs:
 
       - name: Upload V3 host storage detail receipt
         if: always() && steps.request.outputs.operation == 'v3-host-storage-detail'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-host-storage-detail-receipt
           path: ${{ runner.temp }}/v3-host-storage-detail-receipt.json
@@ -708,7 +708,7 @@ jobs:
 
       - name: Upload V3 backup wrapper install receipt
         if: always() && steps.request.outputs.operation == 'v3-backup-wrapper-install'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-backup-wrapper-install-receipt
           path: ${{ runner.temp }}/v3-backup-wrapper-install-receipt.json
@@ -807,7 +807,7 @@ jobs:
 
       - name: Upload V3 Search constraint validation receipt
         if: always() && (steps.request.outputs.operation == 'v3-system-search-validate-constraints-start' || steps.request.outputs.operation == 'v3-system-search-validate-constraints-status')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-system-search-validate-constraints-operation
           path: ${{ runner.temp }}/v3-system-search-validate-constraints-operation.txt
@@ -882,7 +882,7 @@ jobs:
 
       - name: Upload retained V3 runtime recovery
         if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: edfinder-v3-phase4c-r5-runtime-contract
           path: |
@@ -941,7 +941,7 @@ jobs:
 
       - name: Upload Ratings V4 generation operation receipt
         if: always() && (steps.request.outputs.operation == 'ratings-v4-generation-start' || steps.request.outputs.operation == 'ratings-v4-generation-status')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ratings-v4-generation-operation
           path: ${{ runner.temp }}/ratings-v4-generation-operation.txt
@@ -1054,7 +1054,7 @@ jobs:
 
       - name: Upload V3 Search F1 operation receipt
         if: always() && (steps.request.outputs.operation == 'v3-system-search-f1-start' || steps.request.outputs.operation == 'v3-system-search-f1-status' || steps.request.outputs.operation == 'v3-system-search-f1-finalize')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-system-search-f1-operation
           path: ${{ runner.temp }}/v3-system-search-f1-operation.txt
@@ -1169,7 +1169,7 @@ jobs:
 
       - name: Upload V3 Archetype build operation receipt
         if: always() && (steps.request.outputs.operation == 'v3-system-archetype-start' || steps.request.outputs.operation == 'v3-system-archetype-status' || steps.request.outputs.operation == 'v3-system-archetype-finalize')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-system-archetype-operation
           path: ${{ runner.temp }}/v3-system-archetype-operation.txt
@@ -1212,7 +1212,7 @@ jobs:
 
       - name: Upload V3 archetype calibration probe receipt
         if: always() && steps.request.outputs.operation == 'v3-archetype-calibration-probe'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-archetype-calibration-probe-operation
           path: ${{ runner.temp }}/v3-archetype-calibration-probe.txt
@@ -1299,7 +1299,7 @@ jobs:
 
       - name: Upload V3 archetype calibration complete-read operation receipt
         if: always() && (steps.request.outputs.operation == 'v3-archetype-calibration-complete-start' || steps.request.outputs.operation == 'v3-archetype-calibration-complete-status')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-archetype-calibration-complete-operation
           path: ${{ runner.temp }}/v3-archetype-calibration-complete-operation.txt
@@ -1368,7 +1368,7 @@ jobs:
 
       - name: Upload V3 Finder capacity gate receipt
         if: always() && steps.request.outputs.operation == 'v3-finder-capacity-gate'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-finder-capacity-gate-operation
           path: ${{ runner.temp }}/v3-finder-capacity-gate-operation.txt
@@ -1437,7 +1437,7 @@ jobs:
 
       - name: Upload V3 archetype plan probe receipt
         if: always() && steps.request.outputs.operation == 'v3-archetype-plan-probe'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-archetype-plan-probe-operation
           path: ${{ runner.temp }}/v3-archetype-plan-probe-operation.txt
@@ -1506,7 +1506,7 @@ jobs:
 
       - name: Upload read-only derived purge receipt
         if: always() && contains(fromJSON('["v3-derived-purge-plan", "v3-derived-purge-status"]'), steps.request.outputs.operation)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: v3-derived-purge-read-only
           path: ${{ runner.temp }}/v3-derived-purge-read-only.json
