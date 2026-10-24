@@ -382,8 +382,10 @@ Either route ends at about 498 GB free on main, a net gain of about 393 GB.
 5. **Migration number:** `019`.
 6. **016 delete/rewrite modes:** disabled once B's operator modes land. The parts
    B reuses (§4) stay.
-7. **Storage Box WAL headroom:** to be confirmed from a measured `df` of the
-   Storage Box before the first production copy; recorded here when known.
+7. **Storage Box WAL headroom:** sufficient. Owner-measured `df -h
+   /mnt/ed-storagebox` on 2026-10-24: 5.0 TiB size, 531 GiB used, 4.5 TiB
+   available (the compressed repository after the 2026-10-18 full backup), far
+   above the ~0.5 TB of extra WAL the copies are expected to archive.
 8. **Backups during a copy:** scheduled pgBackRest backups skip from a
    relation's `COPY_STARTED` until its `DROPPED` (or its abandonment), through
    the backup wrapper's existing ledger-driven `SKIP`, and every copy dispatch
