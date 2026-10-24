@@ -307,6 +307,13 @@ route fits without option C, provided free space still clears 267.8 GB when
 step 1's gate is evaluated. Gate 2 re-measures before every chunk regardless;
 this note does not replace that check.
 
+**Backups borrow local disk.** The Storage Box mount caches every file pgBackRest
+writes on `/` before uploading it, and the log records a peak of 77.9 GiB
+(`deploy/v3-production/backup/README.md`, "Storage Box mount"). That is larger
+than the ~49 GB margin above, so a copy phase must not overlap a backup: either
+it holds the schedule lock for its whole duration, as 016's destructive phases
+do, or gate 2 adds the cache peak to the floor. See question 8.
+
 **Alternative: a temporary tablespace on an added disk.** Copy Search and
 opportunity to the added disk; copy body and vector in place; then copy Search
 and opportunity back, using the same mechanism.
@@ -371,3 +378,5 @@ Either route ends at about 498 GB free on main, a net gain of about 393 GB.
 6. Remove the 016 delete/rewrite modes once B is accepted?
 7. Does the Storage Box have room for ~0.5 TB of extra WAL until the next full
    backup?
+8. Copy phases: hold the backup schedule lock throughout, or count the
+   77.9 GiB backup write-cache peak in gate 2's floor?

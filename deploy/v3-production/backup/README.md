@@ -17,6 +17,7 @@ This schedule is **not** part of that promotion: it is a separate host operation
 | `edfinder-v3-backup-full.timer` | `/etc/systemd/system/edfinder-v3-backup-full.timer` |
 | `edfinder-v3-backup-diff.timer` | `/etc/systemd/system/edfinder-v3-backup-diff.timer` |
 | `edfinder-v3-backup-verify.timer` | `/etc/systemd/system/edfinder-v3-backup-verify.timer` |
+| `edfinder-rclone-mount.logrotate` | `/etc/logrotate.d/edfinder-rclone-mount` (owner-installed; see "Storage Box mount" below) |
 
 For an existing schedule, update only the wrapper through the allowlisted
 `v3-backup-wrapper-install` operation in `chatgpt-ed-new-ops.yml`. Apply migration
@@ -118,6 +119,36 @@ Sunday full / daily diff / verify timers run against this repository from now
 on. Backups taken before the retirement are unavailable; the repository holds
 only what was written from 2026-10-18 onwards. A restore has still never been
 rehearsed (next section).
+
+## Storage Box mount: local write cache and log
+
+`/opt/ed-finder-v3-runtime/mount-storagebox.sh` (host-only, not in this
+repository) runs `rclone mount storagebox: /mnt/ed-storagebox` with
+`--vfs-cache-mode writes`, `--log-file /root/backup-v3/rclone-mount.log` and
+`--log-level INFO` (owner inspection, 2026-10-24). Two consequences:
+
+- **Backups borrow local disk while they upload.** Each file pgBackRest writes
+  lands in rclone's write cache under `/root/.cache/rclone` on the root
+  filesystem before it is uploaded. The cache is uncapped; the largest size the
+  log has ever recorded is 77.9 GiB, and it was 592 KB when idle. Anything that
+  plans on free space on `/` (the purge's gate 2 in particular) must not run
+  beside a backup, or must count that peak.
+- **The log grows without bound.** It had reached 392 MB (about 1.6 million
+  INFO lines, mostly per-file upload records). `edfinder-rclone-mount.logrotate`
+  rotates it weekly or past 200 MB and keeps four compressed copies, using
+  `copytruncate` so nothing is restarted.
+
+Changing the mount's own flags (a quieter `--log-level NOTICE`, a
+`--vfs-cache-max-size` cap) needs the mount restarted, and the PostgreSQL
+container binds `/mnt/ed-storagebox` with `rprivate` propagation, so it would
+also need restarting to see the new mount
+(`docs/operations/v3-storage-box-restoration.md`). That is deferred to the next
+planned container restart. Note that a cap is advisory: rclone cannot evict a
+file that has not finished uploading.
+
+Every ERROR/CRITICAL line in the log dates from 2026-09-26 to 2026-10-18, the
+period the retired box was unreachable and its replacement was mounted; there
+have been none since.
 
 ## Still unproven: a restore
 
