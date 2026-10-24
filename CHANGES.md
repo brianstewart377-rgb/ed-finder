@@ -139,7 +139,8 @@ Docs only. `docs/operations/infrastructure-status.md` records the owner-run host
 changes of 2026-10-24: key-only SSH on `ed-finder-prod` and on Contabo (a
 `00-hardening.conf` drop-in that outranks `50-cloud-init.conf`), and a
 `needrestart` override so daily updates no longer restart the GitHub runners
-mid-job (the cause of the cancelled 1% purge rehearsal run 40053756082).
+mid-job (the cause of the cancelled 1% purge rehearsal run 40053756082),
+and fail2ban's `sshd` jail on both hosts.
 
 ## 2026-10-23 — Owner decisions: the Finder screen
 
