@@ -7,6 +7,7 @@ import {
   evidenceLabel,
   hotspotLabel,
   hotspotSummary,
+  isFleetCarrier,
   percent,
   ratingEconomyLabel,
   ruleLabel,
@@ -47,6 +48,14 @@ describe('Inspect display wording', () => {
       ]),
     ).toBe('2 Platinum · 1 Painite');
     expect(hotspotSummary([])).toBeNull();
+  });
+
+  it('recognises fleet carriers by their governed station-type code', () => {
+    expect(isFleetCarrier('fleet_carrier')).toBe(true);
+    expect(isFleetCarrier('drake_class_carrier')).toBe(true);
+    expect(isFleetCarrier('coriolis_starport')).toBe(false);
+    expect(isFleetCarrier('megaship')).toBe(false);
+    expect(isFleetCarrier(null)).toBe(false);
   });
 
   it('formats ratings and orders them by potential, ties in scorer order', () => {

@@ -20,6 +20,7 @@
   import SystemRatings from './SystemRatings.svelte';
   import {
     hotspotSummary,
+    isFleetCarrier,
     percent,
     titleFromCode,
   } from './system-detail-format';
@@ -101,6 +102,18 @@
   const bodyNames = $derived(
     new Map(
       (detail.data?.bodies ?? []).map((body) => [body.bodyKey, body.name]),
+    ),
+  );
+  // Busy systems can hold dozens of fleet carriers, and the catalogue only has
+  // a snapshot of where they were, so they sit behind a toggle.
+  const ports = $derived(
+    (detail.data?.stations ?? []).filter(
+      (station) => !isFleetCarrier(station.stationType),
+    ),
+  );
+  const carriers = $derived(
+    (detail.data?.stations ?? []).filter((station) =>
+      isFleetCarrier(station.stationType),
     ),
   );
 
@@ -403,16 +416,39 @@
       >
         <p class="eyebrow">Catalogue</p>
         <h2 id={`${headingId}-stations`}>Stations</h2>
-        <ul>
-          {#each detail.data.stations as station (station.stationKey)}
-            {@const economies = stationEconomies(station)}
-            <li data-station-key={station.stationKey}>
-              <p class="station-name">{station.name}</p>
-              <p>{stationFacts(station)}</p>
-              <p>{economies ?? 'Economy not recorded'}</p>
-            </li>
-          {/each}
-        </ul>
+        {#if ports.length > 0}
+          <ul>
+            {#each ports as station (station.stationKey)}
+              {@const economies = stationEconomies(station)}
+              <li data-station-key={station.stationKey}>
+                <p class="station-name">{station.name}</p>
+                <p>{stationFacts(station)}</p>
+                <p>{economies ?? 'Economy not recorded'}</p>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if carriers.length > 0}
+          <details class="station-carriers">
+            <summary>
+              {carriers.length === 1
+                ? '1 fleet carrier'
+                : `${integer(carriers.length)} fleet carriers`}
+            </summary>
+            <p class="station-carriers-note">
+              Carriers can move at any time; this is where the catalogue last
+              saw them.
+            </p>
+            <ul>
+              {#each carriers as station (station.stationKey)}
+                <li data-station-key={station.stationKey}>
+                  <p class="station-name">{station.name}</p>
+                  <p>{stationFacts(station)}</p>
+                </li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       </section>
     {/if}
   {/if}

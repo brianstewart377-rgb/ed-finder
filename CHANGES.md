@@ -32,7 +32,13 @@ mapping.
   hotspots were not recorded.
 - **Stations.** A Stations section lists each station nearest first with its
   type, arrival distance, the body it is resolved to (`BODY_RESOLVED` only) and
-  its catalogued economies with shares.
+  its catalogued economies with shares. Fleet carriers, which can number dozens
+  in a busy system and move at any time, sit behind a closed "N fleet carriers"
+  toggle.
+- **Phones.** Below 600px the ratings table drops its decorative meter, tightens
+  its cells and keeps the "Explanation" header for screen readers only, so it
+  fits from 375px; it scrolls inside its own box rather than the page below
+  that.
 
 Tests: facade normalisation and fail-closed validation, republish detection,
 the ring/station mapping, display wording, component behaviour, and the Inspect

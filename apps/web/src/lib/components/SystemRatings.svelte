@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
+  import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import {
     ApiError,
     getSystemRatingExplanation,
@@ -21,6 +21,8 @@
     bodies: readonly SystemDetailBody[];
     headingId: string;
   }>();
+
+  const queryClient = useQueryClient();
 
   /** The economy whose explanation is open; one at a time. */
   let open = $state<string | null>(null);
@@ -65,6 +67,17 @@
     open = open === economy ? null : economy;
   }
 
+  /**
+   * After a republish, reload the ratings and the open explanation together.
+   * The explanation key is under the ratings key, so one prefix covers both,
+   * even when the reloaded ratings come back with the same identity.
+   */
+  function reloadRatings(): void {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.systemRatings(id64),
+    });
+  }
+
   const regionId = (economy: string) => `${headingId}-rating-${economy}`;
 </script>
 
@@ -99,86 +112,90 @@
       Seven independent potentials, each 0–100. Confidence shows how much of a
       rating's evidence the catalogue knows; it is not a measured probability.
     </p>
-    <table class="rating-table" aria-labelledby={`${headingId}-ratings`}>
-      <thead>
-        <tr>
-          <th scope="col">Economy</th>
-          <th scope="col">Potential</th>
-          <th scope="col">Confidence</th>
-          <th scope="col">Explanation</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each ordered as rating (rating.economy)}
-          {@const label = ratingEconomyLabel(rating.economy)}
-          <tr data-rating-economy={rating.economy}>
-            <th scope="row">{label}</th>
-            <td>
-              <div class="rating-potential">
-                <div class="rating-meter" aria-hidden="true">
-                  <div style:width={`${rating.potential}%`}></div>
+    <div class="rating-table-scroll">
+      <table class="rating-table" aria-labelledby={`${headingId}-ratings`}>
+        <thead>
+          <tr>
+            <th scope="col">Economy</th>
+            <th scope="col">Potential</th>
+            <th scope="col">Confidence</th>
+            <th scope="col">
+              <span class="rating-column-label">Explanation</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each ordered as rating (rating.economy)}
+            {@const label = ratingEconomyLabel(rating.economy)}
+            <tr data-rating-economy={rating.economy}>
+              <th scope="row">{label}</th>
+              <td>
+                <div class="rating-potential">
+                  <div class="rating-meter" aria-hidden="true">
+                    <div style:width={`${rating.potential}%`}></div>
+                  </div>
+                  <div>{rating.potential}</div>
                 </div>
-                <div>{rating.potential}</div>
-              </div>
-            </td>
-            <td>{percent(rating.confidence)}</td>
-            <td>
-              <button
-                type="button"
-                class="rating-why"
-                aria-label={`Why? ${label}`}
-                aria-expanded={open === rating.economy}
-                aria-controls={regionId(rating.economy)}
-                onclick={() => toggle(rating.economy)}
-              >
-                Why?
-              </button>
-            </td>
-          </tr>
-          <tr class="rating-explanation-row" hidden={open !== rating.economy}>
-            <td colspan={4}>
-              <div
-                id={regionId(rating.economy)}
-                class="rating-explanation"
-                role="region"
-                aria-label={`Why ${label} scores ${rating.potential}`}
-              >
-                {#if open !== rating.economy}
-                  <!-- Collapsed: nothing is fetched or rendered. -->
-                {:else if explanation.isPending}
-                  <p role="status">Loading the explanation…</p>
-                {:else if explanation.isError}
-                  <p role="alert">The explanation could not be loaded.</p>
-                  <button
-                    class="quiet-button"
-                    type="button"
-                    onclick={() => explanation.refetch()}
-                  >
-                    Try again
-                  </button>
-                {:else if explanation.data?.kind === 'republished'}
-                  <p role="alert">
-                    The ratings were republished while this page was open.
-                  </p>
-                  <button
-                    class="quiet-button"
-                    type="button"
-                    onclick={() => ratings.refetch()}
-                  >
-                    Reload ratings
-                  </button>
-                {:else if explained && explanation.data}
-                  <RatingExplanation
-                    {explained}
-                    identity={explanation.data.identity}
-                    {bodyNames}
-                  />
-                {/if}
-              </div>
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+              </td>
+              <td>{percent(rating.confidence)}</td>
+              <td>
+                <button
+                  type="button"
+                  class="rating-why"
+                  aria-label={`Why? ${label}`}
+                  aria-expanded={open === rating.economy}
+                  aria-controls={regionId(rating.economy)}
+                  onclick={() => toggle(rating.economy)}
+                >
+                  Why?
+                </button>
+              </td>
+            </tr>
+            <tr class="rating-explanation-row" hidden={open !== rating.economy}>
+              <td colspan={4}>
+                <div
+                  id={regionId(rating.economy)}
+                  class="rating-explanation"
+                  role="region"
+                  aria-label={`Why ${label} scores ${rating.potential}`}
+                >
+                  {#if open !== rating.economy}
+                    <!-- Collapsed: nothing is fetched or rendered. -->
+                  {:else if explanation.isPending}
+                    <p role="status">Loading the explanation…</p>
+                  {:else if explanation.isError}
+                    <p role="alert">The explanation could not be loaded.</p>
+                    <button
+                      class="quiet-button"
+                      type="button"
+                      onclick={() => explanation.refetch()}
+                    >
+                      Try again
+                    </button>
+                  {:else if explanation.data?.kind === 'republished'}
+                    <p role="alert">
+                      The ratings were republished while this page was open.
+                    </p>
+                    <button
+                      class="quiet-button"
+                      type="button"
+                      onclick={reloadRatings}
+                    >
+                      Reload ratings
+                    </button>
+                  {:else if explained && explanation.data}
+                    <RatingExplanation
+                      {explained}
+                      identity={explanation.data.identity}
+                      {bodyNames}
+                    />
+                  {/if}
+                </div>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {/if}
 </section>

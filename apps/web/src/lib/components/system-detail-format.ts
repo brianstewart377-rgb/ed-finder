@@ -55,6 +55,20 @@ export function hotspotSummary(
     .join(' · ');
 }
 
+/**
+ * V3 station-type codes for fleet carriers. The importer files Spansh's
+ * `Drake-Class Carrier` under the same code; the alias is kept defensively.
+ */
+const CARRIER_STATION_TYPES: readonly string[] = [
+  'fleet_carrier',
+  'drake_class_carrier',
+];
+
+/** Whether a catalogued station is a fleet carrier, which can move at any time. */
+export function isFleetCarrier(stationType: string | null): boolean {
+  return stationType !== null && CARRIER_STATION_TYPES.includes(stationType);
+}
+
 /** Scorer economy key → display name (`HighTech` → `High Tech`). */
 export function ratingEconomyLabel(economy: string): string {
   return economy === 'HighTech' ? 'High Tech' : economy;

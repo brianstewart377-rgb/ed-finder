@@ -280,6 +280,12 @@ describe('shared system detail', () => {
             distance_from_arrival_ls: 9_000,
           }),
           v3Station({
+            station_id: '128000003',
+            name: 'K7Q-1XZ',
+            station_type: 'fleet_carrier',
+            distance_from_arrival_ls: 12,
+          }),
+          v3Station({
             station_type: 'coriolis_starport',
             body_id: '108086391056891904',
             association_state: 'BODY_RESOLVED',
@@ -305,9 +311,9 @@ describe('shared system detail', () => {
 
     const heading = await screen.findByRole('heading', { name: 'Stations' });
     const section = heading.closest('section') as HTMLElement;
-    const rows = within(section).getAllByRole('listitem');
+    const ports = section.querySelector(':scope > ul') as HTMLElement;
     // Nearest first; the far outpost's placement and economy are unknown.
-    expect(rows.map(partsOf)).toEqual([
+    expect(within(ports).getAllByRole('listitem').map(partsOf)).toEqual([
       [
         'Reference Port',
         'Coriolis Starport · 500 ls · Reference System 3',
@@ -315,6 +321,17 @@ describe('shared system detail', () => {
       ],
       ['Far Outpost', 'Outpost · 9,000 ls', 'Economy not recorded'],
     ]);
+    // Fleet carriers are listed apart, behind a closed toggle.
+    const carriers = section.querySelector(
+      'details.station-carriers',
+    ) as HTMLDetailsElement;
+    expect(carriers.open).toBe(false);
+    expect(carriers.querySelector('summary')?.textContent?.trim()).toBe(
+      '1 fleet carrier',
+    );
+    expect(
+      [...carriers.querySelectorAll('li')].map((item) => partsOf(item)),
+    ).toEqual([['K7Q-1XZ', 'Fleet Carrier · 12 ls']]);
   });
 
   it('shows Ratings V4 potentials, highest first, without fetching an explanation', async () => {
@@ -432,7 +449,14 @@ describe('shared system detail', () => {
     await fireEvent.click(
       within(region).getByRole('button', { name: 'Reload ratings' }),
     );
+    // Both reload, even though the ratings come back with the same identity.
     await waitFor(() => expect(mockedGetRatings).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedGetExplanation).toHaveBeenCalledTimes(2));
+    expect(
+      await within(region).findByRole('table', {
+        name: 'Bodies that make up this score',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('keeps Inspect usable when a system is unrated or ratings are down', async () => {

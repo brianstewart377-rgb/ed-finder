@@ -1366,6 +1366,55 @@ footer {
   margin: 0;
   padding-left: 1.1rem;
 }
+.rating-table-scroll {
+  overflow-x: auto;
+}
+.station-carriers {
+  margin-top: 0.9rem;
+}
+.station-carriers summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.station-carriers ul {
+  margin-top: 0.6rem;
+}
+.station-carriers-note {
+  max-width: 48rem;
+}
+@media (max-width: 600px) {
+  .rating-table th,
+  .rating-table td,
+  .rating-contributions th,
+  .rating-contributions td {
+    padding: 0.45rem 0.25rem;
+  }
+  .rating-table thead th,
+  .rating-contributions thead th {
+    font-size: 0.75rem;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .rating-table tbody th {
+    font-size: 0.9rem;
+  }
+  /* The number carries the value; the meter is decoration on a phone. */
+  .rating-meter {
+    display: none;
+  }
+  .rating-why {
+    padding: 0.25rem 0.5rem;
+  }
+  /* The "Why?" buttons name themselves; keep the header for screen readers. */
+  .rating-column-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
