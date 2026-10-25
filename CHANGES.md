@@ -11,6 +11,34 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-25 — Inspect shows Ratings V4, ring hotspots and station economies
+
+Web only. No API, migration or generated-client change: every field shown was
+already served by a mounted, generation-pinned V3 route and dropped by the web
+mapping.
+
+- **Economy potential.** A new Inspect section (`SystemRatings.svelte`) reads
+  `GET /api/ratings/v4/systems/{id}` and lists the seven Ratings V4 potentials,
+  highest first, with confidence. Each row's "Why?" lazily reads
+  `/explanation` and shows the contributing bodies (role, base, strong links,
+  local score, weight), unknown evidence and specialisation
+  (`RatingExplanation.svelte`). The explanation is keyed to the derived
+  generation of the ratings on screen; a different publication is reported,
+  never shown against older scores. A 404 reads "not in the published ratings
+  yet"; other failures keep the rest of Inspect usable with a retry. Archetype
+  grades are deliberately not shown: they belong to the gated Finder F4 design.
+- **Ring hotspots.** The selected body's card lists each ring and belt with its
+  type, reserve level and mining hotspots (`ring_signal_current`), or says the
+  hotspots were not recorded.
+- **Stations.** A Stations section lists each station nearest first with its
+  type, arrival distance, the body it is resolved to (`BODY_RESOLVED` only) and
+  its catalogued economies with shares.
+
+Tests: facade normalisation and fail-closed validation, republish detection,
+the ring/station mapping, display wording, component behaviour, and the Inspect
+Product E2E journey now waits for the ratings route and opens one explanation.
+The Review Lab orrery pins the ratings route to its not-rated state.
+
 ## 2026-10-24 — Purge P (option B): migration 019 copy-and-drop capability registered
 
 Capability only. Nothing was run against production, and 019 is **registered,

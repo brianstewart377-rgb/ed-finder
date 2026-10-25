@@ -67,6 +67,8 @@ import {
   mapSystemsApiMapSystemsGet,
   putProfileSyncApiProfileSyncSyncKeyPut,
   removeWatchlistApiV2WatchlistSyncKeyId64Delete,
+  systemExplanationApiRatingsV4SystemsSystemId64ExplanationGet,
+  systemScoresApiRatingsV4SystemsSystemId64Get,
   unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
 } from './generated/sdk.gen';
 import type {
@@ -75,15 +77,20 @@ import type {
   AuthSessionResponse,
   AutocompleteHit,
   AutocompleteResponse,
+  CandidateContributionResponse,
   ExternalIdentityResponse,
   HealthResponse,
   LocalSearchRequest,
   BodyV1,
   MapViewportResponse,
   RankingIdentity,
+  RatingExplanationResponse,
+  RatingSummaryResponse,
   RingV1,
   SearchResponse,
   StationV1,
+  SystemExplanationResponse,
+  SystemRatingsResponse,
   SystemRow,
   SystemV1,
   V3JournalImportRequest,
@@ -428,6 +435,15 @@ export type SystemDetailRing = Readonly<{
   ringType: string | null;
   innerRadiusKm: number | null;
   outerRadiusKm: number | null;
+  /** V3 reserve-level public code (`pristine` … `depleted`); null when unobserved. */
+  reserveLevel: string | null;
+  /**
+   * Catalogued ring signals: mining hotspots by commodity public code
+   * (`platinum`, `lowtemperaturediamond`, …), largest count first.
+   */
+  hotspots: readonly Readonly<{ signalType: string; count: number }>[];
+  /** Whether the source recorded this ring's signal list as complete. */
+  signalsComplete: boolean | null;
 }>;
 
 /** One catalogued body as Inspect renders it (V3 canonical generation). */
@@ -453,12 +469,29 @@ export type SystemDetailBody = Readonly<{
   signals: readonly Readonly<{ signalType: string; count: number }>[];
 }>;
 
+/** One catalogued economy of a station, as the V3 catalogue records it. */
+export type SystemDetailStationEconomy = Readonly<{
+  /** V3 economy public code (`extraction`, `high_tech`, …). */
+  economy: string;
+  /** The catalogued share, 0–1, when the source recorded one. */
+  weight: number | null;
+  isPrimary: boolean;
+  isSecondary: boolean;
+}>;
+
 export type SystemDetailStation = Readonly<{
   /** Canonical V3 station key (lossless decimal). */
   stationKey: string;
   name: string;
   stationType: string | null;
   distanceFromArrivalLs: number | null;
+  /**
+   * Canonical body key of the body the station is placed on or orbits, only
+   * when the catalogue resolved that placement (`BODY_RESOLVED`).
+   */
+  bodyKey: string | null;
+  /** Primary first, then secondary, then the rest by share. */
+  economies: readonly SystemDetailStationEconomy[];
 }>;
 
 /**
@@ -1063,6 +1096,19 @@ export function systemDetailFromV3(
       ringType: ring.ring_type,
       innerRadiusKm: ring.inner_radius_km,
       outerRadiusKm: ring.outer_radius_km,
+      reserveLevel: ring.reserve_type,
+      hotspots: ring.signals
+        .filter((signal) => signal.count > 0)
+        .map((signal) => ({
+          signalType: signal.signal_type,
+          count: signal.count,
+        }))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            left.signalType.localeCompare(right.signalType),
+        ),
+      signalsComplete: ring.signals_complete,
     });
     ringsByBody.set(ring.body_id, list);
   }
@@ -1097,13 +1143,61 @@ export function systemDetailFromV3(
       .sort(bodyOrder),
     stations: stations
       .filter((station) => station.lifecycle_state === ACTIVE)
-      .map((station) => ({
-        stationKey: station.station_id,
-        name: station.name,
-        stationType: station.station_type,
-        distanceFromArrivalLs: station.distance_from_arrival_ls,
-      })),
+      .map(stationDetail)
+      .sort(stationOrder),
   };
+}
+
+const BODY_RESOLVED = 'BODY_RESOLVED';
+
+/** One V3 station as Inspect renders it; a body only when resolved. */
+function stationDetail(station: StationV1): SystemDetailStation {
+  return {
+    stationKey: station.station_id,
+    name: station.name,
+    stationType: station.station_type,
+    distanceFromArrivalLs: station.distance_from_arrival_ls,
+    bodyKey:
+      station.association_state === BODY_RESOLVED ? station.body_id : null,
+    economies: station.economies.map(stationEconomy).sort(economyOrder),
+  };
+}
+
+function stationEconomy(
+  economy: StationV1['economies'][number],
+): SystemDetailStationEconomy {
+  return {
+    economy: economy.economy,
+    weight: economy.economy_weight,
+    isPrimary: economy.is_primary,
+    isSecondary: economy.is_secondary,
+  };
+}
+
+/** Primary, then secondary, then by share (unknown last), then by code. */
+function economyOrder(
+  left: SystemDetailStationEconomy,
+  right: SystemDetailStationEconomy,
+): number {
+  const rank = (economy: SystemDetailStationEconomy) =>
+    economy.isPrimary ? 0 : economy.isSecondary ? 1 : 2;
+  const byRank = rank(left) - rank(right);
+  if (byRank !== 0) return byRank;
+  const byWeight = (right.weight ?? -1) - (left.weight ?? -1);
+  if (byWeight !== 0) return byWeight;
+  return left.economy.localeCompare(right.economy);
+}
+
+/** By arrival distance (unknown last), then name. */
+function stationOrder(
+  left: SystemDetailStation,
+  right: SystemDetailStation,
+): number {
+  const leftDistance = left.distanceFromArrivalLs ?? Number.POSITIVE_INFINITY;
+  const rightDistance = right.distanceFromArrivalLs ?? Number.POSITIVE_INFINITY;
+  if (leftDistance !== rightDistance)
+    return leftDistance < rightDistance ? -1 : 1;
+  return left.name.localeCompare(right.name);
 }
 
 /** Attempts before a read that keeps straddling publications fails closed. */
@@ -1162,6 +1256,243 @@ export async function getSystem(
     null,
     'The catalogue was republished while this system was loading',
   );
+}
+
+/**
+ * Ratings V4 (frozen scorer 4.0.0): seven independent economy potentials per
+ * system from the published derived generation. This is raw potential only;
+ * Finder ranking and archetype judgement are separate layers that the route
+ * deliberately omits (`apps/api/src/routers/ratings_v4.py`).
+ */
+export const RATING_ECONOMIES = [
+  'Agriculture',
+  'Refinery',
+  'Industrial',
+  'HighTech',
+  'Military',
+  'Tourism',
+  'Extraction',
+] as const;
+
+/** The published derived generation a set of ratings was read from. */
+export type RatingsIdentity = Readonly<{
+  derivedGenerationId: string;
+  publicationSequence: string;
+  scorerVersion: string;
+  mechanicsVersion: string;
+}>;
+
+/** One economy's Ratings V4 summary. */
+export type EconomyRating = Readonly<{
+  /** Scorer economy key, one of {@link RATING_ECONOMIES}. */
+  economy: string;
+  /** Raw potential, 0–100. */
+  potential: number;
+  /** Resolved specialisation quality, or null when only its range is known. */
+  specialisation: number | null;
+  specialisationMin: number;
+  specialisationMax: number;
+  /** Share of the evidence this rating needs that the catalogue knows, 0–1. */
+  completeness: number;
+  /** Rule-based confidence, 0–1. Not an empirically measured probability. */
+  confidence: number;
+}>;
+
+export type SystemRatings = Readonly<{
+  identity: RatingsIdentity;
+  /** All seven economies, in scorer order. */
+  ratings: readonly EconomyRating[];
+}>;
+
+/** One of the (at most four) bodies whose local scores make up a potential. */
+export type RatingContribution = Readonly<{
+  /** Canonical body key: the scorer's candidate id. */
+  bodyKey: string;
+  native: boolean;
+  modifier: boolean;
+  base: number;
+  positive: number;
+  negative: number;
+  local: number;
+  /** Weight of this local score in the system potential, 0–1. */
+  weight: number;
+  positiveRules: readonly string[];
+  negativeRules: readonly string[];
+  /** Scorer contributors, e.g. `native:water world`, `modifier:tourism`. */
+  contributors: readonly string[];
+  /** Evidence features the catalogue does not know for this body. */
+  unknownEvidence: readonly string[];
+}>;
+
+export type EconomyRatingExplanation = EconomyRating &
+  Readonly<{ contributions: readonly RatingContribution[] }>;
+
+/**
+ * A replayed explanation, or `republished` when the published generation
+ * changed after the summary was read: an explanation is only shown for the
+ * exact ratings on screen.
+ */
+export type SystemRatingExplanation =
+  | Readonly<{
+      kind: 'explained';
+      identity: RatingsIdentity;
+      economies: readonly EconomyRatingExplanation[];
+    }>
+  | Readonly<{ kind: 'republished'; identity: RatingsIdentity }>;
+
+const isScore = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  value <= 100;
+
+const isUnitInterval = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= 1;
+
+function ratingsIdentity(
+  response: SystemRatingsResponse | SystemExplanationResponse,
+): RatingsIdentity {
+  return {
+    derivedGenerationId: String(response.derived_generation_id),
+    publicationSequence: String(response.publication_sequence),
+    scorerVersion: String(response.scorer_version),
+    mechanicsVersion: String(response.mechanics_version),
+  };
+}
+
+function economyRating(row: RatingSummaryResponse): EconomyRating {
+  if (
+    !isScore(row.potential_score) ||
+    !isScore(row.specialisation_quality_min) ||
+    !isScore(row.specialisation_quality_max) ||
+    row.specialisation_quality_min > row.specialisation_quality_max ||
+    (row.specialisation_quality !== null &&
+      !isScore(row.specialisation_quality)) ||
+    !isUnitInterval(row.evidence_completeness) ||
+    !isUnitInterval(row.confidence)
+  )
+    throw new TypeError(
+      `The Ratings V4 row for ${String(row.economy)} is out of range`,
+    );
+  return {
+    economy: row.economy,
+    potential: row.potential_score,
+    specialisation: row.specialisation_quality,
+    specialisationMin: row.specialisation_quality_min,
+    specialisationMax: row.specialisation_quality_max,
+    completeness: row.evidence_completeness,
+    confidence: row.confidence,
+  };
+}
+
+/** Exactly the seven scorer economies, once each, in scorer order. */
+function scorerOrder<T extends EconomyRating>(rows: readonly T[]): T[] {
+  const byEconomy = new Map(rows.map((row) => [row.economy, row]));
+  if (
+    rows.length !== RATING_ECONOMIES.length ||
+    byEconomy.size !== RATING_ECONOMIES.length
+  )
+    throw new TypeError(
+      'Ratings V4 must return each of the seven economies once',
+    );
+  return RATING_ECONOMIES.map((economy) => {
+    const row = byEconomy.get(economy);
+    if (!row) throw new TypeError(`Ratings V4 omitted the ${economy} economy`);
+    return row;
+  });
+}
+
+function ratingContribution(
+  row: CandidateContributionResponse,
+): RatingContribution {
+  if (
+    !isScore(row.local_score) ||
+    !isUnitInterval(row.system_weight) ||
+    !Number.isInteger(row.base_score) ||
+    !Number.isInteger(row.positive_adjustment) ||
+    !Number.isInteger(row.negative_adjustment)
+  )
+    throw new TypeError(
+      `The Ratings V4 contribution for ${String(row.candidate_id)} is out of range`,
+    );
+  return {
+    bodyKey: String(row.candidate_id),
+    native: row.native,
+    modifier: row.modifier,
+    base: row.base_score,
+    positive: row.positive_adjustment,
+    negative: row.negative_adjustment,
+    local: row.local_score,
+    weight: row.system_weight,
+    positiveRules: [...row.positive_rules],
+    negativeRules: [...row.negative_rules],
+    contributors: [...row.contributors],
+    unknownEvidence: [
+      ...new Set(
+        row.evidence
+          .filter((feature) => !feature.known)
+          .map((feature) => feature.feature_type),
+      ),
+    ],
+  };
+}
+
+/** A system's seven Ratings V4 economy potentials (404 when it is unrated). */
+export async function getSystemRatings(
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<SystemRatings> {
+  const { data } = await systemScoresApiRatingsV4SystemsSystemId64Get({
+    path: { system_id64: parseId64(id64) as unknown as number },
+    throwOnError: true,
+    signal,
+  });
+  return {
+    identity: ratingsIdentity(data),
+    ratings: scorerOrder(data.ratings.map(economyRating)),
+  };
+}
+
+/**
+ * The replayed explanation behind {@link getSystemRatings}, only for the
+ * generation those ratings came from (`expected`). A different published
+ * generation answers `republished` instead of an explanation that would not
+ * match the scores on screen.
+ */
+export async function getSystemRatingExplanation(
+  id64: Id64,
+  expected: RatingsIdentity,
+  signal?: AbortSignal,
+): Promise<SystemRatingExplanation> {
+  const { data } =
+    await systemExplanationApiRatingsV4SystemsSystemId64ExplanationGet({
+      path: { system_id64: parseId64(id64) as unknown as number },
+      throwOnError: true,
+      signal,
+    });
+  const identity = ratingsIdentity(data);
+  if (
+    identity.derivedGenerationId !== expected.derivedGenerationId ||
+    identity.publicationSequence !== expected.publicationSequence
+  )
+    return { kind: 'republished', identity };
+  return {
+    kind: 'explained',
+    identity,
+    economies: scorerOrder(data.ratings.map(economyExplanation)),
+  };
+}
+
+function economyExplanation(
+  row: RatingExplanationResponse,
+): EconomyRatingExplanation {
+  return {
+    ...economyRating(row),
+    contributions: row.contributions.map(ratingContribution),
+  };
 }
 
 /** Existing sync-key watchlist rows; optional snapshots may be absent or null. */

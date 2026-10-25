@@ -1237,6 +1237,135 @@ footer {
   align-self: center;
   color: #8fa5b9;
 }
+.system-body-card .body-ring-list {
+  grid-column: 1 / -1;
+}
+.body-ring-list ul,
+.system-stations ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.body-ring-list li + li,
+.system-stations li + li {
+  margin-top: 0.6rem;
+}
+.body-ring-list p,
+.system-stations p {
+  margin: 0.15rem 0 0;
+  color: #8fa5b9;
+  font-size: 0.82rem;
+}
+.body-ring-list .ring-name,
+.system-stations .station-name {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 600;
+}
+.system-ratings,
+.system-stations {
+  margin-top: 2rem;
+}
+.system-ratings h2,
+.system-stations h2 {
+  margin: 0.2rem 0 0.75rem;
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+}
+.system-ratings-note {
+  max-width: 48rem;
+  margin: 0 0 1rem;
+  color: #8fa5b9;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.rating-table,
+.rating-contributions {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.rating-table th,
+.rating-table td,
+.rating-contributions th,
+.rating-contributions td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.rating-table thead th,
+.rating-contributions thead th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rating-potential {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.rating-meter {
+  flex: 0 1 10rem;
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #1d2b3a;
+}
+.rating-meter > div {
+  height: 100%;
+  background: #8fb8ce;
+}
+.rating-why {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.rating-why[aria-expanded='true'] {
+  border-color: #5bd8ff;
+}
+.rating-explanation-row > td {
+  background: #0b1622;
+}
+.rating-explanation p {
+  margin: 0.5rem 0;
+}
+.rating-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  margin: 0 0 0.75rem;
+}
+.rating-facts dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rating-facts dd {
+  margin: 0.2rem 0 0;
+}
+.rating-contributions caption {
+  padding-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: left;
+}
+.rating-adjustments,
+.rating-unknown,
+.rating-version {
+  color: #8fa5b9;
+  font-size: 0.82rem;
+}
+.rating-unknown ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
 .detail-actions {
   display: flex;
   flex-wrap: wrap;

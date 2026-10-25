@@ -381,6 +381,14 @@ describe('Galaxy Map Review Lab density truth slice', () => {
         statusCode: 200,
         body: [],
       });
+      // The diagnostic orrery is not a rated system; keep the panel's
+      // not-rated state deterministic instead of depending on the backend.
+      cy.intercept('GET', '/api/ratings/v4/systems/42', {
+        statusCode: 404,
+        body: {
+          detail: 'System is not in the published Ratings V4 generation',
+        },
+      });
       cy.visit('/inspect?system=42', {
         onBeforeLoad(window) {
           if (backend === 'WEBGL2') {

@@ -1,7 +1,13 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
   import { tick } from 'svelte';
-  import { ApiError, getSystem, type SystemDetailBody } from '$lib/api/client';
+  import {
+    ApiError,
+    getSystem,
+    type SystemDetailBody,
+    type SystemDetailRing,
+    type SystemDetailStation,
+  } from '$lib/api/client';
   import { queryKeys } from '$lib/api/query';
   import type { Id64 } from '$lib/domain/id64';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
@@ -11,6 +17,12 @@
     buildSystemScene,
     stellarClassification,
   } from '$lib/spatial/system-scene';
+  import SystemRatings from './SystemRatings.svelte';
+  import {
+    hotspotSummary,
+    percent,
+    titleFromCode,
+  } from './system-detail-format';
 
   let {
     id64,
@@ -86,6 +98,11 @@
   const selectedBelts = $derived(
     selectedBody?.rings.filter((ring) => ring.kind === 'BELT').length ?? 0,
   );
+  const bodyNames = $derived(
+    new Map(
+      (detail.data?.bodies ?? []).map((body) => [body.bodyKey, body.name]),
+    ),
+  );
 
   $effect(() => {
     if (!autofocusHeading || !detail.data || lastFocusedId === id64) return;
@@ -108,6 +125,56 @@
 
   function signalLabel(code: string): string {
     return code.replace(/^saa_signaltype_/u, '').replaceAll('_', ' ');
+  }
+
+  /** `Metallic · Pristine reserves`; null when neither is catalogued. */
+  function ringFacts(ring: SystemDetailRing): string | null {
+    const reserve = titleFromCode(ring.reserveLevel);
+    const facts = [
+      titleFromCode(ring.ringType),
+      reserve ? `${reserve} reserves` : null,
+    ].filter((fact): fact is string => fact !== null);
+    return facts.length > 0 ? facts.join(' · ') : null;
+  }
+
+  function ringHotspots(ring: SystemDetailRing): string {
+    const summary = hotspotSummary(ring.hotspots);
+    if (summary) return `Hotspots: ${summary}`;
+    return ring.signalsComplete === true
+      ? 'No hotspots'
+      : 'Hotspots not recorded';
+  }
+
+  /** `Coriolis Starport · 500 ls · Reference System 3`. */
+  function stationFacts(station: SystemDetailStation): string {
+    const body = station.bodyKey ? bodyNames.get(station.bodyKey) : undefined;
+    return [
+      titleFromCode(station.stationType) ?? 'Type not recorded',
+      station.distanceFromArrivalLs != null
+        ? `${integer(station.distanceFromArrivalLs)} ls`
+        : null,
+      body ?? null,
+    ]
+      .filter((fact): fact is string => fact !== null)
+      .join(' · ');
+  }
+
+  /** `Extraction (primary) · Refinery 30%`; null when none is catalogued. */
+  function stationEconomies(station: SystemDetailStation): string | null {
+    if (station.economies.length === 0) return null;
+    return station.economies
+      .map((economy) => {
+        const name = titleFromCode(economy.economy) ?? economy.economy;
+        const share =
+          economy.weight != null ? ` ${percent(economy.weight)}` : '';
+        const role = economy.isPrimary
+          ? ' (primary)'
+          : economy.isSecondary
+            ? ' (secondary)'
+            : '';
+        return `${name}${share}${role}`;
+      })
+      .join(' · ');
   }
 
   function selectBody(bodyId: number): void {
@@ -203,6 +270,8 @@
       </div>
     </dl>
 
+    <SystemRatings {id64} bodies={detail.data.bodies} {headingId} />
+
     {#if systemScene && systemScene.bodies.length > 0}
       <section class="system-map-panel" aria-labelledby={`${headingId}-map`}>
         <div class="system-map-heading">
@@ -297,6 +366,25 @@
                       : 'None recorded'}
                   </dd>
                 </div>
+                {#if selectedBody.rings.length > 0}
+                  <div class="body-ring-list">
+                    <dt>Rings, belts and hotspots</dt>
+                    <dd>
+                      <ul>
+                        {#each selectedBody.rings as ring (ring.ringKey)}
+                          {@const facts = ringFacts(ring)}
+                          <li data-ring-key={ring.ringKey}>
+                            <p class="ring-name">{ring.name}</p>
+                            {#if facts}
+                              <p>{facts}</p>
+                            {/if}
+                            <p>{ringHotspots(ring)}</p>
+                          </li>
+                        {/each}
+                      </ul>
+                    </dd>
+                  </div>
+                {/if}
               </dl>
             </article>
           {:else}
@@ -305,6 +393,26 @@
             </p>
           {/if}
         </div>
+      </section>
+    {/if}
+
+    {#if detail.data.stations.length > 0}
+      <section
+        class="system-stations"
+        aria-labelledby={`${headingId}-stations`}
+      >
+        <p class="eyebrow">Catalogue</p>
+        <h2 id={`${headingId}-stations`}>Stations</h2>
+        <ul>
+          {#each detail.data.stations as station (station.stationKey)}
+            {@const economies = stationEconomies(station)}
+            <li data-station-key={station.stationKey}>
+              <p class="station-name">{station.name}</p>
+              <p>{stationFacts(station)}</p>
+              <p>{economies ?? 'Economy not recorded'}</p>
+            </li>
+          {/each}
+        </ul>
       </section>
     {/if}
   {/if}
