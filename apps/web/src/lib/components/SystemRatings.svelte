@@ -24,8 +24,14 @@
 
   const queryClient = useQueryClient();
 
-  /** The economy whose explanation is open; one at a time. */
-  let open = $state<string | null>(null);
+  /**
+   * The economy whose explanation is open, one at a time. It belongs to the
+   * system it was opened on: Inspect and the Explore overlay keep this
+   * component mounted when the system changes, and an explanation must not
+   * reopen (and fetch) for the next system on its own.
+   */
+  let opened = $state<Readonly<{ id64: Id64; economy: string }> | null>(null);
+  const open = $derived(opened?.id64 === id64 ? opened.economy : null);
 
   // 404: not in the published ratings generation. 422: an id64 beyond the
   // signed 64-bit key space, which therefore cannot be rated.
@@ -64,7 +70,7 @@
   });
 
   function toggle(economy: string): void {
-    open = open === economy ? null : economy;
+    opened = open === economy ? null : { id64, economy };
   }
 
   /**

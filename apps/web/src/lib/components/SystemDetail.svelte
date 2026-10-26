@@ -172,7 +172,11 @@
       .join(' · ');
   }
 
-  /** `Extraction (primary) · Refinery 30%`; null when none is catalogued. */
+  /**
+   * `Extraction (primary) · Refinery (secondary)`; null when none is
+   * catalogued. A share appears only if the catalogue holds one: the Spansh
+   * import deliberately stores designations without shares.
+   */
   function stationEconomies(station: SystemDetailStation): string | null {
     if (station.economies.length === 0) return null;
     return station.economies

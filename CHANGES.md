@@ -28,22 +28,26 @@ mapping.
   yet"; other failures keep the rest of Inspect usable with a retry. Archetype
   grades are deliberately not shown: they belong to the gated Finder F4 design.
 - **Ring hotspots.** The selected body's card lists each ring and belt with its
-  type, reserve level and mining hotspots (`ring_signal_current`), or says the
-  hotspots were not recorded.
+  type, reserve level and mining hotspots (`ring_signal_current`). It says "No
+  hotspots" only when the source recorded an empty signal list, and "Hotspots
+  not recorded" when it recorded none.
 - **Stations.** A Stations section lists each station nearest first with its
   type, arrival distance, the body it is resolved to (`BODY_RESOLVED` only) and
-  its catalogued economies with shares. Fleet carriers, which can number dozens
-  in a busy system and move at any time, sit behind a closed "N fleet carriers"
-  toggle.
+  its catalogued economies, primary and secondary first. Shares show only when
+  the catalogue has one; the Spansh import stores none. Fleet carriers, which
+  can number dozens in a busy system and move at any time, sit behind a closed
+  "N fleet carriers" toggle.
 - **Phones.** Below 600px the ratings table drops its decorative meter, tightens
   its cells and keeps the "Explanation" header for screen readers only, so it
   fits from 375px; it scrolls inside its own box rather than the page below
   that.
 
 Tests: facade normalisation and fail-closed validation, republish detection,
-the ring/station mapping, display wording, component behaviour, and the Inspect
-Product E2E journey now waits for the ratings route and opens one explanation.
-The Review Lab orrery pins the ratings route to its not-rated state.
+the ring/station mapping, display wording, and component behaviour (including
+an open explanation not carrying over to the next system). The Inspect Product
+E2E journey now waits for the ratings route, opens one explanation and saves
+desktop and 375px screenshots of the section as visual evidence. The Review Lab
+orrery pins the ratings route to its not-rated state.
 
 ## 2026-10-24 — Purge P (option B): migration 019 copy-and-drop capability registered
 

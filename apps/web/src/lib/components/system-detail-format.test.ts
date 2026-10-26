@@ -55,6 +55,8 @@ describe('Inspect display wording', () => {
     expect(isFleetCarrier('drake_class_carrier')).toBe(true);
     expect(isFleetCarrier('coriolis_starport')).toBe(false);
     expect(isFleetCarrier('megaship')).toBe(false);
+    expect(isFleetCarrier('space_construction_depot')).toBe(false);
+    expect(isFleetCarrier('carriers_rest')).toBe(false);
     expect(isFleetCarrier(null)).toBe(false);
   });
 

@@ -14,7 +14,7 @@ import {
   getSystemRatings,
   systemDetailFromV3,
 } from '$lib/api/client';
-import { queryClient } from '$lib/api/query';
+import { queryClient, queryKeys } from '$lib/api/query';
 import {
   ratingsIdentity,
   referenceRatingExplanation,
@@ -234,6 +234,13 @@ describe('shared system detail', () => {
             reserve_type: null,
             signals_complete: null,
           }),
+          v3Ring({
+            ring_id: '900719925632971232',
+            kind: 'BELT',
+            name: 'Reference System 3 A Belt',
+            ring_type: 'rocky',
+            reserve_type: null,
+          }),
         ],
         [],
       ),
@@ -253,6 +260,8 @@ describe('shared system detail', () => {
         'Hotspots: 2 Platinum · 1 Painite',
       ],
       ['Reference System 3 B Ring', 'Icy', 'Hotspots not recorded'],
+      // A recorded, empty signal list is a real "none", not a gap.
+      ['Reference System 3 A Belt', 'Rocky', 'No hotspots'],
     ]);
   });
 
@@ -311,7 +320,8 @@ describe('shared system detail', () => {
 
     const heading = await screen.findByRole('heading', { name: 'Stations' });
     const section = heading.closest('section') as HTMLElement;
-    const ports = section.querySelector(':scope > ul') as HTMLElement;
+    // The first list is the fixed ports; carriers follow inside <details>.
+    const ports = section.querySelector('ul') as HTMLElement;
     // Nearest first; the far outpost's placement and economy are unknown.
     expect(within(ports).getAllByRole('listitem').map(partsOf)).toEqual([
       [
@@ -324,8 +334,8 @@ describe('shared system detail', () => {
     // Fleet carriers are listed apart, behind a closed toggle.
     const carriers = section.querySelector(
       'details.station-carriers',
-    ) as HTMLDetailsElement;
-    expect(carriers.open).toBe(false);
+    ) as HTMLElement;
+    expect(carriers.hasAttribute('open')).toBe(false);
     expect(carriers.querySelector('summary')?.textContent?.trim()).toBe(
       '1 fleet carrier',
     );
@@ -424,6 +434,36 @@ describe('shared system detail', () => {
     await fireEvent.click(why);
     expect(why).toHaveAttribute('aria-expanded', 'false');
     expect(region).not.toBeVisible();
+  });
+
+  it('does not carry an open explanation over to the next system', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    // The next system is already cached, as after Back/Forward, so Inspect
+    // keeps the ratings component mounted across the change.
+    const next = parseId64('42');
+    queryClient.setQueryData(
+      queryKeys.system(next),
+      referenceSystemDetail({ id64: '42', name: 'Second System' }),
+    );
+    const view = render(SystemDetailTestHost, {
+      props: { id64: parseId64('10477373803') },
+    });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Why? Agriculture' }),
+    );
+    await screen.findByRole('region', { name: 'Why Agriculture scores 84' });
+    expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Second System' });
+    await waitFor(() =>
+      expect(mockedGetRatings).toHaveBeenCalledWith('42', expect.anything()),
+    );
+    const why = await screen.findByRole('button', {
+      name: 'Why? Agriculture',
+    });
+    expect(why).toHaveAttribute('aria-expanded', 'false');
+    expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
   });
 
   it('never shows an explanation from a different publication', async () => {

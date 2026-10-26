@@ -286,8 +286,22 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.contains('.rating-explanation dt', 'Evidence known').should(
       'be.visible',
     );
+    // Visual evidence for the Inspect ratings section, desktop then phone.
+    cy.get('.system-ratings').screenshot(
+      `product/inspect-achenar-ratings-${Cypress.browser.name}`,
+      { overwrite: true },
+    );
     cy.injectAxe();
     cy.checkA11y();
+    cy.viewport(375, 812);
+    cy.get('.system-ratings').screenshot(
+      `product/inspect-achenar-ratings-${Cypress.browser.name}-375w`,
+      { overwrite: true },
+    );
+    cy.viewport(
+      Cypress.config('viewportWidth'),
+      Cypress.config('viewportHeight'),
+    );
 
     cy.intercept('GET', '/api/v1/systems/4242').as('v3Missing');
     cy.visit('/inspect?system=4242');

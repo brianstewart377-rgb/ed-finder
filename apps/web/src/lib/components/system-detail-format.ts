@@ -57,16 +57,16 @@ export function hotspotSummary(
 
 /**
  * V3 station-type codes for fleet carriers. The importer files Spansh's
- * `Drake-Class Carrier` under the same code; the alias is kept defensively.
+ * `Fleet Carrier` and `Drake-Class Carrier` under one vocabulary row, whose
+ * public code is `fleet_carrier` when the vocabulary is seeded in source order
+ * (`apps/importer/src/v3_spansh/pipeline.py`). Matching the `carrier` word
+ * keeps this right if a database was seeded with the other spelling.
  */
-const CARRIER_STATION_TYPES: readonly string[] = [
-  'fleet_carrier',
-  'drake_class_carrier',
-];
+const CARRIER_STATION_TYPE = /(?:^|_)carrier$/u;
 
 /** Whether a catalogued station is a fleet carrier, which can move at any time. */
 export function isFleetCarrier(stationType: string | null): boolean {
-  return stationType !== null && CARRIER_STATION_TYPES.includes(stationType);
+  return stationType !== null && CARRIER_STATION_TYPE.test(stationType);
 }
 
 /** Scorer economy key → display name (`HighTech` → `High Tech`). */

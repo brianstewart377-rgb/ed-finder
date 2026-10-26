@@ -473,7 +473,10 @@ export type SystemDetailBody = Readonly<{
 export type SystemDetailStationEconomy = Readonly<{
   /** V3 economy public code (`extraction`, `high_tech`, …). */
   economy: string;
-  /** The catalogued share, 0–1, when the source recorded one. */
+  /**
+   * The catalogued share, 0–1, when a source recorded one. Always null from the
+   * Spansh import, which keeps designations but not Spansh's uncalibrated scale.
+   */
   weight: number | null;
   isPrimary: boolean;
   isSecondary: boolean;
