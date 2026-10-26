@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import ipaddress
 import secrets
 import uuid
 from dataclasses import replace
@@ -28,7 +27,7 @@ from edfinder_api.auth import (
     token_digest,
     write_security_audit_event,
 )
-from edfinder_api.config import limiter, settings
+from edfinder_api.config import limiter, settings, trusted_client_address
 from edfinder_api.deps import get_pool, secrets_equal
 from edfinder_api.journal.commanders import (
     associate_verified_commander,
@@ -128,24 +127,9 @@ def _safe_return_to(value: Optional[str]) -> str:
     return candidate
 
 
-def _oauth_client_address(request: Request) -> str:
-    """Use nginx's overwritten client header only from a private proxy peer."""
-    peer = request.client.host if request.client else ''
-    try:
-        peer_ip = ipaddress.ip_address(peer)
-    except ValueError:
-        return peer or 'unknown'
-
-    # The API is reachable from the private runtime network. Nginx overwrites
-    # X-Real-IP with the connection's apparent client address; direct or
-    # loopback callers must never be allowed to choose a forwarded key.
-    if peer_ip.is_private and not peer_ip.is_loopback:
-        forwarded = request.headers.get('x-real-ip', '').strip()
-        try:
-            return str(ipaddress.ip_address(forwarded))
-        except ValueError:
-            pass
-    return str(peer_ip)
+# Kept as a name for the OAuth limits and their tests; it is now the same
+# trusted key every rate limit uses.
+_oauth_client_address = trusted_client_address
 
 
 def build_frontier_authorize_url(*, state: str, code_challenge: str) -> str:

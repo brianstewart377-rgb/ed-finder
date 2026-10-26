@@ -11,6 +11,32 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-26 — Rate limits key on the visitor, not the proxy hop (sweep S1)
+
+Confirmed on production (owner-run, read-only): all 903 API requests in 24 h
+came from the web slot's address `172.23.0.2`, so each rate limit was one
+bucket for the whole site; and the public site is served by Cloudflare
+(`server: cloudflare`, `cf-ray`), with Cloudflare addresses as the edge's
+peers.
+
+- **API** (`apps/api/src/config.py`): every limit now keys on
+  `trusted_client_address`, the former OAuth-only helper. It accepts
+  `X-Real-IP` only from a private, non-loopback peer (the web slot) and only
+  when it parses as an IP; loopback and public callers key on themselves.
+  `get_remote_address` is gone.
+- **Edge** (`deploy/v3-production/public-auth-edge.nginx.conf`): `real_ip_header
+  CF-Connecting-IP` with `set_real_ip_from` for exactly Cloudflare's published
+  ranges (https://www.cloudflare.com/ips/, last updated 2023-09-28; checked
+  2026-10-26), no recursion. A direct connection to the origin keeps its own
+  address and cannot pick another visitor's key.
+
+Checked locally with nginx 1.24: a spoofed `CF-Connecting-IP` from an
+untrusted peer leaves `X-Real-IP` as the peer; from a trusted peer it becomes
+the visitor. The API part takes effect with the next release; the edge part is
+an owner-run host step after merge (copy the reviewed file over the edge's
+mounted config, `nginx -t`, reload), recorded afterwards. Until the edge step,
+limits key on the Cloudflare node address, which is already finer than one
+site-wide bucket.
 ## 2026-10-26 — Sweep hardening: security headers, https share links, secret comparisons, ratings 503s
 
 Findings S4, S6, S8 and S9 of the 2026-10-26 external repository sweep, each
