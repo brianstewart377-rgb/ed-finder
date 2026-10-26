@@ -55,7 +55,9 @@ products attach to the already-published `ratings_v4_prod_p4_parallel_v1`
 (seq 1) behind an explicit **product**-publication gate (migration `015`), and
 the generation pointer does not move. **Applied 2026-10-18:** `014`, `010`,
 the rewritten `011`, `013`, `015` and `016` are in the production ledger (apply
-run 39113822236; receipts under `docs/operations/evidence/`). **Amendment
+run 39113822236; receipts under `docs/operations/evidence/`); **`019` applied
+2026-10-26** (apply run 40338736148; copy-and-drop purge capability only, no
+payload change). **Amendment
 2026-10-17 (owner):** the Finder goes live first — the 2026-10-11 pre-build
 purge ordering is superseded, and the governed purge of `ratings_v4_prod_p4`
 and `ratings_v4_prod_p4_opt1` (`docs/development/v3-governed-derived-purge-design.md`;
