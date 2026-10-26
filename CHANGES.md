@@ -11,6 +11,15 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-26 — Edge real-client address applied on production (owner-run)
+
+The edge half of #896 is live: the reviewed `public-auth-edge.nginx.conf`
+(sha256 `a1a26f42…a906`) replaced the verified-unchanged previous version
+(`457d8ae3…373a`) after an in-container `nginx -t`, then a reload. The edge's
+access log now records visitor addresses instead of Cloudflare's. The API half
+(every rate limit keyed on the visitor) takes effect with the next release.
+Recorded in `docs/operations/infrastructure-status.md`.
+
 ## 2026-10-26 — Rate limits key on the visitor, not the proxy hop (sweep S1)
 
 Confirmed on production (owner-run, read-only): all 903 API requests in 24 h
