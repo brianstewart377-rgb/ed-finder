@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-26 — Migration 019 applied to production; external review recorded
+
+**Production (owner-approved, governed workflow).** Plan run 40338574785 reported
+`pending=[019]` with no writes; apply run 40338736148 applied
+`019_v3_purge_copy_and_drop.sql` and installed the through-019 schema identity.
+Capability only: no payload row copied, swapped or deleted. This clears the
+promotion block that #891's authority change introduced.
+
+**Docs.** ROADMAP, CLAUDE.md and infrastructure status record the apply. The
+operator-mode work now carries the 2026-10-26 external review's findings on
+the copy-and-drop route (statement timeouts must be set per call by the
+operator; long phases need the watchdog, gate 2 and resumability; the vector
+swap's per-lock timeout must be short; `n_distinct` recalibrates at the
+opportunity swap; a backup heartbeat must alert before step 1).
 ## 2026-10-25 — Inspect shows Ratings V4, ring hotspots and station economies
 
 Web only. No API, migration or generated-client change: every field shown was

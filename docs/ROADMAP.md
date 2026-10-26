@@ -148,12 +148,20 @@ newer dated source wins).
   owner.
 
   **Build status:** migration `019_v3_purge_copy_and_drop.sql` is written,
-  tested on PostgreSQL 18 and registered in the manifest and production
-  authority (through-016 → through-019); it is **not applied**. Remaining before
-  P runs: apply `019` (governed migration workflow, owner approval), the
-  operator copy/swap/drop modes and workflow, the fence and backup-wrapper
-  reads of `purge_copy_backup_skip()`, the 1% rehearsal, and a release carrying
-  the operator code.
+  tested on PostgreSQL 18, registered in the manifest and production authority
+  (through-016 → through-019) and **applied to production on 2026-10-26**
+  (plan run 40338574785: pending exactly `[019]`, no writes; apply run
+  40338736148: `status=applied`, `applied_now=[019]`, schema identity now
+  `0f4a19ad…db65`). Between #891 merging (2026-10-25) and that apply, every
+  application promotion would have been refused on the schema-identity
+  checksum; none was attempted, and the block is cleared. Remaining before P
+  runs: the operator copy/swap/drop modes and workflow (incorporating the
+  2026-10-26 external review's findings — resumable long phases, the watchdog
+  and gate 2 around every phase, `SET LOCAL statement_timeout` per call, a short
+  per-lock swap timeout with retries, read-only preflights, `n_distinct`
+  recalibration at the opportunity swap, and a backup heartbeat alert), the
+  fence and backup-wrapper reads of `purge_copy_backup_skip()`, the 1%
+  rehearsal, and a release carrying the operator code.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
