@@ -5,11 +5,16 @@
  * V3 shapes rather than a hand-written domain object.
  */
 import {
+  RATING_ECONOMIES,
   systemDetailFromV3,
   type BodyV1,
+  type EconomyRating,
+  type RatingsIdentity,
   type RingV1,
   type StationV1,
   type SystemDetail,
+  type SystemRatingExplanation,
+  type SystemRatings,
   type SystemV1,
 } from './client';
 
@@ -132,4 +137,99 @@ export function referenceSystemDetail(
     ],
     [v3Station()],
   );
+}
+
+/** The published Ratings V4 generation the rating fixtures come from. */
+export const ratingsIdentity = (
+  overrides: Partial<RatingsIdentity> = {},
+): RatingsIdentity => ({
+  derivedGenerationId: '8f9a7e3c-1d2b-4c5d-9e6f-0a1b2c3d4e5f',
+  publicationSequence: '1',
+  scorerVersion: '4.0.0',
+  mechanicsVersion: 'v4-mechanics-2026-09',
+  ...overrides,
+});
+
+const REFERENCE_POTENTIALS: Readonly<Record<string, number>> = {
+  Agriculture: 84,
+  Refinery: 0,
+  Industrial: 40,
+  HighTech: 62,
+  Military: 0,
+  Tourism: 70,
+  Extraction: 55,
+};
+
+function referenceRating(economy: string): EconomyRating {
+  const unresolved = economy === 'Refinery';
+  return {
+    economy,
+    potential: REFERENCE_POTENTIALS[economy] ?? 0,
+    specialisation: unresolved ? null : 60,
+    specialisationMin: unresolved ? 0 : 60,
+    specialisationMax: unresolved ? 40 : 60,
+    completeness: 0.9,
+    confidence: 0.72,
+  };
+}
+
+/** All seven Ratings V4 economies for the reference system, scorer order. */
+export function referenceSystemRatings(
+  identity: RatingsIdentity = ratingsIdentity(),
+): SystemRatings {
+  return { identity, ratings: RATING_ECONOMIES.map(referenceRating) };
+}
+
+/**
+ * The replayed explanation for {@link referenceSystemRatings}. Agriculture 84
+ * is 82% of the ringed planet's 95 (a native water world with two strong
+ * links) plus 11% of the moon's 55 (a modifier with one link each way and an
+ * unknown reserve level).
+ */
+export function referenceRatingExplanation(
+  identity: RatingsIdentity = ratingsIdentity(),
+): SystemRatingExplanation {
+  return {
+    kind: 'explained',
+    identity,
+    economies: RATING_ECONOMIES.map((economy) => ({
+      ...referenceRating(economy),
+      contributions:
+        economy === 'Agriculture'
+          ? [
+              {
+                bodyKey: '108086391056891904',
+                native: true,
+                modifier: false,
+                base: 75,
+                positive: 20,
+                negative: 0,
+                local: 95,
+                weight: 0.82,
+                positiveRules: [
+                  'biologicals-agriculture',
+                  'water-world-agriculture',
+                ],
+                negativeRules: [],
+                contributors: ['native:water world'],
+                unknownEvidence: [],
+              },
+              {
+                bodyKey: '180143985094819840',
+                native: false,
+                modifier: true,
+                base: 55,
+                positive: 10,
+                negative: 10,
+                local: 55,
+                weight: 0.11,
+                positiveRules: ['biologicals-agriculture'],
+                negativeRules: ['icy-agriculture'],
+                contributors: ['modifier:agriculture'],
+                unknownEvidence: ['reserve_level'],
+              },
+            ]
+          : [],
+    })),
+  };
 }

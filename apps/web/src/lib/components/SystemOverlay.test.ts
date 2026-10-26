@@ -7,8 +7,12 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Id64 } from '$lib/domain/id64';
-import { getSystem, systemDetailFromV3 } from '$lib/api/client';
-import { v3System } from '$lib/api/v3-system-fixtures';
+import {
+  getSystem,
+  getSystemRatings,
+  systemDetailFromV3,
+} from '$lib/api/client';
+import { referenceSystemRatings, v3System } from '$lib/api/v3-system-fixtures';
 import { queryClient } from '$lib/api/query';
 import SystemOverlayTestHost from './SystemOverlayTestHost.svelte';
 
@@ -23,7 +27,12 @@ vi.mock('$app/state', () => ({ page: mockedPage }));
 vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
 vi.mock('$lib/api/client', async (loadOriginal) => {
   const original = await loadOriginal<typeof import('$lib/api/client')>();
-  return { ...original, getSystem: vi.fn() };
+  return {
+    ...original,
+    getSystem: vi.fn(),
+    getSystemRatings: vi.fn(),
+    getSystemRatingExplanation: vi.fn(),
+  };
 });
 
 const mockedGetSystem = vi.mocked(getSystem);
@@ -31,6 +40,7 @@ const mockedGetSystem = vi.mocked(getSystem);
 beforeEach(() => {
   vi.clearAllMocks();
   queryClient.clear();
+  vi.mocked(getSystemRatings).mockResolvedValue(referenceSystemRatings());
   mockedGetSystem.mockResolvedValue(
     systemDetailFromV3(
       v3System({ id64: '42', name: 'Test System' }),

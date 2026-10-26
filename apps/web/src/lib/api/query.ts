@@ -5,6 +5,7 @@ import type {
   CatalogueViewportRequest,
   DistanceAnchor,
   ExploreSearchRequest,
+  RatingsIdentity,
 } from './client';
 
 /**
@@ -23,6 +24,23 @@ export const queryKeys = {
     [...queryKeys.auth(), accountId, 'galaxy-impact'] as const,
   health: () => [...queryKeys.all, 'health'] as const,
   system: (id64: Id64) => [...queryKeys.all, 'system', id64] as const,
+  /** Ratings V4 economy potentials for one system. */
+  systemRatings: (id64: Id64) =>
+    [...queryKeys.all, 'system', id64, 'ratings'] as const,
+  /**
+   * The replayed explanation, partitioned by the generation identity of the
+   * ratings on screen so a republish never reuses a cached explanation.
+   */
+  systemRatingExplanation: (id64: Id64, identity: RatingsIdentity | null) =>
+    [
+      ...queryKeys.all,
+      'system',
+      id64,
+      'ratings',
+      'explanation',
+      identity?.derivedGenerationId ?? null,
+      identity?.publicationSequence ?? null,
+    ] as const,
   autocomplete: (query: string) =>
     [...queryKeys.all, 'explore', 'autocomplete', query] as const,
   /**

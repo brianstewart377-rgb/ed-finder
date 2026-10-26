@@ -246,8 +246,21 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.intercept('GET', '/api/v1/systems/10477373803000/stations').as(
       'v3Stations',
     );
+    cy.intercept('GET', '/api/ratings/v4/systems/10477373803000').as(
+      'v4Ratings',
+    );
+    cy.intercept(
+      'GET',
+      '/api/ratings/v4/systems/10477373803000/explanation',
+    ).as('v4Explanation');
     cy.visit('/inspect?system=10477373803000');
-    for (const alias of ['@v3System', '@v3Bodies', '@v3Rings', '@v3Stations'])
+    for (const alias of [
+      '@v3System',
+      '@v3Bodies',
+      '@v3Rings',
+      '@v3Stations',
+      '@v4Ratings',
+    ])
       cy.wait(alias).its('response.statusCode').should('eq', 200);
     cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
       .should('contain.text', 'Achenar')
@@ -261,8 +274,34 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('[aria-label="System bodies"] button')
       .first()
       .should('contain.text', 'Star · G2 V');
+    // Ratings V4: all seven economies from the published derived generation,
+    // and an explanation fetched only when one is opened.
+    cy.get('[data-rating-economy]').should('have.length', 7);
+    cy.get('@v4Explanation.all').should('have.length', 0);
+    cy.get('[data-rating-economy] .rating-why')
+      .first()
+      .click()
+      .should('have.attr', 'aria-expanded', 'true');
+    cy.wait('@v4Explanation').its('response.statusCode').should('eq', 200);
+    cy.contains('.rating-explanation dt', 'Evidence known').should(
+      'be.visible',
+    );
+    // Visual evidence for the Inspect ratings section, desktop then phone.
+    cy.get('.system-ratings').screenshot(
+      `product/inspect-achenar-ratings-${Cypress.browser.name}`,
+      { overwrite: true },
+    );
     cy.injectAxe();
     cy.checkA11y();
+    cy.viewport(375, 812);
+    cy.get('.system-ratings').screenshot(
+      `product/inspect-achenar-ratings-${Cypress.browser.name}-375w`,
+      { overwrite: true },
+    );
+    cy.viewport(
+      Cypress.config('viewportWidth'),
+      Cypress.config('viewportHeight'),
+    );
 
     cy.intercept('GET', '/api/v1/systems/4242').as('v3Missing');
     cy.visit('/inspect?system=4242');
