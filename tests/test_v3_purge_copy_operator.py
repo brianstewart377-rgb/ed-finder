@@ -1018,9 +1018,50 @@ def test_a_committed_drop_is_reported_without_a_second_drop(controller, copy, mo
     _phase_fakes(controller, copy, dispatch, monkeypatch, ledger)
     report = {'reviewed_plan_sha256': PLAN}
     dispatch._drop(controller, copy, ledger, report, [PURGE, PURGE], {'data_directory': '/d'}, 'economy_opportunity',
-                   copy.relation_state(ledger.status(), PLAN, 'economy_opportunity'), max_wal_size=1)
+                   copy.relation_state(ledger.status(), PLAN, 'economy_opportunity'),
+                   controller_alive=lambda: None, stop=SimpleNamespace(is_set=lambda: False), max_wal_size=1)
     assert ledger.statements == [] and report['result'] == 'retired_relation_already_dropped'
     assert report['next_admissible_mode'] == {'mode': 'copy-body-mechanics', 'implemented': True}
+
+
+@pytest.mark.parametrize('relation', ['system_search', 'economy_opportunity', 'body_mechanics'])
+@pytest.mark.parametrize('recalibration', ['verified', 'unverified'])
+def test_opportunity_drop_reverifies_statistics_first(controller, copy, monkeypatch, relation, recalibration):
+    """PR #894 review 4382332411: an interrupted swap-economy-opportunity could
+    leave FK validation committed but the n_distinct recalibration and its
+    plan proof unfinished. The opportunity drop re-runs the idempotent
+    recalibration before it drops the retired table, and on failure drops
+    nothing and sends the owner back to swap-R. Other relations never touch it."""
+    dispatch = _dispatch()
+    calls = []
+
+    def recalibrate(*args, **kwargs):
+        calls.append(args[6])
+        if recalibration == 'unverified':
+            raise ValueError('n_distinct_recalibration_plan_unverified')
+    monkeypatch.setattr(dispatch, '_recalibrate', recalibrate)
+    dropped = []
+    monkeypatch.setattr(dispatch, '_measure', lambda *a, **k: {'filesystem_free_bytes': 1})
+    monkeypatch.setattr(dispatch, '_retrying', lambda *a, **k: dropped.append(k['phase']) or {'event': 7})
+    monkeypatch.setattr(copy, 'finder_smoke', lambda: {'ok': True})
+    state = {'failed': False, 'copy_position': 'swapped', 'phase': 'SWAPPED', 'verified': 3, 'fk_validated': 5}
+    runtime = SimpleNamespace(query=lambda sql, params=None, **k: {'wal_lsn': '0/1', 'bytes': 0})
+    monkeypatch.setattr(controller, '_load', lambda name, path=None: SimpleNamespace(
+        free_space=lambda path: {'free_bytes': 1}))
+    controller.OBJECTS_SQL = getattr(controller, 'OBJECTS_SQL', 'SELECT 1')
+    report = {'reviewed_plan_sha256': PLAN, 'data_mount': {'source': '/d'}}
+    args = (controller, copy, runtime, report, [PURGE, PURGE], {'data_directory': '/d'}, relation, state)
+    kwargs = dict(controller_alive=lambda: None, stop=SimpleNamespace(is_set=lambda: False), max_wal_size=1)
+    if relation == 'economy_opportunity' and recalibration == 'unverified':
+        with pytest.raises(ValueError, match='n_distinct_recalibration_plan_unverified'):
+            dispatch._drop(*args, **kwargs)
+        assert dropped == []
+        assert report['next_admissible_mode']['mode'] == 'swap-economy-opportunity'
+    else:
+        dispatch._drop(*args, **kwargs)
+        assert dropped == ['drop']
+        assert report['result'] == 'retired_relation_dropped'
+    assert calls == (['economy_opportunity'] if relation == 'economy_opportunity' else [])
 
 
 def test_swap_back_of_the_opportunity_is_one_owner_transaction_restoring_only_n_distinct(copy):

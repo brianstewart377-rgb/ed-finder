@@ -514,7 +514,8 @@ def dispatch(c, mode, runtime, report, plan, verification, *, wall_clock_seconds
                 _swap_back(c, copy, runtime, report, ids, identity, relation, state,
                            controller_alive=controller_alive, stop=stop, max_wal_size=max_wal_size)
             elif kind == 'drop':
-                _drop(c, copy, runtime, report, ids, identity, relation, state, max_wal_size=max_wal_size)
+                _drop(c, copy, runtime, report, ids, identity, relation, state,
+                      controller_alive=controller_alive, stop=stop, max_wal_size=max_wal_size)
             elif kind == 'abandon':
                 _abandon(c, copy, runtime, report, ids, relation, state)
             else:
@@ -840,7 +841,7 @@ def _swap_back(c, copy, runtime, report, ids, identity, relation, state, *, cont
                   next_admissible_mode={'mode': 'status', 'reason': 'owner_chooses_copy_reverify_or_abandon'})
 
 
-def _drop(c, copy, runtime, report, ids, identity, relation, state, *, max_wal_size):
+def _drop(c, copy, runtime, report, ids, identity, relation, state, *, controller_alive, stop, max_wal_size):
     order = list(copy.ORDER)
     following = order[order.index(relation) + 1:]
     next_mode = ({'mode': 'copy-' + following[0].replace('_', '-'), 'implemented': True}
@@ -853,6 +854,21 @@ def _drop(c, copy, runtime, report, ids, identity, relation, state, *, max_wal_s
             or state.get('verified') is None or state.get('fk_validated') is None):
         raise ValueError('drop_requires_verified_swapped_and_fk_validated')
     _bucket(report, 'phase_timeouts', {})['drop'] = copy.phase_settings('drop')
+    if relation == 'economy_opportunity':
+        # PR #894 review 4382332411: swap-R may have been interrupted after FK
+        # validation but before the n_distinct recalibration and its chunk-read
+        # plan proof finished, and the ledger has no event for them. Re-run the
+        # idempotent recalibration (fresh counts; the option is only altered if
+        # it differs; ANALYZE and the plan proof always run) so the retired
+        # table, the only undo, is never dropped behind unverified statistics.
+        try:
+            _recalibrate(c, copy, runtime, report, ids, identity, relation, controller_alive=controller_alive,
+                         stop=stop, max_wal_size=max_wal_size)
+        except ValueError:
+            report['next_admissible_mode'] = {'mode': 'swap-economy-opportunity', 'implemented': True,
+                                              'reason': 'statistics_recalibration_unverified'}
+            raise
+        report['drop_statistics_reverified'] = True
     # The owner's acceptance condition: the Finder answers before the retired
     # table (the only undo) is dropped.
     report['finder_smoke'] = copy.finder_smoke()
