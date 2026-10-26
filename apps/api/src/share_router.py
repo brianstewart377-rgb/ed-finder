@@ -216,9 +216,18 @@ def _public_base(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto") or "https"
     if not _PUBLIC_HOST.fullmatch(host):
         host = _DEFAULT_PUBLIC_HOST
-    if proto not in ("http", "https"):
+    # Plain http is honoured only for local development hosts. A public,
+    # dotted host is always advertised as https: the public site terminates
+    # TLS in front of the edge, and an intermediate proxy that rewrites the
+    # scheme to its own plain-http hop must not leak http:// into share cards.
+    if proto != "http" or not _is_local_host(host):
         proto = "https"
     return f"{proto}://{host}"
+
+
+def _is_local_host(host: str) -> bool:
+    name = host.rsplit(":", 1)[0].lower() if ":" in host else host.lower()
+    return name in ("localhost", "127.0.0.1") or name.endswith(".localhost") or "." not in name
 
 
 def _plain_page(status_code: int, title: str, message: str, inspect_url: str) -> HTMLResponse:

@@ -246,6 +246,11 @@ async def _read_system(pool: asyncpg.Pool, system_id64: int, *, explanation: boo
     except (asyncpg.exceptions.UndefinedTableError,
             asyncpg.exceptions.InvalidSchemaNameError) as exc:
         raise HTTPException(503, 'Ratings V4 generation is unavailable') from exc
+    except (asyncpg.exceptions.QueryCanceledError,
+            asyncpg.exceptions.LockNotAvailableError) as exc:
+        # A statement or lock timeout (for example while a purge swap holds a
+        # brief lock) is retryable, as on the Finder routes: 503, not 500.
+        raise HTTPException(503, 'Ratings V4 is temporarily unavailable') from exc
     except ValueError as exc:
         raise HTTPException(503, 'Ratings V4 generation failed integrity validation') from exc
 
@@ -271,6 +276,11 @@ async def generation(pool: asyncpg.Pool = Depends(get_readonly_pool)) -> Generat
     except (asyncpg.exceptions.UndefinedTableError,
             asyncpg.exceptions.InvalidSchemaNameError) as exc:
         raise HTTPException(503, 'Ratings V4 generation is unavailable') from exc
+    except (asyncpg.exceptions.QueryCanceledError,
+            asyncpg.exceptions.LockNotAvailableError) as exc:
+        # A statement or lock timeout (for example while a purge swap holds a
+        # brief lock) is retryable, as on the Finder routes: 503, not 500.
+        raise HTTPException(503, 'Ratings V4 is temporarily unavailable') from exc
 
 
 @router.get('/systems/{system_id64}')
