@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import ipaddress
 import secrets
 import uuid
@@ -30,7 +29,7 @@ from edfinder_api.auth import (
     write_security_audit_event,
 )
 from edfinder_api.config import limiter, settings
-from edfinder_api.deps import get_pool
+from edfinder_api.deps import get_pool, secrets_equal
 from edfinder_api.journal.commanders import (
     associate_verified_commander,
     fid_from_customer_id,
@@ -804,7 +803,7 @@ async def frontier_callback(
 ):
     _require_frontier_ready()
     cookie_state = request.cookies.get(settings.auth_state_cookie_name, '')
-    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+    if not state or not cookie_state or not secrets_equal(state, cookie_state):
         raise HTTPException(400, 'Frontier sign-in state did not match')
 
     stored = await _consume_login_state(pool, state)
@@ -963,7 +962,7 @@ async def claim_owner(
         return _session_response(user)
     if not user.recently_authenticated:
         raise HTTPException(403, 'Recent authentication required')
-    if not settings.admin_token or not hmac.compare_digest(
+    if not settings.admin_token or not secrets_equal(
         payload.admin_token,
         settings.admin_token,
     ):

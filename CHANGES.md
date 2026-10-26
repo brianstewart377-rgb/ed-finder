@@ -11,6 +11,35 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-26 — Sweep hardening: security headers, https share links, secret comparisons, ratings 503s
+
+Findings S4, S6, S8 and S9 of the 2026-10-26 external repository sweep, each
+confirmed against `main` and, for S6 and S8, on the live site (owner-run
+read-only checks: no security headers; `og:url` advertised `http://`).
+
+- **S8, web slot headers** (`apps/web/nginx/default.conf.template`): every
+  response, including proxied API responses and errors (`always`), now carries
+  `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors
+  'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin` and a `Permissions-Policy` that denies
+  camera, microphone, geolocation, payment and USB (the app uses none). HSTS is
+  left to the TLS terminator; a full CSP comes later, report-only first.
+- **S6, share links**: the web slot now forwards the edge's
+  `X-Forwarded-Proto` (`map … $forwarded_proto`) instead of its own plain-http
+  `$scheme`, and `_public_base` advertises `https` for every public host,
+  honouring `http` only for local development hosts.
+- **S9, secret comparisons**: the admin token, the OAuth `state` and the
+  owner-claim token compare UTF-8 bytes through `deps.secrets_equal`, so
+  non-ASCII client text is a mismatch, not a logged 500.
+- **S4, ratings timeouts**: a statement or lock timeout on `/api/ratings/v4/*`
+  is a retryable 503, as on the Finder routes (it was a generic 500).
+
+Checked locally: `nginx -t` on the templated config, and a live nginx 1.24
+run showing the headers on 200, 403 and 503 responses and the forwarded scheme
+(`https` when the edge says so, `http` without it). Tests:
+`tests/test_v3_sweep_hardening.py`; 210 passed across the auth, share, ratings
+and release-contract suites. Not live until the next release.
+
 ## 2026-10-26 — Migration 019 applied to production; external review recorded
 
 **Production (owner-approved, governed workflow).** Plan run 40338574785 reported

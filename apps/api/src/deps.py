@@ -83,6 +83,17 @@ async def connect_redis() -> aioredis.Redis:
     return client
 
 
+def secrets_equal(supplied: str, expected: str) -> bool:
+    """Constant-time comparison that never raises on client text.
+
+    ``hmac.compare_digest`` raises ``TypeError`` for a ``str`` containing
+    non-ASCII characters, which turned a malformed token or OAuth state into a
+    logged 500. Comparing the UTF-8 bytes keeps the comparison constant-time
+    and makes any non-matching input an ordinary mismatch.
+    """
+    return hmac.compare_digest(supplied.encode('utf-8'), expected.encode('utf-8'))
+
+
 # ── Admin bearer-token auth. ────────────────────────────────────────────
 async def require_admin(request: Request) -> None:
     token = settings.admin_token
@@ -92,7 +103,7 @@ async def require_admin(request: Request) -> None:
         supplied = supplied or auth[7:].strip()
 
     # Preserve non-browser operator automation during the OAuth transition.
-    if token and supplied and hmac.compare_digest(supplied, token):
+    if token and supplied and secrets_equal(supplied, token):
         return
 
     user = await get_request_user(request)
