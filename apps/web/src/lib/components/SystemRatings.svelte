@@ -16,11 +16,12 @@
     ratingEconomyLabel,
   } from './system-detail-format';
 
-  let { id64, bodies, headingId } = $props<{
+  type Props = {
     id64: Id64;
     bodies: readonly SystemDetailBody[];
     headingId: string;
-  }>();
+  };
+  let { id64, bodies, headingId }: Props = $props();
 
   const queryClient = useQueryClient();
 
@@ -31,7 +32,9 @@
    * reopen (and fetch) for the next system on its own.
    */
   let opened = $state<Readonly<{ id64: Id64; economy: string }> | null>(null);
-  const open = $derived(opened?.id64 === id64 ? opened.economy : null);
+  const open = $derived(
+    opened !== null && opened.id64 === id64 ? opened.economy : null,
+  );
 
   // 404: not in the published ratings generation. 422: an id64 beyond the
   // signed 64-bit key space, which therefore cannot be rated.
@@ -61,7 +64,7 @@
     ratings.data ? byPotential(ratings.data.ratings) : [],
   );
   const bodyNames = $derived(
-    new Map(bodies.map((body) => [body.bodyKey, body.name])),
+    new Map<string, string>(bodies.map((body) => [body.bodyKey, body.name])),
   );
   const explained = $derived.by((): EconomyRatingExplanation | null => {
     const data = explanation.data;
@@ -98,9 +101,7 @@
     <p class="state-copy" role="status">Loading economy ratings…</p>
   {:else if ratings.isError}
     {#if isAbsent(ratings.error)}
-      <p class="state-copy">
-        This system is not in the published ratings yet.
-      </p>
+      <p class="state-copy">This system is not in the published ratings yet.</p>
     {:else}
       <div class="system-ratings-error" role="alert">
         <p class="state-copy">Economy ratings could not be loaded.</p>

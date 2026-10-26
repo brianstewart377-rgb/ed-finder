@@ -59,8 +59,23 @@ describe('shared system detail', () => {
     queryClient.clear();
     mockedGetRatings.mockResolvedValue(referenceSystemRatings());
     mockedGetExplanation.mockResolvedValue(referenceRatingExplanation());
+    // SystemDetail mounts the locator SpatialCanvas, whose runtime starts
+    // asynchronously and observes its host element. jsdom has no
+    // ResizeObserver; the longer ratings tests below give that start enough
+    // time to run, so stub it as ExploreWorkspace.test.ts does.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+      },
+    );
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it('renders V3 canonical fields with an exact unsafe id64', async () => {
     const id64 = parseId64('9007199254740993');
@@ -475,10 +490,10 @@ describe('shared system detail', () => {
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
 
     await fireEvent.click(
-      await screen.findByRole('button', { name: 'Why? Tourism' }),
+      await screen.findByRole('button', { name: 'Why? Agriculture' }),
     );
     const region = await screen.findByRole('region', {
-      name: 'Why Tourism scores 70',
+      name: 'Why Agriculture scores 84',
     });
     expect(
       await within(region).findByText(
@@ -490,6 +505,8 @@ describe('shared system detail', () => {
       within(region).getByRole('button', { name: 'Reload ratings' }),
     );
     // Both reload, even though the ratings come back with the same identity.
+    // Agriculture is the fixture economy with contributing bodies, so the
+    // explanation table is what proves the explained state came back.
     await waitFor(() => expect(mockedGetRatings).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mockedGetExplanation).toHaveBeenCalledTimes(2));
     expect(

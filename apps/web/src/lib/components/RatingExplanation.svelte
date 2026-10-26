@@ -11,11 +11,12 @@
     specialisationLabel,
   } from './system-detail-format';
 
-  let { explained, identity, bodyNames } = $props<{
+  type Props = {
     explained: EconomyRatingExplanation;
     identity: RatingsIdentity;
     bodyNames: ReadonlyMap<string, string>;
-  }>();
+  };
+  let { explained, identity, bodyNames }: Props = $props();
 
   const bodyName = (bodyKey: string): string =>
     bodyNames.get(bodyKey) ?? `Body ${bodyKey}`;
