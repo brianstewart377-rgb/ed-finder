@@ -13,6 +13,7 @@ must never make network calls, touch the DB, etc.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import sys
 from typing import Optional
@@ -21,7 +22,7 @@ import sentry_sdk
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from starlette.requests import Request
 
 from edfinder_api.request_logging import (
     configure_uvicorn_access_log_redaction,
@@ -240,8 +241,32 @@ if settings.sentry_dsn:
 # but at that point we should also revisit pgbouncer, single-leader
 # SSE, and the in-process metrics dict, none of which scale either.
 # ---------------------------------------------------------------------------
+def trusted_client_address(request: Request) -> str:
+    """The visitor's address for rate limiting, never one shared proxy hop.
+
+    Production reaches the API as Cloudflare -> public edge -> web slot ->
+    API, so the connection's peer is always the web slot. The edge overwrites
+    ``X-Real-IP`` with its own client address (the visitor, once its real-IP
+    module trusts Cloudflare's ``CF-Connecting-IP``), and the web slot passes
+    it through. Trust that header only from a private, non-loopback peer: a
+    direct or loopback caller can never choose its own key.
+    """
+    peer = request.client.host if request.client else ''
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return peer or 'unknown'
+    if peer_ip.is_private and not peer_ip.is_loopback:
+        forwarded = request.headers.get('x-real-ip', '').strip()
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return str(peer_ip)
+
+
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=trusted_client_address,
     default_limits=[settings.rate_limit_default],
     storage_uri='memory://',
     strategy='moving-window',
