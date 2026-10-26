@@ -11,6 +11,86 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-26 — Purge P (option B): review fixes and the copy-route rehearsal (PR #894)
+
+Fixes for the five Codex findings on PR #894; nothing ran against production
+and migrations 016/019 are unchanged.
+
+- **Long-phase callback (4379797609).** `phase_backend` runs its identity and
+  session set-up without the caller's watch callback, which now sees only a
+  backend that has been set up and yielded; previously every long phase failed
+  in its first callback. Proven end to end over a real psql backend on PG 18,
+  including a stop request cancelling the phase (SQLSTATE 57014).
+- **Copy-route rehearsal (4379797621).** `scripts/rehearsal/` runs preflight,
+  copy, swap and drop per relation through the real action, measuring per
+  relation copy rows/s, index-build, VACUUM FREEZE, verify and FK-validation
+  time, the copy's free-space peak, WAL bytes per phase, the swap's lock hold,
+  the worst concurrent Finder read stall and the temporary-file peak. Receipt
+  schema `ed-finder/derived-purge-rehearsal/v3` (v1/v2 refused) seals the
+  plan's `copy` block from the extrapolated copy peak. Nine crash scenarios
+  replace the delete/rewrite ones. The seed records build and Search chunk
+  receipts and production's planner statistics; the harness applies the whole
+  manifest and the `temp_file_limit` grant. The rehearsal workflow keeps its
+  runner and modes; its disk minima become 140/175 GB.
+- **Workflow budget (4379797627).** `authenticate()` bounds the copy route's
+  executed phases and a plan's sealed phase timeouts, not the legacy rewrite
+  estimates (the committed receipt's 30,659,000 ms Search figure no longer
+  refuses); the action bounds a recovered 016 rewrite `ANALYZE` itself.
+- **Opportunity swap-back (4379797637).** One owner transaction restores the
+  retired table's attribute options on the copy, then swaps back; the restore
+  value is written to host state before every recalibration, which is now
+  idempotent.
+- **Resumable swap-back and swap (4379797650).** `staged`/`SWAPPED_BACK` with
+  `NOT VALID` child FKs resumes in `swap-back-R`; a committed swap resumes in
+  `swap-R`; `status` names both; a lost-response drop reports itself.
+- Also: a competing copy backend refuses before any write; the WAL soft
+  throttle measures WAL since the latest checkpoint REDO point; the copy
+  watchdog's condition file is read from where the unit writes it.
+
+## 2026-10-26 — Purge P (option B): copy-and-drop operator modes, fence and backup-wrapper reads
+
+Operator side of the owner-accepted copy-and-drop purge
+(`docs/development/v3-purge-copy-and-drop-design.md`); nothing ran against
+production. Migration 019 is unchanged.
+
+- **New protected-workflow modes** per relation (`preflight-R`, `copy-R`,
+  `swap-R`, `swap-back-R`, `drop-R`, `abandon-R`) and a `complete` that reads
+  019's `COMPLETED`, in `scripts/operator/lib/v3_purge_copy.py` (fixed SQL,
+  reviewed per-phase `SET LOCAL statement_timeout`/`lock_timeout`, gate
+  arithmetic, preflight evaluation, Finder smoke, `n_distinct` recalibration)
+  and `scripts/operator/lib/v3_purge_copy_dispatch.py` (resumable copy state
+  machine, per-chunk gate 2 and WAL/archiver throttle, long phases under the
+  root-owned watchdog with progress polling, swap retry/backoff with the
+  measured stall, F7/F12 checks). Both files join the purge script hash.
+- **016's `delete-R`/`rewrite-R` disabled** (owner answer 6): removed from the
+  workflow choices, refused before approval/SSH and by the action with
+  `delete_rewrite_modes_disabled_by_copy_and_drop_design`; plan, authorize,
+  status, `restore-services` and `abort-relation-R` stay.
+- **Shared fence** (`v3_purge_state.py`, every mutator): refuses while
+  `purge_copy_backup_skip()` is true or any relation is staged/swapped; an
+  absent 019 ledger refuses except the schema apply whose authenticated pending
+  suffix ends in 019 (`v3_production_migrate.py` `copy_bootstrap_allowed`).
+- **Backup wrapper** reads `purge_copy_backup_skip()` after the 016 open-record
+  read and SKIPs on exactly `t`; anything else exits non-zero. The installer
+  refuses until 019 is applied. The committed wrapper's SHA-256 changed; re-run
+  `v3-backup-wrapper-install` after merge (its receipt pins the new hash).
+- **Watchdog** (`v3_purge_rewrite_monitor.py`) gains a copy mode (required free
+  bytes per phase, WAL ceiling 2 × `max_wal_size`, owner-authenticated cancel).
+- **Plan** seals a `copy` block (free space before each copy from the rehearsal
+  peak proxy, reviewed bounds, a named `copy_rehearsal` hook). **Status** reports
+  019's status, hours in each copy state and hours since the last successful
+  backup.
+- **Measured on PG 18.4 and recorded** (runbook, design §7a): function-level
+  `SET statement_timeout` never bounds its own call; 019's function-level
+  `lock_timeout='2s'` beats the caller's `SET LOCAL`, so the operator caps each
+  swap attempt at 8 s instead; `temp_file_limit` needs
+  `GRANT SET ON PARAMETER … TO v3_derived_purge_executor` (not in 019).
+- Runbook `docs/operations/v3-governed-derived-purge.md`: copy route,
+  preconditions (full backup before step 1 and after COMPLETED, backup
+  heartbeat, the grant), the 24-hour staged/swapped rule, approvals ≈ 14–20.
+- Tests: `tests/test_v3_purge_copy_operator.py` and
+  `tests/test_v3_purge_copy_operator_pg18.py`; existing purge, fence, workflow
+  and backup tests updated to the new contract.
 ## 2026-10-26 — Edge real-client address applied on production (owner-run)
 
 The edge half of #896 is live: the reviewed `public-auth-edge.nginx.conf`

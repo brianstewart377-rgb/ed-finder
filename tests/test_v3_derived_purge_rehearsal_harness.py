@@ -64,12 +64,21 @@ def test_seed_keeps_constraints_triggers_and_bounded_bulk_writes():
         assert '%%' not in bound
 
 
+def _raw(counts, relation):
+    return dict(copied_rows=counts[relation]['ratings_v4_prod_p4_parallel_v1'],
+                target_rows=sum(counts[relation][key] for key in harness.controller.TARGETS),
+                live_bytes_before=65536, copy_bytes=counts[relation]['ratings_v4_prod_p4_parallel_v1'] * 600,
+                copy_peak_bytes=8192, temp_file_peak_bytes=0, temp_file_written_bytes=0, freed_bytes=40000,
+                swap_attempts=1, finder_reads_during_swap=12, filesystem_sample_count=30,
+                copy_seconds=0.5, index_build_seconds=0.1, vacuum_freeze_seconds=0.1, verify_seconds=0.1,
+                fk_validation_seconds=0.05, swap_lock_hold_seconds=0.2, finder_read_stall_seconds=0.3,
+                drop_seconds=0.1, wal_bytes={'chunk': 10, 'index_build': 1, 'vacuum_freeze': 1, 'verify': 0,
+                                             'validate_fks': 0, 'drop': 1})
+
+
 def test_receipt_seals_raw_and_margin_figures_without_promoting_missing_crashes(tmp_path):
     proportion, counts = harness.seeding_proportions('tiny')
-    raw = dict(deleted_rows=100, delete_seconds=1.0, batch_limit=10_000,
-               batch_peak_bytes=0, rewrite_seconds=0.1, rewrite_peak_bytes=8192,
-               heap_index_bytes=65536, autovacuum_budget_source='heap_plus_index_lower_bound')
-    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal',
+    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal', route=figures.ROUTE,
                    status='success', source_git_sha='a'*40, scale='tiny',
                    **figures.code_identity(),
                    image_digest=harness.IMAGE, production_proportion=proportion,
@@ -77,22 +86,14 @@ def test_receipt_seals_raw_and_margin_figures_without_promoting_missing_crashes(
                    lifecycle_receipt_sha256=hashlib.sha256(harness.RECEIPT_PATH.read_bytes()).hexdigest(),
                    settings={'autovacuum': 'on'}, gate_10_crash_rehearsal_passed=False,
                    crash_scenarios={name: {'passed': False} for name in harness.CRASH_SCENARIOS},
-                   per_relation={relation: figures.relation_figures(
-                       {**raw, 'deleted_rows': sum(counts[relation][key] for key in harness.controller.TARGETS)},
-                       proportion) for relation in harness.RELATIONS})
-    search = receipt['per_relation']['system_search']
-    search['survivor_target_split'] = figures.search_split_figures(dict(
-        survivor_rows=counts['system_search']['ratings_v4_prod_p4_parallel_v1'],
-        target_rows=search['raw']['deleted_rows'], heap_index_bytes_before_delete=65536,
-        survivor_heap_index_bytes_after_rewrite=200 * 8192, governed_rewrite_seconds=0.1,
-        governed_rewrite_peak_bytes=8192, survivor_rewrite_seconds=0.05, survivor_rewrite_peak_bytes=4096,
-        target_delete_seconds=1.0), proportion)
+                   per_relation={relation: figures.relation_figures(_raw(counts, relation), proportion)
+                                 for relation in harness.RELATIONS})
     sealed = evidence.seal(receipt)
     path = tmp_path / 'receipt.json'
     path.write_text(json.dumps(sealed))
     assert evidence.load_sealed(path) == sealed
     figures.validate(sealed, production=False)
-    assert sealed['per_relation']['system_search']['margin_applied']['rewrite_peak_bytes'] > 8192
+    assert sealed['per_relation']['system_search']['margin_applied']['copy_peak_bytes'] > 8192
     with pytest.raises(ValueError):
         figures.validate(sealed, production=True)
 
@@ -144,11 +145,6 @@ def test_readiness_waits_for_the_final_server_over_loopback_tcp(tmp_path):
                        '-U', harness.USER, '-d', harness.DATABASE]] * 3
 
 
-def test_batch_growth_uses_boundaries_without_counting_accumulated_prior_wal():
-    observations = [(1, 1000), (1, 900), (2, 850), (2, 800), (3, 750), (3, 700)]
-    assert harness.batch_peak_growth(observations) == 150
-
-
 def test_action_executes_real_entrypoint_and_preserves_sealed_statement_measurements(tmp_path):
     instance = harness.Harness('tiny', 'action-test', tmp_path)
     report = evidence.seal({'status': 'success', 'statement_durations': [
@@ -158,9 +154,9 @@ def test_action_executes_real_entrypoint_and_preserves_sealed_statement_measurem
         calls.append(arguments)
         return SimpleNamespace(returncode=0, stdout=json.dumps(report))
     instance.command = command
-    actual, path, *_ = instance.action('plan')
-    assert actual == report
-    assert evidence.load_sealed(path) == report
+    outcome = instance.action('plan')
+    assert outcome['report'] == report
+    assert evidence.load_sealed(outcome['path']) == report
     assert calls[0][:3] == ['bash', str(harness.ROOT / 'scripts/operator/actions/v3-derived-generation-purge.sh'), 'plan']
     assert calls[0][-4:] == ['--rehearsal-container', instance.container, '--rehearsal-token', instance.token]
     assert instance.statements[0]['duration_seconds'] == 0.1
@@ -174,14 +170,15 @@ class _ObserverLogins:
     any one-shot psql login made through Harness.docker while it runs.
     """
 
-    def __init__(self, instance, monkeypatch):
+    def __init__(self, instance, monkeypatch, *, answers=None):
         self.running = threading.Event()
         self.users = []
         self.during_action = []
-        # Set by any batch-ledger sample taken while the action runs.
+        self.statements = []
         self.answered_during_action = threading.Event()
         self.closed = []
         logins = self
+        answers = answers or {harness.TEMP_SAMPLE_SQL: '4096'}
 
         class Process:
             def __init__(self, argv, **kwargs):
@@ -196,10 +193,12 @@ class _ObserverLogins:
                 self.returncode = None
 
             def write(self, text):
-                assert text == harness.BATCH_LEDGER_SQL + '\n'
+                statement = text.rstrip('\n')
+                assert statement in answers, statement
+                logins.statements.append(statement)
                 if logins.running.is_set():
                     logins.answered_during_action.set()
-                self.answers.put('7\n')
+                self.answers.put(answers[statement] + '\n')
 
             def close(self):
                 logins.closed.append(logins.running.is_set())
@@ -219,74 +218,60 @@ class _ObserverLogins:
                 logins.users.append(arguments[arguments.index('-U') + 1])
                 if logins.running.is_set():
                     logins.during_action.append(arguments)
-                    logins.answered_during_action.set()
                 return '7'
             raise AssertionError('unexpected docker call')
 
         instance.docker = docker
 
 
-def test_delete_sampling_starts_no_database_login_while_the_action_runs(tmp_path, monkeypatch):
-    # 016 refuses a batch (P0001 'competing writing transaction') while any
-    # other client backend has state NULL, which is how a login looks while it
-    # starts. Smoke run 40032512857 stopped on exactly that: the sampler's own
-    # per-sample observer logins raced delete-economy-opportunity's batches.
+def _running_command(logins, report=None):
+    def command(*arguments, **kwargs):
+        logins.running.set()
+        try:
+            assert logins.answered_during_action.wait(timeout=5), 'no sample while the action ran'
+        finally:
+            logins.running.clear()
+        return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal(report or {'status': 'success'})))
+    return command
+
+
+def test_copy_sampling_opens_its_observer_login_before_the_action_and_none_during_it(tmp_path, monkeypatch):
     instance = harness.Harness('tiny', 'observer-login-test', tmp_path)
     instance.free_bytes = lambda: 1_000_000
     monkeypatch.setattr(harness, 'SAMPLE_SECONDS', 0.001)
     logins = _ObserverLogins(instance, monkeypatch)
-
-    def command(*arguments, **kwargs):
-        logins.running.set()
-        try:
-            assert logins.answered_during_action.wait(timeout=5), 'no batch sample while the action ran'
-        finally:
-            logins.running.clear()
-        return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
-
-    instance.command = command
-    report, _, _, _, count = instance.action('delete-economy-opportunity', measure=True)
-    assert report['status'] == 'success' and count >= 3
+    instance.command = _running_command(logins)
+    outcome = instance.action('copy-economy-opportunity', measure=True)
+    assert outcome['report']['status'] == 'success' and len(outcome['free_bytes_samples']) >= 3
+    assert set(outcome['temp_file_bytes_samples']) == {4096}
     assert logins.during_action == []
     # One observer login, opened before and closed after the action.
-    assert logins.users == [harness.OBSERVER_USER]
-    assert logins.closed == [False]
-    receipt = json.loads((tmp_path / '001-delete-economy-opportunity-filesystem-samples.json').read_text())
-    assert len(receipt['batch_event_and_free_bytes_samples']) >= 3
-    assert {event for event, _ in receipt['batch_event_and_free_bytes_samples']} == {7}
+    assert logins.users == [harness.OBSERVER_USER] and logins.closed == [False]
+    receipt = json.loads((tmp_path / '001-copy-economy-opportunity-samples.json').read_text())
+    assert len(receipt['free_bytes_samples']) >= 3 and set(receipt['temp_file_bytes_samples']) == {4096}
 
 
-def test_rewrite_sampling_opens_no_observer_login(tmp_path, monkeypatch):
-    instance = harness.Harness('tiny', 'observer-rewrite-test', tmp_path)
-    instance.free_bytes = lambda: 1_000_000
+def test_swap_reader_measures_finder_read_latency_on_its_own_login(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'reader-test', tmp_path)
+    monkeypatch.setattr(harness, 'READ_INTERVAL_SECONDS', 0.001)
+    statement = harness.FINDER_READS['system_rating_vector']
+    logins = _ObserverLogins(instance, monkeypatch, answers={statement: '25'})
+    instance.command = _running_command(logins)
+    outcome = instance.action('swap-system-rating-vector', reader=statement)
+    assert outcome['finder_read_seconds'] and all(value >= 0 for value in outcome['finder_read_seconds'])
+    assert logins.users == [harness.OBSERVER_USER] and logins.during_action == []
+    assert set(logins.statements) == {statement}
+    for relation, read in harness.FINDER_READS.items():
+        assert read.endswith(';') and '\n' not in read and ('v3_app.' in read or harness.controller.PUBLISHED_ID in read)
+
+
+def test_an_unmeasured_action_opens_no_observer_login(tmp_path, monkeypatch):
+    instance = harness.Harness('tiny', 'observer-none-test', tmp_path)
     logins = _ObserverLogins(instance, monkeypatch)
     instance.command = lambda *_args, **_kwargs: SimpleNamespace(
         returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
-    instance.action('rewrite-economy-opportunity', measure=True)
+    instance.action('drop-economy-opportunity')
     assert logins.users == []
-
-
-def test_sampling_survives_application_session_recycle(tmp_path, monkeypatch):
-    # The single sampling login is the observer role, never the application
-    # role whose sessions the writer fence recycles mid-action.
-    instance = harness.Harness('tiny', 'observer-test', tmp_path)
-    instance.free_bytes = lambda: 1_000_000
-    monkeypatch.setattr(harness, 'SAMPLE_SECONDS', 0.001)
-    logins = _ObserverLogins(instance, monkeypatch)
-
-    def command(*arguments, **kwargs):
-        logins.running.set()
-        try:
-            assert logins.answered_during_action.wait(timeout=5), 'no concurrent sample observed'
-        finally:
-            logins.running.clear()
-        return SimpleNamespace(returncode=0, stdout=json.dumps(evidence.seal({'status': 'success'})))
-
-    instance.command = command
-    report, _, _, _, count = instance.action('delete-system-search', measure=True)
-    assert report['status'] == 'success' and count >= 3
-    assert logins.users == [harness.OBSERVER_USER]
-    assert harness.OBSERVER_USER != harness.USER
 
 
 def test_dead_observer_session_stops_sampling(tmp_path, monkeypatch):
@@ -305,7 +290,7 @@ def test_dead_observer_session_stops_sampling(tmp_path, monkeypatch):
     monkeypatch.setattr(harness.subprocess, 'Popen', Dead)
     instance.command = lambda *_args, **_kwargs: pytest.fail('action must not start without a sampling session')
     with pytest.raises(RuntimeError, match='^observer_session_failed$'):
-        instance.action('delete-system-search', measure=True)
+        instance.action('copy-system-search', measure=True)
 
 
 def test_cleanup_unknown_inspect_requires_successful_absence_probe(tmp_path):
@@ -326,26 +311,14 @@ def test_cleanup_refuses_resource_remaining_after_failed_inspect(tmp_path):
         instance.cleanup()
 
 
-@pytest.mark.parametrize('missing', (None, 'integrity_failed', 'runner_state', 'writer_restore', 'failed_stop_recorded'))
-def test_only_a_proven_nonintegrity_budget_stop_can_resume(tmp_path, missing):
-    instance = harness.Harness('tiny', 'resume-test', tmp_path)
-    report = dict(status='stopped', failures=['delete_wall_clock_budget_exhausted'],
-                  integrity_failed=False, runner_state={'loop_exited': True},
-                  writer_restore={'verified': True}, failed_stop_recorded=[1, 2])
-    if missing:
-        del report[missing]
-    sealed = evidence.seal(report)
-    instance.command = lambda *_args, **_kwargs: type('Result', (), {
-        'returncode': 1, 'stdout': json.dumps(sealed)})()
-    if missing:
-        with pytest.raises(RuntimeError, match='real_action_refused'):
-            instance.action('delete-system-search', allow_partial_delete=True)
-    else:
-        observed, *_ = instance.action('delete-system-search', allow_partial_delete=True)
-        assert observed['status'] == 'stopped'
-        assert observed['failures'] == ['delete_wall_clock_budget_exhausted']
-        with pytest.raises(RuntimeError, match='real_action_refused'):
-            instance.action('delete-system-search')
+def test_a_stopped_copy_dispatch_is_never_treated_as_progress(tmp_path):
+    instance = harness.Harness('tiny', 'stopped-test', tmp_path)
+    sealed = evidence.seal({'status': 'stopped', 'failures': ['copy_verify_interrupted'],
+                            'result': 'copy_verified_ready_for_swap'})
+    instance.command = lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=json.dumps(sealed))
+    with pytest.raises(RuntimeError, match='real_action_refused_copy_system_search'):
+        instance.copy_until_verified('system-search')
+    assert instance.refused_action['failures'] == ['copy_verify_interrupted']
 
 
 def test_refused_action_records_its_own_identifier_failure_codes(tmp_path):
@@ -391,15 +364,16 @@ def test_every_stopped_outcome_records_its_phase(tmp_path, monkeypatch, capsys,
     assert sealed.get('stopped_phase') == phase
 
 
-@pytest.mark.parametrize(('mode', 'plan', 'verification'), [
-    ('plan', False, False), ('status', False, True), ('authorize', True, False),
-    ('verify-system-archetype-empty', True, False), ('complete', True, True),
-    ('delete-system-search', True, True), ('rewrite-system-search', True, True),
-    ('abort-relation-system-search', True, True), ('restore-services', True, True),
+@pytest.mark.parametrize(('mode', 'plan', 'verification', 'wall_clock'), [
+    ('plan', False, False, False), ('status', False, True, False), ('authorize', True, False, False),
+    ('verify-system-archetype-empty', True, False, False), ('complete', True, True, False),
+    ('preflight-system-search', True, False, False), ('copy-system-search', True, True, True),
+    ('swap-economy-opportunity', True, True, False), ('swap-back-body-mechanics', True, True, False),
+    ('drop-system-rating-vector', True, True, False), ('abandon-economy-opportunity', True, True, False),
 ])
-def test_action_arguments_match_controller_admission(tmp_path, mode, plan, verification):
-    # The controller refuses plan arguments for status/plan, and verification
-    # arguments for authorize/verify (plan_/verification_arguments_not_admitted).
+def test_action_arguments_match_controller_admission(tmp_path, mode, plan, verification, wall_clock):
+    # The controller refuses plan arguments for status/plan, verification
+    # arguments for authorize/verify/preflight, and a wall clock outside copy.
     instance = harness.Harness('tiny', 'argv-test', tmp_path)
     instance.plan = (tmp_path / 'plan.json', 'a' * 64)
     instance.verification = (tmp_path / 'verify.json', 'b' * 64)
@@ -407,6 +381,24 @@ def test_action_arguments_match_controller_admission(tmp_path, mode, plan, verif
     assert ('--plan' in argv) is plan and ('--plan-sha256' in argv) is plan
     assert ('--verification' in argv) is verification
     assert ('--verification-sha256' in argv) is verification
+    assert ('--wall-clock-seconds' in argv) is wall_clock
+    if wall_clock:
+        assert argv[argv.index('--wall-clock-seconds') + 1] == str(harness.COPY_WALL_CLOCK_SECONDS)
+
+
+def test_migrate_applies_the_whole_manifest_then_observer_and_temp_file_grants(tmp_path):
+    instance = harness.Harness('tiny', 'migrate-test', tmp_path)
+    executed = []
+    instance.sql = lambda statement, parameters=None: executed.append((statement, parameters)) or ''
+    instance.migrate()
+    names = [parameters['name'] for statement, parameters in executed if parameters and 'name' in parameters]
+    manifest = [line.split()[1] for line in (harness.ROOT / 'sql/v3/migration-manifest.txt').read_text().splitlines()
+                if line.strip() and not line.startswith('#')]
+    assert names == manifest and harness.COPY_MIGRATION in names and harness.controller.MIGRATION in names
+    assert [statement for statement, _ in executed[-2:]] == [harness.OBSERVER_SETUP, harness.EXECUTOR_PARAMETER_SETUP]
+    assert 'GRANT pg_monitor TO edfinder_purge_observer' in harness.OBSERVER_SETUP
+    assert 'v3_app' in harness.OBSERVER_SETUP and 'INSERT' not in harness.OBSERVER_SETUP
+    assert harness.EXECUTOR_PARAMETER_SETUP == 'GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor;'
 
 
 def test_seed_publishes_survivor_products_through_015_after_base_publication(tmp_path):
@@ -426,6 +418,8 @@ def test_seed_publishes_survivor_products_through_015_after_base_publication(tmp
             identities = {key: value[0] for key, value in harness.controller.TARGETS.items()}
             identities[harness.controller.PUBLISHED_KEY] = harness.controller.PUBLISHED_ID
             return json.dumps({identities[key]: count for key, count in instance.counts[relation].items() if count})
+        if statement == harness.ARCHIVED_SQL:
+            return 't'
         return ''
     instance.sql = sql
     instance.seed()
@@ -449,6 +443,21 @@ def test_seed_publishes_survivor_products_through_015_after_base_publication(tmp
     # The opt1 target keeps its own unpublished v3-system-search-1 product.
     assert [parameters['generation'] for statement, parameters in executed if statement == seed.SEARCH_PRODUCT] == [
         harness.controller.TARGETS['ratings_v4_prod_p4_opt1'][0]]
+    # 019's verify recounts per-chunk receipts: each generation's are written
+    # while it is still BUILDING (before FINALIZE), and the survivor Search
+    # product's receipts before it is READY.
+    receipts = [index for index, statement in enumerate(order) if statement == seed.CHUNK_RECEIPTS]
+    finalized = [index for index, statement in enumerate(order) if statement == seed.FINALIZE]
+    assert len(receipts) == 3 and len(finalized) == 2
+    assert all(any(receipt < final for receipt in receipts) for final in finalized)
+    search_receipts = [index for index, (statement, parameters) in enumerate(executed)
+                       if statement == seed.SEARCH_CHUNK_RECEIPTS]
+    assert len(search_receipts) == 1 and executed[search_receipts[0]][1] == {
+        'generation': published, 'version': 'v3-system-search-2'}
+    assert max(survivor_search) < search_receipts[0] < min(ready)
+    # Production's planner statistics, then a completed archive segment.
+    assert base_publish < order.index(seed.PLANNER_STATISTICS) < order.index(harness.ARCHIVER_SQL)
+    assert order[-1] == harness.ARCHIVED_SQL
 
 
 def test_seed_refuses_unproven_survivor_publication(tmp_path):
@@ -467,55 +476,72 @@ def test_seed_refuses_unproven_survivor_publication(tmp_path):
         instance.seed()
 
 
-def test_journey_records_survivor_and_target_search_rewrite_separately(tmp_path, monkeypatch):
+def test_journey_copies_each_relation_in_019_order_and_records_copy_figures(tmp_path, monkeypatch):
     instance = harness.Harness('tiny', 'journey-test', tmp_path)
-    plan = tmp_path / 'plan.json'
-    plan.write_text(json.dumps({'reviewed_plan': {'delete': {relation: {'batch_limit': 10_000}
-                                                             for relation in harness.RELATIONS}}}))
-    remaining = {relation: sum(instance.counts[relation][key] for key in harness.controller.TARGETS)
-                 for relation in harness.RELATIONS}
-    current = {}
-    def action(mode, *, measure=False, allow_partial_delete=False):
-        report = {'content_sha256': 'c' * 64, 'statement_durations': []}
-        if mode.startswith('delete-'):
-            relation = harness.controller.RELATIONS[mode.removeprefix('delete-')]
-            current['relation'] = relation
-            report.update(rows_affected_this_run=remaining[relation], statement_durations=[
-                {'kind': 'payload_batch', 'duration_seconds': 0.5}])
-            remaining[relation] = 0
-            return report, plan, 2.0, 100, 3
-        if mode.startswith('rewrite-'):
-            report['statement_durations'] = [{'kind': 'vacuum_full_analyze', 'duration_seconds': 0.4}]
-            return report, plan, 0.6, 4096, 3
-        return report, plan, 0.1, 0, 0
-    sizes = iter([65536, 200 * 8192] + [65536] * 3)
+    instance.plan = (tmp_path / 'plan.json', 'c' * 64)
+    modes = []
+    dispatches = {}
+    def action(mode, *, measure=False, reader=None):
+        modes.append((mode, measure, reader))
+        report = {'content_sha256': 'c' * 64, 'status': 'success'}
+        free, temp, reads = [], [], []
+        if mode.startswith('copy-'):
+            relation = harness.controller.RELATIONS[mode.removeprefix('copy-')]
+            dispatches[relation] = dispatches.get(relation, 0) + 1
+            first = dispatches[relation] == 1
+            report.update(copy_chunk_statement_seconds=0.4 if first else None,
+                          copy_steps=[] if first else [{'phase': 'index_build', 'seconds': 0.1},
+                                                       {'phase': 'vacuum_freeze', 'seconds': 0.2},
+                                                       {'phase': 'verify', 'seconds': 0.3}],
+                          wal_phase_bytes={'chunk': 100} if first else {'index_build': 5, 'vacuum_freeze': 6, 'verify': 0},
+                          copy_state_after={'rows_total': instance.counts[relation]['ratings_v4_prod_p4_parallel_v1']},
+                          result='copy_in_progress' if first else 'copy_verified_ready_for_swap')
+            free, temp = ([1000, 900] if first else [900, 700, 950]), ([0, 0] if first else [0, 64, 0])
+        elif mode.startswith('swap-'):
+            report.update(swap_attempts=[{'attempt': 1}], measured_stall_seconds=0.2,
+                          copy_steps=[{'phase': 'swap'}, {'phase': 'validate_fks', 'seconds': 0.05}],
+                          wal_phase_bytes={'validate_fks': 2})
+            reads = [0.01, 0.4, 0.02]
+        elif mode.startswith('drop-'):
+            report.update(measured_stall_seconds=0.1, wal_phase_bytes={'drop': 1})
+        elif mode == 'plan' or mode == 'verify-system-archetype-empty':
+            pass
+        return {'report': report, 'path': tmp_path / (mode + '.json'), 'duration': 1.0,
+                'free_bytes_samples': free, 'temp_file_bytes_samples': temp, 'finder_read_seconds': reads}
     def sql(statement, parameters=None):
-        if statement.startswith('SELECT pg_total_relation_size'):
-            return str(next(sizes))
-        if statement.startswith('SELECT count(*)'):
-            return str(remaining[statement.split('FROM v3_derived.')[1].split()[0]])
-        return ''
+        if statement == harness.RELATION_BYTES_SQL:
+            return {'v3_derived': '65536', 'v3_purge_staging': None, 'v3_retired': '40000'}[
+                parameters['relation'].split('.')[0]] or str(
+                    instance.counts[parameters['relation'].split('.')[1]]['ratings_v4_prod_p4_parallel_v1'] * 600)
+        if statement == harness.TEMP_WRITTEN_SQL:
+            return '0'
+        relation = next((name for name, query in harness.TARGET_ROWS_SQL.items() if query == statement), None)
+        if relation is not None:
+            # Targets remain until the drop; afterwards the live table holds none.
+            dropped = any(mode == 'drop-' + relation.replace('_', '-') for mode, *_ in modes)
+            return '0' if dropped else str(sum(instance.counts[relation][key] for key in harness.controller.TARGETS))
+        raise AssertionError(statement[:60])
     monkeypatch.setattr(instance, 'action', action)
     monkeypatch.setattr(instance, 'sql', sql)
-    # The survivor-only control rewrite measures a larger peak than the
-    # governed one: the plan must carry the larger (fail-closed).
-    monkeypatch.setattr(instance, 'survivor_control_rewrite', lambda: (0.3, 6000, 4))
     measurements = instance.journey()
-    search = measurements['system_search']
-    split = search['survivor_target_split']
-    assert split['raw']['survivor_rows'] == instance.counts['system_search']['ratings_v4_prod_p4_parallel_v1'] == 200
-    assert split['raw']['governed_rewrite_peak_bytes'] == 4096
-    assert split['survivor']['rewrite_seconds'] == 0.3 and split['survivor']['rewrite_peak_bytes'] == 6000
-    assert split['target']['rewrite_seconds'] == pytest.approx(0.1) and split['target']['rewrite_peak_bytes'] == 0
-    assert search['raw']['rewrite_peak_bytes'] == 6000
-    assert search['production']['rewrite_peak_bytes'] == split['production']['rewrite_peak_bytes']
-    assert all('survivor_target_split' not in measurements[relation]
-               for relation in harness.RELATIONS if relation != 'system_search')
+    order = [mode for mode, *_ in modes if not mode.startswith(('plan', 'authorize', 'verify-'))]
+    expected = []
+    for name in harness.controller.RELATIONS:
+        expected += ['preflight-' + name, 'copy-' + name, 'copy-' + name, 'swap-' + name, 'drop-' + name]
+    assert order == expected + ['complete']
+    assert all(measure for mode, measure, _ in modes if mode.startswith('copy-'))
+    assert [reader for mode, _, reader in modes if mode.startswith('swap-')] == [
+        harness.FINDER_READS[relation] for relation in harness.RELATIONS]
+    vector = measurements['system_rating_vector']['raw']
+    assert vector['copy_peak_bytes'] == 300 and vector['temp_file_peak_bytes'] == 64
+    assert vector['copy_dispatches'] == 2 and vector['finder_read_stall_seconds'] == 0.4
+    assert vector['wal_bytes'] == {'chunk': 100, 'index_build': 5, 'vacuum_freeze': 6, 'verify': 0,
+                                   'validate_fks': 2, 'drop': 1}
+    assert vector['copy_seconds'] == 0.4 and vector['verify_seconds'] == 0.3 and vector['fk_validation_seconds'] == 0.05
     # The receipt validator accepts exactly these recorded figures.
-    counts = instance.counts
-    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal', status='stopped',
-                   source_git_sha='a' * 40, scale='tiny', **figures.code_identity(), image_digest=harness.IMAGE,
-                   production_proportion=instance.proportion, row_counts=counts,
+    receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal', route=figures.ROUTE,
+                   status='stopped', source_git_sha='a' * 40, scale='tiny', **figures.code_identity(),
+                   image_digest=harness.IMAGE, production_proportion=instance.proportion, row_counts=instance.counts,
                    survivor_products=instance.survivors, settings={'autovacuum': 'on'},
                    gate_10_crash_rehearsal_passed=False, crash_scenarios={}, per_relation=measurements)
     assert figures.validate(receipt, production=False) is receipt

@@ -49,7 +49,10 @@ SET LOCAL lock_timeout = '5s';
 SELECT json_build_object(
  'migration_applied', EXISTS (SELECT 1 FROM v3_meta.schema_migration
    WHERE migration_name='016_v3_governed_derived_purge.sql'),
- 'ledger_exists', to_regclass('v3_meta.derived_generation_purge_event') IS NOT NULL);
+ 'ledger_exists', to_regclass('v3_meta.derived_generation_purge_event') IS NOT NULL,
+ 'copy_migration_applied', EXISTS (SELECT 1 FROM v3_meta.schema_migration
+   WHERE migration_name='019_v3_purge_copy_and_drop.sql'),
+ 'copy_skip_function_exists', to_regprocedure('v3_meta.purge_copy_backup_skip()') IS NOT NULL);
 COMMIT;
 """
 
@@ -146,6 +149,12 @@ def main() -> int:
             raise Refusal("purge_migration_016_not_applied")
         if ledger.get("ledger_exists") is not True:
             raise Refusal("purge_ledger_missing")
+        # The wrapper now calls v3_meta.purge_copy_backup_skip() on every run;
+        # installing it before 019 would make every scheduled backup fail closed.
+        if ledger.get("copy_migration_applied") is not True:
+            raise Refusal("purge_migration_019_not_applied")
+        if ledger.get("copy_skip_function_exists") is not True:
+            raise Refusal("purge_copy_skip_function_missing")
         if DESTINATION.parent.resolve() != DESTINATION.parent or not DESTINATION.parent.is_dir() or DESTINATION.is_symlink():
             raise Refusal("destination_path_invalid")
         fd, temporary = tempfile.mkstemp(prefix=".pgbackrest-operation-", dir=DESTINATION.parent)

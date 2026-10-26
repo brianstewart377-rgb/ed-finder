@@ -22,7 +22,8 @@ WORKFLOW = ROOT / ".github/workflows/chatgpt-ed-new-ops.yml"
 
 
 @pytest.mark.parametrize("operation", ["full", "diff", "verify"])
-@pytest.mark.parametrize("state", ["live", "dead", "none", "missing", "query_failed"])
+@pytest.mark.parametrize("state", ["live", "dead", "none", "missing", "query_failed",
+                                   "copy_skip", "copy_missing", "copy_unexpected"])
 def test_wrapper_ledger_guard(tmp_path, operation, state):
     binary = tmp_path / "bin"
     binary.mkdir()
@@ -35,10 +36,17 @@ if args[0]=='inspect': sys.exit(0)
 if args[0]=='top': print('PID COMMAND'); sys.exit(0)
 if 'psql' in args:
     query=sys.stdin.read()
-    assert 'BEGIN READ ONLY' in query and 'v3_meta.purge_open_event' in query
+    assert 'BEGIN READ ONLY' in query
+    state=os.environ['TEST_PURGE_STATE']
+    if 'v3_meta.purge_copy_backup_skip()' in query:
+        # The 019 read runs only after the 016 open-record read found nothing live.
+        assert 'v3_meta.purge_open_event' not in query
+        if state=='copy_missing':
+            print('function v3_meta.purge_copy_backup_skip() does not exist',file=sys.stderr); sys.exit(1)
+        print({'copy_skip':'t','copy_unexpected':'maybe'}.get(state,'f')); sys.exit(0)
+    assert 'v3_meta.purge_open_event' in query
     assert 'a.pid=e.backend_pid AND a.backend_start=e.backend_start' in query
     assert "'FAILED_STOP'" in query
-    state=os.environ['TEST_PURGE_STATE']
     if state in ('missing','query_failed'):
         print('relation missing' if state=='missing' else 'query failed',file=sys.stderr)
         sys.exit(1)
@@ -61,19 +69,33 @@ if 'info' in args: print('[{"status":{"code":0,"message":"ok"},"backup":[{"type"
     env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}", "TEST_DOCKER_LOG": str(log), "TEST_PURGE_STATE": state}
     result = subprocess.run(["bash", str(wrapper), operation], env=env, capture_output=True, text=True, check=False)
     commands = [json.loads(line) for line in log.read_text().splitlines()]
-    psql = next(command for command in commands if "psql" in command)
-    start = psql.index("psql")
-    assert psql[start:start + 8] == ["psql", "-X", "--no-psqlrc", "--no-password", "--username", "edfinder_v3", "--dbname", "edfinder_v3_phase4c_full_20260827_r5"]
+    queries = [command for command in commands if "psql" in command]
+    for psql in queries:
+        start = psql.index("psql")
+        assert psql[start:start + 8] == ["psql", "-X", "--no-psqlrc", "--no-password", "--username", "edfinder_v3", "--dbname", "edfinder_v3_phase4c_full_20260827_r5"]
     started = [command for command in commands if "--log-level-console=info" in command]
     if state == "live":
         assert result.returncode == 0
         assert "SKIP: live purge backend:" in result.stdout
         assert "event_sequence=7" in result.stdout
         assert not started
+        assert len(queries) == 1
     elif state in ("missing", "query_failed"):
         assert result.returncode != 0
         assert not started
         assert "SKIP" not in result.stdout
+        assert len(queries) == 1
+    elif state == "copy_skip":
+        assert result.returncode == 0
+        assert "SKIP: copy-and-drop purge in progress" in result.stdout
+        assert not started
+        assert len(queries) == 2
+    elif state in ("copy_missing", "copy_unexpected"):
+        # A failing or malformed 019 read never silently runs a backup.
+        assert result.returncode != 0
+        assert not started
+        assert "SKIP" not in result.stdout
+        assert len(queries) == 2
     else:
         assert result.returncode == 0, result.stderr
         assert len(started) == 1
@@ -116,9 +138,13 @@ def install(tmp_path, capsys, *, failure=None, fence=None):
         if "psql" in argv:
             assert "BEGIN READ ONLY" in text
             assert "016_v3_governed_derived_purge.sql" in text
+            assert "019_v3_purge_copy_and_drop.sql" in text
+            assert "v3_meta.purge_copy_backup_skip()" in text
             if failure == "query":
                 raise ns["Refusal"]("host_probe_failed")
-            return json.dumps({"migration_applied": failure != "migration", "ledger_exists": failure != "ledger"})
+            return json.dumps({"migration_applied": failure != "migration", "ledger_exists": failure != "ledger",
+                               "copy_migration_applied": failure != "copy_migration",
+                               "copy_skip_function_exists": failure != "copy_function"})
         raise AssertionError(argv)
 
     ns["run"] = run
@@ -169,6 +195,8 @@ def test_installer_atomic_verified_install_and_receipt(tmp_path, capsys):
     ("active", "pgbackrest_operation_active"),
     ("migration", "purge_migration_016_not_applied"),
     ("ledger", "purge_ledger_missing"),
+    ("copy_migration", "purge_migration_019_not_applied"),
+    ("copy_function", "purge_copy_skip_function_missing"),
     ("query", "host_probe_failed"),
     ("host", "target_host_mismatch"),
     ("context", "docker_default_endpoint_mismatch"),

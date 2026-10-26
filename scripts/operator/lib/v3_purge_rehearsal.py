@@ -28,11 +28,81 @@ PRODUCTION_CONTAINER = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
 PRODUCTION_DATABASE = 'edfinder_v3_phase4c_full_20260827_r5'
 
 
-# A busy backend notices its killed client only when the injected sleep ends.
-# The batch is then no longer running purge_derived_payload_batch, so 016's
-# authenticated cancel correctly refuses it and recovery simply waits for the
-# backend to exit (resolve_batches, 65 s). Keep the pause well inside that.
-BATCH_PAUSE_SECONDS = 40
+# A killed client is noticed by its backend only when the injected sleep ends,
+# so an interrupted fixture never leaves a phase running for longer than this.
+# The copy route's chunk statement timeout (300 s) and the crash driver's wait
+# for the orphaned backend to exit both exceed it with margin.
+PAUSE_SECONDS = 40
+# Crash points inside one phase statement (pause after the 019 call, before the
+# transaction commits) and after a committed swap/swap-back/drop transaction.
+STATEMENT_FAULTS = {
+    'copy_chunk_client_killed': 'CHUNK_SQL', 'copy_postgres_restart': 'CHUNK_SQL',
+    'index_build_backend_terminated': 'BUILD_INDEXES_SQL', 'verify_watchdog_cancel': 'VERIFY_SQL',
+}
+COMMITTED_FAULTS = {
+    'swap_committed_client_killed': ('SWAP_SQL',),
+    'swap_back_committed_client_killed': ('SWAP_BACK_SQL', 'SWAP_BACK_OPPORTUNITY_SQL'),
+    'drop_committed_client_killed': ('DROP_SQL',),
+}
+# The chunk fault waits for the second chunk of the dispatch so the ledger holds
+# a committed chunk before the interrupted one.
+FAULT_CHUNK = 2
+PAUSE_ANCHORS = {
+    'CHUNK_SQL': '%(max_rows)s::integer),',
+    'BUILD_INDEXES_SQL': '%(purge_id)s::uuid,%(relation)s))',
+    'VERIFY_SQL': '%(purge_id)s::uuid,%(relation)s))',
+}
+# Read-only Finder smoke over the application views (the disposable fixture
+# runs no API): one ranked row per product and per economy view.
+SMOKE_SQL = """BEGIN READ ONLY;
+SET LOCAL statement_timeout='15s'; SET LOCAL lock_timeout='15s';
+SELECT jsonb_build_object(
+ 'system_search',(SELECT count(*) FROM (SELECT system_id64 FROM v3_app.system_search ORDER BY system_id64 LIMIT 1) s),
+ 'system_archetype',(SELECT count(*) FROM (SELECT system_id64 FROM v3_app.system_archetype ORDER BY system_id64 LIMIT 1) a),
+ 'system_economy_rating',(SELECT count(*) FROM (SELECT system_id64 FROM v3_app.system_economy_rating LIMIT 1) e),
+ 'economy_opportunity',(SELECT count(*) FROM (SELECT system_id64 FROM v3_derived.economy_opportunity
+   WHERE derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826' LIMIT 1) o),
+ 'body_mechanics',(SELECT count(*) FROM (SELECT system_id64 FROM v3_derived.body_mechanics
+   WHERE derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826' LIMIT 1) b));
+COMMIT;"""
+
+
+def pause_statement(name, sql):
+    """Insert the fixed pause after the phase's 019 call, inside its statement."""
+    anchor = PAUSE_ANCHORS[name]
+    if sql.count(anchor) != 1:
+        raise ValueError('rehearsal_fault_anchor_changed')
+    pause = ",'rehearsal_pause',(pg_sleep(" + str(PAUSE_SECONDS) + ') IS NULL)'
+    if anchor.endswith('),'):
+        return sql.replace(anchor, anchor[:-1] + pause + ',')
+    return sql.replace(anchor, anchor[:-1] + pause + ')')
+
+
+def pause_after_commit(sql):
+    if not sql.rstrip().endswith('COMMIT;'):
+        raise ValueError('rehearsal_fault_anchor_changed')
+    return (sql + '\nDO $purge_rehearsal$ BEGIN PERFORM pg_sleep(' + str(PAUSE_SECONDS)
+            + '); END $purge_rehearsal$;\n')
+
+
+@contextmanager
+def faulted_phase_backend(runtime, copy, chunk_calls, original, c_, runtime_, statement_timeout_ms, *, on_wait=None):
+    """Insert a named mid-statement pause into a real phase backend's query."""
+    scenario = os.environ.get('ED_PURGE_REHEARSAL_FAULT')
+    with original(c_, runtime_, statement_timeout_ms, on_wait=on_wait) as backend:
+        target = STATEMENT_FAULTS.get(scenario)
+        if target is not None:
+            query = backend.query
+            def faulted(sql, params=None, **kwargs):
+                if sql == getattr(copy, target):
+                    if target == 'CHUNK_SQL':
+                        chunk_calls[0] += 1
+                    if target != 'CHUNK_SQL' or chunk_calls[0] == FAULT_CHUNK:
+                        runtime.fault(scenario, pause=False)
+                        sql = pause_statement(target, sql)
+                return query(sql, params, **kwargs)
+            backend.query = faulted
+        yield backend
 
 
 def validate_target(name, token, short_host, full_host, inspection, volume, marker):
@@ -153,79 +223,30 @@ def install(c, report, name, token):
                 raise ValueError('rehearsal_fault_not_interrupted')
 
         def query(self, sql, params=None, *, write=False):
-            is_batch = sql == c._load('v3_purge_transactions').BATCH_SQL
-            self._rehearsal_batch = is_batch
-            rewrite = c._load('v3_purge_rewrite')
-            self._rehearsal_verification = (
-                sql == rewrite.EVENT_SQL and (params or {}).get('kind') == 'REWRITE_VERIFIED'
-                and (params or {}).get('relation') == 'system_rating_vector')
+            copy = c._load('v3_purge_copy')
+            scenario = os.environ.get('ED_PURGE_REHEARSAL_FAULT')
+            # Only the named committed-transaction faults change an input, and
+            # only for their own fixed statement; production SQL is unchanged.
+            self._rehearsal_commit_fault = scenario if any(
+                sql == getattr(copy, name) for name in COMMITTED_FAULTS.get(scenario, ())) else None
             started = time.monotonic()
             try:
                 result = super().query(sql, params, write=write)
             finally:
-                self._rehearsal_batch = False
-                self._rehearsal_verification = False
+                self._rehearsal_commit_fault = None
                 self.report.setdefault('statement_durations', []).append({
                     'statement_sha256': c.hashlib.sha256(sql.encode()).hexdigest(),
-                    'kind': 'payload_batch' if is_batch else 'query',
-                    'duration_seconds': time.monotonic() - started})
+                    'kind': 'query', 'duration_seconds': time.monotonic() - started})
             return result
 
-        @contextmanager
-        def rewrite_backend(self, timeout_ms, *, on_wait=None):
-            active = self
-            with super().rewrite_backend(timeout_ms, on_wait=on_wait) as backend:
-                class Backend:
-                    def query(self, *args, **kwargs):
-                        return backend.query(*args, **kwargs)
-
-                    def command(self, statement):
-                        started = time.monotonic()
-                        try:
-                            result = backend.command(statement)
-                        finally:
-                            active.report.setdefault('statement_durations', []).append({
-                                'statement_sha256': c.hashlib.sha256(statement.encode()).hexdigest(),
-                                'kind': 'vacuum_full_analyze' if statement.startswith('VACUUM') else 'command',
-                                'duration_seconds': time.monotonic() - started})
-                        if statement.startswith('VACUUM'):
-                            active.fault('wrapper_after_rewrite_commit')
-                        return result
-                yield Backend()
-
         def docker(self, *argv, **kwargs):
-            scenario = os.environ.get('ED_PURGE_REHEARSAL_FAULT')
-            if (getattr(self, '_rehearsal_verification', False) and 'input' in kwargs
-                    and scenario == 'rewrite_verified_transaction_failure'):
-                before, final = kwargs['input'].rsplit('COMMIT;', 1)
-                # Execute the actual ledger insert, then fail its transaction
-                # before COMMIT. psql exits on SQLSTATE 22012, rolling back the
-                # insert. Only then pause the wrapper so its cleanup cannot
-                # recover the deliberately unresolved rewrite before inspection.
-                kwargs['input'] = before + 'SELECT 1 / 0;\nCOMMIT;' + final
-                outcome = super().docker(*argv, **kwargs, allow_failure=True, return_result=True)
-                try:
-                    attempted = json.loads(outcome.stdout)
-                except ValueError:
-                    raise ValueError('rehearsal_verification_insert_not_observed') from None
-                if (not outcome.returncode or not re.search(r'\bERROR:\s+22012\b', outcome.stderr)
-                        or type(attempted.get('event_sequence')) is not int
-                        or attempted['event_sequence'] <= 0):
-                    raise ValueError('rehearsal_verification_rollback_not_observed')
-                self.fault(scenario, proof={'verification_event_sequence': attempted['event_sequence'],
-                                           'verification_transaction_sqlstate': '22012'})
-                raise ValueError('rehearsal_fault_not_interrupted')
-            if (getattr(self, '_rehearsal_batch', False) and 'input' in kwargs
-                    and scenario in ('batch_client_before_commit', 'batch_client_after_commit')):
+            scenario = getattr(self, '_rehearsal_commit_fault', None)
+            if scenario is not None and 'input' in kwargs:
+                # The transaction commits first; the client then sleeps in the
+                # same session so the crash driver can kill it after COMMIT.
+                self._rehearsal_commit_fault = None
                 self.fault(scenario, pause=False)
-                before, final = kwargs['input'].rsplit('COMMIT;', 1)
-                # No additional result row; production's two committed JSON
-                # result parsing stays unchanged. The crash driver waits for
-                # this backend's PgSleep wait before killing its psql client.
-                pause = ("DO $purge_rehearsal$ BEGIN PERFORM pg_sleep(" + str(BATCH_PAUSE_SECONDS)
-                         + "); END $purge_rehearsal$;\n")
-                kwargs['input'] = (before + pause + 'COMMIT;' + final if scenario == 'batch_client_before_commit'
-                                   else before + 'COMMIT;\n' + pause + final)
+                kwargs['input'] = pause_after_commit(kwargs['input'])
             # Alpine's du reports allocated KiB. Preserve the controller's byte
             # transport contract and disclose this resolution in the receipt.
             if (len(argv) == 8 and argv[:3] == ('exec', c.CONTAINER, 'du')
@@ -288,19 +309,46 @@ def install(c, report, name, token):
             return self.filesystem()
 
         def prepare_plan(self, reviewed):
-            # Admission bounds for a disposable measurement only. These are
-            # explicitly unmeasured and must never be consumed as prod evidence.
-            for relation in c.RELATIONS.values():
-                reviewed['delete'][relation].update(
-                    batch_limit=10000, batch_peak_bytes=900_000_000,
-                    rows_per_second=1, rows_per_second_source='disposable_bootstrap_unmeasured',
-                    rewrite_allowance_seconds=3600,
-                    autovacuum_budget_bytes=1)
-            reviewed['rewrite'] = {relation: {'rewrite_peak_bytes': 1_000_000_000,
-                'statement_timeout_ms': 3_600_000} for relation in c.RELATIONS.values()}
+            # The copy route's free-space admission for a disposable measurement
+            # only: the 100 GB floor with no measured peak, explicitly marked
+            # unmeasured. It must never be consumed as production evidence.
+            copy = c._load('v3_purge_copy')
+            reviewed['copy'] = copy.plan_block(None, copy.BOOTSTRAP_SOURCE)
             reviewed['disposable_rehearsal_only'] = True
 
+        def finder_smoke(self, *_args, **_kwargs):
+            observed = self.query(SMOKE_SQL)
+            if not isinstance(observed, dict) or any(observed.get(key) != 1 for key in (
+                    'system_search', 'system_archetype', 'system_economy_rating',
+                    'economy_opportunity', 'body_mechanics')):
+                raise ValueError('finder_smoke_failed')
+            return {'origin': 'disposable_database_views', 'passed': True, 'requests': observed}
+
     runtime = Runtime(report)
+    chunk_calls = [0]
+
+    def save(value, path=None, **_kwargs):
+        # Host recovery evidence stays in this run's private directory.
+        target = temporary / (Path(path).name if path is not None else 'writer-state.json')
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    def launch(config, output, key):
+        process = subprocess.Popen([sys.executable, '-I', str(Path(__file__).resolve())],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=runtime.env, start_new_session=True, text=True)
+        process.stdin.write(json.dumps(config) + '\n')
+        process.stdin.close()
+        if not c.select.select([process.stdout], [], [], 15)[0] or process.stdout.readline().strip() != 'ready':
+            process.terminate()
+            process.wait(timeout=10)
+            raise ValueError('rehearsal_monitor_start_failed')
+        process.stdout.close()
+        output[key] = {'pid': process.pid, 'kind': 'disposable_backend_watchdog'}
+        return process.pid
 
     def rehearsal_load(module, path=None):
         if module not in cache:
@@ -308,33 +356,44 @@ def install(c, report, name, token):
             if module == 'v3_purge_delete':
                 value.free_space = runtime.filesystem
                 value.running_services = lambda *_: []
-                def save(value, **_kwargs):
-                    target = temporary / 'writer-state.json'
-                    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-                    with os.fdopen(fd, 'w') as stream:
-                        json.dump(value, stream)
-                        stream.flush()
-                        os.fsync(stream.fileno())
                 value.save_host_state = save
                 value.backup_skips = lambda _runtime, output: output.update(
                     skipped_scheduled_backups={'records': [], 'reason': 'disposable_no_backup_scheduler'})
+            elif module == 'v3_purge_copy':
+                value.finder_smoke = runtime.finder_smoke
+            elif module == 'v3_purge_copy_dispatch':
+                original = value.phase_backend
+                value.phase_backend = lambda *args, **kwargs: faulted_phase_backend(
+                    runtime, rehearsal_load('v3_purge_copy'), chunk_calls, original, *args, **kwargs)
             elif module == 'v3_purge_rewrite_monitor':
-                def start(_c, active_runtime, ids, relation, backend, identity, output):
+                def start(_c, _runtime, ids, relation, backend, identity, output):
                     config = {'name': name, 'token': token, 'ids': ids, 'relation': relation,
                               'backend': backend, 'controller': output['runner_state']}
-                    process = subprocess.Popen([sys.executable, '-I', str(Path(__file__).resolve())],
-                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                        env=active_runtime.env, start_new_session=True, text=True)
-                    process.stdin.write(json.dumps(config) + '\n')
-                    process.stdin.close()
-                    if not c.select.select([process.stdout], [], [], 15)[0] or process.stdout.readline().strip() != 'ready':
-                        process.terminate()
-                        process.wait(timeout=10)
-                        raise ValueError('rehearsal_monitor_start_failed')
-                    process.stdout.close()
-                    output['rewrite_monitor'] = {'pid': process.pid, 'kind': 'disposable_backend_watchdog'}
-                    return process.pid
+                    return launch(config, output, 'rewrite_monitor')
+                def start_copy(_c, _runtime, phase, identity, output):
+                    unit = ('copy-' + phase['relation'] + '-' + phase['phase'] + '-'
+                            + str(phase['backend']['backend_pid']))
+                    if re.fullmatch('copy-[a-z_]+-[a-z_]+-[1-9][0-9]*', unit) is None:
+                        raise ValueError('copy_monitor_phase_invalid')
+                    config = {'mode': 'copy', 'name': name, 'token': token, 'unit': unit,
+                              'relation': phase['relation'], 'phase': phase['phase'],
+                              'backend': phase['backend'], 'required_free_bytes': phase['required_free_bytes'],
+                              'wal_ceiling_bytes': phase['wal_ceiling_bytes'],
+                              'data_directory': identity['data_directory'], 'wal_before': output['wal_before'],
+                              'controller': output['runner_state']}
+                    launch(config, output, 'copy_monitor')
+                    return unit
+                def copy_condition(unit):
+                    path = temporary / (unit + '.condition')
+                    try:
+                        text = path.read_text()
+                    except OSError:
+                        return None
+                    path.unlink(missing_ok=True)
+                    return text if re.fullmatch('[a-z_]+', text) else None
                 value.start = start
+                value.start_copy = start_copy
+                value.copy_condition = copy_condition
             cache[module] = value
         return cache[module]
     c._load = rehearsal_load
@@ -352,8 +411,11 @@ def monitor_main():
     runtime.deadline = float('inf')
     rewrite = c._load('v3_purge_rewrite')
     delete = c._load('v3_purge_delete')
+    copy = c._load('v3_purge_copy')
+    copy_mode = configuration.get('mode') == 'copy'
     backend = configuration['backend']
     params = {'backend_pid': str(backend['backend_pid']), 'backend_start': backend['backend_start']}
+    temporary = Path(tempfile.gettempdir()) / configuration['name']
     def alive():
         # A removed/restarted fixture ends its original backend's lifetime.
         # Without this check a failed Docker exec could leave the watchdog
@@ -371,13 +433,13 @@ def monitor_main():
             raise ValueError('rehearsal_monitor_container_unknown')
         runtime.deadline = time.monotonic() + 10
         try:
-            return runtime.query(rewrite.BACKEND_SQL, params)['alive']
+            return runtime.query(copy.BACKEND_ALIVE_SQL if copy_mode else rewrite.BACKEND_SQL, params)['alive']
         finally:
             runtime.deadline = float('inf')
     def controller():
-        # The driver creates this trigger only after observing a live
-        # pg_stat_progress_cluster row, proving cancellation was mid-rewrite.
-        if os.environ.get('ED_PURGE_REHEARSAL_FAULT') == 'rewrite_monitor_cancel':
+        # The crash driver creates this trigger only after observing the
+        # phase's own statement active, proving cancellation was mid-phase.
+        if os.environ.get('ED_PURGE_REHEARSAL_FAULT') == 'verify_watchdog_cancel':
             trigger = Path(os.environ.get('ED_PURGE_REHEARSAL_FAULT_FILE', '') + '.trigger')
             if trigger.is_file():
                 raise ValueError('controller_lost')
@@ -386,9 +448,32 @@ def monitor_main():
             if delete.controller_identity(state[prefix + '_pid'], state['controller_run_id']) != state[prefix + '_start_ticks']:
                 raise ValueError('controller_lost')
     def observe():
-        if runtime.filesystem()['free_bytes'] < c.FREE_FLOOR_BYTES:
+        floor = configuration['required_free_bytes'] if copy_mode else c.FREE_FLOOR_BYTES
+        if runtime.filesystem()['free_bytes'] < floor:
             raise ValueError('filesystem_free_space_floor')
+        if copy_mode:
+            wal = c.measure_wal(runtime, configuration['data_directory'])
+            c.wal_health(configuration['wal_before'], wal)
+            if wal['bytes'] > configuration['wal_ceiling_bytes']:
+                raise ValueError('wal_ceiling_exceeded')
     def cancel(condition):
+        if copy_mode:
+            # The breach is latched: record the first condition once, then
+            # repeat the authenticated cancel until the backend has gone.
+            path = temporary / (configuration['unit'] + '.condition')
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            except FileExistsError:
+                pass
+            else:
+                with os.fdopen(fd, 'w') as stream:
+                    stream.write(condition)
+            runtime.deadline = time.monotonic() + 10
+            try:
+                runtime.query(copy.CANCEL_SQL, params, write=True)
+            finally:
+                runtime.deadline = float('inf')
+            return
         rewrite.cancel_rewrite(runtime.query, configuration['ids'][0], configuration['relation'], condition)
     print('ready', flush=True)
     c._load('v3_purge_rewrite_monitor').watch(alive, observe, controller, cancel)

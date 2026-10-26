@@ -206,11 +206,17 @@ def test_bootstrap_plan_is_explicitly_unmeasured_and_disposable(monkeypatch, tmp
     c, runtime, _ = install_fake_target(monkeypatch, tmp_path)
     reviewed = {'delete': {relation: {} for relation in c.RELATIONS.values()}}
     runtime.prepare_plan(reviewed)
+    copy = c._load('v3_purge_copy')
     assert reviewed['disposable_rehearsal_only'] is True
-    assert all(config['rows_per_second_source'] == 'disposable_bootstrap_unmeasured'
-               for config in reviewed['delete'].values())
-    assert c.FREE_FLOOR_BYTES == 100_000_000_000
+    assert reviewed['copy']['source'] == copy.BOOTSTRAP_SOURCE == 'disposable_bootstrap_unmeasured'
+    assert all(item['required_free_bytes_before_copy'] == copy.FLOOR_BYTES and item['copy_peak_bytes'] == 0
+               for item in reviewed['copy']['relations'].values())
+    assert 'rewrite' not in reviewed
+    # The production admission floor is unchanged in the disposable fixture.
+    assert c.FREE_FLOOR_BYTES == copy.FLOOR_BYTES == 100_000_000_000
     assert c._load('v3_purge_rewrite').FLOOR_BYTES == 100_000_000_000
+    with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
+        c._load('v3_purge_rehearsal_receipt').require_plan_binding(reviewed)
 
 
 def test_wrong_marker_refused_before_controller_target_changes(monkeypatch, tmp_path):
@@ -219,59 +225,113 @@ def test_wrong_marker_refused_before_controller_target_changes(monkeypatch, tmp_
             'database': tool.PRODUCTION_DATABASE, 'marker': tool.MARKER_PREFIX + TOKEN})
 
 
-def test_verification_fault_inserts_then_fails_before_commit_and_only_marks_after_rollback(monkeypatch, tmp_path):
-    c, runtime, _ = install_fake_target(monkeypatch, tmp_path)
-    scenario = 'rewrite_verified_transaction_failure'
-    marker = tmp_path / 'verification-rolled-back.json'
+def _fault_env(monkeypatch, tmp_path, scenario):
+    marker = tmp_path / 'fault.json'
     monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT', scenario)
     monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT_FILE', str(marker))
-    observed = []
-    def execute(self, *argv, **kwargs):
-        observed.append(kwargs)
-        assert not marker.exists()
-        assert kwargs['allow_failure'] is kwargs['return_result'] is True
-        statement = kwargs['input']
-        assert statement.index('purge_record_event(') < statement.index('SELECT 1 / 0;') < statement.index('COMMIT;')
-        return SimpleNamespace(returncode=3, stdout='{"event_sequence":43}\n', stderr='ERROR:  22012\n')
-    monkeypatch.setattr(c.Runtime, 'docker', execute)
-    monkeypatch.setattr(tool.time, 'sleep', lambda seconds: None)
-    with pytest.raises(ValueError, match='rehearsal_fault_not_interrupted'):
-        runtime.query(c._load('v3_purge_rewrite').EVENT_SQL, {
-            'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a',
-            'kind': 'REWRITE_VERIFIED', 'relation': 'system_rating_vector', 'evidence': '{}'}, write=True)
-    proof = json.loads(marker.read_text())
-    assert proof['scenario'] == scenario
-    assert proof['verification_event_sequence'] == 43
-    assert proof['verification_transaction_sqlstate'] == '22012'
-    assert len(observed) == 1
-    assert runtime._rehearsal_verification is False
+    return marker
 
 
-@pytest.mark.parametrize('returncode,stdout,stderr', [
-    (0, '{"event_sequence":43}', ''), (3, '{"event_sequence":43}', 'ERROR:  08006'),
-    (3, '{}', 'ERROR:  22012'), (3, '{"event_sequence":0}', 'ERROR:  22012'),
-    (3, '', 'ERROR:  22012'),
+@pytest.mark.parametrize(('scenario', 'statement'), [
+    ('swap_committed_client_killed', 'SWAP_SQL'), ('swap_back_committed_client_killed', 'SWAP_BACK_SQL'),
+    ('swap_back_committed_client_killed', 'SWAP_BACK_OPPORTUNITY_SQL'), ('drop_committed_client_killed', 'DROP_SQL'),
 ])
-def test_verification_fault_cannot_mark_unobserved_insert_or_unexpected_failure(
-        monkeypatch, tmp_path, returncode, stdout, stderr):
+def test_committed_fault_pauses_only_after_its_own_statement_commits(monkeypatch, tmp_path, scenario, statement):
+    c, runtime, observed = install_fake_target(monkeypatch, tmp_path)
+    marker = _fault_env(monkeypatch, tmp_path, scenario)
+    copy = c._load('v3_purge_copy')
+    sql = getattr(copy, statement)
+    params = {'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a', 'relation': 'economy_opportunity'}
+    assert runtime.query(copy.STATUS_SQL) == {'observed': True}
+    assert not marker.exists() and 'pg_sleep' not in observed[-1][1]['input']
+    assert runtime.query(sql, params, write=True) == {'observed': True}
+    body = observed[-1][1]['input']
+    commit = body.rindex('COMMIT;')
+    assert body.index('pg_sleep(' + str(tool.PAUSE_SECONDS) + ')') > commit
+    assert body[:commit].count('pg_sleep') == 0
+    proof = json.loads(marker.read_text())
+    assert proof['scenario'] == scenario and proof['pid'] > 0
+    # A different scenario never alters this statement.
+    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT', 'drop_committed_client_killed' if statement != 'DROP_SQL'
+                       else 'swap_committed_client_killed')
+    runtime.query(sql, params, write=True)
+    assert 'pg_sleep' not in observed[-1][1]['input']
+
+
+@pytest.mark.parametrize(('name', 'function'), [('CHUNK_SQL', 'purge_copy_chunk('),
+                                                 ('BUILD_INDEXES_SQL', 'purge_copy_build_indexes('),
+                                                 ('VERIFY_SQL', 'purge_copy_verify(')])
+def test_statement_pause_runs_after_the_019_call_inside_the_same_statement(monkeypatch, tmp_path, name, function):
+    c, _runtime, _ = install_fake_target(monkeypatch, tmp_path)
+    sql = getattr(c._load('v3_purge_copy'), name)
+    paused = tool.pause_statement(name, sql)
+    statement = paused[paused.index('SELECT jsonb_build_object('):]
+    statement = statement[:statement.index(';')]
+    assert statement.index(function) < statement.index('pg_sleep(40)')
+    assert paused.count('pg_sleep') == 1 and paused.rstrip().endswith('COMMIT;')
+    # psql's statement split is unchanged; the watchdog's cancel pattern still matches.
+    assert paused.count(';') == sql.count(';')
+    with pytest.raises(ValueError, match='rehearsal_fault_anchor_changed'):
+        tool.pause_statement(name, sql.replace(tool.PAUSE_ANCHORS[name], 'x'))
+
+
+@pytest.mark.parametrize(('scenario', 'statement', 'paused'), [
+    ('copy_chunk_client_killed', 'CHUNK_SQL', [False, True, False]),
+    ('copy_postgres_restart', 'CHUNK_SQL', [False, True, False]),
+    ('index_build_backend_terminated', 'BUILD_INDEXES_SQL', [True]),
+    ('verify_watchdog_cancel', 'VERIFY_SQL', [True]),
+    ('swap_committed_client_killed', 'CHUNK_SQL', [False, False, False]),
+])
+def test_phase_backend_fault_pauses_only_its_named_statement(monkeypatch, tmp_path, scenario, statement, paused):
+    from contextlib import contextmanager
     c, runtime, _ = install_fake_target(monkeypatch, tmp_path)
-    marker = tmp_path / 'verification-rolled-back.json'
-    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT', 'rewrite_verified_transaction_failure')
-    monkeypatch.setenv('ED_PURGE_REHEARSAL_FAULT_FILE', str(marker))
-    monkeypatch.setattr(c.Runtime, 'docker', lambda *args, **kwargs: SimpleNamespace(
-        returncode=returncode, stdout=stdout, stderr=stderr))
-    with pytest.raises(ValueError, match='rehearsal_verification_.*_not_observed'):
-        runtime.query(c._load('v3_purge_rewrite').EVENT_SQL, {
-            'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a',
-            'kind': 'REWRITE_VERIFIED', 'relation': 'system_rating_vector', 'evidence': '{}'}, write=True)
-    assert not marker.exists()
+    marker = _fault_env(monkeypatch, tmp_path, scenario)
+    copy = c._load('v3_purge_copy')
+    sent = []
+    @contextmanager
+    def real_backend(*args, **kwargs):
+        yield SimpleNamespace(query=lambda sql, params=None, **kw: sent.append(sql) or {'rows': 1})
+    with tool.faulted_phase_backend(runtime, copy, [0], real_backend, c, runtime, 1000) as backend:
+        for _ in paused:
+            backend.query(getattr(copy, statement), {})
+        backend.query(copy.STATUS_SQL)
+    assert ['pg_sleep' in sql for sql in sent[:-1]] == paused and 'pg_sleep' not in sent[-1]
+    assert marker.exists() is any(paused)
+    # The adapter installs the same wrapper over the dispatcher's transport.
+    assert c._load('v3_purge_copy_dispatch').phase_backend.__name__ == '<lambda>'
 
 
-def test_injected_batch_pause_ends_inside_the_recovery_wait():
-    # A killed client is noticed only when the injected sleep ends; 016 cannot
-    # cancel a backend that is no longer running the payload batch. Recovery
-    # must therefore outlast the pause with margin, or it refuses to resolve.
-    import inspect
-    from scripts.operator.lib import v3_purge_transactions as tx
-    bound = inspect.signature(tx.resolve_batches).parameters['maximum_seconds'].default
-    assert 0 < tool.BATCH_PAUSE_SECONDS <= bound - 20
+def test_rehearsal_finder_smoke_reads_every_application_surface(monkeypatch, tmp_path):
+    c, runtime, observed = install_fake_target(monkeypatch, tmp_path)
+    answers = iter([{'system_search': 1, 'system_archetype': 1, 'system_economy_rating': 1,
+                     'economy_opportunity': 1, 'body_mechanics': 1},
+                    {'system_search': 1, 'system_archetype': 0, 'system_economy_rating': 1,
+                     'economy_opportunity': 1, 'body_mechanics': 1}])
+    monkeypatch.setattr(c.Runtime, 'query', lambda self, sql, params=None, *, write=False: next(answers))
+    smoke = c._load('v3_purge_copy').finder_smoke
+    assert smoke()['passed'] is True
+    with pytest.raises(ValueError, match='finder_smoke_failed'):
+        smoke()
+    assert tool.SMOKE_SQL.startswith('BEGIN READ ONLY;') and 'v3_app.system_archetype' in tool.SMOKE_SQL
+
+
+def test_host_recovery_state_and_watchdog_conditions_stay_in_the_private_directory(monkeypatch, tmp_path):
+    c, _runtime, _ = install_fake_target(monkeypatch, tmp_path)
+    delete = c._load('v3_purge_delete')
+    delete.save_host_state({'n_distinct': -0.13}, path=Path('/var/lib/ed-finder/v3-production/derived-purge-copy-statistics.json'))
+    private = tmp_path / NAME
+    assert json.loads((private / 'derived-purge-copy-statistics.json').read_text()) == {'n_distinct': -0.13}
+    monitor = c._load('v3_purge_rewrite_monitor')
+    (private / 'copy-economy_opportunity-verify-42.condition').write_text('controller_loss')
+    assert monitor.copy_condition('copy-economy_opportunity-verify-42') == 'controller_loss'
+    assert monitor.copy_condition('copy-economy_opportunity-verify-42') is None
+    (private / 'copy-x-verify-1.condition').write_text('not a code;')
+    assert monitor.copy_condition('copy-x-verify-1') is None
+
+
+def test_injected_pause_ends_well_inside_the_chunk_timeout_and_the_orphan_wait():
+    from scripts.operator.lib import v3_purge_copy as copy
+    from scripts.rehearsal import v3_purge_crashes as crashes
+    assert 0 < tool.PAUSE_SECONDS <= copy.PHASES['chunk'][0] / 1000 - 60
+    assert tool.PAUSE_SECONDS <= crashes.ORPHAN_SECONDS - 60
+    assert set(tool.STATEMENT_FAULTS.values()) <= set(tool.PAUSE_ANCHORS)

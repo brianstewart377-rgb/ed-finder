@@ -19,6 +19,9 @@ KINDS = (
     "BATCH_STARTED", "REWRITE_STARTED", "SERVICES_QUIESCED",
     "WRITER_FENCE_ENABLED", "AUTOVACUUM_DISABLED", "FAILED_STOP",
     "HOST_LEASE_HELD", "LEDGER_ABSENT", "QUERY_FAILED",
+    # Copy-and-drop (019): backups skipping, a staged/swapped relation, or an
+    # absent copy ledger each refuse every mutator exactly like the 016 kinds.
+    "COPY_BACKUP_SKIP", "COPY_RELATION_STAGED", "COPY_RELATION_SWAPPED", "COPY_LEDGER_ABSENT",
 )
 
 
@@ -50,20 +53,33 @@ def test_deployer_refuses_before_any_mutation_or_secret_access(monkeypatch, kind
 
     def query(command, **_kwargs):
         sql = command[-1]
-        assert sql in (tool.PRESENCE_SQL, tool.STATE_SQL)
+        assert sql in (tool.PRESENCE_SQL, tool.STATE_SQL, tool.LEGACY_STATE_SQL)
         if kind == "QUERY_FAILED":
             raise subprocess.CalledProcessError(1, "fixed query")
         value = {"database": tool.DATABASE_NAME, "read_only": "on"}
         if sql == tool.PRESENCE_SQL:
             value["ledger_present"] = kind != "LEDGER_ABSENT"
+            value["copy_ledger_present"] = kind not in ("LEDGER_ABSENT", "COPY_LEDGER_ABSENT")
         else:
+            # The legacy (pre-019) state read is reached only when the copy
+            # ledger is absent; every other path must use the copy-aware read.
+            assert sql == (tool.LEGACY_STATE_SQL if kind == "COPY_LEDGER_ABSENT" else tool.STATE_SQL)
             value["unresolved"] = ([{"event_kind": kind, "event_sequence": 1,
                                      "purge_id": "49a0c00d-e722-4209-afd8-9d62b877e30a"}]
                                    if kind in tool.KINDS else [])
+            value["copy_backup_skip"] = kind in ("COPY_BACKUP_SKIP", "COPY_RELATION_STAGED", "COPY_RELATION_SWAPPED")
+            value["copy_relations"] = ([{"relation_code": "system_search", "phase": "CHUNK_COPIED",
+                                         "copy_position": kind.removeprefix("COPY_RELATION_").lower()}]
+                                       if kind.startswith("COPY_RELATION_") else [])
         return SimpleNamespace(stdout=json.dumps(value))
 
     failure = {"HOST_LEASE_HELD": "purge_host_lease_held", "LEDGER_ABSENT": "purge_ledger_absent",
-               "QUERY_FAILED": "purge_state_query_failed"}.get(kind, "purge_unresolved_" + kind)
+               "QUERY_FAILED": "purge_state_query_failed", "COPY_LEDGER_ABSENT": "purge_copy_ledger_absent",
+               "COPY_BACKUP_SKIP": "purge_copy_backup_skip"}.get(kind, "purge_unresolved_" + kind)
+    expected_failures = [failure]
+    if kind.startswith("COPY_RELATION_"):
+        # The deployer joins the fence's failures into one receipt code.
+        expected_failures = ["purge_copy_backup_skip,purge_copy_relation_" + kind.removeprefix("COPY_RELATION_").lower()]
 
     def forbidden(*_, **__):
         pytest.fail("admission failure reached secret access, a lock or mutation")
@@ -80,7 +96,7 @@ def test_deployer_refuses_before_any_mutation_or_secret_access(monkeypatch, kind
     receipt = stopped.value.receipt
     assert reads == ["host", "context", "purge"]
     assert receipt["status"] == "stopped"
-    assert receipt["failures"] == [failure]
+    assert receipt["failures"] == expected_failures
     assert receipt["database_access_performed"] is True
     for field in ("filesystem_writes_performed", "database_writes_performed",
                   "image_pulls_performed", "service_changes_performed", "env_files_read"):

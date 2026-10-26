@@ -5,7 +5,6 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
-import math
 from pathlib import Path
 
 import pytest
@@ -16,26 +15,37 @@ tool = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(tool)
 
 
+RAW = {'copied_rows': 1, 'target_rows': 0, 'live_bytes_before': 4_000_000_000, 'copy_bytes': 1,
+       'copy_peak_bytes': 201, 'temp_file_peak_bytes': 30, 'temp_file_written_bytes': 50, 'freed_bytes': 3_000,
+       'swap_attempts': 1, 'finder_reads_during_swap': 40, 'filesystem_sample_count': 100,
+       'copy_seconds': 20.0, 'index_build_seconds': 2.0, 'vacuum_freeze_seconds': 3.0, 'verify_seconds': 4.0,
+       'fk_validation_seconds': 1.0, 'swap_lock_hold_seconds': 0.25, 'finder_read_stall_seconds': 0.5,
+       'drop_seconds': 0.1,
+       'wal_bytes': {'chunk': 1000, 'index_build': 100, 'vacuum_freeze': 50, 'verify': 0, 'validate_fks': 10, 'drop': 1}}
+
+
+def example_raw(counts, relation, **updates):
+    """Copy-route measurements consistent with the seeded counts."""
+    raw = deepcopy(RAW)
+    raw['copied_rows'] = counts[relation]['ratings_v4_prod_p4_parallel_v1']
+    raw['target_rows'] = sum(counts[relation][key] for key in ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1'))
+    # Search copies as wide as the 2026-10-24 rehearsal's survivors (514 B/row).
+    raw['copy_bytes'] = raw['copied_rows'] * 514
+    raw.update(updates)
+    return raw
+
+
 def example_receipt(**updates):
-    raw = {'deleted_rows': 100_000, 'delete_seconds': 10.0, 'batch_limit': 1000,
-           'batch_peak_bytes': 101, 'rewrite_seconds': 2.0, 'rewrite_peak_bytes': 201,
-           'heap_index_bytes': 1000}
     proportion = 0.01
     counts = tool.expected_row_counts(proportion)
-    per_relation = {}
-    for relation in tool.RELATIONS:
-        measured = dict(raw)
-        measured['deleted_rows'] = sum(counts[relation][key] for key in ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1'))
-        measured['delete_seconds'] = measured['deleted_rows'] / 10_000
-        per_relation[relation] = tool.relation_figures(measured, proportion)
-    per_relation['system_search']['survivor_target_split'] = tool.search_split_figures(
-        example_split(per_relation['system_search']['raw'], counts), proportion)
-    body = {'schema_version': tool.SCHEMA, 'operation': 'v3-derived-purge-rehearsal',
+    per_relation = {relation: tool.relation_figures(example_raw(counts, relation), proportion)
+                    for relation in tool.RELATIONS}
+    body = {'schema_version': tool.SCHEMA, 'operation': 'v3-derived-purge-rehearsal', 'route': tool.ROUTE,
             **tool.code_identity(),
             'status': 'success', 'source_git_sha': 'a' * 40, 'scale': 'one_percent',
             'production_proportion': proportion,
             'image_digest': 'postgres:18@sha256:' + 'b' * 64,
-            'settings': {'autovacuum': 'on', 'archive_mode': 'off', 'wal_level': 'replica'},
+            'settings': {'autovacuum': 'on', 'archive_mode': 'on', 'wal_level': 'replica'},
             'row_counts': counts, 'survivor_products': tool.expected_survivor_products(proportion),
             'per_relation': per_relation, 'cleanup_verified': True, 'failures': [],
             'crash_scenarios': {name: {'passed': True} for name in tool.CRASH_SCENARIOS},
@@ -45,17 +55,11 @@ def example_receipt(**updates):
     return tool._evidence().seal(body)
 
 
-def example_split(raw, counts, **updates):
-    """Measured survivor/target Search figures consistent with the relation raw."""
-    survivors = counts['system_search']['ratings_v4_prod_p4_parallel_v1']
-    split = dict(survivor_rows=survivors, target_rows=raw['deleted_rows'],
-                 heap_index_bytes_before_delete=raw['heap_index_bytes'],
-                 survivor_heap_index_bytes_after_rewrite=survivors * 555,
-                 governed_rewrite_seconds=raw['rewrite_seconds'], governed_rewrite_peak_bytes=raw['rewrite_peak_bytes'],
-                 survivor_rewrite_seconds=1.5, survivor_rewrite_peak_bytes=150,
-                 target_delete_seconds=raw['delete_seconds'])
-    split.update(updates)
-    return split
+def _resealed(mutate):
+    value = example_receipt()
+    body = {key: item for key, item in value.items() if key != 'content_sha256'}
+    mutate(body)
+    return tool._evidence().seal(body)
 
 
 def write_receipt(tmp_path, value):
@@ -64,30 +68,43 @@ def write_receipt(tmp_path, value):
     return path
 
 
-def test_math_scales_relation_work_but_preserves_batch_reservation_and_rate():
+def test_math_scales_whole_relation_work_and_keeps_rates_and_swap_figures_raw():
     value = example_receipt()
     measured = value['per_relation']['system_search']
-    assert measured['production'] == {
-        'rows_per_second': 10_000.0, 'rewrite_allowance_seconds': 400,
-        'batch_limit': 1000, 'batch_peak_bytes': 101, 'rewrite_peak_bytes': 20100,
-        'statement_timeout_ms': 400_000, 'autovacuum_budget_bytes': 150_000,
-        'autovacuum_budget_source': 'heap_plus_index_lower_bound'}
-    assert measured['margin_applied'] == {
-        'batch_peak_bytes': 152, 'rewrite_peak_bytes': 30150, 'autovacuum_budget_bytes': 150_000}
+    raw = measured['raw']
+    production = measured['production']
+    assert production['copy_rows_per_second'] == raw['copied_rows'] / 20.0
+    assert production['copy_seconds'] == 2000.0 and production['index_build_seconds'] == 200.0
+    assert production['vacuum_freeze_seconds'] == 300.0 and production['verify_seconds'] == 400.0
+    assert production['fk_validation_seconds'] == 100.0
+    assert production['long_phase_seconds_max'] == 400.0 and production['long_phase_fits_reviewed_timeout'] is True
+    assert production['copy_peak_bytes'] == 20100
+    assert production['required_free_bytes_before_copy'] == 100_000_000_000 + 30150
+    assert production['temp_file_peak_bytes'] == 3000 and production['temp_file_written_bytes'] == 5000
+    assert production['wal_bytes'] == {'chunk': 100_000, 'index_build': 10_000, 'vacuum_freeze': 5000,
+                                       'verify': 0, 'validate_fks': 1000, 'drop': 100}
+    # A swap moves catalog entries, not rows: its lock hold and the reader
+    # stall are not multiplied by the scale.
+    assert production['swap_lock_hold_seconds'] == 0.25 and production['finder_read_stall_seconds'] == 0.5
+    assert measured['margin_applied'] == {'copy_peak_bytes': 30150, 'temp_file_peak_bytes': 4500}
     assert tool.validate(value) is value
 
 
-def test_valid_reviewed_receipt_authenticates_and_binds_plan_without_double_margin(tmp_path):
+def test_valid_reviewed_receipt_authenticates_and_seals_the_copy_block_without_double_margin(tmp_path):
     value = example_receipt()
     loaded = tool.load_reviewed(write_receipt(tmp_path, value), value['content_sha256'])
-    plan = {'snapshot': {'retained': 'preserved'}, 'delete': {'stale': 'replaced'}}
+    plan = {'snapshot': {'retained': 'preserved'}, 'delete': {'kept': 'unused_by_the_copy_route'}}
     assert tool.apply_to_plan(plan, loaded) is plan
+    source = 'reviewed_rehearsal:' + value['content_sha256']
+    assert plan['copy']['source'] == source
     for relation in tool.RELATIONS:
-        assert plan['delete'][relation]['batch_peak_bytes'] == 101
-        assert plan['delete'][relation]['rows_per_second_source'] == 'reviewed_rehearsal:' + value['content_sha256']
-        assert plan['rewrite'][relation] == {'rewrite_peak_bytes': 20100, 'statement_timeout_ms': 400_000}
+        figures = plan['copy']['relations'][relation]
+        assert figures['copy_peak_bytes'] == 20100 and figures['copy_peak_source'] == source
+        assert figures['required_free_bytes_before_copy'] == 100_000_000_000 + 30150
+        assert figures['rehearsal']['long_phase_fits_reviewed_timeout'] is True
+    assert 'rewrite' not in plan and plan['delete'] == {'kept': 'unused_by_the_copy_route'}
     assert plan['snapshot'] == {'retained': 'preserved'}
-    assert plan['rehearsal']['gate_10_crash_rehearsal_passed'] is True
+    assert plan['rehearsal']['gate_10_crash_rehearsal_passed'] is True and plan['rehearsal']['route'] == 'copy_and_drop'
     for field, identity in tool.code_identity().items():
         assert plan['rehearsal'][field] == identity
 
@@ -146,9 +163,13 @@ def test_all_crash_scenarios_required_even_if_top_gate_claims_success(scenario):
         tool.validate(value)
 
 
-def test_gate_10_requires_verification_transaction_failure_in_addition_to_old_scenarios():
+def test_gate_10_names_the_copy_route_crash_points():
+    assert tool.CRASH_SCENARIOS == (
+        'copy_chunk_client_killed', 'copy_postgres_restart', 'index_build_backend_terminated',
+        'verify_watchdog_cancel', 'swap_committed_client_killed', 'swap_back_committed_client_killed',
+        'swap_back_and_reswap', 'abandon_and_recopy', 'drop_committed_client_killed')
     value = example_receipt()
-    del value['crash_scenarios']['rewrite_verified_transaction_failure']
+    del value['crash_scenarios']['swap_back_committed_client_killed']
     with pytest.raises(ValueError, match='crash_scenarios_incomplete'):
         tool.validate(value)
 
@@ -158,7 +179,7 @@ def test_seal_binds_measurements_and_explicit_reviewed_digest(tmp_path):
     path = write_receipt(tmp_path, value)
     with pytest.raises(ValueError, match='expected_sha256_mismatch'):
         tool.load_reviewed(path, 'c' * 64)
-    value['per_relation']['system_search']['raw']['batch_peak_bytes'] += 1
+    value['per_relation']['system_search']['raw']['copy_peak_bytes'] += 1
     write_receipt(tmp_path, value)
     with pytest.raises(ValueError, match='seal_invalid'):
         tool.load_reviewed(path, value['content_sha256'])
@@ -172,10 +193,11 @@ def test_apply_refuses_an_unsealed_in_memory_receipt():
 
 
 @pytest.mark.parametrize(('field', 'invalid'), (
-    ('deleted_rows', 0), ('deleted_rows', True), ('batch_limit', 100001),
-    ('delete_seconds', float('nan')), ('rewrite_seconds', float('inf')),
-    ('rewrite_seconds', 0), ('batch_peak_bytes', -1), ('batch_peak_bytes', 1_000_000_000),
-    ('heap_index_bytes', 0), ('rewrite_peak_bytes', True),
+    ('copied_rows', 0), ('copied_rows', True), ('copy_bytes', 0), ('swap_attempts', 0),
+    ('finder_reads_during_swap', 0), ('copy_seconds', float('nan')), ('verify_seconds', float('inf')),
+    ('index_build_seconds', 0), ('copy_peak_bytes', -1), ('temp_file_peak_bytes', 1.5),
+    ('swap_lock_hold_seconds', -0.1), ('finder_read_stall_seconds', None), ('drop_seconds', 'fast'),
+    ('wal_bytes', {'chunk': 1}), ('wal_bytes', None),
 ))
 def test_invalid_measurements_refused(field, invalid):
     raw = deepcopy(example_receipt()['per_relation']['system_search']['raw'])
@@ -185,7 +207,7 @@ def test_invalid_measurements_refused(field, invalid):
 
 
 @pytest.mark.parametrize(('field', 'invalid'), (
-    ('schema_version', 'different'), ('source_git_sha', 'main'),
+    ('schema_version', 'different'), ('route', 'delete_and_rewrite'), ('source_git_sha', 'main'),
     ('script_sha256', None), ('rehearsal_script_sha256', 'missing'),
     ('migration_set_identity', '0' * 64),
     ('image_digest', 'postgres:18'), ('settings', {'autovacuum': 'off'}),
@@ -200,7 +222,7 @@ def test_schema_identity_and_proportion_binding_refuse(field, invalid):
 
 def test_margin_and_scaled_figures_cannot_be_edited_without_matching_raw_math():
     value = example_receipt()
-    value['per_relation']['system_search']['production']['batch_peak_bytes'] = 152
+    value['per_relation']['system_search']['production']['required_free_bytes_before_copy'] = 100_000_000_000
     with pytest.raises(ValueError, match='derived_figures_mismatch'):
         tool.validate(value)
 
@@ -212,9 +234,11 @@ def test_real_plan_consumes_validated_receipt_before_database_sealing(monkeypatc
     value = example_receipt()
     module.execute('plan', runtime, report, rehearsal=value)
     reviewed = report['reviewed_plan']
-    assert reviewed['delete']['system_search']['rows_per_second'] == 10_000
-    assert reviewed['rewrite']['body_mechanics']['statement_timeout_ms'] == 400_000
+    assert reviewed['copy']['source'] == 'reviewed_rehearsal:' + value['content_sha256']
+    assert reviewed['copy']['relations']['body_mechanics']['required_free_bytes_before_copy'] == 100_000_030_150
+    assert 'rewrite' not in reviewed
     assert report['rehearsal_receipt_sha256'] == value['content_sha256']
+    assert tool.require_plan_binding(reviewed) is reviewed['rehearsal']
 
 
 @pytest.mark.parametrize('arguments', (
@@ -287,11 +311,15 @@ def test_counts_must_match_committed_receipt_proportions():
         tool.validate(value)
 
 
-def test_actual_deleted_counts_must_match_seeded_targets():
-    value = example_receipt()
-    value['per_relation']['body_mechanics']['raw']['deleted_rows'] += 1
-    with pytest.raises(ValueError, match='deleted_rows_mismatch'):
-        tool.validate(value)
+@pytest.mark.parametrize(('field', 'code'), (('copied_rows', 'copied_rows_mismatch'),
+                                           ('target_rows', 'target_rows_mismatch')))
+def test_copied_and_target_counts_must_match_the_seed(field, code):
+    def mutate(body):
+        raw = dict(body['per_relation']['body_mechanics']['raw'])
+        raw[field] += 1
+        body['per_relation']['body_mechanics'] = tool.relation_figures(raw, body['production_proportion'])
+    with pytest.raises(ValueError, match='rehearsal_' + code):
+        tool.validate(_resealed(mutate))
 
 
 def test_cleanup_must_be_verified_before_production_import():
@@ -310,7 +338,7 @@ def test_malformed_raw_measurements_refuse_with_finite_validation_error(raw):
 
 def _bound_plan():
     value = example_receipt()
-    plan = {'snapshot': {}, 'delete': {}}
+    plan = {'snapshot': {}}
     tool.apply_to_plan(plan, value)
     return plan
 
@@ -321,11 +349,11 @@ def test_plan_binding_accepts_exactly_the_applied_one_percent_figures():
 
 
 @pytest.mark.parametrize('mutation', (
-    'no_binding', 'smoke_scale', 'crash_gate_false', 'digest_invalid',
-    'fallback_throughput', 'missing_relation', 'missing_allowance', 'missing_rewrite_peak',
-    'missing_rewrite_section',
+    'no_binding', 'smoke_scale', 'crash_gate_false', 'digest_invalid', 'legacy_route',
+    'bootstrap_source', 'other_receipt', 'missing_relation', 'floor_only', 'missing_copy_block',
+    'relation_source',
 ))
-def test_plan_binding_refuses_a_plan_that_could_authorize_but_never_delete(mutation):
+def test_plan_binding_refuses_a_plan_that_could_authorize_but_never_copy(mutation):
     plan = _bound_plan()
     if mutation == 'no_binding':
         del plan['rehearsal']
@@ -335,16 +363,20 @@ def test_plan_binding_refuses_a_plan_that_could_authorize_but_never_delete(mutat
         plan['rehearsal']['gate_10_crash_rehearsal_passed'] = False
     elif mutation == 'digest_invalid':
         plan['rehearsal']['content_sha256'] = 'F' * 64
-    elif mutation == 'fallback_throughput':
-        plan['delete']['body_mechanics']['rows_per_second_source'] = 'conservative_fallback'
+    elif mutation == 'legacy_route':
+        del plan['rehearsal']['route']
+    elif mutation == 'bootstrap_source':
+        plan['copy']['source'] = 'disposable_bootstrap_unmeasured'
+    elif mutation == 'other_receipt':
+        plan['rehearsal']['content_sha256'] = 'e' * 64
     elif mutation == 'missing_relation':
-        del plan['delete']['system_rating_vector']
-    elif mutation == 'missing_allowance':
-        del plan['delete']['system_search']['rewrite_allowance_seconds']
-    elif mutation == 'missing_rewrite_peak':
-        del plan['rewrite']['economy_opportunity']['rewrite_peak_bytes']
+        del plan['copy']['relations']['system_rating_vector']
+    elif mutation == 'floor_only':
+        plan['copy']['relations']['economy_opportunity']['required_free_bytes_before_copy'] = 1
+    elif mutation == 'relation_source':
+        plan['copy']['relations']['system_search']['copy_peak_source'] = 'disposable_bootstrap_unmeasured'
     else:
-        del plan['rewrite']
+        del plan['copy']
     with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
         tool.require_plan_binding(plan)
 
@@ -362,29 +394,10 @@ def test_expected_counts_include_published_survivor_search_and_archetype_rows():
     assert counts['system_rating_vector']['ratings_v4_prod_p4_parallel_v1'] == 2_000_000
 
 
-def test_search_split_separates_survivor_and_target_work_and_extrapolates_admission():
-    value = example_receipt()
-    split = value['per_relation']['system_search']['survivor_target_split']
-    proportion = value['production_proportion']
-    survivors = value['row_counts']['system_search']['ratings_v4_prod_p4_parallel_v1']
-    assert split['survivor'] == {'rows': survivors, 'heap_index_bytes': survivors * 555,
-                                 'bytes_per_row': 555.0, 'rewrite_seconds': 1.5, 'rewrite_peak_bytes': 150}
-    assert split['target']['rows'] == value['per_relation']['system_search']['raw']['deleted_rows']
-    assert split['target']['rewrite_seconds'] == 0.5
-    assert split['target']['rewrite_peak_bytes'] == 51
-    production = split['production']
-    assert production['survivor_rows'] == round(survivors / proportion)
-    assert production['rewrite_peak_bytes'] == value['per_relation']['system_search']['production']['rewrite_peak_bytes']
-    assert production['rewrite_peak_margin_bytes'] == tool.margin_bytes(production['rewrite_peak_bytes'])
-    assert production['required_free_bytes_before_rewrite'] == 100_000_000_000 + production['rewrite_peak_margin_bytes']
-    assert production['survivor_rewrite_seconds'] == 1.5 / proportion
-    assert production['target_rewrite_seconds'] == 0.5 / proportion
-    assert production['reference_bytes_per_row'] == pytest.approx(175e9 / (2 * 198_528_286))
-
-
-def test_v1_or_zero_survivor_receipt_is_refused(tmp_path):
-    with pytest.raises(ValueError, match='rehearsal_schema_invalid'):
-        tool.validate(example_receipt(schema_version='ed-finder/derived-purge-rehearsal/v1'))
+def test_v1_v2_or_zero_survivor_receipt_is_refused(tmp_path):
+    for schema in ('ed-finder/derived-purge-rehearsal/v1', 'ed-finder/derived-purge-rehearsal/v2'):
+        with pytest.raises(ValueError, match='rehearsal_schema_invalid'):
+            tool.validate(example_receipt(schema_version=schema))
     zero = example_receipt(survivor_products={'system_search': 0, 'system_archetype': 0})
     with pytest.raises(ValueError, match='rehearsal_survivor_population_mismatch'):
         tool.load_reviewed(write_receipt(tmp_path, zero), zero['content_sha256'])
@@ -394,59 +407,41 @@ def test_v1_or_zero_survivor_receipt_is_refused(tmp_path):
         tool.validate(example_receipt(row_counts=counts))
 
 
-def _with_split(mutate):
-    value = example_receipt()
-    body = {key: item for key, item in value.items() if key != 'content_sha256'}
-    mutate(body['per_relation']['system_search'], body)
-    return tool._evidence().seal(body)
+def test_the_committed_delete_and_rewrite_receipt_cannot_seal_a_copy_plan():
+    """The 2026-10-24 receipt measured the disabled route (schema v2)."""
+    committed = tool.ROOT / 'docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json'
+    value = json.loads(committed.read_text())
+    assert value['schema_version'] == 'ed-finder/derived-purge-rehearsal/v2'
+    with pytest.raises(ValueError, match='rehearsal_schema_invalid'):
+        tool.load_reviewed(committed, value['content_sha256'])
 
 
-def test_missing_or_forged_search_split_is_refused():
-    with pytest.raises(ValueError, match='rehearsal_search_split_missing'):
-        tool.validate(_with_split(lambda figure, _: figure.pop('survivor_target_split')))
-    def forge(figure, _):
-        figure['survivor_target_split']['production']['required_free_bytes_before_rewrite'] = 1
-    with pytest.raises(ValueError, match='rehearsal_search_split_mismatch'):
-        tool.validate(_with_split(forge))
-
-
-@pytest.mark.parametrize('field,value', [('target_rows', 1), ('survivor_rows', 1),
-                                         ('governed_rewrite_seconds', 9.0), ('target_delete_seconds', 9.0),
-                                         ('heap_index_bytes_before_delete', 1)])
-def test_search_split_must_bind_to_the_measured_relation(field, value):
-    def mutate(figure, body):
-        raw = dict(figure['survivor_target_split']['raw'], **{field: value})
-        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
-    with pytest.raises(ValueError, match='rehearsal_search_split_unbound'):
-        tool.validate(_with_split(mutate))
-
-
-def test_plan_peak_must_be_the_larger_of_governed_and_survivor_only_peaks(tmp_path):
-    def larger_control(figure, body):
-        raw = dict(figure['survivor_target_split']['raw'], survivor_rewrite_peak_bytes=999)
-        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
-    with pytest.raises(ValueError, match='rehearsal_search_split_unbound'):
-        tool.validate(_with_split(larger_control))
-    def carried(figure, body):
-        larger_control(figure, body)
-        figure.update(tool.relation_figures(dict(figure['raw'], rewrite_peak_bytes=999), body['production_proportion']))
-    value = _with_split(carried)
-    plan = tool.apply_to_plan({}, tool.load_reviewed(write_receipt(tmp_path, value), value['content_sha256']))
-    assert plan['rewrite']['system_search']['rewrite_peak_bytes'] == math.ceil(999 / value['production_proportion'])
-
-
-def test_survivor_rows_narrower_than_production_are_refused():
-    def narrow(figure, body):
-        raw = dict(figure['survivor_target_split']['raw'])
-        raw['survivor_heap_index_bytes_after_rewrite'] = raw['survivor_rows'] * 400
-        figure['survivor_target_split'] = tool.search_split_figures(raw, body['production_proportion'])
+def test_search_copy_narrower_than_production_is_refused():
+    def narrow(body):
+        raw = dict(body['per_relation']['system_search']['raw'])
+        raw['copy_bytes'] = raw['copied_rows'] * 400
+        body['per_relation']['system_search'] = tool.relation_figures(raw, body['production_proportion'])
     with pytest.raises(ValueError, match='rehearsal_search_survivor_width_unrepresentative'):
-        tool.validate(_with_split(narrow), production=False)
+        tool.validate(_resealed(narrow), production=False)
+    assert tool.production_search_bytes_per_row() == pytest.approx(175e9 / (2 * 198_528_286))
 
 
-@pytest.mark.parametrize('field', ('survivor_rows', 'target_rows', 'survivor_heap_index_bytes_after_rewrite'))
-def test_search_split_requires_present_survivors_and_targets(field):
-    raw = example_split(example_receipt()['per_relation']['system_search']['raw'],
-                        tool.expected_row_counts(0.01), **{field: 0})
-    with pytest.raises(ValueError, match='rehearsal_search_survivors_absent'):
-        tool.search_split_figures(raw, 0.01)
+@pytest.mark.parametrize(('field', 'value', 'code'), (
+    ('verify_seconds', 37.0, 'rehearsal_long_phase_exceeds_reviewed_timeout'),
+    ('index_build_seconds', 36.01, 'rehearsal_long_phase_exceeds_reviewed_timeout'),
+    ('finder_read_stall_seconds', 15.5, 'rehearsal_finder_stall_exceeds_api_timeout'),
+))
+def test_production_refuses_a_long_phase_or_swap_stall_outside_the_reviewed_bounds(field, value, code):
+    def mutate(body):
+        raw = dict(body['per_relation']['economy_opportunity']['raw'], **{field: value})
+        body['per_relation']['economy_opportunity'] = tool.relation_figures(raw, body['production_proportion'])
+    receipt = _resealed(mutate)
+    # Smoke evidence still validates; production authority refuses.
+    assert tool.validate(receipt, production=False) is receipt
+    with pytest.raises(ValueError, match=code):
+        tool.validate(receipt)
+    # 2 x 36 s / 0.01 = 7200 s is exactly the reviewed envelope.
+    def boundary(body):
+        raw = dict(body['per_relation']['economy_opportunity']['raw'], verify_seconds=36.0)
+        body['per_relation']['economy_opportunity'] = tool.relation_figures(raw, body['production_proportion'])
+    assert tool.validate(_resealed(boundary))['status'] == 'success'

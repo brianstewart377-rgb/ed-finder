@@ -21,11 +21,16 @@ SOURCE_SHA = 'a' * 40
 RUN_ID = '123456'
 REHEARSAL_RUN_ID = '345678'
 RELATIONS = ('system-search', 'economy-opportunity', 'body-mechanics', 'system-rating-vector')
+COPY_PREFIXES = ('preflight-', 'copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-')
 MODES = {
     'plan', 'status', 'authorize', 'verify-system-archetype-empty',
     'restore-services', 'complete',
-    *(prefix + relation for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS),
+    *(prefix + relation for prefix in (*COPY_PREFIXES, 'abort-relation-') for relation in RELATIONS),
 }
+# Disabled by the accepted copy-and-drop design (owner answer 6): refused
+# before approval/SSH and by the action, and absent from the workflow choices.
+DISABLED_MODES = {prefix + relation for prefix in ('delete-', 'rewrite-') for relation in RELATIONS}
+PROOF_PREFIXES = ('copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-', 'abort-relation-')
 
 
 def _workflow():
@@ -65,13 +70,15 @@ def test_dispatch_modes_equal_the_actions_closed_list():
     spec = importlib.util.spec_from_file_location('protected_purge_action_contract', action_path)
     action = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(action)
-    action_modes = set(action.IMPLEMENTED) | {'restore-services'} | {
-        prefix + relation
-        for prefix in ('delete-', 'rewrite-', 'abort-relation-')
-        for relation in action.RELATIONS
-    }
+    action_modes = set(action.MODES)
     assert set(inputs['mode']['options']) == action_modes
+    assert action_modes == MODES
     assert all(action.classify_mode(mode) == mode for mode in action_modes)
+    assert set(action.DISABLED_MODES) == DISABLED_MODES
+    assert not DISABLED_MODES & set(inputs['mode']['options'])
+    for mode in sorted(DISABLED_MODES):
+        with pytest.raises(ValueError, match=action.DISABLED_REASON):
+            action.classify_mode(mode)
     assert inputs['confirm_target']['required'] == 'true'
     assert inputs['plan_run_id']['required'] == 'false'
     assert inputs['verification_run_id']['required'] == 'false'
@@ -218,20 +225,44 @@ def _receipt(mode='plan'):
 @pytest.mark.parametrize('mode', sorted(MODES))
 def test_all_closed_modes_accept_only_their_required_input_evidence(mode):
     env = _inputs(mode)
-    if mode.startswith('delete-'):
+    if mode.startswith('copy-'):
         env['INPUT_WALL_CLOCK_SECONDS'] = '300'
-    if mode.startswith(('delete-', 'rewrite-', 'abort-relation-')) or mode in ('complete', 'restore-services'):
+    if mode.startswith(PROOF_PREFIXES) or mode in ('complete', 'restore-services'):
         env['INPUT_VERIFICATION_RUN_ID'] = '234567'
         env['INPUT_VERIFICATION_SHA256'] = 'c' * 64
     result = _helper().validate_inputs(env)
     assert result['mode'] == mode
-    if mode.startswith('delete-'):
+    if mode.startswith('copy-'):
         assert result['wall_clock_seconds'] == 300
+    else:
+        assert result['wall_clock_seconds'] is None
+
+
+@pytest.mark.parametrize('mode', sorted(DISABLED_MODES))
+def test_disabled_delete_and_rewrite_modes_are_refused_before_approval_or_ssh(mode):
+    env = _inputs(mode)
+    env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
+    if mode.startswith('delete-'):
+        env['INPUT_WALL_CLOCK_SECONDS'] = '300'
+    helper = _helper()
+    with pytest.raises(ValueError, match=helper.DISABLED_REASON):
+        helper.validate_inputs(env)
+
+
+@pytest.mark.parametrize('relation', RELATIONS)
+def test_preflight_is_plan_only_and_refuses_the_exclusion_proof(relation):
+    env = _inputs('preflight-' + relation)
+    assert _helper().validate_inputs(env)['mode'] == 'preflight-' + relation
+    env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
+    with pytest.raises(ValueError):
+        _helper().validate_inputs(env)
 
 
 @pytest.mark.parametrize(('field', 'value'), [
-    ('INPUT_MODE', 'delete-system-search; touch /tmp/purge-injected'),
-    ('INPUT_MODE', 'rewrite-system_archetype'),
+    ('INPUT_MODE', 'copy-system-search; touch /tmp/purge-injected'),
+    ('INPUT_MODE', 'swap-system_archetype'),
+    ('INPUT_MODE', 'delete-system-search'),
+    ('INPUT_MODE', 'rewrite-system-search'),
     ('INPUT_CONFIRM_TARGET', 'ed-finder-prod/nb79a3d.mevnode.com\n'),
     ('INPUT_CONFIRM_TARGET', 'other-host'),
     ('INPUT_PLAN_RUN_ID', '../123'),
@@ -272,21 +303,32 @@ def test_every_protected_phase_requires_both_plan_identifiers(mode, field):
         _helper().validate_inputs(env)
 
 
-@pytest.mark.parametrize('value', ['0', '1801', '-1', '1.5', '300\n', '$(id)', '9' * 1000])
-def test_delete_wall_clock_is_a_bounded_whole_integer(value):
-    env = _inputs('delete-system-search')
+@pytest.mark.parametrize('value', ['0', '9001', '-1', '1.5', '300\n', '$(id)', '9' * 1000, ''])
+def test_copy_wall_clock_is_a_bounded_whole_integer(value):
+    env = _inputs('copy-system-search')
     env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64,
                INPUT_WALL_CLOCK_SECONDS=value)
     with pytest.raises(ValueError):
         _helper().validate_inputs(env)
 
 
-@pytest.mark.parametrize('value', ['1', '1800'])
-def test_delete_wall_clock_boundaries_are_admitted(value):
-    env = _inputs('delete-system-search')
+@pytest.mark.parametrize('value', ['1', '9000'])
+def test_copy_wall_clock_boundaries_are_admitted(value):
+    env = _inputs('copy-system-search')
     env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64,
                INPUT_WALL_CLOCK_SECONDS=value)
     assert _helper().validate_inputs(env)['wall_clock_seconds'] == int(value)
+
+
+@pytest.mark.parametrize('mode', ['swap-system-search', 'drop-body-mechanics', 'abandon-system-rating-vector',
+                                  'swap-back-economy-opportunity', 'complete', 'authorize'])
+def test_wall_clock_is_copy_only(mode):
+    env = _inputs(mode)
+    if mode != 'authorize':
+        env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
+    env['INPUT_WALL_CLOCK_SECONDS'] = '300'
+    with pytest.raises(ValueError, match='wall_clock_is_copy_only'):
+        _helper().validate_inputs(env)
 
 
 def test_failed_stop_acknowledgement_is_restore_only_and_digits_only():
@@ -377,14 +419,14 @@ def test_remote_controller_polls_and_waits_for_action_exit():
 
 
 @pytest.mark.parametrize('mode', sorted(
-    {mode for mode in MODES if mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))}
+    {mode for mode in MODES if mode.startswith(PROOF_PREFIXES)}
     | {'complete', 'restore-services'}
 ))
 @pytest.mark.parametrize('field', ['INPUT_VERIFICATION_RUN_ID', 'INPUT_VERIFICATION_SHA256'])
 def test_destructive_completion_and_recovery_modes_require_the_exclusion_proof(mode, field):
     env = _inputs(mode)
     env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
-    if mode.startswith('delete-'):
+    if mode.startswith('copy-'):
         env['INPUT_WALL_CLOCK_SECONDS'] = '300'
     env[field] = ''
     with pytest.raises(ValueError):
@@ -393,7 +435,7 @@ def test_destructive_completion_and_recovery_modes_require_the_exclusion_proof(m
 
 @pytest.mark.parametrize('field', ['INPUT_PLAN_RUN_ID', 'INPUT_VERIFICATION_RUN_ID'])
 def test_dispatch_cannot_authenticate_an_artifact_from_itself(field):
-    env = _inputs('delete-system-search')
+    env = _inputs('copy-system-search')
     env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64,
                INPUT_WALL_CLOCK_SECONDS='300')
     env[field] = env['GITHUB_RUN_ID']
@@ -443,35 +485,107 @@ def test_remote_controller_remains_running_until_its_action_exits(tmp_path):
             process.communicate()
 
 
-@pytest.mark.parametrize('timeout', [None, 0, -1, True, '7200000', 7_200_001])
-def test_rewrite_must_fit_the_reviewed_workflow_timeout_envelope(monkeypatch, tmp_path, timeout):
-    module = _helper()
-    env = _artifact_environment(module, monkeypatch, tmp_path, 'rewrite-system-search')
+COMMITTED_REHEARSAL = ROOT / 'docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json'
+
+
+def _committed_rewrite_figures():
+    """The legacy per-relation VACUUM FULL estimates of the 2026-10-24 receipt."""
+    receipt = json.loads(COMMITTED_REHEARSAL.read_text())
+    figures = {relation: {key: item['production'][key] for key in ('rewrite_peak_bytes', 'statement_timeout_ms')}
+               for relation, item in receipt['per_relation'].items()}
+    assert figures['system_search']['statement_timeout_ms'] == 30_659_000
+    return figures
+
+
+def _replace_plan(tmp_path, env, mutate):
     path = tmp_path / 'purge-plan/receipt.json'
     body = json.loads(path.read_text())
     del body['content_sha256']
-    body['reviewed_plan'] = {'rewrite': {'system_search': {'statement_timeout_ms': timeout}}}
+    mutate(body)
     sealed = _seal(body)
     path.write_text(json.dumps(sealed))
     env['INPUT_PLAN_SHA256'] = sealed['content_sha256']
-    with pytest.raises(ValueError, match='rewrite_timeout_outside_workflow_budget'):
+
+
+@pytest.mark.parametrize('mode', ['swap-system-search', 'copy-system-search', 'restore-services',
+                                  'drop-economy-opportunity', 'swap-back-body-mechanics'])
+def test_legacy_rewrite_estimates_no_longer_gate_the_copy_route(monkeypatch, tmp_path, mode):
+    """Codex 4379797627: the copy route never runs a VACUUM FULL, so the
+    committed receipt's 30,659,000 ms Search estimate must not refuse a plan."""
+    module = _helper()
+    env = _artifact_environment(module, monkeypatch, tmp_path, mode)
+    _replace_plan(tmp_path, env, lambda body: body.update(reviewed_plan={'rewrite': _committed_rewrite_figures()}))
+    assert module.authenticate(env, fetch=False)['mode'] == mode
+    assert module.authenticate(env)['mode'] == mode
+
+
+def test_authorize_admits_a_copy_bound_plan_that_also_carries_the_legacy_estimates(monkeypatch, tmp_path):
+    from tests.test_v3_purge_rehearsal_receipt import example_receipt, tool
+    module = _helper()
+    reviewed = {'rewrite': _committed_rewrite_figures()}
+    tool.apply_to_plan(reviewed, example_receipt())
+    env = _bound_plan_environment(module, monkeypatch, tmp_path, reviewed)
+    assert module.authenticate(env)['mode'] == 'authorize'
+
+
+@pytest.mark.parametrize('timeout', [0, -1, True, '7200000', 7_200_001, None])
+@pytest.mark.parametrize('mode', ['swap-system-search', 'copy-system-search', 'restore-services'])
+def test_sealed_copy_phase_timeouts_must_fit_the_reviewed_workflow_envelope(monkeypatch, tmp_path, timeout, mode):
+    module = _helper()
+    env = _artifact_environment(module, monkeypatch, tmp_path, mode)
+    def mutate(body):
+        body['reviewed_plan'] = {'copy': {'phase_timeouts': {'verify': {'statement_timeout_ms': timeout}}}}
+    _replace_plan(tmp_path, env, mutate)
+    with pytest.raises(ValueError, match='copy_phase_timeout_outside_workflow_budget'):
+        module.authenticate(env, fetch=False)
+
+
+@pytest.mark.parametrize('block', [[], 'copy', {'phase_timeouts': None}, {'phase_timeouts': []}])
+def test_a_malformed_copy_block_is_refused(monkeypatch, tmp_path, block):
+    module = _helper()
+    env = _artifact_environment(module, monkeypatch, tmp_path, 'swap-system-search')
+    _replace_plan(tmp_path, env, lambda body: body.update(reviewed_plan={'copy': block}))
+    with pytest.raises(ValueError, match='copy_phase_timeout_outside_workflow_budget'):
         module.authenticate(env, fetch=False)
 
 
 @pytest.mark.parametrize('timeout', [1, 7_200_000])
-def test_rewrite_timeout_envelope_admits_its_boundaries(monkeypatch, tmp_path, timeout):
+def test_copy_phase_timeout_envelope_admits_its_boundaries(monkeypatch, tmp_path, timeout):
     module = _helper()
-    env = _artifact_environment(module, monkeypatch, tmp_path, 'rewrite-system-search')
-    path = tmp_path / 'purge-plan/receipt.json'
-    body = json.loads(path.read_text())
-    del body['content_sha256']
-    body['reviewed_plan'] = {'rewrite': {'system_search': {'statement_timeout_ms': timeout}}}
-    sealed = _seal(body)
-    path.write_text(json.dumps(sealed))
-    env['INPUT_PLAN_SHA256'] = sealed['content_sha256']
-    assert module.authenticate(env, fetch=False)['mode'] == 'rewrite-system-search'
+    env = _artifact_environment(module, monkeypatch, tmp_path, 'swap-system-search')
+    def mutate(body):
+        body['reviewed_plan'] = {'copy': {'phase_timeouts': {'verify': {'statement_timeout_ms': timeout}}}}
+    _replace_plan(tmp_path, env, mutate)
+    assert module.authenticate(env, fetch=False)['mode'] == 'swap-system-search'
     assert module.MAX_REWRITE_MS == 7_200_000
     assert int(_job()['timeout-minutes']) * 60 > timeout / 1000 + 1800 + 65
+
+
+def test_every_phase_the_copy_route_executes_fits_the_workflow_envelope(monkeypatch, tmp_path):
+    """The budget applies to the statements the route runs: v3_purge_copy.PHASES."""
+    module = _helper()
+    copy = module._load('purge_workflow_copy_check', ROOT / 'scripts/operator/lib/v3_purge_copy.py')
+    assert max(statement for statement, *_ in copy.PHASES.values()) == module.MAX_REWRITE_MS
+    env = _artifact_environment(module, monkeypatch, tmp_path, 'swap-system-search')
+    original = module._load
+    def load(name, path):
+        loaded = original(name, path)
+        if str(path).endswith('scripts/operator/lib/v3_purge_copy.py'):
+            loaded.PHASES = {**loaded.PHASES, 'verify': (module.MAX_REWRITE_MS + 1, 5_000, None, True)}
+        return loaded
+    monkeypatch.setattr(module, '_load', load)
+    with pytest.raises(ValueError, match='copy_phase_timeout_outside_workflow_budget'):
+        module.authenticate(env, fetch=False)
+
+
+def test_the_action_still_bounds_a_recovered_legacy_rewrite_analyze():
+    """restore-services may still recover an open 016 rewrite; that ANALYZE uses
+    the plan's legacy timeout, so the action itself refuses one over budget."""
+    source = (ROOT / 'scripts/operator/lib/v3_purge_rewrite_dispatch.py').read_text()
+    assert "config['statement_timeout_ms'] > rewrite.MAX_RECOVERY_STATEMENT_MS" in source
+    assert "raise ValueError('rewrite_timeout_outside_workflow_budget')" in source
+    rewrite_source = (ROOT / 'scripts/operator/lib/v3_purge_rewrite.py').read_text()
+    assert 'MAX_RECOVERY_STATEMENT_MS = 7_200_000' in rewrite_source
 
 
 @pytest.mark.parametrize(('field', 'value'), [
@@ -495,9 +609,9 @@ def test_invalid_transport_or_dispatch_identity_never_starts_ssh(monkeypatch, tm
 def _artifact_environment(module, monkeypatch, tmp_path, mode, *, receipt_sha=SOURCE_SHA):
     env = _inputs(mode)
     env.update(RUNNER_TEMP=str(tmp_path), GITHUB_SHA='d' * 40)
-    if mode.startswith(('delete-', 'rewrite-', 'abort-relation-')) or mode in ('complete', 'restore-services'):
+    if mode.startswith(PROOF_PREFIXES) or mode in ('complete', 'restore-services'):
         env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
-    if mode.startswith('delete-'):
+    if mode.startswith('copy-'):
         env['INPUT_WALL_CLOCK_SECONDS'] = '300'
     for prefix, phase in (('plan', 'plan'), ('verification', 'verify-system-archetype-empty')):
         run_id = env['INPUT_' + prefix.upper() + '_RUN_ID']
@@ -523,7 +637,7 @@ def _artifact_environment(module, monkeypatch, tmp_path, mode, *, receipt_sha=SO
     return env
 
 
-@pytest.mark.parametrize('mode', ['restore-services', 'delete-system-search'])
+@pytest.mark.parametrize('mode', ['restore-services', 'copy-system-search', 'swap-back-system-search'])
 def test_authenticated_older_main_plan_keeps_recovery_and_continuation_available(monkeypatch, tmp_path, mode):
     module = _helper()
     env = _artifact_environment(module, monkeypatch, tmp_path, mode)
@@ -541,30 +655,11 @@ def test_authorization_requires_a_plan_from_the_current_main_source(monkeypatch,
         module.authenticate(env)
 
 
-@pytest.mark.parametrize('mode', ['restore-services', 'delete-system-search', 'authorize'])
+@pytest.mark.parametrize('mode', ['restore-services', 'copy-system-search', 'authorize'])
 def test_receipt_source_must_match_its_successful_origin_run(monkeypatch, tmp_path, mode):
     module = _helper()
     env = _artifact_environment(module, monkeypatch, tmp_path, mode, receipt_sha='b' * 40)
     with pytest.raises(ValueError):
-        module.authenticate(env)
-
-
-@pytest.mark.parametrize('mode', ['authorize', 'delete-system-search', 'restore-services'])
-def test_oversized_rewrite_budget_is_refused_before_entering_or_recovering_a_plan(monkeypatch, tmp_path, mode):
-    module = _helper()
-    env = _artifact_environment(module, monkeypatch, tmp_path, mode)
-    path = tmp_path / 'purge-plan/receipt.json'
-    body = json.loads(path.read_text())
-    del body['content_sha256']
-    # Authorization is otherwise from its current head. Subsequent phases use
-    # the same old immutable plan, including recovery's possible ANALYZE budget.
-    if mode == 'authorize':
-        env['GITHUB_SHA'] = SOURCE_SHA
-    body['reviewed_plan']['rewrite'] = {'system_search': {'statement_timeout_ms': 7_200_001}}
-    sealed = _seal(body)
-    path.write_text(json.dumps(sealed))
-    env['INPUT_PLAN_SHA256'] = sealed['content_sha256']
-    with pytest.raises(ValueError, match='rewrite_timeout_outside_workflow_budget'):
         module.authenticate(env)
 
 
@@ -583,7 +678,7 @@ def test_remote_success_requires_a_sealed_success_receipt_before_reusable_artifa
 
 def test_transport_failure_receipt_keeps_the_full_sealed_shape_and_unknown_write_outcomes(tmp_path):
     module = _helper()
-    env = _inputs('delete-system-search')
+    env = _inputs('copy-system-search')
     env['RUNNER_TEMP'] = str(tmp_path)
     module.initialize_receipt(env)
     sealed = json.loads((tmp_path / 'receipt.json').read_text())
@@ -613,9 +708,9 @@ def test_protected_plan_requires_both_rehearsal_identifiers(field):
 def test_rehearsal_identifiers_are_plan_only(mode, field):
     env = _inputs(mode)
     env.update(INPUT_VERIFICATION_RUN_ID='234567', INPUT_VERIFICATION_SHA256='c' * 64)
-    if mode == 'status' or mode in ('authorize', 'verify-system-archetype-empty'):
+    if mode == 'status' or mode in ('authorize', 'verify-system-archetype-empty') or mode.startswith('preflight-'):
         env.update(INPUT_VERIFICATION_RUN_ID='', INPUT_VERIFICATION_SHA256='')
-    if mode.startswith('delete-'):
+    if mode.startswith('copy-'):
         env['INPUT_WALL_CLOCK_SECONDS'] = '300'
     _helper().validate_inputs(env)
     env[field] = REHEARSAL_RUN_ID if field.endswith('RUN_ID') else 'e' * 64

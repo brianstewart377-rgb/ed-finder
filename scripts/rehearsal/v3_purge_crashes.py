@@ -1,11 +1,15 @@
-"""Crash the real purge action only inside separately marked disposable fixtures.
+"""Crash the real copy-and-drop action only inside separately marked fixtures.
 
-A scenario passes only after its interruption point was observed, the published
-payload fingerprints and catalog remain intact, and real action redispatch has
-resolved the ledger without another rewrite. No synthetic pass or timing-only
-assumption can satisfy gate 10. Fresh fixtures prevent one scenario hiding a
-previous scenario's damage. Crash fixtures use smoke proportions, with two million survivor vectors for
-external mid-rewrite interruptions, alongside the separate one-percent journey.
+Every scenario runs on economy_opportunity, the relation whose swap also
+recalibrates and restores planner statistics, after system_search has been
+copied, swapped and dropped through the real action. A scenario passes only
+after its interruption point was observed, the published payload fingerprints
+and pointers stayed intact, the ledger and catalog agreed at the interruption,
+real action redispatch resumed from the ledger (never repeating committed
+work), and every relation then finished through drop and complete. No ledger
+row is synthesized or patched here. Fresh fixtures prevent one scenario hiding
+a previous scenario's damage; crash fixtures use smoke proportions (tiny in
+CI) alongside the separate one-percent journey.
 """
 from __future__ import annotations
 
@@ -22,11 +26,26 @@ from scripts.operator.lib import f2d_evidence as evidence
 from scripts.operator.lib import v3_generation_purge as controller
 from scripts.operator.lib.v3_purge_rehearsal_receipt import CRASH_SCENARIOS
 
-RELATION = 'system_rating_vector'
-MODE = 'system-rating-vector'
+RELATION = 'economy_opportunity'
+MODE = 'economy-opportunity'
 POLL_SECONDS = 0.05
-OBSERVATION_SECONDS = 120
+OBSERVATION_SECONDS = 180
+ORPHAN_SECONDS = 180
 RELATIONS = tuple(controller.RELATIONS.values())
+# Interruptions that kill the action's process group and its psql clients.
+KILLED = ('copy_chunk_client_killed', 'swap_committed_client_killed',
+          'swap_back_committed_client_killed', 'drop_committed_client_killed')
+# Faults the action itself marks (runtime.fault); the others need no marker.
+MARKED = KILLED + ('copy_postgres_restart', 'index_build_backend_terminated', 'verify_watchdog_cancel')
+FAULT_MODES = {
+    'copy_chunk_client_killed': 'copy-', 'copy_postgres_restart': 'copy-',
+    'index_build_backend_terminated': 'copy-', 'verify_watchdog_cancel': 'copy-',
+    'swap_committed_client_killed': 'swap-', 'swap_back_committed_client_killed': 'swap-back-',
+    'drop_committed_client_killed': 'drop-',
+}
+PHASE_FUNCTIONS = {'copy_chunk_client_killed': 'purge_copy_chunk', 'copy_postgres_restart': 'purge_copy_chunk',
+                   'index_build_backend_terminated': 'purge_copy_build_indexes',
+                   'verify_watchdog_cancel': 'purge_copy_verify'}
 
 # All relation identifiers come from the committed relation enum. Generation
 # identifiers remain bound data. Counts plus independent row-hash sums protect
@@ -36,52 +55,43 @@ PUBLISHED_SQL = 'SELECT jsonb_build_object(' + ','.join(
     "COALESCE(sum(hashtextextended(to_jsonb(t)::text,0)::numeric),0)::text) "
     'FROM v3_derived.' + relation + ' t WHERE derived_generation_id=%(published)s::uuid)'
     for relation in RELATIONS) + ');'
-# jsonb renders oid values as text; cast them so identity checks compare ints.
+# The copy ledger and catalog for the scenario relation, read by the observer
+# (catalog lookups by name, so absent staging/retired tables read as null).
 STATE_SQL = """SELECT jsonb_build_object(
- 'oid',c.oid::bigint,'relfilenode',c.relfilenode::bigint,'kind',c.relkind,
- 'catalog_relations',(SELECT count(*) FROM pg_class x JOIN pg_namespace n ON n.oid=x.relnamespace
-    WHERE n.nspname='v3_derived' AND x.relname='system_rating_vector'),
- 'target_rows',(SELECT count(*) FROM v3_derived.system_rating_vector
-    WHERE derived_generation_id<>%(published)s::uuid),
- 'invalid_indexes',(SELECT count(*) FROM pg_index WHERE indrelid=c.oid AND (NOT indisvalid OR NOT indisready)),
- 'invalid_foreign_keys',(SELECT count(*) FROM pg_constraint WHERE conrelid=c.oid AND contype='f' AND NOT convalidated),
- 'invalid_triggers',(SELECT count(*) FROM pg_trigger WHERE tgrelid=c.oid AND tgenabled<>'O'),
- 'last_analyze',(SELECT last_analyze FROM pg_stat_all_tables WHERE relid=c.oid),
- 'last_rewrite_start',(SELECT max(created_at) FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'),
- 'rewrite_starts',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'),
- 'rewrite_verifications',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'),
- 'rewrite_start',(SELECT jsonb_build_object('event_sequence',event_sequence,
-    'relation_oid',relation_oid::bigint,'relfilenode_before',relfilenode_before::bigint)
-    FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_STARTED'
-    ORDER BY event_sequence DESC LIMIT 1),
- 'rewrite_verified',(SELECT jsonb_build_object('recovered',recovered,
-    'relation_oid',relation_oid::bigint,'relfilenode_after',relfilenode_after::bigint)
-    FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_VERIFIED'
-    ORDER BY event_sequence DESC LIMIT 1),
- 'monitor_cancellations',(SELECT count(*) FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='REWRITE_CANCEL_REQUESTED'
-      AND operational_payload->>'condition'='controller_loss' AND operational_payload->'signalled'='true'::jsonb),
- 'committed_rows',(SELECT COALESCE(sum(rows_affected),0) FROM v3_meta.derived_generation_purge_event
-    WHERE relation_code='system_rating_vector' AND event_kind='BATCH_COMMITTED'),
- 'postmaster_started',pg_postmaster_start_time())
- FROM pg_class c WHERE c.oid='v3_derived.system_rating_vector'::regclass;"""
-PROGRESS_SQL = """SELECT COALESCE((SELECT jsonb_build_object('pid',pid,'phase',phase,
- 'heap_blks_scanned',heap_blks_scanned,'heap_tuples_written',heap_tuples_written)
- FROM pg_stat_progress_cluster WHERE relid='v3_derived.system_rating_vector'::regclass
- AND command='VACUUM FULL'),'{}'::jsonb);"""
-SLEEP_SQL = """SELECT jsonb_build_object('sleeping',EXISTS(SELECT 1 FROM pg_stat_activity
- WHERE datname=current_database() AND wait_event='PgSleep' AND pid<>pg_backend_pid()));"""
-
+ 'events',(SELECT COALESCE(jsonb_agg(jsonb_build_object('kind',event_kind,'sequence',event_sequence,
+    'abandoned',operational_payload->'abandoned') ORDER BY event_sequence),'[]'::jsonb)
+    FROM v3_meta.derived_purge_copy_event WHERE relation_code='economy_opportunity'),
+ 'completed',EXISTS(SELECT 1 FROM v3_meta.derived_purge_copy_event WHERE event_kind='COMPLETED'),
+ 'rows_total',(SELECT rows_total FROM v3_meta.derived_purge_copy_event WHERE relation_code='economy_opportunity'
+    AND event_kind='CHUNK_COPIED' ORDER BY event_sequence DESC LIMIT 1),
+ 'tables',(SELECT COALESCE(jsonb_object_agg(n.nspname,c.oid::bigint),'{}'::jsonb) FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relname='economy_opportunity'
+    AND n.nspname IN ('v3_derived','v3_purge_staging','v3_retired')),
+ 'invalid_indexes',(SELECT count(*) FROM pg_index WHERE indrelid='v3_derived.economy_opportunity'::regclass
+    AND (NOT indisvalid OR NOT indisready)),
+ 'not_valid_foreign_keys',(SELECT count(*) FROM pg_constraint WHERE contype='f' AND NOT convalidated
+    AND (conrelid='v3_derived.economy_opportunity'::regclass OR confrelid='v3_derived.economy_opportunity'::regclass)),
+ 'live_attoptions',(SELECT to_jsonb(attoptions) FROM pg_attribute
+    WHERE attrelid='v3_derived.economy_opportunity'::regclass AND attname='system_id64'),
+ 'target_rows',(SELECT count(*) FROM v3_derived.economy_opportunity WHERE derived_generation_id<>%(published)s::uuid),
+ 'postmaster_started',pg_postmaster_start_time());"""
+ORPHAN_SQL = """SELECT jsonb_build_object('backends',(SELECT count(*) FROM pg_stat_activity
+ WHERE datname=current_database() AND pid<>pg_backend_pid() AND state IS DISTINCT FROM 'idle'
+ AND (wait_event='PgSleep' OR query ~ 'v3_meta[.]purge_copy_')));"""
+# The paused phase statement itself (the action's own login, the fixed pause).
+PAUSED_SQL = """SELECT COALESCE((SELECT jsonb_build_object('pid',pid) FROM pg_stat_activity
+ WHERE datname=current_database() AND state='active' AND wait_event='PgSleep'
+ AND query ~ %(function)s ORDER BY backend_start DESC LIMIT 1),'{}'::jsonb);"""
+COMMITTED_SLEEP_SQL = """SELECT jsonb_build_object('sleeping',EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event='PgSleep' AND pid<>pg_backend_pid()
+ AND query ~ 'purge_rehearsal'));"""
+TERMINATE_SQL = """SELECT COALESCE((SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+ WHERE pid=%(pid)s::integer AND datname=current_database() AND query ~ 'v3_meta[.]purge_copy_build_indexes[(]'),false);"""
 
 # The controller's read_sql() wrapper first assumes the purge executor role,
 # which the read-only observer cannot (and must not) do. The observer already
-# reads these catalog tables; it also survives the writer fence's session
-# recycling, so drop only that role prefix and keep the bounded transaction.
+# reads these catalog tables; drop only that role prefix and keep the bounded
+# transaction.
 _EXECUTOR_PREFIX = ('SET ROLE v3_derived_purge_executor; '
                     'SET default_transaction_read_only=off; ')
 if not controller.POINTER_IDENTITIES_SQL.startswith(_EXECUTOR_PREFIX + 'BEGIN READ ONLY; '):
@@ -89,8 +99,8 @@ if not controller.POINTER_IDENTITIES_SQL.startswith(_EXECUTOR_PREFIX + 'BEGIN RE
 POINTER_OBSERVATION_SQL = controller.POINTER_IDENTITIES_SQL[len(_EXECUTOR_PREFIX):]
 
 
-def _json(harness, sql):
-    return json.loads(harness.observe(sql, {'published': controller.PUBLISHED_ID}))
+def _json(harness, sql, parameters=None):
+    return json.loads(harness.observe(sql, {'published': controller.PUBLISHED_ID, **(parameters or {})}))
 
 
 def snapshot(harness):
@@ -99,39 +109,48 @@ def snapshot(harness):
             'relation': _json(harness, STATE_SQL)}
 
 
+def kinds(state):
+    return [event['kind'] for event in state['relation']['events']]
+
+
 def assert_intact(before, after):
-    """One whole catalog identity and exact survivor content must survive."""
+    """Survivor content and pointers never change; the catalog agrees with the
+    ledger's position at every observation (019's own position rule)."""
     if before['published'] != after['published'] or before['pointers'] != after['pointers']:
         raise ValueError('crash_published_payload_or_pointer_changed')
     relation = after['relation']
-    if (relation['oid'] != before['relation']['oid'] or relation['catalog_relations'] != 1
-            or relation['kind'] != 'r' or type(relation['relfilenode']) is not int
-            or relation['relfilenode'] <= 0 or any(relation[key] for key in
-            ('invalid_indexes', 'invalid_foreign_keys', 'invalid_triggers'))):
-        raise ValueError('crash_half_swapped_or_invalid_relation')
-    return 'old' if relation['relfilenode'] == before['relation']['relfilenode'] else 'new'
+    events = [kind for kind in kinds(after) if kind != 'FK_VALIDATED']
+    position = 'none'
+    for kind in events:
+        if kind == 'COPY_STARTED':
+            position = 'staged'
+        elif kind == 'SWAPPED':
+            position = 'swapped'
+        elif kind == 'SWAPPED_BACK':
+            position = 'staged'
+        elif kind == 'DROPPED':
+            position = 'dropped'
+    abandoned = [event for event in relation['events'] if event['kind'] == 'FAILED_STOP']
+    if abandoned and events[-1] == 'FAILED_STOP':
+        if abandoned[-1].get('abandoned') is not True:
+            raise ValueError('crash_unexpected_failed_stop')
+        position = 'none'
+    tables = set(relation['tables'])
+    expected = {'none': {'v3_derived'}, 'dropped': {'v3_derived'},
+                'staged': {'v3_derived', 'v3_purge_staging'},
+                'swapped': {'v3_derived', 'v3_retired'}}[position]
+    if tables != expected or relation['invalid_indexes']:
+        raise ValueError('crash_ledger_and_catalog_disagree')
+    return position
 
 
-def assert_recovered(before, recovered, repeated):
-    assert_intact(before, recovered)
-    assert_intact(before, repeated)
-    relation, retry = recovered['relation'], repeated['relation']
-    if (relation['target_rows'] != 0 or relation['rewrite_verifications'] != 1
-            or relation['relfilenode'] == before['relation']['relfilenode']
-            or relation['last_analyze'] is None or relation['last_rewrite_start'] is None
-            or relation['last_analyze'] <= relation['last_rewrite_start']):
-        raise ValueError('crash_recovery_not_verified_or_analyzed')
-    if any(relation[key] != retry[key] for key in ('relfilenode', 'rewrite_starts', 'rewrite_verifications')):
-        raise ValueError('crash_recovery_double_rewrite')
-
-
-def _wait(probe, process, *, reason):
-    deadline = time.monotonic() + OBSERVATION_SECONDS
+def _wait(probe, process, *, reason, seconds=OBSERVATION_SECONDS):
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         observed = probe()
         if observed:
             return observed
-        if process.poll() is not None:
+        if process is not None and process.poll() is not None:
             raise RuntimeError(reason)
         time.sleep(POLL_SECONDS)
     raise RuntimeError(reason)
@@ -153,176 +172,127 @@ def _wait_no_psql_client(harness):
         time.sleep(POLL_SECONDS)
 
 
+def _wait_no_orphan(harness):
+    """Redispatch only after the interrupted backend has exited; while it holds
+    019's copy lock the action refuses (competing_purge_copy_backend_active)."""
+    _wait(lambda: _json(harness, ORPHAN_SQL)['backends'] == 0, None,
+          reason='crash_orphaned_backend_survived', seconds=ORPHAN_SECONDS)
+
+
+def _ready(harness):
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            harness.observe('SELECT 1;')
+            return
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            if time.monotonic() >= deadline:
+                raise RuntimeError('crash_postgres_restart_not_ready') from None
+            time.sleep(0.2)
+
+
 def _kill(process):
     if process.poll() is None:
         os.killpg(process.pid, signal.SIGKILL)
     process.wait(timeout=30)
 
 
-def _prepare(harness, *, delete_vector):
+def _route(harness, name):
+    """One relation through the real action: preflight, copy, swap, drop."""
+    harness.action('preflight-' + name)
+    harness.copy_until_verified(name)
+    harness.action('swap-' + name)
+    harness.action('drop-' + name)
+
+
+def _prepare(harness):
     harness.start()
     harness.migrate()
     harness.seed()
-    report, path, *_ = harness.action('plan')
-    harness.plan = (path, report['content_sha256'])
-    harness.action('authorize')
-    report, path, *_ = harness.action('verify-system-archetype-empty')
-    harness.verification = (path, report['content_sha256'])
-    for name in controller.RELATIONS:
-        if name == MODE:
-            if delete_vector:
-                _delete_all(harness, name)
-            break
-        _delete_all(harness, name)
-        harness.action('rewrite-' + name)
+    harness.authorize()
+    _route(harness, 'system-search')
 
 
-def _delete_all(harness, name):
-    relation = controller.RELATIONS[name]
-    for _ in range(1000):
-        harness.action('delete-' + name)
-        remaining = int(harness.observe('SELECT count(*) FROM v3_derived.' + relation +
-                                   ' WHERE derived_generation_id<>%(published)s::uuid;',
-                                   {'published': controller.PUBLISHED_ID}))
-        if remaining == 0:
-            return
-    raise RuntimeError('crash_delete_dispatch_bound_exceeded')
+def _finish(harness):
+    """Every remaining relation through drop, then 019's COMPLETED."""
+    for name in ('body-mechanics', 'system-rating-vector'):
+        _route(harness, name)
+    harness.action('complete')
 
 
-def _active_rewrite(harness):
-    progress = _json(harness, PROGRESS_SQL)
-    # Presence in the progress view alone includes initialization. Observe
-    # tuples already copied so a crash during real physical work is proven.
-    copied = progress.get('heap_tuples_written')
-    return progress if type(copied) is int and copied > 0 else False
+def _marker(marker, scenario, process):
+    if not marker.exists():
+        return False
+    payload = json.loads(marker.read_text())
+    pid = payload.get('pid')
+    try:
+        owned = type(pid) is int and pid > 0 and os.getpgid(pid) == process.pid
+    except ProcessLookupError:
+        owned = False
+    return payload if payload.get('scenario') == scenario and owned else False
 
 
 def _interrupt(harness, scenario, process, marker):
-    if scenario in ('batch_client_before_commit', 'batch_client_after_commit',
-                    'wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure'):
-        def ready():
-            if not marker.exists():
-                return False
-            payload = json.loads(marker.read_text())
-            pid = payload.get('pid')
-            try:
-                owned = type(pid) is int and pid > 0 and os.getpgid(pid) == process.pid
-            except ProcessLookupError:
-                owned = False
-            if scenario == 'rewrite_verified_transaction_failure' and (
-                    payload.get('verification_transaction_sqlstate') != '22012'
-                    or type(payload.get('verification_event_sequence')) is not int
-                    or payload['verification_event_sequence'] <= 0):
-                return False
-            return payload if payload.get('scenario') == scenario and owned else False
-        observed = _wait(ready, process, reason='crash_fault_point_not_observed')
-        if scenario.startswith('batch_client_'):
-            _wait(lambda: _json(harness, SLEEP_SQL).get('sleeping'), process,
-                  reason='crash_batch_commit_boundary_not_observed')
+    """Observe the exact fault point, then interrupt there; returns evidence."""
+    _wait(lambda: _marker(marker, scenario, process), process, reason='crash_fault_point_not_observed')
+    if scenario in PHASE_FUNCTIONS:
+        paused = _wait(lambda: _json(harness, PAUSED_SQL, {'function': 'v3_meta[.]' + PHASE_FUNCTIONS[scenario] + '[(]'})
+                       or False, process, reason='crash_phase_statement_not_observed')
+    else:
+        paused = _wait(lambda: _json(harness, COMMITTED_SLEEP_SQL).get('sleeping'), process,
+                       reason='crash_commit_boundary_not_observed')
+    evidence_ = {'observed_fault_point': scenario}
+    if scenario in KILLED:
         # Kill the wrapper first so its finally blocks cannot resolve the
-        # interruption. Before COMMIT its live psql client is then killed too.
+        # interruption, then its psql client inside the container.
         _kill(process)
-        if scenario.startswith('batch_client_') or scenario == 'wrapper_after_rewrite_commit':
-            # A busy psql (mid-batch) must be killed; an idle one (after the
-            # rewrite committed) exits by itself once its exec client dies, so
-            # killall may find nothing. The requirement is that none remains.
-            harness.docker('exec', harness.container, 'killall', '-KILL', 'psql', check=False)
-            _wait_no_psql_client(harness)
-        if scenario == 'rewrite_verified_transaction_failure':
-            return {'observed_fault_point': scenario, 'verification_transaction_rolled_back': True,
-                    'verification_event_sequence_attempted': observed['verification_event_sequence'],
-                    'verification_transaction_sqlstate': observed['verification_transaction_sqlstate']}
-        return {'observed_fault_point': scenario,
-                'batch_client_state': ('killed_before_commit' if scenario == 'batch_client_before_commit'
-                                       else 'killed_after_commit' if scenario == 'batch_client_after_commit'
-                                       else 'rewrite_client_killed_after_commit')}
-    progress = _wait(lambda: _active_rewrite(harness), process,
-                     reason='crash_active_rewrite_not_observed')
-    if scenario == 'rewrite_monitor_cancel':
-        Path(str(marker) + '.trigger').write_text('observed-active-rewrite\n')
-    elif scenario == 'rewrite_terminate_backend':
-        result = harness.sql(
-            "SELECT COALESCE((SELECT pg_terminate_backend(pid) FROM pg_stat_progress_cluster "
-            "WHERE pid=%(pid)s::integer AND relid='v3_derived.system_rating_vector'::regclass "
-            "AND command='VACUUM FULL'),false);", {'pid': progress['pid']})
-        if result != 't':
-            raise RuntimeError('crash_backend_termination_failed')
-    elif scenario == 'rewrite_postgres_restart':
+        harness.docker('exec', harness.container, 'killall', '-KILL', 'psql', check=False)
+        _wait_no_psql_client(harness)
+        evidence_['client_state'] = ('killed_before_commit' if scenario == 'copy_chunk_client_killed'
+                                     else 'killed_after_commit')
+    elif scenario == 'copy_postgres_restart':
         harness.docker('restart', '--time', '0', harness.container)
+        evidence_['postgres_restarted'] = True
+    elif scenario == 'index_build_backend_terminated':
+        if harness.sql(TERMINATE_SQL, {'pid': paused['pid']}) != 't':
+            raise RuntimeError('crash_backend_termination_failed')
+        evidence_['terminated_backend'] = True
+    elif scenario == 'verify_watchdog_cancel':
+        # The independent watchdog cancels on controller loss; the trigger is
+        # written only after the verify statement itself was observed active.
+        Path(str(marker) + '.trigger').write_text('observed-active-verify\n')
+        evidence_['watchdog_trigger'] = 'controller_loss'
     else:
         raise ValueError('unknown_crash_scenario')
-    try:
-        process.wait(timeout=180)
-    except subprocess.TimeoutExpired:
-        _kill(process)
-        raise RuntimeError('crash_wrapper_did_not_exit') from None
-    if scenario == 'rewrite_postgres_restart':
-        deadline = time.monotonic() + 120
-        while True:
-            try:
-                harness.observe('SELECT 1;')
-                break
-            except (RuntimeError, OSError, subprocess.SubprocessError):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('crash_postgres_restart_not_ready') from None
-                time.sleep(0.2)
-    return {'observed_active_rewrite': progress, 'wrapper_returncode': process.returncode}
+    if process.poll() is None:
+        try:
+            process.wait(timeout=240)
+        except subprocess.TimeoutExpired:
+            _kill(process)
+            raise RuntimeError('crash_wrapper_did_not_exit') from None
+    evidence_['wrapper_returncode'] = process.returncode
+    if scenario == 'copy_postgres_restart':
+        _ready(harness)
+    _wait_no_orphan(harness)
+    return evidence_
 
 
 def configure_fixture(harness, scenario):
-    # Add only survivor vectors for a useful physical-copy observation window.
-    # Their build_chunk parents are seeded from this count; other payloads may
-    # remain sparse. The main measured fixture and target proportions never
-    # change. Tiny CI checks deliberately keep their original bounded dataset.
+    # The fixture's proportions are the crash scale's own; nothing is added.
     harness.counts = deepcopy(harness.counts)
-    if scenario in ('rewrite_monitor_cancel', 'rewrite_terminate_backend', 'rewrite_postgres_restart') and harness.scale != 'tiny':
-        published = harness.counts[RELATION][controller.PUBLISHED_KEY]
-        harness.counts[RELATION][controller.PUBLISHED_KEY] = max(2_000_000, published)
     return deepcopy(harness.counts)
 
 
-def _unresolved_verification(harness, before, interrupted):
-    relation = interrupted['relation']
-    started = relation.get('rewrite_start') or {}
-    if (relation['relfilenode'] == before['relation']['relfilenode']
-            or relation['rewrite_starts'] != 1 or relation['rewrite_verifications'] != 0
-            or started.get('relation_oid') != before['relation']['oid']
-            or started.get('relfilenode_before') != before['relation']['relfilenode']
-            or type(started.get('event_sequence')) is not int):
-        raise ValueError('crash_verification_rollback_ledger_not_unresolved')
-    # Invoke the actual read-only status and fail-closed completion paths before
-    # the matching rewrite redispatch gets any chance to recover the record.
-    status, *_ = harness.action('status')
-    unresolved = status.get('purge_state', {}).get('unresolved', [])
-    if not any(event.get('event_kind') == 'REWRITE_STARTED'
-               and event.get('relation_code') == RELATION
-               and event.get('event_sequence') == started['event_sequence'] for event in unresolved):
-        raise ValueError('crash_status_did_not_report_unresolved_rewrite')
-    refusal = harness.command(harness.action_argv('complete'), check=False, timeout=3600)
-    report = json.loads(refusal.stdout)
-    (harness.output / 'unresolved-complete-refusal.json').write_text(evidence.canonical_json(report) + '\n')
-    if (refusal.returncode == 0 or report.get('status') != 'stopped'
-            or not any(event.get('event_kind') == 'REWRITE_STARTED'
-                       and event.get('event_sequence') == started['event_sequence']
-                       for event in report.get('purge_state', {}).get('unresolved', []))):
-        raise ValueError('crash_complete_accepted_unresolved_rewrite')
-    return {'unresolved_rewrite_reported': True, 'complete_refused': True}
-
-
-def run_scenario(harness, scenario):
-    if scenario not in CRASH_SCENARIOS:
-        raise ValueError('unknown_crash_scenario')
-    is_batch = scenario.startswith('batch_client_')
-    fixture_counts = configure_fixture(harness, scenario)
-    _prepare(harness, delete_vector=not is_batch)
-    before = snapshot(harness)
+def _faulted(harness, scenario):
+    """Run the faulted dispatch in its own process group and interrupt it."""
     marker = harness.output / 'fault-ready.json'
     # A private directory is required by the separately admitted runtime hooks.
     harness.output.chmod(0o700)
     environment = {**harness.environment, 'ED_PURGE_REHEARSAL_FAULT': scenario,
                    'ED_PURGE_REHEARSAL_FAULT_FILE': str(marker.resolve())}
-    mode = ('delete-' if is_batch else 'rewrite-') + MODE
-    with (harness.output / 'interrupted-action.json').open('w') as output:
+    mode = FAULT_MODES[scenario] + MODE
+    report_path = harness.output / 'interrupted-action.json'
+    with report_path.open('w') as output:
         process = subprocess.Popen(harness.action_argv(mode), env=environment, stdout=output,
                                    stderr=subprocess.DEVNULL, start_new_session=True, text=True)
         try:
@@ -330,51 +300,154 @@ def run_scenario(harness, scenario):
         finally:
             if process.poll() is None:
                 _kill(process)
-    interrupted = snapshot(harness)
-    state = assert_intact(before, interrupted)
-    if scenario == 'batch_client_before_commit' and interrupted['relation']['target_rows'] != before['relation']['target_rows']:
-        raise ValueError('crash_uncommitted_batch_changed_rows')
-    if scenario == 'batch_client_after_commit':
-        removed = before['relation']['target_rows'] - interrupted['relation']['target_rows']
-        if not 0 < removed <= harness.plan_batch_limit(RELATION):
-            raise ValueError('crash_committed_batch_not_atomic')
-    if scenario == 'rewrite_monitor_cancel' and interrupted['relation']['monitor_cancellations'] < 1:
-        raise ValueError('crash_monitor_did_not_cancel_active_rewrite')
-    if scenario in ('wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure') and state != 'new':
-        raise ValueError('crash_committed_rewrite_not_swapped')
-    if (scenario == 'rewrite_postgres_restart' and interrupted['relation']['postmaster_started']
-            == before['relation']['postmaster_started']):
-        raise ValueError('crash_postgres_not_restarted')
-    # Use the actual restore dispatcher, then the actual matching phase. No
-    # ledger row is synthesized or patched by this orchestration module.
-    if scenario == 'rewrite_verified_transaction_failure':
-        interruption.update(_unresolved_verification(harness, before, interrupted))
+    text = report_path.read_text().strip()
+    return interruption, (json.loads(text) if text else None)
+
+
+def _expect(condition, code):
+    if not condition:
+        raise ValueError(code)
+
+
+def run_scenario(harness, scenario):
+    if scenario not in CRASH_SCENARIOS:
+        raise ValueError('unknown_crash_scenario')
+    fixture_counts = configure_fixture(harness, scenario)
+    _prepare(harness)
+    before = snapshot(harness)
+    frozen = harness.counts[RELATION][controller.PUBLISHED_KEY]
+    result = {'passed': False, 'crash_scale': harness.scale, 'crash_fixture_row_counts': fixture_counts}
+    harness.action('preflight-' + MODE)
+    if scenario in ('copy_chunk_client_killed', 'copy_postgres_restart', 'index_build_backend_terminated',
+                    'verify_watchdog_cancel'):
+        interruption, interrupted_report = _faulted(harness, scenario)
+        interrupted = snapshot(harness)
+        position = assert_intact(before, interrupted)
+        _expect(position == 'staged', 'crash_copy_position_not_staged')
+        events = kinds(interrupted)
+        if scenario in ('copy_chunk_client_killed', 'copy_postgres_restart'):
+            # Exactly the committed chunk before the interrupted one.
+            _expect(events.count('CHUNK_COPIED') == 1 and 'INDEXES_BUILT' not in events, 'crash_chunk_not_atomic')
+            if scenario == 'copy_postgres_restart':
+                _expect(interrupted['relation']['postmaster_started'] != before['relation']['postmaster_started'],
+                        'crash_postgres_not_restarted')
+        elif scenario == 'index_build_backend_terminated':
+            _expect('INDEXES_BUILT' not in events, 'crash_index_build_committed')
+        else:
+            _expect(events[-1] == 'INDEXES_BUILT' and 'VERIFIED' not in events, 'crash_verify_committed')
+            failures = (interrupted_report or {}).get('copy_phase_failures') or []
+            _expect(bool(failures) and failures[-1].get('monitor_condition') == 'controller_loss'
+                    and failures[-1].get('sqlstate') == '57014'
+                    and (interrupted_report or {}).get('failures') == ['copy_verify_interrupted'],
+                    'crash_watchdog_did_not_cancel_verify')
+        result.update(interruption)
+        harness.copy_until_verified(MODE)
+        recovered = snapshot(harness)
+        assert_intact(before, recovered)
+        _expect(recovered['relation']['rows_total'] == frozen
+                and kinds(recovered).count('COPY_STARTED') == 1 and kinds(recovered)[-1] == 'VERIFIED',
+                'crash_copy_not_resumed_from_the_ledger')
+        harness.action('swap-' + MODE)
+        harness.action('drop-' + MODE)
+    elif scenario == 'swap_committed_client_killed':
+        harness.copy_until_verified(MODE)
+        interruption, _report = _faulted(harness, scenario)
+        interrupted = snapshot(harness)
+        _expect(assert_intact(before, interrupted) == 'swapped' and kinds(interrupted)[-1] == 'SWAPPED',
+                'crash_committed_swap_not_observed')
+        status = harness.action('status')['report']
+        _expect((status.get('next_admissible_mode') or {}).get('mode') == 'swap-' + MODE, 'crash_status_guidance_wrong')
+        resumed = harness.action('swap-' + MODE)['report']
+        _expect(resumed.get('swap_resumed') is True and kinds(snapshot(harness))[-1] == 'FK_VALIDATED',
+                'crash_swap_not_resumed')
+        result.update(interruption, status_next_mode=status['next_admissible_mode'])
+        harness.action('drop-' + MODE)
+    elif scenario == 'swap_back_committed_client_killed':
+        harness.copy_until_verified(MODE)
+        harness.action('swap-' + MODE)
+        swapped = snapshot(harness)
+        interruption, _report = _faulted(harness, scenario)
+        interrupted = snapshot(harness)
+        _expect(assert_intact(before, interrupted) == 'staged' and kinds(interrupted)[-1] == 'SWAPPED_BACK'
+                and interrupted['relation']['tables']['v3_derived'] == before['relation']['tables']['v3_derived']
+                and interrupted['relation']['live_attoptions'] == before['relation']['live_attoptions'],
+                'crash_committed_swap_back_not_observed')
+        status = harness.action('status')['report']
+        _expect((status.get('next_admissible_mode') or {}).get('mode') == 'swap-back-' + MODE,
+                'crash_status_guidance_wrong')
+        resumed = harness.action('swap-back-' + MODE)['report']
+        _expect(resumed.get('swap_back_resumed') is True and resumed.get('result') == 'swapped_back_live_restored',
+                'crash_swap_back_not_resumed')
+        result.update(interruption, status_next_mode=status['next_admissible_mode'],
+                      recalibrated_attoptions=swapped['relation']['live_attoptions'])
+        harness.copy_until_verified(MODE)
+        harness.action('swap-' + MODE)
+        harness.action('drop-' + MODE)
+    elif scenario == 'swap_back_and_reswap':
+        harness.copy_until_verified(MODE)
+        harness.action('swap-' + MODE)
+        swapped = snapshot(harness)
+        back = harness.action('swap-back-' + MODE)['report']
+        restored = snapshot(harness)
+        _expect(back.get('result') == 'swapped_back_live_restored'
+                and assert_intact(before, restored) == 'staged'
+                and restored['relation']['tables']['v3_derived'] == before['relation']['tables']['v3_derived']
+                and restored['relation']['live_attoptions'] == before['relation']['live_attoptions'],
+                'crash_swap_back_did_not_restore_live')
+        harness.copy_until_verified(MODE)
+        harness.action('swap-' + MODE)
+        reswapped = snapshot(harness)
+        _expect(assert_intact(before, reswapped) == 'swapped'
+                and reswapped['relation']['tables']['v3_derived'] == swapped['relation']['tables']['v3_derived']
+                and reswapped['relation']['live_attoptions'] == swapped['relation']['live_attoptions'],
+                'crash_reswap_differs_from_first_swap')
+        result.update(observed_fault_point=scenario, swapped_attoptions=swapped['relation']['live_attoptions'],
+                      restored_attoptions=restored['relation']['live_attoptions'])
+        harness.action('drop-' + MODE)
+    elif scenario == 'abandon_and_recopy':
+        harness.copy_until_verified(MODE)
+        harness.action('abandon-' + MODE)
+        abandoned = snapshot(harness)
+        _expect(assert_intact(before, abandoned) == 'none' and kinds(abandoned)[-1] == 'FAILED_STOP',
+                'crash_abandon_left_staging')
+        harness.action('preflight-' + MODE)
+        harness.copy_until_verified(MODE)
+        recopied = snapshot(harness)
+        _expect(kinds(recopied).count('COPY_STARTED') == 2 and recopied['relation']['rows_total'] == frozen,
+                'crash_recopy_not_fresh')
+        result.update(observed_fault_point=scenario)
+        harness.action('swap-' + MODE)
+        harness.action('drop-' + MODE)
+    elif scenario == 'drop_committed_client_killed':
+        harness.copy_until_verified(MODE)
+        harness.action('swap-' + MODE)
+        interruption, _report = _faulted(harness, scenario)
+        interrupted = snapshot(harness)
+        _expect(assert_intact(before, interrupted) == 'dropped', 'crash_committed_drop_not_observed')
+        again = harness.action('drop-' + MODE)['report']
+        _expect(again.get('result') == 'retired_relation_already_dropped', 'crash_drop_not_idempotent')
+        result.update(interruption)
     else:
-        harness.action('restore-services')
-    if is_batch:
-        _delete_all(harness, MODE)
-    harness.action('rewrite-' + MODE)
-    recovered = snapshot(harness)
-    harness.action('rewrite-' + MODE)
-    repeated = snapshot(harness)
-    assert_recovered(before, recovered, repeated)
-    if scenario == 'rewrite_verified_transaction_failure':
-        verified = recovered['relation'].get('rewrite_verified') or {}
-        if (verified.get('recovered') is not True
-                or verified.get('relation_oid') != before['relation']['oid']
-                or verified.get('relfilenode_after') != recovered['relation']['relfilenode']
-                or recovered['relation']['rewrite_starts'] != interrupted['relation']['rewrite_starts']):
-            raise ValueError('crash_verification_recovery_repeated_or_not_recovered')
-        interruption['recovered_flag_verified'] = True
-    if is_batch and recovered['relation']['committed_rows'] != before['relation']['target_rows']:
-        raise ValueError('crash_delete_double_counted_or_incomplete')
-    harness.action('complete')
-    return {'passed': True, 'crash_scale': harness.scale,
-            'crash_fixture_row_counts': fixture_counts,
-            'observed_relation_state_after_interruption': state, **interruption,
-            'before': before, 'after_interruption': interrupted, 'recovered': recovered,
-            'redispatched': repeated, 'published_fingerprints_unchanged': True,
-            'recovered_analyze_verified': True, 'no_double_rewrite': True}
+        raise ValueError('unknown_crash_scenario')
+    dropped = snapshot(harness)
+    _expect(assert_intact(before, dropped) == 'dropped' and dropped['relation']['target_rows'] == 0
+            and kinds(dropped).count('DROPPED') == 1, 'crash_relation_not_dropped_once')
+    _finish(harness)
+    final = snapshot(harness)
+    assert_intact(before, final)
+    _expect(final['relation']['completed'] is True, 'crash_purge_not_completed')
+    for relation in RELATIONS:
+        _expect(harness.number(harness_target_rows(relation)) == 0, 'crash_target_rows_remain')
+    result.update(passed=True, before=before, after_interruption_or_steps=dropped, completed=final,
+                  published_fingerprints_unchanged=True, resumed_without_repeating_committed_work=True)
+    return result
+
+
+def harness_target_rows(relation):
+    if relation not in RELATIONS:
+        raise ValueError('unknown_relation')
+    return ('SELECT count(*) FROM v3_derived.' + relation
+            + " WHERE derived_generation_id<>'" + controller.PUBLISHED_ID + "';")
 
 
 def run_crashes(harness_factory, scale, run_id, output):
@@ -390,6 +463,8 @@ def run_crashes(harness_factory, scale, run_id, output):
             code = str(exc)
             result['reason'] = (code if re.fullmatch('[a-z][a-z0-9_]{0,127}', code)
                                 else 'crash_scenario_failed_or_interruption_not_observed')
+            if getattr(fixture, 'refused_action', None) is not None:
+                result['refused_action'] = fixture.refused_action
         finally:
             if hasattr(fixture, 'counts'):
                 result['crash_fixture_row_counts'] = deepcopy(fixture.counts)

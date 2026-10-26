@@ -28,20 +28,68 @@ def _tool(monkeypatch):
     return module
 
 
-def _query(module, *, present=True, kinds=()):
+def _query(module, *, present=True, kinds=(), copy_present=None, copy_skip=False, copy_relations=()):
+    copy_present = present if copy_present is None else copy_present
     def query(sql):
-        assert sql in (module.PRESENCE_SQL, module.STATE_SQL)
+        assert sql in (module.PRESENCE_SQL, module.STATE_SQL, module.LEGACY_STATE_SQL)
         result = {'database': module.DATABASE_NAME, 'read_only': 'on'}
         if sql == module.PRESENCE_SQL:
             result['ledger_present'] = present
+            result['copy_ledger_present'] = copy_present
         else:
+            # The copy-aware read is the only read once 019 is installed.
+            assert sql == (module.STATE_SQL if copy_present else module.LEGACY_STATE_SQL)
             result['unresolved'] = [
                 {'event_kind': kind, 'event_sequence': index + 1,
                  'purge_id': '49a0c00d-e722-4209-afd8-9d62b877e30a', 'relation_code': None}
                 for index, kind in enumerate(kinds)
             ]
+            if copy_present:
+                result['copy_backup_skip'] = copy_skip or bool(copy_relations)
+                result['copy_relations'] = [{'relation_code': code, 'copy_position': position, 'phase': 'CHUNK_COPIED'}
+                                            for code, position in copy_relations]
         return json.dumps(result)
     return query
+
+
+@pytest.mark.parametrize('scenario', ('backup_skip', 'staged', 'swapped', 'copy_ledger_absent'))
+def test_shared_fence_refuses_copy_and_drop_state(monkeypatch, scenario):
+    module = _tool(monkeypatch)
+    if scenario == 'backup_skip':
+        query, expected = _query(module, copy_skip=True), ['purge_copy_backup_skip']
+    elif scenario == 'copy_ledger_absent':
+        query, expected = _query(module, copy_present=False), ['purge_copy_ledger_absent']
+    else:
+        query = _query(module, copy_relations=(('system_search', scenario),))
+        expected = ['purge_copy_backup_skip', 'purge_copy_relation_' + scenario]
+    with pytest.raises(module.PurgeStateError) as error:
+        module.check(query)
+    assert error.value.report['failures'] == expected
+    if scenario == 'copy_ledger_absent':
+        # Only the apply whose authenticated pending suffix ends in 019 may pass.
+        report = module.check(query, copy_bootstrap=True)
+        assert report['copy_bootstrap'] is True and report['copy_ledger_present'] is False
+    else:
+        with pytest.raises(module.PurgeStateError):
+            module.check(query, copy_bootstrap=True)
+
+
+def test_shared_fence_requires_exact_copy_state_shape(monkeypatch):
+    module = _tool(monkeypatch)
+    def missing_copy_keys(sql):
+        value = {'database': module.DATABASE_NAME, 'read_only': 'on', 'ledger_present': True,
+                 'copy_ledger_present': True, 'unresolved': []}
+        return json.dumps(value)
+    with pytest.raises(module.PurgeStateError, match='purge_state_query_failed'):
+        module.check(missing_copy_keys)
+    def legacy_presence(sql):
+        return json.dumps({'database': module.DATABASE_NAME, 'read_only': 'on', 'ledger_present': True})
+    with pytest.raises(module.PurgeStateError, match='purge_state_query_failed'):
+        module.check(legacy_presence)
+    assert 'v3_meta.purge_copy_backup_skip()' in module.STATE_SQL
+    assert 'v3_meta.purge_copy_status()' in module.STATE_SQL
+    assert 'purge_copy' not in module.LEGACY_STATE_SQL
+    assert "to_regprocedure('v3_meta.purge_copy_backup_skip()')" in module.PRESENCE_SQL
 
 
 @pytest.mark.parametrize('kind', sorted(('BATCH_STARTED', 'REWRITE_STARTED', 'SERVICES_QUIESCED',
@@ -199,13 +247,26 @@ def test_p2b1_modes_are_implemented(mode):
 
 @pytest.mark.parametrize('mode', [
     f'{prefix}{relation}'
-    for prefix in ('rewrite-',)
+    for prefix in ('rewrite-', 'delete-')
     for relation in ('system-search', 'economy-opportunity', 'body-mechanics',
                      'system-rating-vector')
 ])
-def test_p2b2b_rewrite_modes_are_admitted_to_guarded_dispatch(mode):
+def test_016_delete_and_rewrite_modes_are_disabled_by_the_copy_and_drop_design(mode):
+    module = _action_tool()
+    with pytest.raises(ValueError, match='delete_rewrite_modes_disabled_by_copy_and_drop_design'):
+        module.classify_mode(mode)
+    assert mode in module.DISABLED_MODES and mode not in module.MODES
+
+
+@pytest.mark.parametrize('mode', sorted(
+    f'{prefix}{relation}'
+    for prefix in ('preflight-', 'copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-', 'abort-relation-')
+    for relation in ('system-search', 'economy-opportunity', 'body-mechanics', 'system-rating-vector')
+))
+def test_copy_and_drop_and_recovery_modes_are_admitted_to_guarded_dispatch(mode):
     module = _action_tool()
     assert module.classify_mode(mode) == mode
+    assert module.is_copy_mode(mode) == (not mode.startswith('abort-relation-'))
 
 
 @pytest.mark.parametrize('mode', ('', 'delete-system-archetype', 'rewrite-cluster',
@@ -661,9 +722,12 @@ def test_shared_preflight_failure_never_reaches_a_mutation(monkeypatch, failure)
 
 
 @pytest.mark.parametrize('mode,expected', (
-    ('delete-system-search', 'sealed_verification_required'),
-    ('rewrite-system-search', 'sealed_verification_required'),
+    ('copy-system-search', 'sealed_verification_required'),
+    ('swap-system-search', 'sealed_verification_required'),
+    ('drop-system-search', 'sealed_verification_required'),
     ('restore-services', 'sealed_verification_required'),
+    ('delete-system-search', 'delete_rewrite_modes_disabled_by_copy_and_drop_design'),
+    ('rewrite-system-search', 'delete_rewrite_modes_disabled_by_copy_and_drop_design'),
     ('delete-system-archetype', 'unknown_mode'),
 ))
 def test_cli_mode_refusal_is_json_only_and_precedes_all_host_access(mode, expected):
@@ -730,17 +794,17 @@ def test_open_autovacuum_status_reports_both_rates_and_the_nearer_ceiling():
 
 
 def _rehearsal_figures(module, digest='9' * 64):
-    """The reviewed one-percent binding a production authorize requires."""
+    """The reviewed one-percent copy-route binding a production authorize requires."""
+    copy = module._load('v3_purge_copy')
+    peak = 1_000
+    figures = {code: {'copy_peak_bytes': peak, 'required_free_bytes_before_copy': copy.FLOOR_BYTES + 1_500,
+                      'copy_rows_per_second': 1.0, 'long_phase_seconds_max': 60.0,
+                      'long_phase_fits_reviewed_timeout': True}
+               for code in module.RELATIONS.values()}
     return {
-        'rehearsal': {'content_sha256': digest, 'scale': 'one_percent',
+        'rehearsal': {'content_sha256': digest, 'scale': 'one_percent', 'route': 'copy_and_drop',
                       'gate_10_crash_rehearsal_passed': True},
-        'delete': {code: {'batch_limit': 1000, 'batch_peak_bytes': 1, 'rows_per_second': 1.0,
-                          'rewrite_allowance_seconds': 60, 'autovacuum_budget_bytes': 1,
-                          'autovacuum_budget_source': 'heap_plus_index_lower_bound',
-                          'rows_per_second_source': 'reviewed_rehearsal:' + digest}
-                   for code in module.RELATIONS.values()},
-        'rewrite': {code: {'rewrite_peak_bytes': 1, 'statement_timeout_ms': 60_000}
-                    for code in module.RELATIONS.values()},
+        'copy': copy.plan_block(figures, 'reviewed_rehearsal:' + digest),
     }
 
 
@@ -780,12 +844,21 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
                 'extra_payload_counts': extra_counts, 'pointer_identities': pointer_identities,
                 'published_survivors': published_survivors, **_rehearsal_figures(module)}
     plan = {'source_git_sha': report['source_git_sha'], 'script_sha256': report['script_sha256'],
-            'reviewed_plan': reviewed, 'published_generation': published}
+            'reviewed_plan': reviewed, 'published_generation': published,
+            'expected_wrapper_sha256': 'a' * 64}
     ids = list(transactions.TARGET_IDS)
     current = {'failed': mode in ('verify-system-archetype-empty', 'complete', 'status'), 'writes': 0}
     calls = []
     fence = {'event_kind': 'WRITER_FENCE_ENABLED', 'event_sequence': 7, 'relation_code': None}
-    state = {'unresolved': [fence] if open_fence else []}
+    state = {'unresolved': [fence] if open_fence else [], 'copy_ledger_present': True,
+             'copy_backup_skip': False, 'copy_relations': []}
+    copy = module._load('v3_purge_copy')
+    copy_relation = {'phase': 'DROPPED', 'copy_position': 'dropped', 'failed': False, 'rows_total': 7,
+                     'copy_started_at': '2026-10-27T10:00:00+00:00', 'verified': 3, 'swapped': 4,
+                     'fk_validated': 5, 'last_copy_at': '2026-10-27T10:10:00+00:00'}
+    copy_status = {'requests': [{'copy_id': 'c' * 36, 'plan_sha256': '6' * 64, 'completed': False,
+                                 'relations': {code: dict(copy_relation) for code in module.RELATIONS.values()}}],
+                   'staging_relations': [], 'retired_relations': [], 'backup_skip': False}
     ages = {'xid_next': '100', 'objects': [
         {'relation_code': code, 'scope': 'heap', 'oid': index + 1, 'relminmxid': '1',
          'xid_age': 100, 'mxid_age': 100, 'xid_limit': 1000000, 'mxid_limit': 1000000}
@@ -861,6 +934,20 @@ def _successful_phase(module, monkeypatch, mode, *, open_fence=False):
             assert completion['filesystem_free_bytes'] > module.FREE_FLOOR_BYTES
             assert completion['wal_bytes'] == 10
             return {'completed_ids': ids, 'verified': 2, 'snapshot': snapshot, 'snapshot_verified': 1}
+        if sql == copy.STATUS_SQL:
+            return json.loads(json.dumps(copy_status))
+        if sql == copy.REQUEST_SQL:
+            return {'copy_id': 'c' * 36, 'purge_id': ids[0], 'frozen_survivors': snapshot['survivors'],
+                    'latest_events': {code: {'event_kind': 'DROPPED', 'event_sequence': 9,
+                                             'created_at': '2026-10-27T11:00:00+00:00'}
+                                      for code in module.RELATIONS.values()},
+                    'completed_at': None}
+        if sql == copy.COMPETING_COPY_SQL:
+            return {'lock_holders': 0, 'copy_statements': 0}
+        if sql == copy.COMPLETE_SQL:
+            assert write and params == {'purge_id': ids[0]}
+            copy_status['requests'][0]['completed'] = True
+            return {'event': 42}
         if "'manifest_sha256',encode(manifest_sha256,'hex')" in sql:
             return published
         pytest.fail('unexpected SQL in successful phase')
@@ -921,8 +1008,12 @@ def test_successful_controller_phases_keep_truthful_evidence_and_transaction_fla
         assert report['purge_id'] == list(module.TARGETS[key][0] for key in module.TARGETS)
         assert report['competing_writer_wait']['remaining_competing_writers'] == 0
     if mode == 'complete':
+        # The copy route completes through 019's purge_copy_complete; 016's
+        # ledger never reaches COMPLETED here.
         assert report['fk_check'] is True
-        assert report['completion_receipt']['receipt_sha256']
+        assert report['result'] == {'event': 42, 'copy_completed': True}
+        assert report['copy_status']['requests'][0]['completed'] is True
+        assert not any(call[0] == 'query' and 'complete_derived_generation_purge' in call[1] for call in calls)
 
 
 def _survivor_reads(module, calls):
@@ -1059,7 +1150,7 @@ def test_production_authorize_requires_reviewed_rehearsal_figures_before_host_ac
     elif mutation == 'smoke':
         reviewed['rehearsal']['scale'] = 'smoke'
     else:
-        reviewed['delete']['system_search']['rows_per_second_source'] = 'conservative_fallback'
+        reviewed['copy']['relations']['system_search']['copy_peak_source'] = 'disposable_bootstrap_unmeasured'
     with pytest.raises(ValueError, match='plan_rehearsal_figures_required'):
         module.execute('authorize', runtime, report, plan)
     assert [call[0] for call in calls] == ['state']
@@ -1538,6 +1629,8 @@ def test_cli_complete_requires_external_verification_before_host_access(capsys):
     'scripts/operator/actions/v3-derived-lifecycle-status.sh',
     'scripts/operator/lib/f2d_evidence.py',
     'scripts/operator/lib/v3_generation_purge.py',
+    'scripts/operator/lib/v3_purge_copy.py',
+    'scripts/operator/lib/v3_purge_copy_dispatch.py',
     'scripts/operator/lib/v3_purge_delete.py',
     'scripts/operator/lib/v3_purge_rewrite.py',
     'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
@@ -1556,6 +1649,8 @@ def test_purge_script_identity_covers_every_executed_source(monkeypatch, tmp_pat
         'scripts/operator/actions/v3-derived-lifecycle-status.sh',
         'scripts/operator/lib/f2d_evidence.py',
         'scripts/operator/lib/v3_generation_purge.py',
+        'scripts/operator/lib/v3_purge_copy.py',
+        'scripts/operator/lib/v3_purge_copy_dispatch.py',
         'scripts/operator/lib/v3_purge_delete.py',
     'scripts/operator/lib/v3_purge_rewrite.py',
     'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
@@ -1825,7 +1920,8 @@ def test_regular_dispatch_preserves_other_p2a_refusals(failure):
     assert report['db_writes_performed'] is False
 
 
-@pytest.mark.parametrize('mode', ('authorize', 'complete', 'delete-system-search', 'abort-relation-system-search'))
+@pytest.mark.parametrize('mode', ('authorize', 'complete', 'copy-system-search', 'swap-system-search',
+                                  'abort-relation-system-search'))
 @pytest.mark.parametrize('kind', ('WRITER_FENCE_ENABLED', 'SERVICES_QUIESCED'))
 def test_cli_refuses_orphaned_application_fence_before_acquiring_dispatch_lease(monkeypatch, capsys, mode, kind):
     module = _action_tool()

@@ -122,7 +122,8 @@ def _make_fake_path(tmp_path: Path) -> tuple[Path, Path]:
             marker = Path(os.environ["TEST_DOCKER_MARKER"])
             if "derived_generation_purge_event" in joined:
                 print(json.dumps({{"database": "edfinder_v3_phase4c_full_20260827_r5",
-                    "read_only": "on", "ledger_present": True, "unresolved": []}}))
+                    "read_only": "on", "ledger_present": True, "copy_ledger_present": True,
+                    "unresolved": [], "copy_backup_skip": False, "copy_relations": []}}))
                 raise SystemExit(0)
             if args[:2] == ["context", "show"]:
                 print("default")

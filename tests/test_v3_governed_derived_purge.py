@@ -2062,7 +2062,10 @@ def _fence_sql_rows(connection, statement):
     ('FAILED_STOP', None),
 ))
 def test_operator_fixed_sql_reports_every_real_016_state_and_verified_restoration(database, opening, closing):
-    from scripts.operator.lib.v3_purge_state import STATE_SQL
+    # This fixture installs 016 only. The fence's copy-aware STATE_SQL also reads
+    # 019's functions (proved in tests/test_v3_purge_copy_operator_pg18.py); the
+    # 016 semantics under test are the shared part, LEGACY_STATE_SQL.
+    from scripts.operator.lib.v3_purge_state import LEGACY_STATE_SQL as STATE_SQL
 
     connection = database[0]
     purge_id = _authorize(database)[TARGETS[0][1]]
@@ -2110,7 +2113,10 @@ def test_operator_fixed_sql_reports_every_real_016_state_and_verified_restoratio
 
 
 def test_operator_and_backup_sql_resolve_only_matching_record_and_live_backend(database):
-    from scripts.operator.lib.v3_purge_state import STATE_SQL
+    # This fixture installs 016 only. The fence's copy-aware STATE_SQL also reads
+    # 019's functions (proved in tests/test_v3_purge_copy_operator_pg18.py); the
+    # 016 semantics under test are the shared part, LEGACY_STATE_SQL.
+    from scripts.operator.lib.v3_purge_state import LEGACY_STATE_SQL as STATE_SQL
 
     connection = database[0]
     ids = _authorize(database)
@@ -2334,7 +2340,10 @@ def test_state_and_open_event_stay_fast_with_production_scale_batch_history(data
     with the square of the batch count. Twenty thousand closed batches per
     relation and request took about 30 seconds per call before the rewrite.
     """
-    from scripts.operator.lib.v3_purge_state import STATE_SQL
+    # This fixture installs 016 only. The fence's copy-aware STATE_SQL also reads
+    # 019's functions (proved in tests/test_v3_purge_copy_operator_pg18.py); the
+    # 016 semantics under test are the shared part, LEGACY_STATE_SQL.
+    from scripts.operator.lib.v3_purge_state import LEGACY_STATE_SQL as STATE_SQL
 
     connection = database[0]
     ids = sorted(_authorize(database).values())

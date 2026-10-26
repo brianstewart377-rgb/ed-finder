@@ -8,68 +8,67 @@ import pytest
 
 from scripts.rehearsal import v3_purge_crashes as tool
 
-
-def _snapshot(*, node=10, target_rows=0, verified=0, starts=0):
-    return {'published': {'system_rating_vector': {'rows': 100, 'fingerprint': '1234'}},
-            'pointers': {'derived': 'published'}, 'relation': {
-                'oid': 123, 'relfilenode': node, 'kind': 'r', 'catalog_relations': 1,
-                'target_rows': target_rows, 'invalid_indexes': 0, 'invalid_foreign_keys': 0,
-                'invalid_triggers': 0, 'rewrite_verifications': verified, 'rewrite_starts': starts,
-                'rewrite_start': {'event_sequence': 42, 'relation_oid': 123, 'relfilenode_before': 10},
-                'rewrite_verified': {'recovered': True, 'relation_oid': 123, 'relfilenode_after': node},
-                'last_analyze': '2026-10-16T00:00:02+00:00',
-                'last_rewrite_start': '2026-10-16T00:00:01+00:00',
-                'monitor_cancellations': 0, 'committed_rows': 100,
-                'postmaster_started': '2026-10-16T00:00:00+00:00'}}
+ORIGINAL, COPY = 1001, 2002
 
 
-@pytest.mark.parametrize(('node', 'expected'), [(10, 'old'), (11, 'new')])
-def test_relation_accepts_one_complete_old_or_new_catalog(node, expected):
-    assert tool.assert_intact(_snapshot(), _snapshot(node=node)) == expected
+def _snapshot(events=(), *, tables=None, attoptions=('n_distinct=-0.13',), target_rows=100, rows_total=None,
+              completed=False, postmaster='2026-10-16T00:00:00+00:00'):
+    return {'published': {'economy_opportunity': {'rows': 100, 'fingerprint': '1234'}},
+            'pointers': {'derived': 'published'},
+            'relation': {'events': [{'kind': kind, 'sequence': index + 1,
+                                     'abandoned': True if kind == 'FAILED_STOP' else None}
+                                    for index, kind in enumerate(events)],
+                         'completed': completed, 'rows_total': rows_total,
+                         'tables': tables if tables is not None else {'v3_derived': ORIGINAL},
+                         'invalid_indexes': 0, 'not_valid_foreign_keys': 0,
+                         'live_attoptions': list(attoptions) if attoptions is not None else None,
+                         'target_rows': target_rows, 'postmaster_started': postmaster}}
 
 
-@pytest.mark.parametrize(('key', 'value'), [
-    ('oid', 124), ('catalog_relations', 2), ('kind', 'i'), ('relfilenode', 0),
-    ('invalid_indexes', 1), ('invalid_foreign_keys', 1), ('invalid_triggers', 1),
+STAGED = {'v3_derived': ORIGINAL, 'v3_purge_staging': COPY}
+SWAPPED = {'v3_derived': COPY, 'v3_retired': ORIGINAL}
+
+
+@pytest.mark.parametrize(('events', 'tables', 'position'), [
+    ((), {'v3_derived': ORIGINAL}, 'none'),
+    (('COPY_STARTED', 'CHUNK_COPIED'), STAGED, 'staged'),
+    (('COPY_STARTED', 'VERIFIED', 'SWAPPED'), SWAPPED, 'swapped'),
+    (('COPY_STARTED', 'VERIFIED', 'SWAPPED', 'FK_VALIDATED', 'SWAPPED_BACK'), STAGED, 'staged'),
+    (('COPY_STARTED', 'VERIFIED', 'SWAPPED', 'FK_VALIDATED', 'DROPPED'), {'v3_derived': COPY}, 'dropped'),
+    (('COPY_STARTED', 'VERIFIED', 'FAILED_STOP'), {'v3_derived': ORIGINAL}, 'none'),
 ])
-def test_relation_rejects_half_swap_or_invalid_catalog(key, value):
-    damaged = _snapshot(node=11)
-    damaged['relation'][key] = value
-    with pytest.raises(ValueError, match='half_swapped_or_invalid_relation'):
+def test_catalog_must_agree_with_the_ledger_position(events, tables, position):
+    assert tool.assert_intact(_snapshot(), _snapshot(events, tables=tables)) == position
+
+
+@pytest.mark.parametrize(('events', 'tables'), [
+    (('COPY_STARTED',), {'v3_derived': ORIGINAL}),                       # staging lost
+    (('COPY_STARTED', 'VERIFIED', 'SWAPPED'), STAGED),                    # half swapped
+    (('COPY_STARTED', 'VERIFIED', 'SWAPPED', 'DROPPED'), SWAPPED),         # retired left behind
+    ((), STAGED),                                                         # unledgered staging
+])
+def test_ledger_and_catalog_disagreement_refuses_the_gate(events, tables):
+    with pytest.raises(ValueError, match='crash_ledger_and_catalog_disagree'):
+        tool.assert_intact(_snapshot(), _snapshot(events, tables=tables))
+
+
+def test_invalid_index_or_unabandoned_failed_stop_refuses():
+    damaged = _snapshot()
+    damaged['relation']['invalid_indexes'] = 1
+    with pytest.raises(ValueError, match='crash_ledger_and_catalog_disagree'):
         tool.assert_intact(_snapshot(), damaged)
+    failed = _snapshot(('COPY_STARTED', 'FAILED_STOP'), tables={'v3_derived': ORIGINAL})
+    failed['relation']['events'][-1]['abandoned'] = None
+    with pytest.raises(ValueError, match='crash_unexpected_failed_stop'):
+        tool.assert_intact(_snapshot(), failed)
 
 
 @pytest.mark.parametrize('field', ['published', 'pointers'])
 def test_survivor_fingerprint_and_pointer_changes_refuse_gate(field):
-    after = _snapshot(node=11)
+    after = _snapshot()
     after[field] = {'changed': True}
     with pytest.raises(ValueError, match='published_payload_or_pointer_changed'):
         tool.assert_intact(_snapshot(), after)
-
-
-def test_verified_recovery_and_same_node_retry_pass():
-    recovered = _snapshot(node=11, verified=1, starts=2)
-    tool.assert_recovered(_snapshot(), recovered, deepcopy(recovered))
-
-
-@pytest.mark.parametrize(('key', 'value'), [
-    ('target_rows', 1), ('rewrite_verifications', 0), ('relfilenode', 10),
-    ('last_analyze', None), ('last_analyze', '2026-10-16T00:00:00+00:00'),
-])
-def test_unverified_or_unanalyzed_recovery_refuses_gate(key, value):
-    recovered = _snapshot(node=11, verified=1, starts=2)
-    recovered['relation'][key] = value
-    with pytest.raises(ValueError, match='not_verified_or_analyzed'):
-        tool.assert_recovered(_snapshot(), recovered, deepcopy(recovered))
-
-
-@pytest.mark.parametrize(('key', 'value'), [('relfilenode', 12), ('rewrite_starts', 3), ('rewrite_verifications', 2)])
-def test_second_redispatch_cannot_repeat_rewrite(key, value):
-    recovered = _snapshot(node=11, verified=1, starts=2)
-    repeated = deepcopy(recovered)
-    repeated['relation'][key] = value
-    with pytest.raises(ValueError, match='double_rewrite'):
-        tool.assert_recovered(_snapshot(), recovered, repeated)
 
 
 def test_wait_refuses_action_that_exits_before_progress_is_observed():
@@ -78,133 +77,99 @@ def test_wait_refuses_action_that_exits_before_progress_is_observed():
 
 
 def test_wait_requires_real_observation_before_returning():
-    result = tool._wait(lambda: {'pid': 42, 'phase': 'seq scanning heap'},
-                        SimpleNamespace(poll=lambda: None), reason='not_observed')
+    result = tool._wait(lambda: {'pid': 42}, SimpleNamespace(poll=lambda: None), reason='not_observed')
     assert result['pid'] == 42
 
 
-def test_prepare_uses_real_action_order_and_child_relations_before_vector():
+def test_prepare_runs_the_real_route_for_search_before_the_scenario_relation():
     calls = []
     class Harness:
         def start(self): calls.append('start')
         def migrate(self): calls.append('migrate')
         def seed(self): calls.append('seed')
-        def action(self, mode):
-            calls.append(mode)
-            return {'content_sha256': 'a' * 64}, Path('/proof'), 0, 0, 0
-        def observe(self, statement, params):
-            assert params['published']
-            return '0'
-    fixture = Harness()
-    tool._prepare(fixture, delete_vector=True)
-    assert calls == ['start', 'migrate', 'seed', 'plan', 'authorize', 'verify-system-archetype-empty',
-                     'delete-system-search', 'rewrite-system-search', 'delete-economy-opportunity',
-                     'rewrite-economy-opportunity', 'delete-body-mechanics', 'rewrite-body-mechanics',
-                     'delete-system-rating-vector']
-    assert fixture.plan == fixture.verification == (Path('/proof'), 'a' * 64)
+        def authorize(self): calls.append('authorize')
+        def action(self, mode): calls.append(mode)
+        def copy_until_verified(self, name): calls.append('copy-until-verified-' + name)
+    tool._prepare(Harness())
+    assert calls == ['start', 'migrate', 'seed', 'authorize', 'preflight-system-search',
+                     'copy-until-verified-system-search', 'swap-system-search', 'drop-system-search']
 
 
-@pytest.mark.parametrize('scenario', ['rewrite_monitor_cancel', 'rewrite_terminate_backend', 'rewrite_postgres_restart'])
-def test_external_interruptions_require_progress_and_target_only_observed_backend(tmp_path, monkeypatch, scenario):
-    calls = []
-    progress = {'pid': 321, 'phase': 'seq scanning heap'}
-    monkeypatch.setattr(tool, '_wait', lambda probe, process, **kwargs: progress)
-    harness = SimpleNamespace(container='disposable', sql=lambda sql, params=None: calls.append((sql, params)) or 't',
-                              observe=lambda sql: '1',
-                              docker=lambda *args: calls.append(args))
-    process = SimpleNamespace(wait=lambda timeout: calls.append(('wait', timeout)), returncode=1)
-    marker = tmp_path / 'ready'
-    result = tool._interrupt(harness, scenario, process, marker)
-    assert result['observed_active_rewrite'] == progress
-    if scenario == 'rewrite_monitor_cancel':
-        assert Path(str(marker) + '.trigger').read_text() == 'observed-active-rewrite\n'
-    elif scenario == 'rewrite_terminate_backend':
-        statement, params = calls[0]
-        assert 'pg_stat_progress_cluster' in statement
-        assert 'pg_terminate_backend(pid)' in statement
-        assert params == {'pid': 321}
-    else:
-        assert calls[0] == ('restart', '--time', '0', 'disposable')
-
-
-@pytest.mark.parametrize('scenario', ['batch_client_before_commit', 'batch_client_after_commit'])
-def test_batch_client_kill_requires_authenticated_hook_and_commit_boundary_sleep(tmp_path, monkeypatch, scenario):
+def _owned_marker(tmp_path, monkeypatch, scenario):
     marker = tmp_path / 'fault.json'
     marker.write_text(json.dumps({'scenario': scenario, 'pid': 456}))
-    calls = []
     monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
-    monkeypatch.setattr(tool, '_json', lambda harness, sql: {'sleeping': True})
+    return marker
+
+
+@pytest.mark.parametrize('scenario', tool.KILLED)
+def test_killed_clients_require_the_owned_fault_point_and_the_observed_pause(tmp_path, monkeypatch, scenario):
+    marker = _owned_marker(tmp_path, monkeypatch, scenario)
+    calls, probes = [], []
+    def observe(harness, sql, parameters=None):
+        probes.append((sql, parameters))
+        if sql == tool.ORPHAN_SQL:
+            return {'backends': 0}
+        return {'pid': 77} if sql == tool.PAUSED_SQL else {'sleeping': True}
+    monkeypatch.setattr(tool, '_json', observe)
     monkeypatch.setattr(tool, '_kill', lambda process: calls.append('kill-wrapper-group'))
     def docker(*args, **kwargs):
         calls.append((args, kwargs))
         return 'PID COMMAND\n7 postgres\n' if args[0] == 'top' else ''
     harness = SimpleNamespace(container='disposable', docker=docker)
-    result = tool._interrupt(harness, scenario,
-                             SimpleNamespace(pid=123, poll=lambda: None), marker)
-    assert result['batch_client_state'] == ('killed_before_commit' if scenario.endswith('before_commit') else 'killed_after_commit')
+    result = tool._interrupt(harness, scenario, SimpleNamespace(pid=123, poll=lambda: 1, returncode=-9), marker)
+    assert result['client_state'] == ('killed_before_commit' if scenario == 'copy_chunk_client_killed'
+                                      else 'killed_after_commit')
     assert calls == ['kill-wrapper-group',
                      (('exec', 'disposable', 'killall', '-KILL', 'psql'), {'check': False}),
                      (('top', 'disposable', '-eo', 'pid,args'), {})]
+    # The pause observed is the phase statement's own, or the post-commit sleep.
+    expected = tool.PAUSED_SQL if scenario == 'copy_chunk_client_killed' else tool.COMMITTED_SLEEP_SQL
+    assert probes[0][0] == expected and probes[-1][0] == tool.ORPHAN_SQL
+    if scenario == 'copy_chunk_client_killed':
+        assert probes[0][1] == {'function': 'v3_meta[.]purge_copy_chunk[(]'}
+
+
+@pytest.mark.parametrize('scenario', ['copy_postgres_restart', 'index_build_backend_terminated', 'verify_watchdog_cancel'])
+def test_external_interruptions_target_only_the_observed_phase_backend(tmp_path, monkeypatch, scenario):
+    marker = _owned_marker(tmp_path, monkeypatch, scenario)
+    calls = []
+    monkeypatch.setattr(tool, '_json', lambda harness, sql, parameters=None: (
+        {'backends': 0} if sql == tool.ORPHAN_SQL else {'pid': 321}))
+    monkeypatch.setattr(tool, '_ready', lambda harness: calls.append('ready'))
+    harness = SimpleNamespace(container='disposable', sql=lambda sql, params=None: calls.append((sql, params)) or 't',
+                              docker=lambda *args: calls.append(args))
+    process = SimpleNamespace(pid=123, poll=lambda: None, wait=lambda timeout: calls.append(('wait', timeout)),
+                              returncode=1)
+    result = tool._interrupt(harness, scenario, process, marker)
+    assert result['observed_fault_point'] == scenario and result['wrapper_returncode'] == 1
+    if scenario == 'copy_postgres_restart':
+        assert calls == [('restart', '--time', '0', 'disposable'), ('wait', 240), 'ready']
+    elif scenario == 'index_build_backend_terminated':
+        statement, params = calls[0]
+        assert statement == tool.TERMINATE_SQL and params == {'pid': 321}
+        assert 'purge_copy_build_indexes' in statement and 'pg_terminate_backend(pid)' in statement
+    else:
+        assert Path(str(marker) + '.trigger').read_text() == 'observed-active-verify\n'
+        assert calls == [('wait', 240)]
 
 
 def test_unrelated_hook_pid_is_not_accepted(tmp_path, monkeypatch):
     marker = tmp_path / 'fault.json'
-    marker.write_text(json.dumps({'scenario': 'batch_client_after_commit', 'pid': 456}))
+    marker.write_text(json.dumps({'scenario': 'swap_committed_client_killed', 'pid': 456}))
     monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 999)
     with pytest.raises(RuntimeError, match='fault_point_not_observed'):
-        tool._interrupt(SimpleNamespace(), 'batch_client_after_commit',
+        tool._interrupt(SimpleNamespace(), 'swap_committed_client_killed',
                         SimpleNamespace(pid=123, poll=lambda: 1), marker)
 
 
-def test_verification_rollback_requires_observed_insert_failure_before_wrapper_is_killed(tmp_path, monkeypatch):
-    scenario = 'rewrite_verified_transaction_failure'
-    marker = tmp_path / 'fault.json'
-    marker.write_text(json.dumps({'scenario': scenario, 'pid': 456,
-                                 'verification_transaction_sqlstate': '22012',
-                                 'verification_event_sequence': 43}))
-    calls = []
-    monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
-    monkeypatch.setattr(tool, '_kill', lambda process: calls.append('kill-wrapper-group'))
-    result = tool._interrupt(SimpleNamespace(), scenario, SimpleNamespace(pid=123, poll=lambda: None), marker)
-    assert result['verification_transaction_rolled_back'] is True
-    assert result['verification_event_sequence_attempted'] == 43
-    assert calls == ['kill-wrapper-group']
-
-
-@pytest.mark.parametrize('proof', [{}, {'verification_transaction_sqlstate': '08006',
-                                       'verification_event_sequence': 43},
-                                  {'verification_transaction_sqlstate': '22012',
-                                   'verification_event_sequence': 0}])
-def test_verification_failure_hook_without_rollback_proof_is_rejected(tmp_path, monkeypatch, proof):
-    scenario = 'rewrite_verified_transaction_failure'
-    marker = tmp_path / 'fault.json'
-    marker.write_text(json.dumps({'scenario': scenario, 'pid': 456, **proof}))
-    monkeypatch.setattr(tool.os, 'getpgid', lambda pid: 123)
-    with pytest.raises(RuntimeError, match='fault_point_not_observed'):
-        tool._interrupt(SimpleNamespace(), scenario, SimpleNamespace(pid=123, poll=lambda: 1), marker)
-
-
-@pytest.mark.parametrize('damage', ['unchanged_node', 'lost_oid', 'lost_before_node', 'verified_insert_committed',
-                                  'status_hides_open_rewrite', 'complete_succeeds'])
-def test_verification_rollback_requires_durable_identity_status_and_completion_refusal(tmp_path, damage):
-    before = _snapshot()
-    interrupted = _snapshot(node=11, starts=1)
-    opened = {'event_kind': 'REWRITE_STARTED', 'relation_code': tool.RELATION, 'event_sequence': 42}
-    if damage == 'unchanged_node':
-        interrupted['relation']['relfilenode'] = 10
-    elif damage == 'lost_oid':
-        interrupted['relation']['rewrite_start']['relation_oid'] = None
-    elif damage == 'lost_before_node':
-        interrupted['relation']['rewrite_start']['relfilenode_before'] = None
-    elif damage == 'verified_insert_committed':
-        interrupted['relation']['rewrite_verifications'] = 1
-    status = {'purge_state': {'unresolved': [] if damage == 'status_hides_open_rewrite' else [opened]}}
-    refusal = {'status': 'stopped', 'purge_state': {'unresolved': [opened]}}
-    harness = SimpleNamespace(output=tmp_path, action=lambda mode: (status,), action_argv=lambda mode: [mode],
-                              command=lambda *args, **kwargs: SimpleNamespace(
-                                  returncode=0 if damage == 'complete_succeeds' else 1, stdout=json.dumps(refusal)))
-    with pytest.raises(ValueError, match='crash_'):
-        tool._unresolved_verification(harness, before, interrupted)
+def test_orphaned_backend_must_exit_before_any_redispatch(monkeypatch):
+    clock = iter(range(0, 10_000, 30))
+    monkeypatch.setattr(tool.time, 'monotonic', lambda: next(clock))
+    monkeypatch.setattr(tool.time, 'sleep', lambda _seconds: None)
+    monkeypatch.setattr(tool, '_json', lambda harness, sql, parameters=None: {'backends': 1})
+    with pytest.raises(RuntimeError, match='crash_orphaned_backend_survived'):
+        tool._wait_no_orphan(SimpleNamespace())
 
 
 @pytest.mark.parametrize('scale,expected', [('tiny', 'tiny'), ('smoke', 'smoke'), ('one_percent', 'smoke')])
@@ -236,104 +201,177 @@ def test_cleanup_failure_revokes_an_otherwise_successful_crash(tmp_path, monkeyp
     assert all(not entry['passed'] and not entry['cleanup_verified'] for entry in result.values())
 
 
+class _Fixture:
+    """A fake harness whose economy_opportunity ledger follows 019's rules."""
+
+    def __init__(self, tmp_path, scenario, *, damage=None):
+        self.output = tmp_path
+        self.environment = {}
+        self.scale = 'smoke'
+        self.counts = {tool.RELATION: {tool.controller.PUBLISHED_KEY: 100}}
+        self.scenario, self.damage = scenario, damage
+        self.events, self.tables = [], {'v3_derived': ORIGINAL}
+        self.attoptions, self.completed, self.rows_total = ['n_distinct=-0.13'], False, None
+        self.postmaster = '2026-10-16T00:00:00+00:00'
+        self.modes = []
+
+    def snapshot(self):
+        return _snapshot(self.events, tables=dict(self.tables), attoptions=self.attoptions,
+                         target_rows=0 if 'DROPPED' in self.events else 100, rows_total=self.rows_total,
+                         completed=self.completed, postmaster=self.postmaster)
+
+    def copy_until_verified(self, name):
+        self.modes.append('copy-until-verified-' + name)
+        if name != tool.MODE:
+            return
+        positional = [kind for kind in self.events if kind != 'FK_VALIDATED']
+        last = positional[-1] if positional else None
+        if last in (None, 'FAILED_STOP'):
+            self.events += ['COPY_STARTED', 'CHUNK_COPIED', 'INDEXES_BUILT']
+        elif last != 'SWAPPED_BACK':
+            started = len(self.events) - 1 - self.events[::-1].index('COPY_STARTED')
+            if 'INDEXES_BUILT' not in self.events[started:]:
+                self.events += ['CHUNK_COPIED', 'INDEXES_BUILT']
+        self.events.append('VERIFIED')
+        self.tables = dict(STAGED)
+        self.rows_total = 100
+
+    def action(self, mode):
+        self.modes.append(mode)
+        report = {'status': 'success'}
+        if mode == 'swap-' + tool.MODE:
+            if self.events[-1] == 'SWAPPED':
+                report['swap_resumed'] = True
+            else:
+                self.events.append('SWAPPED')
+            self.events.append('FK_VALIDATED')
+            self.tables, self.attoptions = dict(SWAPPED), ['n_distinct=-0.270000']
+        elif mode == 'swap-back-' + tool.MODE:
+            if self.events[-1] == 'SWAPPED_BACK':
+                report['swap_back_resumed'] = True
+            else:
+                self.events.append('SWAPPED_BACK')
+            self.events.append('FK_VALIDATED')
+            report['result'] = 'swapped_back_live_restored'
+            self.tables, self.attoptions = dict(STAGED), ['n_distinct=-0.13']
+        elif mode == 'drop-' + tool.MODE:
+            if 'DROPPED' in self.events:
+                report['result'] = 'retired_relation_already_dropped'
+            else:
+                self.events.append('DROPPED')
+            self.tables = {'v3_derived': COPY}
+        elif mode == 'abandon-' + tool.MODE:
+            self.events.append('FAILED_STOP')
+            self.tables = {'v3_derived': ORIGINAL}
+        elif mode == 'status':
+            pending = {'SWAPPED': 'swap-', 'SWAPPED_BACK': 'swap-back-'}.get(self.events[-1])
+            report['next_admissible_mode'] = {'mode': (pending or 'copy-') + tool.MODE}
+        elif mode == 'complete':
+            self.completed = True
+        return {'report': report}
+
+    def number(self, statement):
+        return 0
+
+    def faulted(self, harness, scenario):
+        """What each real interruption leaves behind, committed or not."""
+        if scenario in ('copy_chunk_client_killed', 'copy_postgres_restart'):
+            self.events += ['COPY_STARTED', 'CHUNK_COPIED']
+            self.tables = dict(STAGED)
+            if scenario == 'copy_postgres_restart':
+                self.postmaster = '2026-10-16T00:05:00+00:00'
+        elif scenario == 'index_build_backend_terminated':
+            self.events += ['COPY_STARTED', 'CHUNK_COPIED']
+            self.tables = dict(STAGED)
+        elif scenario == 'verify_watchdog_cancel':
+            self.events += ['COPY_STARTED', 'CHUNK_COPIED', 'INDEXES_BUILT']
+            self.tables = dict(STAGED)
+            return {'observed_fault_point': scenario}, {
+                'failures': ['copy_verify_interrupted'],
+                'copy_phase_failures': [{'monitor_condition': 'controller_loss',
+                                         'sqlstate': 'XX000' if self.damage == 'sqlstate' else '57014'}]}
+        elif scenario == 'swap_committed_client_killed':
+            self.events.append('SWAPPED')
+            self.tables, self.attoptions = dict(SWAPPED), ['n_distinct=-0.13']
+        elif scenario == 'swap_back_committed_client_killed':
+            self.events.append('SWAPPED_BACK')
+            self.tables = dict(STAGED)
+            self.attoptions = ['n_distinct=-0.270000'] if self.damage == 'statistics' else ['n_distinct=-0.13']
+        elif scenario == 'drop_committed_client_killed':
+            self.events.append('DROPPED')
+            self.tables = {'v3_derived': COPY}
+        return {'observed_fault_point': scenario}, None
+
+
+def _run(tmp_path, monkeypatch, scenario, *, damage=None):
+    fixture = _Fixture(tmp_path, scenario, damage=damage)
+    monkeypatch.setattr(tool, '_prepare', lambda harness: harness.modes.append('prepare'))
+    monkeypatch.setattr(tool, 'snapshot', lambda harness: harness.snapshot())
+    monkeypatch.setattr(tool, '_faulted', fixture.faulted)
+    return fixture, tool.run_scenario(fixture, scenario)
+
+
 @pytest.mark.parametrize('scenario', tool.CRASH_SCENARIOS)
-def test_scenario_uses_dispatch_recovery_and_verified_noop_retry(tmp_path, monkeypatch, scenario):
-    calls = []
-    is_batch = scenario.startswith('batch_client_')
-    before = _snapshot(target_rows=100 if is_batch else 0)
-    interrupted = deepcopy(before)
-    interrupted['relation']['monitor_cancellations'] = 1
-    if scenario == 'batch_client_after_commit':
-        interrupted['relation']['target_rows'] = 90
-    if scenario == 'rewrite_postgres_restart':
-        interrupted['relation']['postmaster_started'] = '2026-10-16T00:01:00+00:00'
-    if scenario in ('wrapper_after_rewrite_commit', 'rewrite_verified_transaction_failure'):
-        interrupted['relation']['relfilenode'] = 11
-    if scenario == 'rewrite_verified_transaction_failure':
-        interrupted['relation']['rewrite_starts'] = 1
-    recovered = _snapshot(node=11, verified=1, starts=1)
-    observed = iter([before, interrupted, recovered, deepcopy(recovered)])
-    monkeypatch.setattr(tool, 'snapshot', lambda harness: next(observed))
-    monkeypatch.setattr(tool, '_prepare', lambda harness, **kwargs: calls.append(('prepare', kwargs)))
-    monkeypatch.setattr(tool, '_interrupt', lambda *args: {'observed_fault_point': scenario})
-    process = SimpleNamespace(poll=lambda: 1)
-    monkeypatch.setattr(tool.subprocess, 'Popen', lambda *args, **kwargs: process)
-    opened = {'event_sequence': 42, 'event_kind': 'REWRITE_STARTED', 'relation_code': tool.RELATION}
-    def action(mode):
-        calls.append(mode)
-        return {'purge_state': {'unresolved': [opened]}}, Path('/status'), 0, 0, 0
-    harness = SimpleNamespace(output=tmp_path, environment={}, scale='smoke',
-                              counts={tool.RELATION: {tool.controller.PUBLISHED_KEY: 100}},
-                              action_argv=lambda mode: ['real-purge-action', mode],
-                              action=action, observe=lambda *args: '0',
-                              command=lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=json.dumps({
-                                  'status': 'stopped', 'purge_state': {'unresolved': [opened]}})),
-                              plan_batch_limit=lambda relation: 10)
-    result = tool.run_scenario(harness, scenario)
-    assert result['passed'] is True
-    assert result['recovered_analyze_verified'] is True
-    assert result['no_double_rewrite'] is True
-    assert calls[0] == ('prepare', {'delete_vector': not is_batch})
-    assert calls[1] == ('status' if scenario == 'rewrite_verified_transaction_failure' else 'restore-services')
-    assert calls[-3:] == ['rewrite-system-rating-vector', 'rewrite-system-rating-vector', 'complete']
-    assert ('delete-system-rating-vector' in calls) is is_batch
+def test_every_scenario_resumes_through_the_real_modes_and_completes(tmp_path, monkeypatch, scenario):
+    fixture, result = _run(tmp_path, monkeypatch, scenario)
+    assert result['passed'] is True and result['published_fingerprints_unchanged'] is True
+    assert fixture.modes[:2] == ['prepare', 'preflight-' + tool.MODE]
+    # Every remaining relation finishes through drop, then 019's COMPLETED.
+    assert fixture.modes[-9:] == ['preflight-body-mechanics', 'copy-until-verified-body-mechanics',
+                                  'swap-body-mechanics', 'drop-body-mechanics',
+                                  'preflight-system-rating-vector', 'copy-until-verified-system-rating-vector',
+                                  'swap-system-rating-vector', 'drop-system-rating-vector', 'complete']
+    assert fixture.events.count('DROPPED') == 1 and fixture.completed is True
+    if scenario == 'swap_committed_client_killed':
+        assert result['status_next_mode'] == {'mode': 'swap-' + tool.MODE}
+    if scenario == 'swap_back_committed_client_killed':
+        assert result['status_next_mode'] == {'mode': 'swap-back-' + tool.MODE}
+    if scenario == 'abandon_and_recopy':
+        assert fixture.events.count('COPY_STARTED') == 2
+    if scenario == 'drop_committed_client_killed':
+        assert fixture.modes.count('drop-' + tool.MODE) == 1
 
 
-@pytest.mark.parametrize('damage', ['missing_recovered_flag', 'wrong_oid', 'wrong_after_node', 'new_rewrite_start'])
-def test_failed_verification_recovery_must_use_changed_node_and_recovered_event(tmp_path, monkeypatch, damage):
-    before = _snapshot()
-    interrupted = _snapshot(node=11, starts=1)
-    recovered = _snapshot(node=11, verified=1, starts=1)
-    verified = recovered['relation']['rewrite_verified']
-    if damage == 'missing_recovered_flag':
-        verified['recovered'] = False
-    elif damage == 'wrong_oid':
-        verified['relation_oid'] = 124
-    elif damage == 'wrong_after_node':
-        verified['relfilenode_after'] = 12
-    else:
-        recovered['relation']['rewrite_starts'] = 2
-    observed = iter([before, interrupted, recovered, deepcopy(recovered)])
-    monkeypatch.setattr(tool, 'snapshot', lambda harness: next(observed))
-    monkeypatch.setattr(tool, '_prepare', lambda *args, **kwargs: None)
-    monkeypatch.setattr(tool, '_interrupt', lambda *args: {})
-    monkeypatch.setattr(tool, '_unresolved_verification', lambda *args: {})
-    monkeypatch.setattr(tool.subprocess, 'Popen', lambda *args, **kwargs: SimpleNamespace(poll=lambda: 1))
-    harness = SimpleNamespace(output=tmp_path, environment={}, scale='tiny',
-                              counts={tool.RELATION: {tool.controller.PUBLISHED_KEY: 100}},
-                              action_argv=lambda mode: [mode], action=lambda mode: None)
-    with pytest.raises(ValueError, match='crash_verification_recovery_repeated_or_not_recovered'):
-        tool.run_scenario(harness, 'rewrite_verified_transaction_failure')
-
-
-@pytest.mark.parametrize('progress,active', [
-    ({}, False), ({'pid': 42, 'heap_tuples_written': 0}, False),
-    ({'pid': 42, 'heap_tuples_written': 1}, True),
+@pytest.mark.parametrize(('scenario', 'damage', 'code'), [
+    ('verify_watchdog_cancel', 'sqlstate', 'crash_watchdog_did_not_cancel_verify'),
+    ('swap_back_committed_client_killed', 'statistics', 'crash_committed_swap_back_not_observed'),
 ])
-def test_mid_rewrite_requires_tuples_already_physically_copied(monkeypatch, progress, active):
-    monkeypatch.setattr(tool, '_json', lambda harness, statement: progress)
-    assert bool(tool._active_rewrite(SimpleNamespace())) is active
+def test_a_scenario_that_does_not_show_its_exact_fault_effect_fails(tmp_path, monkeypatch, scenario, damage, code):
+    with pytest.raises(ValueError, match=code):
+        _run(tmp_path, monkeypatch, scenario, damage=damage)
 
 
-@pytest.mark.parametrize('scenario', tool.CRASH_SCENARIOS)
-def test_only_external_crash_survivor_vectors_augmented_and_measurement_untouched(scenario):
-    counts = {relation: {tool.controller.PUBLISHED_KEY: 100, 'target': 200} for relation in tool.RELATIONS}
-    measurement = SimpleNamespace(counts=counts)
-    crash = SimpleNamespace(counts=counts, scale='smoke')
-    actual = tool.configure_fixture(crash, scenario)
-    assert measurement.counts is counts
-    assert counts[tool.RELATION][tool.controller.PUBLISHED_KEY] == 100
-    expected = deepcopy(counts)
-    if scenario in ('rewrite_monitor_cancel', 'rewrite_terminate_backend', 'rewrite_postgres_restart'):
-        expected[tool.RELATION][tool.controller.PUBLISHED_KEY] = 2_000_000
-    assert actual == expected
-    assert crash.counts is not counts
+def test_a_restart_that_did_not_restart_postgres_fails(tmp_path, monkeypatch):
+    fixture = _Fixture(tmp_path, 'copy_postgres_restart')
+    original = fixture.faulted
+    def faulted(harness, scenario):
+        result = original(harness, scenario)
+        fixture.postmaster = '2026-10-16T00:00:00+00:00'
+        return result
+    monkeypatch.setattr(tool, '_prepare', lambda harness: None)
+    monkeypatch.setattr(tool, 'snapshot', lambda harness: harness.snapshot())
+    monkeypatch.setattr(tool, '_faulted', faulted)
+    with pytest.raises(ValueError, match='crash_postgres_not_restarted'):
+        tool.run_scenario(fixture, 'copy_postgres_restart')
 
 
-def test_tiny_crash_fixture_is_never_augmented():
+def test_unknown_scenario_is_refused_before_any_fixture_work(tmp_path):
+    with pytest.raises(ValueError, match='unknown_crash_scenario'):
+        tool.run_scenario(SimpleNamespace(), 'rewrite_monitor_cancel')
+
+
+def test_configure_fixture_never_changes_the_crash_scale_counts():
     counts = {tool.RELATION: {tool.controller.PUBLISHED_KEY: 200}}
-    fixture = SimpleNamespace(counts=counts, scale='tiny')
-    assert tool.configure_fixture(fixture, 'rewrite_postgres_restart') == counts
+    fixture = SimpleNamespace(counts=counts, scale='smoke')
+    assert tool.configure_fixture(fixture, 'copy_postgres_restart') == counts
+    assert fixture.counts is not counts
+
+
+def test_fault_modes_name_only_fixed_copy_modes_and_scenarios():
+    assert set(tool.FAULT_MODES) == set(tool.MARKED)
+    assert set(tool.MARKED) | {'swap_back_and_reswap', 'abandon_and_recopy'} == set(tool.CRASH_SCENARIOS)
+    from scripts.operator.lib import v3_purge_rehearsal as adapter
+    assert set(adapter.STATEMENT_FAULTS) | set(adapter.COMMITTED_FAULTS) == set(tool.MARKED)
 
 
 def test_idle_client_already_gone_is_accepted_but_a_survivor_is_not(monkeypatch):
@@ -353,3 +391,12 @@ def test_idle_client_already_gone_is_accepted_but_a_survivor_is_not(monkeypatch)
         tool._wait_no_psql_client(survivor)
     with pytest.raises(RuntimeError, match='crash_container_process_listing_unknown'):
         tool._psql_clients(SimpleNamespace(container='c', docker=lambda *a, **k: ''))
+
+
+def test_snapshot_queries_are_observer_reads_with_bound_generation():
+    assert 'SET ROLE' not in tool.POINTER_OBSERVATION_SQL and 'SET ROLE' not in tool.STATE_SQL
+    assert "derived_generation_id<>%(published)s::uuid" in tool.STATE_SQL
+    assert tool.STATE_SQL.count("'economy_opportunity'") >= 3
+    assert all(statement.rstrip().endswith(';') for statement in (
+        tool.STATE_SQL, tool.ORPHAN_SQL, tool.PAUSED_SQL, tool.COMMITTED_SLEEP_SQL, tool.TERMINATE_SQL))
+    assert deepcopy(tool.RELATIONS) == ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector')

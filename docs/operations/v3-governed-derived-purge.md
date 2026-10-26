@@ -1,14 +1,177 @@
-# V3 governed derived purge (through P2d)
+# V3 governed derived purge (through P2d; copy-and-drop route)
 
-This runbook covers the P2a entry fences and installed backup wrapper, and the
-P2b1 read-only and single-transaction purge action, P2b2a bounded delete
-and recovery phases, P2b2b physical rewrite and its independent monitor, and the
-P2c protected dispatch workflow and P2d disposable rehearsal. The
+This runbook covers the P2a entry fences and installed backup wrapper, the
+P2b1 read-only and single-transaction purge action, the P2c protected dispatch
+workflow, the P2d disposable rehearsal, and — since migration 019 — the
+**copy-and-drop route** (`preflight-R`, `copy-R`, `swap-R`, `swap-back-R`,
+`drop-R`, `abandon-R`, `complete`) that replaces 016's bounded deletes and
+`VACUUM FULL` rewrites. The
 [governed purge design](../development/v3-governed-derived-purge-design.md)
-remains the execution-gate authority. The approximately 1% disposable PostgreSQL
+remains the execution-gate authority for everything the copy route reuses
+(gates 1–10, the host lease, the ledger-driven fences, `restore-services`), and
+the owner-accepted [copy-and-drop design](../development/v3-purge-copy-and-drop-design.md)
+is the authority for the route itself. The approximately 1% disposable PostgreSQL
 18 rehearsal must pass and be reviewed; the protected workflow does not itself satisfy
 the design's owner execution gates. No production operation follows from merging
 this code.
+
+**016's `delete-R` and `rewrite-R` modes are disabled** (owner answer 6 of the
+copy-and-drop design). The protected workflow no longer offers them, the
+workflow helper refuses them before approval or SSH, and the action refuses
+them with `delete_rewrite_modes_disabled_by_copy_and_drop_design`. Their
+sections below are retained as the description of what the recovery paths
+(`restore-services`, `abort-relation-R`) still resolve, not as dispatchable
+phases.
+
+## Copy-and-drop route (migration 019)
+
+### Preconditions (all of them, before step 1 below)
+
+1. Migration `019` is applied (production: 2026-10-26, apply run 40338736148)
+   and the installed backup wrapper is the committed one that reads
+   `v3_meta.purge_copy_backup_skip()` (re-run `v3-backup-wrapper-install`
+   after this code merges; the installer now refuses unless 019 is applied).
+2. **A full pgBackRest backup immediately before step 1**, reviewed as
+   `status: ok`, and **another full backup after `COMPLETED`**. Scheduled
+   backups SKIP from each relation's `COPY_STARTED` until its `DROPPED` or
+   abandonment (owner answer 8), so the pre-copy full backup is the recovery
+   point for the whole route; WAL archiving continues throughout.
+3. **A backup heartbeat alert exists** — separate work, not built here — that
+   pages the owner when no successful pgBackRest backup has completed for a
+   reviewed interval. Without it a stalled copy would skip backups silently
+   (F16). `status` reports `backup_age_hours` and `copy_state_hours` so the
+   owner can check by hand in the meantime.
+4. **`GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor`**
+   has been applied by the owner. `temp_file_limit` is a superuser-set
+   parameter and 019 does not grant it; every long phase sets
+   `SET LOCAL temp_file_limit='32GB'` and refuses with
+   `temp_file_limit_privilege_missing` until the grant exists. This is a
+   production catalog change that needs its own reviewed step (a migration
+   `020` or an owner-run statement recorded in evidence).
+5. The owner has read the 2026-10-26 external review's findings as reflected
+   here: the operator sets every timeout (F5), the swap stall is bounded by the
+   operator's 8 s statement cap and not by 019's 2 s lock timeout (F4), and
+   the retired table is the only undo until `drop-R`.
+
+### What each mode does (one owner approval each)
+
+| Mode | What runs | Locks held |
+| --- | --- | --- |
+| `preflight-R` | Read-only (owner session for the catalog reads 019 revoked from the executor): exact dependents equal the fixed children/views, no disabled or commented live trigger, no dependent view with options, no `indisclustered` live index, live shape inside the generator contract, `age(relfrozenxid)` of all four live heaps/TOAST under 80% of `autovacuum_freeze_max_age`, and for Search one scan of the published survivors counting rows that violate each of 010's `NOT VALID` checks (the staging copy enforces them). Any failure refuses. Runs on its own and again automatically before `copy-R` starts a relation (the survivor scan only before `prepare`). | host lease |
+| `copy-R` | Resumable. From the ledger: `prepare` → bounded chunk loop (≤ 100,000 rows per transaction, one chunk per transaction, `wall_clock_seconds` 1–9000 budget) → `build_indexes` → `VACUUM (FREEZE, ANALYZE)` → `verify`. Before **every** chunk gate 2 is re-measured (free bytes ≥ 100 GB + 1.5 × the largest measured per-chunk growth, archiver not failing, no slot retaining WAL, `pg_wal` on the data filesystem, named workers stopped) and the loop throttles while the WAL written since the latest checkpoint's REDO point ≥ 0.9 × `max_wal_size` or the archiver lags more than 256 segments. The REDO point comes from `pg_controldata` in the pinned container (run as the server's OS user, like the data-directory read): the `pg_wal` directory itself keeps recycled segments up to about `max_wal_size` after a write burst and an idle server skips checkpoints, so a directory-size throttle could wait forever. Before `prepare` the free bytes must also cover the plan's `copy.relations[R].required_free_bytes_before_copy` (floor + 1.5 × the copy peak the reviewed copy-route rehearsal measured and extrapolated; design §1.6). Each long phase waits for the archiver to be within 16 segments, re-checks gate 2 counting expected index size, temp space and `max_wal_size`, runs under the root-owned watchdog with `pg_stat_progress_create_index`/`pg_stat_progress_vacuum` polling, and only starts when the remaining dispatch budget (9000 s) covers its 7200 s statement timeout plus margin; otherwise the receipt says `copy_long_phase_deferred_to_next_dispatch` and the next `copy-R` resumes there. The VACUUM is throttled (`vacuum_cost_delay 10ms`, `vacuum_cost_limit 1000`). F12: after the VACUUM the staging `age(relfrozenxid)` must not exceed the XIDs consumed during the VACUUM plus 10,000, and never 1,000,000; a resumed dispatch whose freeze aged out freezes again. | host lease, backup schedule lock |
+| `swap-R` | `purge_copy_swap` with up to 12 attempts (backoff 2,4,8,15,30,30,60… s), each attempt capped by an 8 s statement timeout and retried only on lock/statement timeout; then `purge_copy_validate_fks` (long phase, watchdog); then a read-only Finder smoke through the active origin (`/api/health`, one ranked `/api/archetypes/rankings`, one ranked `/api/local/search`); for `economy_opportunity` the F7 recalibration (count rows and distinct `system_id64` on the new live table, `ALTER TABLE … SET (n_distinct = -(distinct/rows))` as the owner, `ANALYZE … (system_id64)`, then `EXPLAIN` of the archetype chunk read must show a Nested Loop over `economy_opportunity_pkey`). Before the `ALTER` the restore value (the live and retired tables' `system_id64` attribute options) is written to the root-owned host state `/var/lib/ed-finder/v3-production/derived-purge-copy-statistics.json` and travels in the receipt (`n_distinct_recalibration.host_state`); 019's ledger has no event for a statistics option. Idempotent: a re-dispatch after a swap repeats only the post-swap steps — a committed swap whose FK validation or smoke was lost resumes there (`swap_resumed: true`, `status` names `swap-R`), and a recalibration whose option is already set re-runs only `ANALYZE` and the plan proof. The receipt records every attempt's duration and `measured_stall_seconds`. | host lease, backup schedule lock |
+| `drop-R` | Requires VERIFIED, SWAPPED, FK_VALIDATED; the Finder smoke must pass again immediately before; then `purge_copy_drop` (`RESTRICT`, same retry/cap as the swap). Records freed bytes and WAL bytes. A drop whose response was lost has committed: a re-dispatch reports `retired_relation_already_dropped` and changes nothing. The next mode is the next relation's `copy-R` (or `complete`). | host lease, backup schedule lock |
+| `swap-back-R` | The undo between swap and drop: `purge_copy_swap_back` (same retry/cap), `purge_copy_validate_fks`, Finder smoke. For `economy_opportunity` the swap-back runs in **one owner transaction** that first restores the retired table's `system_id64` attribute options on the copy (019's swap-back compares attribute options exactly with the retired table, and swap-R recalibrated them), then calls the executor's `purge_copy_swap_back`; both commit or neither does (`n_distinct_restore` before/after in the receipt). Resumable: a committed swap-back whose FK validation was interrupted (`staged`, `SWAPPED_BACK`, child FKs `NOT VALID`; `status` names `swap-back-R`) skips the physical swap-back and finishes validation and the smoke (`swap_back_resumed: true`); `copy-R` refuses to re-verify until then (`swap_back_fk_validation_pending`). The relation returns to `staged`; the owner then re-verifies through `copy-R` or abandons. | host lease, backup schedule lock |
+| `abandon-R` | Drops an unswapped staging copy (`FAILED_STOP` with `abandoned: true`); live data untouched; the relation can restart. | host lease, backup schedule lock |
+| `complete` | Reads 019's state: every relation DROPPED, nothing staged or retired, zero target rows, pointers and survivors unchanged; appends 019's `COMPLETED`. **016's own ledger never reaches COMPLETED on this route** (it has no `REWRITE_VERIFIED`); `status` reports the copy request's `completed`. | host lease, backup schedule lock |
+
+Every mode is a separate owner-approved `v3-production` environment run of
+the protected workflow, holds its locks for its whole life, and the job stays
+attached until the remote action exits (no detached work, exactly as before).
+
+**A still-running earlier backend refuses the next dispatch.** 019 serializes
+copy operations with `pg_try_advisory_xact_lock(764019001)` and raises `P0001`
+(`competing purge copy operation`) while another transaction holds it; reduced
+to its SQLSTATE that would read as an integrity failure. Every mutating copy
+dispatch and `complete` therefore first refuses with
+`competing_purge_copy_backend_active` (retryable; `next_admissible_mode:
+status`) while any other backend holds that lock or runs a mutating
+`purge_copy_*` function — for example the orphaned backend of an interrupted
+dispatch, which keeps running until its statement ends (a chunk within 300 s).
+Wait and re-dispatch; nothing was written.
+
+**Timeouts are the operator's (F5).** Measured on PostgreSQL 18.4: a
+function-level `SET statement_timeout` does **not** bound the function's own
+call (the timer is armed when the statement starts, before the function's
+settings apply), so 019's `SET statement_timeout='60s'` clauses bound nothing.
+Every 019 call therefore runs inside a transaction that first sets
+`SET LOCAL statement_timeout` and `SET LOCAL lock_timeout` from the reviewed
+table in `scripts/operator/lib/v3_purge_copy.py` (`PHASES`): prepare 60 s,
+chunk 300 s, swap/swap-back/drop/abandon 8 s with a 400 ms lock request,
+record-failure 60 s, complete 300 s, and 7,200,000 ms (the workflow's reviewed
+envelope) for index build, VACUUM FREEZE, verify, FK validation and the
+opportunity statistics count. `tests/test_v3_purge_copy_operator_pg18.py`
+proves on PG 18 that the bound comes from the caller.
+
+**The swap stall (F4).** Also measured on PG 18.4: 019's function-level
+`SET lock_timeout='2s'` **wins** over the caller's `SET LOCAL lock_timeout`,
+so each of the vector swap's lock acquisitions may still wait 2 s. What bounds
+one attempt is the operator's 8 s statement timeout: an attempt that stalls
+longer is cancelled, rolls back, releases its locks and is retried with
+backoff, so Finder reads queue behind a swap attempt for at most about 8 s
+(under the API's 15 s read timeout). The receipt's `swap_attempts` and
+`measured_stall_seconds` record what happened; the rehearsal must record the
+measured stall. **Required 019 change (not made here — 019 is applied and its
+bytes are pinned in the schema identity):** drop or lower the `SET
+lock_timeout='2s'` on `purge_copy_swap`, `purge_copy_swap_back`,
+`purge_copy_drop` and `purge_copy_abandon` so the operator's sub-second
+`SET LOCAL lock_timeout` governs; the 019 closing comment that says bulk
+phases "inherit the operator's per-dispatch statement_timeout" and that
+timeouts are "pinned on each public entry point" is misleading for
+`statement_timeout` and must be corrected in that same future migration.
+
+**Resumability (F2).** 019's `build_indexes` and `verify` are single calls, so
+a phase cannot resume mid-way without SQL changes (a per-index
+`purge_copy_build_index(purge, relation, index_name)` and a per-chunk-range
+verify would be needed). The operator therefore resumes at phase granularity:
+a long phase that is cancelled, times out or loses its backend rolls back and
+leaves the ledger phase unchanged, and the next `copy-R` dispatch re-enters
+it; only an integrity failure (SQLSTATE `P0001`, `23514`, `23502`, `23503`,
+`23505`) records `FAILED_STOP` through `purge_copy_record_failure`, after which
+only `swap-back-R` and `abandon-R` remain for that relation.
+
+**Watchdog (F3).** Every long phase runs under the same root-owned
+`systemd-run` watchdog as the 016 rewrite (unit
+`edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,
+PID and `backend_start`. It cancels on the free-space requirement of that
+phase, WAL placement, both archiver predicates, slot health, controller loss,
+and a WAL ceiling of 2 × `max_wal_size` on disk. 019 provides no cancel definer, so the
+copy watchdog cancels through the owner session's authenticated
+`pg_cancel_backend` (exact PID and `backend_start`, this database, the owner's
+active client backend running one of the fixed phase statements); it records
+the condition beside its config (`<unit>.json.condition`) and the controller
+copies it into the receipt (`copy_phase_failures[].monitor_condition`). The
+controller's own watch callback (stop requests, controller liveness, progress
+polling) runs only once the phase backend has been set up and yielded: the
+identity and session set-up queries run without it.
+
+**Hard rule (F16): any relation left `staged` or `swapped` for more than 24
+hours must be finished, swapped back or abandoned.** `status` reports
+`copy_state_hours` (with `over_24h_rule: true` when breached) and
+`backup_age_hours`; while `purge_copy_backup_skip()` is true no scheduled
+backup runs.
+
+### Order and approvals
+
+Children before parents, each DROP funding the next copy (design §1.6):
+
+1. `plan` (with the reviewed **copy-route** rehearsal receipt, schema v3) → 2. `authorize` →
+3. `verify-system-archetype-empty` — as before.
+4. `system_search`: `preflight-` → `copy-` (2–3 dispatches expected; each
+   re-dispatch resumes) → `swap-` → `drop-` (same day, once the Finder answers
+   and every re-pointed FK validated).
+5. `economy_opportunity`: the same four (its `swap-` also recalibrates
+   `n_distinct`).
+6. `body_mechanics`: the same four.
+7. `system_rating_vector`: the same four.
+8. `complete`.
+
+That is **about 14–20 approvals** (3 + 4 × 4 + 1, plus extra `copy-R`
+dispatches for Search and any `swap-back-R`/`abandon-R`), not about 300.
+
+### What the owner sees
+
+Each receipt carries `copy_state` (before), `copy_state_after`, `copy_steps`,
+`copy_gate`/`copy_phase_gates`, `copy_progress` (the last progress-view
+sample), `wal_phase_bytes` (WAL bytes per phase, F8), `phase_timeouts`,
+`copy_preflight`, `swap_attempts`/`measured_stall_seconds`, `finder_smoke`,
+`n_distinct_recalibration` (before/after, `host_state`), `n_distinct_restore`
+(swap-back), `swap_resumed`/`swap_back_resumed`, `competing_copy_backends`,
+`wal_throttle` (`wal_since_checkpoint_bytes`, `wal_directory_bytes`),
+`staging_freeze`,
+`temp_file_limit_privilege`, `skipped_scheduled_backups`, and
+`next_admissible_mode`. `status` adds `copy_status` (019's
+`purge_copy_status()`), `copy_state_hours` and `backup_age_hours`.
 
 Governed production mutators, except the fixed host clean-up described below,
 first read the operating database's purge ledger and non-blockingly probe
@@ -31,6 +194,16 @@ including the pre-014 prefix. A progressed prefix needs a fresh plan when the
 relation is still absent. Once 016 is recorded, absence always refuses. A held
 purge lease refuses even this bootstrap. Read-only migration `plan` remains
 available for diagnosis.
+
+Since 019 the same fence also reads the copy-and-drop ledger: it refuses with
+`purge_copy_backup_skip` while `v3_meta.purge_copy_backup_skip()` is true and
+with `purge_copy_relation_staged`/`purge_copy_relation_swapped` while any
+relation sits between `COPY_STARTED` and `DROPPED` or abandonment, so no
+deploy, migration, publication or build can start mid-copy. An absent 019
+relation or function refuses with `purge_copy_ledger_absent` everywhere except
+the schema apply whose authenticated pending suffix ends in
+`019_v3_purge_copy_and_drop.sql` (the same exact-prefix rule as 016's); in
+production 019 is applied, so that bootstrap is historical.
 
 ## Installation order
 
@@ -59,9 +232,12 @@ After the required code has merged and execution gates permit the operation:
 The standalone installed wrapper uses pinned local `psql` credentials by role
 name, never a password argument or environment file. Before backup/verify it
 skips only for an open destructive record whose recorded PID **and**
-`backend_start` still match `pg_stat_activity` in the operating database. It logs
-that record. Dead backends do not suppress backups; missing ledger or query
-failure exits non-zero before starting pgBackRest. See the
+`backend_start` still match `pg_stat_activity` in the operating database, and
+— since 019 — whenever `v3_meta.purge_copy_backup_skip()` is true (a relation
+between `COPY_STARTED` and `DROPPED`/abandonment, or a staging/retired table
+present). It logs each skip. Dead backends do not suppress backups; missing
+ledger or function, a query failure, or any value other than the exact
+booleans exits non-zero before starting pgBackRest. See the
 [backup boundary](../../deploy/v3-production/backup/README.md).
 
 ## Entry-point classification
@@ -225,16 +401,16 @@ of the dedicated purge workflow. No mutating purge mode is available in ops.
 
 | Input | Meaning and admission |
 | --- | --- |
-| `mode` | One literal choice from the action's closed list: `plan`, `status`, `authorize`, `verify-system-archetype-empty`, the four `delete-`, four `rewrite-`, four `abort-relation-` choices, `restore-services`, or `complete`. Relation suffixes are only `system-search`, `economy-opportunity`, `body-mechanics`, and `system-rating-vector`. |
+| `mode` | One literal choice from the action's closed list: `plan`, `status`, `authorize`, `verify-system-archetype-empty`, the four each of `preflight-`, `copy-`, `swap-`, `swap-back-`, `drop-`, `abandon-` and `abort-relation-`, `restore-services`, or `complete`. Relation suffixes are only `system-search`, `economy-opportunity`, `body-mechanics`, and `system-rating-vector`. `delete-` and `rewrite-` are disabled and refused. |
 | `confirm_target` | Must equal `ed-finder-prod/nb79a3d.mevnode.com` exactly. |
 | `plan_run_id` | Digits-only ID of the successful dedicated-workflow `plan` run on `main`. Required for every mode except `plan` and `status`. |
 | `plan_sha256` | The plan receipt's 64-character lowercase hexadecimal `content_sha256`, reviewed with that run's artifact. Required with `plan_run_id`; this is the external receipt seal, distinct from the nested database `plan_sha256`. |
-| `verification_run_id` | Digits-only ID of the successful dedicated-workflow `verify-system-archetype-empty` run on `main`. Required for delete, rewrite, abort, `restore-services`, and `complete`. |
+| `verification_run_id` | Digits-only ID of the successful dedicated-workflow `verify-system-archetype-empty` run on `main`. Required for copy, swap, swap-back, drop, abandon, abort, `restore-services`, and `complete`; refused for `preflight-`. |
 | `verification_sha256` | The successful exclusion-verification receipt's 64-character lowercase hexadecimal `content_sha256`. Required with `verification_run_id`. |
 | `rehearsal_run_id` | Digits-only ID of the successful [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml) `one_percent` run on `main`. **Required for `plan`** and refused for every other mode. |
 | `rehearsal_sha256` | That run's reviewed `rehearsal-receipt.json` `content_sha256` (64 lowercase hex). Required with `rehearsal_run_id`. |
 | `acknowledge_failed_stop` | Optional digits-only ledger event sequence, admitted only for `restore-services`. After owner review it acknowledges the exact integrity-failed stop for writer restoration; it authorizes no repair or continuation past that stop. |
-| `wall_clock_seconds` | Required integer delete-loop budget, 1–1800 seconds. Leave blank for every other mode. It is not a rewrite timeout or a maintenance-window estimate. |
+| `wall_clock_seconds` | Required integer `copy-R` chunk-loop budget, 1–9000 seconds. Leave blank for every other mode. It is not a phase timeout or a maintenance-window estimate; long phases have their own reviewed 7200 s bound and start only when the 9000 s dispatch budget still covers them. |
 
 For each imported artifact the workflow authenticates GitHub's run identity,
 the same repository and workflow, `main`, successful completion and producing
@@ -278,36 +454,37 @@ order, reviewing each receipt before approving the next phase:
    a plan no older than one hour from the exact current execution head; an expired
    plan or a source change needs a fresh plan and review. Both the workflow
    (before SSH) and the action refuse a plan without the reviewed one-percent
-   rehearsal binding (`plan_rehearsal_figures_required`): authorization binds
-   the plan to every later phase, so a figure-less plan could authorize but never
-   delete, rewrite or abort.
+   copy-route rehearsal binding (`plan_rehearsal_figures_required`):
+   authorization binds the plan to every later phase, so a plan without the
+   reviewed `copy` block (sourced `reviewed_rehearsal:<receipt sha>` for every
+   relation) could authorize but never copy.
    This marks both immutable targets `FAILED` without deleting payload.
 3. `verify-system-archetype-empty` with the same plan inputs. Review and retain
    its successful sealed artifact, run ID and `content_sha256`. An archetype or
    cluster target row stops the purge; there is no delete mode for those tables.
-4. `delete-system-search`, repeating that same mode as needed until both target
-   counts are zero; then `rewrite-system-search`. Supply both authenticated
-   artifact pairs to every dispatch. Review verified physical reclamation and
-   restored autovacuum before advancing.
-5. `delete-economy-opportunity`, then `rewrite-economy-opportunity`; next
-   `delete-body-mechanics`, then `rewrite-body-mechanics`; finally
-   `delete-system-rating-vector`, then `rewrite-system-rating-vector`. Repeat
-   bounded deletes where needed, always completing and reviewing one relation's
-   rewrite before starting the next relation.
+4. For each relation in order (Search, opportunity, mechanics, rating vector):
+   `preflight-R`, then `copy-R` (re-dispatch until the receipt says
+   `copy_verified_ready_for_swap`), then `swap-R`, then `drop-R` the same day.
+   Supply both authenticated artifact pairs to every dispatch except
+   `preflight-R` (plan only). See "Copy-and-drop route" above.
+5. (The former `delete-`/`rewrite-` steps are disabled.)
 6. `complete` with both artifact pairs. Review its completion receipt: zero
-   target rows alone do not establish reclamation or completion.
+   target rows alone do not establish reclamation or completion; 019's
+   `COMPLETED` does.
 
-P2d's reviewed rehearsal figures must be present in the sealed plan **before**
-any delete, rewrite, or abort dispatch can run. The protected workflow transports
-the authenticated rehearsal receipt to the plan invocation as described above
-(superseding the earlier note that it had no such input); a plan without it is
-refused by the workflow, and `authorize` refuses a plan that lacks the binding.
-Do not bypass the protected workflow or edit a downloaded plan. Per relation,
-review `delete[relation].rows_per_second`, `rows_per_second_source`,
-`rewrite_allowance_seconds`, `autovacuum_budget_bytes`, and `batch_peak_bytes`,
-plus `rewrite[relation].rewrite_peak_bytes` and `statement_timeout_ms`; JSON
-relation keys use underscores. A conservative throughput fallback is not a
-rehearsal measurement.
+The reviewed **copy-route** rehearsal figures (receipt schema
+`ed-finder/derived-purge-rehearsal/v3`) must be present in the sealed plan
+**before** any copy dispatch can run. The protected workflow transports the
+authenticated rehearsal receipt to the plan invocation as described above; a
+plan without it is refused by the workflow, and `authorize` refuses a plan that
+lacks the binding. The 2026-10-24 receipt (run 40074011789, schema v2) measured
+the disabled delete/rewrite route and is refused (`rehearsal_schema_invalid`):
+a new one-percent copy-route rehearsal is required. Do not bypass the protected
+workflow or edit a downloaded plan. Per relation, review
+`copy.relations[relation].required_free_bytes_before_copy`, `copy_peak_bytes`,
+`copy_peak_source` and its `rehearsal` figures (`copy_rows_per_second`,
+`long_phase_seconds_max`, `long_phase_fits_reviewed_timeout`); JSON relation
+keys use underscores.
 
 On interruption, inspect `status` first. An open writer/service fence requires
 `restore-services`, using both artifact pairs, before a fresh destructive phase;
@@ -332,15 +509,22 @@ review those receipts before proceeding. The general artifact is
 `v3-derived-purge-receipt`, containing `receipt.json`; only successful plan and
 exclusion-verification runs publish the corresponding reusable sealed artifact.
 
-The job timeout is 180 minutes. A delete loop admits at most 1800 seconds
-(30 minutes), its longest statement/batch allowance is 2700 seconds (45 minutes),
-and the remaining 105 minutes allow preflight, cleanup and bounded recovery
-queries. Rewrite plans are admitted only with per-relation
-`statement_timeout_ms` at most 7,200,000 (120 minutes), leaving 60 minutes for
-preflight, recovery and writer restoration. A larger reviewed rewrite timeout
-is refused before SSH; it requires a reviewed workflow budget change, not a
-free-text dispatch override. These are controller limits, not rehearsal throughput
-or outage estimates.
+The job timeout is 180 minutes. A `copy-R` dispatch admits at most 9000
+seconds of work (the chunk loop up to `wall_clock_seconds`, then at most one
+long phase that only starts when the remaining budget covers its 7,200,000 ms
+statement timeout plus a 300 s margin), leaving at least 30 minutes for
+preflight, the deferred-phase decision, cleanup and upload. Before SSH the
+workflow checks that every statement the copy route executes
+(`v3_purge_copy.PHASES`) and every phase timeout a plan seals
+(`copy.phase_timeouts`) fits 7,200,000 ms
+(`copy_phase_timeout_outside_workflow_budget`). A plan's legacy
+`rewrite[relation].statement_timeout_ms` (a `VACUUM FULL` estimate; the
+2026-10-24 receipt's Search figure is 30,659,000 ms) no longer gates admission,
+because the copy route never runs a `VACUUM FULL`; the one statement that could
+still use it — the recovered `ANALYZE` for an open 016 rewrite during
+`restore-services` — is refused by the action itself above 7,200,000 ms
+(`rewrite_timeout_outside_workflow_budget`). These are controller limits, not
+rehearsal throughput or outage estimates.
 
 Delivery follows the schema migration workflow's bounded source-bundle precedent:
 a bounded `git archive` of the committed operator/release helpers, production
@@ -371,27 +555,41 @@ and refuses if main has advanced before source verification.
 
 Before checkout, the runner must reach its local Docker daemon without privilege
 elevation, have no existing rehearsal container (including stopped containers),
-and have at least **5 GB** free on the Docker data root for smoke or **40 GB** for
-one_percent. These are admission minima, not proof that the complete dataset
-fits. Every rehearsal has its own labeled container and volume. A global
-concurrency group prevents overlapping dispatches;
-cancellation of an earlier run is disabled. The 720-minute job limit bounds
-seeding, deletes, rewrites and crash recovery. The final `if: always()` cleanup
-removes only this run's labeled containers and volumes and verifies their
-absence. If a runner dies before cleanup, a later dispatch refuses the leftover
-container; inspect its run identity and evidence before removing it through a
-reviewed runner-maintenance procedure. Cleanup does not touch unrelated Docker
-resources.
+and have at least **140 GB** free on the Docker data root for smoke or
+**175 GB** for one_percent. The real action keeps its production admission in
+the fixture — the 100 GB floor, and before each long copy phase also the 32 GiB
+`temp_file_limit` reservation and `max_wal_size` (about 135 GB here) — on top of
+the fixture's own data; these minima refuse a runner that could never pass it.
+They are admission minima, not proof that the complete dataset fits. Every
+rehearsal has its own labeled container and volume. A global concurrency group
+prevents overlapping dispatches; cancellation of an earlier run is disabled.
+The 720-minute job limit bounds seeding, the measured copy-and-drop journey and
+crash recovery. The final `if: always()` cleanup removes only this run's
+labeled containers and volumes and verifies their absence. If a runner dies
+before cleanup, a later dispatch refuses the leftover container; inspect its
+run identity and evidence before removing it through a reviewed
+runner-maintenance procedure. Cleanup does not touch unrelated Docker resources.
 
-The harness applies the committed migration manifest through 016 and creates
-synthetic BUILDING and VALIDATING targets plus a published survivor. It derives
-the four payload relations' generation proportions from the committed
+**Receipt schema v3 (copy-and-drop route, Codex 4379797621).** The harness
+applies the **whole** committed migration manifest (016 and 019 included, as
+production's ledger holds it), grants the executor `SET` on `temp_file_limit`
+(the reviewed prerequisite in "Preconditions" above), and creates synthetic
+BUILDING and VALIDATING targets plus a published survivor. It derives the four
+payload relations' generation proportions from the committed
 [2026-10-10 lifecycle receipt](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json),
 records that receipt's SHA, and leaves archetype/cluster target tables empty.
-The survivor uses the current generation-publication function installed by 015.
+Because 019's `verify` recounts copied rows per Ratings chunk, the seed records
+each generation's `build_chunk` receipts from its rows while it is still
+BUILDING (systems, physical bodies, eligible opportunities) and the published
+Search product's `search_build_chunk` receipts before it is READY, exactly as
+the builders do. It applies production's planner statistics to
+`economy_opportunity.system_id64` (`STATISTICS 1000`, `n_distinct = -0.13`) so
+the opportunity swap recalibrates them and a swap-back restores them, and it
+completes one WAL segment so the archiver position the copy route reads exists.
+v1 and v2 receipts measured the disabled delete/rewrite route and are refused.
 
-**Published survivor population (receipt schema v2, ROADMAP step P reopened
-gate 1).** Production's surviving generation `ratings_v4_prod_p4_parallel_v1`
+**Published survivor population (since receipt schema v2, ROADMAP step P
+reopened gate 1).** Production's surviving generation `ratings_v4_prod_p4_parallel_v1`
 has held both published Finder products since go-live (publish run
 39933842811): about 198.5 million `system_search` and 198.5 million
 `system_archetype` rows, one per system, `READY`/`VERIFIED` with `published_at`
@@ -423,14 +621,71 @@ At `one_percent` (proportion 2,000,000 / 198,528,286) the journey fixture holds:
 
 Crash fixtures use the same rule at smoke scale (100,000 survivor Search and
 archetype rows each).
-Measurement and crash polling use a dedicated read-only observer login, separate
-from the application role recycled when the writer fence changes.
-During a measured delete the batch ledger is sampled through one observer login
-opened before the action starts and closed after it exits. 016 refuses a batch
-(`competing writing transaction`) while any other client backend of the
-database has a NULL state, which is how every login looks while it starts. A
-new login per sample reproduced the `delete-economy-opportunity` stop of smoke
-run 40032512857 locally.
+
+**The journey.** After `plan`, `authorize` and `verify-system-archetype-empty`,
+each relation runs in 019's order through the real action: `preflight-R`;
+`copy-R` re-dispatched until `copy_verified_ready_for_swap`, every dispatch
+sampled for data-volume free bytes and, through a read-only observer login
+holding `pg_monitor`, the server's temporary files (`pg_ls_tmpdir()`); `swap-R`
+while a second observer login repeatedly reads the Finder surface that the swap
+locks (the published Search view, the published generation's opportunity or
+mechanics rows, or the economy-rating view over the vector) and records each
+read's latency; `drop-R`. Then `complete`, and the harness proves no target
+row remains. Each sampler and the reader open their login before the action
+starts and close it after it exits. The rehearsal's Finder smoke reads the
+application views in the database (the fixture runs no API).
+
+Per relation the receipt records raw: copied and target rows, live bytes
+before, the staging copy's bytes after verification, the copy's free-space peak
+(maximum drawdown across all of its copy dispatches, WAL included), the sampled
+temporary-file peak and the bytes written to temporary files, freed bytes,
+chunk statement seconds (copy rows per second), index-build, VACUUM FREEZE,
+verify and FK-validation seconds, WAL bytes per phase (chunk, index build,
+VACUUM FREEZE, verify, FK validation, drop), the swap statement's lock hold and
+attempts, the worst Finder read latency during the swap and the read count,
+and the drop's statement time. The `production` block divides whole-relation
+work (seconds, bytes, WAL) by the recorded proportion, keeps rates and the
+catalog-only swap figures raw, and sets `required_free_bytes_before_copy` =
+100 GB + 1.5 × the extrapolated copy peak; `margin_applied` is kept for review
+only (the controller applies the margin at admission, once).
+`long_phase_fits_reviewed_timeout` is true only if twice the longest
+extrapolated long phase is within the 7,200 s statement envelope.
+
+Production authority (`one_percent`, status success, cleanup verified, all
+crash scenarios passed, current code identities) additionally refuses a long
+phase outside that envelope (`rehearsal_long_phase_exceeds_reviewed_timeout`),
+a Finder read stall above the API's 15 s read timeout
+(`rehearsal_finder_stall_exceeds_api_timeout`), and a synthetic Search copy
+narrower per row than production (`rehearsal_search_survivor_width_unrepresentative`:
+the larger of the 2026-10-10 receipt's 405.6 and the owner-reported 2026-10-23
+175 GB / 397,056,572 rows ≈ 440.7 bytes per row; the 2026-10-24 rehearsal's
+compacted survivors measured about 514).
+
+**Crash scenarios (gate 10).** Each runs on a fresh marked fixture at smoke
+proportions (tiny in local checks), copies, swaps and drops `system_search`
+through the real action, then interrupts `economy_opportunity` — the relation
+whose swap also recalibrates statistics — and must then finish every relation
+and `complete`, with published fingerprints and pointers unchanged and the
+catalog agreeing with the ledger at every observation:
+
+| Scenario | Interruption (observed first, then applied) | Must resume as |
+| --- | --- | --- |
+| `copy_chunk_client_killed` | the second chunk's statement paused after its 019 call, before commit; wrapper and psql killed | exactly one committed chunk; `copy-R` continues from the ledger |
+| `copy_postgres_restart` | same pause; `docker restart --time 0` | postmaster restarted; one committed chunk; `copy-R` continues |
+| `index_build_backend_terminated` | index build paused after building; `pg_terminate_backend` | no `INDEXES_BUILT`; `copy-R` rebuilds |
+| `verify_watchdog_cancel` | verify paused; the independent watchdog cancels on controller loss | receipt `copy_verify_interrupted` with `monitor_condition: controller_loss`, SQLSTATE 57014; `copy-R` verifies |
+| `swap_committed_client_killed` | after the swap commits, before FK validation | `status` names `swap-R`; it resumes (`swap_resumed`) |
+| `swap_back_committed_client_killed` | after the opportunity swap-back (with its statistics restore) commits | live table and options restored; `status` names `swap-back-R`; it resumes |
+| `swap_back_and_reswap` | none: swap, swap-back, re-verify, swap | swap-back restores the original table and options; the re-swap equals the first |
+| `abandon_and_recopy` | none: verified copy abandoned | staging gone; a fresh copy from `COPY_STARTED` |
+| `drop_committed_client_killed` | after the drop commits | `drop-R` reports `retired_relation_already_dropped` |
+
+Before any redispatch the driver waits until no backend still runs a copy
+statement (the action itself refuses with `competing_purge_copy_backend_active`
+while one does). Require JSON boolean `gate_10_crash_rehearsal_passed: true`.
+
+Measurement and crash polling use a dedicated read-only observer login,
+separate from the application role.
 The real purge action runs in a separate disposable-marker override path;
 ordinary invocation never enables that override. It requires both `--rehearsal-container` and a 64-hex-character
 `--rehearsal-token`, and independently refuses production host identities. The
@@ -441,85 +696,24 @@ single same-token dedicated `<container>-data` volume at `/var/lib/postgresql`.
 Every execution is pinned to the inspected immutable container ID. The fixed
 `edfinder_purge_rehearsal` database must carry the matching disposable-token
 comment; arbitrary URLs and DSNs are not accepted. Rehearsal plans are marked
-and cannot be consumed by the production adapter. A local subprocess watchdog
-replaces systemd in this disposable environment; delete/rewrite/recovery SQL
-is shared with the real action. The **100 GB action floor remains unchanged**:
-meeting the workflow's 40/5 GB minimum alone cannot admit a purge phase.
+and cannot be consumed by the production adapter; their `copy` block is the
+explicitly unmeasured `disposable_bootstrap_unmeasured` floor. A local
+subprocess watchdog replaces systemd in this disposable environment, host
+recovery state stays in the run's private directory, and the fault hooks change
+only the named statement of the named scenario; all copy-route SQL is the real
+action's. The **100 GB action floor remains unchanged**.
 
-Review the uploaded artifact (retained **180 days**) for:
-
-- Exact source SHA, pinned image digest, migration identities, production
-  proportion, requested scale, per-generation row counts, and effective server
-  settings. The synthetic `archive_mode=on` with `archive_command=/bin/true`
-  exercises the action's archive-health checks without retaining an archive;
-  it provides no backup or recovery evidence. Autovacuum
-  must remain enabled outside each action's own maintenance fence.
-- Delete rows and statement durations, rows per second, each batch's data-volume
-  free-space samples (WAL and temporary growth included), rewrite duration and
-  peak growth, and published survivor counts. A sampled peak below 1 GB is
-  required for each batch; a larger peak requires a smaller bound and a new run.
-  Sampling is an empirical bound and may miss growth shorter than its interval.
-- The `system_search` survivor/target split
-  (`per_relation.system_search.survivor_target_split`). The governed
-  `rewrite-system-search` copies the published survivors and scans the deleted
-  target tuples. After `complete`, the harness runs one more, unaudited
-  `VACUUM (FULL, ANALYZE)` of the disposable survivor-only relation with the
-  same free-space sampling and server-clock timing. The split records the
-  survivor share (rows, compacted heap-plus-index bytes and bytes per row,
-  control rewrite seconds and peak) and the target share (rows, reclaimed
-  bytes, delete dispatch seconds, and the governed rewrite seconds and peak
-  minus the survivor-only figures, never negative). Its `production` block
-  divides each figure by the recorded proportion, applies the **1.5×** margin
-  and adds the **100 GB** floor:
-  `required_free_bytes_before_rewrite` is the free space the action's own
-  admission rule (`v3_purge_rewrite.start_rewrite`) will demand before the
-  production Search rewrite. The plan carries the larger of the governed and
-  survivor-only raw peaks. The validator refuses a missing, forged or unbound
-  split, a survivor population that differs from the expected one (including
-  zero), a `v1` receipt, and synthetic survivor rows narrower than production
-  (`rehearsal_search_survivor_width_unrepresentative`: compacted bytes per row
-  below the larger of the 2026-10-10 receipt's 405.6 and the owner-reported
-  2026-10-23 175 GB / 397,056,572 rows ≈ 440.7). A local PostgreSQL 18 smoke
-  seed measured about 555 bytes per compacted survivor row, so the extrapolated
-  peak overstates rather than understates the production copy. Gate 1 needs a
-  fresh reviewed `one_percent` receipt of this schema; no rewrite dispatch may
-  rely on an earlier zero-survivor (`v1`) measurement, which the plan now
-  refuses.
-- Raw and production-extrapolated figures, and the owner's **1.5× disk-peak
-  margin**. Planning throughput uses sustained delete dispatch elapsed time,
-  including safety checks; actual batch statement durations and throughput are
-  retained separately. Whole-relation rewrite peaks and
-  durations are extrapolated by the recorded proportion. The finite rewrite
-  allowance is twice the extrapolated measured duration (at least 60 seconds);
-  it is a controller budget, not an outage guarantee. Batch reservation stays
-  tied to the measured batch bound, rather than multiplying by dataset scale.
-- The explicit autovacuum budget source. The harness uses the design's lower
-  bound of current heap-plus-index bytes where a separate equivalent-delete
-  autovacuum experiment is impractical; review that limitation before accepting
-  a production abort budget.
-- Every crash-scenario result: client loss before and after batch commit,
-  independent-monitor cancellation, `pg_terminate_backend`, PostgreSQL restart
-  during rewrite, wrapper loss after rewrite commit before verification, and
-  failure inside the verification transaction after the rewrite has committed.
-  The last case must leave the original `REWRITE_STARTED` identity unresolved,
-  refuse completion, and recover from the changed relfilenode without rewriting
-  again when dispatched anew.
-  Evidence must prove one complete old or new filenode state, valid indexes,
-  unchanged published rows, recovered ANALYZE and no double rewrite. Require
-  JSON boolean `gate_10_crash_rehearsal_passed: true`; a partial or failed run
-  never authorizes a shared-table rewrite. Each scenario uses a fresh marked
-  fixture based on smoke proportions (100,000 systems), including during a
-  one-percent run. The three external mid-rewrite scenarios augment only the
-  published rating-vector payload to 2,000,000 rows, with corresponding build
-  chunks, so physical copying can be observed; other payloads remain sparse.
-  Each result records `crash_scale` and `crash_fixture_row_counts` explicitly.
-  Whole-relation performance and disk estimates come from the separate requested
-  scale journey, whose counts are unchanged. Tiny local checks keep tiny crash
-  fixtures without augmentation. If a short rewrite finishes before active PG18 progress is
-  observed, the scenario fails instead of treating a timing guess as a crash.
+Review the uploaded artifact (retained **180 days**) for the source SHA, pinned
+image digest, migration identities, production proportion, requested scale,
+per-generation row counts, effective server settings (the synthetic
+`archive_mode=on` with `archive_command=/bin/true` exercises the archive-health
+checks without retaining an archive; autovacuum must remain enabled), every
+action receipt, the per-dispatch free-byte, temporary-file and Finder-read
+samples, the per-relation figures above, and every crash-scenario result.
+Sampling is an empirical bound and may miss growth shorter than its interval.
 
 Smoke is a harness check and never production planning authority. Only a
-successful, reviewed `one_percent` receipt with all seven crash scenarios passed
+successful, reviewed `one_percent` receipt with all nine crash scenarios passed
 can feed a production plan. Review the empirical estimates against fresh
 production storage/WAL and writer-fence facts under the design's execution
 gates. A rehearsal receipt does not authorize a production operation.
@@ -529,29 +723,21 @@ The plan-mode integration accepts both `--rehearsal-receipt <reviewed-path>` and
 `scripts/operator/actions/v3-derived-generation-purge.sh plan`. These are an
 integration contract for governed plan staging, not a manual production
 invocation. The SHA is the sealed JSON's `content_sha256`, not a bytewise file
-hash. The action verifies the `f2d_evidence.py` seal, explicit SHA, schema,
-source and lifecycle identities, the executing action's script hash plus the
-rehearsal harness hashes, the exact migration-set identity, one-percent
-proportion, raw/derived arithmetic,
-and crash gate before copying figures into the plan and sealing that plan.
-The recorded script and migration-set identities must match the code running
-the plan. Missing arguments, stale identities, smoke receipts, a false crash
-gate, changed bytes or inconsistent derived figures refuse admission.
-
-For each relation the action records
-`rows_per_second_source: reviewed_rehearsal:<content_sha256>` and populates the
-plan's measured throughput, rewrite allowance, autovacuum budget, batch limit
-and reservation, rewrite peak, and statement timeout. The receipt retains raw
-and margin-applied figures separately. Raw batch/rewrite peaks enter the plan;
-production controllers apply the 1.5× margin at admission, exactly once.
-The autovacuum lower-bound budget already carries its recorded margin.
-The protected production workflow supplies these plan options from its
-`rehearsal_run_id`/`rehearsal_sha256` inputs, preserving artifact provenance as
-described under the dispatch runbook above (this supersedes the earlier "no
-rehearsal artifact transport input" statement). Do not supply an edited plan or
-an unreviewed synthetic estimate. Because the recorded script and migration-set
-identities must equal the code running the plan, the rehearsal must be run on a
-`main` whose purge code identity is the one the plan will run.
+hash. The action verifies the `f2d_evidence.py` seal, explicit SHA, schema and
+route, source and lifecycle identities, the executing action's script hash
+plus the rehearsal harness hashes, the exact migration-set identity,
+one-percent proportion, raw/derived arithmetic, the production bounds above
+and the crash gate before sealing the plan's `copy` block
+(`v3_purge_copy.plan_block`, every relation sourced
+`reviewed_rehearsal:<content_sha256>`) and its `rehearsal` binding
+(`route: copy_and_drop`). Missing arguments, stale identities, smoke receipts,
+a false crash gate, changed bytes or inconsistent derived figures refuse
+admission. The protected production workflow supplies these plan options from
+its `rehearsal_run_id`/`rehearsal_sha256` inputs, preserving artifact
+provenance as described under the dispatch runbook above. Do not supply an
+edited plan or an unreviewed synthetic estimate. Because the recorded script and
+migration-set identities must equal the code running the plan, the rehearsal
+must be run on a `main` whose purge code identity is the one the plan will run.
 
 ## Action modes and receipt order
 
@@ -563,8 +749,12 @@ by `scripts/operator/lib/v3_purge_delete.py` for delete/recovery orchestration,
 and `v3_purge_rewrite_monitor.py` for the independent watchdog. All three new
 files participate in both the purge script hash and F2d operator-code identity.
 Implemented modes are `plan`, `status`, `authorize`,
-`verify-system-archetype-empty`, `complete`, `restore-services`, and the four
-relations’ `delete-`, `rewrite-` and `abort-relation-` modes. The four exact relation names
+`verify-system-archetype-empty`, `complete`, `restore-services`, the four
+relations' `preflight-`, `copy-`, `swap-`, `swap-back-`, `drop-` and `abandon-`
+modes (`scripts/operator/lib/v3_purge_copy.py` and
+`v3_purge_copy_dispatch.py`, both in the purge script hash), and the recovery
+`abort-relation-` modes. `delete-` and `rewrite-` are refused with
+`delete_rewrite_modes_disabled_by_copy_and_drop_design`. The four exact relation names
 are `system-search`, `economy-opportunity`, `body-mechanics`, and
 `system-rating-vector`. Every other mode is unknown and fails closed.
 These are action contracts for the protected dispatch above, not an instruction
@@ -668,11 +858,13 @@ cluster deletion capability. Completion relies on 016's `REWRITE_VERIFIED`
 events, whose verifier already proves the rewritten filenode and trailing
 `ANALYZE`; P2b1 does not synthesize those events.
 
-## P2b2a delete dispatch and stopping
+## P2b2a delete dispatch and stopping (disabled mode; recovery description)
 
-The protected workflow and disposable rehearsal are prerequisites for later
-production execution. The following describes the action contract for reviewed
-execution; it does not authorize a manual production invocation.
+`delete-R` is disabled by the copy-and-drop design. This section remains
+because `restore-services` and `abort-relation-R` still resolve the fences a
+delete would have opened, and because the rehearsal harness of the superseded
+route documents what it measured. It does not authorize a manual production
+invocation.
 
 A `delete-<relation>` dispatch requires both authenticated artifacts: `--plan
 PATH --plan-sha256 SHA256` and `--verification PATH --verification-sha256
@@ -884,8 +1076,10 @@ uses only the dedicated 016 writer-restoration amendment described above; no
 grant or data-mutation guard is broadened.
 
 
-## Physical rewrite and recovery
+## Physical rewrite and recovery (disabled mode; recovery description)
 
+`rewrite-R` is disabled by the copy-and-drop design; `restore-services` still
+resolves an open `REWRITE_STARTED` exactly as described here.
 Use the same authenticated plan and sealed exclusion proof as deletion. The
 four relations follow the same FK order: Search, opportunity, mechanics,
 rating vector. Both target counts must be zero, logical completion must be
