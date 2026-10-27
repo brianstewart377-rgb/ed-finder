@@ -14,11 +14,11 @@ a new tag, and then pinned here.
 
 | File | What it is |
 |---|---|
-| `rulebook.json` | A byte-for-byte copy of the CRE's `exports/rulebook.json` at the pinned tag. |
-| `pin.json` | The release tag, CRE commit, source path and SHA-256 of `rulebook.json`. |
+| `rulebook.json` | A byte-for-byte copy of the CRE's `exports/rulebook.json` at the pinned commit. |
+| `pin.json` | The release name (`release_tag`, as written inside `rulebook.json`), the CRE commit the copy was taken from, the source path and the SHA-256 of `rulebook.json`. The commit is authoritative. |
 
 The SHA-256 in `pin.json` must match both this copy and the CRE's own
-`exports/export_manifest.json` for that tag. `tests/test_cre_rulebook_parity.py`
+`exports/export_manifest.json` at that commit. `tests/test_cre_rulebook_parity.py`
 refuses a copy that does not match its pin.
 
 ## How to read a rule
@@ -62,11 +62,11 @@ for Ratings V4.1.
 
 ## Updating the pin
 
-1. In the CRE, merge the rule changes and tag the release
-   (`cre-knowledge-vX.Y.Z`).
-2. Copy that tag's `exports/rulebook.json` here unchanged.
-3. Update `pin.json`: the tag, the tagged commit, and the SHA-256 from that
-   tag's `exports/export_manifest.json` (check it with `sha256sum`).
+1. In the CRE, merge the rule changes (and tag the release
+   `cre-knowledge-vX.Y.Z`).
+2. Copy that commit's `exports/rulebook.json` here unchanged.
+3. Update `pin.json`: the release name, the CRE commit, and the SHA-256 from
+   that commit's `exports/export_manifest.json` (check it with `sha256sum`).
 4. Update the SHA-256 in `assets/PROVENANCE.json`.
 5. Run `tests/test_cre_rulebook_parity.py` and record every new or resolved
    difference in `KNOWN_DIFFERENCES` with its reason.

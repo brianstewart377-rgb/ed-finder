@@ -69,7 +69,7 @@
       "frontier_derived": true,
       "attribution_text": "CRE rulebook (cre-knowledge-v0.3.0), quoting the Elite Dangerous Colonization Mega Guide v2.3.0 by CMDR Mechan and contributing CMDRs (CC BY-SA 4.0) and Frontier Developments' update notes. Not endorsed by Frontier Developments.",
       "approval_date": "2026-10-27",
-      "verification_method": "Byte-for-byte copy of exports/rulebook.json at tag cre-knowledge-v0.3.0 of the owner's elite-dangerous-research-engine repository; SHA-256 matches that tag's exports/export_manifest.json and pin.json; the CRE validator checked every quote against the committed Mega Guide text (PDF pages) and the Frontier source notes before export.",
+      "verification_method": "Byte-for-byte copy of exports/rulebook.json at commit 59dd198ca27096b955b780d2f5fd4f2bcef595cd (release cre-knowledge-v0.3.0) of the owner's elite-dangerous-research-engine repository; SHA-256 matches that commit's exports/export_manifest.json and pin.json; the CRE validator checked every quote against the committed Mega Guide text (PDF pages) and the Frontier source notes before export.",
       "sha256": "0487fcfb8149fcb28076145120ee04d1ccb83171df70868a4f48edf95cc21bd4",
       "rights_status": "noncommercial_only",
       "commercial_use_approved": false,
