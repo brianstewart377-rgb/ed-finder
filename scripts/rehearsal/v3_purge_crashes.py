@@ -309,6 +309,28 @@ def _expect(condition, code):
         raise ValueError(code)
 
 
+ARCHIVE_UNKNOWN = 'wal_archive_lag_unknown'
+
+
+def _archive_after_restart(harness, result):
+    """A crash restart discards the cumulative statistics, so pg_stat_archiver
+    names no archived segment and the real copy refuses wal_archive_lag_unknown
+    (fail closed) until the archiver reports one (smoke run 40495068589). Record
+    that refusal, then complete one segment as production's own WAL traffic
+    does, before the copy resumes. Any other refusal fails the scenario."""
+    try:
+        harness.action('copy-' + MODE)
+    except RuntimeError as exc:
+        refused = getattr(harness, 'refused_action', None) or {}
+        _expect(str(exc) == 'real_action_refused_copy_' + RELATION and refused.get('failures') == [ARCHIVE_UNKNOWN],
+                'crash_restart_refusal_unexpected')
+        harness.refused_action = None
+        result['restart_archive_refusal'] = ARCHIVE_UNKNOWN
+    else:
+        result['restart_archive_refusal'] = None
+    harness.archived()
+
+
 def run_scenario(harness, scenario):
     if scenario not in CRASH_SCENARIOS:
         raise ValueError('unknown_crash_scenario')
@@ -341,6 +363,8 @@ def run_scenario(harness, scenario):
                     and (interrupted_report or {}).get('failures') == ['copy_verify_interrupted'],
                     'crash_watchdog_did_not_cancel_verify')
         result.update(interruption)
+        if scenario == 'copy_postgres_restart':
+            _archive_after_restart(harness, result)
         harness.copy_until_verified(MODE)
         recovered = snapshot(harness)
         assert_intact(before, recovered)

@@ -214,6 +214,13 @@ class _Fixture:
         self.attoptions, self.completed, self.rows_total = ['n_distinct=-0.13'], False, None
         self.postmaster = '2026-10-16T00:00:00+00:00'
         self.modes = []
+        self.refused_action = None
+        # A crash restart leaves pg_stat_archiver empty until a segment is archived.
+        self.archive_known = scenario != 'copy_postgres_restart' or damage == 'archive_known'
+
+    def archived(self):
+        self.modes.append('archived')
+        self.archive_known = True
 
     def snapshot(self):
         return _snapshot(self.events, tables=dict(self.tables), attoptions=self.attoptions,
@@ -239,6 +246,10 @@ class _Fixture:
     def action(self, mode):
         self.modes.append(mode)
         report = {'status': 'success'}
+        if mode == 'copy-' + tool.MODE and not self.archive_known:
+            failures = ['wal_gate_unknown'] if self.damage == 'other_refusal' else ['wal_archive_lag_unknown']
+            self.refused_action = {'mode': mode, 'report': 'x.json', 'failures': failures}
+            raise RuntimeError('real_action_refused_copy_economy_opportunity')
         if mode == 'swap-' + tool.MODE:
             if self.events[-1] == 'SWAPPED':
                 report['swap_resumed'] = True
@@ -330,6 +341,25 @@ def test_every_scenario_resumes_through_the_real_modes_and_completes(tmp_path, m
         assert fixture.events.count('COPY_STARTED') == 2
     if scenario == 'drop_committed_client_killed':
         assert fixture.modes.count('drop-' + tool.MODE) == 1
+    if scenario == 'copy_postgres_restart':
+        # The restart's archiver refusal is proven, then one segment completes
+        # before the copy resumes from the ledger.
+        assert result['restart_archive_refusal'] == 'wal_archive_lag_unknown'
+        assert fixture.refused_action is None
+        index = fixture.modes.index('copy-' + tool.MODE)
+        assert fixture.modes[index:index + 3] == ['copy-' + tool.MODE, 'archived',
+                                                  'copy-until-verified-' + tool.MODE]
+
+
+def test_a_restart_whose_archiver_state_survived_still_resumes(tmp_path, monkeypatch):
+    fixture, result = _run(tmp_path, monkeypatch, 'copy_postgres_restart', damage='archive_known')
+    assert result['passed'] is True and result['restart_archive_refusal'] is None
+    assert 'archived' in fixture.modes
+
+
+def test_a_restart_refused_for_any_other_reason_fails(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match='crash_restart_refusal_unexpected'):
+        _run(tmp_path, monkeypatch, 'copy_postgres_restart', damage='other_refusal')
 
 
 @pytest.mark.parametrize(('scenario', 'damage', 'code'), [
