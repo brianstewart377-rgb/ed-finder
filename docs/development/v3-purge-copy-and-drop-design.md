@@ -137,6 +137,23 @@ The copy runs `INSERT INTO staging SELECT … WHERE derived_generation_id =
 The swap is one transaction with `lock_timeout = 2s`. It retries with backoff up
 to a reviewed limit.
 
+**Lock order (migration 020, 2026-10-27).** The smoke rehearsal (run
+40466831980) stopped at the first swap: a concurrent Finder read of
+`v3_app.system_search` was cancelled with "deadlock detected". 019 locked the
+live table and only later the dependent view, while a reader locks a view
+before the tables it reads. 019 also locked the view with `LOCK TABLE`, which on
+a view locks every relation the view reads, including `v3_meta`'s publication
+tables, so every Finder read waited for the whole swap. Migration `020` takes
+every relocation lock once, up front, in reader order: the dependent view first,
+alone (a no-op owner change locks only the view), then the outgoing table, the
+incoming table and the fixed children, each `NOWAIT`. Only the first acquisition
+can wait, so the swap never waits while holding a lock and cannot close a
+deadlock cycle; Finder reads are delayed, never cancelled. A reader or
+autovacuum worker still holding a later relation fails the attempt at once
+(SQLSTATE `55P03`, rolled back whole) and the operator retries it like a lock
+timeout; under sustained reads of a child table the parent's swap may need
+several attempts. Swap-back uses the same order.
+
 1. `ALTER TABLE … SET SCHEMA v3_retired` moves the live table, with its indexes,
    constraints and triggers. Its kept guard then refuses every `DELETE`, because
    016 admits only `v3_derived` (`016:350-353`).
@@ -396,9 +413,10 @@ Measured on PostgreSQL 18.4 while building the operator modes
   attempt with an 8 s statement timeout (a cancelled attempt rolls back and
   releases its locks) and retries with backoff up to 12 times, so Finder reads
   queue for at most about 8 s per attempt. §3's "about 3 s" is superseded by
-  "at most about 8 s per attempt, retried". The next migration should drop or
-  lower the function-level `lock_timeout` so the operator's 400 ms request
-  governs.
+  "at most about 8 s per attempt, retried". Migration `020` makes every swap and
+  swap-back acquisition after the first `NOWAIT` (§1.4, "Lock order"), so only
+  one acquisition per attempt can wait its 2 s; lowering the function-level
+  `lock_timeout` further remains optional.
 - **Resumability (F2).** `build_indexes` and `verify` are single calls; the
   operator resumes at phase granularity (a cancelled or timed-out phase rolls
   back and the next `copy-R` re-enters it) and runs each long phase host-side

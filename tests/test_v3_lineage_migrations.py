@@ -137,14 +137,41 @@ def test_004_never_touches_canonical_truth():
 
 
 def test_governed_purge_is_registered_immediately_after_product_publication():
-    assert _entries()[-3:] == [
+    assert _entries()[-4:] == [
         ("015_v3_derived_product_publication.sql",
          "sql/v3/migrations/015_v3_derived_product_publication.sql"),
         ("016_v3_governed_derived_purge.sql",
          "sql/v3/migrations/016_v3_governed_derived_purge.sql"),
         ("019_v3_purge_copy_and_drop.sql",
          "sql/v3/migrations/019_v3_purge_copy_and_drop.sql"),
+        ("020_v3_purge_swap_lock_order.sql",
+         "sql/v3/migrations/020_v3_purge_swap_lock_order.sql"),
     ]
+
+
+def test_020_only_replaces_the_swap_locking():
+    source = (ROOT / "sql/v3/migrations/020_v3_purge_swap_lock_order.sql").read_text()
+    assert set(re.findall(r"CREATE (?:OR REPLACE )?FUNCTION v3_meta\.(\w+)\(", source)) == {
+        "purge_copy_lock_relocation", "purge_copy_relocate", "purge_copy_swap", "purge_copy_swap_back",
+    }
+    assert "CREATE FUNCTION v3_meta.purge_copy_lock_relocation(" in source
+    for replaced in ("purge_copy_relocate", "purge_copy_swap", "purge_copy_swap_back"):
+        assert f"CREATE OR REPLACE FUNCTION v3_meta.{replaced}(" in source
+    top_level = re.sub(r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
+                       flags=re.DOTALL | re.IGNORECASE)
+    top_level = re.sub(r"--[^\n]*", "", top_level)
+    top_level = re.sub(r"'[^']*'", "''", top_level)
+    # Installation creates no relation, writes no row and grants nothing new.
+    assert not re.search(r"\b(?:CREATE\s+(?:TABLE|VIEW|SCHEMA|INDEX|ROLE)|ALTER\s+(?:TABLE|VIEW)|DROP|INSERT|"
+                         r"UPDATE|DELETE|TRUNCATE|VACUUM|GRANT)\b", top_level, re.IGNORECASE)
+    assert re.search(r"REVOKE ALL ON FUNCTION v3_meta\.purge_copy_lock_relocation\(text,regclass\) FROM PUBLIC;",
+                     top_level)
+    body = re.sub(r"--[^\n]*", "", source)
+    # The view is locked alone (never LOCK TABLE on a view, which locks what it
+    # reads) and every later lock is NOWAIT.
+    assert "ALTER VIEW %s OWNER TO %s" in body
+    assert body.count("IN ACCESS EXCLUSIVE MODE NOWAIT") == 2
+    assert "CASCADE" not in body
 
 
 def test_019_only_installs_copy_and_drop_capability():

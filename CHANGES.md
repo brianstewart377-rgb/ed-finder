@@ -11,6 +11,42 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-27 — Purge P: swap lock order (migration 020, registered, not applied)
+
+The first smoke rehearsal of the copy route (run 40466831980, on Contabo,
+disposable) stopped at its first swap with `finder_reader_failed`: the
+concurrent Finder read of `v3_app.system_search` was cancelled by PostgreSQL as
+a deadlock. Reproduced on PostgreSQL 18. Nothing ran against production.
+
+- **Cause.** 019's swap locked the live table, then (inside the relocation) the
+  dependent view; a reader locks the view first, then the tables it reads.
+  019 also locked the view with `LOCK TABLE`, which on a view locks every
+  relation the view reads, so `v3_meta.current_derived_generation`,
+  `derived_generation` and `derived_product` were held `ACCESS EXCLUSIVE` and
+  every Finder read waited for the whole swap.
+- **Migration `020_v3_purge_swap_lock_order.sql`.** Adds the internal
+  `v3_meta.purge_copy_lock_relocation`: the dependent view first, locked alone
+  by a no-op owner change, then the outgoing, incoming and child tables, each
+  `NOWAIT`. `purge_copy_swap` and `purge_copy_swap_back` call it in place of
+  their `LOCK TABLE`; `purge_copy_relocate` no longer locks and refuses unless
+  the locks are held. Nothing else in the three functions changes. A reader or
+  autovacuum worker still holding a later relation fails the attempt at once
+  with `55P03`, which the operator already retries. Installation changes no
+  table, view, grant or row.
+- **Registration.** Manifest entry after 019; production authority transition
+  through-019 → through-020 (target checksum and set identity reproduced by
+  `scripts/operator/v3_schema_identity.py`), with the accepted `a031c2da`
+  release attested for both endpoints. Until 020 is applied, application
+  promotions are refused on the schema-identity checksum and the purge
+  controller refuses to plan.
+- **Tests.** `tests/test_v3_purge_swap_lock_order.py`: Finder reads (the
+  rehearsal's four plus the API's two-view joins in both orders) never fail
+  during any of the four swaps or a swap-back; the swap's exclusive locks cover
+  its view, tables and children and no `v3_meta` publication table; a reader
+  holding a later relation fails an attempt in under a second with nothing
+  changed; relocation refuses without the locks. Four of the five fail on 019
+  alone.
+
 ## 2026-10-26 — Purge P (option B): review fixes and the copy-route rehearsal (PR #894)
 
 Fixes for the five Codex findings on PR #894; nothing ran against production

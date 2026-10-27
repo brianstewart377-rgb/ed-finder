@@ -163,6 +163,18 @@ newer dated source wins).
   fence and backup-wrapper reads of `purge_copy_backup_skip()`, the 1%
   rehearsal, and a release carrying the operator code.
 
+  **Swap lock order (2026-10-27):** the first smoke rehearsal of the copy route
+  (run 40466831980, operator modes from #894) stopped at its first swap: a
+  concurrent Finder read was cancelled as a deadlock because 019's swap locked
+  the live table before the dependent view, and 019 also locked `v3_meta`'s
+  publication tables for the whole swap. Migration
+  `020_v3_purge_swap_lock_order.sql` (view first and alone, then `NOWAIT`) is
+  written, tested on PostgreSQL 18 and registered (through-019 → through-020);
+  it is **not applied**. Until it is, every application promotion is refused on
+  the schema-identity checksum, and P cannot plan, because the purge controller
+  requires the live ledger to equal the committed manifest. Next: re-run the
+  smoke and 1% rehearsals with 020, then the owner-approved plan and apply.
+
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
     owner accepts a replacement.

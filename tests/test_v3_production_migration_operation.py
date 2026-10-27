@@ -84,6 +84,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "015_v3_derived_product_publication.sql",
         "016_v3_governed_derived_purge.sql",
         "019_v3_purge_copy_and_drop.sql",
+        "020_v3_purge_swap_lock_order.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -97,19 +98,20 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     desired = module.desired_entries(ROOT)
     # The Finder transition (through-012 -> through-016) was applied on
-    # 2026-10-18 (apply run 39113822236). The registered transition is now the
-    # copy-and-drop capability: installed through-016, pending [019].
+    # 2026-10-18 (apply run 39113822236) and the copy-and-drop capability 019 on
+    # 2026-10-26 (apply run 40338736148). The registered transition is now the
+    # swap lock order: installed through-019, pending [020].
     installed_count = next(
         index + 1 for index, entry in enumerate(desired)
-        if entry["ledger_name"] == "016_v3_governed_derived_purge.sql"
+        if entry["ledger_name"] == "019_v3_purge_copy_and_drop.sql"
     )
-    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["019"]
+    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["020"]
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    # The accepted release runs on the installed through-016 schema and is
-    # attested for every reachable prefix up to the through-019 target.
+    # The accepted release runs on the installed through-019 schema and is
+    # attested for every reachable prefix up to the through-020 target.
     compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
     assert set(reachable) <= set(compatible)
     assert deployer.validate_authority(authority) == []
@@ -140,6 +142,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "015_v3_derived_product_publication.sql",
         "016_v3_governed_derived_purge.sql",
         "019_v3_purge_copy_and_drop.sql",
+        "020_v3_purge_swap_lock_order.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
@@ -345,7 +348,7 @@ def test_transition_binds_live_prefix_target_identity_and_every_rollback_prefix(
         )
 
 
-@pytest.mark.parametrize("omitted_migration", ["019"])
+@pytest.mark.parametrize("omitted_migration", ["020"])
 def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, omitted_migration):
     module = _load()
     deployer = _load_path(DEPLOYER, "committed_prefix_deployer")
@@ -358,7 +361,7 @@ def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, o
                  if entry["ledger_name"].startswith(omitted_migration + "_"))
     omitted_identity = identity.migration_set_identity(desired[:count])
     installed_count = next(index + 1 for index, entry in enumerate(desired)
-                           if entry["ledger_name"] == "016_v3_governed_derived_purge.sql")
+                           if entry["ledger_name"] == "019_v3_purge_copy_and_drop.sql")
     # Reconstruct the fully attested pre-apply set, then drop exactly one
     # pending prefix so the refusal names that omission alone.
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]

@@ -49,11 +49,13 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
         '015_v3_derived_product_publication.sql',
         '016_v3_governed_derived_purge.sql',
     ]
-    # That transition was applied on 2026-10-18 (apply run 39113822236); the
-    # registered transition is now through-016 -> through-019 (copy-and-drop).
-    before = entries[:stop + 6]
-    tail = entries[stop + 6:]
-    assert [entry['ledger_name'] for entry in tail] == ['019_v3_purge_copy_and_drop.sql']
+    # That transition was applied on 2026-10-18 (apply run 39113822236) and 019
+    # on 2026-10-26 (apply run 40338736148); the registered transition is now
+    # through-019 -> through-020 (swap lock order).
+    assert entries[stop + 6]['ledger_name'] == '019_v3_purge_copy_and_drop.sql'
+    before = entries[:stop + 7]
+    tail = entries[stop + 7:]
+    assert [entry['ledger_name'] for entry in tail] == ['020_v3_purge_swap_lock_order.sql']
     applied, pending = migrate.plan_migrations(entries, before)
     assert applied == before and pending == tail
     before_document = {
@@ -69,8 +71,8 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
     assert transition['to_migration_set_identity'] == document['migration_set_identity']
     assert authority['external_authority']['schema_identity_sha256'] == hashlib.sha256(target_payload).hexdigest()
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # The accepted F2d release attests the installed through-016 identity and
-    # the through-019 target; never the superseded through-012 source.
+    # The accepted F2d release attests the installed through-019 identity and
+    # the through-020 target; never the superseded through-012 source.
     through_012 = identity.migration_set_identity(entries[:stop])
     assert through_012 not in compatible
     assert before_document['migration_set_identity'] in compatible
