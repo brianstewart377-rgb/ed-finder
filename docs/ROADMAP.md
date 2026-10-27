@@ -169,11 +169,14 @@ newer dated source wins).
   the live table before the dependent view, and 019 also locked `v3_meta`'s
   publication tables for the whole swap. Migration
   `020_v3_purge_swap_lock_order.sql` (view first and alone, then `NOWAIT`) is
-  written, tested on PostgreSQL 18 and registered (through-019 → through-020);
-  it is **not applied**. Until it is, every application promotion is refused on
-  the schema-identity checksum, and P cannot plan, because the purge controller
-  requires the live ledger to equal the committed manifest. Next: re-run the
-  smoke and 1% rehearsals with 020, then the owner-approved plan and apply.
+  written, tested on PostgreSQL 18, registered (through-019 → through-020) and
+  **applied to production on 2026-10-27** (owner-approved; plan run
+  40551071635: pending exactly `[020]`, no writes; apply run 40551173291:
+  `status=applied`, `applied_now=[020]`, schema identity now `55284f7d…1f00`).
+  The promotion block from #898 is cleared. Smoke run 40495068589 (300,000
+  systems, with 020) completed the whole journey with every swap on its first
+  attempt (0.37–0.52 s) and no failed Finder read; its one failed crash
+  scenario was a rehearsal-environment gap fixed in #900.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
