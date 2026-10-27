@@ -265,6 +265,7 @@ SELECT jsonb_build_object('cancelled',COALESCE((SELECT pg_cancel_backend(a.pid) 
  AND a.backend_type='client backend' AND a.state='active' AND octet_length(a.query)<=4096
  AND (a.query ~ 'v3_meta[.]purge_copy_(build_indexes|verify|validate_fks)[(]'
       OR lower(a.query) ~ '^\\s*vacuum [(]freeze, analyze[)] v3_purge_staging[.]'
+      OR lower(a.query) ~ '^\\s*analyze v3_derived[.]economy_opportunity [(]system_id64[)]'
       OR a.query ~ 'count[(]DISTINCT system_id64[)]' OR a.query ~ 'query_to_xml[(]')),false));
 COMMIT;"""
 PROGRESS_SQL = """BEGIN READ ONLY;

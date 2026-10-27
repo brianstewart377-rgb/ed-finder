@@ -863,7 +863,7 @@ class _Ledger:
             self.attoptions = ['n_distinct=' + sql.split('SET (n_distinct = ')[1].split(')')[0]]
             return {'n_distinct': float(self.attoptions[0].split('=')[1])}
         if sql == copy.RECALIBRATE_ANALYZE_SQL:
-            return {'analyzed': True}
+            raise AssertionError('ANALYZE must run on the long-phase backend, not the one-shot transport')
         if sql == copy.CHUNK_READ_PLAN_SQL:
             return [{'Plan': {'Node Type': 'Nested Loop', 'Plans': [
                 {'Node Type': 'Index Scan', 'Index Name': 'economy_opportunity_pkey'}]}}]
@@ -883,6 +883,9 @@ def _phase_fakes(controller, copy, dispatch, monkeypatch, ledger):
             return {'event': 50}
         if phase == 'recalibrate_count':
             return {'rows': 3_700, 'distinct_systems': 1_000}
+        if phase == 'recalibrate_analyze':
+            assert kwargs['sql'] == cp.RECALIBRATE_ANALYZE_SQL
+            return {'analyzed': True}
         raise AssertionError(phase)
     monkeypatch.setattr(dispatch, '_long_phase', long_phase)
     monkeypatch.setattr(dispatch, '_measure', lambda *a, **k: None)
@@ -963,7 +966,7 @@ def test_a_committed_forward_swap_resumes_fk_validation_and_recalibration(contro
     phases, report = _phase_fakes(controller, copy, dispatch, monkeypatch, ledger)
     _run(dispatch, controller, copy, ledger, report, '_swap')
     assert copy.SWAP_SQL not in ledger.statements and report['swap_resumed'] is True
-    assert phases == ['validate_fks', 'recalibrate_count'] and report['result'] == 'swap_verified'
+    assert phases == ['validate_fks', 'recalibrate_count', 'recalibrate_analyze'] and report['result'] == 'swap_verified'
     assert ledger.attoptions == ['n_distinct=-0.270270']
     assert report['next_admissible_mode'] == {'mode': 'drop-economy-opportunity', 'implemented': True}
 

@@ -782,7 +782,14 @@ def _recalibrate(c, copy, runtime, report, ids, identity, relation, *, controlle
         altered = runtime.query(copy.recalibrate_alter_sql(fraction), write=True)
     else:
         altered = {'n_distinct': -fraction, 'already_set': True}
-    analyzed = runtime.query(copy.RECALIBRATE_ANALYZE_SQL, write=True)
+    # PR #894 review 4383773090: ANALYZE is a long phase (its statement timeout
+    # is the 7,200 s envelope), so it runs on the persistent long-phase backend
+    # under the watchdog, not through the 2,760 s one-shot transport.
+    analyzed = _long_phase(c, copy, runtime, report, phase='recalibrate_analyze', sql=copy.RECALIBRATE_ANALYZE_SQL,
+                           params=None, relation=relation, ids=ids, identity=identity,
+                           controller_alive=controller_alive, stop=stop,
+                           required_bytes=copy.long_phase_required('recalibrate_analyze', max_wal_size_bytes=max_wal_size),
+                           max_wal_size=max_wal_size)
     after = runtime.query(copy.RECALIBRATE_STATS_SQL)
     plan = runtime.query(copy.CHUNK_READ_PLAN_SQL)
     plan_ok = copy.chunk_read_plan_ok(plan)

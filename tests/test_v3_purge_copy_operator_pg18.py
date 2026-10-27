@@ -594,7 +594,7 @@ def _statistics_journey(copy_database, monkeypatch):
         return report
     for direction in (1, 2):
         report = swap_forward()
-        assert report['result'] == 'swap_verified' and report['long_phases'] == ['validate_fks', 'recalibrate_count']
+        assert report['result'] == 'swap_verified' and report['long_phases'] == ['validate_fks', 'recalibrate_count', 'recalibrate_analyze']
         recalibration = report['n_distinct_recalibration']
         wanted = copy_module.n_distinct_option(-recalibration['n_distinct'])
         assert oid(c, 'v3_derived.economy_opportunity') == copy_oid and oid(c, 'v3_retired.economy_opportunity') == original
@@ -727,3 +727,21 @@ def test_competing_copy_lock_or_statement_is_observed(superuser_database):
     finally:
         thread.join(timeout=10)
         sleeper.close()
+
+
+
+def test_cancel_allowlist_matches_the_recalibration_analyze_and_nothing_wider(superuser_database):
+    """PR #894 review 4383773090: the recalibration ANALYZE now runs as a long
+    phase, so the watchdog's fixed cancel allowlist must match it, evaluated by
+    PostgreSQL's own regex engine, and still refuse other ANALYZE statements."""
+    pattern = r"^\s*analyze v3_derived[.]economy_opportunity [(]system_id64[)]"
+    assert "lower(a.query) ~ '" + pattern + "'" in copy.CANCEL_SQL
+    statement = [line for line in copy.RECALIBRATE_ANALYZE_SQL.splitlines() if line.startswith('ANALYZE ')]
+    assert statement == ['ANALYZE v3_derived.economy_opportunity (system_id64);']
+    c = _owner(superuser_database[0])
+    for text, expected in ((statement[0], True), ('  ' + statement[0], True),
+                           ('ANALYZE v3_derived.system_search;', False),
+                           ('ANALYZE v3_derived.economy_opportunity;', False),
+                           ('SELECT 1; ' + statement[0], False)):
+        matched = c.execute('SELECT lower(%s) ~ %s', (text, pattern)).fetchone()[0]
+        assert matched is expected, text
