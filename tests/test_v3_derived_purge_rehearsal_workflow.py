@@ -153,7 +153,7 @@ state_path.write_text(json.dumps(state))
 # floor plus, before each long phase, the 32 GiB temp_file_limit reservation and
 # max_wal_size; the preflight refuses a runner that could never pass it.
 @pytest.mark.parametrize(("scale", "free_bytes", "accepted"), [
-    ("smoke", 139_999_999_999, False), ("smoke", 140_000_000_000, True),
+    ("smoke", 149_999_999_999, False), ("smoke", 150_000_000_000, True),
     ("one_percent", 174_999_999_999, False), ("one_percent", 175_000_000_000, True),
     ("arbitrary", 300_000_000_000, False),
 ])
