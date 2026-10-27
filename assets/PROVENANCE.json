@@ -1,7 +1,7 @@
 {
   "$schema": "./PROVENANCE.schema.json",
   "schema_version": 1,
-  "audit_date": "2026-10-21",
+  "audit_date": "2026-10-27",
   "policy": "assets/README.md",
   "entries": [
     {
@@ -57,6 +57,24 @@
       "commercial_use_approved": false,
       "notice_reference": "apps/importer/src/region_map.py",
       "notes": "The adaptation is MIT-compatible, but its normal use depends on Frontier-derived region data whose project approval is noncommercial only."
+    },
+    {
+      "filename": "docs/reference/colonisation/cre-rulebook/rulebook.json",
+      "asset_type": "data",
+      "distribution": "bundled_source",
+      "source_kind": "original",
+      "source_url": null,
+      "license": "Repository owner's own work (Colonisation Research Engine); it quotes short passages from the Elite Dangerous Colonization Mega Guide (CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/) and from Frontier Developments' update notes",
+      "creator": "ED-Finder repository owner (Colonisation Research Engine); quoted passages by CMDR Mechan and contributing CMDRs (Mega Guide) and Frontier Developments plc (update notes)",
+      "frontier_derived": true,
+      "attribution_text": "CRE rulebook (cre-knowledge-v0.3.0), quoting the Elite Dangerous Colonization Mega Guide v2.3.0 by CMDR Mechan and contributing CMDRs (CC BY-SA 4.0) and Frontier Developments' update notes. Not endorsed by Frontier Developments.",
+      "approval_date": "2026-10-27",
+      "verification_method": "Byte-for-byte copy of exports/rulebook.json at commit 59dd198ca27096b955b780d2f5fd4f2bcef595cd (release cre-knowledge-v0.3.0) of the owner's elite-dangerous-research-engine repository; SHA-256 matches that commit's exports/export_manifest.json and pin.json; the CRE validator checked every quote against the committed Mega Guide text (PDF pages) and the Frontier source notes before export.",
+      "sha256": "0487fcfb8149fcb28076145120ee04d1ccb83171df70868a4f48edf95cc21bd4",
+      "rights_status": "noncommercial_only",
+      "commercial_use_approved": false,
+      "notice_reference": "docs/reference/colonisation/cre-rulebook/rulebook.json",
+      "notes": "Reference data for the parity test (tests/test_cre_rulebook_parity.py); not read by any build or runtime. Held as noncommercial_only because it describes Elite Dangerous mechanics and quotes the Mega Guide, whose Frontier permission covers non-commercial purposes; the CC BY-SA 4.0 share-alike terms apply to the quoted passages."
     },
     {
       "filename": "docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt",

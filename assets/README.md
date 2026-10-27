@@ -94,6 +94,16 @@ Frontier-derived. The manifest `audit_date` moved to 2026-10-21 so that this
 entry's approval date is valid. The other entries keep their 2026-08-12
 approval dates.
 
+## Addition 2026-10-27
+
+One entry was added without a full re-audit:
+`docs/reference/colonisation/cre-rulebook/rulebook.json`, the pinned CRE
+rulebook (owner decision D1). It is the owner's own work but quotes the CC BY-SA
+4.0 Mega Guide and Frontier update notes, so it is recorded as
+`noncommercial_only` and Frontier-derived. The manifest `audit_date` moved to
+2026-10-27 so that this entry's approval date is valid. The other entries keep
+their earlier approval dates.
+
 See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for distributed
 credits and license notices. Re-run the audit when asset locations, build
 pipelines, remote font imports, or commercial posture changes.
