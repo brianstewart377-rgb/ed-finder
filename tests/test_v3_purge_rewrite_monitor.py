@@ -104,6 +104,37 @@ def test_watchdog_source_has_only_dedicated_cancel_capability():
     assert 'systemd-run' in source and "'--uid=0'" in source
     assert "config['container_id'] if arg == c.CONTAINER" in source
     assert "config['backend']['backend_start']" in source
+    # The rewrite path keeps 016's definer as its only cancel; the copy path
+    # (no 019 cancel definer) uses the fixed, authenticated owner statement in
+    # v3_purge_copy.CANCEL_SQL and nothing else. No OS signal anywhere.
     assert 'os.kill' not in source and 'pg_cancel_backend' not in source
+    assert 'copy.CANCEL_SQL' in source
     assert 'runtime.lease(' not in source and 'runtime.backup_lock(' not in source
     assert 'script_identity()' in source
+    copy_source = (ROOT / 'scripts/operator/lib/v3_purge_copy.py').read_text()
+    assert copy_source.count('pg_cancel_backend(') == 1
+    cancel = copy_source[copy_source.index('CANCEL_SQL ='):copy_source.index('PROGRESS_SQL =')]
+    for predicate in ('a.backend_start=%(backend_start)s::timestamptz', 'a.pid<>pg_backend_bid()'.replace('bid', 'pid'),
+                      "a.datname=current_database()", 'a.usename=current_user', "a.state='active'",
+                      'purge_copy_(build_indexes|verify|validate_fks)'):
+        assert predicate in cancel
+
+
+def test_copy_condition_reads_the_file_the_watchdog_unit_writes(tmp_path, monkeypatch):
+    """main() records a copy cancellation beside its config (<unit>.json.condition);
+    the dispatcher must read that same file, or a watchdog cancel looks like a
+    plain interruption in the receipt."""
+    import os
+    monitor = load('v3_purge_rewrite_monitor')
+    monkeypatch.setattr(monitor, 'DIRECTORY', tmp_path)
+    unit = 'edfinder-v3-purge-copy-economy_opportunity-verify-42'
+    config = tmp_path / (unit + '.json')
+    written = Path(str(config) + '.condition')
+    source = (ROOT / 'scripts/operator/lib/v3_purge_rewrite_monitor.py').read_text()
+    assert "condition_path = Path(str(path) + '.condition')" in source
+    written.write_text('free_space_floor')
+    os.chmod(written, 0o600)
+    if os.geteuid() != 0:
+        pytest.skip('secure_file requires root-owned state')
+    assert monitor.copy_condition(unit) == 'free_space_floor'
+    assert not written.exists() and monitor.copy_condition(unit) is None

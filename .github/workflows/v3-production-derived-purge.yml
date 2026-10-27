@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Separately reviewed governed purge phase
+        description: Separately reviewed governed purge phase (copy-and-drop route, migration 019; delete/rewrite are disabled)
         required: true
         default: plan
         type: choice
@@ -13,14 +13,30 @@ on:
           - status
           - authorize
           - verify-system-archetype-empty
-          - delete-system-search
-          - delete-economy-opportunity
-          - delete-body-mechanics
-          - delete-system-rating-vector
-          - rewrite-system-search
-          - rewrite-economy-opportunity
-          - rewrite-body-mechanics
-          - rewrite-system-rating-vector
+          - preflight-system-search
+          - preflight-economy-opportunity
+          - preflight-body-mechanics
+          - preflight-system-rating-vector
+          - copy-system-search
+          - copy-economy-opportunity
+          - copy-body-mechanics
+          - copy-system-rating-vector
+          - swap-system-search
+          - swap-economy-opportunity
+          - swap-body-mechanics
+          - swap-system-rating-vector
+          - swap-back-system-search
+          - swap-back-economy-opportunity
+          - swap-back-body-mechanics
+          - swap-back-system-rating-vector
+          - drop-system-search
+          - drop-economy-opportunity
+          - drop-body-mechanics
+          - drop-system-rating-vector
+          - abandon-system-search
+          - abandon-economy-opportunity
+          - abandon-body-mechanics
+          - abandon-system-rating-vector
           - abort-relation-system-search
           - abort-relation-economy-opportunity
           - abort-relation-body-mechanics
@@ -42,7 +58,7 @@ on:
         default: ''
         type: string
       verification_run_id:
-        description: Successful protected verify-system-archetype-empty run (delete/rewrite/abort/restore/complete)
+        description: Successful protected verify-system-archetype-empty run (copy/swap/swap-back/drop/abandon/abort/restore/complete)
         required: false
         default: ''
         type: string
@@ -67,7 +83,7 @@ on:
         default: ''
         type: string
       wall_clock_seconds:
-        description: Delete-only loop budget in seconds, integer 1..1800 (blank for other modes)
+        description: copy-R only chunk-loop budget in seconds, integer 1..9000 (blank for other modes)
         required: false
         default: ''
         type: string
@@ -88,9 +104,10 @@ jobs:
     concurrency:
       group: chatgpt-ed-new-ops
       cancel-in-progress: false
-    # Delete: <=1800s loop + <=2700s batch. Rewrite: <=7200s reviewed
-    # statement (enforced before SSH). 10800s total leaves >=3600s for
-    # preflight, verification, cancellation/recovery, restoration and upload.
+    # copy-R: <=9000s dispatch budget (chunk loop plus at most one long
+    # phase of <=7200s that only starts when it fits). Every 019 call carries
+    # an explicit SET LOCAL statement_timeout. 10800s total leaves >=1800s for
+    # preflight, the deferred-phase decision, cleanup and upload.
     timeout-minutes: 180
     env:
       INPUT_MODE: ${{ inputs.mode }}
@@ -139,7 +156,7 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.plan_run_id }}
       - name: Download sealed exclusion proof
-        if: inputs.mode == 'complete' || inputs.mode == 'restore-services' || startsWith(inputs.mode, 'delete-') || startsWith(inputs.mode, 'rewrite-') || startsWith(inputs.mode, 'abort-relation-')
+        if: inputs.mode == 'complete' || inputs.mode == 'restore-services' || startsWith(inputs.mode, 'copy-') || startsWith(inputs.mode, 'swap-') || startsWith(inputs.mode, 'drop-') || startsWith(inputs.mode, 'abandon-') || startsWith(inputs.mode, 'abort-relation-')
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: v3-derived-purge-verification

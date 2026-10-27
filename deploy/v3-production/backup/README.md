@@ -20,9 +20,10 @@ This schedule is **not** part of that promotion: it is a separate host operation
 | `edfinder-rclone-mount.logrotate` | `/etc/logrotate.d/edfinder-rclone-mount` (owner-installed; see "Storage Box mount" below) |
 
 For an existing schedule, update only the wrapper through the allowlisted
-`v3-backup-wrapper-install` operation in `chatgpt-ed-new-ops.yml`. Apply migration
-`016_v3_governed_derived_purge.sql` first: the installer refuses unless both its
-migration-ledger entry and the purge-event relation exist. The action streams
+`v3-backup-wrapper-install` operation in `chatgpt-ed-new-ops.yml`. Apply migrations
+`016_v3_governed_derived_purge.sql` and `019_v3_purge_copy_and_drop.sql` first: the
+installer refuses unless both migration-ledger entries, the purge-event relation
+and `v3_meta.purge_copy_backup_skip()` exist. The action streams
 trusted-main code with its source SHA, verifies the committed wrapper SHA-256,
 holds the schedule lock, refuses active backup/verify processes, and atomically
 renames a mode-`0700` temporary file into the fixed destination. It re-reads the
@@ -65,6 +66,21 @@ record is logged with its purge ID, event sequence, relation and backend identit
 A dead backend or no open record lets the schedule continue. A missing ledger
 relation or any query error exits nonzero before starting a backup or verify.
 The SQL is embedded because installed timer jobs have no repository checkout.
+
+Since migration `019_v3_purge_copy_and_drop.sql` the wrapper then runs a second
+fixed read, `SELECT v3_meta.purge_copy_backup_skip();`, through the same pinned
+`psql` identity. It `SKIP`s (exit 0, logged) while the result is exactly `t`:
+a relation of the copy-and-drop purge sits between its `COPY_STARTED` and its
+`DROPPED` or abandonment, or a `v3_purge_staging`/`v3_retired` table exists
+(owner answer 8 of `docs/development/v3-purge-copy-and-drop-design.md`: the
+Storage Box write cache exceeds the free-space margin and the first diff after
+a copy would carry the whole new table). Exactly `f` continues; any other
+value or a failing query exits non-zero before pgBackRest starts. Because the
+read runs on every scheduled backup, the installer refuses to install this
+wrapper until 019 is applied and the function exists. WAL archiving is never
+skipped. A copy left staged or swapped therefore suspends scheduled backups
+until it is finished, swapped back or abandoned: the runbook's 24-hour rule
+and a backup heartbeat alert (separate work) cover that.
 
 It then requires pgBackRest itself to report `status: ok` before starting.
 

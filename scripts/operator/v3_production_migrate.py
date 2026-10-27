@@ -167,6 +167,29 @@ def plan_migrations(
 
 
 PURGE_MIGRATION = "016_v3_governed_derived_purge.sql"
+# Copy-and-drop ledger (applied to production 2026-10-26, apply run
+# 40338736148). Its bootstrap rule mirrors 016's and is now historical for
+# production; it remains the only path a fresh lineage may take through 019.
+COPY_MIGRATION = "019_v3_purge_copy_and_drop.sql"
+
+
+def _bootstrap_allowed(
+    desired: list[dict[str, str]], live: list[dict[str, str]],
+    reviewed_plan: dict[str, Any], migration: str,
+) -> bool:
+    prefix = reviewed_plan.get("applied_before")
+    suffix = reviewed_plan.get("pending")
+    expected_prefix = [
+        {"ledger_name": entry["ledger_name"], "sha256": entry["sha256"]}
+        for entry in desired[:len(live)]
+    ]
+    return (
+        live == prefix == expected_prefix
+        and isinstance(suffix, list) and bool(suffix)
+        and suffix == desired[len(live):]
+        and suffix[-1]["ledger_name"] == migration
+        and all(entry["ledger_name"] != migration for entry in live)
+    )
 
 
 def purge_bootstrap_allowed(
@@ -178,19 +201,16 @@ def purge_bootstrap_allowed(
     The workflow authenticates provenance before copying the plan into its sealed
     operation bundle. Never replace its recorded prefix with a newly read prefix.
     """
-    prefix = reviewed_plan.get("applied_before")
-    suffix = reviewed_plan.get("pending")
-    expected_prefix = [
-        {"ledger_name": entry["ledger_name"], "sha256": entry["sha256"]}
-        for entry in desired[:len(live)]
-    ]
-    return (
-        live == prefix == expected_prefix
-        and isinstance(suffix, list) and bool(suffix)
-        and suffix == desired[len(live):]
-        and suffix[-1]["ledger_name"] == PURGE_MIGRATION
-        and all(entry["ledger_name"] != PURGE_MIGRATION for entry in live)
-    )
+    return _bootstrap_allowed(desired, live, reviewed_plan, PURGE_MIGRATION)
+
+
+def copy_bootstrap_allowed(
+    desired: list[dict[str, str]], live: list[dict[str, str]],
+    reviewed_plan: dict[str, Any],
+) -> bool:
+    """The 019 relation/function may be absent only for the apply whose
+    authenticated pending suffix ends in 019 and whose live ledger lacks it."""
+    return _bootstrap_allowed(desired, live, reviewed_plan, COPY_MIGRATION)
 
 
 def require_purge_clear(
@@ -209,7 +229,8 @@ def require_purge_clear(
             "--command", sql,
         ], env=env).stdout.strip()
 
-    return tool.check(query, bootstrap=purge_bootstrap_allowed(desired, live, reviewed_plan))
+    return tool.check(query, bootstrap=purge_bootstrap_allowed(desired, live, reviewed_plan),
+                      copy_bootstrap=copy_bootstrap_allowed(desired, live, reviewed_plan))
 
 
 def reviewed_apply_plan(

@@ -3,8 +3,13 @@
 
 No port is published, no external network exists, and every database command
 runs inside the one marked container. This module has no DSN/host argument.
-Filesystem samples bound a whole action invocation (conservatively also each
-batch in that invocation), including WAL and temporary files on its data mount.
+The journey runs the copy-and-drop route (migration 019) through the real
+action, relation by relation in 019's order: read-only preflight, copy-R until
+the staging copy is verified (chunks, index build, VACUUM FREEZE, verify),
+swap-R (swap, FK validation, Finder smoke and, for economy_opportunity, the
+planner-statistics recalibration) while a separate read-only Finder reader
+measures read stalls, then drop-R; finally complete. Filesystem and temp-file
+samples bound each copy's free-space peak, including WAL on its data mount.
 """
 from __future__ import annotations
 
@@ -39,24 +44,47 @@ OBSERVER_USER = 'edfinder_purge_observer'
 RECEIPT_PATH = ROOT / evidence.STEP0_RECEIPT
 SCALE_SYSTEMS = {'smoke': 100_000, 'one_percent': 2_000_000, 'tiny': 200}
 RELATIONS = tuple(controller.RELATIONS.values())
+COPY_MIGRATION = '019_v3_purge_copy_and_drop.sql'
 SEED_BATCH_ROWS = 50_000
 SAMPLE_SECONDS = 0.1
+READ_INTERVAL_SECONDS = 0.05
+COPY_WALL_CLOCK_SECONDS = 1800
+COPY_DISPATCH_LIMIT = 200
+ACTION_TIMEOUT_SECONDS = 10_800
+ARCHIVER_READY_SECONDS = 120
 CRASH_SCENARIOS = figures.CRASH_SCENARIOS
-SURVIVOR_CONTROL_SQL = """SET default_transaction_read_only=off;
-SELECT extract(epoch FROM clock_timestamp());
-VACUUM (FULL, ANALYZE) v3_derived.system_search;
-SELECT extract(epoch FROM clock_timestamp());
-"""
-BATCH_LEDGER_SQL = ("SELECT COALESCE(max(event_sequence),0) FROM "
-                    "v3_meta.derived_generation_purge_event WHERE event_kind='BATCH_STARTED';")
 OBSERVER_QUERY_SECONDS = 30
+# pg_monitor (which includes pg_read_all_stats) lets the observer sample the
+# server's temporary files (pg_ls_tmpdir) without any write privilege.
 OBSERVER_SETUP = """
 CREATE ROLE edfinder_purge_observer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE edfinder_purge_observer SET default_transaction_read_only=on;
-GRANT pg_read_all_stats TO edfinder_purge_observer;
-GRANT USAGE ON SCHEMA v3_meta,v3_derived,v3_spatial TO edfinder_purge_observer;
-GRANT SELECT ON ALL TABLES IN SCHEMA v3_meta,v3_derived,v3_spatial TO edfinder_purge_observer;
+GRANT pg_monitor TO edfinder_purge_observer;
+GRANT USAGE ON SCHEMA v3_meta,v3_derived,v3_spatial,v3_app TO edfinder_purge_observer;
+GRANT SELECT ON ALL TABLES IN SCHEMA v3_meta,v3_derived,v3_spatial,v3_app TO edfinder_purge_observer;
 """
+# The reviewed production prerequisite the copy runbook names (019 does not
+# grant it): long phases bound their temporary files with SET LOCAL.
+EXECUTOR_PARAMETER_SETUP = 'GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor;'
+TEMP_SAMPLE_SQL = 'SELECT COALESCE(sum(size),0)::bigint FROM pg_ls_tmpdir();'
+TEMP_WRITTEN_SQL = 'SELECT temp_bytes FROM pg_stat_database WHERE datname=current_database();'
+ARCHIVER_SQL = "SELECT pg_switch_wal() IS NOT NULL, (SELECT last_archived_wal IS NOT NULL FROM pg_stat_archiver);"
+ARCHIVED_SQL = 'SELECT last_archived_wal IS NOT NULL FROM pg_stat_archiver;'
+# One read per Finder-facing surface that each relation's swap locks: the
+# published Search and economy views, and the published generation's rows.
+FINDER_READS = {
+    'system_search': 'SELECT count(*) FROM (SELECT system_id64 FROM v3_app.system_search ORDER BY system_id64 LIMIT 25) s;',
+    'economy_opportunity': ("SELECT count(*) FROM (SELECT system_id64 FROM v3_derived.economy_opportunity WHERE "
+                            "derived_generation_id='" + controller.PUBLISHED_ID + "' LIMIT 25) s;"),
+    'body_mechanics': ("SELECT count(*) FROM (SELECT system_id64 FROM v3_derived.body_mechanics WHERE "
+                       "derived_generation_id='" + controller.PUBLISHED_ID + "' LIMIT 25) s;"),
+    'system_rating_vector': 'SELECT count(*) FROM (SELECT system_id64 FROM v3_app.system_economy_rating LIMIT 25) s;',
+}
+# Bytes and row counts read by the owner around each step (fixed identifiers).
+RELATION_BYTES_SQL = 'SELECT COALESCE(pg_total_relation_size(to_regclass(%(relation)s)),0);'
+TARGET_ROWS_SQL = {relation: ('SELECT count(*) FROM v3_derived.' + relation
+                              + " WHERE derived_generation_id<>'" + controller.PUBLISHED_ID + "';")
+                   for relation in RELATIONS}
 
 
 def seeding_proportions(scale):
@@ -97,27 +125,6 @@ def maximum_drawdown(samples):
         high = max(high, value)
         peak = max(peak, high - value)
     return peak
-
-
-def batch_peak_growth(observations):
-    """Include the sample on both sides of each observed batch boundary.
-
-    Several fast batches between samples are conservatively grouped. WAL is
-    counted on the data filesystem, including retained segments. Sampling is a
-    measurement, not a guarantee that a sub-interval transient was observed.
-    """
-    peak = 0
-    window = []
-    previous_event = None
-    for event, free in observations:
-        if previous_event is not None and event != previous_event:
-            window.append(free)
-            peak = max(peak, maximum_drawdown(window))
-            window = window[-2:]
-        else:
-            window.append(free)
-        previous_event = event
-    return max(peak, maximum_drawdown(window))
 
 
 class ObserverSession:
@@ -253,6 +260,7 @@ class Harness:
                  {'marker': 'edfinder-disposable-purge-rehearsal:' + self.token})
 
     def migrate(self):
+        applied = []
         for line in (ROOT / 'sql/v3/migration-manifest.txt').read_text().splitlines():
             if not line.strip() or line.startswith('#'):
                 continue
@@ -261,17 +269,18 @@ class Harness:
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise ValueError('migration_manifest_hash_mismatch')
             # Migrations contain their own BEGIN/COMMIT; loading the committed
-            # bytes unchanged also exercises 016's actual capability install.
+            # bytes unchanged also exercises 016's and 019's capability installs.
             self.sql(path.read_text())
             self.sql('INSERT INTO v3_meta.schema_migration(migration_name,migration_sha256) '
                      'VALUES(%(name)s,decode(%(digest)s,\'hex\'));', {'name': name, 'digest': digest})
-            if name == controller.MIGRATION:
-                break
-        else:
-            raise ValueError('migration_016_missing')
+            applied.append(name)
+        # The whole reviewed manifest, as production's ledger holds it.
+        if controller.MIGRATION not in applied or COPY_MIGRATION not in applied:
+            raise ValueError('migration_016_or_019_missing')
         # Only this private container owns the role. Grant table reads after
         # migrations so monitoring never needs application/executor privileges.
         self.sql(OBSERVER_SETUP)
+        self.sql(EXECUTOR_PARAMETER_SETUP)
 
     def seed(self):
         self.sql(seed.METADATA)
@@ -293,6 +302,8 @@ class Harness:
                 if survivor and relation == 'system_search':
                     continue
                 self.insert(statement, parameters, self.counts[relation][key])
+            # Build receipts as the builder records them, while still BUILDING.
+            self.sql(seed.CHUNK_RECEIPTS, {'generation': generation})
             if target_search:
                 self.sql(seed.SEARCH_PRODUCT_READY, {'generation': generation})
             if key != 'ratings_v4_prod_p4':
@@ -300,6 +311,7 @@ class Harness:
             if survivor:
                 self.sql(seed.PUBLISH, {'generation': generation})
                 self.publish_survivor_products(generation)
+        self.sql(seed.PLANNER_STATISTICS)
         self.sql('ANALYZE; CHECKPOINT;')
         for relation in RELATIONS:
             actual = json.loads(self.sql('SELECT COALESCE(json_object_agg(derived_generation_id::text,n),\'{}\') '
@@ -318,6 +330,16 @@ class Harness:
                 or published.get('app_search_rows') != self.survivor_rows('system_search')
                 or published.get('app_archetype_rows') != self.survivor_rows('system_archetype')):
             raise ValueError('seed_survivor_publication_unproven')
+        self.archived()
+
+    def archived(self):
+        """The copy route reads the archiver's position: complete one segment."""
+        self.sql(ARCHIVER_SQL)
+        deadline = time.monotonic() + ARCHIVER_READY_SECONDS
+        while self.sql(ARCHIVED_SQL) != 't':
+            if time.monotonic() >= deadline:
+                raise RuntimeError('rehearsal_archiver_not_ready')
+            time.sleep(0.5)
 
     def insert(self, statement, parameters, count):
         for first in range(1, count + 1, SEED_BATCH_ROWS):
@@ -340,49 +362,10 @@ class Harness:
                                              'version': version, 'rows': rows})
             self.insert(seed.SEARCH if code == 'system_search' else seed.ARCHETYPE,
                         {'generation': generation}, rows)
+            if code == 'system_search':
+                self.sql(seed.SEARCH_CHUNK_RECEIPTS, {'generation': generation, 'version': version})
             self.sql(seed.PRODUCT_READY, {'generation': generation, 'product': code})
         self.sql(seed.PUBLISH_PRODUCTS, {'generation': generation})
-
-    def survivor_control_rewrite(self):
-        """Rewrite the survivor-only Search relation once more, after complete.
-
-        The governed rewrite copied the published survivors and also scanned
-        the deleted target tuples. This unaudited VACUUM in the disposable
-        fixture copies the same survivors with no dead target tuples, so the
-        receipt can separate survivor work from target work. Server clock
-        bounds the statement; free-space samples bound its disk peak.
-        """
-        self.sql('CHECKPOINT;')
-        samples, failures, stop = [self.free_bytes()], [], threading.Event()
-        def sample():
-            while not stop.is_set():
-                try:
-                    samples.append(self.free_bytes())
-                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
-                    failures.append('filesystem_sampling_failed')
-                    return
-                stop.wait(SAMPLE_SECONDS)
-        worker = threading.Thread(target=sample)
-        worker.start()
-        try:
-            clock = self.sql(SURVIVOR_CONTROL_SQL).split()
-        finally:
-            stop.set()
-            worker.join(timeout=30)
-        samples.append(self.free_bytes())
-        if failures or worker.is_alive() or len(clock) != 2:
-            raise RuntimeError('survivor_control_rewrite_unmeasured')
-        seconds = float(clock[1]) - float(clock[0])
-        if not seconds > 0:
-            raise RuntimeError('survivor_control_rewrite_unmeasured')
-        receipt = evidence.seal({'phase': 'survivor-control-rewrite-system-search', 'container': self.container,
-                                 'sample_interval_minimum_seconds': SAMPLE_SECONDS,
-                                 'sample_transport': 'docker_exec_stat', 'free_bytes_samples': samples,
-                                 'peak_growth_bytes': maximum_drawdown(samples), 'server_seconds': seconds})
-        path = self.output / 'survivor-control-rewrite-system-search-filesystem-samples.json'
-        path.write_text(evidence.canonical_json(receipt) + '\n')
-        self.filesystem_receipts.append({'path': path.name, 'content_sha256': receipt['content_sha256']})
-        return seconds, maximum_drawdown(samples), len(samples)
 
     def free_bytes(self):
         fields = self.docker('exec', self.container, 'stat', '-f', '-c', '%a %S', '/var/lib/postgresql').split()
@@ -390,186 +373,194 @@ class Harness:
             raise ValueError('filesystem_sample_unavailable')
         return int(fields[0]) * int(fields[1])
 
+    def number(self, statement, parameters=None):
+        value = self.sql(statement, parameters)
+        if not value.isdecimal():
+            raise ValueError('rehearsal_measurement_unavailable')
+        return int(value)
+
     def action_argv(self, mode):
         argv = ['bash', str(ROOT / 'scripts/operator/actions/v3-derived-generation-purge.sh'), mode,
                 '--rehearsal-container', self.container, '--rehearsal-token', self.token]
         # Mirror the controller's admission exactly: status takes no plan and
-        # may take the verification; authorize/verify take only the plan.
-        phase = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))
-        admitted = {'plan': mode in ('authorize', 'verify-system-archetype-empty', 'complete') or phase,
-                    'verification': mode in ('status', 'complete') or phase}
+        # may take the verification; authorize/verify take only the plan; a
+        # preflight takes only the plan; every other copy mode and complete
+        # take both.
+        copy_mode = controller.is_copy_mode(mode)
+        preflight = mode.startswith('preflight-')
+        admitted = {'plan': mode in ('authorize', 'verify-system-archetype-empty', 'complete') or copy_mode,
+                    'verification': mode in ('status', 'complete') or (copy_mode and not preflight)}
         for flag, proof in (('plan', self.plan), ('verification', self.verification)):
             if proof is not None and admitted[flag]:
                 argv += ['--' + flag, str(proof[0]), '--' + flag + '-sha256', proof[1]]
-        if mode.startswith(('delete-', 'rewrite-')):
-            argv += ['--wall-clock-seconds', '1800']
+        if mode.startswith('copy-'):
+            argv += ['--wall-clock-seconds', str(COPY_WALL_CLOCK_SECONDS)]
         return argv
 
-    def action(self, mode, *, measure=False, allow_partial_delete=False):
+    def action(self, mode, *, measure=False, reader=None):
+        """Run the real action once; optionally sample free and temp-file bytes
+        (``measure``) and run one Finder read loop (``reader``) beside it.
+
+        Each sampler or reader uses its own observer login opened before the
+        action starts and closed after it exits.
+        """
         self.call_number += 1
         argv = self.action_argv(mode)
-        samples = []
-        batch_observations = []
-        failures = []
+        samples, temp_samples, reads, failures = [], [], [], []
         stop = threading.Event()
+        sampler_session = self.observer_session() if measure else None
+        reader_session = self.observer_session() if reader else None
         def sample():
             while not stop.is_set():
                 try:
-                    free = self.free_bytes()
-                    samples.append(free)
-                    if session:
-                        batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
+                    samples.append(self.free_bytes())
+                    temp_samples.append(int(sampler_session.query(TEMP_SAMPLE_SQL)))
                 except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
                     failures.append('filesystem_sampling_failed')
                     return
                 stop.wait(SAMPLE_SECONDS)
-        worker = threading.Thread(target=sample) if measure else None
-        # 016 refuses a batch while any other client backend of this database
-        # has state NULL, which is how a login appears while it is starting.
-        # So the batch ledger is sampled through one observer login opened
-        # before the action starts and closed after it exits: no new database
-        # session starts while the action runs.
-        session = self.observer_session() if worker and mode.startswith('delete-') else None
+        def read():
+            while not stop.is_set():
+                started = time.monotonic()
+                try:
+                    reader_session.query(reader)
+                except (ValueError, RuntimeError):
+                    failures.append('finder_reader_failed')
+                    return
+                reads.append(time.monotonic() - started)
+                stop.wait(READ_INTERVAL_SECONDS)
+        workers = [threading.Thread(target=target) for target, enabled in
+                   ((sample, measure), (read, reader)) if enabled]
         try:
-            if worker:
-                free = self.free_bytes()
-                samples.append(free)
-                if session:
-                    batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
+            if measure:
+                samples.append(self.free_bytes())
+                temp_samples.append(int(sampler_session.query(TEMP_SAMPLE_SQL)))
+            for worker in workers:
                 worker.start()
             started = time.monotonic()
             try:
-                result = self.command(argv, check=False, timeout=3600)
+                result = self.command(argv, check=False, timeout=ACTION_TIMEOUT_SECONDS)
             finally:
                 stop.set()
-                if worker:
-                    worker.join(timeout=30)
+                for worker in workers:
+                    worker.join(timeout=60)
             duration = time.monotonic() - started
-            if worker:
-                if worker.is_alive():
-                    # Never share the session with a sampler still waiting on it.
-                    raise RuntimeError('filesystem_sampling_failed')
-                free = self.free_bytes()
-                samples.append(free)
-                if session:
-                    batch_observations.append((int(session.query(BATCH_LEDGER_SQL)), free))
+            if any(worker.is_alive() for worker in workers):
+                # Never share a session with a worker still waiting on it.
+                raise RuntimeError('rehearsal_sampler_did_not_stop')
+            if measure:
+                samples.append(self.free_bytes())
+                temp_samples.append(int(sampler_session.query(TEMP_SAMPLE_SQL)))
         finally:
-            if session:
-                session.close()
-        if failures or worker and worker.is_alive():
-            raise RuntimeError('filesystem_sampling_failed')
+            for session in (sampler_session, reader_session):
+                if session is not None:
+                    session.close()
+        if failures:
+            raise RuntimeError(failures[0])
         report = json.loads(result.stdout)
         self.statements.extend({**item, 'phase': mode} for item in report.get('statement_durations', []))
         self.statements.append({'phase': mode, 'kind': 'action_wall_clock', 'duration_seconds': duration})
         path = self.output / f'{self.call_number:03d}-{mode}.json'
         path.write_text(evidence.canonical_json(report) + '\n')
         evidence.load_sealed(path)
-        if measure:
+        if measure or reader:
             sample_receipt = evidence.seal({
                 'phase': mode, 'container': self.container,
                 'sample_interval_minimum_seconds': SAMPLE_SECONDS,
-                'sample_transport': 'docker_exec_stat_and_batch_ledger_observation',
-                'free_bytes_samples': samples, 'batch_event_and_free_bytes_samples': batch_observations,
-                'peak_growth_bytes': (batch_peak_growth(batch_observations) if mode.startswith('delete-')
-                                      else maximum_drawdown(samples)),
-                'caveat': 'shorter_transients_may_be_unobserved_fast_batches_conservatively_grouped'})
-            sample_path = self.output / f'{self.call_number:03d}-{mode}-filesystem-samples.json'
+                'sample_transport': 'docker_exec_stat_and_observer_pg_ls_tmpdir',
+                'free_bytes_samples': samples, 'temp_file_bytes_samples': temp_samples,
+                'finder_read_seconds': reads,
+                'caveat': 'shorter_transients_may_be_unobserved'})
+            sample_path = self.output / f'{self.call_number:03d}-{mode}-samples.json'
             sample_path.write_text(evidence.canonical_json(sample_receipt) + '\n')
             self.filesystem_receipts.append({'path': sample_path.name,
                                              'content_sha256': sample_receipt['content_sha256']})
-        # A bounded delete may stop between committed batches. Only its exact
-        # non-integrity budget stop, with the loop joined and writers restored,
-        # is safe to redispatch; every other stopped action fails the rehearsal.
-        partial = (allow_partial_delete and mode.startswith('delete-')
-                   and report.get('failures') == ['delete_wall_clock_budget_exhausted']
-                   and report.get('integrity_failed') is False
-                   and report.get('runner_state', {}).get('loop_exited') is True
-                   and isinstance(report.get('writer_restore'), dict)
-                   and report['writer_restore'].get('verified') is True
-                   and bool(report.get('failed_stop_recorded')))
-        if (result.returncode or report.get('status') != 'success') and not partial:
+        if result.returncode or report.get('status') != 'success':
             # Failure codes are fixed identifiers; anything else is withheld.
             codes = report.get('failures') if isinstance(report.get('failures'), list) else []
             self.refused_action = {'mode': mode, 'report': path.name, 'failures': [
                 code for code in codes if isinstance(code, str)
                 and re.fullmatch('[A-Za-z0-9_,]{1,120}', code)][:20]}
             raise RuntimeError('real_action_refused_' + mode.replace('-', '_'))
-        peak = batch_peak_growth(batch_observations) if mode.startswith('delete-') else maximum_drawdown(samples)
-        return report, path, duration, peak, len(samples)
+        return {'report': report, 'path': path, 'duration': duration, 'free_bytes_samples': samples,
+                'temp_file_bytes_samples': temp_samples, 'finder_read_seconds': reads}
+
+    def authorize(self):
+        outcome = self.action('plan')
+        self.plan = (outcome['path'], outcome['report']['content_sha256'])
+        self.action('authorize')
+        outcome = self.action('verify-system-archetype-empty')
+        self.verification = (outcome['path'], outcome['report']['content_sha256'])
+
+    def copy_until_verified(self, name, *, measure=False):
+        """Dispatch copy-R until 019 records VERIFIED (each dispatch is bounded)."""
+        outcomes = []
+        for _ in range(COPY_DISPATCH_LIMIT):
+            outcome = self.action('copy-' + name, measure=measure)
+            outcomes.append(outcome)
+            if outcome['report'].get('result') == 'copy_verified_ready_for_swap':
+                return outcomes
+        raise RuntimeError('copy_dispatch_bound_exceeded')
 
     def journey(self):
-        report, path, *_ = self.action('plan')
-        self.plan = (path, report['content_sha256'])
-        self.action('authorize')
-        report, path, *_ = self.action('verify-system-archetype-empty')
-        self.verification = (path, report['content_sha256'])
-        measurements, raws = {}, {}
-        split = None
+        self.authorize()
+        measurements = {}
         for name, relation in controller.RELATIONS.items():
-            heap = int(self.sql('SELECT pg_total_relation_size(%(relation)s::regclass);',
-                                {'relation': 'v3_derived.' + relation}))
-            total_rows = sum(self.counts[relation][key] for key in controller.TARGETS)
-            deleted = 0
-            delete_seconds = 0.0
-            delete_dispatch_seconds = 0.0
-            batch_peak = samples = 0
-            for _ in range(1000):
-                report, _, elapsed, peak, count = self.action('delete-' + name, measure=True, allow_partial_delete=True)
-                deleted += report.get('rows_affected_this_run') or 0
-                delete_dispatch_seconds += elapsed
-                delete_seconds += sum(item['duration_seconds'] for item in report.get('statement_durations', [])
-                                      if item['kind'] == 'payload_batch')
-                batch_peak = max(batch_peak, peak)
-                samples += count
-                remaining = int(self.sql('SELECT count(*) FROM v3_derived.' + relation +
-                                        ' WHERE derived_generation_id<>%(published)s::uuid;',
-                                        {'published': controller.PUBLISHED_ID}))
-                if remaining == 0:
-                    break
-            else:
-                raise RuntimeError('delete_dispatch_bound_exceeded')
-            report, _, elapsed, peak, count = self.action('rewrite-' + name, measure=True)
-            rewrite_seconds = sum(item['duration_seconds'] for item in report.get('statement_durations', [])
-                                  if item['kind'] == 'vacuum_full_analyze')
-            if deleted != total_rows or delete_seconds <= 0 or rewrite_seconds <= 0:
-                raise ValueError('payload_count_or_statement_timing_unproven')
-            raw = dict(deleted_rows=total_rows, delete_seconds=delete_dispatch_seconds,
-                       batch_limit=self.plan_batch_limit(relation), batch_peak_bytes=batch_peak,
-                       rewrite_seconds=rewrite_seconds, rewrite_peak_bytes=peak, heap_index_bytes=heap,
-                       delete_dispatch_seconds=delete_dispatch_seconds, rewrite_dispatch_seconds=elapsed,
-                       delete_statement_seconds=delete_seconds,
-                       delete_statement_rows_per_second=total_rows / delete_seconds,
-                       delete_rate_basis='sustained_dispatch_wall_clock_including_safety_gates',
-                       filesystem_sample_count=samples + count,
-                       autovacuum_budget_source='heap_plus_index_lower_bound',
-                       delete_rows_reported=deleted,
-                       batch_measurement_scope='sampled_batch_boundaries_with_overlapping_samples',
-                       rewrite_measurement_scope='entire_dispatch_conservative_bound_for_vacuum_full_analyze',
-                       sample_interval_seconds=SAMPLE_SECONDS)
-            raws[relation] = raw
-            if relation == 'system_search':
-                survivors = self.counts[relation][controller.PUBLISHED_KEY]
-                after = int(self.sql('SELECT pg_total_relation_size(%(relation)s::regclass);',
-                                     {'relation': 'v3_derived.' + relation}))
-                split = dict(survivor_rows=survivors, target_rows=total_rows,
-                             heap_index_bytes_before_delete=heap,
-                             survivor_heap_index_bytes_after_rewrite=after,
-                             governed_rewrite_seconds=rewrite_seconds, governed_rewrite_peak_bytes=peak,
-                             target_delete_seconds=delete_dispatch_seconds)
-        self.action('complete')
-        seconds, control_peak, count = self.survivor_control_rewrite()
-        split.update(survivor_rewrite_seconds=seconds, survivor_rewrite_peak_bytes=control_peak)
-        search = raws['system_search']
-        # The plan carries the larger of the two measured peaks (fail-closed).
-        search['rewrite_peak_bytes'] = max(search['rewrite_peak_bytes'], control_peak)
-        search['filesystem_sample_count'] += count
-        for relation, raw in raws.items():
+            raw = self.copy_relation(name, relation)
             measurements[relation] = figures.relation_figures(raw, self.proportion)
-        measurements['system_search']['survivor_target_split'] = figures.search_split_figures(split, self.proportion)
+        self.action('complete')
+        for relation in RELATIONS:
+            if self.number(TARGET_ROWS_SQL[relation]) != 0:
+                raise ValueError('rehearsal_target_rows_remain')
         return measurements
 
-    def plan_batch_limit(self, relation):
-        return json.loads(self.plan[0].read_text())['reviewed_plan']['delete'][relation]['batch_limit']
+    def copy_relation(self, name, relation):
+        """One relation through preflight, copy, swap and drop, measured."""
+        self.action('preflight-' + name)
+        live_bytes = self.number(RELATION_BYTES_SQL, {'relation': 'v3_derived.' + relation})
+        target_rows = self.number(TARGET_ROWS_SQL[relation])
+        written_before = self.number(TEMP_WRITTEN_SQL)
+        copies = self.copy_until_verified(name, measure=True)
+        copy_bytes = self.number(RELATION_BYTES_SQL, {'relation': 'v3_purge_staging.' + relation})
+        swap = self.action('swap-' + name, reader=FINDER_READS[relation])
+        freed = self.number(RELATION_BYTES_SQL, {'relation': 'v3_retired.' + relation})
+        drop = self.action('drop-' + name)
+        written_after = self.number(TEMP_WRITTEN_SQL)
+        reports = [outcome['report'] for outcome in copies]
+        seconds = {phase: sum(step.get('seconds') or 0 for report in reports for step in report.get('copy_steps') or []
+                              if step.get('phase') == phase)
+                   for phase in ('index_build', 'vacuum_freeze', 'verify')}
+        wal = {phase: sum((report.get('wal_phase_bytes') or {}).get(phase) or 0 for report in reports)
+               for phase in ('chunk', 'index_build', 'vacuum_freeze', 'verify')}
+        swap_report, drop_report = swap['report'], drop['report']
+        wal['validate_fks'] = (swap_report.get('wal_phase_bytes') or {}).get('validate_fks')
+        wal['drop'] = (drop_report.get('wal_phase_bytes') or {}).get('drop')
+        free = [value for outcome in copies for value in outcome['free_bytes_samples']]
+        temp = [value for outcome in copies for value in outcome['temp_file_bytes_samples']]
+        copied = (reports[-1].get('copy_state_after') or {}).get('rows_total')
+        if (type(copied) is not int or copied != self.counts[relation][controller.PUBLISHED_KEY]
+                or not swap['finder_read_seconds'] or not isinstance(swap_report.get('swap_attempts'), list)
+                or any(type(value) is not int for value in wal.values())):
+            raise ValueError('copy_count_or_measurement_unproven')
+        fk_seconds = sum(step.get('seconds') or 0 for step in swap_report.get('copy_steps') or []
+                         if step.get('phase') == 'validate_fks')
+        return dict(
+            copied_rows=copied, target_rows=target_rows, live_bytes_before=live_bytes, copy_bytes=copy_bytes,
+            copy_peak_bytes=maximum_drawdown(free), temp_file_peak_bytes=max(temp),
+            temp_file_written_bytes=max(0, written_after - written_before), freed_bytes=freed,
+            swap_attempts=len(swap_report['swap_attempts']), finder_reads_during_swap=len(swap['finder_read_seconds']),
+            filesystem_sample_count=len(free),
+            copy_seconds=sum(report.get('copy_chunk_statement_seconds') or 0 for report in reports),
+            index_build_seconds=seconds['index_build'], vacuum_freeze_seconds=seconds['vacuum_freeze'],
+            verify_seconds=seconds['verify'], fk_validation_seconds=fk_seconds,
+            swap_lock_hold_seconds=swap_report.get('measured_stall_seconds'),
+            finder_read_stall_seconds=max(swap['finder_read_seconds']),
+            drop_seconds=drop_report.get('measured_stall_seconds'),
+            wal_bytes=wal, copy_dispatches=len(copies),
+            sample_interval_seconds=SAMPLE_SECONDS,
+            copy_measurement_scope='every_copy_dispatch_sampled_from_before_the_first_chunk',
+            temp_file_measurement_scope='sampled_pg_ls_tmpdir_peak_and_pg_stat_database_written_total',
+            swap_measurement_scope='swap_statement_seconds_and_concurrent_observer_read_latency')
 
     def cleanup(self):
         # Only identities created by this instance are eligible; label/token
@@ -606,7 +597,7 @@ def main(argv=None):
         parser.error('CPython 3.14 required')
     harness = Harness(args.scale, args.run_id, args.output_dir)
     receipt = dict(schema_version=figures.SCHEMA, operation='v3-derived-purge-rehearsal',
-                   status='stopped', created_at=datetime.now(timezone.utc).isoformat(),
+                   route=figures.ROUTE, status='stopped', created_at=datetime.now(timezone.utc).isoformat(),
                    scale=args.scale, source_git_sha=harness.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).stdout.strip(),
                    **figures.code_identity(),
                    image_digest=IMAGE, production_proportion=harness.proportion,
@@ -625,9 +616,9 @@ def main(argv=None):
                                                   'surviving generation, one row per surviving system, READY/VERIFIED '
                                                   'and published through 015 publish_derived_product as in production',
                           'survivor_product_versions': dict(seed.SURVIVOR_PRODUCTS),
-                          'search_split_method': 'governed rewrite minus a survivor-only VACUUM FULL after complete',
-                          'autovacuum_budget_source': 'heap_plus_index_lower_bound',
-                          'autovacuum_budget_caveat': 'equivalent-copy maintenance not measured; current whole relation heap+index bytes used as design lower bound'}
+                          'route': 'copy-and-drop (migration 019) through the real action, relation by relation',
+                          'build_receipts': 'build_chunk and survivor search_build_chunk receipts recorded from the seeded rows',
+                          'planner_statistics': 'economy_opportunity.system_id64 STATISTICS 1000 and n_distinct -0.13, as production'}
     try:
         harness.phase = 'start'
         harness.start()

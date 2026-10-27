@@ -79,3 +79,41 @@ def test_discovery_finds_every_known_fixture_backed_module() -> None:
     # Each discovered module really imports or names the fixture it was found by.
     for path in discovered:
         assert re.search(FIXTURE_PATTERN, (ROOT / path).read_text(encoding="utf-8")), path
+
+
+def test_two_shards_run_every_discovered_module_exactly_once(tmp_path) -> None:
+    """The lane is split in two (PR #894: one run reached its 45-minute bound).
+    Run the lane's own script with a stand-in `timeout` that prints the module
+    list it would hand to pytest, for each shard."""
+    lane = _lane()
+    assert lane["strategy"]["matrix"]["shard"] == [1, 2]
+    assert lane["strategy"]["fail-fast"] is False
+    run_step = next(
+        step for step in lane["steps"]
+        if step.get("name") == "Run every validation-fixture-backed Finder test module"
+    )
+    assert run_step["env"]["SHARD"] == "${{ matrix.shard }}"
+    assert "timeout --signal=INT --kill-after=60s 45m" in run_step["run"]
+    fake = tmp_path / "timeout"
+    fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    shards = []
+    for shard in ("1", "2"):
+        completed = subprocess.run(
+            ["bash", "-c", run_step["run"]], cwd=ROOT, capture_output=True, text=True, check=True,
+            env={"PATH": f"{tmp_path}:/usr/bin:/bin", "SHARD": shard},
+        )
+        argv = completed.stdout.split("\n")
+        start = argv.index("pytest") + 1
+        modules = [item for item in argv[start:] if item.startswith("tests/")]
+        assert modules, completed.stdout
+        shards.append(modules)
+    discovered = _discover_with_the_lane_command()
+    assert sorted(shards[0] + shards[1]) == sorted(discovered)
+    assert not set(shards[0]) & set(shards[1])
+    sizes = [sum((ROOT / path).stat().st_size for path in shard) for shard in shards]
+    assert max(sizes) <= 1.5 * min(sizes)
+    for shard in ("0", "3", ""):
+        refused = subprocess.run(["bash", "-c", run_step["run"]], cwd=ROOT, capture_output=True, text=True,
+                                 env={"PATH": f"{tmp_path}:/usr/bin:/bin", "SHARD": shard})
+        assert refused.returncode != 0 and "shard must be 1 or 2" in refused.stderr

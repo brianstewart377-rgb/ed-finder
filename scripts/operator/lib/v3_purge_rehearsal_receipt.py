@@ -1,15 +1,17 @@
 """Validate disposable purge measurements before a plan can trust their bounds.
 
-Disk peaks in ``production`` remain raw: the production controllers apply the
-owner's 1.5 margin immediately before admission. ``margin_applied`` is retained
-for review, never fed back to those controllers. Batch peaks are not multiplied
-by database scale because production uses the exact measured batch row bound.
-
-Schema v2 (post-go-live): the fixture's surviving generation holds published
-``system_search`` and ``system_archetype`` products, as production has since
-2026-10-23, and the ``system_search`` rewrite is recorded separately for its
-survivor copy and for the deleted target data. A v1 receipt measured a
-zero-survivor Search rewrite and is refused.
+Schema v3 (copy-and-drop route, migration 019). The disposable rehearsal runs
+the real copy route per relation (preflight, copy, index build, VACUUM FREEZE,
+verify, swap, FK validation, drop) and records, per relation: copy rows per
+second, index-build, freeze, verify and FK-validation time, the copy's
+free-space peak, WAL bytes per phase, the swap's lock hold, the worst Finder
+read stall a concurrent reader saw during the swap, and the temporary-file
+peak (sampled) and total (written). Whole-relation work is extrapolated by the recorded production
+proportion; catalog-only swap figures are not scaled. Disk peaks in
+``production`` stay raw: the copy controller applies the owner's 1.5 margin at
+admission (``required_free_bytes_before_copy``), and ``margin_applied`` is kept
+for review only. v1 (zero-survivor delete/rewrite) and v2 (delete/rewrite with
+published survivors) receipts measured the disabled route and are refused.
 """
 from __future__ import annotations
 
@@ -21,12 +23,13 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[3]
-SCHEMA = 'ed-finder/derived-purge-rehearsal/v2'
+SCHEMA = 'ed-finder/derived-purge-rehearsal/v3'
+ROUTE = 'copy_and_drop'
 RELATIONS = ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector')
-CRASH_SCENARIOS = ('batch_client_before_commit', 'batch_client_after_commit',
-                   'rewrite_monitor_cancel', 'rewrite_terminate_backend',
-                   'rewrite_postgres_restart', 'wrapper_after_rewrite_commit',
-                   'rewrite_verified_transaction_failure')
+CRASH_SCENARIOS = ('copy_chunk_client_killed', 'copy_postgres_restart', 'index_build_backend_terminated',
+                   'verify_watchdog_cancel', 'swap_committed_client_killed',
+                   'swap_back_committed_client_killed', 'swap_back_and_reswap', 'abandon_and_recopy',
+                   'drop_committed_client_killed')
 HARNESS_FILES = ('scripts/rehearsal/v3_derived_purge_rehearsal.py',
                  'scripts/rehearsal/v3_derived_purge_seed.py',
                  'scripts/rehearsal/v3_purge_crashes.py')
@@ -35,9 +38,19 @@ MAX_RECEIPT_BYTES = 8 * 1024 * 1024
 SURVIVOR_KEY = 'ratings_v4_prod_p4_parallel_v1'
 TARGET_KEYS = ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1')
 SURVIVOR_PRODUCTS = ('system_search', 'system_archetype')
-# The action's admission rule (v3_purge_rewrite.start_rewrite): a rewrite
-# starts only if free bytes cover the 100 GB floor plus 1.5x its raw peak.
 FREE_FLOOR_BYTES = 100_000_000_000
+# The copy route's reviewed long-phase statement envelope (v3_purge_copy).
+MAX_LONG_PHASE_SECONDS = 7_200
+# The API's read statement timeout (apps/api/src/config.py): a Finder read that
+# waits longer than this behind a swap fails as a 503.
+API_READ_TIMEOUT_SECONDS = 15
+WAL_PHASES = ('chunk', 'index_build', 'vacuum_freeze', 'verify', 'validate_fks', 'drop')
+LONG_PHASES = ('index_build_seconds', 'vacuum_freeze_seconds', 'verify_seconds', 'fk_validation_seconds')
+RAW_COUNTS = ('copied_rows', 'live_bytes_before', 'copy_bytes', 'swap_attempts', 'finder_reads_during_swap')
+RAW_NONNEGATIVE = ('target_rows', 'copy_peak_bytes', 'temp_file_peak_bytes', 'temp_file_written_bytes',
+                   'freed_bytes', 'filesystem_sample_count')
+RAW_SECONDS = ('copy_seconds', *LONG_PHASES)
+RAW_NONNEGATIVE_SECONDS = ('swap_lock_hold_seconds', 'finder_read_stall_seconds', 'drop_seconds')
 # Owner-reported 2026-10-23 production v3_derived.system_search size (about
 # 175 GB) across the published parallel_v1 Search rows and the opt1 target
 # rows, one row per system each. Only used to keep the width check strict.
@@ -82,11 +95,15 @@ def production_search_bytes_per_row():
     return max(committed, REPORTED_SEARCH_BYTES / REPORTED_SEARCH_ROWS)
 
 
-def _evidence():
-    spec = importlib.util.spec_from_file_location('purge_rehearsal_evidence', Path(__file__).with_name('f2d_evidence.py'))
+def _load(name):
+    spec = importlib.util.spec_from_file_location('purge_rehearsal_' + name, Path(__file__).with_name(name + '.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _evidence():
+    return _load('f2d_evidence')
 
 
 def code_identity():
@@ -95,10 +112,7 @@ def code_identity():
     Reuse the action's identity rather than maintaining a second source list.
     A Git SHA alone cannot authenticate the files a rehearsal actually ran.
     """
-    spec = importlib.util.spec_from_file_location(
-        'purge_rehearsal_controller_identity', Path(__file__).with_name('v3_generation_purge.py'))
-    controller = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(controller)
+    controller = _load('v3_generation_purge')
     return {
         'script_sha256': controller.script_identity(),
         'rehearsal_script_sha256': _evidence().canonical_sha256({
@@ -113,6 +127,10 @@ def _positive(value):
     return type(value) in (int, float) and math.isfinite(value) and value > 0
 
 
+def _nonnegative(value):
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
 def margin_bytes(value):
     if type(value) is not int or not 0 <= value < 2**63:
         raise ValueError('rehearsal_peak_invalid')
@@ -120,144 +138,57 @@ def margin_bytes(value):
 
 
 def relation_figures(raw, proportion):
-    """Extrapolate only whole-relation work; preserve actual bounded-batch work.
+    """Extrapolate whole-relation copy work; keep catalog-only swap figures raw.
 
-    Twice the extrapolated duration (minimum 60 seconds) is an explicit finite
-    timeout/cadence allowance, not the owner's disk-peak multiplier. Rates are
-    measured throughput and are never multiplied by the database scale.
-    Autovacuum uses the documented heap-plus-index lower bound, with 1.5 margin.
+    Rates are measured throughput and are never multiplied by the scale. A
+    long phase fits the copy route only if twice its extrapolated duration is
+    within the reviewed 7,200 s statement envelope (the same 2x allowance the
+    earlier route used for its rewrite timeout).
     """
     if not _positive(proportion) or proportion > 1 or not isinstance(raw, dict):
         raise ValueError('rehearsal_scale_invalid')
-    for field in ('deleted_rows', 'batch_limit', 'heap_index_bytes'):
+    for field in RAW_COUNTS:
         if type(raw.get(field)) is not int or not 0 < raw[field] < 2**63:
             raise ValueError('rehearsal_measurement_invalid')
-    if not 1 <= raw['batch_limit'] <= 100_000:
-        raise ValueError('rehearsal_batch_limit_invalid')
-    for field in ('delete_seconds', 'rewrite_seconds'):
+    for field in RAW_NONNEGATIVE:
+        if type(raw.get(field)) is not int or not 0 <= raw[field] < 2**63:
+            raise ValueError('rehearsal_measurement_invalid')
+    for field in RAW_SECONDS:
         if not _positive(raw.get(field)):
             raise ValueError('rehearsal_duration_invalid')
-    for field in ('batch_peak_bytes', 'rewrite_peak_bytes'):
-        margin_bytes(raw.get(field))
-    if raw['batch_peak_bytes'] >= 1_000_000_000:
-        raise ValueError('rehearsal_batch_peak_requires_lower_bound')
-    duration = raw['rewrite_seconds'] / proportion * 2
-    rate = raw['deleted_rows'] / raw['delete_seconds']
-    if not _positive(duration) or not _positive(rate) or duration > 2_147_483:
-        raise ValueError('rehearsal_statement_timeout_exceeds_bound')
-    rewrite_allowance = max(60, math.ceil(duration))
-    timeout_ms = rewrite_allowance * 1000
-    if timeout_ms > 2_147_483_647:
-        raise ValueError('rehearsal_statement_timeout_exceeds_bound')
-    rewrite_peak = math.ceil(raw['rewrite_peak_bytes'] / proportion)
-    heap_index = math.ceil(raw['heap_index_bytes'] / proportion)
+    for field in RAW_NONNEGATIVE_SECONDS:
+        if not _nonnegative(raw.get(field)):
+            raise ValueError('rehearsal_duration_invalid')
+    wal = raw.get('wal_bytes')
+    if (not isinstance(wal, dict) or set(wal) != set(WAL_PHASES)
+            or any(type(value) is not int or not 0 <= value < 2**63 for value in wal.values())):
+        raise ValueError('rehearsal_wal_bytes_invalid')
+    scaled = {field: raw[field] / proportion for field in RAW_SECONDS}
+    longest = max(scaled[field] for field in LONG_PHASES)
+    peak = math.ceil(raw['copy_peak_bytes'] / proportion)
+    temp = math.ceil(raw['temp_file_peak_bytes'] / proportion)
     production = {
-        'rows_per_second': rate,
-        'rewrite_allowance_seconds': rewrite_allowance,
-        'batch_limit': raw['batch_limit'], 'batch_peak_bytes': raw['batch_peak_bytes'],
-        'rewrite_peak_bytes': rewrite_peak, 'statement_timeout_ms': timeout_ms,
-        'autovacuum_budget_bytes': margin_bytes(heap_index),
-        'autovacuum_budget_source': 'heap_plus_index_lower_bound',
+        'copy_rows_per_second': raw['copied_rows'] / raw['copy_seconds'],
+        **scaled,
+        'long_phase_seconds_max': longest,
+        'long_phase_fits_reviewed_timeout': 2 * longest <= MAX_LONG_PHASE_SECONDS,
+        'copy_peak_bytes': peak,
+        'required_free_bytes_before_copy': FREE_FLOOR_BYTES + margin_bytes(peak),
+        'copy_bytes': math.ceil(raw['copy_bytes'] / proportion),
+        'freed_bytes': math.ceil(raw['freed_bytes'] / proportion),
+        'temp_file_peak_bytes': temp,
+        'temp_file_written_bytes': math.ceil(raw['temp_file_written_bytes'] / proportion),
+        'wal_bytes': {phase: math.ceil(wal[phase] / proportion) for phase in WAL_PHASES},
+        # Catalog-only: a swap moves names, not rows; its stall does not scale.
+        'swap_lock_hold_seconds': raw['swap_lock_hold_seconds'],
+        'finder_read_stall_seconds': raw['finder_read_stall_seconds'],
+        'method': 'whole_relation_work_divided_by_proportion_catalog_swap_unscaled',
     }
     return {'raw': dict(raw), 'production': production, 'margin_applied': {
-        'batch_peak_bytes': margin_bytes(raw['batch_peak_bytes']),
-        'rewrite_peak_bytes': margin_bytes(rewrite_peak),
-        'autovacuum_budget_bytes': margin_bytes(heap_index),
-    }}
+        'copy_peak_bytes': margin_bytes(peak), 'temp_file_peak_bytes': margin_bytes(temp)}}
 
 
-SPLIT_FIELDS = ('survivor_rows', 'target_rows', 'heap_index_bytes_before_delete',
-                'survivor_heap_index_bytes_after_rewrite', 'governed_rewrite_peak_bytes',
-                'survivor_rewrite_peak_bytes')
-SPLIT_SECONDS = ('governed_rewrite_seconds', 'survivor_rewrite_seconds', 'target_delete_seconds')
-
-
-def search_split_figures(raw, proportion):
-    """Separate the measured Search rewrite into survivor and target shares.
-
-    The governed ``rewrite-system-search`` copies the published survivors and
-    scans the deleted target tuples. A second, survivor-only ``VACUUM (FULL,
-    ANALYZE)`` of the same disposable relation after ``complete`` measures the
-    survivor copy alone; the target share is the governed figure minus it
-    (never negative). Production figures divide by the recorded proportion,
-    the owner's method for whole-relation work. The admission figure is the
-    action's own rule: 100 GB floor plus 1.5x the raw peak the plan carries.
-    """
-    if not _positive(proportion) or proportion > 1 or not isinstance(raw, dict):
-        raise ValueError('rehearsal_search_split_invalid')
-    for field in SPLIT_FIELDS:
-        if type(raw.get(field)) is not int or not 0 <= raw[field] < 2**63:
-            raise ValueError('rehearsal_search_split_invalid')
-    for field in SPLIT_SECONDS:
-        if not _positive(raw.get(field)):
-            raise ValueError('rehearsal_search_split_invalid')
-    if raw['survivor_rows'] <= 0 or raw['target_rows'] <= 0 or raw['survivor_heap_index_bytes_after_rewrite'] <= 0:
-        raise ValueError('rehearsal_search_survivors_absent')
-    plan_peak = max(raw['governed_rewrite_peak_bytes'], raw['survivor_rewrite_peak_bytes'])
-    survivor_bytes = raw['survivor_heap_index_bytes_after_rewrite']
-    survivor = {
-        'rows': raw['survivor_rows'], 'heap_index_bytes': survivor_bytes,
-        'bytes_per_row': survivor_bytes / raw['survivor_rows'],
-        'rewrite_seconds': raw['survivor_rewrite_seconds'],
-        'rewrite_peak_bytes': raw['survivor_rewrite_peak_bytes'],
-    }
-    target = {
-        'rows': raw['target_rows'],
-        'reclaimed_heap_index_bytes': max(0, raw['heap_index_bytes_before_delete'] - survivor_bytes),
-        'delete_seconds': raw['target_delete_seconds'],
-        'rewrite_seconds': max(0.0, raw['governed_rewrite_seconds'] - raw['survivor_rewrite_seconds']),
-        'rewrite_peak_bytes': max(0, raw['governed_rewrite_peak_bytes'] - raw['survivor_rewrite_peak_bytes']),
-    }
-    peak = math.ceil(plan_peak / proportion)
-    reference = production_search_bytes_per_row()
-    production = {
-        'survivor_rows': round(raw['survivor_rows'] / proportion),
-        'target_rows': round(raw['target_rows'] / proportion),
-        'survivor_heap_index_bytes': math.ceil(survivor_bytes / proportion),
-        'target_reclaimed_heap_index_bytes': math.ceil(target['reclaimed_heap_index_bytes'] / proportion),
-        'survivor_rewrite_seconds': survivor['rewrite_seconds'] / proportion,
-        'target_rewrite_seconds': target['rewrite_seconds'] / proportion,
-        'target_delete_seconds': target['delete_seconds'] / proportion,
-        'survivor_rewrite_peak_bytes': math.ceil(survivor['rewrite_peak_bytes'] / proportion),
-        'target_rewrite_peak_bytes': math.ceil(target['rewrite_peak_bytes'] / proportion),
-        'rewrite_peak_bytes': peak,
-        'rewrite_peak_margin_bytes': margin_bytes(peak),
-        'free_floor_bytes': FREE_FLOOR_BYTES,
-        'required_free_bytes_before_rewrite': FREE_FLOOR_BYTES + margin_bytes(peak),
-        'reference_bytes_per_row': reference,
-        'fixture_bytes_per_row': survivor['bytes_per_row'],
-        'method': 'raw_peak_and_seconds_divided_by_proportion_margin_1_5_plus_100gb_floor',
-    }
-    return {'raw': dict(raw), 'survivor': survivor, 'target': target, 'production': production,
-            'plan_rewrite_peak_bytes': plan_peak}
-
-
-def _validate_search_split(value, counts, proportion):
-    figure = value['per_relation']['system_search']
-    split = figure.get('survivor_target_split')
-    if not isinstance(split, dict) or not isinstance(split.get('raw'), dict):
-        raise ValueError('rehearsal_search_split_missing')
-    recomputed = search_split_figures(split['raw'], proportion)
-    if any(split.get(key) != recomputed[key] for key in recomputed):
-        raise ValueError('rehearsal_search_split_mismatch')
-    raw, measured = split['raw'], figure['raw']
-    if (raw['survivor_rows'] != counts['system_search'][SURVIVOR_KEY]
-            or raw['target_rows'] != measured['deleted_rows']
-            or raw['heap_index_bytes_before_delete'] != measured['heap_index_bytes']
-            or raw['governed_rewrite_seconds'] != measured['rewrite_seconds']
-            or raw['target_delete_seconds'] != measured['delete_seconds']
-            or measured['rewrite_peak_bytes'] != recomputed['plan_rewrite_peak_bytes']):
-        raise ValueError('rehearsal_search_split_unbound')
-    # Synthetic rows narrower than production would understate the copy.
-    if recomputed['production']['fixture_bytes_per_row'] < recomputed['production']['reference_bytes_per_row']:
-        raise ValueError('rehearsal_search_survivor_width_unrepresentative')
-
-
-def validate(value, *, production=True):
-    """Validate schema and recompute every derived bound, refusing forged maths."""
-    if (not isinstance(value, dict) or value.get('schema_version') != SCHEMA
-            or value.get('operation') != 'v3-derived-purge-rehearsal'):
-        raise ValueError('rehearsal_schema_invalid')
+def _require_identity(value):
     if (not isinstance(value.get('source_git_sha'), str)
             or re.fullmatch('[0-9a-f]{40}', value['source_git_sha']) is None):
         raise ValueError('rehearsal_source_invalid')
@@ -271,6 +202,14 @@ def validate(value, *, production=True):
     if (not isinstance(value.get('image_digest'), str)
             or re.fullmatch(r'(?:[a-z0-9./_-]+(?::[a-z0-9._-]+)?)?@sha256:[0-9a-f]{64}', value['image_digest']) is None):
         raise ValueError('rehearsal_image_not_pinned')
+
+
+def validate(value, *, production=True):
+    """Validate schema and recompute every derived bound, refusing forged maths."""
+    if (not isinstance(value, dict) or value.get('schema_version') != SCHEMA
+            or value.get('operation') != 'v3-derived-purge-rehearsal' or value.get('route') != ROUTE):
+        raise ValueError('rehearsal_schema_invalid')
+    _require_identity(value)
     if value.get('scale') not in ('tiny', 'smoke', 'one_percent'):
         raise ValueError('rehearsal_scale_invalid')
     proportion = value.get('production_proportion')
@@ -296,18 +235,20 @@ def validate(value, *, production=True):
                 or any(type(count) is not int or count < 0 for count in generations.values())):
             raise ValueError('rehearsal_row_counts_invalid')
         figure = figures[relation]
-        if not isinstance(figure, dict):
-            raise ValueError('rehearsal_measurement_invalid')
-        raw = figure.get('raw')
+        raw = figure.get('raw') if isinstance(figure, dict) else None
         if not isinstance(raw, dict):
             raise ValueError('rehearsal_measurement_invalid')
-        if raw.get('deleted_rows') != sum(
-                generations[key] for key in ('ratings_v4_prod_p4', 'ratings_v4_prod_p4_opt1')):
-            raise ValueError('rehearsal_deleted_rows_mismatch')
-        recomputed = relation_figures(figure.get('raw'), proportion)
+        if raw.get('copied_rows') != generations[SURVIVOR_KEY]:
+            raise ValueError('rehearsal_copied_rows_mismatch')
+        if raw.get('target_rows') != sum(generations[key] for key in TARGET_KEYS):
+            raise ValueError('rehearsal_target_rows_mismatch')
+        recomputed = relation_figures(raw, proportion)
         if any(figure.get(key) != recomputed[key] for key in ('production', 'margin_applied')):
             raise ValueError('rehearsal_derived_figures_mismatch')
-    _validate_search_split(value, counts, proportion)
+    # Synthetic Search rows narrower than production would understate the copy.
+    search = figures['system_search']['raw']
+    if search['copy_bytes'] / search['copied_rows'] < production_search_bytes_per_row():
+        raise ValueError('rehearsal_search_survivor_width_unrepresentative')
     if type(value.get('gate_10_crash_rehearsal_passed')) is not bool:
         raise ValueError('rehearsal_crash_gate_invalid')
     scenarios = value.get('crash_scenarios')
@@ -327,6 +268,12 @@ def validate(value, *, production=True):
             raise ValueError('rehearsal_cleanup_not_verified')
         if value.get('lifecycle_receipt_sha256') != hashlib.sha256(LIFECYCLE_RECEIPT.read_bytes()).hexdigest():
             raise ValueError('rehearsal_lifecycle_proportions_unbound')
+        for relation in RELATIONS:
+            measured = figures[relation]['production']
+            if measured['long_phase_fits_reviewed_timeout'] is not True:
+                raise ValueError('rehearsal_long_phase_exceeds_reviewed_timeout')
+            if measured['finder_read_stall_seconds'] > API_READ_TIMEOUT_SECONDS:
+                raise ValueError('rehearsal_finder_stall_exceeds_api_timeout')
         for field, expected in code_identity().items():
             if value[field] != expected:
                 raise ValueError('rehearsal_' + field + '_mismatch')
@@ -351,27 +298,28 @@ def load_reviewed(path, expected_sha):
 def require_plan_binding(reviewed):
     """Refuse a production plan that does not carry reviewed one-percent figures.
 
-    ``authorize`` binds its plan immutably to the purge ledger, and every later
-    delete, rewrite and abort reads its measured bounds from that plan. A plan
-    sealed without ``apply_to_plan`` would leave the purge unable to proceed.
+    ``authorize`` binds its plan immutably to the purge ledger, and every
+    later copy reads its free-space requirement from the plan's ``copy`` block.
+    A plan sealed without ``apply_to_plan`` could authorize but never copy.
     """
     binding = reviewed.get('rehearsal') if isinstance(reviewed, dict) else None
     if (not isinstance(binding, dict) or binding.get('scale') != 'one_percent'
+            or binding.get('route') != ROUTE
             or binding.get('gate_10_crash_rehearsal_passed') is not True
             or not isinstance(binding.get('content_sha256'), str)
             or re.fullmatch('[0-9a-f]{64}', binding['content_sha256']) is None):
         raise ValueError('plan_rehearsal_figures_required')
     source = 'reviewed_rehearsal:' + binding['content_sha256']
-    delete, rewrite = reviewed.get('delete'), reviewed.get('rewrite')
+    block = reviewed.get('copy')
+    relations = block.get('relations') if isinstance(block, dict) else None
+    if not isinstance(block, dict) or block.get('source') != source or not isinstance(relations, dict):
+        raise ValueError('plan_rehearsal_figures_required')
     for relation in RELATIONS:
-        figures = delete.get(relation) if isinstance(delete, dict) else None
-        bounds = rewrite.get(relation) if isinstance(rewrite, dict) else None
-        if (not isinstance(figures, dict) or figures.get('rows_per_second_source') != source
-                or any(key not in figures for key in (
-                    'batch_limit', 'batch_peak_bytes', 'rows_per_second',
-                    'rewrite_allowance_seconds', 'autovacuum_budget_bytes'))
-                or not isinstance(bounds, dict)
-                or any(key not in bounds for key in ('rewrite_peak_bytes', 'statement_timeout_ms'))):
+        figures = relations.get(relation)
+        if (not isinstance(figures, dict) or figures.get('copy_peak_source') != source
+                or type(figures.get('required_free_bytes_before_copy')) is not int
+                or figures['required_free_bytes_before_copy'] < FREE_FLOOR_BYTES
+                or not isinstance(figures.get('rehearsal'), dict)):
             raise ValueError('plan_rehearsal_figures_required')
     return binding
 
@@ -383,20 +331,14 @@ def apply_to_plan(reviewed, rehearsal):
     if rehearsal.get('content_sha256') != _evidence().canonical_sha256(body):
         raise ValueError('rehearsal_seal_invalid')
     source = 'reviewed_rehearsal:' + rehearsal['content_sha256']
-    delete, rewrite = {}, {}
-    for relation in RELATIONS:
-        measured = rehearsal['per_relation'][relation]['production']
-        delete[relation] = {key: measured[key] for key in (
-            'batch_limit', 'batch_peak_bytes', 'rows_per_second', 'rewrite_allowance_seconds',
-            'autovacuum_budget_bytes', 'autovacuum_budget_source')}
-        delete[relation]['rows_per_second_source'] = source
-        rewrite[relation] = {key: measured[key] for key in ('rewrite_peak_bytes', 'statement_timeout_ms')}
-    reviewed.update(delete=delete, rewrite=rewrite, rehearsal={
+    figures = {relation: rehearsal['per_relation'][relation]['production'] for relation in RELATIONS}
+    reviewed['copy'] = _load('v3_purge_copy').plan_block(figures, source)
+    reviewed['rehearsal'] = {
         'content_sha256': rehearsal['content_sha256'], 'source_git_sha': rehearsal['source_git_sha'],
         **{field: rehearsal[field] for field in (
             'script_sha256', 'rehearsal_script_sha256', 'migration_set_identity')},
-        'scale': rehearsal['scale'], 'gate_10_crash_rehearsal_passed': True,
+        'route': ROUTE, 'scale': rehearsal['scale'], 'gate_10_crash_rehearsal_passed': True,
         'production_proportion': rehearsal['production_proportion'], 'disk_peak_margin': 1.5,
         'margin_application': 'raw_peaks_passed_to_controller_margin_applied_at_admission',
-    })
+    }
     return reviewed

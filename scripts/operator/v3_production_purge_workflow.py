@@ -28,9 +28,18 @@ REHEARSAL_RECEIPT = 'rehearsal-receipt.json'
 REPOSITORY = 'brianstewart377-rgb/ed-finder'
 TARGET = 'ed-finder-prod/nb79a3d.mevnode.com'
 RELATIONS = ('system-search', 'economy-opportunity', 'body-mechanics', 'system-rating-vector')
+# Copy-and-drop route (migration 019; docs/development/v3-purge-copy-and-drop-design.md).
+COPY_PREFIXES = ('preflight-', 'copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-')
 MODES = ('plan', 'status', 'authorize', 'verify-system-archetype-empty',
-         *(prefix + relation for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS),
+         *(prefix + relation for prefix in (*COPY_PREFIXES, 'abort-relation-') for relation in RELATIONS),
          'restore-services', 'complete')
+# 016's bounded delete and VACUUM FULL rewrite are disabled by the accepted
+# design (owner answer 6). They are refused here, before any approval or SSH,
+# and again by the action; the workflow no longer offers them.
+DISABLED_MODES = tuple(prefix + relation for prefix in ('delete-', 'rewrite-') for relation in RELATIONS)
+DISABLED_REASON = 'delete_rewrite_modes_disabled_by_copy_and_drop_design'
+PROOF_PREFIXES = ('delete-', 'rewrite-', 'abort-relation-', 'copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-')
+COPY_MAX_WALL_CLOCK = 9000
 RUN_ID = re.compile(r'[1-9][0-9]{0,19}\Z')
 SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 SOURCE_SHA = re.compile(r'[0-9a-f]{40}\Z')
@@ -51,11 +60,13 @@ def validate_inputs(env):
               'acknowledge_failed_stop', 'wall_clock_seconds')
     request = {key: env.get('INPUT_' + key.upper(), '') for key in fields}
     mode = request['mode']
+    if mode in DISABLED_MODES:
+        raise ValueError(DISABLED_REASON)
     if mode not in MODES or request['confirm_target'] != TARGET:
         raise ValueError('invalid_mode_or_target')
     plan_required = mode not in ('plan', 'status')
-    proof_required = mode == 'complete' or mode == 'restore-services' or mode.startswith(
-        ('delete-', 'rewrite-', 'abort-relation-'))
+    # preflight-R is read-only and needs only the plan it will copy against.
+    proof_required = mode == 'complete' or mode == 'restore-services' or mode.startswith(PROOF_PREFIXES)
     # A protected plan exists to be authorized, and authorization binds it to
     # every later phase. It therefore always carries the reviewed one-percent
     # rehearsal figures; the ops workflow keeps a figure-less diagnostic plan.
@@ -74,12 +85,14 @@ def validate_inputs(env):
     if ack and (mode != 'restore-services' or not RUN_ID.fullmatch(ack) or int(ack) >= 2**63):
         raise ValueError('acknowledgement_not_admitted')
     wall = request['wall_clock_seconds']
-    if mode.startswith('delete-'):
-        if re.fullmatch(r'[1-9][0-9]{0,3}', wall) is None or not 1 <= int(wall) <= 1800:
-            raise ValueError('delete_wall_clock_budget_invalid')
+    if mode.startswith('copy-'):
+        # The chunk-loop budget. The 180-minute job keeps at least 30 minutes
+        # for preflight, a deferred long phase decision, cleanup and upload.
+        if re.fullmatch(r'[1-9][0-9]{0,3}', wall) is None or not 1 <= int(wall) <= COPY_MAX_WALL_CLOCK:
+            raise ValueError('copy_wall_clock_budget_invalid')
         request['wall_clock_seconds'] = int(wall)
     elif wall:
-        raise ValueError('wall_clock_is_delete_only')
+        raise ValueError('wall_clock_is_copy_only')
     else:
         request['wall_clock_seconds'] = None
     return request
@@ -187,27 +200,28 @@ def authenticate(env, *, fetch=True):
         # phases retain the original immutable plan even if main has advanced.
         if prefix == 'plan' and request['mode'] == 'authorize' and artifact_source != source_sha:
             raise ValueError('authorize_plan_source_changed')
-    # Hosted jobs must have time to observe exit and preserve receipts. Larger
-    # reviewed rewrites need a separately reviewed workflow timeout, never an
-    # early disconnect from the existing action.
+    # Hosted jobs must have time to observe exit and preserve receipts. The
+    # copy route executes only the statements in v3_purge_copy.PHASES, each
+    # under its own SET LOCAL statement_timeout, so those (and any phase
+    # timeouts a plan seals) must fit the reviewed 120-minute envelope. A
+    # plan's legacy rewrite[relation].statement_timeout_ms is a VACUUM FULL
+    # estimate that nothing on this route executes (rewrite-R is disabled), so
+    # it no longer gates admission (Codex 4379797627: the 2026-10-24 receipt's
+    # Search figure is 30,659,000 ms). An open 016 REWRITE_STARTED that
+    # restore-services must recover is bounded by the action itself.
+    copy = _load('purge_workflow_copy', ROOT / 'scripts/operator/lib/v3_purge_copy.py')
+    for statement_ms, *_rest in copy.PHASES.values():
+        if type(statement_ms) is not int or not 1 <= statement_ms <= MAX_REWRITE_MS:
+            raise ValueError('copy_phase_timeout_outside_workflow_budget')
     if 'plan' in receipts:
-        configurations = receipts['plan'].get('reviewed_plan', {}).get('rewrite', {})
-        if not isinstance(configurations, dict):
-            raise ValueError('rewrite_timeout_outside_workflow_budget')
-        for config in configurations.values():
-            if not isinstance(config, dict):
-                raise ValueError('rewrite_timeout_outside_workflow_budget')
-            timeout = config.get('statement_timeout_ms')
-            # Reject oversized plans before authorization or deletion too:
-            # restore-services may later need that timeout for recovered ANALYZE.
-            if timeout is not None and (type(timeout) is not int or not 1 <= timeout <= MAX_REWRITE_MS):
-                raise ValueError('rewrite_timeout_outside_workflow_budget')
-    if request['mode'].startswith('rewrite-'):
-        relation = request['mode'].removeprefix('rewrite-').replace('-', '_')
-        config = receipts['plan'].get('reviewed_plan', {}).get('rewrite', {}).get(relation, {})
-        timeout = config.get('statement_timeout_ms')
-        if type(timeout) is not int or not 1 <= timeout <= MAX_REWRITE_MS:
-            raise ValueError('rewrite_timeout_outside_workflow_budget')
+        block = receipts['plan'].get('reviewed_plan', {}).get('copy')
+        sealed = block.get('phase_timeouts') if isinstance(block, dict) else None
+        if block is not None and not isinstance(sealed, dict):
+            raise ValueError('copy_phase_timeout_outside_workflow_budget')
+        for settings in (sealed or {}).values():
+            timeout = settings.get('statement_timeout_ms') if isinstance(settings, dict) else None
+            if type(timeout) is not int or not 1 <= timeout <= MAX_REWRITE_MS:
+                raise ValueError('copy_phase_timeout_outside_workflow_budget')
     if request['mode'] == 'authorize':
         # Authorization binds the plan to every later phase. Refuse before SSH
         # unless its sealed figures came from a reviewed one-percent rehearsal.

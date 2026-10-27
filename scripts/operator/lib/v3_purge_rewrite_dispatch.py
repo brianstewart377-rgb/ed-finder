@@ -18,6 +18,12 @@ def resolve(c, tx, runtime, report, ids, reviewed, *, relation=None, cancel=True
         if relation is not None and code != relation:
             raise ValueError('different_relation_rewrite_open')
         config = rewrite.rewrite_configuration(reviewed, code)
+        # The protected workflow no longer refuses a plan for an oversized
+        # legacy VACUUM FULL estimate (the copy route never runs one), so the
+        # one statement that could still use it, a recovered ANALYZE for an
+        # open 016 rewrite, is bounded here by the job's reviewed envelope.
+        if config['statement_timeout_ms'] > rewrite.MAX_RECOVERY_STATEMENT_MS:
+            raise ValueError('rewrite_timeout_outside_workflow_budget')
         def analyze(command):
             # The recorded backend has departed at this callback. Re-check
             # host placement and the installed wrapper before recovered ANALYZE.

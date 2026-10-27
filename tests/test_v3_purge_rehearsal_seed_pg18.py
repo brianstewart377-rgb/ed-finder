@@ -34,11 +34,17 @@ def fresh_harness_database():
         created = False
         executor_was_absent = False
         observer_was_absent = False
+        parameter_was_granted = True
         administrator.execute('SELECT pg_advisory_lock(764016099)')
         try:
             executor_was_absent = administrator.execute(
                 'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
             ).fetchone() is None
+            # The harness grants SET on temp_file_limit; pg_parameter_acl is
+            # cluster-wide, so a grant this test made must not outlive it.
+            parameter_was_granted = not executor_was_absent and administrator.execute(
+                "SELECT has_parameter_privilege('v3_derived_purge_executor','temp_file_limit','SET')",
+            ).fetchone()[0]
             observer_was_absent = administrator.execute(
                 'SELECT 1 FROM pg_roles WHERE rolname=%s', (rehearsal.OBSERVER_USER,),
             ).fetchone() is None
@@ -49,6 +55,10 @@ def fresh_harness_database():
         finally:
             if created:
                 administrator.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(database)))
+            if not parameter_was_granted and administrator.execute(
+                    'SELECT 1 FROM pg_roles WHERE rolname=%s', ('v3_derived_purge_executor',),
+            ).fetchone():
+                administrator.execute('REVOKE SET ON PARAMETER temp_file_limit FROM v3_derived_purge_executor')
             if observer_was_absent and administrator.execute(
                     'SELECT 1 FROM pg_roles WHERE rolname=%s', (rehearsal.OBSERVER_USER,),
             ).fetchone():
@@ -92,13 +102,15 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         ledger = connection.execute(
             "SELECT encode(migration_sha256,'hex'),migration_name FROM v3_meta.schema_migration",
         ).fetchall()
-        # The harness applies the manifest through 016 and stops there; later
-        # entries (019 copy-and-drop) join the rehearsal when it is extended.
-        through = next(index for index, entry in enumerate(manifest)
-                       if entry[1] == rehearsal.controller.MIGRATION) + 1
-        assert sorted(ledger) == sorted(tuple(entry) for entry in manifest[:through])
-        assert [entry[1] for entry in manifest[through:]] == ['019_v3_purge_copy_and_drop.sql']
+        # The whole reviewed manifest, 016 and 019 included, as production holds it.
+        assert sorted(ledger) == sorted(tuple(entry) for entry in manifest)
+        assert {name for _, name in manifest} >= {rehearsal.controller.MIGRATION, rehearsal.COPY_MIGRATION}
+        assert connection.execute(
+            "SELECT has_parameter_privilege('v3_derived_purge_executor','temp_file_limit','SET')").fetchone() == (True,)
 
+        # This shared local cluster may run without an archiver; the container
+        # sets archive_mode=on. Everything else is the harness's own seed.
+        harness.archived = lambda: None
         harness.seed()
         identities = {key: identity for key, (identity, _) in rehearsal.controller.TARGETS.items()}
         identities[rehearsal.controller.PUBLISHED_KEY] = rehearsal.controller.PUBLISHED_ID
@@ -186,14 +198,24 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
                                                           require_published=True)
         assert frozen['system_archetype_rows'] == survivors['system_archetype']
         assert {code: item['expected_rows'] for code, item in frozen['products'].items()} == survivors
-        # The survivor-only control rewrite runs as the harness sends it, one
-        # psql statement at a time, and keeps every survivor row.
-        clock = []
-        for statement in rehearsal.SURVIVOR_CONTROL_SQL.strip().split(';\n'):
-            clock += harness.sql(statement.strip().rstrip(';') + ';').split()
-        assert len(clock) == 2 and float(clock[1]) >= float(clock[0])
+        # The production planner statistics are on the live opportunity table.
         assert connection.execute(
-            'SELECT count(*) FROM v3_derived.system_search WHERE derived_generation_id=%s',
+            """SELECT attstattarget,attoptions FROM pg_attribute
+               WHERE attrelid='v3_derived.economy_opportunity'::regclass AND attname='system_id64'""",
+        ).fetchone() == (1000, ['n_distinct=-0.13'])
+        # Build receipts match the seeded rows per Ratings chunk (019 verify's rule).
+        mismatched = connection.execute(
+            """SELECT count(*) FROM v3_derived.build_chunk b WHERE b.derived_generation_id=%s AND (
+                 b.physical_bodies<>(SELECT count(*) FROM v3_derived.body_mechanics m JOIN v3_derived.system_rating_vector v
+                   USING (derived_generation_id,system_id64) WHERE m.derived_generation_id=b.derived_generation_id
+                   AND v.chunk_ordinal=b.chunk_ordinal)
+              OR b.eligible_opportunities<>(SELECT count(*) FROM v3_derived.economy_opportunity o
+                   JOIN v3_derived.system_rating_vector v USING (derived_generation_id,system_id64)
+                   WHERE o.derived_generation_id=b.derived_generation_id AND v.chunk_ordinal=b.chunk_ordinal))""",
+            (rehearsal.controller.PUBLISHED_ID,)).fetchone()[0]
+        assert mismatched == 0
+        assert connection.execute(
+            'SELECT sum(systems) FROM v3_derived.search_build_chunk WHERE derived_generation_id=%s',
             (rehearsal.controller.PUBLISHED_ID,)).fetchone() == (200,)
 
         # Authenticate as the dedicated login, rather than SET ROLE on the
@@ -222,14 +244,59 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
                     if not cursor.nextset():
                         break
             assert pointers['derived']['derived_generation_id'] == rehearsal.controller.PUBLISHED_ID
-            state = observer.execute(crashes.STATE_SQL, {'published': rehearsal.controller.PUBLISHED_ID}).fetchone()[0]
-            assert type(state['oid']) is int and type(state['relfilenode']) is int
-            assert state['catalog_relations'] == 1 and state['kind'] == 'r'
+            with psycopg.ClientCursor(observer) as cursor:
+                cursor.execute(crashes.STATE_SQL, {'published': rehearsal.controller.PUBLISHED_ID})
+                state = cursor.fetchone()[0]
+            assert state['events'] == [] and state['tables'] == {'v3_derived': state['tables']['v3_derived']}
+            assert type(state['tables']['v3_derived']) is int and state['invalid_indexes'] == 0
+            assert state['live_attoptions'] == ['n_distinct=-0.13'] and state['target_rows'] > 0
+            # The copy samplers' reads: temp files (pg_monitor) and each Finder surface.
+            assert type(observer.execute(rehearsal.TEMP_SAMPLE_SQL).fetchone()[0]) is int
+            for statement in rehearsal.FINDER_READS.values():
+                assert observer.execute(statement).fetchone()[0] > 0
+            assert observer.execute(crashes.ORPHAN_SQL).fetchone()[0] == {'backends': 0}
             # Even an explicitly read-write transaction cannot acquire a
             # payload write privilege through this observer login.
             observer.execute('SET default_transaction_read_only=off')
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 observer.execute('DELETE FROM v3_derived.system_rating_vector WHERE false')
+        _copy_route_over_the_seed(connection, harness, frozen)
+
+
+def _copy_route_over_the_seed(connection, harness, published_survivors):
+    """019's copy-and-drop journey over the harness seed: verify accepts the
+    seeded build and Search chunk receipts for all four relations."""
+    from tests.test_v3_governed_derived_purge import _plan, _sign_plan
+    from tests.test_v3_purge_copy_and_drop import (
+        _x, build, chunk, drop, prepare, swap, vacuum, validate, verify,
+    )
+    connection.execute('RESET ROLE')
+    plan = _plan(connection)
+    plan['published_survivors'] = published_survivors
+    plan = _sign_plan(connection, plan)
+    connection.execute('SET ROLE v3_derived_purge_executor')
+    purge = connection.execute('SELECT v3_meta.begin_derived_generation_purge(%s)', (Jsonb(plan),)).fetchone()[0][0]
+    connection.execute('RESET ROLE')
+    survivors = {relation: harness.counts[relation][rehearsal.controller.PUBLISHED_KEY] for relation in rehearsal.RELATIONS}
+    for relation in rehearsal.RELATIONS:
+        prepare(connection, purge, relation)
+        copied = 0
+        while (rows := chunk(connection, purge, relation, 100)) > 0:
+            copied += rows
+        assert copied == survivors[relation]
+        build(connection, purge, relation)
+        vacuum(connection, relation)
+        verify(connection, purge, relation)
+        swap(connection, purge, relation)
+        validate(connection, purge, relation)
+        drop(connection, purge, relation)
+        connection.execute('RESET ROLE')
+        assert connection.execute(sql.SQL('SELECT count(*) FROM v3_derived.{} WHERE derived_generation_id<>%s').format(
+            sql.Identifier(relation)), (rehearsal.controller.PUBLISHED_ID,)).fetchone() == (0,)
+    _x(connection, 'SELECT v3_meta.purge_copy_complete(%s)', purge)
+    connection.execute('RESET ROLE')
+    assert connection.execute('SELECT count(*) FROM v3_app.system_search').fetchone() == (200,)
+    assert connection.execute('SELECT count(*) FROM v3_app.system_archetype').fetchone() == (200,)
 
 
 def test_observer_survives_real_writer_fence_session_recycles():

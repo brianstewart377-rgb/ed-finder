@@ -4,6 +4,13 @@
 No caller text enters SQL. The CLI is also streamed from trusted main for actions
 without a checkout. A missing lease file is free; this probe never creates it.
 Only migration apply may supply a previously authenticated bootstrap decision.
+
+Since migration 019 the fence also reads the copy-and-drop ledger: it refuses
+while ``v3_meta.purge_copy_backup_skip()`` is true (a relation between
+COPY_STARTED and DROPPED/abandonment, or a staging/retired table present) or
+while any relation is staged or swapped. Absence of the 019 relation/function
+is a refusal everywhere except the schema apply whose authenticated pending
+suffix ends in 019 (``copy_bootstrap``), exactly like 016's bootstrap.
 """
 from __future__ import annotations
 
@@ -26,12 +33,16 @@ PRESENCE_SQL = """BEGIN READ ONLY;
 SET LOCAL statement_timeout='10s';
 SELECT json_build_object('database',current_database(),
  'read_only',current_setting('transaction_read_only'),
- 'ledger_present',to_regclass('v3_meta.derived_generation_purge_event') IS NOT NULL);
+ 'ledger_present',to_regclass('v3_meta.derived_generation_purge_event') IS NOT NULL,
+ 'copy_ledger_present',to_regclass('v3_meta.derived_purge_copy_request') IS NOT NULL
+   AND to_regclass('v3_meta.derived_purge_copy_event') IS NOT NULL
+   AND to_regprocedure('v3_meta.purge_copy_backup_skip()') IS NOT NULL
+   AND to_regprocedure('v3_meta.purge_copy_status()') IS NOT NULL);
 COMMIT;"""
 # Use 016's own resolver, including its same-plan/request/relation scoping and
 # verified=true rule for writer-fence restoration. FAILED_STOP closes a rewrite
 # per design 4.2; integrity failures independently remain a refusal below.
-STATE_SQL = """BEGIN READ ONLY;
+_STATE_PREFIX = """BEGIN READ ONLY;
 SET LOCAL statement_timeout='10s';
 SET LOCAL lock_timeout='5s';
 WITH scopes AS MATERIALIZED (
@@ -58,10 +69,24 @@ WITH scopes AS MATERIALIZED (
 )
 SELECT json_build_object('database',current_database(),
  'read_only',current_setting('transaction_read_only'),
- 'unresolved',COALESCE((SELECT json_agg(u ORDER BY event_sequence) FROM unresolved u),'[]'::json));
-COMMIT;"""
+ 'unresolved',COALESCE((SELECT json_agg(u ORDER BY event_sequence) FROM unresolved u),'[]'::json)"""
+# Since 019: the copy ledger's backup-skip predicate and every staged/swapped
+# relation, read through 019's own status function (executor-grantable, STABLE).
+_COPY_STATE = """,
+ 'copy_backup_skip',v3_meta.purge_copy_backup_skip(),
+ 'copy_relations',COALESCE((SELECT json_agg(json_build_object('relation_code',c.relation_code,
+   'copy_position',c.copy_position,'phase',c.phase) ORDER BY c.relation_code) FROM (
+   SELECT r->>'relation_code' AS relation_code,r->>'copy_position' AS copy_position,r->>'phase' AS phase
+   FROM jsonb_array_elements(v3_meta.purge_copy_status()->'requests') q
+   CROSS JOIN LATERAL (SELECT jsonb_build_object('relation_code',key,'copy_position',value->>'copy_position',
+     'phase',value->>'phase') FROM jsonb_each(q->'relations')) x(r)
+   WHERE r->>'copy_position' IN ('staged','swapped')) c),'[]'::json)"""
+STATE_SQL = _STATE_PREFIX + _COPY_STATE + ');\nCOMMIT;'
+# Before 019 exists (copy bootstrap only): the same 016 state without the copy reads.
+LEGACY_STATE_SQL = _STATE_PREFIX + ');\nCOMMIT;'
 KINDS = frozenset(('BATCH_STARTED', 'REWRITE_STARTED', 'SERVICES_QUIESCED',
                    'WRITER_FENCE_ENABLED', 'AUTOVACUUM_DISABLED', 'FAILED_STOP'))
+COPY_POSITIONS = frozenset(('staged', 'swapped'))
 
 
 class PurgeStateError(ValueError):
@@ -101,9 +126,11 @@ def _read(executor: Callable[[str], str], sql: str) -> dict:
 
 
 def check(executor: Callable[[str], str], *, bootstrap: bool = False,
-          lease_held_by_caller: bool = False) -> dict:
+          lease_held_by_caller: bool = False, copy_bootstrap: bool = False) -> dict:
     report = {'status': 'clear', 'failures': [], 'lease': 'unknown',
-              'ledger_present': None, 'unresolved': [], 'bootstrap': False}
+              'ledger_present': None, 'unresolved': [], 'bootstrap': False,
+              'copy_ledger_present': None, 'copy_backup_skip': None, 'copy_relations': [],
+              'copy_bootstrap': False}
     try:
         # Only the purge controller uses this after acquiring this very inode.
         # All existing mutator callers continue to probe the lease themselves.
@@ -114,16 +141,25 @@ def check(executor: Callable[[str], str], *, bootstrap: bool = False,
         report['failures'].append('purge_host_lease_query_failed')
     try:
         presence = _read(executor, PRESENCE_SQL)
-        if type(presence.get('ledger_present')) is not bool:
+        if type(presence.get('ledger_present')) is not bool or type(presence.get('copy_ledger_present')) is not bool:
             raise ValueError('invalid ledger presence')
         report['ledger_present'] = presence['ledger_present']
+        report['copy_ledger_present'] = presence['copy_ledger_present']
         if not presence['ledger_present']:
+            if presence['copy_ledger_present']:
+                raise ValueError('copy ledger without purge ledger')
             if bootstrap:
                 report['bootstrap'] = True
             else:
                 report['failures'].append('purge_ledger_absent')
         else:
-            state = _read(executor, STATE_SQL)
+            copy_present = presence['copy_ledger_present']
+            if not copy_present:
+                if copy_bootstrap:
+                    report['copy_bootstrap'] = True
+                else:
+                    report['failures'].append('purge_copy_ledger_absent')
+            state = _read(executor, STATE_SQL if copy_present else LEGACY_STATE_SQL)
             records = state.get('unresolved')
             if not isinstance(records, list) or any(
                 not isinstance(row, dict) or row.get('event_kind') not in KINDS
@@ -135,6 +171,21 @@ def check(executor: Callable[[str], str], *, bootstrap: bool = False,
             report['unresolved'] = records
             report['failures'].extend('purge_unresolved_' + kind
                                       for kind in sorted({row['event_kind'] for row in records}))
+            if copy_present:
+                skip = state.get('copy_backup_skip')
+                relations = state.get('copy_relations')
+                if type(skip) is not bool or not isinstance(relations, list) or any(
+                    not isinstance(row, dict) or row.get('copy_position') not in COPY_POSITIONS
+                    or not isinstance(row.get('relation_code'), str)
+                    for row in relations
+                ):
+                    raise ValueError('invalid copy state')
+                report['copy_backup_skip'] = skip
+                report['copy_relations'] = relations
+                if skip:
+                    report['failures'].append('purge_copy_backup_skip')
+                report['failures'].extend('purge_copy_relation_' + position
+                                          for position in sorted({row['copy_position'] for row in relations}))
     except Exception:
         # Do not leak command output, environment, or database error text.
         report['failures'].append('purge_state_query_failed')

@@ -16,6 +16,8 @@ tx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tx)
 
 FLOOR_BYTES = 100_000_000_000
+# The protected workflow's reviewed 120-minute statement envelope.
+MAX_RECOVERY_STATEMENT_MS = 7_200_000
 BACKEND_SQL = """BEGIN READ ONLY;
 SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='5s';
 SELECT jsonb_build_object('alive',EXISTS(SELECT 1 FROM pg_stat_activity

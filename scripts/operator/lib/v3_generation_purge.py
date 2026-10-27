@@ -52,6 +52,16 @@ RELATIONS = {
     'body-mechanics': 'body_mechanics',
     'system-rating-vector': 'system_rating_vector',
 }
+# Copy-and-drop route (migration 019, owner-accepted design
+# docs/development/v3-purge-copy-and-drop-design.md). 016's delete-/rewrite-
+# modes are disabled by that design (owner answer 6); abort-relation- stays as
+# recovery for an autovacuum fence, restore-services stays for a writer fence.
+COPY_PREFIXES = ('preflight-', 'copy-', 'swap-', 'swap-back-', 'drop-', 'abandon-')
+COPY_MODES = frozenset(prefix + relation for prefix in COPY_PREFIXES for relation in RELATIONS)
+DISABLED_MODES = frozenset(prefix + relation for prefix in ('delete-', 'rewrite-') for relation in RELATIONS)
+DISABLED_REASON = 'delete_rewrite_modes_disabled_by_copy_and_drop_design'
+MODES = (IMPLEMENTED | {'restore-services'} | COPY_MODES
+         | frozenset('abort-relation-' + relation for relation in RELATIONS))
 TARGETS = {
     'ratings_v4_prod_p4': ('49a0c00d-e722-4209-afd8-9d62b877e30a', 'BUILDING'),
     'ratings_v4_prod_p4_opt1': ('403b2d43-820c-414a-ad57-0d4de0ca3e82', 'VALIDATING'),
@@ -93,6 +103,8 @@ def script_identity():
             'scripts/operator/actions/v3-derived-lifecycle-status.sh',
             'scripts/operator/lib/f2d_evidence.py',
             'scripts/operator/lib/v3_generation_purge.py',
+            'scripts/operator/lib/v3_purge_copy.py',
+            'scripts/operator/lib/v3_purge_copy_dispatch.py',
             'scripts/operator/lib/v3_purge_delete.py',
             'scripts/operator/lib/v3_purge_rewrite.py',
             'scripts/operator/lib/v3_purge_rewrite_dispatch.py',
@@ -106,10 +118,17 @@ def script_identity():
 
 
 def classify_mode(mode):
-    if mode in IMPLEMENTED or mode == 'restore-services' or any(
-            mode == prefix + relation for prefix in ('delete-', 'rewrite-', 'abort-relation-') for relation in RELATIONS):
+    if mode in DISABLED_MODES:
+        # Fail closed with the reason: the accepted copy-and-drop design
+        # replaces bounded deletes and VACUUM FULL rewrites.
+        raise ValueError(DISABLED_REASON)
+    if mode in MODES:
         return mode
     raise ValueError('unknown_mode')
+
+
+def is_copy_mode(mode):
+    return mode in COPY_MODES
 
 
 def receipt(mode):
@@ -130,13 +149,21 @@ def receipt(mode):
         'skipped_scheduled_backups', 'installed_wrapper_sha256', 'expected_wrapper_sha256',
         'pointer_identities', 'extra_payload_counts', 'autovacuum_ages', 'autovacuum_fence_horizon',
         'system_archetype_verification', 'relation_probes',
+        # Copy-and-drop route (019).
+        'copy_status', 'copy_state', 'copy_state_after', 'copy_steps', 'copy_phase', 'copy_progress',
+        'copy_gate', 'copy_phase_gates', 'copy_preflight', 'copy_next_step', 'copy_chunk_outcome',
+        'copy_chunk_reservation', 'copy_phase_failures', 'swap_attempts', 'measured_stall_seconds',
+        'finder_smoke', 'n_distinct_recalibration', 'wal_phase_bytes', 'phase_timeouts',
+        'expected_index_bytes', 'staging_freeze', 'max_wal_size_bytes', 'wal_throttle',
+        'backup_age_hours', 'copy_state_hours', 'copy_dispatch_budget_seconds', 'swapped_at',
+        'swap_resumed', 'copy_monitor', 'temp_file_limit_privilege', 'required_free_bytes_before_copy',
     ))
     result.update(
         schema_version='ed-finder/derived-generation-purge/v1',
         operation='v3-derived-generation-purge', phase=mode, status='stopped', failures=[],
         created_at=datetime.now(timezone.utc).isoformat(),
         migration_expected_sha256=MIGRATION_SHA256,
-        read_only=mode in ('plan', 'status', 'verify-system-archetype-empty'),
+        read_only=mode in ('plan', 'status', 'verify-system-archetype-empty') or mode.startswith('preflight-'),
         lock_timeout='5s', statement_timeout='45min', wall_clock_timeout_seconds=3600,
         reserve_bytes=FREE_FLOOR_BYTES, abort_threshold_bytes=FREE_FLOOR_BYTES,
     )
@@ -521,6 +548,8 @@ class Runtime:
                 raise RuntimeError('delete_fk_or_index_failure')
             if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+55P03\b', result.stderr):
                 raise RuntimeError('database_lock_timeout')
+            if '--no-psqlrc' in argv and re.search(r'\bERROR:\s+57014\b', result.stderr):
+                raise RuntimeError('database_statement_timeout')
             raise RuntimeError('bounded_command_failed')
         if (len(result.stdout.encode()) > MAX_OUTPUT
                 or return_result and len(result.stderr.encode()) > MAX_OUTPUT):
@@ -729,7 +758,8 @@ class Runtime:
             report = exc.report
             self.report['purge_state'] = report
             if not allow_unresolved or any(failure in report['failures'] for failure in
-                    ('purge_state_query_failed', 'purge_ledger_absent', 'purge_host_lease_query_failed')):
+                    ('purge_state_query_failed', 'purge_ledger_absent', 'purge_copy_ledger_absent',
+                     'purge_host_lease_query_failed')):
                 raise ValueError(','.join(report['failures'])) from None
         self.report['purge_state'] = report
         return report
@@ -1022,6 +1052,89 @@ def next_mode(state, progress, counts=None, deadlines=(), *, verification=None):
     return {'mode': 'complete', 'implemented': True}
 
 
+def copy_status_report(runtime, report, state, progress):
+    """019 ledger state, hours in the current copy state (F16) and hours since
+    the last successful pgBackRest backup; the copy route's next mode."""
+    copy = _load('v3_purge_copy')
+    now = datetime.now(timezone.utc)
+    try:
+        status = runtime.query(copy.STATUS_SQL)
+        if not isinstance(status, dict) or type(status.get('backup_skip')) is not bool:
+            raise ValueError('purge_copy_status_invalid')
+    except (RuntimeError, ValueError):
+        report['copy_status'] = None
+        report['next_admissible_mode'] = {'mode': 'status', 'reason': 'copy_status_unavailable'}
+        return
+    report['copy_status'] = status
+    hours = {}
+    for request in status.get('requests') or []:
+        try:
+            detail = runtime.query(copy.REQUEST_SQL, {'plan_sha256': request.get('plan_sha256')})
+        except (RuntimeError, ValueError):
+            detail = None
+        events = (detail or {}).get('latest_events') if isinstance(detail, dict) else None
+        for code, relation in (request.get('relations') or {}).items():
+            latest = (events or {}).get(code) if isinstance(events, dict) else None
+            hours[code] = {'copy_position': relation.get('copy_position'), 'phase': relation.get('phase'),
+                           'hours_in_state': copy.hours_since((latest or {}).get('created_at'), now),
+                           'hours_since_copy_started': copy.hours_since(relation.get('copy_started_at'), now),
+                           'over_24h_rule': (copy.hours_since((latest or {}).get('created_at'), now) or 0) > 24
+                           and relation.get('copy_position') in ('staged', 'swapped')}
+    report['copy_state_hours'] = hours
+    try:
+        info = json.loads(runtime.docker('exec', '-u', 'postgres', CONTAINER, 'pgbackrest', '--stanza=edfinder_v3',
+                                         '--log-level-console=off', '--output=json', 'info', timeout=120))
+        backups = info[0].get('backup') if isinstance(info, list) and len(info) == 1 else None
+        last = backups[-1]['timestamp']['stop'] if isinstance(backups, list) and backups else None
+        report['backup_age_hours'] = {'last_successful_backup_stop_epoch': last,
+                                      'hours': round((now.timestamp() - last) / 3600, 3) if type(last) is int else None,
+                                      'backup_skip': status['backup_skip']}
+    except (RuntimeError, ValueError, KeyError, TypeError, IndexError):
+        report['backup_age_hours'] = {'last_successful_backup_stop_epoch': None, 'hours': None,
+                                      'backup_skip': status['backup_skip']}
+    if state['unresolved'] or not progress['requests']:
+        return
+    report['next_admissible_mode'] = copy_next_mode(status, progress, report.get('system_archetype_verification'))
+
+
+def copy_next_mode(status, progress, verification):
+    """The copy route's guidance once 016 shows requests and no unresolved kind."""
+    if not verification or verification.get('status') != 'proven':
+        return {'mode': 'verify-system-archetype-empty', 'implemented': True,
+                'reason': 'system_archetype_empty_not_proven'}
+    requests = [r for r in status.get('requests') or [] if isinstance(r, dict)]
+    plan_hashes = {r.get('plan_sha256') for r in progress['requests']}
+    matching = [r for r in requests if r.get('plan_sha256') in plan_hashes]
+    if len(matching) > 1:
+        return {'mode': 'status', 'reason': 'copy_requests_ambiguous'}
+    relations = matching[0].get('relations') if matching else {}
+    if matching and matching[0].get('completed') is True:
+        return {'mode': 'status', 'reason': 'completed'}
+    for code in ('system_search', 'economy_opportunity', 'body_mechanics', 'system_rating_vector'):
+        name = code.replace('_', '-')
+        state = (relations or {}).get(code) or {'copy_position': 'none', 'failed': False}
+        position = state.get('copy_position')
+        if position == 'dropped':
+            continue
+        if state.get('failed'):
+            return {'mode': 'status', 'reason': 'copy_failed_stop_owner_review_' + code}
+        if position == 'none':
+            return {'mode': 'preflight-' + name, 'implemented': True}
+        if position == 'staged':
+            if state.get('phase') == 'SWAPPED_BACK' and state.get('fk_validated') is None:
+                return {'mode': 'swap-back-' + name, 'implemented': True,
+                        'reason': 'swap_back_fk_validation_pending'}
+            return {'mode': ('swap-' if state.get('phase') == 'VERIFIED' else 'copy-') + name, 'implemented': True}
+        if position == 'swapped':
+            if state.get('fk_validated') is None:
+                # A committed swap whose FK validation or smoke was interrupted
+                # is finished by swap-R (it resumes); drop-R would refuse.
+                return {'mode': 'swap-' + name, 'implemented': True, 'reason': 'swap_fk_validation_pending'}
+            return {'mode': 'drop-' + name, 'implemented': True}
+        return {'mode': 'status', 'reason': 'copy_position_unknown'}
+    return {'mode': 'complete', 'implemented': True}
+
+
 def status_counts(runtime, report, state, progress):
     """Independent probes never let one rewritten heap hide recovery evidence."""
     opened = {row['event_sequence'] for row in state['unresolved'] if row['event_kind'] == 'REWRITE_STARTED'}
@@ -1074,6 +1187,14 @@ def admission_state(runtime, report, *, allow_unresolved=False):
 def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reason='Owner-authorized governed purge',
             verification=None, phase_options=None, rehearsal=None):
     """Shared gates precede every mutation; P2b2 can extend the mode dispatch."""
+    if mode in DISABLED_MODES:
+        raise ValueError(DISABLED_REASON)
+    if is_copy_mode(mode) or mode == 'complete':
+        # complete reads 019's COMPLETED: 016's ledger never reaches COMPLETED
+        # on the copy route (no REWRITE_VERIFIED exists).
+        _load('v3_purge_copy_dispatch').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
+                                                 **(phase_options or {}))
+        return
     if mode.startswith('rewrite-'):
         _load('v3_purge_rewrite_dispatch').dispatch(argparse.Namespace(**globals()), mode, runtime, report, plan, verification,
                                                    **(phase_options or {}))
@@ -1148,6 +1269,7 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
                 for item in messages if isinstance(item.get('MESSAGE'), str) and item['MESSAGE'].startswith('SKIP:')]}
         except (RuntimeError, ValueError):
             report['skipped_scheduled_backups'] = None
+        copy_status_report(runtime, report, state, progress)
         report['result'] = 'unresolved_state_first' if state['unresolved'] else 'status_observed'
         report['status'] = 'success'
         return
@@ -1236,6 +1358,8 @@ def execute(mode, runtime, report, plan=None, *, actor='governed-operator', reas
             runtime.prepare_plan(reviewed)
         if rehearsal is not None:
             _load('v3_purge_rehearsal_receipt').apply_to_plan(reviewed, rehearsal)
+            # apply_to_plan also seals the copy route's measured figures
+            # (reviewed_plan.copy: free space before each copy, phase bounds).
             report['rehearsal_receipt_sha256'] = rehearsal['content_sha256']
         require_reviewed_migration_ledger(runtime, entries)
         report['reviewed_plan'] = transactions.seal_plan(runtime.query, reviewed)
@@ -1330,15 +1454,18 @@ def main(argv=None):
                 raise ValueError('rehearsal_arguments_not_admitted_for_mode')
             rehearsal = _load('v3_purge_rehearsal_receipt').load_reviewed(
                 args.rehearsal_receipt, args.rehearsal_receipt_sha256)
-        phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-'))
+        copy_mode = is_copy_mode(mode)
+        preflight_mode = mode.startswith('preflight-')
+        phase_mode = mode == 'restore-services' or mode.startswith(('delete-', 'rewrite-', 'abort-relation-')) or copy_mode
         phase_options = dict(wall_clock_seconds=args.wall_clock_seconds, controller_pid=args.controller_pid,
                              controller_run_id=args.controller_run_id, acknowledge_failed_stop=args.acknowledge_failed_stop,
                              writer_mode=args.writer_mode)
         if args.verification or args.verification_sha256:
-            if (mode not in ('status', 'complete') and not phase_mode) or not args.verification or not args.verification_sha256:
+            if ((mode not in ('status', 'complete') and not phase_mode) or preflight_mode
+                    or not args.verification or not args.verification_sha256):
                 raise ValueError('verification_arguments_not_admitted_for_mode')
             verification = authenticated_verification(args.verification, args.verification_sha256)
-        if (mode == 'complete' or phase_mode) and verification is None:
+        if (mode == 'complete' or phase_mode) and verification is None and not preflight_mode:
             raise ValueError('sealed_verification_required')
         if mode in ('authorize', 'verify-system-archetype-empty', 'complete') or phase_mode:
             if not args.plan or not args.plan_sha256:
@@ -1362,9 +1489,15 @@ def main(argv=None):
             else:
                 admission_state(runtime, report, allow_unresolved=True)
             with runtime.lease():
-                with runtime.backup_lock():
+                if preflight_mode:
+                    # Read-only: the lease serializes it with mutators, but a
+                    # long Search scan must not make a scheduled backup skip.
                     execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason,
-                            verification=verification, phase_options=phase_options)
+                            verification=None, phase_options=phase_options)
+                else:
+                    with runtime.backup_lock():
+                        execute(mode, runtime, report, plan, actor=args.actor, reason=args.reason,
+                                verification=verification, phase_options=phase_options)
         elif mode in ('authorize', 'complete', 'verify-system-archetype-empty'):
             # Check first, then take the lease and recheck under it. The second
             # check knows it owns the lease, so cannot mistake itself for a rival.

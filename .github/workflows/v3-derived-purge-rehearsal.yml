@@ -22,8 +22,8 @@ concurrency:
 jobs:
   rehearse:
     runs-on: [purge-rehearsal]
-    # Twelve hours bounds seeding, measured deletes, rewrites and crash recovery
-    # at 1%; the harness also bounds each database statement and subprocess.
+    # Twelve hours bounds seeding, the measured copy-and-drop journey and crash
+    # recovery at 1%; the harness also bounds each statement and subprocess.
     timeout-minutes: 720
     env:
       REHEARSAL_SCALE: ${{ inputs.scale }}
@@ -41,9 +41,13 @@ jobs:
           { [ -n "${RUNNER_TEMP:-}" ] && [ -d "$RUNNER_TEMP" ]; } || { echo 'Runner temp directory is unavailable' >&2; exit 65; }
           printf 'REHEARSAL_OUTPUT_DIR=%s\n' "$RUNNER_TEMP/v3-purge-rehearsal-$REHEARSAL_RUN_ID" >> "$GITHUB_ENV"
           [ "$DISPATCH_REF" = refs/heads/main ] || { echo 'Dispatch trusted main only' >&2; exit 64; }
+          # The real action keeps its production admission: 100 GB floor, and
+          # before each long copy phase also the 32 GiB temp_file_limit
+          # reservation and max_wal_size (about 135 GB in this fixture), on top
+          # of the fixture's own data (about 5 GB smoke, 40 GB one percent).
           case "$REHEARSAL_SCALE" in
-            smoke) required_bytes=5000000000 ;;
-            one_percent) required_bytes=40000000000 ;;
+            smoke) required_bytes=140000000000 ;;
+            one_percent) required_bytes=175000000000 ;;
             *) echo 'Unknown rehearsal scale' >&2; exit 64 ;;
           esac
           # Reach the local daemon as the runner user; remote Docker is refused.

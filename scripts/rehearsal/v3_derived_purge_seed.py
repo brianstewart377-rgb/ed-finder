@@ -92,6 +92,46 @@ SELECT %(generation)s::uuid,n,'Rehearsal system '||n,n%%1000,n%%700,n%%300,
 FROM generate_series(%(first)s::bigint,%(last)s::bigint) n;
 """
 
+# 019's verify recounts the copied rows per Ratings chunk against the build
+# receipts, as production's builder recorded them: vector rows (systems), body
+# rows (physical_bodies) and opportunity rows (eligible_opportunities) per
+# vector chunk. Receipts are written while the generation is still BUILDING.
+CHUNK_RECEIPTS = """
+UPDATE v3_derived.build_chunk b SET canonical_bodies=x.bodies,physical_bodies=x.bodies,
+ eligible_opportunities=x.opportunities
+FROM (SELECT k.chunk_ordinal,COALESCE(m.n,0)::int AS bodies,COALESCE(o.n,0)::int AS opportunities
+  FROM v3_derived.build_chunk k
+  LEFT JOIN (SELECT v.chunk_ordinal,count(*) n FROM v3_derived.body_mechanics t
+    JOIN v3_derived.system_rating_vector v ON v.derived_generation_id=t.derived_generation_id AND v.system_id64=t.system_id64
+    WHERE t.derived_generation_id=%(generation)s::uuid GROUP BY 1) m USING (chunk_ordinal)
+  LEFT JOIN (SELECT v.chunk_ordinal,count(*) n FROM v3_derived.economy_opportunity t
+    JOIN v3_derived.system_rating_vector v ON v.derived_generation_id=t.derived_generation_id AND v.system_id64=t.system_id64
+    WHERE t.derived_generation_id=%(generation)s::uuid GROUP BY 1) o USING (chunk_ordinal)
+  WHERE k.derived_generation_id=%(generation)s::uuid) x
+WHERE b.derived_generation_id=%(generation)s::uuid AND b.chunk_ordinal=x.chunk_ordinal;
+"""
+
+# The published survivor Search product's per-chunk receipts (search_build_chunk,
+# one row per Ratings chunk holding Search rows), inserted while the product is
+# BUILDING exactly as the production Search build recorded them.
+SEARCH_CHUNK_RECEIPTS = """
+INSERT INTO v3_derived.search_build_chunk(derived_generation_id,chunk_ordinal,product_code,
+ projection_version,source_projection_sha256,content_sha256,systems)
+SELECT %(generation)s::uuid,v.chunk_ordinal,'system_search',%(version)s,decode(repeat('00',32),'hex'),
+ decode(repeat('00',32),'hex'),count(*)::int
+FROM v3_derived.system_search s JOIN v3_derived.system_rating_vector v
+  ON v.derived_generation_id=s.derived_generation_id AND v.system_id64=s.system_id64
+WHERE s.derived_generation_id=%(generation)s::uuid GROUP BY v.chunk_ordinal;
+"""
+
+# The owner-applied production planner statistics (2026-10-19,
+# docs/operations/v3-postgres-server-settings.md), so the copy carries them and
+# the opportunity swap recalibrates and restores them as production will.
+PLANNER_STATISTICS = """
+ALTER TABLE v3_derived.economy_opportunity ALTER COLUMN system_id64 SET STATISTICS 1000;
+ALTER TABLE v3_derived.economy_opportunity ALTER COLUMN system_id64 SET (n_distinct = -0.13);
+"""
+
 FINALIZE = """
 UPDATE v3_meta.derived_generation SET lifecycle_state='VALIDATING',
  source_receipt='{"status":"SEALED","synthetic":true}',

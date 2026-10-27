@@ -149,10 +149,13 @@ state_path.write_text(json.dumps(state))
     return env, state
 
 
+# The real action keeps its copy-route admission in the fixture: the 100 GB
+# floor plus, before each long phase, the 32 GiB temp_file_limit reservation and
+# max_wal_size; the preflight refuses a runner that could never pass it.
 @pytest.mark.parametrize(("scale", "free_bytes", "accepted"), [
-    ("smoke", 4_999_999_999, False), ("smoke", 5_000_000_000, True),
-    ("one_percent", 39_999_999_999, False), ("one_percent", 40_000_000_000, True),
-    ("arbitrary", 100_000_000_000, False),
+    ("smoke", 139_999_999_999, False), ("smoke", 140_000_000_000, True),
+    ("one_percent", 174_999_999_999, False), ("one_percent", 175_000_000_000, True),
+    ("arbitrary", 300_000_000_000, False),
 ])
 def test_disk_refusal_executes_real_preflight(tmp_path, scale, free_bytes, accepted):
     env, _ = _shell_runner(tmp_path, free_bytes=free_bytes)

@@ -87,7 +87,10 @@ def test_writer_restore_rejects_invalid_or_wrong_plan_acknowledgements(database)
 
 
 def test_committed_integrity_failed_rewrite_acknowledgement_requires_departed_backend(database):
-    from scripts.operator.lib.v3_purge_state import STATE_SQL
+    # This fixture installs 016 only. The fence's copy-aware STATE_SQL also reads
+    # 019's functions (proved in tests/test_v3_purge_copy_operator_pg18.py); the
+    # 016 semantics under test are the shared part, LEGACY_STATE_SQL.
+    from scripts.operator.lib.v3_purge_state import LEGACY_STATE_SQL as STATE_SQL
 
     connection = database[0]
     ids = _authorize(database)

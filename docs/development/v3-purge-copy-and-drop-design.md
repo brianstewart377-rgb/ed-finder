@@ -375,6 +375,77 @@ Either route ends at about 498 GB free on main, a net gain of about 393 GB.
 - **Cluster tables:** zero target rows (`016:198-211`). Only `cluster_member`'s
   FK is re-pointed, at the vector swap.
 
+## 7a. Corrections from the operator implementation (2026-10-26)
+
+Measured on PostgreSQL 18.4 while building the operator modes
+(`tests/test_v3_purge_copy_operator_pg18.py`):
+
+- **Timeouts (F5).** A function-level `SET statement_timeout` never bounds the
+  function's own call, so 019's `statement_timeout='60s'` clauses bound nothing
+  and its closing comment ("timeouts are pinned on each public entry point";
+  bulk phases "inherit the operator's per-dispatch statement_timeout") is
+  misleading. Every 019 call is therefore preceded, in the same transaction,
+  by the operator's `SET LOCAL statement_timeout`/`lock_timeout` from the
+  reviewed `PHASES` table in `scripts/operator/lib/v3_purge_copy.py`. 019's
+  bytes were **not** edited: 019 is applied and its hash is part of the
+  installed schema identity; the comment correction belongs to the next
+  migration.
+- **Swap stall (F4).** 019's function-level `lock_timeout='2s'` wins over the
+  caller's `SET LOCAL lock_timeout`, so the vector swap's six lock acquisitions
+  can still wait 2 s each. The operator caps each swap/swap-back/drop/abandon
+  attempt with an 8 s statement timeout (a cancelled attempt rolls back and
+  releases its locks) and retries with backoff up to 12 times, so Finder reads
+  queue for at most about 8 s per attempt. §3's "about 3 s" is superseded by
+  "at most about 8 s per attempt, retried". The next migration should drop or
+  lower the function-level `lock_timeout` so the operator's 400 ms request
+  governs.
+- **Resumability (F2).** `build_indexes` and `verify` are single calls; the
+  operator resumes at phase granularity (a cancelled or timed-out phase rolls
+  back and the next `copy-R` re-enters it) and runs each long phase host-side
+  under the purge lease with `pg_stat_progress_*` polling and the watchdog.
+  True mid-phase resumability needs a per-index build function and a
+  per-range verify in a later migration.
+- **`temp_file_limit`.** It is a superuser-set parameter; the executor needs
+  `GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor` before
+  any long phase can bound its temporary files. 019 does not grant it; the
+  operator refuses the phase until the grant exists.
+- **Scheduled backups.** The installed wrapper now reads
+  `purge_copy_backup_skip()`; a relation left staged or swapped suspends
+  scheduled backups, so the runbook adds a 24-hour rule and a
+  backup-heartbeat precondition.
+- **Swap-back after the statistics recalibration (Codex 4379797637).** 019's
+  `purge_copy_swap_back` compares the copy's attribute options exactly with the
+  retired table, and `swap-R` recalibrates `economy_opportunity.system_id64`'s
+  `n_distinct` on the copy, so a plain swap-back of that relation always
+  refused. `swap-back-economy-opportunity` therefore runs one owner
+  transaction: restore the retired table's options on the copy (catalog values,
+  `n_distinct` options only), then the executor's swap-back; both commit or
+  neither does. The restore value is also written to root-owned host state
+  before every recalibration `ALTER` (019's append-only ledger has no event for
+  a statistics option), and a recalibration whose option is already set is a
+  no-op. Proven in both directions on PG 18.
+- **Resumable swap and swap-back (Codex 4379797650).** A committed swap-back
+  whose FK validation was lost leaves the relation `staged`/`SWAPPED_BACK` with
+  child FKs `NOT VALID`; `swap-back-R` resumes there (validation and smoke
+  only) and `copy-R` refuses to re-verify until it has. A committed forward
+  swap likewise resumes in `swap-R`; `status` names the resuming mode.
+- **Competing copy lock.** 019's `pg_try_advisory_xact_lock(764019001)` failure
+  is `P0001`, the integrity SQLSTATE; every mutating dispatch first refuses
+  while another backend holds that lock or runs a mutating copy function.
+- **WAL throttle.** The soft limit is WAL written since the latest checkpoint's
+  REDO point (`pg_controldata` in the container), not the `pg_wal` directory,
+  which keeps recycled segments near `max_wal_size` after a burst; the
+  watchdog's 2 × `max_wal_size` ceiling stays on the directory.
+- **Workflow budget (Codex 4379797627).** The 7,200,000 ms envelope applies to
+  the statements the copy route runs (`PHASES` and a plan's sealed phase
+  timeouts), not to the legacy `VACUUM FULL` estimates (2026-10-24 Search
+  30,659,000 ms); a recovered 016 rewrite `ANALYZE` stays bounded by the
+  action.
+- **Rehearsal (Codex 4379797621).** The disposable rehearsal now runs this
+  route (receipt schema v3) and its measured, extrapolated copy peak replaces
+  §1.6's rewrite-peak proxy in the plan's `copy` block; v1/v2 receipts are
+  refused. See the runbook's "P2d rehearsal" section.
+
 ## 8. Owner answers (2026-10-24)
 
 1. **Disk:** in place on the main filesystem; no option C. The 2026-10-24

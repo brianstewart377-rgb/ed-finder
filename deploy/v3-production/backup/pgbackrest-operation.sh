@@ -63,6 +63,27 @@ if [ -n "$purge_records" ]; then
   exit 0
 fi
 
+# Copy-and-drop purge (migration 019, owner answer 8 of
+# docs/development/v3-purge-copy-and-drop-design.md): scheduled backups skip
+# from a relation's COPY_STARTED until its DROPPED or abandonment, and while a
+# staging or retired table exists. Only the exact booleans are accepted; any
+# other output or a failing query exits non-zero before pgBackRest starts.
+copy_skip="$(docker exec -i -u postgres "$c" \
+  psql -X --no-psqlrc --no-password --username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5 \
+  --set=ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<'SQL'
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL lock_timeout = '5s';
+SELECT v3_meta.purge_copy_backup_skip();
+COMMIT;
+SQL
+)"
+case "$copy_skip" in
+  t) echo "SKIP: copy-and-drop purge in progress (v3_meta.purge_copy_backup_skip() is true)"; exit 0 ;;
+  f) ;;
+  *) echo "purge_copy_backup_skip() returned an unexpected value" >&2; exit 65 ;;
+esac
+
 info="$(docker exec -u postgres "$c" pgbackrest --stanza=edfinder_v3 --log-level-console=off --output=json info)"
 # A healthy stanza reports code 0 "ok". A newly created, empty repository
 # reports code 2 "no valid backups" until its first backup exists; only a full
