@@ -24,7 +24,9 @@ contracts and planning-engine code belong in `ed-finder`, not in
 `colony-planning-engine`. Under D1 the research engine is a versioned rulebook
 that `ed-finder` reads: a pinned, machine-readable rules file with stable IDs,
 sources and exact values. See `docs/ROADMAP.md`, owner decision 2026-10-21, and
-`docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`.
+`docs/development/evidence/2026-10-21-cre-cpe-utilisation-audit.md`. The pinned
+release and how to update it are in
+`docs/reference/colonisation/cre-rulebook/README.md`.
 
 - Run the local application from `ed-finder`.
 - Keep app-only implementation, local-dev scripts, and deployment/runtime concerns in `ed-finder`.

@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-27 — CRE rulebook pinned, with a parity test
+
+**Owner decision D1, first step.** The Colonisation Research Engine published
+its first rulebook, `cre-knowledge-v0.3.0`: 27 rules with stable `RB-` IDs,
+exact values, statuses (`Confirmed`, `Likely`, `Extracted`, `Disputed`) and
+quotes checked against the guide's PDF pages and Frontier's notes. A copy is
+pinned by tag, commit and SHA-256 under `docs/reference/colonisation/cre-rulebook/`.
+`tests/test_cre_rulebook_parity.py` compares ED-Finder's hard-coded tables with
+it: construction-point escalation, link strengths and modifier size, body
+economies and modifiers (Ratings V4 and the V2 planner), stacking, and the
+Ratings V4 strong-link rules (by running `opportunities_from_facts` on probe
+bodies). Every difference is listed with its reason; a new or resolved
+difference fails the test. The costs fixed in #902 match `RB-0003`. Test and
+reference data only: no score, constant or behaviour changed. The rulebook has a
+provenance entry (`noncommercial_only`, Frontier-derived) and a notice.
+
 ## 2026-10-27 — Migration 020 applied to production
 
 **Production (owner-approved, governed workflow).** Plan run 40551071635

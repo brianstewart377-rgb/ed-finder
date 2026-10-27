@@ -91,6 +91,19 @@ reference material within ED-Finder's Frontier noncommercial fan-project
 posture because it describes Elite Dangerous game mechanics. Attribution,
 checksums and extraction details are in the folder's `README.md`.
 
+## CRE rulebook
+
+`docs/reference/colonisation/cre-rulebook/rulebook.json` is the repository
+owner's colonisation rulebook, copied unchanged from the Colonisation Research
+Engine release `cre-knowledge-v0.3.0`. It quotes short passages from the
+**Elite Dangerous Colonization Mega Guide** (CMDR Mechan and contributing CMDRs,
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); see the section
+above) and from Frontier Developments' update notes, and it describes Elite
+Dangerous game mechanics. The quoted guide passages stay under CC BY-SA 4.0. The
+file is held as reference data within ED-Finder's Frontier noncommercial
+fan-project posture and is not endorsed by Frontier Developments. Release pin and
+checksum are in the folder's `README.md` and `pin.json`.
+
 ## Frontier Developments fan-media boundary
 
 Frontier's [official Elite Dangerous media guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media)

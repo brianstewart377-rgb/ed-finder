@@ -825,7 +825,15 @@ newer dated source wins).
   why) until it can carry colonisation events the CRE can use — as of this
   entry the export route is still mounted and has not been switched off. None
   of these decisions changes the go-live sequence or any gate: steps 8′ → 9′
-  and the F4 gates above stand as written.
+  and the F4 gates above stand as written. **D1 progress 2026-10-27:** the CRE
+  published its first rulebook (`cre-knowledge-v0.3.0`, 27 rules with stable
+  `RB-` IDs, statuses and page-checked quotes). ED-Finder pins it under
+  [`docs/reference/colonisation/cre-rulebook/`](reference/colonisation/cre-rulebook/README.md),
+  and `tests/test_cre_rulebook_parity.py` compares the hard-coded construction-point,
+  link, body-economy, modifier and strong-link tables with it; every difference
+  is listed with its reason (mostly V2 planner code and the frozen Ratings V4.0
+  findings F1–F4 for V4.1). No score or behaviour changed. The construction-point
+  costs fixed in #902 match `RB-0003`.
 
 ## Programme status — 2026-09-19
 

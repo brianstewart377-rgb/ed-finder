@@ -41,6 +41,9 @@ Committed now:
   2026-10-21, as extracted text with attribution, licence (CC BY-SA 4.0) and
   checksums: [`sources/mega-guide-v2.3.0/`](./sources/mega-guide-v2.3.0/README.md).
   Page numbers cited for it in this repository are PDF page numbers.
+- The pinned CRE rulebook (`cre-knowledge-v0.3.0`, owner decision D1), with
+  its release pin and the parity test that compares ED-Finder's hard-coded
+  tables with it: [`cre-rulebook/`](./cre-rulebook/README.md).
 
 Not committed:
 
