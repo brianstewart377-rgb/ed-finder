@@ -548,7 +548,7 @@ PostgreSQL 18 rehearsal. Contabo is not production. The rehearsal runs only on
 the dedicated `purge-rehearsal` runner (its own `rehearsal` user, the only
 `docker` group member, no default labels); the three Codex runners have no
 Docker access and cannot receive the job. Use [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml)
-on current `main`, first with `scale: smoke` (about 0.05%), then with
+on current `main`, first with `scale: smoke` (300,000 systems, about 0.15%), then with
 `scale: one_percent` (about 2 million systems). This is manual dispatch only;
 merging the harness never dispatches it. It has no secrets, production target,
 SSH transport, or deployment step. The workflow pins the dispatched main SHA
@@ -556,7 +556,7 @@ and refuses if main has advanced before source verification.
 
 Before checkout, the runner must reach its local Docker daemon without privilege
 elevation, have no existing rehearsal container (including stopped containers),
-and have at least **140 GB** free on the Docker data root for smoke or
+and have at least **150 GB** free on the Docker data root for smoke or
 **175 GB** for one_percent. The real action keeps its production admission in
 the fixture — the 100 GB floor, and before each long copy phase also the 32 GiB
 `temp_file_limit` reservation and `max_wal_size` (about 135 GB here) — on top of
@@ -620,8 +620,15 @@ At `one_percent` (proportion 2,000,000 / 198,528,286) the journey fixture holds:
 | `body_mechanics` | 247,406 | 5,819,919 | 5,819,919 |
 | `system_rating_vector` | 49,746 | 2,000,000 | 2,000,000 |
 
-Crash fixtures use the same rule at smoke scale (100,000 survivor Search and
-archetype rows each).
+Crash fixtures use the same rule at smoke scale (300,000 survivor Search and
+archetype rows each). Smoke was 100,000 systems until 2026-10-27: at that size
+the economy_opportunity swap's plan proof cannot hold, because a hash join over
+the whole small opportunity table is cheaper than the nested loop over
+`economy_opportunity_pkey` that the production-size chunk read needs (smoke run
+40484503505 refused `n_distinct_recalibration_plan_unverified`; on PG 18 the
+plan flips between 100,000 and 200,000 systems). The seed also analyses the
+tables before each build-receipt join, which otherwise ran for more than 30
+minutes at 200,000 systems.
 
 **The journey.** After `plan`, `authorize` and `verify-system-archetype-empty`,
 each relation runs in 019's order through the real action: `preflight-R`;

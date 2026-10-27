@@ -96,7 +96,13 @@ FROM generate_series(%(first)s::bigint,%(last)s::bigint) n;
 # receipts, as production's builder recorded them: vector rows (systems), body
 # rows (physical_bodies) and opportunity rows (eligible_opportunities) per
 # vector chunk. Receipts are written while the generation is still BUILDING.
-CHUNK_RECEIPTS = """
+# Each receipt join first refreshes the statistics of the tables it reads: the
+# freshly inserted rows are otherwise unknown to the planner (autoanalyze may
+# not have run), and at 200,000 systems the unanalysed join ran for more than
+# 30 minutes where the analysed one takes seconds (measured on PG 18).
+RECEIPT_STATISTICS = ('ANALYZE v3_derived.build_chunk, v3_derived.system_rating_vector, '
+                      'v3_derived.body_mechanics, v3_derived.economy_opportunity, v3_derived.system_search;')
+CHUNK_RECEIPTS = RECEIPT_STATISTICS + """
 UPDATE v3_derived.build_chunk b SET canonical_bodies=x.bodies,physical_bodies=x.bodies,
  eligible_opportunities=x.opportunities
 FROM (SELECT k.chunk_ordinal,COALESCE(m.n,0)::int AS bodies,COALESCE(o.n,0)::int AS opportunities
@@ -114,7 +120,7 @@ WHERE b.derived_generation_id=%(generation)s::uuid AND b.chunk_ordinal=x.chunk_o
 # The published survivor Search product's per-chunk receipts (search_build_chunk,
 # one row per Ratings chunk holding Search rows), inserted while the product is
 # BUILDING exactly as the production Search build recorded them.
-SEARCH_CHUNK_RECEIPTS = """
+SEARCH_CHUNK_RECEIPTS = RECEIPT_STATISTICS + """
 INSERT INTO v3_derived.search_build_chunk(derived_generation_id,chunk_ordinal,product_code,
  projection_version,source_projection_sha256,content_sha256,systems)
 SELECT %(generation)s::uuid,v.chunk_ordinal,'system_search',%(version)s,decode(repeat('00',32),'hex'),

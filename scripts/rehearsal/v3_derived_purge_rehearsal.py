@@ -42,7 +42,15 @@ DATABASE = 'edfinder_purge_rehearsal'
 USER = 'edfinder_v3'
 OBSERVER_USER = 'edfinder_purge_observer'
 RECEIPT_PATH = ROOT / evidence.STEP0_RECEIPT
-SCALE_SYSTEMS = {'smoke': 100_000, 'one_percent': 2_000_000, 'tiny': 200}
+# Smoke is the smallest scale at which the economy_opportunity swap's F7 plan
+# proof can hold: the archetype chunk read joins one 1,000-system Ratings chunk
+# to the opportunity table, and below about 200,000 systems a hash join over
+# the whole (small) table is genuinely cheaper than the nested loop over
+# economy_opportunity_pkey that production needs (smoke run 40484503505 at
+# 100,000 refused n_distinct_recalibration_plan_unverified; measured on PG 18:
+# hash join at 100,000, nested loop at 200,000 and 400,000). 300,000 keeps a
+# margin. Crash fixtures run at smoke proportions too.
+SCALE_SYSTEMS = {'smoke': 300_000, 'one_percent': 2_000_000, 'tiny': 200}
 RELATIONS = tuple(controller.RELATIONS.values())
 COPY_MIGRATION = '019_v3_purge_copy_and_drop.sql'
 SEED_BATCH_ROWS = 50_000

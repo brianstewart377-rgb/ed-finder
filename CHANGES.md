@@ -11,6 +11,30 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-27 — Purge rehearsal: smoke at 300,000 systems; seed analyses before its receipt joins
+
+The second smoke rehearsal (run 40484503505, with 020's lock order) swapped
+`system_search` cleanly (one attempt, 0.44 s, the concurrent Finder read never
+failed), then the real action refused the `economy_opportunity` swap with
+`n_distinct_recalibration_plan_unverified`. At 100,000 systems the archetype
+chunk read (one 1,000-system Ratings chunk joined to the opportunity table) is
+genuinely cheaper as a hash join over the whole 372,744-row table, so the F7
+proof that production's 746 M-row table plans a nested loop over
+`economy_opportunity_pkey` cannot hold. Reproduced on PostgreSQL 18 with the
+harness's own seed: hash join at 100,000 systems with default or production
+planner settings, nested loop at 200,000 and 400,000. Every crash scenario also
+swaps `economy_opportunity` at smoke proportions, so gate 10 could never pass.
+The action's proof is unchanged.
+
+- **Smoke scale** 100,000 → 300,000 systems (about 0.15%), keeping a margin
+  above the crossover; crash fixtures follow. The workflow's smoke disk minimum
+  becomes 150 GB (about 15 GB of fixture data on top of the action's ~135 GB
+  admission).
+- **Seed statistics.** The build-receipt join ran for more than 30 minutes at
+  200,000 systems because the freshly inserted tables had no statistics; each
+  receipt join now runs `ANALYZE` on its inputs first (136 s for the whole
+  200,000-system seed, 268 s at 400,000).
+
 ## 2026-10-27 — Purge P: swap lock order (migration 020, registered, not applied)
 
 The first smoke rehearsal of the copy route (run 40466831980, on Contabo,

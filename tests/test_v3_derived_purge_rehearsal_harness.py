@@ -13,8 +13,12 @@ from scripts.rehearsal import v3_derived_purge_rehearsal as harness
 from scripts.rehearsal import v3_derived_purge_seed as seed
 
 
-@pytest.mark.parametrize('scale,systems', [('tiny', 200), ('smoke', 100_000), ('one_percent', 2_000_000)])
+@pytest.mark.parametrize('scale,systems', [('tiny', 200), ('smoke', 300_000), ('one_percent', 2_000_000)])
 def test_seed_uses_committed_generation_and_relation_proportions(scale, systems):
+    # Below about 200,000 systems the opportunity swap's plan proof cannot hold
+    # (a hash join over the small table is genuinely cheaper); smoke and the
+    # crash fixtures must stay above it.
+    assert harness.SCALE_SYSTEMS['smoke'] >= 200_000
     proportion, counts = harness.seeding_proportions(scale)
     assert proportion == systems / 198_528_286
     assert counts['system_rating_vector']['ratings_v4_prod_p4_opt1'] == systems
@@ -455,6 +459,11 @@ def test_seed_publishes_survivor_products_through_015_after_base_publication(tmp
     assert len(search_receipts) == 1 and executed[search_receipts[0]][1] == {
         'generation': published, 'version': 'v3-system-search-2'}
     assert max(survivor_search) < search_receipts[0] < min(ready)
+    # Each receipt join analyses its freshly inserted inputs first; unanalysed,
+    # the build-receipt join ran for more than 30 minutes at 200,000 systems.
+    for statement in (seed.CHUNK_RECEIPTS, seed.SEARCH_CHUNK_RECEIPTS):
+        assert statement.startswith(seed.RECEIPT_STATISTICS)
+    assert seed.RECEIPT_STATISTICS.startswith('ANALYZE ') and seed.RECEIPT_STATISTICS.count(';') == 1
     # Production's planner statistics, then a completed archive segment.
     assert base_publish < order.index(seed.PLANNER_STATISTICS) < order.index(harness.ARCHIVER_SQL)
     assert order[-1] == harness.ARCHIVED_SQL
