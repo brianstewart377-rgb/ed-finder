@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-27 — Purge rehearsal: the restart crash scenario proves the archiver refusal, then resumes
+
+Smoke rehearsal run 40495068589 (300,000 systems) completed the whole
+copy-and-drop journey through `complete` and passed eight of the nine crash
+scenarios. `copy_postgres_restart` stopped: after `docker restart --time 0` the
+re-dispatched `copy-economy-opportunity` refused `wal_archive_lag_unknown`. A
+crash restart discards `pg_stat_archiver`, so the action cannot measure archive
+lag until the archiver reports a segment; the refusal is the action failing
+closed, and the rehearsal container (no `archive_timeout`, no other WAL
+traffic) never completes one on its own.
+
+- The scenario now dispatches `copy-R` once after the restart and requires that
+  it either succeeds or refuses with exactly `wal_archive_lag_unknown` (recorded
+  as `restart_archive_refusal`; any other refusal fails the scenario), then
+  completes one WAL segment as production's own traffic would, then resumes.
+- The runbook records the production behaviour after a database restart.
+
 ## 2026-10-27 — Purge rehearsal: smoke at 300,000 systems; seed analyses before its receipt joins
 
 The second smoke rehearsal (run 40484503505, with 020's lock order) swapped

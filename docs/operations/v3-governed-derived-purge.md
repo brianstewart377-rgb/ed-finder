@@ -679,7 +679,7 @@ catalog agreeing with the ledger at every observation:
 | Scenario | Interruption (observed first, then applied) | Must resume as |
 | --- | --- | --- |
 | `copy_chunk_client_killed` | the second chunk's statement paused after its 019 call, before commit; wrapper and psql killed | exactly one committed chunk; `copy-R` continues from the ledger |
-| `copy_postgres_restart` | same pause; `docker restart --time 0` | postmaster restarted; one committed chunk; `copy-R` continues |
+| `copy_postgres_restart` | same pause; `docker restart --time 0` | postmaster restarted; one committed chunk; the first `copy-R` refuses `wal_archive_lag_unknown` (recorded as `restart_archive_refusal`), one WAL segment is completed, then `copy-R` continues |
 | `index_build_backend_terminated` | index build paused after building; `pg_terminate_backend` | no `INDEXES_BUILT`; `copy-R` rebuilds |
 | `verify_watchdog_cancel` | verify paused; the independent watchdog cancels on controller loss | receipt `copy_verify_interrupted` with `monitor_condition: controller_loss`, SQLSTATE 57014; `copy-R` verifies |
 | `swap_committed_client_killed` | after the swap commits, before FK validation | `status` names `swap-R`; it resumes (`swap_resumed`) |
@@ -687,6 +687,14 @@ catalog agreeing with the ledger at every observation:
 | `swap_back_and_reswap` | none: swap, swap-back, re-verify, swap | swap-back restores the original table and options; the re-swap equals the first |
 | `abandon_and_recopy` | none: verified copy abandoned | staging gone; a fresh copy from `COPY_STARTED` |
 | `drop_committed_client_killed` | after the drop commits | `drop-R` reports `retired_relation_already_dropped` |
+
+**After a PostgreSQL crash or restart (production too).** A crash restart
+discards the cumulative statistics, so `pg_stat_archiver` names no archived
+segment and `copy-R` refuses `wal_archive_lag_unknown` (fail closed) until the
+archiver has archived one. Nothing is changed by that refusal; re-dispatch once
+the server's own WAL traffic has completed and archived a segment. The crash
+rehearsal proves the refusal and then completes a segment itself (smoke run
+40495068589 stopped here before the driver did).
 
 Before any redispatch the driver waits until no backend still runs a copy
 statement (the action itself refuses with `competing_purge_copy_backend_active`
