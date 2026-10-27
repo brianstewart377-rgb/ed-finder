@@ -195,6 +195,7 @@ def test_cp_timeline_and_service_output():
     result = run([
         PreviewPlacement('refinery', '1', build_order=1),
         PreviewPlacement('coriolis', '1', is_primary_port=True, build_order=2),
+        PreviewPlacement('coriolis', '2', build_order=3),
         PreviewPlacement('orbis_t3', '1', build_order=4),
         PreviewPlacement('military_installation', '1', build_order=5),
     ])
