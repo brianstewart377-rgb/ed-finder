@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from edfinder_api.domain.facilities import FacilityTemplate
-from edfinder_api.mechanics.cp_rules import LATE_T3_BUILD_ORDER_THRESHOLD
+from edfinder_api.mechanics.cp_rules import escalating_port_tier
 from edfinder_api.simulation.cp_simulator import port_cp_cost
 
 
@@ -60,7 +60,8 @@ class BuildOrderResult:
 def simulate_build_order(placements: list[Any]) -> BuildOrderResult:
     yellow_generated = green_generated = 0
     yellow_spent = green_spent = 0
-    paid_t2 = paid_t3 = 0
+    counted_ports = 0
+    has_paid_t2 = False
     total_t2 = total_t3 = 0
     warnings: list[str] = []
     timeline: list[TimelineStep] = []
@@ -74,26 +75,23 @@ def simulate_build_order(placements: list[Any]) -> BuildOrderResult:
         step_warnings: list[str] = []
         step_notes: list[str] = []
 
-        if facility.is_port:
-            if facility.tier == 2:
-                total_t2 += 1
-            elif facility.tier == 3:
-                total_t3 += 1
+        port_tier = escalating_port_tier(facility)
+        if port_tier == 2:
+            total_t2 += 1
+        elif port_tier == 3:
+            total_t3 += 1
 
-            if spec.is_primary_port:
-                step_notes.append('primary-port exemption applied; no escalating CP cost is charged.')
-            else:
-                if facility.tier == 2:
-                    yellow_cost, green_cost = port_cp_cost(2, paid_t2)
-                    paid_t2 += 1
-                elif facility.tier == 3:
-                    yellow_cost, green_cost = port_cp_cost(3, paid_t3)
-                    if paid_t2 > 0 or spec.build_order > LATE_T3_BUILD_ORDER_THRESHOLD:
-                        step_warnings.append('Build T3 ports earlier to avoid later escalation.')
-                    paid_t3 += 1
-                else:
-                    yellow_cost = int(facility.yellow_cp_cost or 0)
-                    green_cost = int(facility.green_cp_cost or 0)
+        if facility.is_port and spec.is_primary_port:
+            step_notes.append('primary-port exemption applied; no escalating CP cost is charged.')
+        elif port_tier is not None:
+            counted_ports += 1
+            yellow_cost, green_cost = port_cp_cost(port_tier, counted_ports)
+            if port_tier == 2:
+                has_paid_t2 = True
+                if counted_ports >= 3:
+                    step_notes.append('guide table; guide example disagrees; not verified in-game')
+            elif has_paid_t2:
+                step_warnings.append('Build T3 ports earlier to avoid later escalation.')
         else:
             yellow_cost = int(facility.yellow_cp_cost or 0)
             green_cost = int(facility.green_cp_cost or 0)

@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from edfinder_api.domain.facilities import FacilityTemplate, get_catalogue
+from edfinder_api.mechanics.cp_rules import t2_port_yellow_cost
 from edfinder_api.simulation.cp_simulator import (
     CPAnalysis, analyse_cp_budget, complexity_label,
 )
@@ -301,10 +302,7 @@ def _target_port_count(archetype_key: Optional[str]) -> int:
 
 def _expected_yellow_need(total_slots: int) -> int:
     """Expected yellow CP needed to fill all slots with T2 ports."""
-    from edfinder_api.simulation.cp_simulator import _T2_PORT_COSTS_YELLOW
-    total = 0
-    for i in range(min(total_slots, len(_T2_PORT_COSTS_YELLOW))):
-        total += _T2_PORT_COSTS_YELLOW[i]
+    total = sum(t2_port_yellow_cost(n) for n in range(1, min(total_slots, 6) + 1))
     return total or 1
 
 

@@ -64,7 +64,8 @@ def facility(
 CATALOGUE = {
     't2_port': facility('t2_port', tier=2, is_port=True, allowed_location='orbital'),
     't3_port': facility('t3_port', tier=3, is_port=True, allowed_location='orbital'),
-    'support_small': facility('support_small', yellow_generated=20, green_generated=0),
+    # Afford one guide-priced T2 port, but leave a deficit after the second.
+    'support_small': facility('support_small', yellow_generated=5, green_generated=0),
     'support_green': facility('support_green', yellow_generated=20, green_generated=20),
     'support_big': facility('support_big', yellow_generated=120, green_generated=80),
 }

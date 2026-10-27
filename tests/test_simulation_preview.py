@@ -97,8 +97,8 @@ def test_cp_escalation_for_paid_t2_and_t3_ports():
         PreviewPlacement('orbis_t3', '5', build_order=4),
     ])
 
-    assert result['cp']['yellow_cp_spent'] == 16 + 20 + 40
-    assert result['cp']['green_cp_spent'] == 0 + 0 + 16
+    assert result['cp']['yellow_cp_spent'] == 3 + 3
+    assert result['cp']['green_cp_spent'] == 12
     assert result['cp']['t2_ports'] == 2
     assert result['cp']['t3_ports'] == 1
     SimulateBuildResponse.model_validate(result)
@@ -111,7 +111,7 @@ def test_primary_port_exemption_skips_first_escalating_cost():
         PreviewPlacement('coriolis', '4', build_order=3),
     ])
 
-    assert result['cp']['yellow_cp_spent'] == 16
+    assert result['cp']['yellow_cp_spent'] == 3
     assert result['cp']['green_cp_spent'] == 0
     assert any('primary-port exemption' in w for w in result['cp']['warnings'])
 
