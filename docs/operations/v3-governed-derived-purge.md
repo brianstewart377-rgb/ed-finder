@@ -28,8 +28,8 @@ phases.
 ### Preconditions (all of them, before step 1 below)
 
 1. Migration `019` is applied (production: 2026-10-26, apply run 40338736148),
-   migration `020` (the swap lock order; registered 2026-10-27, not yet applied)
-   is applied, and the installed backup wrapper is the committed one that reads
+   migration `020` (the swap lock order) is applied (production: 2026-10-27,
+   apply run 40551173291), and the installed backup wrapper is the committed one that reads
    `v3_meta.purge_copy_backup_skip()` (re-run `v3-backup-wrapper-install`
    after this code merges; the installer now refuses unless 019 is applied).
 2. **A full pgBackRest backup immediately before step 1**, reviewed as

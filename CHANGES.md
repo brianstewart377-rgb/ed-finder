@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-27 — Migration 020 applied to production
+
+**Production (owner-approved, governed workflow).** Plan run 40551071635
+reported `pending=[020]` with no writes; apply run 40551173291 applied
+`020_v3_purge_swap_lock_order.sql` and installed the through-020 schema
+identity (`55284f7d…1f00`). Capability only: three executor-only purge
+functions changed their locking and one internal helper was added; no table,
+view, grant or payload row changed. This clears the promotion block that #898
+introduced. The receipt is committed under `docs/operations/evidence/`; CLAUDE.md,
+ROADMAP, infrastructure status and the purge runbook record the apply.
+
 ## 2026-10-27 — Purge rehearsal: the restart crash scenario proves the archiver refusal, then resumes
 
 Smoke rehearsal run 40495068589 (300,000 systems) completed the whole
