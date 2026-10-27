@@ -27,6 +27,8 @@ from tests.test_v3_governed_derived_purge import (  # noqa: E402
 )
 
 COPY_MIGRATION = '019_v3_purge_copy_and_drop.sql'
+# 020 replaces the swap's locking; the copy capability is 019 plus 020.
+LOCK_ORDER_MIGRATION = '020_v3_purge_swap_lock_order.sql'
 COPY_KINDS = {
     'COPY_STARTED', 'CHUNK_COPIED', 'INDEXES_BUILT', 'VERIFIED', 'SWAPPED',
     'SWAPPED_BACK', 'FK_VALIDATED', 'DROPPED', 'COMPLETED', 'FAILED_STOP',
@@ -52,6 +54,7 @@ PUBLIC_FUNCTIONS = (
 
 def _install_copy(connection):
     connection.execute((MIGRATIONS / COPY_MIGRATION).read_text())
+    connection.execute((MIGRATIONS / LOCK_ORDER_MIGRATION).read_text())
     # Keep autovacuum workers off the new ledger, as 016's fixture does for v3_*.
     for table in ('derived_purge_copy_request', 'derived_purge_copy_event'):
         connection.execute(sql.SQL('ALTER TABLE {} SET (autovacuum_enabled=false)').format(
@@ -231,7 +234,8 @@ def test_install_is_capability_only_and_grants_only_the_public_surface(copy_data
         assert c.execute("SELECT has_function_privilege(current_user,%s,'EXECUTE')",
                          ('v3_meta.' + signature,)).fetchone()[0], signature
     for internal in ('purge_copy_relocate(text,regclass,text)', 'purge_copy_apply_reloptions(regclass,regclass,boolean)',
-                     'purge_copy_context(uuid,boolean)', 'purge_copy_state(uuid,text)'):
+                     'purge_copy_context(uuid,boolean)', 'purge_copy_state(uuid,text)',
+                     'purge_copy_lock_relocation(text,regclass)'):
         assert not c.execute("SELECT has_function_privilege(current_user,%s,'EXECUTE')",
                              ('v3_meta.' + internal,)).fetchone()[0], internal
     assert not c.execute(

@@ -27,7 +27,7 @@ from tests.test_v3_governed_derived_purge import installed_purge  # noqa: E402
 from tests import test_v3_purge_copy_and_drop as copy_tests  # noqa: E402
 from tests.test_v3_purge_copy_and_drop import _authorize, _owner, abandon, prepare  # noqa: E402
 
-copy_database = copy_tests.copy_database  # fixtures: per-test database, 001-016 chain, 019
+copy_database = copy_tests.copy_database  # fixtures: per-test database, 001-016 chain, 019, 020
 superuser_database = copy_tests.superuser_database
 
 
