@@ -85,7 +85,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "016_v3_governed_derived_purge.sql",
         "019_v3_purge_copy_and_drop.sql",
         "020_v3_purge_swap_lock_order.sql",
-        "021_v3_purge_verify_chunk_bound.sql",
+        "021_v3_purge_long_phase_bounds.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -102,7 +102,7 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     # 2026-10-18 (apply run 39113822236), the copy-and-drop capability 019 on
     # 2026-10-26 (apply run 40338736148) and its swap lock order 020 on
     # 2026-10-27 (apply run 40551173291). The registered transition is now the
-    # verification chunk bound: installed through-020, pending [021].
+    # copy long-phase bounds: installed through-020, pending [021].
     installed_count = next(
         index + 1 for index, entry in enumerate(desired)
         if entry["ledger_name"] == "020_v3_purge_swap_lock_order.sql"
@@ -145,7 +145,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "016_v3_governed_derived_purge.sql",
         "019_v3_purge_copy_and_drop.sql",
         "020_v3_purge_swap_lock_order.sql",
-        "021_v3_purge_verify_chunk_bound.sql",
+        "021_v3_purge_long_phase_bounds.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.

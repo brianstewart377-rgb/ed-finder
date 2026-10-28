@@ -146,8 +146,8 @@ def test_governed_purge_is_registered_immediately_after_product_publication():
          "sql/v3/migrations/019_v3_purge_copy_and_drop.sql"),
         ("020_v3_purge_swap_lock_order.sql",
          "sql/v3/migrations/020_v3_purge_swap_lock_order.sql"),
-        ("021_v3_purge_verify_chunk_bound.sql",
-         "sql/v3/migrations/021_v3_purge_verify_chunk_bound.sql"),
+        ("021_v3_purge_long_phase_bounds.sql",
+         "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql"),
     ]
 
 
@@ -158,9 +158,12 @@ def _function(source, name):
     return match.group(0)
 
 
-def test_021_only_replaces_the_verification_chunk_read():
-    source = (ROOT / "sql/v3/migrations/021_v3_purge_verify_chunk_bound.sql").read_text()
-    assert re.findall(r"CREATE (?:OR REPLACE )?FUNCTION v3_meta\.(\w+)\(", source) == ["purge_copy_verify"]
+def test_021_only_bounds_the_copy_long_phases():
+    source = (ROOT / "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql").read_text()
+    assert re.findall(r"CREATE (?:OR REPLACE )?FUNCTION v3_meta\.(\w+)\(", source) == [
+        "purge_copy_prepare", "purge_copy_build_indexes", "purge_copy_verify",
+    ]
+    assert source.count("CREATE OR REPLACE FUNCTION") == 3
     top_level = re.sub(r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
                        flags=re.DOTALL | re.IGNORECASE)
     top_level = re.sub(r"--[^\n]*", "", top_level)
@@ -198,6 +201,23 @@ def test_021_only_replaces_the_verification_chunk_read():
     )
     assert expected != original
     assert _function(source, "purge_copy_verify") == expected
+    # Prepare and the index build are 019's plus the marked 021 blocks only:
+    # prepare creates the live GiST indexes on the empty staging table, and the
+    # index build leaves exactly such an index alone.
+    migration_019 = (ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text()
+    for name in ("purge_copy_prepare", "purge_copy_build_indexes"):
+        replaced = _function(source, name)
+        blocks = re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", replaced, flags=re.DOTALL | re.MULTILINE)
+        assert blocks, name
+        stripped = re.sub(r"^ *-- 021 begin.*?^ *-- 021 end\n", "", replaced, flags=re.DOTALL | re.MULTILINE)
+        assert stripped == _function(migration_019, name).replace(
+            "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1), name
+    prepare_blocks = "".join(re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", _function(source, "purge_copy_prepare"),
+                                        flags=re.DOTALL | re.MULTILINE))
+    assert "m.amname='gist'" in prepare_blocks and "EXECUTE format('CREATE %sINDEX %I ON %s USING '" in prepare_blocks
+    build_blocks = "".join(re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", _function(source, "purge_copy_build_indexes"),
+                                      flags=re.DOTALL | re.MULTILINE))
+    assert "<>'gist'" in build_blocks and "CONTINUE;" in build_blocks and "EXECUTE" not in build_blocks
     # The chunk read is the copy's own shape (019's purge_copy_chunk).
     chunk = _function((ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text(), "purge_copy_chunk")
     assert "WHERE derived_generation_id=$1%2$s ORDER BY %3$s LIMIT $3" in chunk

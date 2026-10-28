@@ -63,15 +63,16 @@
 #                                 applied before purge plan and authorize.
 #                                 Registration is not application.
 #
-#   021_v3_purge_verify_chunk_bound.sql is declared after 020 (one_percent purge
-#                                 rehearsal run 40571954621: verification grew faster
-#                                 than the tables). It replaces only 019's verification
-#                                 chunk re-read with the copy's keyset read (low key,
-#                                 primary-key order, LIMIT the ledgered rows), so each
-#                                 chunk's scan stops after that chunk. Installation
-#                                 copies, swaps, drops or deletes no payload row. It
-#                                 must be applied before purge plan and authorize.
-#                                 Registration is not application.
+#   021_v3_purge_long_phase_bounds.sql is declared after 020 (one_percent purge
+#                                 rehearsal run 40571954621: two verifications and the
+#                                 Search index build exceeded the 7,200 s envelope). It
+#                                 replaces 019's prepare, index build and verify: the
+#                                 live GiST indexes are created on the empty staging
+#                                 table and filled by the chunk inserts, and each
+#                                 verification chunk is re-read with the copy's keyset
+#                                 read. Installation copies, swaps, drops or deletes no
+#                                 payload row. It must be applied before purge plan and
+#                                 authorize. Registration is not application.
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
@@ -91,4 +92,4 @@ a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf  010_v3_system_
 559fa7ea35fc9ad43635e90cdedcbefd47b2f30dcf479843911bfba0b3dfb0aa  016_v3_governed_derived_purge.sql  v3/migrations/016_v3_governed_derived_purge.sql
 111f1aac4b6b8b0aea74e1c57ba1edd32f9ab39fa583d9969129e9208cfbee46  019_v3_purge_copy_and_drop.sql  v3/migrations/019_v3_purge_copy_and_drop.sql
 73f9bf7bf3b9d603046374f82239791fbcc78b139f0c33c46a3947fa64c0b23a  020_v3_purge_swap_lock_order.sql  v3/migrations/020_v3_purge_swap_lock_order.sql
-fdaddcfaf31b41f5adb885bde695c914d343ba53140d5952554da73bd5552a77  021_v3_purge_verify_chunk_bound.sql  v3/migrations/021_v3_purge_verify_chunk_bound.sql
+bdc73a55c13872343c116f8c5846e6989b0b2ffc583d397334ae05a157cbfd64  021_v3_purge_long_phase_bounds.sql  v3/migrations/021_v3_purge_long_phase_bounds.sql

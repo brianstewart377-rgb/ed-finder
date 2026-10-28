@@ -148,7 +148,7 @@ def test_search_finalize_is_verified_receipted_and_vacuums_outside_transaction()
     assert "idempotent_reverification" in finalize
 
 
-def test_target_authority_reviews_transition_from_through_020_to_verify_chunk_bound_lineage():
+def test_target_authority_reviews_transition_from_through_020_to_long_phase_bounds_lineage():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -160,7 +160,7 @@ def test_target_authority_reviews_transition_from_through_020_to_verify_chunk_bo
     # (apply run 39113822236), 019 on 2026-10-26 (apply run 40338736148) and 020
     # on 2026-10-27 (apply run 40551173291). Reproduce that installed through-020
     # prefix independently and assert both endpoints of the through-020 ->
-    # through-021 verification-chunk-bound registration.
+    # through-021 long-phase-bounds registration.
     desired_document = dict(document)
     entries = document['migration_set_entries']
     stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '020_v3_purge_swap_lock_order.sql') + 1
@@ -186,7 +186,7 @@ def test_target_authority_reviews_transition_from_through_020_to_verify_chunk_bo
         '019_v3_purge_copy_and_drop.sql',
         '020_v3_purge_swap_lock_order.sql',
     ]
-    assert [row['ledger_name'] for row in entries[stop:]] == ['021_v3_purge_verify_chunk_bound.sql']
+    assert [row['ledger_name'] for row in entries[stop:]] == ['021_v3_purge_long_phase_bounds.sql']
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()

@@ -52,12 +52,12 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
     # That transition was applied on 2026-10-18 (apply run 39113822236), 019 on
     # 2026-10-26 (apply run 40338736148) and 020 on 2026-10-27 (apply run
     # 40551173291); the registered transition is now through-020 -> through-021
-    # (verification chunk bound).
+    # (copy long-phase bounds).
     assert [entry['ledger_name'] for entry in entries[stop + 6:stop + 8]] == [
         '019_v3_purge_copy_and_drop.sql', '020_v3_purge_swap_lock_order.sql']
     before = entries[:stop + 8]
     tail = entries[stop + 8:]
-    assert [entry['ledger_name'] for entry in tail] == ['021_v3_purge_verify_chunk_bound.sql']
+    assert [entry['ledger_name'] for entry in tail] == ['021_v3_purge_long_phase_bounds.sql']
     applied, pending = migrate.plan_migrations(entries, before)
     assert applied == before and pending == tail
     before_document = {
