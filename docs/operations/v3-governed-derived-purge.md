@@ -29,7 +29,9 @@ phases.
 
 1. Migration `019` is applied (production: 2026-10-26, apply run 40338736148),
    migration `020` (the swap lock order) is applied (production: 2026-10-27,
-   apply run 40551173291), and the installed backup wrapper is the committed one that reads
+   apply run 40551173291), migration `021` (the long-phase bounds) is
+   applied (production: not yet; registered through-020 → through-021, its
+   apply needs the owner's approval), and the installed backup wrapper is the committed one that reads
    `v3_meta.purge_copy_backup_skip()` (re-run `v3-backup-wrapper-install`
    after this code merges; the installer now refuses unless 019 is applied).
 2. **A full pgBackRest backup immediately before step 1**, reviewed as
@@ -120,6 +122,20 @@ leaves the ledger phase unchanged, and the next `copy-R` dispatch re-enters
 it; only an integrity failure (SQLSTATE `P0001`, `23514`, `23502`, `23503`,
 `23505`) records `FAILED_STOP` through `purge_copy_record_failure`, after which
 only `swap-back-R` and `abandon-R` remain for that relation.
+
+**Long-phase bounds (021).** The one_percent rehearsal (run 40571954621)
+cannot authorize production: its extrapolated `body_mechanics` and
+`economy_opportunity` verification and `system_search` index build exceed the
+7,200 s envelope (`rehearsal_long_phase_exceeds_reviewed_timeout`). 019's
+`verify` re-read each copied chunk with a range whose btree scan ran on to the
+end of the survivor generation, so its time grew with the square of the table
+size; migration `021` re-reads each chunk with the copy's own keyset read (low
+key, primary-key order, `LIMIT` the ledgered rows). The Search index build is
+dominated by the GiST index on `position_ly`; `021`'s `prepare` creates the
+live GiST indexes on the empty staging table, so the bounded, resumable chunk
+inserts fill them and `build_indexes` builds only the rest
+(`docs/development/v3-purge-copy-and-drop-design.md` §1.3). `021` must be
+applied before `plan`, and the one_percent rehearsal must be re-run with it.
 
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit

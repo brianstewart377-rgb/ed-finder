@@ -11,6 +11,39 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-28 — One-percent purge rehearsal; migration 021 bounds the copy's long phases
+
+**One-percent rehearsal (run 40571954621, Contabo, 2026-10-28).** The copy route
+passed its own checks: every swap on its first attempt (lock held 0.34–0.68 s),
+the worst Finder read stall 0.81 s, all nine crash scenarios, cleanup verified.
+It cannot authorize production: three extrapolated long phases exceed the
+reviewed 7,200 s envelope (`body_mechanics` verify about 11,400 s,
+`economy_opportunity` verify about 16,000 s, `system_search` index build about
+15,300 s). The Search preflight scan took 1.2 s (about 2 minutes at production
+size), well inside the 2,760 s query transport, so deferred Codex finding
+4384599563 stays deferred. The run's sealed receipt is its workflow artifact;
+the evidence copy is committed with the record of 021's apply.
+
+**Migration 021 (registered, not applied).** Verification grew faster than the
+tables (13.6 and 14.7 times the smoke run's time for 6.67 times the rows).
+019's per-chunk re-read paired row comparisons led by `derived_generation_id`
+with a separate `derived_generation_id = $1`, so each chunk's index scan ran on
+to the end of the survivor generation; on PostgreSQL 18.4 one 100,000-row chunk
+read 4,976 buffers in a 600,000-row table and 23,158 in a 3,600,000-row table.
+`021_v3_purge_long_phase_bounds.sql` replaces `v3_meta.purge_copy_verify`,
+re-reading each chunk the way the copy read it (low key, primary-key order,
+`LIMIT` the ledgered rows; 2,670 buffers at both sizes). The Search index build
+is dominated by the GiST index on `position_ly`; by owner choice (keep the copy
+route, no longer time limit) 021 also replaces `purge_copy_prepare`, which now
+creates the live GiST indexes on the empty staging table so the bounded chunk
+inserts fill them, and `purge_copy_build_indexes`, which builds the rest and
+leaves only such an exactly-matching GiST index alone. Checks, settings, owners
+and grants are otherwise 019's. Registered after 020 in the manifest and the
+production authority (through-020 → through-021, `a031c2da` attested for both
+endpoints). Not applied: promotions are refused on the schema-identity checksum
+and the purge controller refuses to plan until it is. The one_percent rehearsal
+must be re-run with it.
+
 ## 2026-10-27 — CRE rulebook pinned, with a parity test
 
 **Owner decision D1, first step.** The Colonisation Research Engine published

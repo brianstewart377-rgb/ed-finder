@@ -117,7 +117,9 @@ The copy runs `INSERT INTO staging SELECT … WHERE derived_generation_id =
 
 ### 1.3 Indexes, maintenance, verification
 
-1. Build the indexes. The GiST build dominates the Search time.
+1. Build the indexes. The GiST build dominates the Search time; since migration
+   `021` the GiST indexes are created at prepare and filled by the chunk inserts
+   (see "Long-phase bounds" below), so this step builds only the others.
 2. Run `VACUUM (FREEZE, ANALYZE)`. This avoids a later anti-wraparound pass over
    ~415 GB, and it sets the manual `last_vacuum`/`last_analyze` that the probe
    requires (`scripts/v3_archetype_plan_probe.py:529-564`).
@@ -131,6 +133,34 @@ The copy runs `INSERT INTO staging SELECT … WHERE derived_generation_id =
    - **Catalog:** the fingerprint matches.
    - **FK:** the staging table's FK to its live parent is added `NOT VALID`, then
      `VALIDATE`d.
+
+**Long-phase bounds (migration 021, 2026-10-28).** The one_percent rehearsal
+(run 40571954621) passed its own checks, but extrapolated `body_mechanics` and
+`economy_opportunity` verification and the `system_search` index build beyond
+the 7,200 s envelope. Verification also grew faster than the tables: from the smoke run (40535321292) to the one_percent run the rows grew
+6.67 times while `body_mechanics` verification took 13.6 times as long and
+`economy_opportunity` 14.7 times. 019 re-read each chunk with two row
+comparisons led by `derived_generation_id` plus a separate
+`derived_generation_id = $1`; with that equality on the index's leading column
+the btree scan ended at the end of the survivor generation, not at the chunk's
+high key, so every chunk read on to the end of the table and verification cost
+grew with the square of the table size. On PostgreSQL 18.4 one 100,000-row
+chunk read 4,976 buffers in a 600,000-row table and 23,158 in a 3,600,000-row
+table. Migration `021` re-reads each chunk the way `purge_copy_chunk` copied it:
+rows at or after the chunk's low key, in primary-key order, `LIMIT` the ledgered
+row count (2,670 buffers at both sizes). Count, lowest and highest key and
+digest are compared exactly as before; with the staging primary key in place,
+the first `rows_affected` rows from the low key end at the high key only if the
+chunk holds exactly those rows. Nothing else in `purge_copy_verify` changes.
+The Search index build is dominated by the GiST index on `position_ly` (cube has
+no sorted GiST build, so `CREATE INDEX` inserts row by row anyway). `021`'s
+`purge_copy_prepare` creates every live non-constraint GiST index, from the same
+catalog generator, on the still-empty staging table; the bounded, resumable
+chunk transactions fill it as they insert, and `purge_copy_build_indexes`
+builds every other index and leaves only such an exactly-matching GiST index
+alone. Verification's fingerprint still compares every index with the live one.
+Chunks get slower by that index's insert cost, within the chunk statement
+timeout, gate 2 and the WAL throttle.
 
 ### 1.4 Swap
 
@@ -422,7 +452,10 @@ Measured on PostgreSQL 18.4 while building the operator modes
   back and the next `copy-R` re-enters it) and runs each long phase host-side
   under the purge lease with `pg_stat_progress_*` polling and the watchdog.
   True mid-phase resumability needs a per-index build function and a
-  per-range verify in a later migration.
+  per-range verify in a later migration. Migration `021` (§1.3, "Long-phase
+  bounds") makes each verification chunk's re-read stop at that chunk and moves
+  the GiST build into the chunks; it does not split either phase into separate
+  calls.
 - **`temp_file_limit`.** It is a superuser-set parameter; the executor needs
   `GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor` before
   any long phase can bound its temporary files. 019 does not grant it; the

@@ -137,7 +137,7 @@ def test_004_never_touches_canonical_truth():
 
 
 def test_governed_purge_is_registered_immediately_after_product_publication():
-    assert _entries()[-4:] == [
+    assert _entries()[-5:] == [
         ("015_v3_derived_product_publication.sql",
          "sql/v3/migrations/015_v3_derived_product_publication.sql"),
         ("016_v3_governed_derived_purge.sql",
@@ -146,7 +146,82 @@ def test_governed_purge_is_registered_immediately_after_product_publication():
          "sql/v3/migrations/019_v3_purge_copy_and_drop.sql"),
         ("020_v3_purge_swap_lock_order.sql",
          "sql/v3/migrations/020_v3_purge_swap_lock_order.sql"),
+        ("021_v3_purge_long_phase_bounds.sql",
+         "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql"),
     ]
+
+
+def _function(source, name):
+    match = re.search(rf"^CREATE (?:OR REPLACE )?FUNCTION v3_meta\.{name}\(.*?^END \$\$;$", source,
+                      flags=re.DOTALL | re.MULTILINE)
+    assert match, name
+    return match.group(0)
+
+
+def test_021_only_bounds_the_copy_long_phases():
+    source = (ROOT / "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql").read_text()
+    assert re.findall(r"CREATE (?:OR REPLACE )?FUNCTION v3_meta\.(\w+)\(", source) == [
+        "purge_copy_prepare", "purge_copy_build_indexes", "purge_copy_verify",
+    ]
+    assert source.count("CREATE OR REPLACE FUNCTION") == 3
+    top_level = re.sub(r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
+                       flags=re.DOTALL | re.IGNORECASE)
+    top_level = re.sub(r"--[^\n]*", "", top_level)
+    top_level = re.sub(r"'[^']*'", "''", top_level)
+    # Installation creates no relation, writes no row and changes no grant
+    # (CREATE OR REPLACE keeps 019's owner and EXECUTE grant).
+    assert not re.search(r"\b(?:CREATE\s+(?:TABLE|VIEW|SCHEMA|INDEX|ROLE)|ALTER\s+(?:TABLE|VIEW|FUNCTION)|DROP|"
+                         r"INSERT|UPDATE|DELETE|TRUNCATE|VACUUM|GRANT|REVOKE)\b", top_level, re.IGNORECASE)
+    # Byte-for-byte 019's verification apart from the per-chunk re-read: the
+    # copy's keyset read (low key, primary-key order, LIMIT the ledgered rows)
+    # in place of 019's two-sided row-comparison range.
+    original = _function((ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text(),
+                         "purge_copy_verify")
+    expected = original.replace(
+        "CREATE FUNCTION v3_meta.purge_copy_verify(", "CREATE OR REPLACE FUNCTION v3_meta.purge_copy_verify(", 1,
+    ).replace(
+        "key_ text; range_ text;", "key_ text; after_ text;", 1,
+    ).replace(
+        "    range_ := format('(%s) >= ($1,%s) AND (%s) <= ($1,%s)',order_,v3_meta.purge_copy_key_params(code_,2),\n"
+        "                     order_,v3_meta.purge_copy_key_params(code_,3));\n",
+        "    -- 021: each chunk is re-read the way purge_copy_chunk read it (keyset from\n"
+        "    -- the chunk's low key, primary-key order, LIMIT the ledgered row count),\n"
+        "    -- so the scan stops after that chunk; see the header.\n"
+        "    after_ := format('(%s) >= ($1,%s)',order_,v3_meta.purge_copy_key_params(code_,2));\n", 1,
+    ).replace(
+        "        EXECUTE format('SELECT count(*),min(%1$s),max(%1$s),\n",
+        "        EXECUTE format('WITH chosen AS MATERIALIZED (SELECT * FROM %3$s WHERE derived_generation_id=$1 AND %4$s\n"
+        "                ORDER BY %2$s LIMIT $3)\n"
+        "            SELECT count(*),min(%1$s),max(%1$s),\n", 1,
+    ).replace(
+        "            FROM %3$s c WHERE derived_generation_id=$1 AND %4$s',key_,order_,staging_,range_)\n"
+        "            INTO n,min_,max_,digest_ USING q.survivor_generation_id,low_,high_;\n",
+        "            FROM chosen c',key_,order_,staging_,after_)\n"
+        "            INTO n,min_,max_,digest_ USING q.survivor_generation_id,low_,e.rows_affected;\n", 1,
+    )
+    assert expected != original
+    assert _function(source, "purge_copy_verify") == expected
+    # Prepare and the index build are 019's plus the marked 021 blocks only:
+    # prepare creates the live GiST indexes on the empty staging table, and the
+    # index build leaves exactly such an index alone.
+    migration_019 = (ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text()
+    for name in ("purge_copy_prepare", "purge_copy_build_indexes"):
+        replaced = _function(source, name)
+        blocks = re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", replaced, flags=re.DOTALL | re.MULTILINE)
+        assert blocks, name
+        stripped = re.sub(r"^ *-- 021 begin.*?^ *-- 021 end\n", "", replaced, flags=re.DOTALL | re.MULTILINE)
+        assert stripped == _function(migration_019, name).replace(
+            "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1), name
+    prepare_blocks = "".join(re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", _function(source, "purge_copy_prepare"),
+                                        flags=re.DOTALL | re.MULTILINE))
+    assert "m.amname='gist'" in prepare_blocks and "EXECUTE format('CREATE %sINDEX %I ON %s USING '" in prepare_blocks
+    build_blocks = "".join(re.findall(r"^ *-- 021 begin.*?^ *-- 021 end\n", _function(source, "purge_copy_build_indexes"),
+                                      flags=re.DOTALL | re.MULTILINE))
+    assert "<>'gist'" in build_blocks and "CONTINUE;" in build_blocks and "EXECUTE" not in build_blocks
+    # The chunk read is the copy's own shape (019's purge_copy_chunk).
+    chunk = _function((ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text(), "purge_copy_chunk")
+    assert "WHERE derived_generation_id=$1%2$s ORDER BY %3$s LIMIT $3" in chunk
+    assert "CASCADE" not in source
 
 
 def test_020_only_replaces_the_swap_locking():
