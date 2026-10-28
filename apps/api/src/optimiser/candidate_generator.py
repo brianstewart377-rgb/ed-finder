@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional
 
 import asyncpg
 
-from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.domain.facilities import FacilityTemplate, is_colony_ship
 from edfinder_api.optimiser.archetype_rules import ArchetypeRule, resolve_archetype_rule
 from edfinder_api.optimiser.candidate_generation_context import (
     BodyAnchor,
@@ -507,7 +507,7 @@ def _is_useful_candidate(candidate: OptimiserCandidate, catalogue: dict[str, Fac
         return False
     templates = [catalogue.get(placement.facility_template_id) for placement in candidate.placements]
     known_templates = [template for template in templates if template is not None]
-    if known_templates and all(template.is_colony_port for template in known_templates):
+    if known_templates and all(is_colony_ship(template) for template in known_templates):
         return False
     support_count = sum(1 for template in known_templates if template.is_support_facility)
     has_strategic_tag = any(

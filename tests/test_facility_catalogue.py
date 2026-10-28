@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -197,6 +198,54 @@ def test_catalogue_preserves_economies_and_locations():
     assert templates['asteroid_base']['allowed_location'] == 'ringed_orbital'
     assert templates['coriolis_station']['allowed_location'] == 'orbital'
     assert templates['planetary_port']['allowed_location'] == 'surface'
+
+
+def test_catalogue_corrects_exactly_eight_previous_colony_port_flags():
+    templates = load_templates()
+    expected_changes = {
+        'orbital_outpost_civilian': (False, True),
+        'orbital_outpost_commercial': (False, True),
+        'coriolis_station': (False, True),
+        'orbis_t3': (False, True),
+        'ocellus_station': (False, True),
+        # Not named in Mega Guide v2.3.0; Raven Colonial lists it as colony.
+        'dodecahedron_t3': (False, True),
+        'surface_planetary_port_outpost_civilian': (False, True),
+        'planetary_port': (False, True),
+    }
+    # The previous catalogue marked only the bootstrap colony ship as colony.
+    actual_changes = {}
+    for template_id, template in templates.items():
+        previous_flag = template_id == 'colony_ship'
+        if template['is_colony_port'] is not previous_flag:
+            actual_changes[template_id] = (previous_flag, template['is_colony_port'])
+
+    assert len(templates) == 56
+    assert len(expected_changes) == 8
+    assert actual_changes == expected_changes
+    assert templates['colony_ship']['is_colony_port'] is True
+    for template_id in (
+        'asteroid_base',
+        'orbital_outpost_industrial',
+        'orbital_outpost_criminal',
+        'orbital_outpost_military',
+        'orbital_outpost_scientific',
+        'surface_planetary_port_outpost_industrial',
+        'surface_planetary_port_outpost_scientific',
+    ):
+        assert templates[template_id]['is_colony_port'] is False, template_id
+
+
+def test_colony_port_correction_preserves_all_other_catalogue_fields():
+    data = json.loads(CATALOGUE_PATH.read_text(encoding='utf-8'))
+    for template in data['templates']:
+        del template['is_colony_port']
+
+    # Fingerprint of the previous catalogue with only is_colony_port removed;
+    # includes costs, tiers, port flags, source fields and template ordering.
+    assert hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest() == (
+        '7deb84d20e090fb99eb0b4f5f26fd253b5656dfc9f1de2fb34785c9cbe9f4018'
+    )
 
 
 def test_generated_catalogue_loads_into_facility_templates():

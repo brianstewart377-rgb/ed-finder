@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 
 os.environ.setdefault('CORS_ORIGINS', 'http://test')
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
@@ -11,7 +13,8 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.domain import facilities
+from edfinder_api.domain.facilities import FacilityTemplate, load_bundled_catalogue
 from edfinder_api.models import SimulateBuildResponse
 from edfinder_api.simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
 
@@ -87,6 +90,132 @@ def run(plan: list[PreviewPlacement], target: str = 'refinery_industrial', ctx: 
         catalogue=catalogue(),
         context=ctx if ctx is not None else topology(),
     )
+
+
+@pytest.fixture
+def bundled_catalogue(monkeypatch: pytest.MonkeyPatch) -> dict[str, FacilityTemplate]:
+    monkeypatch.setattr(facilities, '_CATALOGUE', {})
+    return load_bundled_catalogue()
+
+
+def run_bundled(
+    plan: list[PreviewPlacement], profile: dict, bundled_catalogue: dict[str, FacilityTemplate],
+):
+    return simulate_build_preview(
+        system_id64=123,
+        target_archetype='refinery_industrial',
+        placements=plan,
+        catalogue=bundled_catalogue,
+        context=PreviewContext(
+            system_id64=123,
+            estimated_orbital_slots=8,
+            estimated_ground_slots=6,
+            slot_confidence=0.8,
+            has_ringed_body=True,
+            local_body_profiles={'3': profile},
+        ),
+    )
+
+
+@pytest.mark.parametrize('port_id', [
+    'colony_ship',
+    'coriolis_station',
+    'orbis_t3',
+    'ocellus_station',
+    'dodecahedron_t3',
+    'orbital_outpost_civilian',
+    'orbital_outpost_commercial',
+    'planetary_port',
+    'surface_planetary_port_outpost_civilian',
+])
+def test_bundled_colony_type_ports_inherit_body_economy(port_id, bundled_catalogue):
+    result = run_bundled(
+        [PreviewPlacement(port_id, '3', is_primary_port=True)],
+        {'base_economies': ['Refinery'], 'subtype': 'rocky body'},
+        bundled_catalogue,
+    )
+
+    assert len(result['port_economy_states']) == 1
+    port = result['port_economy_states'][0]
+    assert port['port_id'] == port_id
+    assert port['final_economy_strengths'] == {'Refinery': 1.2}
+    assert port['inherited_economies'] == {'Refinery': 1.2}
+    assert port['direct_economies'] == {}
+
+
+@pytest.mark.parametrize(('port_id', 'economy'), [
+    ('asteroid_base', 'Extraction'),
+    ('orbital_outpost_industrial', 'Industrial'),
+])
+def test_bundled_specialised_ports_keep_their_own_economy(port_id, economy, bundled_catalogue):
+    result = run_bundled(
+        [PreviewPlacement(port_id, '3', is_primary_port=True)],
+        {'base_economies': ['Refinery'], 'subtype': 'rocky body'},
+        bundled_catalogue,
+    )
+
+    assert len(result['port_economy_states']) == 1
+    port = result['port_economy_states'][0]
+    assert port['port_id'] == port_id
+    assert port['final_economy_strengths'] == {economy: 2.0}
+    assert port['inherited_economies'] == {}
+    assert port['direct_economies'] == {economy: 2.0}
+
+
+def test_bundled_coriolis_inherits_all_four_elw_economies_in_ledger(bundled_catalogue):
+    economies = ['Tourism', 'HighTech', 'Agriculture', 'Military']
+    result = run_bundled(
+        [PreviewPlacement('coriolis_station', '3', is_primary_port=True)],
+        {
+            'base_economies': economies,
+            'subtype': 'earth-like world',
+            'strategic_tags': ['elw_mixed'],
+        },
+        bundled_catalogue,
+    )
+
+    entries = [
+        entry for entry in result['influence_ledger']
+        if entry['influence_type'] == 'body_inheritance'
+    ]
+    assert len(entries) == 4
+    assert {entry['economy'] for entry in entries} == set(economies)
+    assert {entry['source_id'] for entry in entries} == {'coriolis_station'}
+    assert {entry['target_port_id'] for entry in entries} == {'coriolis_station'}
+    assert all(entry['value'] > 0 for entry in entries)
+
+
+@pytest.mark.parametrize(('surface_port_id', 'pass_through_value', 'final_strength'), [
+    ('surface_planetary_port_outpost_civilian', 0.4, 1.6),
+    ('planetary_port', 1.2, 2.4),
+])
+def test_bundled_surface_colony_ports_pass_body_economy_to_coriolis(
+    surface_port_id, pass_through_value, final_strength, bundled_catalogue,
+):
+    result = run_bundled(
+        [
+            PreviewPlacement(surface_port_id, '3', is_primary_port=True, build_order=1),
+            PreviewPlacement('coriolis_station', '3', build_order=2),
+        ],
+        {'base_economies': ['Refinery'], 'subtype': 'rocky body'},
+        bundled_catalogue,
+    )
+
+    entries = [
+        entry for entry in result['influence_ledger']
+        if entry['influence_type'] == 'pass_through'
+    ]
+    assert len(entries) == 1
+    assert entries[0]['source_id'] == surface_port_id
+    assert entries[0]['target_port_id'] == 'coriolis_station'
+    assert entries[0]['economy'] == 'Refinery'
+    assert entries[0]['value'] == pass_through_value
+    coriolis = next(
+        port for port in result['port_economy_states']
+        if port['port_id'] == 'coriolis_station'
+    )
+    assert coriolis['pass_through_economies'] == {'Refinery': pass_through_value}
+    assert coriolis['final_economy_strengths'] == {'Refinery': final_strength}
 
 
 def test_cp_escalation_for_paid_t2_and_t3_ports():
