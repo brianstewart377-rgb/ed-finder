@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import shutil
@@ -27,6 +29,39 @@ def _find_bash() -> str | None:
         if git_bash.is_file():
             return str(git_bash)
     return shutil.which('bash')
+
+
+@contextmanager
+def _hold_nightly_lock(tmp_path: Path) -> Iterator[None]:
+    lock_file = tmp_path / 'nightly-update.lock'
+    ready_file = tmp_path / 'lock-holder.ready'
+    # Block until acquired; no-fork keeps cleanup targeting the lock-owning sleep.
+    holder = subprocess.Popen([
+        'flock', '-F', str(lock_file), 'sh', '-c',
+        'touch "$1" && exec sleep 30', 'lock-holder', str(ready_file),
+    ])
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            returncode = holder.poll()
+            if returncode is not None:
+                pytest.fail(f'background lock holder exited with return code {returncode}')
+            if ready_file.exists():
+                break
+            if time.monotonic() >= deadline:
+                pytest.fail('background lock holder did not signal readiness within 10 seconds')
+            time.sleep(0.05)
+
+        probe = subprocess.run(['flock', '-n', str(lock_file), '-c', 'true'])
+        assert probe.returncode != 0, 'background holder signaled readiness without holding the lock'
+        yield
+    finally:
+        holder.terminate()
+        try:
+            holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            holder.kill()
+            holder.wait(timeout=5)
 
 
 def _run_nightly_update(
@@ -488,21 +523,8 @@ def test_skipped_run_due_to_overlap_records_no_start_or_completion(tmp_path: Pat
     if shutil.which('flock') is None:
         pytest.skip('flock is not available on this host (e.g. Windows Git Bash)')
 
-    lock_file = tmp_path / 'nightly-update.lock'
-    holder = subprocess.Popen(['flock', '-n', str(lock_file), 'sleep', '10'])
-    try:
-        for _ in range(50):
-            probe = subprocess.run(['flock', '-n', str(lock_file), '-c', 'true'])
-            if probe.returncode != 0:
-                break
-            time.sleep(0.1)
-        else:
-            pytest.fail('background holder never acquired the lock')
-
+    with _hold_nightly_lock(tmp_path):
         observation = _run_nightly_update(tmp_path, use_real_flock=True)
-    finally:
-        holder.terminate()
-        holder.wait(timeout=5)
 
     completed = observation['completed']
     assert isinstance(completed, subprocess.CompletedProcess)
@@ -520,21 +542,8 @@ def test_concurrent_run_skips_instead_of_stacking(tmp_path: Path):
     if shutil.which('flock') is None:
         pytest.skip('flock is not available on this host (e.g. Windows Git Bash)')
 
-    lock_file = tmp_path / 'nightly-update.lock'
-    holder = subprocess.Popen(['flock', '-n', str(lock_file), 'sleep', '10'])
-    try:
-        for _ in range(50):
-            probe = subprocess.run(['flock', '-n', str(lock_file), '-c', 'true'])
-            if probe.returncode != 0:
-                break
-            time.sleep(0.1)
-        else:
-            pytest.fail('background holder never acquired the lock')
-
+    with _hold_nightly_lock(tmp_path):
         observation = _run_nightly_update(tmp_path, use_real_flock=True)
-    finally:
-        holder.terminate()
-        holder.wait(timeout=5)
 
     completed = observation['completed']
     assert isinstance(completed, subprocess.CompletedProcess)
