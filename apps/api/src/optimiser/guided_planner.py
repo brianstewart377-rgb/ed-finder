@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 from edfinder_api.domain.colonisation_rules import BodyEconomyProfile, profile_body
-from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.domain.facilities import FacilityTemplate, is_colony_ship
 from edfinder_api.optimiser.models import CandidatePlacement, OptimiserCandidate
 from edfinder_api.optimiser.plan_quality import (
     PRESET_COUNT_RANGES,
@@ -343,7 +343,7 @@ def _support_templates(
 
 
 def _select_port(catalogue: dict[str, FacilityTemplate], request: GuidedPlanRequest) -> FacilityTemplate | None:
-    ports = [template for template in catalogue.values() if template.is_port and not template.is_colony_port]
+    ports = [template for template in catalogue.values() if template.is_port and not is_colony_ship(template)]
     if not ports:
         ports = [template for template in catalogue.values() if template.is_port]
     if not ports:
