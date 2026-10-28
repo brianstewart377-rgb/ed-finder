@@ -190,10 +190,13 @@ newer dated source wins).
   during the copy rather than raise the time limit. Migration
   `021_v3_purge_long_phase_bounds.sql` (verification re-reads each chunk with
   the copy's keyset read; prepare creates the GiST indexes on the empty staging
-  table so the chunk inserts fill them) is written, tested on PostgreSQL 18 and
-  registered (through-020 → through-021); **not applied** — its apply needs the
-  owner's approval, and until then promotions are refused on the schema
-  identity. Next: re-run the one_percent rehearsal with 021.
+  table so the chunk inserts fill them) is written, tested on PostgreSQL 18,
+  registered (through-020 → through-021, #904) and **applied to production on
+  2026-10-28** (owner-approved; plan run 40654122650: pending exactly `[021]`,
+  no writes; apply run 40654201809: `status=applied`, `applied_now=[021]`,
+  schema identity now `c54f861f…0679`). Receipts: the apply and the
+  40571954621 rehearsal under `docs/operations/evidence/`. Next: the
+  one_percent rehearsal with 021 (run 40654125745, dispatched 2026-10-28).
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
