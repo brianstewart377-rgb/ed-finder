@@ -162,7 +162,10 @@ def _row_to_template(row: CellRow) -> dict[str, Any]:
         'tier': tier,
         'economy': economy,
         'is_port': is_port,
-        'is_colony_port': False,
+        # Mega Guide v2.3.0 defines colony-type ports by their Colony economy.
+        # Dodecahedron is not named there; Raven Colonial's src/site-data.ts
+        # also lists its economy as colony.
+        'is_colony_port': is_port and economy == 'Colony',
         'is_support_facility': not is_port,
         'yellow_cp_generated': yellow_generated,
         'green_cp_generated': green_generated,

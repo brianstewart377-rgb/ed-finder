@@ -182,6 +182,11 @@ class FacilityTemplate:
         }
 
 
+def is_colony_ship(template: FacilityTemplate) -> bool:
+    """Identify the bootstrap ship independently of colony-type port economies."""
+    return template.id == 'colony_ship'
+
+
 # ---------------------------------------------------------------------------
 # In-memory catalogue — loaded once at startup by the loader function below
 # ---------------------------------------------------------------------------
