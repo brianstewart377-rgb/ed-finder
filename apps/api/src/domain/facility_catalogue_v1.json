@@ -181,62 +181,6 @@
         "primary": "HighTech"
       },
       "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "orbital_installation_medical",
-      "is_colony_port": false,
-      "is_port": false,
-      "is_support_facility": true,
-      "name": "Medical",
-      "pad_size": null,
-      "prerequisites": [],
-      "source_structure": "Orbital - Installation - Medical",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "*High Tech",
-          "max_pad": "\u274c",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": "5.0",
-          "strong_link_unlock": null,
-          "structure": "Orbital - Installation - Medical",
-          "system_unlock": "VG at T1 Surface or T2 orbital ports",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": "3.0",
-          "wealth": null
-        },
-        "source_row": 22,
-        "source_sheet": "Stats",
-        "standard_of_living": 5.0,
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0,
-        "tech_level": 3.0,
-        "unlocks": [
-          {
-            "description": "VG at T1 Surface or T2 orbital ports",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "hightech",
-      "economy": "HighTech",
-      "economy_effects": {
-        "facility_economy_raw": "*High Tech",
-        "is_modifier_economy": true,
-        "primary": "HighTech"
-      },
-      "green_cp_cost": 0,
       "green_cp_generated": 0,
       "id": "orbital_installation_relay_station",
       "is_colony_port": false,
@@ -293,6 +237,62 @@
       },
       "green_cp_cost": 0,
       "green_cp_generated": 1,
+      "id": "orbital_installation_medical",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Medical",
+      "pad_size": null,
+      "prerequisites": [],
+      "source_structure": "Orbital - Installation - Medical",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "*High Tech",
+          "max_pad": "\u274c",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": "5.0",
+          "strong_link_unlock": null,
+          "structure": "Orbital - Installation - Medical",
+          "system_unlock": "VG at T1 Surface or T2 orbital ports",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": "3.0",
+          "wealth": null
+        },
+        "source_row": 22,
+        "source_sheet": "Stats",
+        "standard_of_living": 5.0,
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0,
+        "tech_level": 3.0,
+        "unlocks": [
+          {
+            "description": "VG at T1 Surface or T2 orbital ports",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "hightech",
+      "economy": "HighTech",
+      "economy_effects": {
+        "facility_economy_raw": "*High Tech",
+        "is_modifier_economy": true,
+        "primary": "HighTech"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
       "id": "orbital_installation_research_station",
       "is_colony_port": false,
       "is_port": false,
@@ -337,8 +337,8 @@
           }
         ]
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -412,57 +412,6 @@
         "primary": null
       },
       "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "orbital_installation_government",
-      "is_colony_port": false,
-      "is_port": false,
-      "is_support_facility": true,
-      "name": "Government",
-      "pad_size": null,
-      "prerequisites": [],
-      "source_structure": "Orbital - Installation - Government",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 3.0,
-        "security": 2.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "3.0",
-          "facility_economy": null,
-          "max_pad": "\u274c",
-          "prerequisites": null,
-          "security": "2.0",
-          "standard_of_living": "7.0",
-          "strong_link_unlock": null,
-          "structure": "Orbital - Installation - Government",
-          "system_unlock": null,
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 21,
-        "source_sheet": "Stats",
-        "standard_of_living": 7.0,
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "installation",
-      "economy": null,
-      "economy_effects": {
-        "facility_economy_raw": null,
-        "is_modifier_economy": false,
-        "primary": null
-      },
-      "green_cp_cost": 0,
       "green_cp_generated": 0,
       "id": "orbital_installation_satellite",
       "is_colony_port": false,
@@ -512,6 +461,57 @@
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "installation",
+      "economy": null,
+      "economy_effects": {
+        "facility_economy_raw": null,
+        "is_modifier_economy": false,
+        "primary": null
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
+      "id": "orbital_installation_government",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Government",
+      "pad_size": null,
+      "prerequisites": [],
+      "source_structure": "Orbital - Installation - Government",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 3.0,
+        "security": 2.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "3.0",
+          "facility_economy": null,
+          "max_pad": "\u274c",
+          "prerequisites": null,
+          "security": "2.0",
+          "standard_of_living": "7.0",
+          "strong_link_unlock": null,
+          "structure": "Orbital - Installation - Government",
+          "system_unlock": null,
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 21,
+        "source_sheet": "Stats",
+        "standard_of_living": 7.0,
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
     },
     {
       "allowed_location": "orbital",
@@ -567,8 +567,8 @@
           }
         ]
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -623,40 +623,10 @@
         "t2_cp_effect": -1.0,
         "t3_cp_effect": 1.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "port",
-      "economy": "Colony",
-      "economy_effects": {
-        "facility_economy_raw": "Colony",
-        "is_modifier_economy": false,
-        "primary": "Colony"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "colony_ship",
-      "is_colony_port": true,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Colony Ship",
-      "pad_size": "L",
-      "prerequisites": [],
-      "source_structure": "ED Finder bootstrap - Colony Ship",
-      "stat_effects": {
-        "data_confidence": "confirmed",
-        "note": "Initial colony placement used by the planner; DaftMav Stats starts with constructed structures.",
-        "source": "ED Finder bootstrap"
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
       "yellow_cp_generated": 0
     },
     {
@@ -704,11 +674,41 @@
         "t2_cp_effect": 1.0,
         "wealth": 1.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 0.4,
+      "tier": 1,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "port",
+      "economy": "Colony",
+      "economy_effects": {
+        "facility_economy_raw": "Colony",
+        "is_modifier_economy": false,
+        "primary": "Colony"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "colony_ship",
+      "is_colony_port": true,
+      "is_port": true,
+      "is_support_facility": false,
+      "name": "Colony Ship",
+      "pad_size": "L",
+      "prerequisites": [],
+      "source_structure": "ED Finder bootstrap - Colony Ship",
+      "stat_effects": {
+        "data_confidence": "confirmed",
+        "note": "Initial colony placement used by the planner; DaftMav Stats starts with constructed structures.",
+        "source": "ED Finder bootstrap"
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 0
     },
     {
       "allowed_location": "orbital",
@@ -754,8 +754,202 @@
         "t2_cp_effect": 1.0,
         "wealth": 3.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "port",
+      "economy": "Contraband",
+      "economy_effects": {
+        "facility_economy_raw": "Contraband",
+        "is_modifier_economy": false,
+        "primary": "Contraband"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "orbital_outpost_criminal",
+      "is_colony_port": false,
+      "is_port": true,
+      "is_support_facility": false,
+      "name": "Criminal",
+      "pad_size": "M",
+      "prerequisites": [],
+      "source_structure": "Orbital - Outpost - Criminal",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": -2.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Contraband",
+          "max_pad": "M",
+          "prerequisites": null,
+          "security": "-2.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Orbital - Outpost - Criminal",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": "3.0"
+        },
+        "source_row": 9,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "wealth": 3.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "port",
+      "economy": "Industrial",
+      "economy_effects": {
+        "facility_economy_raw": "Industrial",
+        "is_modifier_economy": false,
+        "primary": "Industrial"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "orbital_outpost_industrial",
+      "is_colony_port": false,
+      "is_port": true,
+      "is_support_facility": false,
+      "name": "Industrial",
+      "pad_size": "M",
+      "prerequisites": [],
+      "source_structure": "Orbital - Outpost - Industrial",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 3.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "3.0",
+          "facility_economy": "Industrial",
+          "max_pad": "M",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Orbital - Outpost - Industrial",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": "3.0",
+          "wealth": null
+        },
+        "source_row": 8,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "tech_level": 3.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "port",
+      "economy": "Military",
+      "economy_effects": {
+        "facility_economy_raw": "Military",
+        "is_modifier_economy": false,
+        "primary": "Military"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "orbital_outpost_military",
+      "is_colony_port": false,
+      "is_port": true,
+      "is_support_facility": false,
+      "name": "Military",
+      "pad_size": "M",
+      "prerequisites": [],
+      "source_structure": "Orbital - Outpost - Military",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": 2.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Military",
+          "max_pad": "M",
+          "prerequisites": null,
+          "security": "2.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Orbital - Outpost - Military",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 12,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "orbital",
+      "category": "port",
+      "economy": "HighTech",
+      "economy_effects": {
+        "facility_economy_raw": "High Tech",
+        "is_modifier_economy": false,
+        "primary": "HighTech"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "orbital_outpost_scientific",
+      "is_colony_port": false,
+      "is_port": true,
+      "is_support_facility": false,
+      "name": "Scientific",
+      "pad_size": "M",
+      "prerequisites": [],
+      "source_structure": "Orbital - Outpost - Scientific",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "High Tech",
+          "max_pad": "M",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Orbital - Outpost - Scientific",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": "3.0",
+          "wealth": null
+        },
+        "source_row": 11,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "tech_level": 3.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
@@ -812,200 +1006,6 @@
       "weak_link_value": 0.05,
       "yellow_cp_cost": 3,
       "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "port",
-      "economy": "Contraband",
-      "economy_effects": {
-        "facility_economy_raw": "Contraband",
-        "is_modifier_economy": false,
-        "primary": "Contraband"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "orbital_outpost_criminal",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Criminal",
-      "pad_size": "M",
-      "prerequisites": [],
-      "source_structure": "Orbital - Outpost - Criminal",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": -2.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Contraband",
-          "max_pad": "M",
-          "prerequisites": null,
-          "security": "-2.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Orbital - Outpost - Criminal",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": "3.0"
-        },
-        "source_row": 9,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "wealth": 3.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "port",
-      "economy": "Industrial",
-      "economy_effects": {
-        "facility_economy_raw": "Industrial",
-        "is_modifier_economy": false,
-        "primary": "Industrial"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "orbital_outpost_industrial",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Industrial",
-      "pad_size": "M",
-      "prerequisites": [],
-      "source_structure": "Orbital - Outpost - Industrial",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 3.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "3.0",
-          "facility_economy": "Industrial",
-          "max_pad": "M",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Orbital - Outpost - Industrial",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": "3.0",
-          "wealth": null
-        },
-        "source_row": 8,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "tech_level": 3.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "port",
-      "economy": "Military",
-      "economy_effects": {
-        "facility_economy_raw": "Military",
-        "is_modifier_economy": false,
-        "primary": "Military"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "orbital_outpost_military",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Military",
-      "pad_size": "M",
-      "prerequisites": [],
-      "source_structure": "Orbital - Outpost - Military",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": 2.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Military",
-          "max_pad": "M",
-          "prerequisites": null,
-          "security": "2.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Orbital - Outpost - Military",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 12,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "orbital",
-      "category": "port",
-      "economy": "HighTech",
-      "economy_effects": {
-        "facility_economy_raw": "High Tech",
-        "is_modifier_economy": false,
-        "primary": "HighTech"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "orbital_outpost_scientific",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Scientific",
-      "pad_size": "M",
-      "prerequisites": [],
-      "source_structure": "Orbital - Outpost - Scientific",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "High Tech",
-          "max_pad": "M",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Orbital - Outpost - Scientific",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": "3.0",
-          "wealth": null
-        },
-        "source_row": 11,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "tech_level": 3.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
     },
     {
       "allowed_location": "orbital",
@@ -1214,8 +1214,8 @@
         ],
         "wealth": 3.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1276,8 +1276,8 @@
         ],
         "wealth": 6.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1337,6 +1337,247 @@
     },
     {
       "allowed_location": "surface",
+      "category": "agriculture",
+      "economy": "Agriculture",
+      "economy_effects": {
+        "facility_economy_raw": "Agricultural",
+        "is_modifier_economy": false,
+        "primary": "Agriculture"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_agriculture_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Agriculture T1 M",
+      "pad_size": "S/L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Agriculture T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Agricultural",
+          "max_pad": "S/L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": "7.0",
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Agriculture T1 M",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 31,
+        "source_sheet": "Stats",
+        "standard_of_living": 7.0,
+        "t2_cp_effect": 1.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
+      "category": "agriculture",
+      "economy": "Agriculture",
+      "economy_effects": {
+        "facility_economy_raw": "Agricultural",
+        "is_modifier_economy": false,
+        "primary": "Agriculture"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_agriculture_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Agriculture T1 S",
+      "pad_size": "S",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Agriculture T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Agricultural",
+          "max_pad": "S",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": "3.0",
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Agriculture T1 S",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 30,
+        "source_sheet": "Stats",
+        "standard_of_living": 3.0,
+        "t2_cp_effect": 1.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
+      "category": "agriculture",
+      "economy": "Agriculture",
+      "economy_effects": {
+        "facility_economy_raw": "Agricultural",
+        "is_modifier_economy": false,
+        "primary": "Agriculture"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 2,
+      "id": "surface_settlement_agriculture_t2_l",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Agriculture T2 L",
+      "pad_size": "L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Agriculture T2 L",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Agricultural",
+          "max_pad": "L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": "10.0",
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Agriculture T2 L",
+          "system_unlock": null,
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "2.0",
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 32,
+        "source_sheet": "Stats",
+        "standard_of_living": 10.0,
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 2.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "extraction",
+      "economy": "Extraction",
+      "economy_effects": {
+        "facility_economy_raw": "Extraction",
+        "is_modifier_economy": false,
+        "primary": "Extraction"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_extraction_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Extraction T1 M",
+      "pad_size": "M/L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Extraction T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Extraction",
+          "max_pad": "M/L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Extraction T1 M",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": "5.0"
+        },
+        "source_row": 34,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "wealth": 5.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
+      "category": "extraction",
+      "economy": "Extraction",
+      "economy_effects": {
+        "facility_economy_raw": "Extraction",
+        "is_modifier_economy": false,
+        "primary": "Extraction"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_extraction_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Extraction T1 S",
+      "pad_size": "S",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Extraction T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Extraction",
+          "max_pad": "S",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Extraction T1 S",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": "3.0"
+        },
+        "source_row": 33,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "wealth": 3.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
       "category": "extraction",
       "economy": "Extraction",
       "economy_effects": {
@@ -1385,8 +1626,59 @@
         "t3_cp_effect": 1.0,
         "wealth": 10.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "extraction",
+      "economy": "Extraction",
+      "economy_effects": {
+        "facility_economy_raw": "Extraction",
+        "is_modifier_economy": false,
+        "primary": "Extraction"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 2,
+      "id": "surface_settlement_extraction_t2_l",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Extraction T2 L",
+      "pad_size": "L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Extraction T2 L",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Extraction",
+          "max_pad": "L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": "-2.0",
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Extraction T2 L",
+          "system_unlock": null,
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "2.0",
+          "tech_level": "2.0",
+          "wealth": "8.0"
+        },
+        "source_row": 35,
+        "source_sheet": "Stats",
+        "standard_of_living": -2.0,
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 2.0,
+        "tech_level": 2.0,
+        "wealth": 8.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1446,8 +1738,176 @@
         ],
         "wealth": 3.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "hightech",
+      "economy": "HighTech",
+      "economy_effects": {
+        "facility_economy_raw": "High Tech",
+        "is_modifier_economy": false,
+        "primary": "HighTech"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
+      "id": "surface_settlement_research_bio_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Research Bio T1 M",
+      "pad_size": "S",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Research Bio T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 1.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "1.0",
+          "facility_economy": "High Tech",
+          "max_pad": "S",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Research Bio T1 M",
+          "system_unlock": "Scientific Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": "7.0",
+          "wealth": null
+        },
+        "source_row": 43,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0,
+        "tech_level": 7.0,
+        "unlocks": [
+          {
+            "description": "Scientific Installations",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "hightech",
+      "economy": "HighTech",
+      "economy_effects": {
+        "facility_economy_raw": "High Tech",
+        "is_modifier_economy": false,
+        "primary": "HighTech"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
+      "id": "surface_settlement_research_bio_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Research Bio T1 S",
+      "pad_size": "S",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Research Bio T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 1.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "1.0",
+          "facility_economy": "High Tech",
+          "max_pad": "S",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Research Bio T1 S",
+          "system_unlock": "Scientific Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": "3.0",
+          "wealth": null
+        },
+        "source_row": 42,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0,
+        "tech_level": 3.0,
+        "unlocks": [
+          {
+            "description": "Scientific Installations",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "hightech",
+      "economy": "HighTech",
+      "economy_effects": {
+        "facility_economy_raw": "High Tech",
+        "is_modifier_economy": false,
+        "primary": "HighTech"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 2,
+      "id": "surface_settlement_research_bio_t2_l",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Research Bio T2 L",
+      "pad_size": "L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Research Bio T2 L",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 3.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "3.0",
+          "facility_economy": "High Tech",
+          "max_pad": "L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Research Bio T2 L",
+          "system_unlock": "Scientific Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "2.0",
+          "tech_level": "10.0",
+          "wealth": null
+        },
+        "source_row": 44,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 2.0,
+        "tech_level": 10.0,
+        "unlocks": [
+          {
+            "description": "Scientific Installations",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1501,8 +1961,8 @@
           }
         ]
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1557,8 +2017,8 @@
         "t2_cp_effect": -1.0,
         "t3_cp_effect": 1.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -1619,11 +2079,107 @@
           }
         ]
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "industrial",
+      "economy": "Industrial",
+      "economy_effects": {
+        "facility_economy_raw": "Industrial",
+        "is_modifier_economy": false,
+        "primary": "Industrial"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_industrial_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Industrial T1 M",
+      "pad_size": "M/L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Industrial T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 6.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "6.0",
+          "facility_economy": "Industrial",
+          "max_pad": "M/L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Industrial T1 M",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 37,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
+      "category": "industrial",
+      "economy": "Industrial",
+      "economy_effects": {
+        "facility_economy_raw": "Industrial",
+        "is_modifier_economy": false,
+        "primary": "Industrial"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_industrial_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Industrial T1 S",
+      "pad_size": "S",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Industrial T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 3.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "3.0",
+          "facility_economy": "Industrial",
+          "max_pad": "S",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Industrial T1 S",
+          "system_unlock": null,
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 36,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
     },
     {
       "allowed_location": "surface",
@@ -1686,11 +2242,169 @@
         ],
         "wealth": 5.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "industrial",
+      "economy": "Industrial",
+      "economy_effects": {
+        "facility_economy_raw": "Industrial",
+        "is_modifier_economy": false,
+        "primary": "Industrial"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 2,
+      "id": "surface_settlement_industrial_t2_l",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Industrial T2 L",
+      "pad_size": "L",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Industrial T2 L",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "development_level": 9.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": "9.0",
+          "facility_economy": "Industrial",
+          "max_pad": "L",
+          "prerequisites": null,
+          "security": null,
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Industrial T2 L",
+          "system_unlock": null,
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "2.0",
+          "tech_level": null,
+          "wealth": "3.0"
+        },
+        "source_row": 38,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 2.0,
+        "wealth": 3.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "military",
+      "economy": "Military",
+      "economy_effects": {
+        "facility_economy_raw": "Military",
+        "is_modifier_economy": false,
+        "primary": "Military"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_military_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Military T1 M",
+      "pad_size": "S/M",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Military T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": 4.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Military",
+          "max_pad": "S/M",
+          "prerequisites": null,
+          "security": "4.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Military T1 M",
+          "system_unlock": "Military Installations",
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 40,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "unlocks": [
+          {
+            "description": "Military Installations",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
+    },
+    {
+      "allowed_location": "surface",
+      "category": "military",
+      "economy": "Military",
+      "economy_effects": {
+        "facility_economy_raw": "Military",
+        "is_modifier_economy": false,
+        "primary": "Military"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 0,
+      "id": "surface_settlement_military_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Military T1 S",
+      "pad_size": "M",
+      "prerequisites": [],
+      "source_structure": "Surface - Settlement - Military T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": 2.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Military",
+          "max_pad": "M",
+          "prerequisites": null,
+          "security": "2.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Military T1 S",
+          "system_unlock": "Military Installations",
+          "t2_cp_effect": "1.0",
+          "t3_cp_effect": null,
+          "tech_level": null,
+          "wealth": null
+        },
+        "source_row": 39,
+        "source_sheet": "Stats",
+        "t2_cp_effect": 1.0,
+        "unlocks": [
+          {
+            "description": "Military Installations",
+            "type": "System Unlock"
+          }
+        ]
+      },
+      "strong_link_value": 0.4,
+      "tier": 1,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 0,
+      "yellow_cp_generated": 1
     },
     {
       "allowed_location": "surface",
@@ -1740,685 +2454,6 @@
         "t2_cp_effect": -1.0,
         "t3_cp_effect": 1.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Agriculture",
-      "economy_effects": {
-        "facility_economy_raw": "Agricultural",
-        "is_modifier_economy": false,
-        "primary": "Agriculture"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_agriculture_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Agriculture T1 M",
-      "pad_size": "S/L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Agriculture T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Agricultural",
-          "max_pad": "S/L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": "7.0",
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Agriculture T1 M",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 31,
-        "source_sheet": "Stats",
-        "standard_of_living": 7.0,
-        "t2_cp_effect": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Agriculture",
-      "economy_effects": {
-        "facility_economy_raw": "Agricultural",
-        "is_modifier_economy": false,
-        "primary": "Agriculture"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_agriculture_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Agriculture T1 S",
-      "pad_size": "S",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Agriculture T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Agricultural",
-          "max_pad": "S",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": "3.0",
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Agriculture T1 S",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 30,
-        "source_sheet": "Stats",
-        "standard_of_living": 3.0,
-        "t2_cp_effect": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Extraction",
-      "economy_effects": {
-        "facility_economy_raw": "Extraction",
-        "is_modifier_economy": false,
-        "primary": "Extraction"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_extraction_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Extraction T1 M",
-      "pad_size": "M/L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Extraction T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Extraction",
-          "max_pad": "M/L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Extraction T1 M",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": "5.0"
-        },
-        "source_row": 34,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "wealth": 5.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Extraction",
-      "economy_effects": {
-        "facility_economy_raw": "Extraction",
-        "is_modifier_economy": false,
-        "primary": "Extraction"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_extraction_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Extraction T1 S",
-      "pad_size": "S",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Extraction T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Extraction",
-          "max_pad": "S",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Extraction T1 S",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": "3.0"
-        },
-        "source_row": 33,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "wealth": 3.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Industrial",
-      "economy_effects": {
-        "facility_economy_raw": "Industrial",
-        "is_modifier_economy": false,
-        "primary": "Industrial"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_industrial_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Industrial T1 M",
-      "pad_size": "M/L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Industrial T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 6.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "6.0",
-          "facility_economy": "Industrial",
-          "max_pad": "M/L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Industrial T1 M",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 37,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Industrial",
-      "economy_effects": {
-        "facility_economy_raw": "Industrial",
-        "is_modifier_economy": false,
-        "primary": "Industrial"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_industrial_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Industrial T1 S",
-      "pad_size": "S",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Industrial T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 3.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "3.0",
-          "facility_economy": "Industrial",
-          "max_pad": "S",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Industrial T1 S",
-          "system_unlock": null,
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 36,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Military",
-      "economy_effects": {
-        "facility_economy_raw": "Military",
-        "is_modifier_economy": false,
-        "primary": "Military"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_military_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Military T1 M",
-      "pad_size": "S/M",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Military T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": 4.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Military",
-          "max_pad": "S/M",
-          "prerequisites": null,
-          "security": "4.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Military T1 M",
-          "system_unlock": "Military Installations",
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 40,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "unlocks": [
-          {
-            "description": "Military Installations",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Military",
-      "economy_effects": {
-        "facility_economy_raw": "Military",
-        "is_modifier_economy": false,
-        "primary": "Military"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 0,
-      "id": "surface_settlement_military_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Military T1 S",
-      "pad_size": "M",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Military T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": 2.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Military",
-          "max_pad": "M",
-          "prerequisites": null,
-          "security": "2.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Military T1 S",
-          "system_unlock": "Military Installations",
-          "t2_cp_effect": "1.0",
-          "t3_cp_effect": null,
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 39,
-        "source_sheet": "Stats",
-        "t2_cp_effect": 1.0,
-        "unlocks": [
-          {
-            "description": "Military Installations",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 0,
-      "yellow_cp_generated": 1
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "HighTech",
-      "economy_effects": {
-        "facility_economy_raw": "High Tech",
-        "is_modifier_economy": false,
-        "primary": "HighTech"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "surface_settlement_research_bio_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Research Bio T1 M",
-      "pad_size": "S",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Research Bio T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 1.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "1.0",
-          "facility_economy": "High Tech",
-          "max_pad": "S",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Research Bio T1 M",
-          "system_unlock": "Scientific Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": "7.0",
-          "wealth": null
-        },
-        "source_row": 43,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0,
-        "tech_level": 7.0,
-        "unlocks": [
-          {
-            "description": "Scientific Installations",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "HighTech",
-      "economy_effects": {
-        "facility_economy_raw": "High Tech",
-        "is_modifier_economy": false,
-        "primary": "HighTech"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "surface_settlement_research_bio_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Research Bio T1 S",
-      "pad_size": "S",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Research Bio T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 1.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "1.0",
-          "facility_economy": "High Tech",
-          "max_pad": "S",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Research Bio T1 S",
-          "system_unlock": "Scientific Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": "3.0",
-          "wealth": null
-        },
-        "source_row": 42,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0,
-        "tech_level": 3.0,
-        "unlocks": [
-          {
-            "description": "Scientific Installations",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Tourism",
-      "economy_effects": {
-        "facility_economy_raw": "Tourism",
-        "is_modifier_economy": false,
-        "primary": "Tourism"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "surface_settlement_tourism_t1_m",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Tourism T1 M",
-      "pad_size": "L",
-      "prerequisites": [
-        {
-          "description": "Installation - Satellite",
-          "source_column": "Prerequisites"
-        }
-      ],
-      "source_structure": "Surface - Settlement - Tourism T1 M",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": -1.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Tourism",
-          "max_pad": "L",
-          "prerequisites": "Installation - Satellite",
-          "security": "-1.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Tourism T1 M",
-          "system_unlock": "Tourist Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": null,
-          "wealth": "3.0"
-        },
-        "source_row": 46,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0,
-        "unlocks": [
-          {
-            "description": "Tourist Installations",
-            "type": "System Unlock"
-          }
-        ],
-        "wealth": 3.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Tourism",
-      "economy_effects": {
-        "facility_economy_raw": "Tourism",
-        "is_modifier_economy": false,
-        "primary": "Tourism"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 1,
-      "id": "surface_settlement_tourism_t1_s",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Tourism T1 S",
-      "pad_size": "M",
-      "prerequisites": [
-        {
-          "description": "Installation - Satellite",
-          "source_column": "Prerequisites"
-        }
-      ],
-      "source_structure": "Surface - Settlement - Tourism T1 S",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": -1.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Tourism",
-          "max_pad": "M",
-          "prerequisites": "Installation - Satellite",
-          "security": "-1.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Tourism T1 S",
-          "system_unlock": "Tourist Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "1.0",
-          "tech_level": null,
-          "wealth": "1.0"
-        },
-        "source_row": 45,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 1.0,
-        "unlocks": [
-          {
-            "description": "Tourist Installations",
-            "type": "System Unlock"
-          }
-        ],
-        "wealth": 1.0
-      },
-      "strong_link_value": 0.4,
-      "tier": 1,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Agriculture",
-      "economy_effects": {
-        "facility_economy_raw": "Agricultural",
-        "is_modifier_economy": false,
-        "primary": "Agriculture"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 2,
-      "id": "surface_settlement_agriculture_t2_l",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Agriculture T2 L",
-      "pad_size": "L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Agriculture T2 L",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Agricultural",
-          "max_pad": "L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": "10.0",
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Agriculture T2 L",
-          "system_unlock": null,
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "2.0",
-          "tech_level": null,
-          "wealth": null
-        },
-        "source_row": 32,
-        "source_sheet": "Stats",
-        "standard_of_living": 10.0,
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 2.0
-      },
       "strong_link_value": 0.8,
       "tier": 2,
       "weak_link_value": 0.05,
@@ -2427,108 +2462,7 @@
     },
     {
       "allowed_location": "surface",
-      "category": "port",
-      "economy": "Extraction",
-      "economy_effects": {
-        "facility_economy_raw": "Extraction",
-        "is_modifier_economy": false,
-        "primary": "Extraction"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 2,
-      "id": "surface_settlement_extraction_t2_l",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Extraction T2 L",
-      "pad_size": "L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Extraction T2 L",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Extraction",
-          "max_pad": "L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": "-2.0",
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Extraction T2 L",
-          "system_unlock": null,
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "2.0",
-          "tech_level": "2.0",
-          "wealth": "8.0"
-        },
-        "source_row": 35,
-        "source_sheet": "Stats",
-        "standard_of_living": -2.0,
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 2.0,
-        "tech_level": 2.0,
-        "wealth": 8.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Industrial",
-      "economy_effects": {
-        "facility_economy_raw": "Industrial",
-        "is_modifier_economy": false,
-        "primary": "Industrial"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 2,
-      "id": "surface_settlement_industrial_t2_l",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Industrial T2 L",
-      "pad_size": "L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Industrial T2 L",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 9.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "9.0",
-          "facility_economy": "Industrial",
-          "max_pad": "L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Industrial T2 L",
-          "system_unlock": null,
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "2.0",
-          "tech_level": null,
-          "wealth": "3.0"
-        },
-        "source_row": 38,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 2.0,
-        "wealth": 3.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
+      "category": "military",
       "economy": "Military",
       "economy_effects": {
         "facility_economy_raw": "Military",
@@ -2539,8 +2473,8 @@
       "green_cp_generated": 2,
       "id": "surface_settlement_military_t2_l",
       "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
+      "is_port": false,
+      "is_support_facility": true,
       "name": "Military T2 L",
       "pad_size": "L",
       "prerequisites": [],
@@ -2625,8 +2559,8 @@
         "standard_of_living": 3.0,
         "t2_cp_effect": 1.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 0.4,
+      "tier": 1,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
@@ -2674,8 +2608,8 @@
         "t2_cp_effect": 1.0,
         "wealth": 3.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 0.4,
+      "tier": 1,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
@@ -2724,8 +2658,8 @@
         "t2_cp_effect": 1.0,
         "tech_level": 5.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 0.4,
+      "tier": 1,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
       "yellow_cp_generated": 1
@@ -2776,127 +2710,10 @@
         "tech_level": 5.0,
         "wealth": 5.0
       },
-      "strong_link_value": 0.8,
-      "tier": 2,
+      "strong_link_value": 1.2,
+      "tier": 3,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 0,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "HighTech",
-      "economy_effects": {
-        "facility_economy_raw": "High Tech",
-        "is_modifier_economy": false,
-        "primary": "HighTech"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 2,
-      "id": "surface_settlement_research_bio_t2_l",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Research Bio T2 L",
-      "pad_size": "L",
-      "prerequisites": [],
-      "source_structure": "Surface - Settlement - Research Bio T2 L",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "development_level": 3.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": "3.0",
-          "facility_economy": "High Tech",
-          "max_pad": "L",
-          "prerequisites": null,
-          "security": null,
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Research Bio T2 L",
-          "system_unlock": "Scientific Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "2.0",
-          "tech_level": "10.0",
-          "wealth": null
-        },
-        "source_row": 44,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 2.0,
-        "tech_level": 10.0,
-        "unlocks": [
-          {
-            "description": "Scientific Installations",
-            "type": "System Unlock"
-          }
-        ]
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
-      "yellow_cp_generated": 0
-    },
-    {
-      "allowed_location": "surface",
-      "category": "port",
-      "economy": "Tourism",
-      "economy_effects": {
-        "facility_economy_raw": "Tourism",
-        "is_modifier_economy": false,
-        "primary": "Tourism"
-      },
-      "green_cp_cost": 0,
-      "green_cp_generated": 2,
-      "id": "surface_settlement_tourism_t2_l",
-      "is_colony_port": false,
-      "is_port": true,
-      "is_support_facility": false,
-      "name": "Tourism T2 L",
-      "pad_size": "L",
-      "prerequisites": [
-        {
-          "description": "Installation - Satellite",
-          "source_column": "Prerequisites"
-        }
-      ],
-      "source_structure": "Surface - Settlement - Tourism T2 L",
-      "stat_effects": {
-        "data_confidence": "observed",
-        "security": -2.0,
-        "source": "DaftMav Colonization Construction v3",
-        "source_fields": {
-          "development_level": null,
-          "facility_economy": "Tourism",
-          "max_pad": "L",
-          "prerequisites": "Installation - Satellite",
-          "security": "-2.0",
-          "standard_of_living": null,
-          "strong_link_unlock": null,
-          "structure": "Surface - Settlement - Tourism T2 L",
-          "system_unlock": "Tourist Installations",
-          "t2_cp_effect": "-1.0",
-          "t3_cp_effect": "2.0",
-          "tech_level": null,
-          "wealth": "5.0"
-        },
-        "source_row": 47,
-        "source_sheet": "Stats",
-        "t2_cp_effect": -1.0,
-        "t3_cp_effect": 2.0,
-        "unlocks": [
-          {
-            "description": "Tourist Installations",
-            "type": "System Unlock"
-          }
-        ],
-        "wealth": 5.0
-      },
-      "strong_link_value": 0.8,
-      "tier": 2,
-      "weak_link_value": 0.05,
-      "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
     },
     {
@@ -2946,8 +2763,8 @@
         "tech_level": 3.0,
         "wealth": 5.0
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
@@ -3008,8 +2825,191 @@
           }
         ]
       },
-      "strong_link_value": 0.4,
-      "tier": 1,
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "tourism",
+      "economy": "Tourism",
+      "economy_effects": {
+        "facility_economy_raw": "Tourism",
+        "is_modifier_economy": false,
+        "primary": "Tourism"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
+      "id": "surface_settlement_tourism_t1_m",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Tourism T1 M",
+      "pad_size": "L",
+      "prerequisites": [
+        {
+          "description": "Installation - Satellite",
+          "source_column": "Prerequisites"
+        }
+      ],
+      "source_structure": "Surface - Settlement - Tourism T1 M",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": -1.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Tourism",
+          "max_pad": "L",
+          "prerequisites": "Installation - Satellite",
+          "security": "-1.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Tourism T1 M",
+          "system_unlock": "Tourist Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": null,
+          "wealth": "3.0"
+        },
+        "source_row": 46,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0,
+        "unlocks": [
+          {
+            "description": "Tourist Installations",
+            "type": "System Unlock"
+          }
+        ],
+        "wealth": 3.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "tourism",
+      "economy": "Tourism",
+      "economy_effects": {
+        "facility_economy_raw": "Tourism",
+        "is_modifier_economy": false,
+        "primary": "Tourism"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 1,
+      "id": "surface_settlement_tourism_t1_s",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Tourism T1 S",
+      "pad_size": "M",
+      "prerequisites": [
+        {
+          "description": "Installation - Satellite",
+          "source_column": "Prerequisites"
+        }
+      ],
+      "source_structure": "Surface - Settlement - Tourism T1 S",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": -1.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Tourism",
+          "max_pad": "M",
+          "prerequisites": "Installation - Satellite",
+          "security": "-1.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Tourism T1 S",
+          "system_unlock": "Tourist Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "1.0",
+          "tech_level": null,
+          "wealth": "1.0"
+        },
+        "source_row": 45,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 1.0,
+        "unlocks": [
+          {
+            "description": "Tourist Installations",
+            "type": "System Unlock"
+          }
+        ],
+        "wealth": 1.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
+      "weak_link_value": 0.05,
+      "yellow_cp_cost": 1,
+      "yellow_cp_generated": 0
+    },
+    {
+      "allowed_location": "surface",
+      "category": "tourism",
+      "economy": "Tourism",
+      "economy_effects": {
+        "facility_economy_raw": "Tourism",
+        "is_modifier_economy": false,
+        "primary": "Tourism"
+      },
+      "green_cp_cost": 0,
+      "green_cp_generated": 2,
+      "id": "surface_settlement_tourism_t2_l",
+      "is_colony_port": false,
+      "is_port": false,
+      "is_support_facility": true,
+      "name": "Tourism T2 L",
+      "pad_size": "L",
+      "prerequisites": [
+        {
+          "description": "Installation - Satellite",
+          "source_column": "Prerequisites"
+        }
+      ],
+      "source_structure": "Surface - Settlement - Tourism T2 L",
+      "stat_effects": {
+        "data_confidence": "observed",
+        "security": -2.0,
+        "source": "DaftMav Colonization Construction v3",
+        "source_fields": {
+          "development_level": null,
+          "facility_economy": "Tourism",
+          "max_pad": "L",
+          "prerequisites": "Installation - Satellite",
+          "security": "-2.0",
+          "standard_of_living": null,
+          "strong_link_unlock": null,
+          "structure": "Surface - Settlement - Tourism T2 L",
+          "system_unlock": "Tourist Installations",
+          "t2_cp_effect": "-1.0",
+          "t3_cp_effect": "2.0",
+          "tech_level": null,
+          "wealth": "5.0"
+        },
+        "source_row": 47,
+        "source_sheet": "Stats",
+        "t2_cp_effect": -1.0,
+        "t3_cp_effect": 2.0,
+        "unlocks": [
+          {
+            "description": "Tourist Installations",
+            "type": "System Unlock"
+          }
+        ],
+        "wealth": 5.0
+      },
+      "strong_link_value": 0.8,
+      "tier": 2,
       "weak_link_value": 0.05,
       "yellow_cp_cost": 1,
       "yellow_cp_generated": 0
