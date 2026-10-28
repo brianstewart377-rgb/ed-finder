@@ -391,9 +391,18 @@ def install(c, report, name, token):
                         return None
                     path.unlink(missing_ok=True)
                     return text if re.fullmatch('[a-z_]+', text) else None
+                def copy_detail(unit):
+                    path = temporary / (unit + '.detail')
+                    try:
+                        text = path.read_text()
+                    except OSError:
+                        return None
+                    path.unlink(missing_ok=True)
+                    return text if value.DETAIL_PATTERN.fullmatch(text) else None
                 value.start = start
                 value.start_copy = start_copy
                 value.copy_condition = copy_condition
+                value.copy_detail = copy_detail
             cache[module] = value
         return cache[module]
     c._load = rehearsal_load
@@ -475,8 +484,18 @@ def monitor_main():
                 runtime.deadline = float('inf')
             return
         rewrite.cancel_rewrite(runtime.query, configuration['ids'][0], configuration['relation'], condition)
+    def detail(text):
+        # What latched the condition, beside it for the dispatch receipt.
+        if copy_mode:
+            path = temporary / (configuration['unit'] + '.detail')
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            except FileExistsError:
+                return
+            with os.fdopen(fd, 'w') as stream:
+                stream.write(text)
     print('ready', flush=True)
-    c._load('v3_purge_rewrite_monitor').watch(alive, observe, controller, cancel)
+    c._load('v3_purge_rewrite_monitor').watch(alive, observe, controller, cancel, detail=detail)
 
 
 if __name__ == '__main__':

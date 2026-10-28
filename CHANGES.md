@@ -11,6 +11,21 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-28 — Purge watchdog: re-measure pg_wal on a vanished segment; record what latched a cancel
+
+The one_percent rehearsal with 021 (run 40654125745) copied, swapped and
+dropped `system_search` (GiST filled during the copy), then stopped when the
+watchdog cancelled `economy_opportunity`'s index build seconds after it started,
+recorded only as `wal_archiver_failure`: every check that cannot complete is
+recorded under that name. One such check is the `pg_wal` size probe, `du`,
+which exits 1 when a checkpoint removes or recycles a segment while it walks
+the directory (reproduced). `measure_wal` now re-measures up to three times and
+still fails closed when the directory keeps failing, and the watchdog records
+what latched its condition (`monitor_detail`, `observe:<code>` or
+`backend:<code>`) in the copy receipt and the unit's journal. Operator code
+only; the production watchdog uses the same probe, so this also guards the real
+long phases.
+
 ## 2026-10-28 — Migration 021 applied to production
 
 **Production (owner-approved, governed workflow).** Plan run 40654122650

@@ -1111,7 +1111,7 @@ def test_long_phase_callback_never_runs_before_its_backend_exists(controller, co
         yield backend
     monkeypatch.setattr(dispatch, 'phase_backend', phase_backend)
     original = controller._load
-    monitor = SimpleNamespace(start_copy=lambda *a, **k: 'unit', copy_condition=lambda unit: None)
+    monitor = SimpleNamespace(start_copy=lambda *a, **k: 'unit', copy_condition=lambda unit: None, copy_detail=lambda unit: None)
     monkeypatch.setattr(controller, '_load', lambda name, path=None: monitor if name == 'v3_purge_rewrite_monitor'
                         else (original(name, path) if path else original(name)))
     def query(sql, params=None, *, write=False):
@@ -1156,7 +1156,7 @@ def test_long_phase_admits_on_the_reservation_but_watches_only_the_floor(control
     monkeypatch.setattr(dispatch, 'phase_backend', phase_backend)
     watched = []
     monitor = SimpleNamespace(start_copy=lambda c, runtime, spec, identity, report: watched.append(spec) or 'unit',
-                              copy_condition=lambda unit: None)
+                              copy_condition=lambda unit: None, copy_detail=lambda unit: None)
     original = controller._load
     monkeypatch.setattr(controller, '_load', lambda name, path=None: monitor if name == 'v3_purge_rewrite_monitor'
                         else (original(name, path) if path else original(name)))

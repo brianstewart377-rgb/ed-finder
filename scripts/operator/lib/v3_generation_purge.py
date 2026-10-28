@@ -357,13 +357,26 @@ SELECT jsonb_build_object('wal_byte_delta',
 """)
 
 
+WAL_DIRECTORY_ATTEMPTS = 3
+
+
 def measure_wal(runtime, data_directory):
     """Pair server WAL health with physical bytes on the proved data volume."""
     wal = runtime.query(WAL_SQL)
     # pg_ls_waldir needs a privilege deliberately not given to the executor
     # by 016. Use the same fixed container/directory measurement in each phase.
-    size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
-                          '--dereference', '--', data_directory + '/pg_wal')
+    # A checkpoint may remove or recycle a segment while du walks pg_wal; du
+    # then reports "cannot access" and exits 1, which the bounded command runner
+    # raises. Re-measure a bounded number of times; a directory that still
+    # cannot be measured fails closed exactly as before.
+    for attempt in range(WAL_DIRECTORY_ATTEMPTS):
+        try:
+            size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
+                                  '--dereference', '--', data_directory + '/pg_wal')
+            break
+        except RuntimeError:
+            if attempt == WAL_DIRECTORY_ATTEMPTS - 1:
+                raise ValueError('wal_directory_bytes_unavailable') from None
     fields = size.split() if isinstance(size, str) else []
     if (not isinstance(wal, dict) or len(fields) != 2 or not fields[0].isascii()
             or not fields[0].isdecimal() or fields[1] != data_directory + '/pg_wal'):

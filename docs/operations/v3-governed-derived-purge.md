@@ -146,7 +146,15 @@ copy watchdog cancels through the owner session's authenticated
 `pg_cancel_backend` (exact PID and `backend_start`, this database, the owner's
 active client backend running one of the fixed phase statements); it records
 the condition beside its config (`<unit>.json.condition`) and the controller
-copies it into the receipt (`copy_phase_failures[].monitor_condition`). The
+copies it into the receipt (`copy_phase_failures[].monitor_condition`). Any
+check that cannot complete (a failed probe, a timeout) also cancels and is
+recorded as `wal_archiver_failure`, because 016's cancel definer accepts only
+fixed conditions; the watchdog therefore also records what latched the
+condition (`<unit>.json.detail`, copied as `monitor_detail`: `observe:<code>` or
+`backend:<code>`) and logs it to the unit's journal. The `pg_wal` size probe
+(`du`) re-measures up to three times, because a checkpoint can remove or
+recycle a segment mid-scan and `du` then exits 1 (one_percent rehearsal run
+40654125745 stopped on such a cancel with no other recorded cause). The
 controller's own watch callback (stop requests, controller liveness, progress
 polling) runs only once the phase backend has been set up and yielded: the
 identity and session set-up queries run without it.

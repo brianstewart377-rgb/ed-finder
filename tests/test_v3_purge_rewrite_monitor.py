@@ -120,6 +120,67 @@ def test_watchdog_source_has_only_dedicated_cancel_capability():
         assert predicate in cancel
 
 
+@pytest.mark.parametrize('source,error,expected', (
+    ('observe', RuntimeError('bounded_command_failed'), 'observe:bounded_command_failed'),
+    ('observe', ValueError('archiver_failed_count_changed'), 'observe:archiver_failed_count_changed'),
+    ('observe', ValueError('free text; not a code'), 'observe:ValueError'),
+    ('backend', RuntimeError('wall_clock_timeout'), 'backend:wall_clock_timeout'),
+))
+def test_watchdog_records_what_latched_its_condition_once(source, error, expected):
+    """Every check that cannot complete cancels as wal_archiver_failure, so the
+    receipt also needs the exception that latched it."""
+    monitor = load('v3_purge_rewrite_monitor')
+    alive = iter((True, True, True, False)) if source == 'observe' else iter((None, True, True, False))
+    def backend():
+        value = next(alive)
+        if value is None:
+            raise error
+        return value
+    def observe():
+        if source == 'observe':
+            raise error
+    details, reasons = [], []
+    assert monitor.watch(backend, observe, lambda: None, reasons.append, sleep=lambda _: None,
+                         detail=details.append) == 'wal_archiver_failure'
+    assert details == [expected] and monitor.DETAIL_PATTERN.fullmatch(expected)
+    assert reasons and set(reasons) == {'wal_archiver_failure'}
+
+
+def test_watchdog_detail_failure_never_stops_the_cancel():
+    monitor = load('v3_purge_rewrite_monitor')
+    alive = iter((True, True, False))
+    reasons = []
+    def broken(_text):
+        raise OSError('disk full')
+    def observe():
+        raise ValueError('filesystem_free_space_floor')
+    assert monitor.watch(lambda: next(alive), observe, lambda: None, reasons.append,
+                         sleep=lambda _: None, detail=broken) == 'free_space_floor'
+    assert reasons == ['free_space_floor', 'free_space_floor']
+
+
+def test_copy_detail_reads_the_file_the_watchdog_unit_writes(tmp_path, monkeypatch):
+    import os
+    monitor = load('v3_purge_rewrite_monitor')
+    monkeypatch.setattr(monitor, 'DIRECTORY', tmp_path)
+    unit = 'edfinder-v3-purge-copy-economy_opportunity-index_build-42'
+    written = tmp_path / (unit + '.json.detail')
+    source = (ROOT / 'scripts/operator/lib/v3_purge_rewrite_monitor.py').read_text()
+    assert "detail_path = Path(str(path) + '.detail')" in source
+    assert 'watch(alive, observe, controller, cancel, detail=detail)' in source
+    dispatch = (ROOT / 'scripts/operator/lib/v3_purge_copy_dispatch.py').read_text()
+    assert "'monitor_detail': detail" in dispatch and 'monitor.copy_detail(unit)' in dispatch
+    written.write_text('observe:bounded_command_failed')
+    os.chmod(written, 0o600)
+    if os.geteuid() != 0:
+        pytest.skip('secure_file requires root-owned state')
+    assert monitor.copy_detail(unit) == 'observe:bounded_command_failed'
+    assert not written.exists() and monitor.copy_detail(unit) is None
+    written.write_text('observe:not a code;')
+    os.chmod(written, 0o600)
+    assert monitor.copy_detail(unit) is None
+
+
 def test_copy_condition_reads_the_file_the_watchdog_unit_writes(tmp_path, monkeypatch):
     """main() records a copy cancellation beside its config (<unit>.json.condition);
     the dispatcher must read that same file, or a watchdog cancel looks like a
