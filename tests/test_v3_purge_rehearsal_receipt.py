@@ -586,3 +586,22 @@ def test_pinned_rehearsal_refuses_any_other_change(monkeypatch, case):
         code = 'rehearsal_' + field + '_mismatch'
     with pytest.raises(ValueError, match=code):
         tool.validate(receipt)
+    # No plan can be built from it, so no plan can report it as accepted.
+    with pytest.raises(ValueError, match=code):
+        tool.apply_to_plan({}, receipt)
+
+
+def test_plan_acceptance_flag_is_the_validation_check(monkeypatch, tmp_path):
+    receipt = _accepted_receipt(monkeypatch)
+    loaded = tool.load_reviewed(write_receipt(tmp_path, receipt), receipt['content_sha256'])
+    calls = []
+    real = tool._accepted_before_gate_change
+    monkeypatch.setattr(tool, '_accepted_before_gate_change', lambda value: calls.append(value) or real(value))
+    plan = tool.apply_to_plan({}, loaded)
+    # validate() admitted it through the pinned entry, and the flag re-asked the same question.
+    assert len(calls) == 2 and plan['rehearsal']['accepted_before_gate_change'] is True
+    # A current-identity receipt never consults the pinned entries for the flag.
+    calls.clear()
+    assert tool.apply_to_plan({}, _benchmarked(verify_seconds=88.0))['rehearsal'][
+        'accepted_before_gate_change'] is False
+    assert calls == []

@@ -444,6 +444,8 @@ def apply_to_plan(reviewed, rehearsal):
         'verify_speed_factor': factor,
         'production_long_phase_seconds': {
             relation: production_long_phase_seconds(figures[relation], factor) for relation in RELATIONS},
-        'accepted_before_gate_change': rehearsal['script_sha256'] != code_identity()['script_sha256'],
+        # The same check validate() used to admit a pinned receipt.
+        'accepted_before_gate_change': (rehearsal['script_sha256'] != code_identity()['script_sha256']
+                                        and _accepted_before_gate_change(rehearsal)),
     }
     return reviewed
