@@ -3,14 +3,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
+from domain import facilities
 from domain.facilities import FacilityTemplate
 from simulation.topology_graph import (
     ROLE_CONVERTED_SUPPORT_PORT,
     ROLE_MAIN_ORBITAL_PORT,
     ROLE_MAIN_SURFACE_PORT,
+    ROLE_SUPPORTING_FACILITY,
     GraphPlacement,
     build_topology_graph,
     select_main_orbital_port,
@@ -66,6 +69,7 @@ def placement(
     *,
     location: str = 'orbital',
     is_primary: bool = False,
+    body_profile: dict | None = None,
 ) -> GraphPlacement:
     return GraphPlacement(
         facility=template,
@@ -74,7 +78,14 @@ def placement(
         location_type=location,
         economy=template.economy,
         is_primary_port=is_primary,
+        body_profile=body_profile,
     )
+
+
+@pytest.fixture
+def bundled_catalogue(monkeypatch: pytest.MonkeyPatch) -> dict[str, FacilityTemplate]:
+    monkeypatch.setattr(facilities, '_CATALOGUE', {})
+    return facilities.load_bundled_catalogue()
 
 
 def test_main_port_selection_highest_tier_then_earliest_build():
@@ -224,3 +235,67 @@ def test_t2_support_to_t3_port_uses_t2_strong_link_value():
     assert len(graph.strong_links) == 1
     assert graph.strong_links[0].receiver_port_id == 'ocellus_station'
     assert graph.strong_links[0].value == 0.8
+
+
+def test_bundled_hub_and_settlement_strongly_link_to_primary_coriolis(bundled_catalogue):
+    rocky_body = {'subtype': 'rocky body', 'base_economies': ['Refinery']}
+    graph = build_topology_graph([
+        placement(bundled_catalogue['coriolis_station'], '1', 1, is_primary=True, body_profile=rocky_body),
+        placement(bundled_catalogue['refinery'], '1', 2, location='surface', body_profile=rocky_body),
+        placement(
+            bundled_catalogue['surface_settlement_agriculture_t1_s'],
+            '1', 3, location='surface', body_profile=rocky_body,
+        ),
+    ])
+
+    group = graph.local_body_groups[0]
+    assert group.main_orbital_port.facility_id == 'coriolis_station'
+    assert group.main_surface_port is None
+    roles = {item.placement.facility_id: item.effective_role for item in graph.classified_placements}
+    assert roles == {
+        'coriolis_station': ROLE_MAIN_ORBITAL_PORT,
+        'refinery': ROLE_SUPPORTING_FACILITY,
+        'surface_settlement_agriculture_t1_s': ROLE_SUPPORTING_FACILITY,
+    }
+    assert {
+        (link.source_facility_id, link.receiver_port_id, link.value)
+        for link in graph.strong_links
+    } == {
+        ('refinery', 'coriolis_station', 0.8),
+        ('surface_settlement_agriculture_t1_s', 'coriolis_station', 0.4),
+    }
+    assert len(graph.strong_links) == 2
+    assert graph.converted_ports == []
+    assert graph.pass_through_links == []
+
+
+def test_bundled_settlement_and_hub_without_a_port_have_no_main_port_or_strong_links(bundled_catalogue):
+    graph = build_topology_graph([
+        placement(bundled_catalogue['surface_settlement_agriculture_t1_s'], '1', 1, location='surface'),
+        placement(bundled_catalogue['refinery'], '1', 2, location='surface'),
+    ])
+
+    group = graph.local_body_groups[0]
+    assert group.main_orbital_port is None
+    assert group.main_surface_port is None
+    assert group.orbital_ports == []
+    assert group.surface_ports == []
+    assert all(item.effective_role == ROLE_SUPPORTING_FACILITY for item in graph.classified_placements)
+    assert graph.strong_links == []
+    assert graph.pass_through_links == []
+
+
+def test_bundled_coriolis_is_main_orbital_port_after_an_earlier_civilian_outpost(bundled_catalogue):
+    graph = build_topology_graph([
+        placement(bundled_catalogue['orbital_outpost_civilian'], '1', 1),
+        placement(bundled_catalogue['coriolis_station'], '1', 2),
+    ])
+
+    assert graph.local_body_groups[0].main_orbital_port.facility_id == 'coriolis_station'
+    roles = {item.placement.facility_id: item.effective_role for item in graph.classified_placements}
+    assert roles['coriolis_station'] == ROLE_MAIN_ORBITAL_PORT
+    assert roles['orbital_outpost_civilian'] == ROLE_CONVERTED_SUPPORT_PORT
+    assert len(graph.strong_links) == 1
+    assert graph.strong_links[0].source_facility_id == 'orbital_outpost_civilian'
+    assert graph.strong_links[0].receiver_port_id == 'coriolis_station'
+    assert graph.strong_links[0].value == 0.4

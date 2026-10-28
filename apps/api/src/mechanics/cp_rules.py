@@ -17,8 +17,9 @@ ESCALATING_PORT_TIER_BY_ID = {
     'planetary_port': 3,
 }
 
-# The catalogue labels these as T2 ports, but they pay their catalogue costs
-# and never advance the shared T2/T3 port escalation count.
+# T1 orbital/planetary outposts and T2 settlements pay their catalogue costs
+# and never advance the shared T2/T3 port escalation count. Keep these explicit
+# exclusions as a guard; settlements are support facilities, not ports.
 NON_ESCALATING_PORT_IDS = frozenset({
     'orbital_outpost_civilian',
     'orbital_outpost_commercial',

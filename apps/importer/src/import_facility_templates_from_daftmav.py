@@ -69,7 +69,7 @@ ECONOMY_NORMALISATION = {
     'Contraband': 'Contraband',
 }
 
-PORT_FAMILIES = {'Starport', 'Outpost', 'Planetary Port', 'Settlement'}
+PORT_FAMILIES = {'Starport', 'Outpost', 'Planetary Port'}
 
 
 @dataclass(frozen=True)
@@ -144,11 +144,11 @@ def _row_to_template(row: CellRow) -> dict[str, Any]:
     display_name = ' - '.join(parts[2:]) if len(parts) > 2 else structure
     economy_raw = _clean(source.get('facility_economy'))
     economy = _normalise_economy(economy_raw) or _inferred_economy_from_structure(structure)
-    tier = _infer_tier(structure, structure_family)
     is_port = structure_family in PORT_FAMILIES
 
     t2_effect = _maybe_number(source.get('t2_cp_effect'))
     t3_effect = _maybe_number(source.get('t3_cp_effect'))
+    tier = _tier_from_cp_effects(structure, structure_family, t2_effect, t3_effect)
     yellow_generated = int(max(0, round(t2_effect or 0)))
     green_generated = int(max(0, round(t3_effect or 0)))
     yellow_cost = int(max(0, round(-(t2_effect or 0))))
@@ -288,7 +288,21 @@ def _inferred_economy_from_structure(structure: str) -> str | None:
     return None
 
 
-def _infer_tier(structure: str, family: str) -> int:
+def _tier_from_cp_effects(
+    structure: str, family: str, t2_effect: float | None, t3_effect: float | None,
+) -> int:
+    """Tier follows the points spent, per Mega Guide v2.3.0 PDF p26."""
+    # Research Bio/Tourism small and medium settlements cost T2 points: Raven
+    # Colonial also calls them T2, despite their T1 names and the guide's p55
+    # example calling small/medium settlements T1. Preserve the source CP data.
+    if t3_effect is not None and t3_effect < 0:
+        return 3
+    if t2_effect is not None and t2_effect < 0:
+        return 2
+    if t2_effect is not None or t3_effect is not None:
+        return 1
+
+    # Retain the legacy name-based fallback only when both CP effects are absent.
     if ' T3' in structure or any(name in structure for name in ('Ocellus', 'Orbis', 'Dodecahedron')):
         return 3
     if ' T2' in structure or family in {'Starport', 'Outpost', 'Planetary Port'}:
@@ -297,7 +311,7 @@ def _infer_tier(structure: str, family: str) -> int:
 
 
 def _category(family: str, economy: str | None) -> str:
-    if family in {'Starport', 'Outpost', 'Planetary Port', 'Settlement'}:
+    if family in PORT_FAMILIES:
         return 'port'
     if economy:
         return economy.lower()

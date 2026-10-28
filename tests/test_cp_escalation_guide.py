@@ -120,6 +120,9 @@ def test_each_outpost_is_free_generates_yellow_and_never_advances_count(catalogu
     outpost = catalogue[facility_id]
     result = run_order(catalogue, ['coriolis_station', facility_id, 'asteroid_base'])
 
+    assert outpost.tier == 1
+    assert outpost.is_port
+    assert not outpost.is_support_facility
     assert (outpost.yellow_cp_cost, outpost.green_cp_cost) == (0, 0)
     assert (outpost.yellow_cp_generated, outpost.green_cp_generated) == (1, 0)
     assert (result.yellow_cp_spent, result.green_cp_spent) == (6, 0)
@@ -133,6 +136,9 @@ def test_each_large_settlement_uses_catalogue_cost_and_never_advances_count(cata
     settlement = catalogue[facility_id]
     result = run_order(catalogue, ['coriolis_station', facility_id, 'asteroid_base'])
 
+    assert settlement.tier == 2
+    assert not settlement.is_port
+    assert settlement.is_support_facility
     assert (settlement.yellow_cp_cost, settlement.green_cp_cost) == (1, 0)
     assert (settlement.yellow_cp_generated, settlement.green_cp_generated) == (0, 2)
     assert (result.yellow_cp_spent, result.green_cp_spent) == (7, 0)
@@ -152,7 +158,7 @@ def test_cost_functions_use_shared_one_based_count(count, yellow, green):
     assert port_cp_cost(3, count) == (0, green)
 
 
-def test_catalogue_port_classification_is_complete_and_exclusive(catalogue):
+def test_catalogue_port_classification_is_complete_and_legacy_non_escalating_guard_is_preserved(catalogue):
     assert ESCALATING_PORT_TIER_BY_ID == {
         'coriolis_station': 2,
         'asteroid_base': 2,
@@ -165,6 +171,11 @@ def test_catalogue_port_classification_is_complete_and_exclusive(catalogue):
     escalating_ids = set(ESCALATING_PORT_TIER_BY_ID)
     assert escalating_ids.isdisjoint(NON_ESCALATING_PORT_IDS)
     assert escalating_ids | NON_ESCALATING_PORT_IDS <= catalogue.keys()
+    assert {facility.id for facility in catalogue.values() if facility.is_port} == (
+        escalating_ids | set(OUTPOST_IDS) | {'colony_ship'}
+    )
+    # Large settlements remain in the explicit guard despite being support facilities.
+    assert all(not catalogue[facility_id].is_port for facility_id in LARGE_SETTLEMENT_IDS)
     for facility in catalogue.values():
         if facility.is_port and facility.tier in {2, 3}:
             assert (facility.id in escalating_ids) != (facility.id in NON_ESCALATING_PORT_IDS)
