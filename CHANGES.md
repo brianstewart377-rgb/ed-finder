@@ -21,8 +21,8 @@ reviewed 7,200 s envelope (`body_mechanics` verify about 11,400 s,
 `economy_opportunity` verify about 16,000 s, `system_search` index build about
 15,300 s). The Search preflight scan took 1.2 s (about 2 minutes at production
 size), well inside the 2,760 s query transport, so deferred Codex finding
-4384599563 stays deferred. Receipt:
-`docs/operations/evidence/2026-10-28-v3-derived-purge-rehearsal-receipt-run-40571954621.json`.
+4384599563 stays deferred. The run's sealed receipt is its workflow artifact;
+the evidence copy is committed with the record of 021's apply.
 
 **Migration 021 (registered, not applied).** Verification grew faster than the
 tables (13.6 and 14.7 times the smoke run's time for 6.67 times the rows).
