@@ -178,6 +178,21 @@ newer dated source wins).
   attempt (0.37–0.52 s) and no failed Finder read; its one failed crash
   scenario was a rehearsal-environment gap fixed in #900.
 
+  **One-percent rehearsal and verification bound (2026-10-28):** run
+  40571954621 (about 2 million systems) passed its own checks — every swap on
+  its first attempt, Finder stall at most 0.81 s, all nine crash scenarios,
+  cleanup verified — but cannot authorize production: extrapolated
+  `body_mechanics` and `economy_opportunity` verification (about 3.2 h and
+  4.5 h) and the `system_search` index build (about 4.2 h) exceed the 7,200 s
+  envelope. Verification also grew faster than the tables, because 019's
+  per-chunk re-read scanned on to the end of the survivor generation.
+  Migration `021_v3_purge_verify_chunk_bound.sql` (the copy's own keyset read
+  per chunk; nothing else changes) is written, tested on PostgreSQL 18 and
+  registered (through-020 → through-021); **not applied** — its apply needs the
+  owner's approval, and until then promotions are refused on the schema
+  identity. Next: re-run the one_percent rehearsal with 021, then decide the
+  Search index build (the GiST position index) with the owner.
+
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
     owner accepts a replacement.

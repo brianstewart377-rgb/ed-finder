@@ -132,6 +132,24 @@ The copy runs `INSERT INTO staging SELECT … WHERE derived_generation_id =
    - **FK:** the staging table's FK to its live parent is added `NOT VALID`, then
      `VALIDATE`d.
 
+**Verification bound (migration 021, 2026-10-28).** The one_percent rehearsal
+(run 40571954621) passed its own checks, but verification grew faster than the
+tables: from the smoke run (40535321292) to the one_percent run the rows grew
+6.67 times while `body_mechanics` verification took 13.6 times as long and
+`economy_opportunity` 14.7 times. 019 re-read each chunk with two row
+comparisons led by `derived_generation_id` plus a separate
+`derived_generation_id = $1`; with that equality on the index's leading column
+the btree scan ended at the end of the survivor generation, not at the chunk's
+high key, so every chunk read on to the end of the table and verification cost
+grew with the square of the table size. On PostgreSQL 18.4 one 100,000-row
+chunk read 4,976 buffers in a 600,000-row table and 23,158 in a 3,600,000-row
+table. Migration `021` re-reads each chunk the way `purge_copy_chunk` copied it:
+rows at or after the chunk's low key, in primary-key order, `LIMIT` the ledgered
+row count (2,670 buffers at both sizes). Count, lowest and highest key and
+digest are compared exactly as before; with the staging primary key in place,
+the first `rows_affected` rows from the low key end at the high key only if the
+chunk holds exactly those rows. Nothing else in `purge_copy_verify` changes.
+
 ### 1.4 Swap
 
 The swap is one transaction with `lock_timeout = 2s`. It retries with backoff up
@@ -422,7 +440,9 @@ Measured on PostgreSQL 18.4 while building the operator modes
   back and the next `copy-R` re-enters it) and runs each long phase host-side
   under the purge lease with `pg_stat_progress_*` polling and the watchdog.
   True mid-phase resumability needs a per-index build function and a
-  per-range verify in a later migration.
+  per-range verify in a later migration. Migration `021` (§1.3, "Verification
+  bound") makes each chunk's re-read stop at that chunk; it does not split
+  verification into separate calls.
 - **`temp_file_limit`.** It is a superuser-set parameter; the executor needs
   `GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor` before
   any long phase can bound its temporary files. 019 does not grant it; the

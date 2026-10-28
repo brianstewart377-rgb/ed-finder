@@ -21,7 +21,7 @@ from tests.test_v3_purge_copy_and_drop import (
 )
 from tests.test_v3_governed_derived_purge import RELATIONS
 
-superuser_database = copy_tests.superuser_database  # fixture: per-test database, 001-016 chain, 019, 020
+superuser_database = copy_tests.superuser_database  # fixture: per-test database, 001-016 chain, 019, 020, 021
 
 # The rehearsal's Finder reads (scripts/rehearsal/v3_derived_purge_rehearsal.py)
 # plus the API's two-view joins in both orders (apps/api/src/ranking/ranking_sql.py)
