@@ -112,6 +112,21 @@ def test_support_rows_can_infer_economy_without_an_economy_cell(family):
     assert template['is_support_facility'] is True
 
 
+@pytest.mark.parametrize('family', ['Starport', 'Outpost', 'Planetary Port', 'Settlement', 'Hub', 'Installation'])
+@pytest.mark.parametrize('economy', ['Colony', '*Colony', 'Industrial', None])
+def test_colony_port_requires_port_family_and_colony_economy(family, economy):
+    template = importer._row_to_template(importer.CellRow(2, {
+        'A': f'Surface - {family} - Agriculture T1 S',
+        'F': 1,
+        'N': economy,
+    }))
+
+    assert template['is_colony_port'] is (
+        family in {'Starport', 'Outpost', 'Planetary Port'}
+        and economy in {'Colony', '*Colony'}
+    )
+
+
 def test_bundled_catalogue_matches_importer_rows_order_and_serialisation():
     catalogue_text = CATALOGUE_PATH.read_text(encoding='utf-8')
     catalogue = json.loads(catalogue_text)

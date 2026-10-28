@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.domain.facilities import FacilityTemplate, is_colony_ship
 from edfinder_api.optimiser.archetype_rules import ArchetypeRule
 
 
@@ -72,7 +72,7 @@ def select_port_template(
     if not ports:
         return None
     if strategy != 'primary_port_bootstrap':
-        strategic_ports = [port for port in ports if not port.is_colony_port]
+        strategic_ports = [port for port in ports if not is_colony_ship(port)]
         if strategic_ports:
             ports = strategic_ports
     if strategy == 'low_cp':

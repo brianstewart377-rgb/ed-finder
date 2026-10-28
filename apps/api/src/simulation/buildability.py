@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from edfinder_api.domain.facilities import FacilityTemplate, get_catalogue
+from edfinder_api.domain.facilities import FacilityTemplate, get_catalogue, is_colony_ship
 from edfinder_api.mechanics.cp_rules import t2_port_yellow_cost
 from edfinder_api.simulation.cp_simulator import (
     CPAnalysis, analyse_cp_budget, complexity_label,
@@ -261,7 +261,7 @@ def _select_facilities_for_archetype(
     selected: list[FacilityTemplate] = []
 
     # Always include colony ship
-    colony_ships = [f for f in all_facilities if f.is_colony_port]
+    colony_ships = [f for f in all_facilities if is_colony_ship(f)]
     selected.extend(colony_ships[:1])
 
     # Include support facilities for target economies
