@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-28 — Migration 021 applied to production
+
+**Production (owner-approved, governed workflow).** Plan run 40654122650
+reported `pending=[021]` with no writes; apply run 40654201809 applied
+`021_v3_purge_long_phase_bounds.sql` and installed the through-021 schema
+identity (`c54f861f…0679`). Capability only: three executor-only purge
+functions (prepare, index build, verify) were replaced; no table, view, grant
+or payload row changed, and no service changed. This clears the promotion block
+that #904 introduced. The apply receipt and the one_percent rehearsal receipt
+(run 40571954621) are committed under `docs/operations/evidence/`; CLAUDE.md,
+ROADMAP, infrastructure status and the purge runbook record the apply.
+
 ## 2026-10-28 — One-percent purge rehearsal; migration 021 bounds the copy's long phases
 
 **One-percent rehearsal (run 40571954621, Contabo, 2026-10-28).** The copy route
@@ -21,8 +33,8 @@ reviewed 7,200 s envelope (`body_mechanics` verify about 11,400 s,
 `economy_opportunity` verify about 16,000 s, `system_search` index build about
 15,300 s). The Search preflight scan took 1.2 s (about 2 minutes at production
 size), well inside the 2,760 s query transport, so deferred Codex finding
-4384599563 stays deferred. The run's sealed receipt is its workflow artifact;
-the evidence copy is committed with the record of 021's apply.
+4384599563 stays deferred. Receipt:
+`docs/operations/evidence/2026-10-28-v3-derived-purge-rehearsal-receipt-run-40571954621.json`.
 
 **Migration 021 (registered, not applied).** Verification grew faster than the
 tables (13.6 and 14.7 times the smoke run's time for 6.67 times the rows).
