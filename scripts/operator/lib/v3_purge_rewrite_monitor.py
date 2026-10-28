@@ -24,14 +24,25 @@ STARTUP_SECONDS = 15
 DIRECTORY = Path('/run/edfinder-v3-purge-monitors')
 
 
-def watch(backend_alive, observe, controller_alive, cancel, *, sleep=time.sleep):
-    """Keep cancelling on a latched breach until the authenticated backend exits."""
+DETAIL_PATTERN = re.compile('(?:backend|observe):[A-Za-z0-9_]{1,64}')
+
+
+def watch(backend_alive, observe, controller_alive, cancel, *, sleep=time.sleep, detail=None):
+    """Keep cancelling on a latched breach until the authenticated backend exits.
+
+    Every check that cannot complete cancels as ``wal_archiver_failure`` (the
+    conditions 016's cancel definer accepts are fixed), so ``detail``, when
+    given, receives the exception that latched the condition once, as
+    ``<backend|observe>:<code>``; recording it never affects the watchdog.
+    """
     condition = None
     while True:
         try:
             if not backend_alive():
                 break
-        except Exception:
+        except Exception as exc:
+            if condition is None:
+                _detail(detail, 'backend', exc)
             condition = condition or 'wal_archiver_failure'
         if condition is None:
             try:
@@ -45,6 +56,7 @@ def watch(backend_alive, observe, controller_alive, cancel, *, sleep=time.sleep)
                              'wal_filesystem' if code == 'tablespace_or_wal_filesystem_mismatch' else
                              'wal_ceiling' if code == 'wal_ceiling_exceeded' else
                              'wal_archiver_failure')
+                _detail(detail, 'observe', exc)
         if condition is not None:
             try:
                 cancel(condition)
@@ -54,6 +66,18 @@ def watch(backend_alive, observe, controller_alive, cancel, *, sleep=time.sleep)
                 pass
         sleep(INTERVAL_SECONDS)
     return condition
+
+
+def _detail(record, source, exc):
+    if record is None:
+        return
+    code = str(exc)
+    if re.fullmatch('[A-Za-z0-9_]{1,64}', code) is None:
+        code = type(exc).__name__
+    try:
+        record(source + ':' + code)
+    except Exception:
+        pass
 
 
 def secure_file(path):
@@ -106,6 +130,18 @@ def copy_condition(unit):
     value = path.read_text()
     path.unlink(missing_ok=True)
     return value if re.fullmatch('[a-z_]+', value) else None
+
+
+def copy_detail(unit):
+    """What latched that condition (``<backend|observe>:<code>``); None otherwise."""
+    path = DIRECTORY / (unit + '.json.detail')
+    try:
+        secure_file(path)
+    except (OSError, ValueError):
+        return None
+    value = path.read_text()
+    path.unlink(missing_ok=True)
+    return value if DETAIL_PATTERN.fullmatch(value) else None
 
 
 def start(c, runtime, ids, relation, backend, identity, report):
@@ -247,6 +283,15 @@ def main(argv=None):
         if copy_mode and wal['bytes'] > config['wal_ceiling_bytes']:
             raise ValueError('wal_ceiling_exceeded')
     condition_path = Path(str(path) + '.condition')
+    detail_path = Path(str(path) + '.detail')
+    def detail(text):
+        # The unit's journal keeps it for either mode; a copy also leaves it
+        # beside its condition for the dispatch receipt.
+        print('watchdog_detail ' + text, file=sys.stderr, flush=True)
+        if copy_mode and not detail_path.exists():
+            with detail_path.open('x') as stream:
+                os.chmod(detail_path, 0o600)
+                stream.write(text)
     def cancel(condition):
         if not pinned():
             return
@@ -267,7 +312,7 @@ def main(argv=None):
         with ready.open('x') as stream:
             os.chmod(ready, 0o600)
             stream.write('ready')
-        watch(alive, observe, controller, cancel)
+        watch(alive, observe, controller, cancel, detail=detail)
     finally:
         ready.unlink(missing_ok=True)
         path.unlink(missing_ok=True)

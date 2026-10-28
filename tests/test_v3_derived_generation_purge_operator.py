@@ -1741,6 +1741,34 @@ def test_wal_measurement_fails_closed_on_unavailable_directory_size(output):
         module.measure_wal(runtime, '/data')
 
 
+def test_wal_measurement_re_measures_when_a_segment_vanishes_mid_scan():
+    """A checkpoint can remove or recycle a segment while du walks pg_wal; du
+    then exits 1 and the bounded runner raises. That race must not cancel a
+    long phase (one_percent rehearsal run 40654125745 stopped on a watchdog
+    cancel with no other cause), so the measurement retries a bounded number of
+    times and only a directory that keeps failing fails closed."""
+    module = _action_tool()
+    outcomes = [RuntimeError('bounded_command_failed'), RuntimeError('bounded_command_failed'), '4096 /data/pg_wal']
+    calls = []
+    def docker(*argv):
+        calls.append(argv)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+    runtime = SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=docker)
+    assert module.measure_wal(runtime, '/data') == {'lsn': '0/10', 'bytes': 4096}
+    assert len(calls) == module.WAL_DIRECTORY_ATTEMPTS == 3
+    assert all(call[-1] == '/data/pg_wal' and 'du' in call for call in calls)
+    def always_fails(*_argv):
+        always_fails.calls += 1
+        raise RuntimeError('bounded_command_failed')
+    always_fails.calls = 0
+    with pytest.raises(ValueError, match='wal_directory_bytes_unavailable'):
+        module.measure_wal(SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=always_fails), '/data')
+    assert always_fails.calls == module.WAL_DIRECTORY_ATTEMPTS
+
+
 def test_wal_delta_uses_parameterized_server_lsn_arithmetic():
     module = _action_tool()
     report = module.receipt('authorize')

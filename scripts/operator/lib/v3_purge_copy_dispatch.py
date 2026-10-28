@@ -354,10 +354,11 @@ def _long_phase(c, copy, runtime, report, *, phase, sql, params, relation, ids, 
             result = backend.query(sql, params, write=write)
         except PhaseBackendError as exc:
             condition = monitor.copy_condition(unit)
+            detail = monitor.copy_detail(unit)
             kind = copy.classify_sqlstate(exc.sqlstate)
             _bucket(report, 'copy_phase_failures', []).append({
                 'phase': phase, 'sqlstate': exc.sqlstate, 'classification': kind,
-                'monitor_condition': condition, 'started_at': started_at})
+                'monitor_condition': condition, 'monitor_detail': detail, 'started_at': started_at})
             if kind == 'integrity':
                 _record_failure(c, copy, runtime, report, ids, relation,
                                 copy.failure_evidence('copy_' + phase + '_integrity_failed', phase, exc.sqlstate,

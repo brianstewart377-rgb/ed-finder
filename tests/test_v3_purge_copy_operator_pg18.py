@@ -443,7 +443,7 @@ def _phase_harness(monkeypatch, connection, *, name, real_long_phase=False):
     runtime = _PGRuntime(connection)
     saved = []
     original = c._load
-    monitor = SimpleNamespace(start_copy=lambda *a, **k: 'unit', copy_condition=lambda unit: None)
+    monitor = SimpleNamespace(start_copy=lambda *a, **k: 'unit', copy_condition=lambda unit: None, copy_detail=lambda unit: None)
     delete = SimpleNamespace(save_host_state=lambda value, path=None: saved.append((value, str(path))))
     cache = {}
     def load(module, path=None):

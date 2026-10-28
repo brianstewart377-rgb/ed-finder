@@ -327,6 +327,11 @@ def test_host_recovery_state_and_watchdog_conditions_stay_in_the_private_directo
     assert monitor.copy_condition('copy-economy_opportunity-verify-42') is None
     (private / 'copy-x-verify-1.condition').write_text('not a code;')
     assert monitor.copy_condition('copy-x-verify-1') is None
+    (private / 'copy-economy_opportunity-index_build-42.detail').write_text('observe:bounded_command_failed')
+    assert monitor.copy_detail('copy-economy_opportunity-index_build-42') == 'observe:bounded_command_failed'
+    assert monitor.copy_detail('copy-economy_opportunity-index_build-42') is None
+    (private / 'copy-x-verify-1.detail').write_text('observe:not a code;')
+    assert monitor.copy_detail('copy-x-verify-1') is None
 
 
 def test_injected_pause_ends_well_inside_the_chunk_timeout_and_the_orphan_wait():
