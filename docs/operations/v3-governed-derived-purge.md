@@ -136,6 +136,31 @@ inserts fill them and `build_indexes` builds only the rest
 (`docs/development/v3-purge-copy-and-drop-design.md` §1.3). `021` must be
 applied before `plan`, and the one_percent rehearsal must be re-run with it.
 
+**Production host speed (2026-10-28).** The re-run with `021` (run
+40704251158, main `065d1e56`) passed every check except the gate: verification
+of `body_mechanics` (about 7,077 s) and `economy_opportunity` (about 8,900 s)
+extrapolated from the rehearsal host. The 7,200 s statement cap dates from the
+purge design (#822); the "twice the estimate" margin was added with
+copy-and-drop (#894). Neither was an owner requirement, and both were measured
+against the rehearsal host. An owner-run, read-nothing benchmark of the same
+row-text, md5 and ordered-aggregate work
+(`docs/operations/evidence/2026-10-28-v3-purge-host-speed-benchmark.json`)
+took 5.56–5.63 s on production and 17.77–18.48 s on the rehearsal host (same
+result on both). Owner decision (2026-10-28): no further rehearsal; the gate
+judges verification at production speed. Production authority now requires
+twice `max(index build, VACUUM FREEZE, verify × 0.31695, FK validation)` to be
+within 7,200 s, scaling only verification and only for receipts measured in
+the benchmarked rehearsal image; the statement timeouts themselves are
+unchanged. Run 40704251158's longest phase is then about 2,821 s
+(`economy_opportunity` verification; its VACUUM FREEZE, unscaled, about
+2,818 s). Because that run predates this gate, the receipt module pins it
+(`ACCEPTED_REHEARSALS`: its content seal, its action identity and the SHA-256
+of every file that identity covers). It stays production authority only while
+every one of those files except the receipt module itself, the harness and the
+migration set are byte-for-byte as rehearsed; a change to any purge file
+before the purge runs requires a new one_percent rehearsal, and a static test
+fails until the pinned entry is removed.
+
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
 `edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,
@@ -680,11 +705,18 @@ catalog-only swap figures raw, and sets `required_free_bytes_before_copy` =
 100 GB + 1.5 × the extrapolated copy peak; `margin_applied` is kept for review
 only (the controller applies the margin at admission, once).
 `long_phase_fits_reviewed_timeout` is true only if twice the longest
-extrapolated long phase is within the 7,200 s statement envelope.
+extrapolated long phase is within the 7,200 s statement envelope at
+rehearsal-host speed (it is part of the sealed maths and is not changed).
 
 Production authority (`one_percent`, status success, cleanup verified, all
-crash scenarios passed, current code identities) additionally refuses a long
-phase outside that envelope (`rehearsal_long_phase_exceeds_reviewed_timeout`),
+crash scenarios passed, current code identities or a pinned
+`ACCEPTED_REHEARSALS` entry whose files are unchanged) additionally refuses a
+long phase outside that envelope at production host speed — verification
+scaled by the 2026-10-28 benchmark factor (0.31695) for receipts measured in the
+benchmarked image, every other phase unscaled
+(`rehearsal_long_phase_exceeds_reviewed_timeout`; the plan's `rehearsal` block
+records `verify_speed_factor`, `production_long_phase_seconds` and
+`accepted_before_gate_change` for review),
 a Finder read stall above the API's 15 s read timeout
 (`rehearsal_finder_stall_exceeds_api_timeout`), and a synthetic Search copy
 narrower per row than production (`rehearsal_search_survivor_width_unrepresentative`:

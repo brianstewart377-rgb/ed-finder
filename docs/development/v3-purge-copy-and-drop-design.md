@@ -162,6 +162,23 @@ alone. Verification's fingerprint still compares every index with the live one.
 Chunks get slower by that index's insert cost, within the chunk statement
 timeout, gate 2 and the WAL throttle.
 
+**Production host speed (2026-10-28).** With `021` the one_percent rehearsal
+(run 40704251158) brought the Search index build to about 1,410 s, but
+`body_mechanics` and `economy_opportunity` verification still extrapolated to
+about 7,077 s and 8,900 s on the rehearsal host. Verification there is linear
+work (every copied row rendered, hashed and aggregated), not another defect.
+An owner-run benchmark of that work, reading no table, took 5.56–5.63 s on
+production and 17.77–18.48 s on the rehearsal host
+(`docs/operations/evidence/2026-10-28-v3-purge-host-speed-benchmark.json`).
+Owner decision: no further rehearsal. The production gate scales extrapolated
+verification by the slower production run over the faster rehearsal-host run
+(0.31695), only for receipts measured in the benchmarked image, and keeps the
+2× allowance within 7,200 s; index build, VACUUM FREEZE and FK validation are
+not scaled, and no statement timeout changes. The longest phase at production
+speed is then about 2,821 s. Run 40704251158 is pinned as accepted authority
+while the files it rehearsed (bar the receipt module) are unchanged
+(`docs/operations/v3-governed-derived-purge.md`, "Production host speed").
+
 ### 1.4 Swap
 
 The swap is one transaction with `lock_timeout = 2s`. It retries with backoff up

@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-28 — Purge rehearsal gate: judge verification at production speed
+
+The one_percent rehearsal with 021 and #906 (run 40704251158) passed every
+check, but the production gate refused it: `body_mechanics` and
+`economy_opportunity` verification extrapolated to about 7,077 s and 8,900 s on
+the rehearsal host, and the gate wants twice the longest phase within the
+7,200 s statement cap. An owner-run benchmark of verification's work (row
+text, md5, ordered aggregate; reads no table) took 5.56–5.63 s on production
+and 17.77–18.48 s on the rehearsal host. Owner decision: no further rehearsal.
+The gate now scales extrapolated verification by 0.31695 for receipts measured
+in the benchmarked image (other long phases, the 2× allowance and every
+statement timeout unchanged; the sealed receipt maths unchanged), and pins run
+40704251158 as accepted authority while every file it rehearsed, except the
+receipt module, is byte-for-byte unchanged. Its longest phase at production
+speed is about 2,821 s. The benchmark is recorded under
+`docs/operations/evidence/`.
+
 ## 2026-10-28 — Purge watchdog: re-measure pg_wal on a vanished segment; record what latched a cancel
 
 The one_percent rehearsal with 021 (run 40654125745) copied, swapped and

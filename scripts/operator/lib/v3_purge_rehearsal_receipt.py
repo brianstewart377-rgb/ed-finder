@@ -41,6 +41,67 @@ SURVIVOR_PRODUCTS = ('system_search', 'system_archetype')
 FREE_FLOOR_BYTES = 100_000_000_000
 # The copy route's reviewed long-phase statement envelope (v3_purge_copy).
 MAX_LONG_PHASE_SECONDS = 7_200
+# Owner-run host speed benchmark, 2026-10-28
+# (docs/operations/evidence/2026-10-28-v3-purge-host-speed-benchmark.json):
+# one read-only query (3,000,000 generated rows rendered as row text, an md5
+# per row, then an ordered md5 aggregate; the same result on both hosts), run
+# twice on production and twice on the rehearsal host in the pinned rehearsal
+# image. Verification is that work, so a rehearsal measured in that image has
+# its extrapolated verification scaled by the slower production run over the
+# faster rehearsal-host run (about 0.317). Index build, VACUUM FREEZE and FK
+# validation keep rehearsal-host time.
+PRODUCTION_BENCHMARK_MS = 5631.137
+REHEARSAL_HOST_BENCHMARK_MS = 17766.579
+BENCHMARKED_REHEARSAL_IMAGE = ('ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine'
+                               '@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873')
+RECEIPT_MODULE = 'scripts/operator/lib/v3_purge_rehearsal_receipt.py'
+# One-percent rehearsals that ran before this module's production gate last
+# changed (the action identity hashes this module). Each pins the receipt's
+# content seal, the action identity it ran and the SHA-256 of every file that
+# identity covered. It stays production authority only while every one of
+# those files other than this module is byte-for-byte as rehearsed (the file
+# list itself lives in v3_generation_purge.py, which is pinned) and the
+# harness and migration set match; any other change needs a new rehearsal.
+ACCEPTED_REHEARSALS = {
+    # Run 40704251158 on main 065d1e56 (2026-10-28): 019, 020, 021 and #906.
+    '5732f3b3ac48ede0fbde7b210de8cd1c59ece1be27df56987c141c3e936dda07': {
+        'script_sha256': '4a1955b4b8edc26960351f3a48571f14606048d9d9546db692a71d1073f99ab4',
+        'files': {
+            'deploy/v3-production/backup/pgbackrest-operation.sh':
+                'f22b2db951cd1932ca6c3a0c41858fa00fc3613dacc2a736553a0017c6517f72',
+            'scripts/operator/actions/v3-derived-generation-purge.sh':
+                'da14a92989ddf3c2ce796f068eb1ce14b759f4d2391f18f8696bba8b914c3065',
+            'scripts/operator/actions/v3-derived-lifecycle-status.sh':
+                '0ead803e384ba6c9e2fa37c2c118011695d532db3f8e2954359941aa9bcb254a',
+            'scripts/operator/lib/f2d_evidence.py':
+                'd58a3590dbc7c4131a633357be771e717f7c72c3507d9906ba1a462e1b57b4ea',
+            'scripts/operator/lib/v3_generation_purge.py':
+                '3d313a899f6d5feef3402a19c22d74b46a8341c2de908ab847d572c49477db0e',
+            'scripts/operator/lib/v3_purge_copy.py':
+                'deed2681f510044ee81f5879ed4c332a92b2b0d1f37a9801e4c902abef41a775',
+            'scripts/operator/lib/v3_purge_copy_dispatch.py':
+                '04ec4513df70982f67f93c8ddde8e166f3b1070fac132648df8fd46675b24577',
+            'scripts/operator/lib/v3_purge_delete.py':
+                '65f134fb6eca3701caf629e42bda323964894ea5e185c892c12fb3b56c189ec0',
+            'scripts/operator/lib/v3_purge_rehearsal.py':
+                '83eb82123ed160d836126f3fd34beb0a7892ce8d99c1e5829d0fbfe59f693472',
+            'scripts/operator/lib/v3_purge_rehearsal_receipt.py':
+                'fb985384f8a33b5ff308c6bf834d4b47ac7b54b9995c638be7d00db5cd06c510',
+            'scripts/operator/lib/v3_purge_rewrite.py':
+                'a4c2ce970f8255983ab8e3d0e67436775292dbdf2556a30750c85baea67f5b7e',
+            'scripts/operator/lib/v3_purge_rewrite_dispatch.py':
+                '6b0f2b7993b00f2ad427cad4d5263ed02b5e893dcbb1f97d85a1820308657cf1',
+            'scripts/operator/lib/v3_purge_rewrite_monitor.py':
+                '1ddbc0c0855d414136022b9cda2556a287433f439598225f0b593188eed67627',
+            'scripts/operator/lib/v3_purge_state.py':
+                '4b8e73550694bd3d4c4406dad7c6625c4607d6662c4dbfe76b4f125cf8d805cc',
+            'scripts/operator/lib/v3_purge_transactions.py':
+                'cdcea7b2d7b914faa3fd36898e9824323567c32fb70c8c7016a9234cc141b56f',
+            'scripts/operator/v3_schema_identity.py':
+                'af308cf196901f2b35180cf026e6cbef16e5bc1a9b7e54fa075817d95aaac013',
+        },
+    },
+}
 # The API's read statement timeout (apps/api/src/config.py): a Finder read that
 # waits longer than this behind a swap fails as a 503.
 API_READ_TIMEOUT_SECONDS = 15
@@ -188,6 +249,42 @@ def relation_figures(raw, proportion):
         'copy_peak_bytes': margin_bytes(peak), 'temp_file_peak_bytes': margin_bytes(temp)}}
 
 
+def verify_speed_factor(value):
+    """Production over rehearsal-host verification time; 1 outside the benchmarked image."""
+    if value.get('image_digest') != BENCHMARKED_REHEARSAL_IMAGE:
+        return 1.0
+    return PRODUCTION_BENCHMARK_MS / REHEARSAL_HOST_BENCHMARK_MS
+
+
+def production_long_phase_seconds(measured, factor):
+    """The longest extrapolated long phase, verification at production host speed.
+
+    ``long_phase_fits_reviewed_timeout`` in the receipt keeps the rehearsal
+    host's figure (it is part of the sealed maths); the production gate uses
+    this one. Twice it must still fit the 7,200 s statement envelope.
+    """
+    return max(measured['index_build_seconds'], measured['vacuum_freeze_seconds'],
+               measured['verify_seconds'] * factor, measured['fk_validation_seconds'])
+
+
+def _accepted_before_gate_change(value):
+    """True only for a pinned receipt whose rehearsed files, bar this module, are unchanged."""
+    accepted = ACCEPTED_REHEARSALS.get(value.get('content_sha256'))
+    if accepted is None or value.get('script_sha256') != accepted['script_sha256']:
+        return False
+    evidence = _evidence()
+    body = {key: item for key, item in value.items() if key != 'content_sha256'}
+    files = accepted['files']
+    if (evidence.canonical_sha256(body) != value['content_sha256'] or RECEIPT_MODULE not in files
+            or evidence.canonical_sha256(files) != accepted['script_sha256']):
+        return False
+    try:
+        return all(hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
+                   for relative, digest in files.items() if relative != RECEIPT_MODULE)
+    except OSError:
+        return False
+
+
 def _require_identity(value):
     if (not isinstance(value.get('source_git_sha'), str)
             or re.fullmatch('[0-9a-f]{40}', value['source_git_sha']) is None):
@@ -268,14 +365,16 @@ def validate(value, *, production=True):
             raise ValueError('rehearsal_cleanup_not_verified')
         if value.get('lifecycle_receipt_sha256') != hashlib.sha256(LIFECYCLE_RECEIPT.read_bytes()).hexdigest():
             raise ValueError('rehearsal_lifecycle_proportions_unbound')
+        factor = verify_speed_factor(value)
         for relation in RELATIONS:
             measured = figures[relation]['production']
-            if measured['long_phase_fits_reviewed_timeout'] is not True:
+            if 2 * production_long_phase_seconds(measured, factor) > MAX_LONG_PHASE_SECONDS:
                 raise ValueError('rehearsal_long_phase_exceeds_reviewed_timeout')
             if measured['finder_read_stall_seconds'] > API_READ_TIMEOUT_SECONDS:
                 raise ValueError('rehearsal_finder_stall_exceeds_api_timeout')
         for field, expected in code_identity().items():
-            if value[field] != expected:
+            if value[field] != expected and not (
+                    field == 'script_sha256' and _accepted_before_gate_change(value)):
                 raise ValueError('rehearsal_' + field + '_mismatch')
     return value
 
@@ -333,6 +432,7 @@ def apply_to_plan(reviewed, rehearsal):
     source = 'reviewed_rehearsal:' + rehearsal['content_sha256']
     figures = {relation: rehearsal['per_relation'][relation]['production'] for relation in RELATIONS}
     reviewed['copy'] = _load('v3_purge_copy').plan_block(figures, source)
+    factor = verify_speed_factor(rehearsal)
     reviewed['rehearsal'] = {
         'content_sha256': rehearsal['content_sha256'], 'source_git_sha': rehearsal['source_git_sha'],
         **{field: rehearsal[field] for field in (
@@ -340,5 +440,10 @@ def apply_to_plan(reviewed, rehearsal):
         'route': ROUTE, 'scale': rehearsal['scale'], 'gate_10_crash_rehearsal_passed': True,
         'production_proportion': rehearsal['production_proportion'], 'disk_peak_margin': 1.5,
         'margin_application': 'raw_peaks_passed_to_controller_margin_applied_at_admission',
+        # For review: the gate's figures (the copy block keeps the receipt's own).
+        'verify_speed_factor': factor,
+        'production_long_phase_seconds': {
+            relation: production_long_phase_seconds(figures[relation], factor) for relation in RELATIONS},
+        'accepted_before_gate_change': rehearsal['script_sha256'] != code_identity()['script_sha256'],
     }
     return reviewed

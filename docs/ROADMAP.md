@@ -195,8 +195,23 @@ newer dated source wins).
   2026-10-28** (owner-approved; plan run 40654122650: pending exactly `[021]`,
   no writes; apply run 40654201809: `status=applied`, `applied_now=[021]`,
   schema identity now `c54f861f…0679`). Receipts: the apply and the
-  40571954621 rehearsal under `docs/operations/evidence/`. Next: the
-  one_percent rehearsal with 021 (run 40654125745, dispatched 2026-10-28).
+  40571954621 rehearsal under `docs/operations/evidence/`. The one_percent
+  rehearsal with 021 (run 40654125745) stopped on a watchdog `du` race, fixed
+  in #906; the re-run (run 40704251158, main `065d1e56`) passed every check,
+  but `body_mechanics` and `economy_opportunity` verification still
+  extrapolated to about 2.0 h and 2.5 h at rehearsal-host speed.
+
+  **Production host speed (2026-10-28, owner decision):** no further
+  rehearsal. An owner-run, read-nothing benchmark measured production about
+  3.2 times faster than the rehearsal host at verification's work
+  (`docs/operations/evidence/2026-10-28-v3-purge-host-speed-benchmark.json`);
+  the production gate now scales extrapolated verification by 0.31695 (still
+  twice within 7,200 s; other phases and the statement timeouts unchanged),
+  and run 40704251158 is pinned as accepted authority while the files it
+  rehearsed are unchanged. Its longest phase at production speed is about
+  47 min. Next, each with the owner's approval: the app release, the backup
+  wrapper re-install, the backup heartbeat alert, the `temp_file_limit` grant,
+  a full backup, then `plan` with `rehearsal_run_id` 40704251158.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the

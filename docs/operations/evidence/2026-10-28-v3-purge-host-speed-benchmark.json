@@ -1,0 +1,37 @@
+{
+  "schema_version": "ed-finder/purge-host-speed-benchmark/v1",
+  "date": "2026-10-28",
+  "purpose": "Measure how much faster production runs the purge's verification work than the disposable rehearsal host, so a one_percent rehearsal's extrapolated verification time can be judged at production speed.",
+  "run_by": "owner, by hand over SSH (owner-authorised; recorded here afterwards)",
+  "safety": "The query reads no table and writes nothing: it generates its rows in memory. On production it ran in an ordinary read session; on the rehearsal host in a throwaway container removed afterwards.",
+  "query": "SELECT count(*), md5(string_agg(md5(t::text), '' ORDER BY t.i)) FROM (SELECT i, i::float8 * 1.37 AS f, i % 97 AS k, repeat(md5(i::text), 6) AS pad FROM generate_series(1, 3000000) AS i) AS t;",
+  "session_settings": ["\\timing on", "SET work_mem = '32MB';"],
+  "expected_result": {"count": 3000000, "md5": "f3aaaf7362e1c7d708fe5df720aa1bec"},
+  "why_this_query": "purge_copy_verify renders each copied row as row text, hashes it with md5 and aggregates the hashes in key order; this query does the same CPU and sort work without touching data.",
+  "hosts": {
+    "production": {
+      "host": "ed-finder-prod",
+      "server": "PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), the production database container",
+      "command": "docker exec -it edfinder-v3-phase4c-full-20260827_r5-postgres psql -X --host /var/run/postgresql --username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5",
+      "runs_ms": [5631.137, 5560.544],
+      "result": {"count": 3000000, "md5": "f3aaaf7362e1c7d708fe5df720aa1bec"}
+    },
+    "rehearsal_host": {
+      "host": "Contabo (the purge-rehearsal runner's host)",
+      "image": "ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873",
+      "commands": [
+        "sudo docker run --rm -d --name edf-speedtest -e POSTGRES_HOST_AUTH_METHOD=trust <image>",
+        "sudo docker exec -it -u postgres edf-speedtest psql -X -d postgres",
+        "sudo docker rm -f edf-speedtest"
+      ],
+      "runs_ms": [18481.683, 17766.579],
+      "result": {"count": 3000000, "md5": "f3aaaf7362e1c7d708fe5df720aa1bec"}
+    }
+  },
+  "factor": {
+    "definition": "slowest production run / fastest rehearsal-host run",
+    "value": "5631.137 / 17766.579 = 0.31695 (production is about 3.2 times faster)",
+    "applied_to": "verify_seconds only, for receipts measured in the image above (scripts/operator/lib/v3_purge_rehearsal_receipt.py)",
+    "not_applied_to": "index build, VACUUM FREEZE and FK validation, which keep rehearsal-host time"
+  }
+}
