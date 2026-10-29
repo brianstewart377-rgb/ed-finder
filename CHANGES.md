@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — Purge preconditions 3 and 4 met in production
+
+The backup heartbeat is installed (ops run 40873385526: files and hashes
+verified, timer enabled, a fresh first run exited 0, so pgBackRest shows a
+backup within 36 hours; the first attempt, run 40869454484, stopped before
+#915 fixed its run order). The owner applied `GRANT SET ON PARAMETER
+temp_file_limit TO v3_derived_purge_executor` and verified it with
+`has_parameter_privilege` (owner-run, recorded as evidence). Remaining before
+the purge `plan`: the pre-copy full backup.
+
 ## 2026-10-29 — Backup heartbeat (dead-man's switch)
 
 The new production host had no external alert, so failed or skipped backups
