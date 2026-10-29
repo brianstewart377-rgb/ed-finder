@@ -11,6 +11,21 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — Fourth F2d release `1e748c9d` accepted in production
+
+Owner-approved. Release run 40847515414 (source `1e748c9d`) passed preflight
+run 40847736690 and was accepted by promotion run 40850450821 at
+2026-10-29T09:33:33Z to slot blue: staging, active and public smoke 200,
+F2d image contract, OpenAPI bounds, 422 rejections and behavioural probes
+passed; no migration, no database writes, protected resources unchanged. It
+carries the governed purge operator code (the accepted F2d operator-code
+identity is now `feb0ed71…`) and app changes from PRs #892, #895, #896, #902,
+#908 and #909. `deploy/v3-production/target-authority.json` now records it as
+the accepted release; `a031c2da` is the recorded rollback artifact and
+`f667bb4d` stays the minimum schema-compatible image. Receipts, including the
+first preflight that stopped read-only before #911, are under
+`docs/operations/evidence/`.
+
 ## 2026-10-29 — F2d rollback selection honours reviewed compatibility
 
 The first preflight of the fourth F2d release (release run 40840492834, source
