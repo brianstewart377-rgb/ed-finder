@@ -41,7 +41,10 @@ def backup(kind, hours_ago, **extra):
 
 @pytest.fixture
 def hb():
-    return namespace(HEARTBEAT)
+    ns = namespace(HEARTBEAT)
+    # Production requires root; CI runs the suite as an ordinary user.
+    ns["URL_FILE_OWNER"] = os.geteuid()
+    return ns
 
 
 # --- verdict -----------------------------------------------------------------
@@ -262,8 +265,10 @@ def test_installer_and_heartbeat_share_one_url_contract():
 
 # --- installer ----------------------------------------------------------------
 
-def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="enabled", tamper=None):
+def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="enabled", tamper=None,
+              start_code=0, fresh=True):
     ns = namespace(INSTALLER)
+    ns["URL_FILE_OWNER"] = os.geteuid()
     runtime = tmp_path / "runtime"
     units = tmp_path / "systemd"
     runtime.mkdir()
@@ -278,18 +283,26 @@ def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="e
     else:
         ns["URL_FILE"] = tmp_path / "absent.url"
     commands = []
+    started = []
 
     def run(argv, *, timeout=30, check=True):
         commands.append(argv)
         out = {"hostname -s": "ed-finder-prod", "hostname -f": "nb79a3d.mevnode.com"}.get(" ".join(argv), "")
+        code = 0
         if argv[:2] == ["systemctl", "is-enabled"]:
             out = enabled
+        if argv[:2] == ["systemctl", "start"]:
+            started.append(True)
+            code = start_code
         if argv[:2] == ["systemctl", "show"]:
-            out = first_run
-        return SimpleNamespace(returncode=0, stdout=out + "\n")
+            # An earlier run (exit 0) until this one starts, if it does.
+            timestamp = 200 if started and fresh else 100
+            status = first_run if started and fresh else "0"
+            out = f"ExecMainStartTimestampMonotonic={timestamp}\nExecMainStatus={status}"
+        return SimpleNamespace(returncode=code, stdout=out + "\n")
 
     ns["run"] = run
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)  # after the owner above: the root check
     args = ["a" * 40]
     for source in (HEARTBEAT, SERVICE, TIMER):
         payload = source.read_bytes()
@@ -299,6 +312,10 @@ def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="e
         args += [digest, base64.b64encode(payload).decode()]
     monkeypatch.setattr("sys.argv", ["installer", *args])
     return ns, commands, runtime, units
+
+
+SHOW = ["systemctl", "show", "--property=ExecMainStartTimestampMonotonic", "--property=ExecMainStatus",
+        "edfinder-v3-backup-heartbeat.service"]
 
 
 def receipt_of(capsys):
@@ -311,7 +328,7 @@ def test_installer_installs_pinned_files_enables_timer_and_runs_once(tmp_path, m
     receipt = receipt_of(capsys)
     assert receipt["status"] == "passed" and receipt["failures"] == []
     assert receipt["heartbeat_url_file_valid"] and receipt["installed_hashes_verified"]
-    assert receipt["timer_enabled"] and receipt["first_run_exit_status"] == 0
+    assert receipt["timer_enabled"] and receipt["first_run_started"] and receipt["first_run_exit_status"] == 0
     assert receipt["db_writes_performed"] is False and receipt["direct_db_access_performed"] is False
     for item in receipt["files"]:
         assert item["source_sha256"] == item["installed_sha256"]
@@ -322,8 +339,9 @@ def test_installer_installs_pinned_files_enables_timer_and_runs_once(tmp_path, m
         ["systemctl", "daemon-reload"],
         ["systemctl", "enable", "--now", "edfinder-v3-backup-heartbeat.timer"],
         ["systemctl", "is-enabled", "edfinder-v3-backup-heartbeat.timer"],
+        SHOW,
         ["systemctl", "start", "edfinder-v3-backup-heartbeat.service"],
-        ["systemctl", "show", "--property=ExecMainStatus", "--value", "edfinder-v3-backup-heartbeat.service"],
+        SHOW,
     ]
     assert URL not in json.dumps(receipt)
 
@@ -344,8 +362,13 @@ def test_installer_refuses_before_any_write(tmp_path, monkeypatch, capsys, optio
 
 
 @pytest.mark.parametrize(("options", "failure"), [
-    ({"first_run": "1"}, "first_heartbeat_run_not_healthy"),
+    ({"first_run": "1", "start_code": 3}, "first_heartbeat_run_not_healthy"),
     ({"first_run": ""}, "first_heartbeat_run_not_healthy"),
+    # Codex: a failed start job can leave ExecMainStatus=0 from an earlier run.
+    ({"start_code": 1, "fresh": False}, "first_heartbeat_run_not_healthy"),
+    ({"start_code": 1}, "first_heartbeat_run_not_healthy"),
+    # A start that reports success but did not run the process again.
+    ({"fresh": False}, "first_heartbeat_run_not_healthy"),
     ({"enabled": "disabled"}, "timer_not_enabled"),
 ])
 def test_installer_reports_an_unhealthy_first_run(tmp_path, monkeypatch, capsys, options, failure):

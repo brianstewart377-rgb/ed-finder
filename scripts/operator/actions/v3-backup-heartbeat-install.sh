@@ -26,6 +26,7 @@ import tempfile
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 URL_FILE = Path("/etc/ed-finder/v3-production/backup-heartbeat.url")
+URL_FILE_OWNER = 0  # root
 URL_PATTERN = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/[A-Za-z0-9._~/-]{1,200}")
 SERVICE = "edfinder-v3-backup-heartbeat.service"
 TIMER = "edfinder-v3-backup-heartbeat.timer"
@@ -58,10 +59,20 @@ def check_url_file(path: Path | None = None) -> None:
         info = path.lstat()
     except FileNotFoundError as exc:
         raise Refusal("heartbeat_url_file_missing") from exc
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != URL_FILE_OWNER or info.st_mode & 0o077:
         raise Refusal("heartbeat_url_file_not_private_root_file")
     if info.st_size > 512 or not URL_PATTERN.fullmatch(path.read_text(encoding="ascii").strip()):
         raise Refusal("heartbeat_url_invalid")
+
+
+def service_run() -> tuple[int, int | None]:
+    """(main-process start, monotonic microseconds; its exit status) of the last run."""
+    shown = run(["systemctl", "show", "--property=ExecMainStartTimestampMonotonic",
+                 "--property=ExecMainStatus", SERVICE]).stdout
+    values = dict(line.split("=", 1) for line in shown.splitlines() if "=" in line)
+    started = values.get("ExecMainStartTimestampMonotonic", "")
+    status = values.get("ExecMainStatus", "")
+    return (int(started) if started.isdigit() else 0, int(status) if status.isdigit() else None)
 
 
 def stage(source: bytes, destination: Path, mode: int) -> None:
@@ -100,6 +111,7 @@ def main() -> int:
         "installed_hashes_verified": False,
         "units_reloaded": False,
         "timer_enabled": False,
+        "first_run_started": False,
         "first_run_exit_status": None,
         "read_only": False,
         "direct_db_access_performed": False,
@@ -156,12 +168,16 @@ def main() -> int:
         receipt["timer_enabled"] = run(["systemctl", "is-enabled", TIMER], check=False).stdout.strip() == "enabled"
         if not receipt["timer_enabled"]:
             raise Refusal("timer_not_enabled")
-        # A oneshot start waits for the run; its exit status is the first verdict.
+        # A oneshot start waits for the run. Its verdict counts only if the
+        # start job itself succeeded and the main process is a new run: the
+        # Exec* properties otherwise describe whichever run came last.
+        before = service_run()
         receipt["service_changes_performed"] = True
-        run(["systemctl", "start", SERVICE], timeout=360, check=False)
-        shown = run(["systemctl", "show", "--property=ExecMainStatus", "--value", SERVICE]).stdout.strip()
-        receipt["first_run_exit_status"] = int(shown) if shown.isdigit() else None
-        if receipt["first_run_exit_status"] != 0:
+        started = run(["systemctl", "start", SERVICE], timeout=360, check=False)
+        after = service_run()
+        receipt["first_run_started"] = after[0] > before[0]
+        receipt["first_run_exit_status"] = after[1] if receipt["first_run_started"] else None
+        if started.returncode or not receipt["first_run_started"] or receipt["first_run_exit_status"] != 0:
             raise Refusal("first_heartbeat_run_not_healthy")
         receipt["status"] = "passed"
     except (Refusal, OSError, ValueError, binascii.Error, subprocess.TimeoutExpired) as exc:

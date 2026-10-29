@@ -21,6 +21,7 @@ import urllib.request
 CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
 STANZA = "edfinder_v3"
 URL_FILE = Path("/etc/ed-finder/v3-production/backup-heartbeat.url")
+URL_FILE_OWNER = 0  # root
 # Daily backups: Mon-Sat diff and Sun full at 02:30 UTC (+ up to 15 min), and a
 # full backup runs about three hours, so the longest healthy gap between two
 # finished backups is about 27 hours. 36 hours keeps headroom and still alerts
@@ -43,7 +44,7 @@ def read_url(path: Path | None = None) -> str:
         info = path.lstat()
     except FileNotFoundError as exc:
         raise ConfigError("heartbeat_url_file_missing") from exc
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != URL_FILE_OWNER or info.st_mode & 0o077:
         raise ConfigError("heartbeat_url_file_not_private_root_file")
     if info.st_size > 512:
         raise ConfigError("heartbeat_url_file_too_large")
