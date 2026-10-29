@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
@@ -38,6 +39,9 @@ FILES = (
     ("deploy/v3-production/backup/" + TIMER, Path("/etc/systemd/system/" + TIMER), 0o644),
 )
 MAX_SOURCE_BYTES = 100_000
+BUSY_STATES = ("activating", "active", "deactivating", "reloading")
+IDLE_POLLS = 180
+IDLE_POLL_SECONDS = 2
 
 
 class Refusal(Exception):
@@ -73,6 +77,16 @@ def service_run() -> tuple[int, int | None]:
     started = values.get("ExecMainStartTimestampMonotonic", "")
     status = values.get("ExecMainStatus", "")
     return (int(started) if started.isdigit() else 0, int(status) if status.isdigit() else None)
+
+
+def wait_until_idle() -> None:
+    """Let any run already in progress (an earlier timer trigger) finish first."""
+    for _ in range(IDLE_POLLS):
+        state = run(["systemctl", "is-active", SERVICE], check=False).stdout.strip()
+        if state not in BUSY_STATES:
+            return
+        time.sleep(IDLE_POLL_SECONDS)
+    raise Refusal("heartbeat_service_busy")
 
 
 def stage(source: bytes, destination: Path, mode: int) -> None:
@@ -163,11 +177,13 @@ def main() -> int:
         receipt["installed_hashes_verified"] = True
         run(["systemctl", "daemon-reload"])
         receipt["units_reloaded"] = True
-        run(["systemctl", "enable", "--now", TIMER])
+        # Run once before the timer can trigger. A timer started long after
+        # boot fires its OnBootSec at once, and a start that joins that run
+        # proves no new one (install run 40869454484). Stop the timer, let any
+        # run in progress finish, then run and judge a fresh one.
         receipt["timer_changes_performed"] = True
-        receipt["timer_enabled"] = run(["systemctl", "is-enabled", TIMER], check=False).stdout.strip() == "enabled"
-        if not receipt["timer_enabled"]:
-            raise Refusal("timer_not_enabled")
+        run(["systemctl", "stop", TIMER], check=False)
+        wait_until_idle()
         # A oneshot start waits for the run. Its verdict counts only if the
         # start job itself succeeded and the main process is a new run: the
         # Exec* properties otherwise describe whichever run came last.
@@ -177,6 +193,12 @@ def main() -> int:
         after = service_run()
         receipt["first_run_started"] = after[0] > before[0]
         receipt["first_run_exit_status"] = after[1] if receipt["first_run_started"] else None
+        # Arm the hourly timer whatever the first verdict: an unhealthy state
+        # must keep alerting.
+        run(["systemctl", "enable", "--now", TIMER])
+        receipt["timer_enabled"] = run(["systemctl", "is-enabled", TIMER], check=False).stdout.strip() == "enabled"
+        if not receipt["timer_enabled"]:
+            raise Refusal("timer_not_enabled")
         if started.returncode or not receipt["first_run_started"] or receipt["first_run_exit_status"] != 0:
             raise Refusal("first_heartbeat_run_not_healthy")
         receipt["status"] = "passed"

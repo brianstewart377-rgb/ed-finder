@@ -266,7 +266,7 @@ def test_installer_and_heartbeat_share_one_url_contract():
 # --- installer ----------------------------------------------------------------
 
 def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="enabled", tamper=None,
-              start_code=0, fresh=True):
+              start_code=0, fresh=True, busy=0):
     ns = namespace(INSTALLER)
     ns["URL_FILE_OWNER"] = os.geteuid()
     runtime = tmp_path / "runtime"
@@ -291,6 +291,8 @@ def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="e
         code = 0
         if argv[:2] == ["systemctl", "is-enabled"]:
             out = enabled
+        if argv[:2] == ["systemctl", "is-active"]:
+            out = "activating" if len([c for c in commands if c[:2] == ["systemctl", "is-active"]]) <= busy else "inactive"
         if argv[:2] == ["systemctl", "start"]:
             started.append(True)
             code = start_code
@@ -302,6 +304,7 @@ def installer(tmp_path, monkeypatch, *, url_file=True, first_run="0", enabled="e
         return SimpleNamespace(returncode=code, stdout=out + "\n")
 
     ns["run"] = run
+    ns["time"] = SimpleNamespace(sleep=lambda _seconds: None)
     monkeypatch.setattr(os, "geteuid", lambda: 0)  # after the owner above: the root check
     args = ["a" * 40]
     for source in (HEARTBEAT, SERVICE, TIMER):
@@ -335,13 +338,16 @@ def test_installer_installs_pinned_files_enables_timer_and_runs_once(tmp_path, m
     assert (runtime / "backup-heartbeat.sh").read_bytes() == HEARTBEAT.read_bytes()
     assert (runtime / "backup-heartbeat.sh").stat().st_mode & 0o777 == 0o700
     assert (units / "edfinder-v3-backup-heartbeat.timer").stat().st_mode & 0o777 == 0o644
+    # The fresh run comes before the timer can trigger one of its own.
     assert [c for c in commands if c[0] == "systemctl"] == [
         ["systemctl", "daemon-reload"],
-        ["systemctl", "enable", "--now", "edfinder-v3-backup-heartbeat.timer"],
-        ["systemctl", "is-enabled", "edfinder-v3-backup-heartbeat.timer"],
+        ["systemctl", "stop", "edfinder-v3-backup-heartbeat.timer"],
+        ["systemctl", "is-active", "edfinder-v3-backup-heartbeat.service"],
         SHOW,
         ["systemctl", "start", "edfinder-v3-backup-heartbeat.service"],
         SHOW,
+        ["systemctl", "enable", "--now", "edfinder-v3-backup-heartbeat.timer"],
+        ["systemctl", "is-enabled", "edfinder-v3-backup-heartbeat.timer"],
     ]
     assert URL not in json.dumps(receipt)
 
@@ -372,11 +378,29 @@ def test_installer_refuses_before_any_write(tmp_path, monkeypatch, capsys, optio
     ({"enabled": "disabled"}, "timer_not_enabled"),
 ])
 def test_installer_reports_an_unhealthy_first_run(tmp_path, monkeypatch, capsys, options, failure):
-    ns, _commands, _runtime, _units = installer(tmp_path, monkeypatch, **options)
+    ns, commands, _runtime, _units = installer(tmp_path, monkeypatch, **options)
     assert ns["main"]() == 1
     receipt = receipt_of(capsys)
     assert receipt["status"] == "stopped" and receipt["failures"] == [failure]
     assert receipt["files_installed"] is True
+    # The hourly timer is armed even so: an unhealthy state keeps alerting.
+    assert ["systemctl", "enable", "--now", "edfinder-v3-backup-heartbeat.timer"] in commands
+
+
+def test_installer_waits_for_a_run_already_in_progress(tmp_path, monkeypatch, capsys):
+    ns, commands, _runtime, _units = installer(tmp_path, monkeypatch, busy=2)
+    assert ns["main"]() == 0
+    assert receipt_of(capsys)["first_run_started"] is True
+    checks = [c for c in commands if c[:2] == ["systemctl", "is-active"]]
+    assert len(checks) == 3
+    assert commands.index(checks[-1]) < commands.index(["systemctl", "start", "edfinder-v3-backup-heartbeat.service"])
+
+
+def test_installer_refuses_when_a_run_never_finishes(tmp_path, monkeypatch, capsys):
+    ns, commands, _runtime, _units = installer(tmp_path, monkeypatch, busy=10_000)
+    assert ns["main"]() == 1
+    assert receipt_of(capsys)["failures"] == ["heartbeat_service_busy"]
+    assert ["systemctl", "start", "edfinder-v3-backup-heartbeat.service"] not in commands
 
 
 def test_installer_refuses_wrong_host(tmp_path, monkeypatch, capsys):

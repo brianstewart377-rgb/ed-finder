@@ -125,9 +125,13 @@ only in `/etc/ed-finder/v3-production/backup-heartbeat.url` (root, mode
 3. Dispatch `.github/workflows/chatgpt-ed-new-ops.yml` on `main` with operation
    `v3-backup-heartbeat-install` (manual dispatch on `main` only). It installs
    the three committed files with pinned SHA-256s, refuses unless the URL file
-   is a private root file of the right shape, runs `systemctl daemon-reload` and
-   `systemctl enable --now edfinder-v3-backup-heartbeat.timer`, runs the
-   heartbeat once and records its exit status. The receipt (artifact
+   is a private root file of the right shape and runs `systemctl daemon-reload`.
+   It then stops the timer, waits for any run in progress, runs the heartbeat
+   once and records that fresh run's exit status, and only then runs
+   `systemctl enable --now edfinder-v3-backup-heartbeat.timer` (also after an
+   unhealthy first run, so alerts continue). The first install, run
+   40869454484, enabled the timer first; its `OnBootSec` fired at once and the
+   installer's own start joined that run, so it could not prove a fresh one. The receipt (artifact
    `v3-backup-heartbeat-install-receipt`) must show `status: passed`, equal
    source and installed hashes, `timer_enabled: true` and
    `first_run_exit_status: 0`; it never contains the URL.
