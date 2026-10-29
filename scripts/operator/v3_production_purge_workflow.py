@@ -254,22 +254,34 @@ def authenticate(env, *, fetch=True):
     return request
 
 
+# The action runs from the host's operator directory: the lifecycle action
+# that workers() reuses refuses any other working directory (as the ops
+# workflow runs it), and every purge path is absolute (its own bundle ROOT,
+# git -C, fixed host paths). Plan run 40946906378 stopped with
+# worker_state_unknown when it ran from the bundle directory.
+HOST_WORKING_DIRECTORY = '/opt/ed-finder'
+
+
 def remote_script(request, source_sha, run_id):
     """All interpolated values have closed modes or fixed numeric/hex grammar."""
     if not SOURCE_SHA.fullmatch(source_sha) or not RUN_ID.fullmatch(run_id):
         raise ValueError('invalid_controller_identity')
-    args = [request['mode']]
+    def artifact(name):
+        # Absolute: the action does not run from the unpacked bundle.
+        return '"$work"/artifacts/' + name + '.json'
+
+    words = [shlex.quote(request['mode'])]
     for prefix in ('plan', 'verification'):
         if request[prefix + '_run_id']:
-            args += ['--' + prefix, 'artifacts/' + prefix + '.json',
-                     '--' + prefix + '-sha256', request[prefix + '_sha256']]
+            words += ['--' + prefix, artifact(prefix),
+                      '--' + prefix + '-sha256', shlex.quote(request[prefix + '_sha256'])]
     if request['rehearsal_run_id']:
-        args += ['--rehearsal-receipt', 'artifacts/rehearsal.json',
-                 '--rehearsal-receipt-sha256', request['rehearsal_sha256']]
+        words += ['--rehearsal-receipt', artifact('rehearsal'),
+                  '--rehearsal-receipt-sha256', shlex.quote(request['rehearsal_sha256'])]
     if request['wall_clock_seconds'] is not None:
-        args += ['--wall-clock-seconds', str(request['wall_clock_seconds'])]
+        words += ['--wall-clock-seconds', shlex.quote(str(request['wall_clock_seconds']))]
     if request['acknowledge_failed_stop']:
-        args += ['--acknowledge-failed-stop', request['acknowledge_failed_stop']]
+        words += ['--acknowledge-failed-stop', shlex.quote(request['acknowledge_failed_stop'])]
     # No cleanup of source here: a monitor may outlive this controller. /run is
     # ephemeral, root owned and not group/world writable, unlike /tmp ancestors.
     return f'''set -euo pipefail
@@ -280,6 +292,7 @@ tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C "$work"
 chmod -R go-w "$work"
 cd "$work"
 [ "$(git rev-parse HEAD)" = {shlex.quote(source_sha)} ] || exit 64
+cd {shlex.quote(HOST_WORKING_DIRECTORY)}
 export GITHUB_RUN_ID={shlex.quote(run_id)}
 child=''
 cancel() {{
@@ -294,7 +307,7 @@ cancel() {{
   exit 143
 }}
 trap cancel HUP INT TERM
-bash scripts/operator/actions/v3-derived-generation-purge.sh {shlex.join(args)} --controller-pid "$$" --controller-run-id "$GITHUB_RUN_ID" &
+bash "$work"/scripts/operator/actions/v3-derived-generation-purge.sh {' '.join(words)} --controller-pid "$$" --controller-run-id "$GITHUB_RUN_ID" &
 child=$!
 # Keep both GitHub concurrency fences until the action has exited. The action
 # owns its leases; the independent rewrite monitor deliberately owns neither.
