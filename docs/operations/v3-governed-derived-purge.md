@@ -55,7 +55,13 @@ phases.
    `020` or an owner-run statement recorded in evidence). Production: applied
    by the owner on 2026-10-29 and verified with `has_parameter_privilege`
    (`docs/operations/evidence/2026-10-29-v3-purge-temp-file-limit-grant-owner-run.json`).
-5. The owner has read the 2026-10-26 external review's findings as reflected
+5. **WAL archiving keeps up with the long phases**: background parallel
+   archiving is on (`deploy/v3-production/backup/README.md` "WAL archive
+   speed"). The index builds and `VACUUM (FREEZE)` write 55–108 GB of WAL per
+   relation at production scale and the watchdog cancels a long phase at
+   2 × `max_wal_size` in `pg_wal`; one-segment-at-a-time archiving would not
+   drain it fast enough.
+6. The owner has read the 2026-10-26 external review's findings as reflected
    here: the operator sets every timeout (F5), the swap stall is bounded by the
    operator's 8 s statement cap and not by 019's 2 s lock timeout (F4), and
    the retired table is the only undo until `drop-R`.

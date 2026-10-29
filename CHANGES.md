@@ -39,6 +39,17 @@ into that directory; authentication still re-fetches the run and reads only
 that attempt. Its stopped receipt is committed as evidence. No purge or F2d
 operator-code file changes; the pinned rehearsal still applies.
 
+## 2026-10-29 — Runbook: background parallel WAL archiving before the purge
+
+Production archived WAL one 16 MB segment at a time (`pgbackrest.conf` had only
+`compress-level=3` for `archive-push`). The purge's long phases write 55–108 GB
+of WAL per relation and the watchdog cancels at 2 × `max_wal_size` in `pg_wal`,
+so archiving must keep up. `deploy/v3-production/backup/README.md` now records
+the configuration facts and the owner steps to turn on `archive-async` with
+`process-max=4` for `archive-push`, with a check, proof of an asynchronous
+push and an undo; the purge runbook lists it as a precondition. The full-backup
+duration notes are corrected to five to six hours.
+
 ## 2026-10-29 — Purge preconditions 3 and 4 met in production
 
 The backup heartbeat is installed (ops run 40873385526: files and hashes
