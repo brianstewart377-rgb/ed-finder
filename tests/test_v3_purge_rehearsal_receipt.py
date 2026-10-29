@@ -445,3 +445,163 @@ def test_production_refuses_a_long_phase_or_swap_stall_outside_the_reviewed_boun
         raw = dict(body['per_relation']['economy_opportunity']['raw'], verify_seconds=36.0)
         body['per_relation']['economy_opportunity'] = tool.relation_figures(raw, body['production_proportion'])
     assert tool.validate(_resealed(boundary))['status'] == 'success'
+
+
+def _benchmarked(**raw_updates):
+    """A receipt measured in the benchmarked rehearsal image, economy raw figures updated."""
+    def mutate(body):
+        body['image_digest'] = tool.BENCHMARKED_REHEARSAL_IMAGE
+        raw = dict(body['per_relation']['economy_opportunity']['raw'], **raw_updates)
+        body['per_relation']['economy_opportunity'] = tool.relation_figures(raw, body['production_proportion'])
+    return _resealed(mutate)
+
+
+def test_host_speed_factor_is_the_committed_owner_benchmark():
+    evidence = json.loads((ROOT / 'docs/operations/evidence/'
+                           '2026-10-28-v3-purge-host-speed-benchmark.json').read_text())
+    production = evidence['hosts']['production']
+    rehearsal = evidence['hosts']['rehearsal_host']
+    # The slower production run over the faster rehearsal-host run.
+    assert tool.PRODUCTION_BENCHMARK_MS == max(production['runs_ms'])
+    assert tool.REHEARSAL_HOST_BENCHMARK_MS == min(rehearsal['runs_ms'])
+    assert rehearsal['image'] == tool.BENCHMARKED_REHEARSAL_IMAGE
+    assert production['result'] == rehearsal['result'] == evidence['expected_result']
+    assert evidence['query'].startswith('SELECT count(*), md5(string_agg(md5(t::text)')
+    assert tool.verify_speed_factor({'image_digest': tool.BENCHMARKED_REHEARSAL_IMAGE}) == pytest.approx(0.31695, abs=1e-5)
+    assert tool.verify_speed_factor({'image_digest': 'postgres:18@sha256:' + 'b' * 64}) == 1.0
+
+
+@pytest.mark.parametrize(('updates', 'passes'), (
+    # 113 s / 0.01 x 0.31695 = 3,581.6 s, twice is 7,163 s: fits.
+    ({'verify_seconds': 113.0}, True),
+    # 114 s / 0.01 x 0.31695 = 3,613.3 s, twice is 7,227 s: does not.
+    ({'verify_seconds': 114.0}, False),
+    # Only verification is scaled: the other long phases keep rehearsal-host time.
+    ({'index_build_seconds': 36.01}, False),
+    ({'vacuum_freeze_seconds': 36.01}, False),
+    ({'fk_validation_seconds': 36.01}, False),
+    ({'vacuum_freeze_seconds': 36.0}, True),
+))
+def test_production_gate_scales_only_verification_by_the_benchmarked_host_speed(updates, passes):
+    receipt = _benchmarked(**updates)
+    # The sealed receipt maths keep the rehearsal host's figure.
+    measured = receipt['per_relation']['economy_opportunity']['production']
+    assert measured['long_phase_fits_reviewed_timeout'] is (2 * measured['long_phase_seconds_max'] <= 7_200)
+    if passes:
+        assert tool.validate(receipt) is receipt
+    else:
+        with pytest.raises(ValueError, match='rehearsal_long_phase_exceeds_reviewed_timeout'):
+            tool.validate(receipt)
+
+
+def test_verification_is_not_scaled_outside_the_benchmarked_image():
+    def mutate(body):
+        raw = dict(body['per_relation']['economy_opportunity']['raw'], verify_seconds=113.0)
+        body['per_relation']['economy_opportunity'] = tool.relation_figures(raw, body['production_proportion'])
+    with pytest.raises(ValueError, match='rehearsal_long_phase_exceeds_reviewed_timeout'):
+        tool.validate(_resealed(mutate))
+
+
+def test_plan_records_the_gate_figures_for_review():
+    receipt = _benchmarked(verify_seconds=113.0)
+    plan = tool.apply_to_plan({}, receipt)
+    factor = tool.verify_speed_factor(receipt)
+    assert plan['rehearsal']['verify_speed_factor'] == factor
+    assert plan['rehearsal']['production_long_phase_seconds']['economy_opportunity'] == pytest.approx(11_300 * factor)
+    assert plan['rehearsal']['accepted_before_gate_change'] is False
+    # The copy block still carries the receipt's own sealed figures.
+    assert plan['copy']['relations']['economy_opportunity']['rehearsal']['long_phase_fits_reviewed_timeout'] is False
+    assert tool.require_plan_binding(plan) is plan['rehearsal']
+
+
+def _identity_files():
+    return {relative: hashlib.sha256((tool.ROOT / relative).read_bytes()).hexdigest()
+            for relative in tool.ACCEPTED_REHEARSALS[next(iter(tool.ACCEPTED_REHEARSALS))]['files']}
+
+
+def test_accepted_rehearsal_pins_exactly_the_files_the_action_identity_hashes():
+    evidence = tool._evidence()
+    for seal, accepted in tool.ACCEPTED_REHEARSALS.items():
+        files = accepted['files']
+        assert evidence.canonical_sha256(files) == accepted['script_sha256']
+        current = dict(files)
+        current[tool.RECEIPT_MODULE] = hashlib.sha256((tool.ROOT / tool.RECEIPT_MODULE).read_bytes()).hexdigest()
+        # Equal only if the pinned paths are exactly script_identity()'s and
+        # every file but this module is byte-for-byte as rehearsed. If this
+        # fails, a purge file changed after the rehearsal: delete the entry
+        # and run a new one_percent rehearsal.
+        assert evidence.canonical_sha256(current) == tool.code_identity()['script_sha256'], seal
+
+
+def _accepted_receipt(monkeypatch, *, change=None, drop_module=False):
+    """A receipt that ran under an earlier receipt module, with a pinned entry."""
+    files = _identity_files()
+    files[tool.RECEIPT_MODULE] = '0' * 64
+    pinned = dict(files)
+    if change:
+        pinned[change] = '1' * 64
+    if drop_module:
+        del pinned[tool.RECEIPT_MODULE]
+    evidence = tool._evidence()
+    receipt = _benchmarked(verify_seconds=88.0)
+    body = {key: item for key, item in receipt.items() if key != 'content_sha256'}
+    body['script_sha256'] = evidence.canonical_sha256(pinned)
+    receipt = evidence.seal(body)
+    monkeypatch.setattr(tool, 'ACCEPTED_REHEARSALS', {receipt['content_sha256']: {
+        'script_sha256': receipt['script_sha256'], 'files': pinned}})
+    return receipt
+
+
+def test_pinned_rehearsal_stays_authority_after_only_this_module_changed(monkeypatch, tmp_path):
+    receipt = _accepted_receipt(monkeypatch)
+    assert receipt['script_sha256'] != tool.code_identity()['script_sha256']
+    loaded = tool.load_reviewed(write_receipt(tmp_path, receipt), receipt['content_sha256'])
+    plan = tool.apply_to_plan({}, loaded)
+    assert plan['rehearsal']['accepted_before_gate_change'] is True
+    assert plan['rehearsal']['script_sha256'] == receipt['script_sha256']
+
+
+@pytest.mark.parametrize('case', ('other_file_changed', 'module_not_pinned', 'not_pinned', 'body_edited',
+                                  'harness_changed', 'migrations_changed'))
+def test_pinned_rehearsal_refuses_any_other_change(monkeypatch, case):
+    if case == 'other_file_changed':
+        receipt = _accepted_receipt(monkeypatch, change='scripts/operator/lib/v3_purge_copy.py')
+    elif case == 'module_not_pinned':
+        receipt = _accepted_receipt(monkeypatch, drop_module=True)
+    else:
+        receipt = _accepted_receipt(monkeypatch)
+    code = 'rehearsal_script_sha256_mismatch'
+    if case == 'not_pinned':
+        monkeypatch.setattr(tool, 'ACCEPTED_REHEARSALS', {})
+    elif case == 'body_edited':
+        # Any edit after sealing (here, a looser stall) breaks the pinned seal.
+        receipt['per_relation']['system_search']['raw']['finder_read_stall_seconds'] = 0.4
+        receipt['per_relation']['system_search'] = tool.relation_figures(
+            receipt['per_relation']['system_search']['raw'], receipt['production_proportion'])
+    elif case in ('harness_changed', 'migrations_changed'):
+        field = 'rehearsal_script_sha256' if case == 'harness_changed' else 'migration_set_identity'
+        changed = dict(tool.code_identity(), **{field: 'sha256:' + 'f' * 64 if field == 'migration_set_identity'
+                                                else 'f' * 64})
+        monkeypatch.setattr(tool, 'code_identity', lambda: changed)
+        code = 'rehearsal_' + field + '_mismatch'
+    with pytest.raises(ValueError, match=code):
+        tool.validate(receipt)
+    # No plan can be built from it, so no plan can report it as accepted.
+    with pytest.raises(ValueError, match=code):
+        tool.apply_to_plan({}, receipt)
+
+
+def test_plan_acceptance_flag_is_the_validation_check(monkeypatch, tmp_path):
+    receipt = _accepted_receipt(monkeypatch)
+    loaded = tool.load_reviewed(write_receipt(tmp_path, receipt), receipt['content_sha256'])
+    calls = []
+    real = tool._accepted_before_gate_change
+    monkeypatch.setattr(tool, '_accepted_before_gate_change', lambda value: calls.append(value) or real(value))
+    plan = tool.apply_to_plan({}, loaded)
+    # validate() admitted it through the pinned entry, and the flag re-asked the same question.
+    assert len(calls) == 2 and plan['rehearsal']['accepted_before_gate_change'] is True
+    # A current-identity receipt never consults the pinned entries for the flag.
+    calls.clear()
+    assert tool.apply_to_plan({}, _benchmarked(verify_seconds=88.0))['rehearsal'][
+        'accepted_before_gate_change'] is False
+    assert calls == []
