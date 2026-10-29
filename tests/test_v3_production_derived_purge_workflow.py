@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
 from types import SimpleNamespace
@@ -468,7 +469,9 @@ def test_remote_controller_remains_running_until_its_action_exits(tmp_path):
     # The source-unpacking/host admission prefix is independently asserted by
     # workflow contracts. Run the unmodified controller body in a disposable
     # directory so this check needs no SSH, root, credentials or production.
-    script = script[script.index('export GITHUB_RUN_ID='):]
+    # The action is launched by absolute bundle path ("$work") from the host
+    # operator directory; here both are the disposable directory.
+    script = f'work={shlex.quote(str(tmp_path))}\n' + script[script.index('export GITHUB_RUN_ID='):]
     action = tmp_path / 'scripts/operator/actions/v3-derived-generation-purge.sh'
     action.parent.mkdir(parents=True)
     # The inert action holds for long enough that "controller still running
@@ -491,6 +494,49 @@ def test_remote_controller_remains_running_until_its_action_exits(tmp_path):
         if process.poll() is None:
             process.kill()
             process.communicate()
+
+
+def test_action_runs_from_the_directory_the_lifecycle_action_requires():
+    """Plan run 40946906378: workers() reuses the lifecycle action, which
+    refuses any working directory but the host's operator directory."""
+    module = _helper()
+    lifecycle = (ROOT / 'scripts/operator/actions/v3-derived-lifecycle-status.sh').read_text()
+    assert f'run(["pwd", "-P"]).stdout.strip() != "{module.HOST_WORKING_DIRECTORY}"' in lifecycle
+    env = _inputs('authorize')
+    script = module.remote_script(module.validate_inputs(env), SOURCE_SHA, RUN_ID)
+    check = script.index('[ "$(git rev-parse HEAD)" = ')
+    move = script.index('\ncd ' + module.HOST_WORKING_DIRECTORY + '\n')
+    launch = script.index('bash "$work"/scripts/operator/actions/v3-derived-generation-purge.sh authorize ')
+    # The bundle identity is proved in the bundle, then the action starts from
+    # the operator directory with absolute artifact paths.
+    assert script.index('cd "$work"') < check < move < launch
+    assert '--plan "$work"/artifacts/plan.json --plan-sha256 ' + env['INPUT_PLAN_SHA256'] in script
+    assert ' artifacts/' not in script
+
+
+def test_generated_launcher_passes_absolute_artifact_paths(tmp_path):
+    """Run the generated launch line in a real shell and record its argv."""
+    module = _helper()
+    env = _inputs('authorize')
+    script = module.remote_script(module.validate_inputs(env), SOURCE_SHA, RUN_ID)
+    body = script[script.index('export GITHUB_RUN_ID='):]
+    bundle = tmp_path / 'bundle with space'
+    action = bundle / 'scripts/operator/actions/v3-derived-generation-purge.sh'
+    action.parent.mkdir(parents=True)
+    record = tmp_path / 'argv.json'
+    recorder = tmp_path / 'recorder.py'
+    recorder.write_text('import json, os, sys\n'
+                        f'json.dump([os.getcwd(), *sys.argv[1:]], open({str(record)!r}, "w"))\n')
+    action.write_text(f'exec python3 {shlex.quote(str(recorder))} "$@"\n')
+    runner = tmp_path / 'operator'
+    runner.mkdir()
+    result = subprocess.run(['bash', '-c', f'work={shlex.quote(str(bundle))}\n' + body], cwd=runner,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    cwd, *argv = json.loads(record.read_text())
+    assert cwd == str(runner)
+    assert argv[:4] == ['authorize', '--plan', str(bundle / 'artifacts/plan.json'), '--plan-sha256']
+    assert argv[4] == env['INPUT_PLAN_SHA256']
 
 
 COMMITTED_REHEARSAL = ROOT / 'docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json'
@@ -822,7 +868,7 @@ def test_successful_attempts_one_percent_rehearsal_is_authenticated_and_staged(m
     monkeypatch.setattr(module, '_load', _helper()._load)
     assert module.authenticate(env, fetch=False)['mode'] == 'plan'
     script = module.remote_script(module.validate_inputs(env), SOURCE_SHA, RUN_ID)
-    assert ('--rehearsal-receipt artifacts/rehearsal.json --rehearsal-receipt-sha256 '
+    assert ('--rehearsal-receipt "$work"/artifacts/rehearsal.json --rehearsal-receipt-sha256 '
             + receipt['content_sha256']) in script
 
 
