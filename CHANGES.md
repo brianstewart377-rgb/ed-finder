@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — Purge action runs from the host operator directory
+
+The second protected `plan` (run 40946906378) reached the host and stopped
+read-only with `worker_state_unknown`. It had already proved the installed
+backup wrapper, the migration ledger, a clear purge state, both targets'
+payload counts and 316 GB free. `workers()` reuses the lifecycle action, which
+refuses any working directory but `/opt/ed-finder` (as the ops workflow runs
+it), and the launcher ran the action from the unpacked bundle. The launcher
+now proves the bundle's HEAD inside the bundle, then starts the action from
+`/opt/ed-finder` with absolute artifact paths. Every purge path was already
+absolute, so no pinned file changes and the accepted rehearsal stands. The
+stopped receipt is committed as evidence.
+
 ## 2026-10-29 — Purge plan downloads the rehearsal receipt by exact name
 
 The first protected `plan` (run 40939364894, rehearsal run 40704251158) stopped
