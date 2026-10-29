@@ -371,6 +371,15 @@ checksum-bound artifact in the receipt store; if none exists, the same operation
 authenticated, checksum-bound candidate may satisfy the requirement only when
 its backend image is in the trimmed target list and its manifest passes rollback
 validation against the current migration set, with pinned images available locally.
+A recorded artifact whose sealed manifest names only its build-time schema
+(a compatible migration was applied after it, as 019–021 were after `a031c2da`)
+is still compatible when it is exactly the accepted release in the trusted
+authority — same source, release run, manifest checksum and images — and that
+reviewed attestation lists the current migration set; it must also remain
+application-only rollback eligible. This is the rule `validate_prior_runtime`
+already applies to the running release. Any other mismatch still refuses with
+`f2d_rollback_artifact_schema_incompatible` (preflight run 40840746266 on
+2026-10-29 was refused this way before the rule was added).
 Preflight and promotion receipts record the selected source (`recorded_artifact`
 or `authenticated_candidate`), git SHA and images. Recovery to a different
 artifact flags accepted-pointer reconciliation in the failure receipt.

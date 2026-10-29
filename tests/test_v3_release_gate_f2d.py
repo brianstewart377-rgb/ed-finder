@@ -1066,11 +1066,13 @@ def test_f2d_callers_use_authenticated_candidate_and_record_rollback_source(
         authenticated.append(result[0])
         return result
 
-    def select(directory, candidate_attestation, current_schema, candidate):
+    def select(directory, candidate_attestation, current_schema, candidate, accepted):
         assert candidate is authenticated[0]
         assert candidate == manifest
+        # Both callers pass the trusted authority's accepted release, never the candidate's.
+        assert accepted is authority["accepted_release_schema_compatibility"]
         selected.append(candidate)
-        return select_rollback(directory, candidate_attestation, current_schema, candidate)
+        return select_rollback(directory, candidate_attestation, current_schema, candidate, accepted)
 
     monkeypatch.setattr(deployer, "validate_candidate", authenticate)
     monkeypatch.setattr(deployer, "select_f2d_rollback", select)
@@ -1271,3 +1273,87 @@ def test_gate_refuses_pre_acknowledgement_016_checksum(deployer):
     assert next(row for row in entries if row['ledger_name'].startswith('016_'))['sha256'] != previous
     with pytest.raises(deployer.DeploymentError, match='^required_migration_hash_mismatch:016$'):
         deployer.validate_f2d_migrations({'migration_set_entries': applied}, entries)
+
+
+def _accepted_binding(attestation, recorded, path, current):
+    checksum = path.name.split("-")[2].split(".")[0]
+    return {
+        **attestation,
+        "source_sha": recorded["git_sha"], "release_run_id": "123", "manifest_sha256": checksum,
+        "images": recorded["images"], "compatible_migration_sets": sorted({current, "sha256:" + "9" * 64}),
+    }
+
+
+def _build_time_only_manifest_tool(validated):
+    # The recorded manifest names only its build-time schema, as a031c2da's did
+    # once 019-021 were applied after it.
+    def validate_manifest(manifest, *, purpose, current_migration_set):
+        validated.append((purpose, current_migration_set))
+        if current_migration_set is not None:
+            raise ValueError("release compatibility with the current database is absent or unknown")
+
+    return SimpleNamespace(validate_manifest=validate_manifest, ManifestError=ValueError)
+
+
+def test_accepted_release_rollback_uses_reviewed_compatibility_after_compatible_migrations(
+    deployer, monkeypatch, tmp_path, attestation,
+):
+    current = "sha256:" + "0" * 64
+    recorded = rollback_fixture_manifest(MINIMUM, git_sha="b" * 40)
+    path = record_rollback_fixture(tmp_path, recorded)
+    validated = []
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: _build_time_only_manifest_tool(validated))
+    accepted = _accepted_binding(attestation, recorded, path, current)
+    selected, source = deployer.select_f2d_rollback(
+        tmp_path, attestation, {"migration_set_identity": current}, rollback_fixture_manifest(LATER), accepted,
+    )
+    assert selected == recorded
+    assert source == "recorded_artifact"
+    # Its own manifest is still checked first, then for rollback eligibility.
+    assert validated == [("rollback", current), ("rollback-candidate", None)]
+
+
+@pytest.mark.parametrize("change", [
+    "no_accepted", "other_source", "other_run", "other_manifest", "other_images", "schema_not_attested",
+    "not_rollback_eligible",
+])
+def test_reviewed_rollback_compatibility_binds_only_the_accepted_artifact(
+    deployer, monkeypatch, tmp_path, attestation, change,
+):
+    current = "sha256:" + "0" * 64
+    recorded = rollback_fixture_manifest(MINIMUM, git_sha="b" * 40)
+    path = record_rollback_fixture(tmp_path, recorded)
+    validated = []
+    tool = _build_time_only_manifest_tool(validated)
+    if change == "not_rollback_eligible":
+        def validate_manifest(manifest, *, purpose, current_migration_set):
+            validated.append((purpose, current_migration_set))
+            raise ValueError("manifest is not eligible for application-only rollback")
+        tool = SimpleNamespace(validate_manifest=validate_manifest, ManifestError=ValueError)
+    monkeypatch.setattr(deployer, "manifest_tool", lambda: tool)
+    accepted = _accepted_binding(attestation, recorded, path, current)
+    if change == "no_accepted":
+        accepted = None
+    elif change == "other_source":
+        accepted["source_sha"] = "c" * 40
+    elif change == "other_run":
+        accepted["release_run_id"] = "124"
+    elif change == "other_manifest":
+        accepted["manifest_sha256"] = "f" * 64
+    elif change == "other_images":
+        accepted["images"] = {**recorded["images"], "web": "registry.example/web@sha256:" + "2" * 64}
+    elif change == "schema_not_attested":
+        accepted["compatible_migration_sets"] = ["sha256:" + "9" * 64]
+    with pytest.raises(deployer.DeploymentError, match="^f2d_rollback_artifact_schema_incompatible$"):
+        deployer.select_f2d_rollback(
+            tmp_path, attestation, {"migration_set_identity": current}, rollback_fixture_manifest(LATER), accepted,
+        )
+
+
+def test_committed_accepted_release_attests_the_installed_schema_for_rollback():
+    # The live case: the accepted release (a031c2da) predates 019-021, and the
+    # reviewed authority attests the installed through-021 identity for it.
+    authority = json.loads((ROOT / "deploy/v3-production/target-authority.json").read_text())
+    accepted = authority["accepted_release_schema_compatibility"]
+    assert authority["schema_transition"]["to_migration_set_identity"] in accepted["compatible_migration_sets"]
+    assert accepted["images"]["backend"] in accepted["rollback_targets"]
