@@ -163,10 +163,8 @@ def test_cross_run_artifacts_have_fixed_names_and_authenticated_receipts():
     resolve = next(step for step in steps if step.get('id') == 'rehearsal-attempt')
     assert resolve['if'] == "inputs.mode == 'plan'"
     assert steps.index(resolve) < steps.index(rehearsal)
-    assert resolve['env'] == {'GH_TOKEN': '${{ github.token }}'}
-    assert '[[ "$INPUT_REHEARSAL_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || exit 64' in resolve['run']
-    assert 'actions/runs/$INPUT_REHEARSAL_RUN_ID" --jq \'.run_attempt\'' in resolve['run']
-    assert '[[ "$attempt" =~ ^[1-9][0-9]{0,4}$ ]] || exit 64' in resolve['run']
+    assert resolve['env'] == {'GITHUB_TOKEN': '${{ github.token }}'}
+    assert resolve['run'] == 'python scripts/operator/v3_production_purge_workflow.py resolve-rehearsal-attempt'
     assert {step['with']['run-id'] for step in downloads} == {
         '${{ inputs.plan_run_id }}', '${{ inputs.verification_run_id }}', '${{ inputs.rehearsal_run_id }}',
     }
@@ -777,6 +775,40 @@ def _rehearsal_environment(module, monkeypatch, tmp_path, *, attempt=2, run_upda
         return original_load(name, path)
     monkeypatch.setattr(module, '_load', load)
     return env, receipt
+
+
+@pytest.mark.parametrize('attempt', [1, 2, 7])
+def test_resolve_rehearsal_attempt_writes_the_validated_runs_attempt(monkeypatch, tmp_path, attempt):
+    module = _helper()
+    env, _receipt = _rehearsal_environment(module, monkeypatch, tmp_path, attempt=attempt)
+    output = tmp_path / 'github-output'
+    env['GITHUB_OUTPUT'] = str(output)
+    assert module.resolve_rehearsal_attempt(env) == attempt
+    assert output.read_text() == f'attempt={attempt}\n'
+
+
+@pytest.mark.parametrize('run_updates', [
+    {'path': '.github/workflows/chatgpt-ed-new-ops.yml'}, {'conclusion': 'failure'},
+    {'head_branch': 'feature'}, {'event': 'push'}, {'run_attempt': 0}, {'run_attempt': '2'},
+    {'run_attempt': None}, {'head_repository': {'full_name': 'someone/else'}},
+])
+def test_resolve_rehearsal_attempt_refuses_any_other_run(monkeypatch, tmp_path, run_updates):
+    module = _helper()
+    env, _receipt = _rehearsal_environment(module, monkeypatch, tmp_path, run_updates=run_updates)
+    output = tmp_path / 'github-output'
+    env['GITHUB_OUTPUT'] = str(output)
+    with pytest.raises(ValueError):
+        module.resolve_rehearsal_attempt(env)
+    assert not output.exists()
+
+
+def test_resolve_rehearsal_attempt_is_plan_only(monkeypatch, tmp_path):
+    module = _helper()
+    env, _receipt = _rehearsal_environment(module, monkeypatch, tmp_path)
+    env['INPUT_MODE'] = 'status'
+    env['GITHUB_OUTPUT'] = str(tmp_path / 'github-output')
+    with pytest.raises(ValueError):
+        module.resolve_rehearsal_attempt(env)
 
 
 def test_successful_attempts_one_percent_rehearsal_is_authenticated_and_staged(monkeypatch, tmp_path):

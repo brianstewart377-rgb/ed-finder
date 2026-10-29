@@ -127,6 +127,30 @@ def authenticate_receipt(path, expected_sha, *, mode, run_id, source_sha):
     return value
 
 
+def resolve_rehearsal_attempt(env):
+    """Write the reviewed rehearsal run's attempt to GITHUB_OUTPUT.
+
+    The artifact is named by run id and attempt, so the workflow downloads
+    exactly that artifact into its own directory (a single-match pattern
+    download extracts into the root instead; plan run 40939364894). The run
+    must already be the dedicated rehearsal workflow's successful dispatch on
+    main; authenticate_rehearsal re-fetches it and checks the same attempt.
+    """
+    request = validate_inputs(env)
+    run_id = request['rehearsal_run_id']
+    if request['mode'] != 'plan' or not RUN_ID.fullmatch(run_id):
+        raise ValueError('invalid_rehearsal_reference')
+    runs = _load('purge_workflow_runs', ROOT / 'scripts/release/v3_release_run.py')
+    run = runs.fetch_run(REPOSITORY, run_id, env.get('GITHUB_TOKEN', ''))
+    validate_run(run, run_id=run_id, source_sha=run.get('head_sha', ''), path=REHEARSAL_WORKFLOW_PATH)
+    attempt = run.get('run_attempt')
+    if type(attempt) is not int or not 1 <= attempt <= 10_000:
+        raise ValueError('purge_artifact_run_provenance_failed')
+    with open(env['GITHUB_OUTPUT'], 'a', encoding='ascii') as output:
+        output.write(f'attempt={attempt}\n')
+    return attempt
+
+
 def authenticate_rehearsal(env, request, *, fetch=True):
     """Admit only a successful protected one-percent rehearsal's sealed receipt.
 
@@ -320,13 +344,16 @@ def initialize_receipt(env=os.environ):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('initialize-receipt', 'validate-inputs', 'authenticate', 'execute'))
+    parser.add_argument('command', choices=('initialize-receipt', 'validate-inputs', 'resolve-rehearsal-attempt',
+                                            'authenticate', 'execute'))
     args = parser.parse_args()
     try:
         if args.command == 'initialize-receipt':
             initialize_receipt()
         elif args.command == 'validate-inputs':
             validate_inputs(os.environ)
+        elif args.command == 'resolve-rehearsal-attempt':
+            resolve_rehearsal_attempt(os.environ)
         elif args.command == 'authenticate':
             authenticate(os.environ)
         else:

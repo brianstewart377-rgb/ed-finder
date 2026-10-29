@@ -18,8 +18,10 @@ in the GitHub-side artifact authentication, before any SSH or production read:
 the rehearsal artifact was downloaded by name pattern, and a pattern that
 matches a single artifact is extracted straight into the target path rather
 than the per-attempt directory the authentication reads. The workflow now
-resolves the attempt GitHub reports for the rehearsal run (`gh api`, digits
-validated) and downloads exactly `v3-derived-purge-rehearsal-<run>-<attempt>`
+resolves the attempt GitHub reports for the rehearsal run (a
+`resolve-rehearsal-attempt` helper command: the same pinned run fetch and
+provenance check as authentication, no `gh api`) and downloads exactly
+`v3-derived-purge-rehearsal-<run>-<attempt>`
 into that directory; authentication still re-fetches the run and reads only
 that attempt. Its stopped receipt is committed as evidence. No purge or F2d
 operator-code file changes; the pinned rehearsal still applies.
