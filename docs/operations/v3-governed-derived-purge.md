@@ -43,15 +43,18 @@ phases.
    `edfinder-v3-backup-heartbeat.timer` (36 hours; installed by the
    `v3-backup-heartbeat-install` operation, see
    `deploy/v3-production/backup/README.md` "Backup heartbeat"). Without it a stalled copy would skip backups silently
-   (F16). `status` reports `backup_age_hours` and `copy_state_hours` so the
-   owner can check by hand in the meantime.
+   (F16). `status` reports `backup_age_hours` and `copy_state_hours` as well.
+   Production: installed 2026-10-29 (install run 40873385526, first run
+   healthy).
 4. **`GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor`**
    has been applied by the owner. `temp_file_limit` is a superuser-set
    parameter and 019 does not grant it; every long phase sets
    `SET LOCAL temp_file_limit='32GB'` and refuses with
    `temp_file_limit_privilege_missing` until the grant exists. This is a
    production catalog change that needs its own reviewed step (a migration
-   `020` or an owner-run statement recorded in evidence).
+   `020` or an owner-run statement recorded in evidence). Production: applied
+   by the owner on 2026-10-29 and verified with `has_parameter_privilege`
+   (`docs/operations/evidence/2026-10-29-v3-purge-temp-file-limit-grant-owner-run.json`).
 5. The owner has read the 2026-10-26 external review's findings as reflected
    here: the operator sets every timeout (F5), the swap stall is bounded by the
    operator's 8 s statement cap and not by 019's 2 s lock timeout (F4), and

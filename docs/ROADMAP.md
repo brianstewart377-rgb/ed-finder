@@ -212,10 +212,11 @@ newer dated source wins).
   47 min. The app release is done (`1e748c9d`, 2026-10-29, entry below) and the
   backup wrapper is re-installed (ops run 40855460137, installed hash equals
   main's `f22b2db9…`; receipt under `docs/operations/evidence/`). Next, each
-  with the owner's approval: the backup heartbeat (built 2026-10-29; the owner
-  creates its check and URL file, then `v3-backup-heartbeat-install`), the
-  `temp_file_limit` grant,
-  a full backup, then `plan` with `rehearsal_run_id` 40704251158.
+  with the owner's approval: the backup heartbeat (done 2026-10-29: install
+  run 40873385526 passed, first run healthy; #913, #915) and the
+  `temp_file_limit` grant (done 2026-10-29, owner-run, evidence
+  `docs/operations/evidence/2026-10-29-v3-purge-temp-file-limit-grant-owner-run.json`).
+  Remaining: a full backup, then `plan` with `rehearsal_run_id` 40704251158.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the

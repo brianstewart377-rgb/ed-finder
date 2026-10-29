@@ -1,0 +1,24 @@
+{
+  "schema_version": "ed-finder/owner-run-host-command-evidence/v1",
+  "date": "2026-10-29",
+  "operation": "temp_file_limit grant for the governed purge executor (purge precondition 4)",
+  "run_by": "owner, by hand over SSH on ed-finder-prod (owner-authorised; recorded here afterwards)",
+  "session": "docker exec -it edfinder-v3-phase4c-full-20260827_r5-postgres psql -X --host /var/run/postgresql --username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5",
+  "statements": [
+    {
+      "sql": "SELECT rolsuper FROM pg_roles WHERE rolname = current_user;",
+      "result": "t"
+    },
+    {
+      "sql": "GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor;",
+      "result": "GRANT"
+    },
+    {
+      "sql": "SELECT has_parameter_privilege('v3_derived_purge_executor', 'temp_file_limit', 'SET');",
+      "result": "t"
+    }
+  ],
+  "server": "PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2), the production database container",
+  "effect": "Catalog privilege only: the executor may SET LOCAL temp_file_limit (the copy route's long phases set 32 GB). No table, row, view or other grant changed.",
+  "checked_by_purge": "scripts/operator/lib/v3_purge_copy.py TEMP_FILE_LIMIT_PRIVILEGE_SQL (has_parameter_privilege(current_user,'temp_file_limit','SET')); status reports temp_file_limit_privilege"
+}
