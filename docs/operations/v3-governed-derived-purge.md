@@ -38,9 +38,11 @@ phases.
    backups SKIP from each relation's `COPY_STARTED` until its `DROPPED` or
    abandonment (owner answer 8), so the pre-copy full backup is the recovery
    point for the whole route; WAL archiving continues throughout.
-3. **A backup heartbeat alert exists** — separate work, not built here — that
-   pages the owner when no successful pgBackRest backup has completed for a
-   reviewed interval. Without it a stalled copy would skip backups silently
+3. **A backup heartbeat alert exists** that pages the owner when no successful
+   pgBackRest backup has completed for a reviewed interval: the hourly
+   `edfinder-v3-backup-heartbeat.timer` (36 hours; installed by the
+   `v3-backup-heartbeat-install` operation, see
+   `deploy/v3-production/backup/README.md` "Backup heartbeat"). Without it a stalled copy would skip backups silently
    (F16). `status` reports `backup_age_hours` and `copy_state_hours` so the
    owner can check by hand in the meantime.
 4. **`GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor`**

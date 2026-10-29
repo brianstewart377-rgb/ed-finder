@@ -209,8 +209,12 @@ newer dated source wins).
   twice within 7,200 s; other phases and the statement timeouts unchanged),
   and run 40704251158 is pinned as accepted authority while the files it
   rehearsed are unchanged. Its longest phase at production speed is about
-  47 min. The app release is done (`1e748c9d`, 2026-10-29, entry below). Next,
-  each with the owner's approval: the backup wrapper re-install, the backup heartbeat alert, the `temp_file_limit` grant,
+  47 min. The app release is done (`1e748c9d`, 2026-10-29, entry below) and the
+  backup wrapper is re-installed (ops run 40855460137, installed hash equals
+  main's `f22b2db9…`; receipt under `docs/operations/evidence/`). Next, each
+  with the owner's approval: the backup heartbeat (built 2026-10-29; the owner
+  creates its check and URL file, then `v3-backup-heartbeat-install`), the
+  `temp_file_limit` grant,
   a full backup, then `plan` with `rehearsal_run_id` 40704251158.
 
   **What does not change:**

@@ -18,6 +18,9 @@ This schedule is **not** part of that promotion: it is a separate host operation
 | `edfinder-v3-backup-diff.timer` | `/etc/systemd/system/edfinder-v3-backup-diff.timer` |
 | `edfinder-v3-backup-verify.timer` | `/etc/systemd/system/edfinder-v3-backup-verify.timer` |
 | `edfinder-rclone-mount.logrotate` | `/etc/logrotate.d/edfinder-rclone-mount` (owner-installed; see "Storage Box mount" below) |
+| `backup-heartbeat.sh` | `/opt/ed-finder-v3-runtime/backup-heartbeat.sh` (mode `0700`; see "Backup heartbeat") |
+| `edfinder-v3-backup-heartbeat.service` | `/etc/systemd/system/edfinder-v3-backup-heartbeat.service` |
+| `edfinder-v3-backup-heartbeat.timer` | `/etc/systemd/system/edfinder-v3-backup-heartbeat.timer` |
 
 For an existing schedule, update only the wrapper through the allowlisted
 `v3-backup-wrapper-install` operation in `chatgpt-ed-new-ops.yml`. Apply migrations
@@ -80,9 +83,55 @@ read runs on every scheduled backup, the installer refuses to install this
 wrapper until 019 is applied and the function exists. WAL archiving is never
 skipped. A copy left staged or swapped therefore suspends scheduled backups
 until it is finished, swapped back or abandoned: the runbook's 24-hour rule
-and a backup heartbeat alert (separate work) cover that.
+and the backup heartbeat (below) cover that.
 
 It then requires pgBackRest itself to report `status: ok` before starting.
+
+## Backup heartbeat
+
+A dead-man's switch on healthchecks.io. Every hour the timer runs
+`backup-heartbeat.sh`, which reads `pgbackrest info` and takes the newest
+finished `full`/`diff`/`incr` backup that has no error flag:
+
+- the stanza reports `ok` and that backup finished within **36 hours**: it
+  pings the check URL (healthy);
+- anything else it can read (too old, none at all, stanza not `ok`, a backup
+  dated in the future, unreadable `info`): it pings the URL's `/fail` path, so
+  healthchecks alerts at once;
+- no usable URL file, or no CPython 3.14: it sends nothing, so the check's own
+  silence alerts after its period and grace.
+
+It never trusts the wrapper's exit status, which is 0 on every `SKIP`. Daily
+backups run at 02:30 UTC (plus up to 15 minutes) and a full backup takes about
+three hours, so the longest healthy gap between finished backups is about 27
+hours. 36 hours keeps headroom and still alerts the same day a backup is missed.
+This also covers the copy-and-drop purge: scheduled backups skip while a
+relation is being copied, and a stalled copy shows up here.
+
+The ping URL is a credential: anyone holding it can fake liveness. It lives
+only in `/etc/ed-finder/v3-production/backup-heartbeat.url` (root, mode
+`0600`, one line `https://hc-ping.com/<uuid>`) and is never printed or recorded.
+
+### Install (owner, once)
+
+1. On healthchecks.io, add a check named `ED-Finder V3 backup age` with
+   **Period 1 hour** and **Grace 1 hour**, and copy its ping URL.
+2. Command, production server. Paste the ping URL, press Enter, then press
+   `Ctrl+D`. The URL does not go into the shell history:
+
+   ```
+   sudo sh -c 'umask 077; cat > /etc/ed-finder/v3-production/backup-heartbeat.url'
+   ```
+3. Dispatch `.github/workflows/chatgpt-ed-new-ops.yml` on `main` with operation
+   `v3-backup-heartbeat-install` (manual dispatch on `main` only). It installs
+   the three committed files with pinned SHA-256s, refuses unless the URL file
+   is a private root file of the right shape, runs `systemctl daemon-reload` and
+   `systemctl enable --now edfinder-v3-backup-heartbeat.timer`, runs the
+   heartbeat once and records its exit status. The receipt (artifact
+   `v3-backup-heartbeat-install-receipt`) must show `status: passed`, equal
+   source and installed hashes, `timer_enabled: true` and
+   `first_run_exit_status: 0`; it never contains the URL.
+4. The check on healthchecks.io turns green after that first run.
 
 ## Fixed on 2026-09-10: twelve days of silent failure
 

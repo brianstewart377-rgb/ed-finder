@@ -29,6 +29,7 @@ on:
           - v3-host-storage-detail
           - v3-host-cleanup
           - v3-backup-wrapper-install
+          - v3-backup-heartbeat-install
           - v3-system-search-validate-constraints-start
           - v3-system-search-validate-constraints-status
           - v3-archetype-calibration-probe
@@ -106,6 +107,11 @@ jobs:
               }
               ;;
             v3-backup-wrapper-install) ;;
+            v3-backup-heartbeat-install)
+              [ "$EVENT_NAME" = workflow_dispatch ] && [ "$CURRENT_REF" = refs/heads/main ] || {
+                echo "V3 backup heartbeat install requires a manual dispatch on main" >&2; exit 64;
+              }
+              ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -712,6 +718,47 @@ jobs:
         with:
           name: v3-backup-wrapper-install-receipt
           path: ${{ runner.temp }}/v3-backup-wrapper-install-receipt.json
+          if-no-files-found: error
+          retention-days: 180
+
+      - name: Install trusted V3 backup heartbeat
+        if: steps.request.outputs.operation == 'v3-backup-heartbeat-install'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-backup-heartbeat-install-receipt.json
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          args="'$source_sha'"
+          for path in deploy/v3-production/backup/backup-heartbeat.sh \
+                      deploy/v3-production/backup/edfinder-v3-backup-heartbeat.service \
+                      deploy/v3-production/backup/edfinder-v3-backup-heartbeat.timer; do
+            source_file="$RUNNER_TEMP/heartbeat-$(basename "$path")"
+            git -C trusted-main show "$source_sha:$path" > "$source_file"
+            source_hash="$(sha256sum "$source_file" | cut -d ' ' -f 1)"
+            source_base64="$(base64 -w0 "$source_file")"
+            [[ "$source_hash" =~ ^[0-9a-f]{64}$ ]] || exit 64
+            [[ "$source_base64" =~ ^[A-Za-z0-9+/=]+$ ]] || exit 64
+            args="$args '$source_hash' '$source_base64'"
+          done
+          remote="if [ \"\$(id -u)\" -eq 0 ]; then exec bash -s -- $args; elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then exec sudo -n bash -s -- $args; else echo 'V3 backup heartbeat install requires root or passwordless sudo' >&2; exit 64; fi"
+          status=0
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" "$remote" \
+            < trusted-main/scripts/operator/actions/v3-backup-heartbeat-install.sh > "$RECEIPT" || status=$?
+          cat "$RECEIPT"
+          exit "$status"
+
+      - name: Upload V3 backup heartbeat install receipt
+        if: always() && steps.request.outputs.operation == 'v3-backup-heartbeat-install'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-backup-heartbeat-install-receipt
+          path: ${{ runner.temp }}/v3-backup-heartbeat-install-receipt.json
           if-no-files-found: error
           retention-days: 180
 

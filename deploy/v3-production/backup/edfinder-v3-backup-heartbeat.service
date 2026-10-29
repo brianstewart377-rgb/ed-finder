@@ -1,0 +1,11 @@
+[Unit]
+Description=ED-Finder V3 backup heartbeat (pings only on a recent successful pgBackRest backup)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ed-finder-v3-runtime/backup-heartbeat.sh
+TimeoutStartSec=300
+Nice=10

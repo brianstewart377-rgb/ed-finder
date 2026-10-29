@@ -1,0 +1,13 @@
+[Unit]
+Description=ED-Finder V3 hourly backup heartbeat
+
+[Timer]
+OnBootSec=10min
+OnCalendar=hourly
+RandomizedDelaySec=5min
+AccuracySec=1min
+Persistent=true
+Unit=edfinder-v3-backup-heartbeat.service
+
+[Install]
+WantedBy=timers.target
