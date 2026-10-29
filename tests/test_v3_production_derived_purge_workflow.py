@@ -145,18 +145,28 @@ def test_cross_run_artifacts_have_fixed_names_and_authenticated_receipts():
     steps = _job()['steps']
     downloads = [step for step in steps if step.get('uses', '').startswith('actions/download-artifact@')]
     assert len(downloads) == 3
-    named = [step for step in downloads if 'name' in step['with']]
-    assert {step['with']['name'] for step in named} == {
-        'v3-derived-purge-plan', 'v3-derived-purge-verification',
+    # Every download is by exact name; none uses a pattern.
+    assert all('pattern' not in step['with'] for step in downloads)
+    rehearsal_name = ('v3-derived-purge-rehearsal-${{ inputs.rehearsal_run_id }}'
+                      '-${{ steps.rehearsal-attempt.outputs.attempt }}')
+    assert {step['with']['name'] for step in downloads} == {
+        'v3-derived-purge-plan', 'v3-derived-purge-verification', rehearsal_name,
     }
-    # The rehearsal artifact name carries its run attempt, so every attempt is
-    # downloaded by an exact run-id prefix into its own directory and only the
-    # authenticated successful attempt is staged.
-    rehearsal = next(step for step in downloads if 'name' not in step['with'])
+    # The rehearsal artifact name carries its run attempt. The workflow
+    # resolves the attempt GitHub reports and downloads exactly that artifact
+    # into its own directory, where authentication (which re-fetches the run)
+    # reads it: a single-match pattern download would extract into the root
+    # instead (plan run 40939364894).
+    rehearsal = next(step for step in downloads if step['with']['name'] == rehearsal_name)
     assert rehearsal['if'] == "inputs.mode == 'plan'"
-    assert rehearsal['with']['pattern'] == 'v3-derived-purge-rehearsal-${{ inputs.rehearsal_run_id }}-*'
-    assert rehearsal['with']['merge-multiple'] == 'false'
-    assert rehearsal['with']['path'] == '${{ runner.temp }}/purge-rehearsal'
+    assert rehearsal['with']['path'] == '${{ runner.temp }}/purge-rehearsal/' + rehearsal_name
+    resolve = next(step for step in steps if step.get('id') == 'rehearsal-attempt')
+    assert resolve['if'] == "inputs.mode == 'plan'"
+    assert steps.index(resolve) < steps.index(rehearsal)
+    assert resolve['env'] == {'GH_TOKEN': '${{ github.token }}'}
+    assert '[[ "$INPUT_REHEARSAL_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || exit 64' in resolve['run']
+    assert 'actions/runs/$INPUT_REHEARSAL_RUN_ID" --jq \'.run_attempt\'' in resolve['run']
+    assert '[[ "$attempt" =~ ^[1-9][0-9]{0,4}$ ]] || exit 64' in resolve['run']
     assert {step['with']['run-id'] for step in downloads} == {
         '${{ inputs.plan_run_id }}', '${{ inputs.verification_run_id }}', '${{ inputs.rehearsal_run_id }}',
     }
