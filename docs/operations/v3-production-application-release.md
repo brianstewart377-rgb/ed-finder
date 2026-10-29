@@ -377,7 +377,8 @@ is still compatible when it is exactly the accepted release in the trusted
 authority — same source, release run, manifest checksum and images — and that
 reviewed attestation lists the current migration set; it must also remain
 application-only rollback eligible. This is the rule `validate_prior_runtime`
-already applies to the running release. Any other mismatch still refuses with
+already applies to the running release, and a post-cutover recovery re-applies
+it to the artifact it selected rather than refusing it. Any other mismatch still refuses with
 `f2d_rollback_artifact_schema_incompatible` (preflight run 40840746266 on
 2026-10-29 was refused this way before the rule was added).
 Preflight and promotion receipts record the selected source (`recorded_artifact`

@@ -23,7 +23,9 @@ now applies `validate_prior_runtime`'s rule: the recorded artifact that is
 exactly the accepted release (source, run, manifest checksum, images) is
 compatible when the trusted authority lists the current migration set, and it
 must still be application-only rollback eligible. Every other mismatch still
-refuses. Replayed against the real `a031c2da` manifest and authority, the
+refuses. A promotion that fails after cutover re-applies the same rule to the
+artifact it selected, so recovery recreates that release instead of refusing it
+(Codex review). Replayed against the real `a031c2da` manifest and authority, the
 selection returns that artifact. No release image, migration or purge file
 changes.
 
