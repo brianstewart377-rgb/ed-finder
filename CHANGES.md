@@ -11,6 +11,24 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — F2d rollback selection honours reviewed compatibility
+
+The first preflight of the fourth F2d release (release run 40840492834, source
+`6a97db48`; preflight run 40840746266) stopped read-only with
+`f2d_rollback_artifact_schema_incompatible`. The rollback picker checked the
+accepted release `a031c2da` only against its own sealed manifest, which names
+the through-016 schema it was built for; migrations 019–021 were applied after
+it, and the reviewed authority attests through-021 for it. `select_f2d_rollback`
+now applies `validate_prior_runtime`'s rule: the recorded artifact that is
+exactly the accepted release (source, run, manifest checksum, images) is
+compatible when the trusted authority lists the current migration set, and it
+must still be application-only rollback eligible. Every other mismatch still
+refuses. A promotion that fails after cutover re-applies the same rule to the
+artifact it selected, so recovery recreates that release instead of refusing it
+(Codex review). Replayed against the real `a031c2da` manifest and authority, the
+selection returns that artifact. No release image, migration or purge file
+changes.
+
 ## 2026-10-28 — Purge rehearsal gate: judge verification at production speed
 
 The one_percent rehearsal with 021 and #906 (run 40704251158) passed every

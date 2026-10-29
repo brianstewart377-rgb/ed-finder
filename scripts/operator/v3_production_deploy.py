@@ -829,10 +829,67 @@ def require_f2d_rollback_image(image: str, attestation: dict[str, Any]) -> None:
         raise DeploymentError("f2d_rollback_image_incompatible")
 
 
+def reviewed_accepted_rollback(
+    manifest: dict[str, Any], run_id: str, checksum: str, schema: dict[str, Any],
+    accepted: dict[str, Any] | None,
+) -> bool:
+    """True only for the accepted release's own artifact under reviewed compatibility.
+
+    A compatible migration applied after a release (019-021 after a031c2da)
+    leaves that release's sealed manifest naming only its build-time schema.
+    The reviewed authority attests the newer identity; validate_prior_runtime
+    already admits the running release on exactly this binding, and the
+    rollback selection uses the same rule for the same artifact.
+    """
+    if accepted is None:
+        return False
+    validate_release_compatibility_shape(accepted)
+    return (
+        accepted["source_sha"] == manifest.get("git_sha")
+        and accepted["release_run_id"] == run_id
+        and accepted["manifest_sha256"] == checksum
+        and accepted["images"] == manifest.get("images")
+        and schema["migration_set_identity"] in accepted["compatible_migration_sets"]
+    )
+
+
+def validate_rollback_manifest(
+    manifest: dict[str, Any], schema: dict[str, Any],
+    reviewed_accepted: dict[str, Any] | None = None,
+) -> None:
+    """Require a rollback manifest to suit the current schema, before any recreate.
+
+    ``reviewed_accepted`` is passed only for an artifact that
+    select_f2d_rollback admitted through reviewed_accepted_rollback (bound there
+    to its run and manifest checksum); recovery re-applies that same rule
+    rather than refusing the very artifact it selected.
+    """
+    # manifest_tool() loads a fresh module each call, so its ManifestError is
+    # caught here against the same instance and refused in this module's terms.
+    tool = manifest_tool()
+    try:
+        tool.validate_manifest(manifest, purpose="rollback",
+                               current_migration_set=schema["migration_set_identity"])
+        return
+    except tool.ManifestError as exc:
+        if (
+            reviewed_accepted is None
+            or reviewed_accepted["source_sha"] != manifest.get("git_sha")
+            or reviewed_accepted["images"] != manifest.get("images")
+            or schema["migration_set_identity"] not in reviewed_accepted["compatible_migration_sets"]
+        ):
+            raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
+    try:
+        # Still a valid, application-only rollback-eligible release.
+        tool.validate_manifest(manifest, purpose="rollback-candidate", current_migration_set=None)
+    except tool.ManifestError as exc:
+        raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
+
+
 def select_f2d_rollback(
     directory: Path, attestation: dict[str, Any], schema: dict[str, Any],
-    candidate: dict[str, Any],
-) -> tuple[dict[str, Any], str]:
+    candidate: dict[str, Any], accepted: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str, bool]:
     # Prefer immutable artifacts in the root-owned receipt store, verified with
     # basename-bound checksum sidecars. If none is compatible, the same
     # operation's already authenticated, checksum-bound candidate may provide
@@ -859,12 +916,9 @@ def select_f2d_rollback(
             if manifest.get("images", {}).get("backend") != image:
                 continue
             require_f2d_rollback_image(image, attestation)
-            try:
-                tool.validate_manifest(manifest, purpose="rollback",
-                                       current_migration_set=schema["migration_set_identity"])
-            except tool.ManifestError as exc:
-                raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
-            return manifest, "recorded_artifact"
+            reviewed = reviewed_accepted_rollback(manifest, match[2], checksum, schema, accepted)
+            validate_rollback_manifest(manifest, schema, accepted if reviewed else None)
+            return manifest, "recorded_artifact", reviewed
     targets = trim_rollback_targets(
         attestation["rollback_targets"], attestation["minimum_schema_compatible_image"],
     )
@@ -874,7 +928,7 @@ def select_f2d_rollback(
                                    current_migration_set=schema["migration_set_identity"])
         except tool.ManifestError as exc:
             raise DeploymentError("f2d_rollback_artifact_schema_incompatible") from exc
-        return candidate, "authenticated_candidate"
+        return candidate, "authenticated_candidate", False
     raise DeploymentError("compatible_rollback_artifact_not_recorded")
 
 
@@ -2156,8 +2210,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                 f2d_generation = verify_f2d_generation(
                     env, runner, authority["accepted_release_schema_compatibility"], f2d_generation,
                 )
-                rollback_manifest, rollback_source = select_f2d_rollback(
+                rollback_manifest, rollback_source, rollback_reviewed = select_f2d_rollback(
                     receipt_dir, f2d_attestation, schema, candidate,
+                    authority["accepted_release_schema_compatibility"],
                 )
                 rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
                 # The first F2d candidate may exist only in the registry. Its
@@ -2225,6 +2280,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     f2d_probe_statuses: list[dict[str, Any]] = []
     f2d_image_contract: dict[str, Any] | None = None
     rollback_manifest: dict[str, Any] | None = None
+    rollback_reviewed = False
     try:
         live_capacity = live_capacity_guard()
         verify_live_schema(schema, env, runner)
@@ -2233,8 +2289,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             f2d_generation = verify_f2d_generation(
                 env, runner, authority["accepted_release_schema_compatibility"], f2d_generation,
             )
-            rollback_manifest, rollback_source = select_f2d_rollback(
+            rollback_manifest, rollback_source, rollback_reviewed = select_f2d_rollback(
                 receipt_dir, f2d_attestation, schema, candidate,
+                authority["accepted_release_schema_compatibility"],
             )
             rollback_artifact = f2d_rollback_receipt(rollback_manifest, rollback_source)
             if rollback_source == "recorded_artifact":
@@ -2446,11 +2503,12 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
                         require_f2d_rollback_image(recovery_manifest["images"]["backend"], f2d_attestation)
                         for image in recovery_manifest["images"].values():
                             verify_image(image, recovery_manifest["git_sha"], env, runner)
-                    rollback_tool = manifest_tool()
-                    rollback_tool.validate_manifest(
-                        recovery_manifest,
-                        purpose="rollback",
-                        current_migration_set=schema["migration_set_identity"],
+                    # The same rule that selected it: an artifact admitted through
+                    # the reviewed accepted-release binding is not re-refused here.
+                    validate_rollback_manifest(
+                        recovery_manifest, schema,
+                        authority["accepted_release_schema_compatibility"]
+                        if f2d_release and rollback_reviewed else None,
                     )
                     prior_slot = prior_receipt["active_slot"]
                     prior_env = compose_env(external, recovery_manifest, snapshot or Path(external["api_env_file"]), external["active_origin_bind"], env)
