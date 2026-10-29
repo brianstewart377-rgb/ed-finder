@@ -11,6 +11,21 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — Purge plan downloads the rehearsal receipt by exact name
+
+The first protected `plan` (run 40939364894, rehearsal run 40704251158) stopped
+in the GitHub-side artifact authentication, before any SSH or production read:
+the rehearsal artifact was downloaded by name pattern, and a pattern that
+matches a single artifact is extracted straight into the target path rather
+than the per-attempt directory the authentication reads. The workflow now
+resolves the attempt GitHub reports for the rehearsal run (a
+`resolve-rehearsal-attempt` helper command: the same pinned run fetch and
+provenance check as authentication, no `gh api`) and downloads exactly
+`v3-derived-purge-rehearsal-<run>-<attempt>`
+into that directory; authentication still re-fetches the run and reads only
+that attempt. Its stopped receipt is committed as evidence. No purge or F2d
+operator-code file changes; the pinned rehearsal still applies.
+
 ## 2026-10-29 — Purge preconditions 3 and 4 met in production
 
 The backup heartbeat is installed (ops run 40873385526: files and hashes
