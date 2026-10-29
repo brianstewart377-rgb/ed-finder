@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-29 — Backup heartbeat (dead-man's switch)
+
+The new production host had no external alert, so failed or skipped backups
+were silent (twelve nights in September; the purge precondition 3 asked for
+one). `deploy/v3-production/backup/backup-heartbeat.sh` runs hourly from
+`edfinder-v3-backup-heartbeat.timer`: it pings a healthchecks.io check only when
+`pgbackrest info` shows a successful backup finished within 36 hours, pings
+`/fail` when it can show otherwise, and sends nothing when it has no URL. The
+allowlisted `v3-backup-heartbeat-install` operation installs the script and
+units from trusted main with pinned hashes, refuses until the owner has
+created the private URL file, enables the timer and records the first run.
+The URL is a credential kept only on the host.
+
 ## 2026-10-29 — Fourth F2d release `1e748c9d` accepted in production
 
 Owner-approved. Release run 40847515414 (source `1e748c9d`) passed preflight
