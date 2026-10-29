@@ -102,8 +102,9 @@ finished `full`/`diff`/`incr` backup that has no error flag:
   silence alerts after its period and grace.
 
 It never trusts the wrapper's exit status, which is 0 on every `SKIP`. Daily
-backups run at 02:30 UTC (plus up to 15 minutes) and a full backup takes about
-three hours, so the longest healthy gap between finished backups is about 27
+backups run at 02:30 UTC (plus up to 15 minutes) and a full backup of the
+1.4 TB database takes five to six hours (2026-10-25: 5 h 38 min; 2026-10-29:
+5 h 37 min), so the longest healthy gap between finished backups is about 30
 hours. 36 hours keeps headroom and still alerts the same day a backup is missed.
 This also covers the copy-and-drop purge: scheduled backups skip while a
 relation is being copied, and a stalled copy shows up here.
@@ -136,6 +137,77 @@ only in `/etc/ed-finder/v3-production/backup-heartbeat.url` (root, mode
    source and installed hashes, `timer_enabled: true` and
    `first_run_exit_status: 0`; it never contains the URL.
 4. The check on healthchecks.io turns green after that first run.
+
+## WAL archive speed (`pgbackrest.conf`)
+
+`archive_command` is `pgbackrest --stanza=edfinder_v3 archive-push %p`. The
+active configuration is `/etc/pgbackrest/pgbackrest.conf` inside the database
+container (root:postgres, mode 640, in the container's own layer, not a mount;
+the older `/etc/pgbackrest.conf` there is ignored while the newer file exists).
+Its sections are `[edfinder_v3]`, `[global]` and `[global:archive-push]`; the
+last carried only `compress-level=3` (owner inspection, 2026-10-29). So WAL was
+archived one 16 MB segment at a time, each by a new process (gzip level 3,
+then AES-256-CBC, then a write into the Storage Box mount's local cache).
+
+That is slow for the copy-and-drop purge's long phases. Measured at production
+scale by the one-percent rehearsal, each relation's index build writes 72–108
+GB of WAL and its `VACUUM (FREEZE)` 55–70 GB, and the phase watchdog cancels a
+long phase when `pg_wal` reaches twice `max_wal_size` (2 × 32 GB). Segments
+leave `pg_wal` only once archived, so archiving must keep up while those
+phases run. Background parallel archiving does that: `archive-push` hands each
+segment to an asynchronous process that pushes several at once, and a segment
+still counts as archived only once pushed. It also shortens everyday
+archiving. The Storage Box mount's write cache (see "Storage Box mount" below)
+then holds the compressed segments until upload, which the purge's free-space
+gate measures because it is on `/`.
+
+### Turn on background parallel archiving (owner, once)
+
+All commands run in a terminal on **ed-finder-prod**. None prints the
+repository password.
+
+1. Keep a copy of the current file (same folder, same owner and mode):
+
+   ```
+   docker exec -u root edfinder-v3-phase4c-full-20260827_r5-postgres cp -p /etc/pgbackrest/pgbackrest.conf /etc/pgbackrest/pgbackrest.conf.before-async-20261029
+   ```
+2. Add `archive-async=y` and `spool-path=/var/spool/pgbackrest` under
+   `[global]`, and `process-max=4` under `[global:archive-push]` (so only
+   archiving uses four processes; backups are unchanged). The spool folder
+   already exists, owned by `postgres`:
+
+   ```
+   docker exec -u root edfinder-v3-phase4c-full-20260827_r5-postgres sed -i -e '/^\[global\]$/a archive-async=y\nspool-path=/var/spool/pgbackrest' -e '/^\[global:archive-push\]$/a process-max=4' /etc/pgbackrest/pgbackrest.conf
+   ```
+3. Check the result. It must list the three section headers, the three new
+   lines and `compress-level=3`, and the file must still be
+   `-rw-r----- root postgres`. If any new line is missing, run the undo
+   command below and stop:
+
+   ```
+   docker exec edfinder-v3-phase4c-full-20260827_r5-postgres sh -c "grep -nE '^\[|^(archive-async|spool-path|process-max|compress-level)=' /etc/pgbackrest/pgbackrest.conf; ls -l /etc/pgbackrest/pgbackrest.conf"
+   ```
+4. Prove archiving still works. `check` forces a WAL switch and waits for that
+   segment to be archived; it must end with `check command end: completed
+   successfully`:
+
+   ```
+   docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest --stanza=edfinder_v3 check
+   ```
+5. Confirm the asynchronous process did the push. The spool folder for the
+   stanza must now exist, and its log must show `archive-push:async command
+   end: completed successfully`:
+
+   ```
+   docker exec edfinder-v3-phase4c-full-20260827_r5-postgres sh -c "ls -ld /var/spool/pgbackrest/archive/edfinder_v3/out; tail -n 3 /var/log/pgbackrest/edfinder_v3-archive-push-async.log"
+   ```
+
+No restart is needed: each `archive-push` reads the file. Undo (restores the
+copy from step 1; archiving returns to one segment at a time):
+
+```
+docker exec -u root edfinder-v3-phase4c-full-20260827_r5-postgres cp -p /etc/pgbackrest/pgbackrest.conf.before-async-20261029 /etc/pgbackrest/pgbackrest.conf
+```
 
 ## Fixed on 2026-09-10: twelve days of silent failure
 
@@ -229,4 +301,4 @@ continuous WAL archive. **No restore from this repository has ever been
 rehearsed**, which is the project's own stated bar — a backup that has not been
 test-restored is a hypothesis. The daily diffs are cheap (seconds, single-digit
 megabytes) because the database is read-mostly; the weekly full is the expensive
-one at roughly three hours.
+one at five to six hours.
