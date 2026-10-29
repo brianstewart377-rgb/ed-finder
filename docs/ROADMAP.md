@@ -209,8 +209,8 @@ newer dated source wins).
   twice within 7,200 s; other phases and the statement timeouts unchanged),
   and run 40704251158 is pinned as accepted authority while the files it
   rehearsed are unchanged. Its longest phase at production speed is about
-  47 min. Next, each with the owner's approval: the app release, the backup
-  wrapper re-install, the backup heartbeat alert, the `temp_file_limit` grant,
+  47 min. The app release is done (`1e748c9d`, 2026-10-29, entry below). Next,
+  each with the owner's approval: the backup wrapper re-install, the backup heartbeat alert, the `temp_file_limit` grant,
   a full backup, then `plan` with `rehearsal_run_id` 40704251158.
 
   **What does not change:**
@@ -266,7 +266,20 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
-- **Production app promoted to `a031c2da`, the third F2d release (2026-10-23).**
+- **Production app promoted to `1e748c9d`, the fourth F2d release (2026-10-29).**
+  Owner-approved. Release run 40847515414, preflight run 40847736690, promote
+  run 40850450821, receipt `created_at` `2026-10-29T09:33:33Z`, active slot
+  green→blue, `status: accepted`; app-only, no migration, no database writes.
+  It carries the governed purge operator code (PRs #894–#907), so the accepted
+  F2d operator-code identity is now `feb0ed71…`, and app changes from PRs #892,
+  #895, #896, #902, #908 and #909. The first preflight (run 40840746266) stopped
+  read-only with `f2d_rollback_artifact_schema_incompatible`: the rollback
+  picker checked `a031c2da` only against its own pre-019 manifest. PR #911 makes
+  it, and post-cutover recovery, use the reviewed through-021 compatibility the
+  authority already records. The `a031c2da` backend is the recorded rollback
+  artifact; `f667bb4d` stays the minimum schema-compatible image. Receipts under
+  `docs/operations/evidence/2026-10-29-*`.
+- **Previously: production app promoted to `a031c2da`, the third F2d release (2026-10-23).**
   Release run 39921473982, preflight run 39925556950, promote run 39925665010,
   receipt `created_at` `2026-10-23T08:35:49Z`, active slot blue→green,
   `status: accepted`; app-only, no migration, no database writes. Carries
