@@ -122,8 +122,7 @@ def test_blocked_t3_does_not_advance_counter_and_payers_fit_known_free_slots() -
     assert (passed.counted_port_number, passed.cost_t2, passed.result) == (1, 3, 'OK')
     assert blocked.payers == (
         'orbital_installation_government', 'orbital_installation_medical',
-        'orbital_installation_military', 'orbital_installation_research_station',
-        'orbital_installation_security_station',
+        'orbital_installation_space_bar',
     )
     for fid in blocked.payers:
         candidate = facility(fid)
@@ -131,6 +130,52 @@ def test_blocked_t3_does_not_advance_counter_and_payers_fit_known_free_slots() -
         assert candidate.green_cp_generated >= 1 and candidate.green_cp_cost == 0
         assert candidate.can_go_orbital
     assert not passed.payers
+
+
+def test_payers_exclude_unmet_prerequisites_before_truncating() -> None:
+    result = evaluate_plan(plan(PRIMARY, site('blocked', 'orbis_t3'),
+                                bodies=(replace(BODY, surface_slots=0),)))
+    step = result.steps[-1]
+    assert (step.result, step.reasons, step.t2_before, step.t3_before) == (
+        'BLOCKED', ('INSUFFICIENT_T3',), 1, 0,
+    )
+    assert step.payers == (
+        'orbital_installation_government', 'orbital_installation_medical',
+        'orbital_installation_space_bar',
+    )
+    assert {
+        'orbital_installation_military', 'orbital_installation_research_station',
+        'orbital_installation_security_station', 'tourism_installation',
+    }.isdisjoint(step.payers)
+
+
+def test_payers_include_candidates_with_prerequisites_available_earlier() -> None:
+    result = evaluate_plan(plan(PRIMARY,
+                                site('relay', 'orbital_installation_relay_station', 'complete'),
+                                site('blocked', 'orbis_t3'),
+                                bodies=(replace(BODY, surface_slots=0),)))
+    step = result.steps[-1]
+    assert (step.result, step.reasons) == ('BLOCKED', ('INSUFFICIENT_T3',))
+    assert step.payers == (
+        'orbital_installation_government', 'orbital_installation_medical',
+        'orbital_installation_security_station', 'orbital_installation_space_bar',
+    )
+
+
+@pytest.mark.parametrize(('fund_count', 'expected_payers'), [
+    (0, ()),
+    (1, ('orbital_installation_government', 'orbital_installation_medical',
+         'orbital_installation_space_bar')),
+])
+def test_payers_must_be_affordable_at_the_blocked_step(fund_count, expected_payers) -> None:
+    result = evaluate_plan(plan(site('primary', 'coriolis_station', 'complete'),
+                                *funds(fund_count), site('blocked', 'orbis_t3'),
+                                bodies=(replace(BODY, surface_slots=0),)))
+    step = result.steps[-1]
+    assert (step.result, step.reasons, step.t2_before, step.t3_before) == (
+        'BLOCKED', ('INSUFFICIENT_T3',), fund_count, 1,
+    )
+    assert step.payers == expected_payers
 
 
 def test_payers_sort_by_reward_before_id_and_ignore_full_or_unknown_slots() -> None:
@@ -391,7 +436,10 @@ def test_payer_fit_uses_slots_after_earlier_passed_steps() -> None:
     result = evaluate_plan(plan(PRIMARY, site('before', 'orbis_t3'),
                                 site('uses-slot', 'orbital_installation_space_farm'),
                                 site('after', 'orbis_t3'), bodies=(body,)))
-    assert len(result.steps[1].payers) == 5
+    assert result.steps[1].payers == (
+        'orbital_installation_government', 'orbital_installation_medical',
+        'orbital_installation_space_bar',
+    )
     assert result.steps[2].result == 'OK'
     assert result.steps[3].payers == ()
     assert {'INSUFFICIENT_T3', 'NO_FREE_SLOT'} <= set(result.steps[3].reasons)

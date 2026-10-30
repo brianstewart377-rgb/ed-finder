@@ -92,6 +92,9 @@ def payers_for(
     reasons: tuple[str, ...],
     bodies: tuple[Body, ...],
     occupied: Mapping[tuple[str, str], int],
+    available: set[str],
+    t2: int,
+    t3: int,
 ) -> tuple[str, ...]:
     missing_t2 = 'INSUFFICIENT_T2' in reasons
     missing_t3 = 'INSUFFICIENT_T3' in reasons
@@ -100,6 +103,12 @@ def payers_for(
     candidates: list[tuple[int, str]] = []
     for template in planner_facilities().values():
         if cp_rules.escalating_port_tier(template) is not None:
+            continue
+        if any(not entry.intersection(available) for entry in prerequisites_for(template.id)):
+            continue
+        if template.yellow_cp_cost > 0 and t2 < template.yellow_cp_cost:
+            continue
+        if template.green_cp_cost > 0 and t3 < template.green_cp_cost:
             continue
         points = max(
             template.yellow_cp_generated if missing_t2 and template.yellow_cp_cost == 0 else 0,

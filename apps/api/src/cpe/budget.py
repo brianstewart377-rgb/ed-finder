@@ -129,7 +129,7 @@ def evaluate_plan(plan: Plan) -> Evaluation:
             t2, t3, cost_t2, cost_t3,
         )
         reasons = blocked + unknown
-        payers = payers_for(reasons, plan.bodies, occupied)
+        payers = payers_for(reasons, plan.bodies, occupied, available, t2, t3)
         if blocked:
             result = 'BLOCKED'
         else:
