@@ -357,26 +357,37 @@ SELECT jsonb_build_object('wal_byte_delta',
 """)
 
 
-WAL_DIRECTORY_ATTEMPTS = 3
+WAL_DIRECTORY_ATTEMPTS = 3            # immediate re-measures: one vanished segment
+WAL_DIRECTORY_RETRY_SECONDS = 60      # then re-measure through a checkpoint's segment burst
+WAL_DIRECTORY_PAUSE_SECONDS = 0.5
 
 
-def measure_wal(runtime, data_directory):
+def measure_wal(runtime, data_directory, *, clock=time.monotonic, sleep=time.sleep):
     """Pair server WAL health with physical bytes on the proved data volume."""
     wal = runtime.query(WAL_SQL)
     # pg_ls_waldir needs a privilege deliberately not given to the executor
     # by 016. Use the same fixed container/directory measurement in each phase.
     # A checkpoint may remove or recycle a segment while du walks pg_wal; du
     # then reports "cannot access" and exits 1, which the bounded command runner
-    # raises. Re-measure a bounded number of times; a directory that still
-    # cannot be measured fails closed exactly as before.
-    for attempt in range(WAL_DIRECTORY_ATTEMPTS):
+    # raises. At production scale one checkpoint removes or recycles thousands
+    # of segments in a row (2026-10-30: the copy watchdog cancelled the Search
+    # verify, run 41102817187, on three back-to-back failures), so after the
+    # immediate attempts keep re-measuring, paced, for a bounded time; a
+    # directory that still cannot be measured fails closed exactly as before.
+    deadline = clock() + WAL_DIRECTORY_RETRY_SECONDS
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             size = runtime.docker('exec', CONTAINER, 'du', '--bytes', '--summarize',
                                   '--dereference', '--', data_directory + '/pg_wal')
             break
         except RuntimeError:
-            if attempt == WAL_DIRECTORY_ATTEMPTS - 1:
+            if attempt < WAL_DIRECTORY_ATTEMPTS:
+                continue
+            if clock() >= deadline:
                 raise ValueError('wal_directory_bytes_unavailable') from None
+            sleep(WAL_DIRECTORY_PAUSE_SECONDS)
     fields = size.split() if isinstance(size, str) else []
     if (not isinstance(wal, dict) or len(fields) != 2 or not fields[0].isascii()
             or not fields[0].isdecimal() or fields[1] != data_directory + '/pg_wal'):

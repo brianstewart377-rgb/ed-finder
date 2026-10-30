@@ -738,6 +738,8 @@ def test_delete_and_abort_refuse_unavailable_initial_wal_bytes(monkeypatch, mode
             raise RuntimeError('du_command_failed')
         return 'not measured'
     model.runtime.docker = docker
+    # The paced re-measure window is its own test; here only the refusal matters.
+    monkeypatch.setattr(model.c, 'WAL_DIRECTORY_RETRY_SECONDS', 0)
     with pytest.raises((ValueError, RuntimeError), match='wal_directory_bytes_unavailable|du_command_failed'):
         model.run(mode)
     assert model.mutations == []

@@ -1745,11 +1745,10 @@ def test_wal_measurement_re_measures_when_a_segment_vanishes_mid_scan():
     """A checkpoint can remove or recycle a segment while du walks pg_wal; du
     then exits 1 and the bounded runner raises. That race must not cancel a
     long phase (one_percent rehearsal run 40654125745 stopped on a watchdog
-    cancel with no other cause), so the measurement retries a bounded number of
-    times and only a directory that keeps failing fails closed."""
+    cancel with no other cause), so the first attempts re-measure at once."""
     module = _action_tool()
     outcomes = [RuntimeError('bounded_command_failed'), RuntimeError('bounded_command_failed'), '4096 /data/pg_wal']
-    calls = []
+    calls, pauses = [], []
     def docker(*argv):
         calls.append(argv)
         outcome = outcomes.pop(0)
@@ -1757,16 +1756,64 @@ def test_wal_measurement_re_measures_when_a_segment_vanishes_mid_scan():
             raise outcome
         return outcome
     runtime = SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=docker)
-    assert module.measure_wal(runtime, '/data') == {'lsn': '0/10', 'bytes': 4096}
-    assert len(calls) == module.WAL_DIRECTORY_ATTEMPTS == 3
+    assert module.measure_wal(runtime, '/data', sleep=pauses.append) == {'lsn': '0/10', 'bytes': 4096}
+    assert len(calls) == module.WAL_DIRECTORY_ATTEMPTS == 3 and pauses == []
     assert all(call[-1] == '/data/pg_wal' and 'du' in call for call in calls)
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+        self.pauses = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.pauses.append(seconds)
+        self.now += seconds
+
+
+def test_wal_measurement_rides_out_a_checkpoint_segment_burst():
+    """2026-10-30, production: one checkpoint removed or recycled thousands of
+    segments in a row and three back-to-back failures cancelled the Search
+    verify (run 41102817187). Past the immediate attempts the measurement keeps
+    re-measuring, paced, until the burst ends, within the bounded window."""
+    module = _action_tool()
+    clock = _FakeClock()
+    failures = [40]
+    def docker(*_argv):
+        if failures[0]:
+            failures[0] -= 1
+            raise RuntimeError('bounded_command_failed')
+        return '8192 /data/pg_wal'
+    runtime = SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=docker)
+    assert module.measure_wal(runtime, '/data', clock=clock, sleep=clock.sleep) == {'lsn': '0/10', 'bytes': 8192}
+    assert len(clock.pauses) == 40 - (module.WAL_DIRECTORY_ATTEMPTS - 1)
+    assert set(clock.pauses) == {module.WAL_DIRECTORY_PAUSE_SECONDS}
+    assert clock.now - 1000.0 < module.WAL_DIRECTORY_RETRY_SECONDS
+
+
+def test_wal_measurement_still_fails_closed_once_the_retry_window_is_spent():
+    module = _action_tool()
+    assert module.WAL_DIRECTORY_RETRY_SECONDS == 60 and module.WAL_DIRECTORY_PAUSE_SECONDS == 0.5
+    clock = _FakeClock()
     def always_fails(*_argv):
         always_fails.calls += 1
         raise RuntimeError('bounded_command_failed')
     always_fails.calls = 0
     with pytest.raises(ValueError, match='wal_directory_bytes_unavailable'):
-        module.measure_wal(SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=always_fails), '/data')
-    assert always_fails.calls == module.WAL_DIRECTORY_ATTEMPTS
+        module.measure_wal(SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=always_fails), '/data',
+                           clock=clock, sleep=clock.sleep)
+    window = module.WAL_DIRECTORY_RETRY_SECONDS
+    assert clock.now - 1000.0 == window
+    assert always_fails.calls == module.WAL_DIRECTORY_ATTEMPTS + int(window / module.WAL_DIRECTORY_PAUSE_SECONDS)
+    # A malformed answer is not a vanished segment: it fails at once.
+    clock = _FakeClock()
+    with pytest.raises(ValueError, match='wal_directory_bytes_unavailable'):
+        module.measure_wal(SimpleNamespace(query=lambda _: {'lsn': '0/10'}, docker=lambda *_: 'garbage'), '/data',
+                           clock=clock, sleep=clock.sleep)
+    assert clock.pauses == []
 
 
 def test_wal_delta_uses_parameterized_server_lsn_arithmetic():

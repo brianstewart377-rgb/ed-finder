@@ -117,6 +117,14 @@ ACCEPTED_REHEARSALS = {
                 'rehearsed': 'deed2681f510044ee81f5879ed4c332a92b2b0d1f37a9801e4c902abef41a775',
                 'accepted': '50f4795d810916479759c7a4c9d6cbe383d4042c24ee99bd2df76084b33a4622',
             },
+            # Owner decision 2026-10-30, after copy run 41102817187's verify was
+            # cancelled by the watchdog on three back-to-back pg_wal measurement
+            # failures during a checkpoint's segment burst: measure_wal keeps
+            # re-measuring, paced, for up to 60 s before it fails closed.
+            'scripts/operator/lib/v3_generation_purge.py': {
+                'rehearsed': '3d313a899f6d5feef3402a19c22d74b46a8341c2de908ab847d572c49477db0e',
+                'accepted': '8c527b5a8983a98890a5c89d5d0243c93ba4be9900519a28405da0e5e0b9a199',
+            },
         },
     },
 }

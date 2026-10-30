@@ -229,6 +229,19 @@ found about 11.6 GB outside the database in total, so freeing the shortfall
 on the host was not possible. The owner accepted this change too; the pin's
 `amended_files` entry now carries the new accepted digest.
 
+**Third owner-accepted amendment (2026-10-30), `v3_generation_purge.py`.** The
+Search verify (copy run 41102817187) was cancelled about a minute in by the
+watchdog (`wal_archiver_failure`, `observe:wal_directory_bytes_unavailable`,
+SQLSTATE `57014`, retryable): a checkpoint was removing or recycling the
+segments the index build and VACUUM had written, and the `pg_wal` probe failed
+three times back to back. `measure_wal` now keeps re-measuring for up to 60 s
+(see the watchdog paragraph). The owner accepted this change; `amended_files`
+records `v3_generation_purge.py`'s rehearsed and accepted digests. That file is
+also in `deploy/v3-production/f2d-operator-code.txt`, so the F2d operator
+identity on `main` no longer equals the `1e748c9d` release attestation: the
+F2d build and status operations refuse until the next application release
+attests it. The purge does not use them.
+
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
 `edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,
@@ -245,9 +258,15 @@ recorded as `wal_archiver_failure`, because 016's cancel definer accepts only
 fixed conditions; the watchdog therefore also records what latched the
 condition (`<unit>.json.detail`, copied as `monitor_detail`: `observe:<code>` or
 `backend:<code>`) and logs it to the unit's journal. The `pg_wal` size probe
-(`du`) re-measures up to three times, because a checkpoint can remove or
+(`du`) re-measures at once up to three times, because a checkpoint can remove or
 recycle a segment mid-scan and `du` then exits 1 (one_percent rehearsal run
-40654125745 stopped on such a cancel with no other recorded cause). The
+40654125745 stopped on such a cancel with no other recorded cause). At
+production scale one checkpoint removes or recycles thousands of segments in
+a row, and three back-to-back failures cancelled the Search verify (copy run
+41102817187, `observe:wal_directory_bytes_unavailable`, 2026-10-30); since then
+it keeps re-measuring every 0.5 s for up to 60 s before it fails closed. The
+free-space check runs before the probe on every pass, so a burst delays the
+watchdog's next pass by at most that window. The
 controller's own watch callback (stop requests, controller liveness, progress
 polling) runs only once the phase backend has been set up and yielded: the
 identity and session set-up queries run without it.
