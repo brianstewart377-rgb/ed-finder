@@ -218,6 +218,20 @@ newer dated source wins).
   `docs/operations/evidence/2026-10-29-v3-purge-temp-file-limit-grant-owner-run.json`).
   Remaining: a full backup, then `plan` with `rehearsal_run_id` 40704251158.
 
+  **Plan and authorize (2026-10-29, owner-approved):** full backup
+  `20261029-131158F` (`status: ok`). Two plans stopped read-only before #917
+  and #918 fixed the workflow (artifact name; working directory). Plan run
+  40961557646 sealed but its hour lapsed before `authorize` (run 40969595627
+  refused `plan_expired_or_future`, no writes); plan run 40969722614 sealed the
+  identical plan (`plan_sha256` `aaaa2268…`) and **authorize run 40971335172
+  succeeded**: purge ids `e3d03d58…` and `2110f899…`, targets
+  `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`, survivors 198,528,286
+  systems in each published product, 316 GB free. Background parallel WAL
+  archiving (precondition 5) was turned on by the owner on 2026-10-30.
+  Receipts under `docs/operations/evidence/`. Next, each with the owner's
+  approval: `verify-system-archetype-empty`, then the four relations'
+  preflight, copy, swap and drop, then `complete`.
+
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
     owner accepts a replacement.

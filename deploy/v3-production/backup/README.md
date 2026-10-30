@@ -189,10 +189,12 @@ repository password.
    ```
 4. Prove archiving still works. `check` forces a WAL switch and waits for that
    segment to be archived; it must end with `check command end: completed
-   successfully`:
+   successfully` (`--log-level-console=info` shows that line: at the default
+   console level a successful check prints nothing, and a failure prints an
+   `ERROR` line):
 
    ```
-   docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest --stanza=edfinder_v3 check
+   docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest --stanza=edfinder_v3 --log-level-console=info check
    ```
 5. Confirm the asynchronous process did the push. The spool folder for the
    stanza must now exist, and its log must show `archive-push:async command
@@ -202,7 +204,16 @@ repository password.
    docker exec edfinder-v3-phase4c-full-20260827_r5-postgres sh -c "ls -ld /var/spool/pgbackrest/archive/edfinder_v3/out; tail -n 3 /var/log/pgbackrest/edfinder_v3-archive-push-async.log"
    ```
 
-No restart is needed: each `archive-push` reads the file. Undo (restores the
+No restart is needed: each `archive-push` reads the file.
+
+Production: turned on by the owner on 2026-10-30, after the purge's
+`authorize` and before any copy step. The check printed nothing (run before
+the `--log-level-console=info` correction above) and the async log showed the
+forced segment `00000001000003E00000000C` pushed in 518 ms
+(`docs/operations/evidence/2026-10-30-v3-pgbackrest-async-archive-owner-run.json`).
+The file lives in the container's own layer, so recreating the database
+container would drop the change and archiving would fall back to one segment
+at a time; repeat steps 1–5 after any recreation. Undo (restores the
 copy from step 1; archiving returns to one segment at a time):
 
 ```
