@@ -905,6 +905,28 @@ newer dated source wins).
   is listed with its reason (mostly V2 planner code and the frozen Ratings V4.0
   findings F1–F4 for V4.1). No score or behaviour changed. The construction-point
   costs fixed in #902 match `RB-0003`.
+- **Owner direction 2026-10-30: the Colony Planner is part of ED-Finder.**
+  The owner said that once a commander has picked a system, they need to be
+  able to build it in ED-Finder. The aim is "our version of Raven Colonial, but
+  more intuitive and linking into the wider app".
+
+  The planner is to be recreated from the pinned CRE rulebook and the facility
+  catalogue. Raven Colonial's code is GPL-3.0 and is not copied, translated or
+  vendored; Raven is used only for ideas and as a test answer key.
+
+  The design is
+  [`2026-10-30-v3-colony-planner-design.md`](superpowers/specs/2026-10-30-v3-colony-planner-design.md)
+  (design only, not implemented). It carries out D2 and D3 above:
+  - the `apps/api/src/cpe/` module and its boundary test;
+  - the CP budget and port-order calculator as the first slice;
+  - then the `/plan` page in place of the placeholder.
+
+  The owner has not yet said whether this starts before or after step P and
+  F4. Until they do, the design's default holds:
+  - slices with no migration may be built now;
+  - the account-storage slice's migration is not applied while step P is
+    under way;
+  - no F4 or Finder gate changes.
 
 ## Programme status — 2026-09-19
 
