@@ -233,8 +233,24 @@ newer dated source wins).
   41034514200) stopped read-only on the survivor scan, which failed once
   production had no NOT VALID check left; the owner accepted a one-line fix
   to the pinned `v3_purge_copy.py` without a new rehearsal (recorded in the
-  pin's `amended_files`). Next, each with the owner's approval: the four
-  relations' preflight, copy, swap and drop, then `complete`.
+  pin's `amended_files`). All four relations' preflights then passed
+  (runs 41050328904, 41045315044, 41045399863, 41045487454).
+  **`system_search` is purged (2026-10-30):** copied in runs 41050714814 and
+  41070830382 (198,528,286 survivors), indexes built and frozen in run
+  41097049762, verified in run 41104549088 (verify 4,247 s), swapped in run
+  41118398123 (lock 0.1 s, FK validation and Finder smoke passed) and the
+  retired table dropped in run 41122363522 (free space 200.6 → 375.7 GB;
+  backups no longer skipped). On the way the owner accepted two more changes
+  to pinned files: the index-build space check no longer counts the GiST
+  index `prepare` already built (#922, after run 41070830382 stopped at the
+  gate), and the `pg_wal` probe rides out a checkpoint's segment burst (#923,
+  after the watchdog cancelled the verify in run 41102817187). Next, each with
+  the owner's approval: `economy_opportunity`, `body_mechanics` and
+  `system_rating_vector` (copy, swap, drop), then `complete`. Before
+  `economy_opportunity` starts: the Search verify took about 4.7 × the
+  production-speed estimate and wrote about 19 GB of temporary files, so the
+  larger relations' verify must be re-estimated against the 7,200 s statement
+  bound and the 32 GiB temp-file limit.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
