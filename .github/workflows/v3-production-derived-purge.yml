@@ -104,11 +104,12 @@ jobs:
     concurrency:
       group: chatgpt-ed-new-ops
       cancel-in-progress: false
-    # copy-R: <=9000s dispatch budget (chunk loop plus at most one long
-    # phase of <=7200s that only starts when it fits). Every 019 call carries
-    # an explicit SET LOCAL statement_timeout. 10800s total leaves >=1800s for
-    # preflight, the deferred-phase decision, cleanup and upload.
-    timeout-minutes: 180
+    # copy-R: <=19800s dispatch budget (a <=9000s chunk loop, long phases of
+    # <=7200s, verification of <=19200s; each only starts when it fits).
+    # Every 019 call carries an explicit SET LOCAL statement_timeout. 21600s
+    # (GitHub's hosted-job ceiling) leaves >=1800s for set-up, cleanup and
+    # upload.
+    timeout-minutes: 360
     env:
       INPUT_MODE: ${{ inputs.mode }}
       INPUT_CONFIRM_TARGET: ${{ inputs.confirm_target }}

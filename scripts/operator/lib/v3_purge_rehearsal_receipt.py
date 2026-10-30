@@ -113,9 +113,18 @@ ACCEPTED_REHEARSALS = {
             # the index-build space gate: STAGING_SQL's live_index_bytes leaves
             # out the live indexes prepare already built on staging (the Search
             # GiST index), which the index build skips. Accepted digest updated.
+            # Owner decision 2026-10-30, after the Search verify took 4,247 s:
+            # verification alone runs under a 320-minute statement timeout and
+            # a 64 GiB temp-file limit. Accepted digest updated again.
             'scripts/operator/lib/v3_purge_copy.py': {
                 'rehearsed': 'deed2681f510044ee81f5879ed4c332a92b2b0d1f37a9801e4c902abef41a775',
-                'accepted': '50f4795d810916479759c7a4c9d6cbe383d4042c24ee99bd2df76084b33a4622',
+                'accepted': '7861d0d1d7c8bf4630cba79756c2489b005ddc4f36f288d73bb901a371a13e0a',
+            },
+            # Same decision: the copy dispatch budget is 330 minutes (was 9,000 s),
+            # so a verify can start; the hosted job is 360 minutes.
+            'scripts/operator/lib/v3_purge_copy_dispatch.py': {
+                'rehearsed': '04ec4513df70982f67f93c8ddde8e166f3b1070fac132648df8fd46675b24577',
+                'accepted': '10b52674b6cdbf8a4094fa3c5774cb42bbe51a8cf41b9264ad7adc71343592cf',
             },
             # Owner decision 2026-10-30, after copy run 41102817187's verify was
             # cancelled by the watchdog on three back-to-back pg_wal measurement
