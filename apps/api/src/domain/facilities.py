@@ -213,6 +213,14 @@ def load_catalogue_from_rows(rows: list[dict]) -> None:
     _CATALOGUE = {r['id']: FacilityTemplate.from_db_row(r) for r in rows}
 
 
+def templates_from_json_data(data: dict[str, Any]) -> dict[str, FacilityTemplate]:
+    """Convert catalogue JSON to a fresh mapping without changing startup state."""
+    return {
+        item['id']: FacilityTemplate.from_db_row(_template_json_to_row(item))
+        for item in data.get('templates') or []
+    }
+
+
 def load_catalogue_from_json_data(data: dict[str, Any]) -> None:
     """
     Populate the in-memory catalogue from a bundled/generated catalogue JSON.
@@ -221,8 +229,8 @@ def load_catalogue_from_json_data(data: dict[str, Any]) -> None:
     the database row shape so the simulator can consume the richer catalogue
     without needing a schema migration.
     """
-    templates = data.get('templates') or []
-    load_catalogue_from_rows([_template_json_to_row(item) for item in templates])
+    global _CATALOGUE
+    _CATALOGUE = templates_from_json_data(data)
 
 
 def load_catalogue_from_json_path(path: Path | str) -> None:
