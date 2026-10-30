@@ -11,6 +11,21 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge: Search relation done
+
+`v3_derived.system_search` now holds only the 198,528,286 published
+survivors. Copy runs 41050714814 and 41070830382 copied the rows; run
+41097049762 built the indexes (478 s) and froze the copy (1,382 s); run
+41104549088 verified it (4,247 s); `swap-system-search` (run 41118398123)
+swapped it in with a 0.1 s lock, validated foreign keys and passed the Finder
+smoke; `drop-system-search` (run 41122363522) dropped the retired table, taking
+free space from 200.6 GB to 375.7 GB, and backups are no longer skipped. The
+read-only host inventories of the same day (`v3-host-storage-detail` run
+41088164473, `v3-disk-inventory` run 41088246411) are committed with the
+receipts. The other three relations have not started: the Search verify ran
+about 4.7 × its production-speed estimate and wrote about 19 GB of temporary
+files, which must be re-estimated for the larger relations first.
+
 ## 2026-10-30 — Purge watchdog rides out a checkpoint's WAL segment burst
 
 After the space-check fix, `copy-system-search` built the Search indexes (8
