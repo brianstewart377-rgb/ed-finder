@@ -213,6 +213,22 @@ authority while the file equals the accepted digest, and every other file must
 still be as rehearsed. The authorized plan is unaffected: phases after
 `authorize` do not re-read the pin.
 
+**Second owner-accepted amendment (2026-10-30), same file.** `copy-system-search`
+copied every survivor (runs 41050714814 and 41070830382), then the second
+run stopped before the index build at gate 2 (`filesystem_free_space_floor`:
+221.8 GB free, 232.0 GB required). The requirement counted every live index,
+but 021's `prepare` had already built the Search GiST index on the staging
+table (17.5 GB of the 70.3 GB copy), and `build_indexes` skips it. `STAGING_SQL`'s
+`live_index_bytes` now counts only the live indexes whose name is not already
+on the staging table, so it equals `pg_indexes_size(live)` before `prepare`
+and for every relation without a prepared index; the floor, the 1.5 × growth
+margin, the temp-file allowance and the `max_wal_size` allowance are unchanged
+(Search then requires about 206 GB). A read-only host inventory the same day
+(`v3-host-storage-detail` run 41088164473, `v3-disk-inventory` run 41088246411)
+found about 11.6 GB outside the database in total, so freeing the shortfall
+on the host was not possible. The owner accepted this change too; the pin's
+`amended_files` entry now carries the new accepted digest.
+
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
 `edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,

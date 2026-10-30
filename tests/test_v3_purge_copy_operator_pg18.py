@@ -210,6 +210,42 @@ def test_backup_wrapper_019_query_returns_exactly_the_boolean_the_wrapper_parses
     assert wrapper.count('--username edfinder_v3 --dbname edfinder_v3_phase4c_full_20260827_r5') == 2
 
 
+def test_index_build_estimate_leaves_out_the_gist_index_prepare_already_built(copy_database):
+    """021's prepare creates the live GiST index on the empty staging table and
+    the chunk inserts fill it, so its bytes are on disk before the index build
+    and the build skips it. The index-build gate's estimate counts only the
+    live indexes the build still creates (2026-10-30: counting the prepared
+    GiST again over-reserved about 26 GB on production)."""
+    c = copy_database[0]
+
+    def sizes():
+        owner = _owner(c)
+        live = owner.execute("SELECT pg_indexes_size('v3_derived.system_search'::regclass)").fetchone()[0]
+        gist = owner.execute(
+            "SELECT pg_total_relation_size('v3_derived.system_search_position_gist'::regclass)").fetchone()[0]
+        _reset(c)
+        assert gist > 0 and live > gist
+        return live, gist
+
+    live, _gist = sizes()
+    before = _json(c, copy.STAGING_SQL, {'relation': 'system_search'})
+    _reset(c)
+    assert before['staging_present'] is False and before['live_index_bytes'] == live
+    purge, _plan = _authorize(copy_database)
+    prepare(c, purge, 'system_search')
+    _reset(c)
+    live, gist = sizes()
+    after = _json(c, copy.STAGING_SQL, {'relation': 'system_search'})
+    _reset(c)
+    assert after['staging_present'] is True and after['live_index_bytes'] == live - gist
+    # A relation without a GiST index, not yet prepared, still counts every live index.
+    other = _json(c, copy.STAGING_SQL, {'relation': 'economy_opportunity'})
+    _reset(c)
+    assert other['live_index_bytes'] == _owner(c).execute(
+        "SELECT pg_indexes_size('v3_derived.economy_opportunity'::regclass)").fetchone()[0]
+    _reset(c)
+
+
 # --- fixed operator reads on the fixture --------------------------------------------------
 
 def test_operator_reads_execute_and_preflight_passes_on_the_fresh_lineage(copy_database):

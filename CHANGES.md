@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge index-build space check stops counting the prebuilt Search index
+
+`copy-system-search` copied all 198,528,286 Search survivors in two runs
+(41050714814, 41070830382); the second then stopped, with nothing written for
+the index build, at its free-space check: 221.8 GB free against 232.0 GB
+required. The check reserved space for every live index, but the Search GiST
+index on `position_ly` is created on the staging table at `prepare` and
+filled by the row copy (17.5 GB already on disk), and the index build skips
+it. The estimate now counts only the live indexes the build still creates
+(about 206 GB required for Search); every other term of the check is
+unchanged, and relations without a prebuilt index are unaffected. A
+PostgreSQL 18 test proves the estimate before and after `prepare`. Read-only
+host inventories (runs 41088164473, 41088246411) showed only about 11.6 GB
+outside the database, so the shortfall could not be freed on the host. The
+owner accepted this second change to the pinned `v3_purge_copy.py`; the
+`amended_files` entry carries its new accepted digest.
+
 ## 2026-10-30 — Purge Search scan handles fully validated checks
 
 The first `preflight-system-search` (run 41034514200) stopped read-only with
