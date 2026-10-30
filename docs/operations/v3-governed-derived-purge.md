@@ -198,6 +198,21 @@ migration set are byte-for-byte as rehearsed; a change to any purge file
 before the purge runs requires a new one_percent rehearsal, and a static test
 fails until the pinned entry is removed.
 
+**Owner-accepted amendment (2026-10-30).** After `authorize` (run
+40971335172) the Search `preflight` (run 41034514200) stopped read-only with
+`bounded_command_failed`: production validated all 18 Search checks on
+2026-10-18, and with none left NOT VALID the survivor scan
+(`SEARCH_VIOLATIONS_SQL`) generated a statement over every survivor and
+failed (`SQLSTATE 2200M`, reproduced on PostgreSQL 18). The rehearsal fixture
+kept 010's checks NOT VALID, so it never ran that case. `HAVING count(*)>0`
+now makes the scan answer `{}` without reading a row when no NOT VALID check
+exists; with checks present it is unchanged. The owner accepted this one
+change without a new rehearsal: the pin's `amended_files` records
+`v3_purge_copy.py`'s rehearsed and accepted SHA-256, the pinned receipt stays
+authority while the file equals the accepted digest, and every other file must
+still be as rehearsed. The authorized plan is unaffected: phases after
+`authorize` do not re-read the pin.
+
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
 `edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,

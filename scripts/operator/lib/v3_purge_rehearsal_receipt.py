@@ -62,6 +62,9 @@ RECEIPT_MODULE = 'scripts/operator/lib/v3_purge_rehearsal_receipt.py'
 # those files other than this module is byte-for-byte as rehearsed (the file
 # list itself lives in v3_generation_purge.py, which is pinned) and the
 # harness and migration set match; any other change needs a new rehearsal.
+# ``amended_files`` records owner-accepted changes made after a rehearsal, each
+# reviewed on its own: the rehearsed digest stays in ``files`` (the receipt's
+# script_sha256 binds it) and the current file must equal ``accepted``.
 ACCEPTED_REHEARSALS = {
     # Run 40704251158 on main 065d1e56 (2026-10-28): 019, 020, 021 and #906.
     '5732f3b3ac48ede0fbde7b210de8cd1c59ece1be27df56987c141c3e936dda07': {
@@ -99,6 +102,17 @@ ACCEPTED_REHEARSALS = {
                 'cdcea7b2d7b914faa3fd36898e9824323567c32fb70c8c7016a9234cc141b56f',
             'scripts/operator/v3_schema_identity.py':
                 'af308cf196901f2b35180cf026e6cbef16e5bc1a9b7e54fa075817d95aaac013',
+        },
+        'amended_files': {
+            # Owner decision 2026-10-30, after authorize run 40971335172:
+            # SEARCH_VIOLATIONS_SQL returns {} without scanning when Search has
+            # no NOT VALID check. Production validated all 18 on 2026-10-18 and
+            # preflight run 41034514200 stopped on the old statement; the
+            # rehearsal fixture kept them NOT VALID, a path this leaves as is.
+            'scripts/operator/lib/v3_purge_copy.py': {
+                'rehearsed': 'deed2681f510044ee81f5879ed4c332a92b2b0d1f37a9801e4c902abef41a775',
+                'accepted': '9a342b163799825fac7c532d20c101065af6f8e8864e71f871b811a1257e626e',
+            },
         },
     },
 }
@@ -268,7 +282,8 @@ def production_long_phase_seconds(measured, factor):
 
 
 def _accepted_before_gate_change(value):
-    """True only for a pinned receipt whose rehearsed files, bar this module, are unchanged."""
+    """True only for a pinned receipt whose rehearsed files, bar this module, are
+    unchanged or equal to their owner-accepted amendment."""
     accepted = ACCEPTED_REHEARSALS.get(value.get('content_sha256'))
     if accepted is None or value.get('script_sha256') != accepted['script_sha256']:
         return False
@@ -278,9 +293,18 @@ def _accepted_before_gate_change(value):
     if (evidence.canonical_sha256(body) != value['content_sha256'] or RECEIPT_MODULE not in files
             or evidence.canonical_sha256(files) != accepted['script_sha256']):
         return False
+    amended = accepted.get('amended_files', {})
+    if not isinstance(amended, dict) or any(
+            relative == RECEIPT_MODULE or relative not in files or not isinstance(change, dict)
+            or change.get('rehearsed') != files[relative]
+            or not isinstance(change.get('accepted'), str) or re.fullmatch('[0-9a-f]{64}', change['accepted']) is None
+            for relative, change in amended.items()):
+        return False
+    expected = {relative: amended[relative]['accepted'] if relative in amended else digest
+                for relative, digest in files.items() if relative != RECEIPT_MODULE}
     try:
         return all(hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
-                   for relative, digest in files.items() if relative != RECEIPT_MODULE)
+                   for relative, digest in expected.items())
     except OSError:
         return False
 

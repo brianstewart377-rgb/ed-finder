@@ -11,6 +11,21 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge Search scan handles fully validated checks
+
+The first `preflight-system-search` (run 41034514200) stopped read-only with
+`bounded_command_failed`. Production validated all 18 Search checks on
+2026-10-18; with none left NOT VALID, the survivor scan's aggregate still
+returned one row and generated a statement selecting every survivor, which
+failed (`SQLSTATE 2200M`). The rehearsal fixture kept the checks NOT VALID, so
+the rehearsal never ran this case. `SEARCH_VIOLATIONS_SQL` now answers `{}`
+without scanning when no NOT VALID check exists and is unchanged otherwise; a
+PostgreSQL 18 test validates every check first and proves the old statement
+fails there. The owner accepted this one change to a pinned file without a new
+rehearsal: `ACCEPTED_REHEARSALS` records it under `amended_files`, and the
+accepted rehearsal receipt (run 40704251158) is now committed as evidence. The
+stopped preflight receipt is committed too.
+
 ## 2026-10-30 — Purge authorized; WAL archiving runs in the background
 
 The governed purge's `plan` and `authorize` ran in production on 2026-10-29,
