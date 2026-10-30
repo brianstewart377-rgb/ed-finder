@@ -188,10 +188,38 @@ web framework. It is made of these files:
 |---|---|
 | `plan.py` | The plan model (system id64, sites, order) and its validation |
 | `catalogue.py` | Wraps `domain/facilities.py`; holds the structured prerequisites |
-| `rules.py` | Loads the pinned rulebook; looks rules up by id |
+| `rules.py` | Loads the runtime copy of the pinned rulebook; looks rules up by id |
+| `data/rulebook.json` | Byte-for-byte copy of `docs/reference/colonisation/cre-rulebook/rulebook.json` |
 | `budget.py` | Walks the plan and works out the budget (the D3 calculator) |
 | `checks.py` | Per-step order checks |
 | `explain.py` | Rule ids and quotes for each number |
+
+**The catalogue is read from the bundled file, never from startup state.** At
+startup, `main.py` (lines 231-251) fills the shared in-memory catalogue in
+`domain/facilities.py` in one of two ways:
+
+- from a V2 `facility_templates` table, when that table has rows;
+- otherwise, from the bundled JSON.
+
+The planner's numbers must not depend on which of these happened.
+`cpe/catalogue.py` therefore:
+
+- builds its own read-only catalogue directly from
+  `domain/facility_catalogue_v1.json`, using `facilities.py`'s
+  row-conversion helpers;
+- never reads or changes the shared `_CATALOGUE`.
+
+A test checks that `cpe` gives the same result whether or not the shared
+catalogue has been loaded.
+
+**Why the rulebook is copied.** The release image copies only `apps/api/src/`
+(`apps/api/Dockerfile.release:33`). The pinned rulebook under `docs/` is
+therefore not present at runtime.
+
+S1 adds a byte-for-byte copy at `apps/api/src/cpe/data/rulebook.json`. A test
+fails unless the copy's sha256 equals the `sha256` in
+`docs/reference/colonisation/cre-rulebook/pin.json`, so the two cannot drift.
+Pinning a new rulebook release means updating both files in one change.
 
 The plan model:
 
@@ -242,7 +270,7 @@ The boundary test is `tests/test_cpe_boundary.py`. `cpe` may import only:
 - `domain.facilities`;
 - `mechanics.cp_rules`;
 - `mechanics.link_rules` (later slice);
-- the pinned rulebook file.
+- its own runtime copy of the pinned rulebook (`cpe/data/rulebook.json`).
 
 It must never import:
 
@@ -259,7 +287,9 @@ Every input is bounded:
 - one system per request;
 - at most 300 sites;
 - names at most 64 characters;
-- facility ids must be in the catalogue.
+- facility ids must be in the catalogue;
+- `evaluate` is rate-limited with the existing `limiter` from
+  `edfinder_api.config`, as other public routes are.
 
 | Route | Purpose |
 |---|---|
@@ -272,8 +302,10 @@ Response shapes go into OpenAPI. The web client is regenerated
 
 ### 5.3 V3 body adapter and slots
 
-The adapter reads the published canonical generation the same way
-`routers/v3.py` does: `current_canonical_generation()` and the explicit
+The adapter reads the database, so it lives outside `cpe`: in
+`routers/plan.py` or a helper module beside it, which may import
+`ingest/slot_prediction.py`. It reads the published canonical generation the
+same way `routers/v3.py` does: `current_canonical_generation()` and the explicit
 `v3_gen_*` schema, never `search_path`. It returns, for each body:
 
 - the fields `listV3SystemBodies` returns;
@@ -322,9 +354,25 @@ route. It is tested on a disposable PostgreSQL 18 database.
   - the budget and order-check panel.
 
   The order list can be reordered with buttons as well as dragging.
-- Browser storage holds plans by system id64. Every read and write is wrapped
-  so the page still works when storage is blocked. A plan can be exported and
-  imported as a JSON file.
+- **Plans use the browser store that already exists.** That is the
+  `colonyProjects` store (`ed_colony_projects_v1`,
+  `apps/web/src/lib/persistence/stores.ts:72`, record shape in `storage.ts`).
+  S4 adds no second storage key:
+  - Each plan is one `ColonyProjectRecord` for its `system_id64`.
+  - Its sites go in `build_plan_placements`, each tagged `schema: "cpe_site_v1"`.
+  - Placements without that tag come from the old V2 planner. They are listed
+    read-only and never rewritten.
+  - The existing `createPersistedStore` wrapper already copes with blocked or
+    invalid storage.
+  - A codec test round-trips a plan.
+- **Linking to the rest of the app.** The My Work "ready to plan" label
+  (`SavedSystemLabel`) opens the system's plan.
+- **Export and import.** A plan can be exported and imported as a JSON file.
+- **No server copy yet.** `colonyProjects` is in the browser's profile-sync set
+  (`apps/web/src/lib/persistence/profile-sync.ts:87`), but the server side of
+  profile sync reads an unqualified `profile_sync` table that no V3 migration
+  creates (`apps/api/src/routers/profile.py:61`). The planner does not rely on
+  it; account-saved plans are S6.
 
 ## 6. Accessibility, visual validation and tests
 
