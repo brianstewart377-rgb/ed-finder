@@ -44,6 +44,14 @@ RUN_ID = re.compile(r'[1-9][0-9]{0,19}\Z')
 SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 SOURCE_SHA = re.compile(r'[0-9a-f]{40}\Z')
 MAX_REWRITE_MS = 7_200_000
+# The longest statement the copy route runs: verification (owner decision
+# 2026-10-30). The 360-minute job keeps more than 30 minutes beyond it.
+MAX_COPY_STATEMENT_MS = 19_200_000
+
+
+def phase_budget_ms(name):
+    """The workflow's statement envelope for one copy phase."""
+    return MAX_COPY_STATEMENT_MS if name == 'verify' else MAX_REWRITE_MS
 MAX_RECEIPT = 8 * 1024 * 1024
 
 
@@ -86,7 +94,7 @@ def validate_inputs(env):
         raise ValueError('acknowledgement_not_admitted')
     wall = request['wall_clock_seconds']
     if mode.startswith('copy-'):
-        # The chunk-loop budget. The 180-minute job keeps at least 30 minutes
+        # The chunk-loop budget. The 360-minute job keeps at least 30 minutes
         # for preflight, a deferred long phase decision, cleanup and upload.
         if re.fullmatch(r'[1-9][0-9]{0,3}', wall) is None or not 1 <= int(wall) <= COPY_MAX_WALL_CLOCK:
             raise ValueError('copy_wall_clock_budget_invalid')
@@ -227,24 +235,25 @@ def authenticate(env, *, fetch=True):
     # Hosted jobs must have time to observe exit and preserve receipts. The
     # copy route executes only the statements in v3_purge_copy.PHASES, each
     # under its own SET LOCAL statement_timeout, so those (and any phase
-    # timeouts a plan seals) must fit the reviewed 120-minute envelope. A
+    # timeouts a plan seals) must fit the reviewed envelope: 120 minutes for
+    # every phase but verification, which has 320 (MAX_COPY_STATEMENT_MS). A
     # plan's legacy rewrite[relation].statement_timeout_ms is a VACUUM FULL
     # estimate that nothing on this route executes (rewrite-R is disabled), so
     # it no longer gates admission (Codex 4379797627: the 2026-10-24 receipt's
     # Search figure is 30,659,000 ms). An open 016 REWRITE_STARTED that
     # restore-services must recover is bounded by the action itself.
     copy = _load('purge_workflow_copy', ROOT / 'scripts/operator/lib/v3_purge_copy.py')
-    for statement_ms, *_rest in copy.PHASES.values():
-        if type(statement_ms) is not int or not 1 <= statement_ms <= MAX_REWRITE_MS:
+    for name, (statement_ms, *_rest) in copy.PHASES.items():
+        if type(statement_ms) is not int or not 1 <= statement_ms <= phase_budget_ms(name):
             raise ValueError('copy_phase_timeout_outside_workflow_budget')
     if 'plan' in receipts:
         block = receipts['plan'].get('reviewed_plan', {}).get('copy')
         sealed = block.get('phase_timeouts') if isinstance(block, dict) else None
         if block is not None and not isinstance(sealed, dict):
             raise ValueError('copy_phase_timeout_outside_workflow_budget')
-        for settings in (sealed or {}).values():
+        for name, settings in (sealed or {}).items():
             timeout = settings.get('statement_timeout_ms') if isinstance(settings, dict) else None
-            if type(timeout) is not int or not 1 <= timeout <= MAX_REWRITE_MS:
+            if type(timeout) is not int or not 1 <= timeout <= phase_budget_ms(name):
                 raise ValueError('copy_phase_timeout_outside_workflow_budget')
     if request['mode'] == 'authorize':
         # Authorization binds the plan to every later phase. Refuse before SSH

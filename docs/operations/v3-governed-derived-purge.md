@@ -49,7 +49,7 @@ phases.
 4. **`GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor`**
    has been applied by the owner. `temp_file_limit` is a superuser-set
    parameter and 019 does not grant it; every long phase sets
-   `SET LOCAL temp_file_limit='32GB'` and refuses with
+   `SET LOCAL temp_file_limit` (32 GiB; 64 GiB for verify since 2026-10-30) and refuses with
    `temp_file_limit_privilege_missing` until the grant exists. This is a
    production catalog change that needs its own reviewed step (a migration
    `020` or an owner-run statement recorded in evidence). Production: applied
@@ -97,7 +97,7 @@ phases.
 | Mode | What runs | Locks held |
 | --- | --- | --- |
 | `preflight-R` | Read-only (owner session for the catalog reads 019 revoked from the executor): exact dependents equal the fixed children/views, no disabled or commented live trigger, no dependent view with options, no `indisclustered` live index, live shape inside the generator contract, `age(relfrozenxid)` of all four live heaps/TOAST under 80% of `autovacuum_freeze_max_age`, and for Search one scan of the published survivors counting rows that violate each of 010's `NOT VALID` checks (the staging copy enforces them). Any failure refuses. Runs on its own and again automatically before `copy-R` starts a relation (the survivor scan only before `prepare`). | host lease |
-| `copy-R` | Resumable. From the ledger: `prepare` → bounded chunk loop (≤ 100,000 rows per transaction, one chunk per transaction, `wall_clock_seconds` 1–9000 budget) → `build_indexes` → `VACUUM (FREEZE, ANALYZE)` → `verify`. Before **every** chunk gate 2 is re-measured (free bytes ≥ 100 GB + 1.5 × the largest measured per-chunk growth, archiver not failing, no slot retaining WAL, `pg_wal` on the data filesystem, named workers stopped) and the loop throttles while the WAL written since the latest checkpoint's REDO point ≥ 0.9 × `max_wal_size` or the archiver lags more than 256 segments. The REDO point comes from `pg_controldata` in the pinned container (run as the server's OS user, like the data-directory read): the `pg_wal` directory itself keeps recycled segments up to about `max_wal_size` after a write burst and an idle server skips checkpoints, so a directory-size throttle could wait forever. Before `prepare` the free bytes must also cover the plan's `copy.relations[R].required_free_bytes_before_copy` (floor + 1.5 × the copy peak the reviewed copy-route rehearsal measured and extrapolated; design §1.6). Each long phase waits for the archiver to be within 16 segments, re-checks gate 2 counting expected index size, temp space and `max_wal_size`, runs under the root-owned watchdog with `pg_stat_progress_create_index`/`pg_stat_progress_vacuum` polling, and only starts when the remaining dispatch budget (9000 s) covers its 7200 s statement timeout plus margin; otherwise the receipt says `copy_long_phase_deferred_to_next_dispatch` and the next `copy-R` resumes there. The VACUUM is throttled (`vacuum_cost_delay 10ms`, `vacuum_cost_limit 1000`). F12: after the VACUUM the staging `age(relfrozenxid)` must not exceed the XIDs consumed during the VACUUM plus 10,000, and never 1,000,000; a resumed dispatch whose freeze aged out freezes again. | host lease, backup schedule lock |
+| `copy-R` | Resumable. From the ledger: `prepare` → bounded chunk loop (≤ 100,000 rows per transaction, one chunk per transaction, `wall_clock_seconds` 1–9000 budget) → `build_indexes` → `VACUUM (FREEZE, ANALYZE)` → `verify`. Before **every** chunk gate 2 is re-measured (free bytes ≥ 100 GB + 1.5 × the largest measured per-chunk growth, archiver not failing, no slot retaining WAL, `pg_wal` on the data filesystem, named workers stopped) and the loop throttles while the WAL written since the latest checkpoint's REDO point ≥ 0.9 × `max_wal_size` or the archiver lags more than 256 segments. The REDO point comes from `pg_controldata` in the pinned container (run as the server's OS user, like the data-directory read): the `pg_wal` directory itself keeps recycled segments up to about `max_wal_size` after a write burst and an idle server skips checkpoints, so a directory-size throttle could wait forever. Before `prepare` the free bytes must also cover the plan's `copy.relations[R].required_free_bytes_before_copy` (floor + 1.5 × the copy peak the reviewed copy-route rehearsal measured and extrapolated; design §1.6). Each long phase waits for the archiver to be within 16 segments, re-checks gate 2 counting expected index size, temp space and `max_wal_size`, runs under the root-owned watchdog with `pg_stat_progress_create_index`/`pg_stat_progress_vacuum` polling, and only starts when the remaining dispatch budget (19,800 s) covers its statement timeout (7,200 s; verify 19,200 s) plus a 300 s margin; otherwise the receipt says `copy_long_phase_deferred_to_next_dispatch` and the next `copy-R` resumes there. The VACUUM is throttled (`vacuum_cost_delay 10ms`, `vacuum_cost_limit 1000`). F12: after the VACUUM the staging `age(relfrozenxid)` must not exceed the XIDs consumed during the VACUUM plus 10,000, and never 1,000,000; a resumed dispatch whose freeze aged out freezes again. | host lease, backup schedule lock |
 | `swap-R` | `purge_copy_swap` with up to 12 attempts (backoff 2,4,8,15,30,30,60… s), each attempt capped by an 8 s statement timeout and retried only on lock/statement timeout; then `purge_copy_validate_fks` (long phase, watchdog); then a read-only Finder smoke through the active origin (`/api/health`, one ranked `/api/archetypes/rankings`, one ranked `/api/local/search`); for `economy_opportunity` the F7 recalibration (count rows and distinct `system_id64` on the new live table, `ALTER TABLE … SET (n_distinct = -(distinct/rows))` as the owner, `ANALYZE … (system_id64)`, then `EXPLAIN` of the archetype chunk read must show a Nested Loop over `economy_opportunity_pkey`). Before the `ALTER` the restore value (the live and retired tables' `system_id64` attribute options) is written to the root-owned host state `/var/lib/ed-finder/v3-production/derived-purge-copy-statistics.json` and travels in the receipt (`n_distinct_recalibration.host_state`); 019's ledger has no event for a statistics option. Idempotent: a re-dispatch after a swap repeats only the post-swap steps — a committed swap whose FK validation or smoke was lost resumes there (`swap_resumed: true`, `status` names `swap-R`), and a recalibration whose option is already set re-runs only `ANALYZE` and the plan proof. The receipt records every attempt's duration and `measured_stall_seconds`. | host lease, backup schedule lock |
 | `drop-R` | Requires VERIFIED, SWAPPED, FK_VALIDATED; the Finder smoke must pass again immediately before; then `purge_copy_drop` (`RESTRICT`, same retry/cap as the swap). Records freed bytes and WAL bytes. A drop whose response was lost has committed: a re-dispatch reports `retired_relation_already_dropped` and changes nothing. The next mode is the next relation's `copy-R` (or `complete`). | host lease, backup schedule lock |
 | `swap-back-R` | The undo between swap and drop: `purge_copy_swap_back` (same retry/cap), `purge_copy_validate_fks`, Finder smoke. For `economy_opportunity` the swap-back runs in **one owner transaction** that first restores the retired table's `system_id64` attribute options on the copy (019's swap-back compares attribute options exactly with the retired table, and swap-R recalibrated them), then calls the executor's `purge_copy_swap_back`; both commit or neither does (`n_distinct_restore` before/after in the receipt). Resumable: a committed swap-back whose FK validation was interrupted (`staged`, `SWAPPED_BACK`, child FKs `NOT VALID`; `status` names `swap-back-R`) skips the physical swap-back and finishes validation and the smoke (`swap_back_resumed: true`); `copy-R` refuses to re-verify until then (`swap_back_fk_validation_pending`). The relation returns to `staged`; the owner then re-verifies through `copy-R` or abandons. | host lease, backup schedule lock |
@@ -128,8 +128,12 @@ Every 019 call therefore runs inside a transaction that first sets
 table in `scripts/operator/lib/v3_purge_copy.py` (`PHASES`): prepare 60 s,
 chunk 300 s, swap/swap-back/drop/abandon 8 s with a 400 ms lock request,
 record-failure 60 s, complete 300 s, and 7,200,000 ms (the workflow's reviewed
-envelope) for index build, VACUUM FREEZE, verify, FK validation and the
-opportunity statistics count. `tests/test_v3_purge_copy_operator_pg18.py`
+envelope) for index build, VACUUM FREEZE, FK validation and the opportunity
+statistics count. Verify has 19,200,000 ms (320 minutes) and a 64 GiB
+temp-file limit: owner decision 2026-10-30, after the Search verify took 4,247 s
+and wrote about 19 GB of temp files; scaled by the one_percent rehearsal's
+relative verify times, `economy_opportunity` needs about 3.7 hours and
+`body_mechanics` about 2.9. `tests/test_v3_purge_copy_operator_pg18.py`
 proves on PG 18 that the bound comes from the caller.
 
 **The swap stall (F4).** Also measured on PG 18.4: 019's function-level
@@ -241,6 +245,19 @@ also in `deploy/v3-production/f2d-operator-code.txt`, so the F2d operator
 identity on `main` no longer equals the `1e748c9d` release attestation: the
 F2d build and status operations refuse until the next application release
 attests it. The purge does not use them.
+
+**Fourth owner-accepted amendment (2026-10-30), verify bounds.** The Search
+verify (run 41104549088) took 4,247 s against a production-speed estimate of
+about 905 s and wrote about 19 GB of temp files. Scaled by the rehearsal's
+relative verify times (`economy_opportunity` 3.1 ×, `body_mechanics` 2.5 ×,
+`system_rating_vector` 1.05 × Search), the two larger relations would exceed
+the 7,200 s statement timeout and probably the 32 GiB temp-file limit. Verify
+alone now has 19,200 s and 64 GiB; the dispatch budget is 19,800 s and the job
+360 minutes. The verify space gate becomes 100 GB + 64 GiB + `max_wal_size`
+(about 203 GB), which the `economy_opportunity` copy is expected to meet with
+about 30 GB to spare. If a verify still does not finish, the dispatch stops
+retryably and `abandon-R` remains. `amended_files` carries the new digests of
+`v3_purge_copy.py` and `v3_purge_copy_dispatch.py`.
 
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
@@ -546,7 +563,7 @@ of the dedicated purge workflow. No mutating purge mode is available in ops.
 | `rehearsal_run_id` | Digits-only ID of the successful [V3 derived purge rehearsal](../../.github/workflows/v3-derived-purge-rehearsal.yml) `one_percent` run on `main`. **Required for `plan`** and refused for every other mode. |
 | `rehearsal_sha256` | That run's reviewed `rehearsal-receipt.json` `content_sha256` (64 lowercase hex). Required with `rehearsal_run_id`. |
 | `acknowledge_failed_stop` | Optional digits-only ledger event sequence, admitted only for `restore-services`. After owner review it acknowledges the exact integrity-failed stop for writer restoration; it authorizes no repair or continuation past that stop. |
-| `wall_clock_seconds` | Required integer `copy-R` chunk-loop budget, 1–9000 seconds. Leave blank for every other mode. It is not a phase timeout or a maintenance-window estimate; long phases have their own reviewed 7200 s bound and start only when the 9000 s dispatch budget still covers them. |
+| `wall_clock_seconds` | Required integer `copy-R` chunk-loop budget, 1–9000 seconds. Leave blank for every other mode. It is not a phase timeout or a maintenance-window estimate; long phases have their own reviewed bounds (7,200 s; verify 19,200 s) and start only when the 19,800 s dispatch budget still covers them. |
 
 For each imported artifact the workflow authenticates GitHub's run identity,
 the same repository and workflow, `main`, successful completion and producing
@@ -645,14 +662,15 @@ review those receipts before proceeding. The general artifact is
 `v3-derived-purge-receipt`, containing `receipt.json`; only successful plan and
 exclusion-verification runs publish the corresponding reusable sealed artifact.
 
-The job timeout is 180 minutes. A `copy-R` dispatch admits at most 9000
-seconds of work (the chunk loop up to `wall_clock_seconds`, then at most one
-long phase that only starts when the remaining budget covers its 7,200,000 ms
-statement timeout plus a 300 s margin), leaving at least 30 minutes for
-preflight, the deferred-phase decision, cleanup and upload. Before SSH the
-workflow checks that every statement the copy route executes
-(`v3_purge_copy.PHASES`) and every phase timeout a plan seals
-(`copy.phase_timeouts`) fits 7,200,000 ms
+The job timeout is 360 minutes, GitHub's ceiling for a hosted job (180 until
+2026-10-30). A `copy-R` dispatch admits at most 19,800 seconds of work (the
+chunk loop up to `wall_clock_seconds`, then long phases that each start only
+when the remaining budget covers their statement timeout — 7,200,000 ms, or
+19,200,000 ms for verify — plus a 300 s margin), leaving at least 30 minutes
+for set-up, cleanup and upload. Before SSH the workflow checks that every
+statement the copy route executes (`v3_purge_copy.PHASES`) and every phase
+timeout a plan seals (`copy.phase_timeouts`) fits its envelope: 19,200,000 ms
+for verify, 7,200,000 ms for every other phase
 (`copy_phase_timeout_outside_workflow_budget`). A plan's legacy
 `rewrite[relation].statement_timeout_ms` (a `VACUUM FULL` estimate; the
 2026-10-24 receipt's Search figure is 30,659,000 ms) no longer gates admission,
