@@ -20,7 +20,8 @@ This design builds on owner decisions D2 and D3 of 2026-10-21 (`docs/ROADMAP.md`
   port-order calculator on V3 data, using the guide and CRE cost rules.
 
 This design does not change go-live, step P (the governed purge), or any F4 gate.
-Section 9 says how the slices fit around P.
+Section 9 says how the slices fit around P. The owner's answers to the design's
+questions are in section 10.
 
 ## 2. What the commander gets
 
@@ -388,30 +389,51 @@ S4 removes the need for it.
 
 ## 9. Sequencing with step P and F4
 
-The owner was asked whether the planner should start before or after step P
-(the purge) and F4. The answer is not recorded yet. Until it is, this design
-uses the safe default:
+**Owner answer (2026-10-30):** build the planner alongside step P (the purge)
+and F4, provided it does not tie up the runner the purge needs.
 
-- **S0–S5 may be built now.** They add no migration. They read only the
-  published canonical generation and none of the derived products P is
-  purging. They change no Finder product. They ship only through the normal
-  governed application promotion.
+It does not, for three reasons:
+
+- **The purge does not use the Codex runners.** Production purge dispatches
+  run on a GitHub-hosted `ubuntu-24.04` runner
+  (`.github/workflows/v3-production-derived-purge.yml:102`).
+- **Codex tasks use their own runners.** They run on the three self-hosted
+  Contabo runners (`.github/workflows/codex-laptop.yml:106`,
+  `[self-hosted, Linux, X64]`).
+- **The rehearsal runner is out of reach.** It is registered with
+  `--no-default-labels`, so it cannot pick up a Codex task, and no further
+  rehearsal is planned.
+
+The planner's CI also runs on GitHub-hosted runners.
+
+**The one shared lock is the production deploy.** The purge and application
+promotion share the `v3-production-application-authority` concurrency group
+(`v3-production-derived-purge.yml:95-96`,
+`v3-production-application-deploy.yml:42-43`). Each planner slice therefore
+goes through code, CI and review at any time. A deploy is dispatched only when
+no purge phase is running, so it never queues behind a purge dispatch or holds
+one up.
+
+The rules are therefore:
+
+- **S0–S5 are built now.** They add no migration. They read only the published
+  canonical generation and none of the derived products P is purging. They
+  change no Finder product. They ship only through the normal governed
+  application promotion, between purge phases.
 - **S6 waits.** Its migration is not applied while step P is between its first
   preflight and `complete`. A migration changes the production schema identity,
   and P's operations are being run one owner approval at a time.
 - **F4 is unaffected.** The planner does not touch the Finder ranking UI or its
   feature flag.
 
-If the owner chooses differently, this section and the roadmap entry are updated
-to match.
+## 10. Owner answers (2026-10-30)
 
-## 10. Open owner questions
+The owner chose the default for each question:
 
-1. **Order against P and F4.** Section 9's default, or wait for P to finish?
-2. **Where plans are kept first.** Browser first (the default), or wait for
-   account-saved plans?
-3. **Raven import.** A file the commander exports from Raven (the default), or
-   a server-side fetch by system id64? A server-side fetch adds an outside
-   service dependency.
-4. **The sixth-port difference.** Follow RB-0003 (the default) and show
-   Raven's figure as a note?
+1. **Order against P and F4:** alongside, as section 9 sets out.
+2. **Where plans are kept first:** in the browser first. Account-saved plans
+   follow in S6.
+3. **Raven import:** from a file the commander exports from Raven. ED-Finder
+   does not fetch from Raven's servers.
+4. **The sixth-port difference:** follow RB-0003 (11 T2 points) and show
+   Raven's figure (12) as a note.

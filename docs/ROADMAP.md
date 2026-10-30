@@ -921,9 +921,13 @@ newer dated source wins).
   - the CP budget and port-order calculator as the first slice;
   - then the `/plan` page in place of the placeholder.
 
-  The owner has not yet said whether this starts before or after step P and
-  F4. Until they do, the design's default holds:
-  - slices with no migration may be built now;
+  The owner chose (2026-10-30) to build it alongside step P and F4, provided it
+  does not tie up the runner the purge needs. It does not: purge dispatches run
+  on a GitHub-hosted runner, and Codex tasks run on the three Contabo runners.
+  The rules are:
+  - slices with no migration are built now;
+  - a planner deploy is dispatched only between purge phases, because the purge
+    and application promotion share one concurrency group;
   - the account-storage slice's migration is not applied while step P is
     under way;
   - no F4 or Finder gate changes.
