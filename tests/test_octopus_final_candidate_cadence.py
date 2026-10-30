@@ -27,6 +27,25 @@ def test_sparse_cadence_preserves_exact_head_acceptance():
     assert "a stale octopus review from an earlier sha can never contribute to merge eligibility" in policy
 
 
+def test_docs_only_update_merge_rule_stays_narrow():
+    policy = _normalized(POLICY)
+    assert "## docs-only update merges (owner decision 2026-10-30)" in policy
+    # Every condition must stay in the rule; dropping one would widen it.
+    for condition in (
+        "**docs-only.** every file in the pr's own diff against `main`",
+        "no file is under `.github/`, `apps/`, `scripts/`, `sql/`, `tests/` or `deploy/`",
+        "**only update merges since the review.** every commit after the octopus-reviewed head is a merge of `main`",
+        "made with no conflict resolution and no other edit",
+        "**the pr's own lines are unchanged.**",
+        "**the earlier octopus review is settled.**",
+        "codex review has completed on the new head with no unresolved finding",
+        "**it is recorded on the pr.**",
+        "this rule never applies to code prs",
+    ):
+        assert condition in policy, condition
+    assert "the only exception is the docs-only update-merge rule below, which applies to octopus alone" in policy
+
+
 def test_pr_template_records_final_candidate_cadence():
     template = _normalized(TEMPLATE)
     assert "this head is a final candidate" in template

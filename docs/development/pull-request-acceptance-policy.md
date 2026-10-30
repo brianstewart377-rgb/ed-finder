@@ -42,7 +42,8 @@ All of the following are mandatory:
    only trigger it after the new head again satisfies the final-candidate
    criteria below. Before merge, both reviewer services must have completed
    against the exact latest head; record each reviewer's reviewed SHA for that
-   head.
+   head. The only exception is the docs-only update-merge rule below, which
+   applies to Octopus alone.
 
 Reviewer findings are evidence, not ground truth. Verify them against the
 actual code before acting: trace values to where they are persisted or used,
@@ -95,8 +96,47 @@ and operators should still check it when Octopus reviews appear without being
 asked for.
 
 This cadence changes *when* Octopus is invoked, not the exact-head safety rule.
-A stale Octopus review from an earlier SHA can never contribute to merge
-eligibility.
+Outside the one narrow case in the next section, a stale Octopus review from an
+earlier SHA can never contribute to merge eligibility.
+
+## Docs-only update merges (owner decision 2026-10-30)
+
+Branch protection on `main` requires a PR branch to be up to date before merge.
+When `main` moves, the branch has to merge it in, which makes a new head. The
+owner decided on 2026-10-30 that, for a docs-only PR, that alone does not need a
+fresh Octopus review.
+
+The Octopus review of an earlier head still counts for the new head **only when
+every one of these holds**:
+
+1. **Docs-only.** Every file in the PR's own diff against `main`
+   (`git diff --name-only origin/main...HEAD`) is under `docs/` or is a Markdown
+   (`.md`) file. No file is under `.github/`, `apps/`, `scripts/`, `sql/`,
+   `tests/` or `deploy/`.
+2. **Only update merges since the review.** Every commit after the
+   Octopus-reviewed head is a merge of `main` into the branch, made with no
+   conflict resolution and no other edit.
+3. **The PR's own lines are unchanged.** The added and removed lines of the PR's
+   own diff are identical at both heads. Line numbers may shift. Check it by
+   comparing the `+`/`-` lines of `git diff $(git merge-base origin/main <SHA>) <SHA>`,
+   leaving out the `+++`/`---` file headers, for the reviewed SHA and the new
+   head. Run against the current `origin/main`: `git merge-base` then gives each
+   head's own base.
+4. **The earlier Octopus review is settled.** It completed on the earlier head,
+   and every finding from it has a recorded disposition under the acceptance
+   gate.
+5. **Everything else is on the new exact head.** All protected CI checks are
+   green on the new head. Codex Review has completed on the new head with no
+   unresolved finding. The paginated inspection of every review surface is done
+   on the new head.
+6. **It is recorded on the PR.** A PR comment names the Octopus-reviewed SHA,
+   the new head SHA, the merge commits between them, and the result of check 3.
+
+If any condition fails, the normal rule applies and Octopus is requested again
+for the new head. That includes any edit to the PR's own text, any file outside
+the docs-only set, and any conflict resolution that touches the PR's lines.
+This rule never applies to code PRs. It changes nothing about Codex Review or
+CI, which still run on every head.
 
 ## Reviewer failure and owner waiver
 
