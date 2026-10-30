@@ -1,0 +1,53 @@
+{
+  "schema_version": "ed-finder/owner-run-host-command-evidence/v1",
+  "date": "2026-10-30",
+  "operation": "background parallel WAL archiving for the governed purge (purge precondition 5)",
+  "run_by": "owner, by hand over SSH on ed-finder-prod (owner-authorised; recorded here afterwards)",
+  "runbook": "deploy/v3-production/backup/README.md \"WAL archive speed\", steps 1-5 as merged in PR 919 (fa841cb8)",
+  "sequence_note": "Run after the purge authorize (run 40971335172, 2026-10-29) and before any preflight or copy step; no purge phase had written WAL-heavy work yet.",
+  "commands": [
+    {
+      "step": 1,
+      "command": "docker exec -u root edfinder-v3-phase4c-full-20260827_r5-postgres cp -p /etc/pgbackrest/pgbackrest.conf /etc/pgbackrest/pgbackrest.conf.before-async-20261029",
+      "output": ""
+    },
+    {
+      "step": 2,
+      "command": "docker exec -u root edfinder-v3-phase4c-full-20260827_r5-postgres sed -i -e '/^\\[global\\]$/a archive-async=y\\nspool-path=/var/spool/pgbackrest' -e '/^\\[global:archive-push\\]$/a process-max=4' /etc/pgbackrest/pgbackrest.conf",
+      "output": ""
+    },
+    {
+      "step": 3,
+      "command": "docker exec edfinder-v3-phase4c-full-20260827_r5-postgres sh -c \"grep -nE '^\\[|^(archive-async|spool-path|process-max|compress-level)=' /etc/pgbackrest/pgbackrest.conf; ls -l /etc/pgbackrest/pgbackrest.conf\"",
+      "output": [
+        "1:[edfinder_v3]",
+        "5:[global]",
+        "6:archive-async=y",
+        "7:spool-path=/var/spool/pgbackrest",
+        "14:[global:archive-push]",
+        "15:process-max=4",
+        "16:compress-level=3",
+        "-rw-r----- 1 root postgres 348 Oct 30 09:02 /etc/pgbackrest/pgbackrest.conf"
+      ]
+    },
+    {
+      "step": 4,
+      "command": "docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest --stanza=edfinder_v3 check",
+      "output": "",
+      "note": "No console output: pgBackRest's default console level is warn, so a successful check prints nothing and any failure prints an ERROR line. The runbook now passes --log-level-console=info so the success line is visible. Step 5 shows the segment this check's forced WAL switch produced being pushed."
+    },
+    {
+      "step": 5,
+      "command": "docker exec edfinder-v3-phase4c-full-20260827_r5-postgres sh -c \"ls -ld /var/spool/pgbackrest/archive/edfinder_v3/out; tail -n 3 /var/log/pgbackrest/edfinder_v3-archive-push-async.log\"",
+      "output": [
+        "drwxr-x--- 2 postgres postgres 4096 Oct 30 09:02 /var/spool/pgbackrest/archive/edfinder_v3/out",
+        "2026-10-30 09:02:33.971 P00   INFO: archive-push:async command begin 2.59.1: [/var/lib/postgresql/18/docker/pg_wal] --archive-async --compress-level=3 --exec-id=90046-c009ab9c --log-level-console=off --log-level-stderr=off --pg1-path=/var/lib/postgresql/18/docker --process-max=4 --repo1-cipher-pass=<redacted> --repo1-cipher-type=aes-256-cbc --repo1-path=/mnt/ed-storagebox/ed-finder/backups/postgres-v3/v3_main --repo1-type=posix --spool-path=/var/spool/pgbackrest --stanza=edfinder_v3",
+        "2026-10-30 09:02:33.971 P00   INFO: push 1 WAL file(s) to archive: 00000001000003E00000000C",
+        "2026-10-30 09:02:34.489 P00   INFO: archive-push:async command end: completed successfully (518ms)"
+      ]
+    }
+  ],
+  "server": "pgBackRest 2.59.1 in the production database container (PostgreSQL 18)",
+  "effect": "Configuration only: archive_command is unchanged; archive-push now hands segments to an asynchronous process that pushes up to four at once, and a segment still counts as archived only once pushed. Backups are unchanged (process-max is set only under [global:archive-push]). The pre-change file is kept beside it as pgbackrest.conf.before-async-20261029.",
+  "purge_backup_check": "The purge's backup exclusion (v3_generation_purge.py backup_lock) matches pgbackrest processes whose arguments contain the word backup or verify. The asynchronous and parallel archive processes carry only command-line options (--exec-id, log levels, --stanza, archive-push:async or archive-push:local, the pg_wal path); configuration-file options such as repo1-path are not on their command lines (checked locally with pgBackRest 2.50 under strace, 2026-10-29). They therefore never count as a running backup."
+}

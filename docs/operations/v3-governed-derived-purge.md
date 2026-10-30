@@ -60,7 +60,33 @@ phases.
    speed"). The index builds and `VACUUM (FREEZE)` write 55–108 GB of WAL per
    relation at production scale and the watchdog cancels a long phase at
    2 × `max_wal_size` in `pg_wal`; one-segment-at-a-time archiving would not
-   drain it fast enough.
+   drain it fast enough. Production: turned on by the owner on 2026-10-30
+   (`docs/operations/evidence/2026-10-30-v3-pgbackrest-async-archive-owner-run.json`).
+
+   **After a backup, archive one fresh segment before a relation's first
+   `copy-R`.** The copy route's archive-lag query (`WAL_LAG_SQL` in
+   `v3_purge_copy.py`) reads `pg_stat_archiver.last_archived_wal` with
+   `pg_split_walfile_name`, which refuses a backup history file name such as
+   `00000001000003E000000009.00000028.backup` (PostgreSQL 18: `invalid WAL file
+   name`; checked 2026-10-30). Every pgBackRest backup leaves that name there
+   until the next WAL segment is archived, which can take hours on this quiet
+   database; both plans of 2026-10-29 still saw it three and four hours after the full
+   backup finished.
+   A `copy-R` would then stop at its first throttle check, before `prepare`
+   writes anything. Backups skip while a relation is between `COPY_STARTED`
+   and `DROPPED`, so only a relation's first `copy-R` after a scheduled backup
+   (02:30 UTC daily) has run between relations is exposed. Before that
+   dispatch the owner runs this command in a terminal on **ed-finder-prod**
+   (the backup README's "WAL archive speed" step 4): it forces a WAL switch
+   and waits for that segment to be archived, and must end with
+   `check command end: completed successfully`.
+
+   ```
+   docker exec -u postgres edfinder-v3-phase4c-full-20260827_r5-postgres pgbackrest --stanza=edfinder_v3 --log-level-console=info check
+   ```
+
+   The query is in a file the accepted rehearsal pins, so it is not changed
+   during this purge.
 6. The owner has read the 2026-10-26 external review's findings as reflected
    here: the operator sets every timeout (F5), the swap stall is bounded by the
    operator's 8 s statement cap and not by 019's 2 s lock timeout (F4), and

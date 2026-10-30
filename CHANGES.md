@@ -11,6 +11,25 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge authorized; WAL archiving runs in the background
+
+The governed purge's `plan` and `authorize` ran in production on 2026-10-29,
+each owner-approved, from main `670ae640`. Plan run 40961557646 sealed
+successfully, but its one-hour window lapsed before `authorize` started: run
+40969595627 stopped with `plan_expired_or_future` before any database access.
+Plan run 40969722614 sealed the identical reviewed plan and authorize run
+40971335172 succeeded, opening purge ids `e3d03d58…` and `2110f899…` for
+`ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`. No payload rows were
+deleted; the published generation and both Finder products are unchanged.
+On 2026-10-30 the owner turned on background parallel WAL archiving from the
+#919 runbook; the async log shows the forced segment pushed in 518 ms. The
+runbook's `check` step now passes `--log-level-console=info`, because at the
+default console level a successful check prints nothing. All four receipts and
+the owner-run record are committed as evidence. The purge runbook now also
+says to run that check before a relation's first `copy-R` whenever a scheduled
+backup has run since the last one: the copy route's archive-lag query cannot
+read the backup history file name a backup leaves in `pg_stat_archiver`.
+
 ## 2026-10-29 — Purge action runs from the host operator directory
 
 The second protected `plan` (run 40946906378) reached the host and stopped
