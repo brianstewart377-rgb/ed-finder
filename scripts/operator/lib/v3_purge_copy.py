@@ -36,9 +36,17 @@ FLOOR_BYTES = 100_000_000_000
 CHUNK_ROWS = 100_000                      # 019's own upper bound
 DEFAULT_CHUNK_RESERVATION_BYTES = 900_000_000  # before any chunk growth is measured
 MAX_LONG_PHASE_MS = 7_200_000             # the workflow's reviewed 120-minute statement envelope
-MAX_WALL_CLOCK_SECONDS = 9_000            # chunk-loop budget; the 180-minute job keeps >=30 min for cleanup
+MAX_WALL_CLOCK_SECONDS = 9_000            # chunk-loop budget, inside the dispatch budget
 LONG_PHASE_MARGIN_SECONDS = 300
 TEMP_FILE_LIMIT_KB = 32 * 1024 * 1024      # 32 GB per long-phase session (SUSET: needs GRANT SET ON PARAMETER)
+# Owner decision 2026-10-30: verification alone gets a longer statement and
+# more temp space. The Search verify took 4,247 s and wrote about 19 GB of
+# temp files on production; scaled by the one_percent rehearsal's relative
+# verify times, economy_opportunity needs about 3.7 h and body_mechanics about
+# 2.9 h. 320 minutes fits a 330-minute dispatch budget inside the 360-minute
+# job (GitHub's ceiling for a hosted job), with the usual 300 s start margin.
+VERIFY_PHASE_MS = 19_200_000
+VERIFY_TEMP_FILE_LIMIT_KB = 64 * 1024 * 1024
 WAL_SOFT_FRACTION = 0.9                   # throttle while WAL since the last checkpoint REDO >= 0.9 x max_wal_size
 WAL_CEILING_MULTIPLIER = 2                # watchdog cancels a long phase when pg_wal on disk reaches 2 x max_wal_size
 ARCHIVE_LAG_CHUNK_SEGMENTS = 256          # 4 GB of 16 MB segments while chunks run
@@ -64,7 +72,7 @@ PHASES = {
     'chunk': (300_000, 5_000, None, False),
     'index_build': (MAX_LONG_PHASE_MS, 5_000, TEMP_FILE_LIMIT_KB, True),
     'vacuum_freeze': (MAX_LONG_PHASE_MS, 5_000, None, True),
-    'verify': (MAX_LONG_PHASE_MS, 5_000, TEMP_FILE_LIMIT_KB, True),
+    'verify': (VERIFY_PHASE_MS, 5_000, VERIFY_TEMP_FILE_LIMIT_KB, True),
     'validate_fks': (MAX_LONG_PHASE_MS, 5_000, TEMP_FILE_LIMIT_KB, True),
     'swap': (8_000, SWAP_LOCK_TIMEOUT_MS, None, False),
     'swap_back': (8_000, SWAP_LOCK_TIMEOUT_MS, None, False),
