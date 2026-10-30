@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge watchdog rides out a checkpoint's WAL segment burst
+
+After the space-check fix, `copy-system-search` built the Search indexes (8
+minutes) and froze the copy (23 minutes) in run 41097049762. The verify,
+carried to run 41102817187, was cancelled about a minute in by the long-phase
+watchdog: a checkpoint was removing or recycling the WAL segments those two
+steps had written, and the `pg_wal` size probe (`du`) failed three times in a
+row, which the watchdog treats as a fault (`observe:wal_directory_bytes_unavailable`).
+Nothing was lost; the verify only reads and resumes on the next dispatch.
+`measure_wal` now keeps re-measuring every 0.5 s for up to 60 s after the three
+immediate attempts before it fails closed. The owner accepted this third
+change to a pinned file (`v3_generation_purge.py`, recorded in
+`amended_files`). The file is in the F2d operator-code manifest, so F2d build
+and status operations refuse until the next application release attests the
+new identity; the purge does not use them.
+
 ## 2026-10-30 — Purge index-build space check stops counting the prebuilt Search index
 
 `copy-system-search` copied all 198,528,286 Search survivors in two runs
