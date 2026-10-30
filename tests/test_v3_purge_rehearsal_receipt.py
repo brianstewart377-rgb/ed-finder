@@ -545,6 +545,7 @@ def test_the_pinned_rehearsal_still_authorizes_a_plan_after_the_accepted_copy_am
     assert tool._accepted_before_gate_change(receipt) is True
     accepted = tool.ACCEPTED_REHEARSALS[receipt['content_sha256']]
     assert set(accepted['amended_files']) == {'scripts/operator/lib/v3_purge_copy.py',
+                                              'scripts/operator/lib/v3_purge_copy_dispatch.py',
                                               'scripts/operator/lib/v3_generation_purge.py'}
 
 

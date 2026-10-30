@@ -23,7 +23,10 @@ import subprocess
 import tempfile
 import time
 
-DISPATCH_BUDGET_SECONDS = 9_000
+# 330 minutes: the 320-minute verify plus its 300 s start margin and the
+# preflight before it; the 360-minute job keeps 30 minutes for set-up, cleanup
+# and upload (owner decision 2026-10-30; it was 9,000 s inside a 180-minute job).
+DISPATCH_BUDGET_SECONDS = 19_800
 # Root-owned host evidence of the economy_opportunity statistics option before
 # its recalibration (019's append-only ledger has no event for it).
 STATISTICS_STATE_FILE = Path('/var/lib/ed-finder/v3-production/derived-purge-copy-statistics.json')

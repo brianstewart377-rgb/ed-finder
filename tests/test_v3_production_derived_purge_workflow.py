@@ -582,13 +582,15 @@ def test_authorize_admits_a_copy_bound_plan_that_also_carries_the_legacy_estimat
     assert module.authenticate(env)['mode'] == 'authorize'
 
 
-@pytest.mark.parametrize('timeout', [0, -1, True, '7200000', 7_200_001, None])
+@pytest.mark.parametrize(('phase', 'timeout'), [
+    *(('verify', value) for value in (0, -1, True, '7200000', 19_200_001, None)),
+    ('index_build', 7_200_001), ('validate_fks', 19_200_000)])
 @pytest.mark.parametrize('mode', ['swap-system-search', 'copy-system-search', 'restore-services'])
-def test_sealed_copy_phase_timeouts_must_fit_the_reviewed_workflow_envelope(monkeypatch, tmp_path, timeout, mode):
+def test_sealed_copy_phase_timeouts_must_fit_the_reviewed_workflow_envelope(monkeypatch, tmp_path, phase, timeout, mode):
     module = _helper()
     env = _artifact_environment(module, monkeypatch, tmp_path, mode)
     def mutate(body):
-        body['reviewed_plan'] = {'copy': {'phase_timeouts': {'verify': {'statement_timeout_ms': timeout}}}}
+        body['reviewed_plan'] = {'copy': {'phase_timeouts': {phase: {'statement_timeout_ms': timeout}}}}
     _replace_plan(tmp_path, env, mutate)
     with pytest.raises(ValueError, match='copy_phase_timeout_outside_workflow_budget'):
         module.authenticate(env, fetch=False)
@@ -603,7 +605,7 @@ def test_a_malformed_copy_block_is_refused(monkeypatch, tmp_path, block):
         module.authenticate(env, fetch=False)
 
 
-@pytest.mark.parametrize('timeout', [1, 7_200_000])
+@pytest.mark.parametrize('timeout', [1, 7_200_000, 19_200_000])
 def test_copy_phase_timeout_envelope_admits_its_boundaries(monkeypatch, tmp_path, timeout):
     module = _helper()
     env = _artifact_environment(module, monkeypatch, tmp_path, 'swap-system-search')
@@ -611,21 +613,24 @@ def test_copy_phase_timeout_envelope_admits_its_boundaries(monkeypatch, tmp_path
         body['reviewed_plan'] = {'copy': {'phase_timeouts': {'verify': {'statement_timeout_ms': timeout}}}}
     _replace_plan(tmp_path, env, mutate)
     assert module.authenticate(env, fetch=False)['mode'] == 'swap-system-search'
-    assert module.MAX_REWRITE_MS == 7_200_000
+    assert module.MAX_COPY_STATEMENT_MS == 19_200_000
     assert int(_job()['timeout-minutes']) * 60 > timeout / 1000 + 1800 + 65
 
 
-def test_every_phase_the_copy_route_executes_fits_the_workflow_envelope(monkeypatch, tmp_path):
+@pytest.mark.parametrize(('phase', 'limit_name'), [('verify', 'MAX_COPY_STATEMENT_MS'), ('index_build', 'MAX_REWRITE_MS')])
+def test_every_phase_the_copy_route_executes_fits_the_workflow_envelope(monkeypatch, tmp_path, phase, limit_name):
     """The budget applies to the statements the route runs: v3_purge_copy.PHASES."""
     module = _helper()
+    limit = getattr(module, limit_name)
+    assert module.phase_budget_ms(phase) == limit
     copy = module._load('purge_workflow_copy_check', ROOT / 'scripts/operator/lib/v3_purge_copy.py')
-    assert max(statement for statement, *_ in copy.PHASES.values()) == module.MAX_REWRITE_MS
+    assert max(statement for statement, *_ in copy.PHASES.values()) == module.MAX_COPY_STATEMENT_MS
     env = _artifact_environment(module, monkeypatch, tmp_path, 'swap-system-search')
     original = module._load
     def load(name, path):
         loaded = original(name, path)
         if str(path).endswith('scripts/operator/lib/v3_purge_copy.py'):
-            loaded.PHASES = {**loaded.PHASES, 'verify': (module.MAX_REWRITE_MS + 1, 5_000, None, True)}
+            loaded.PHASES = {**loaded.PHASES, phase: (limit + 1, 5_000, None, True)}
         return loaded
     monkeypatch.setattr(module, '_load', load)
     with pytest.raises(ValueError, match='copy_phase_timeout_outside_workflow_budget'):
@@ -976,3 +981,22 @@ def test_transported_source_bundle_can_revalidate_a_reviewed_rehearsal_receipt(t
     path = tmp_path / 'rehearsal.json'
     path.write_text(json.dumps(receipt))
     assert bundled.load_reviewed(path, receipt['content_sha256'])['content_sha256'] == receipt['content_sha256']
+
+
+def test_the_job_outlasts_a_full_verify_dispatch():
+    """Owner decision 2026-10-30: a verify may run 320 minutes. It starts only
+    when the dispatch budget still covers it plus its margin, the controller's
+    deadline is the budget plus 600 s, and the hosted job (at GitHub's 360-minute
+    ceiling) must outlast that with time for set-up, cleanup and upload."""
+    module = _helper()
+    copy = module._load('purge_workflow_copy_budget', ROOT / 'scripts/operator/lib/v3_purge_copy.py')
+    dispatch = module._load('purge_workflow_dispatch_budget', ROOT / 'scripts/operator/lib/v3_purge_copy_dispatch.py')
+    verify_seconds = copy.PHASES['verify'][0] / 1000
+    assert verify_seconds == module.MAX_COPY_STATEMENT_MS / 1000
+    # Room to start a verify after the preflight's catalog checks.
+    assert dispatch.DISPATCH_BUDGET_SECONDS - (verify_seconds + copy.LONG_PHASE_MARGIN_SECONDS) >= 120
+    # A chunk loop and an ordinary long phase still fit one dispatch.
+    assert dispatch.DISPATCH_BUDGET_SECONDS >= copy.MAX_WALL_CLOCK_SECONDS + copy.MAX_LONG_PHASE_MS / 1000
+    job_seconds = int(_job()['timeout-minutes']) * 60
+    assert job_seconds == 360 * 60
+    assert job_seconds - (dispatch.DISPATCH_BUDGET_SECONDS + 600) >= 1200

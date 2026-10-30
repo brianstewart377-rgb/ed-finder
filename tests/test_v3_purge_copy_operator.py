@@ -70,11 +70,15 @@ def test_every_019_call_sets_its_own_statement_and_lock_timeout_first(copy):
 def test_phase_table_is_reviewed_short_for_catalog_steps_and_bounded_for_long_ones(copy):
     long = {'index_build', 'vacuum_freeze', 'verify', 'validate_fks', 'recalibrate_count', 'recalibrate_analyze', 'preflight_scan'}
     for phase, (statement, lock, temp, is_long) in copy.PHASES.items():
-        assert 1 <= statement <= copy.MAX_LONG_PHASE_MS
+        assert 1 <= statement <= copy.VERIFY_PHASE_MS
         assert 1 <= lock <= 5_000
         assert is_long == (phase in long)
-        if is_long:
+        if phase == 'verify':
+            # Owner decision 2026-10-30: verification alone is longer and has more temp space.
+            assert (statement, temp) == (copy.VERIFY_PHASE_MS, copy.VERIFY_TEMP_FILE_LIMIT_KB)
+        elif is_long:
             assert statement == copy.MAX_LONG_PHASE_MS
+            assert temp in (None, copy.TEMP_FILE_LIMIT_KB)
         else:
             assert statement <= 45 * 60_000
     # F4: one swap/drop attempt is capped by its statement timeout, below the
@@ -82,6 +86,7 @@ def test_phase_table_is_reviewed_short_for_catalog_steps_and_bounded_for_long_on
     for phase in ('swap', 'swap_back', 'drop', 'abandon'):
         assert copy.PHASES[phase][0] <= 8_000 and copy.PHASES[phase][1] == copy.SWAP_LOCK_TIMEOUT_MS < 1000
     assert copy.MAX_LONG_PHASE_MS == 7_200_000
+    assert copy.VERIFY_PHASE_MS == 19_200_000 and copy.VERIFY_TEMP_FILE_LIMIT_KB == 64 * 1024 ** 2
     assert len(copy.SWAP_BACKOFF_SECONDS) == copy.SWAP_MAX_ATTEMPTS
     with pytest.raises(ValueError, match='purge_copy_phase_invalid'):
         copy.phase_settings('invent')
@@ -129,7 +134,8 @@ def test_long_phase_gate_counts_expected_index_size_temp_space_and_wal(copy):
     required = copy.long_phase_required('index_build', index_bytes=index, max_wal_size_bytes=32 * 1024 ** 3)
     assert required == 100_000_000_000 + 22_500_000_000 + 32 * 1024 ** 2 * 1024 + 32 * 1024 ** 3
     assert copy.long_phase_required('vacuum_freeze', max_wal_size_bytes=10) == 100_000_000_010
-    assert copy.long_phase_required('verify', max_wal_size_bytes=0) == 100_000_000_000 + 32 * 1024 ** 3
+    assert copy.long_phase_required('verify', max_wal_size_bytes=0) == 100_000_000_000 + 64 * 1024 ** 3
+    assert copy.long_phase_required('validate_fks', max_wal_size_bytes=0) == 100_000_000_000 + 32 * 1024 ** 3
     # A table smaller than its frozen count (stale reltuples) never shrinks the estimate.
     assert copy.expected_index_bytes(10, 1, 5) == 10
     with pytest.raises(ValueError, match='copy_index_estimate_invalid'):

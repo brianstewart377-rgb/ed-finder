@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-30 — Purge verify gets a longer bound for the larger relations
+
+The Search verify took 4,247 s (about 4.7 × its production-speed estimate)
+and wrote about 19 GB of temporary files. Scaled by the one_percent
+rehearsal's relative verify times, `economy_opportunity` would need about 3.7
+hours and `body_mechanics` about 2.9, past the 7,200 s statement timeout and
+probably the 32 GiB temp-file limit. By owner decision, verification alone now
+runs under a 320-minute statement timeout and a 64 GiB temp-file limit; the
+copy dispatch budget is 330 minutes and the purge job 360 minutes, GitHub's
+ceiling for a hosted job. Every other phase keeps its 7,200 s and 32 GiB
+bounds, and the workflow's admission check is per phase. The owner accepted
+these changes to the pinned `v3_purge_copy.py` and `v3_purge_copy_dispatch.py`
+(`amended_files`).
+
 ## 2026-10-30 — Purge: Search relation done
 
 `v3_derived.system_search` now holds only the 198,528,286 published
