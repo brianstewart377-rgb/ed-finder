@@ -1,0 +1,158 @@
+{
+  "schema": "cpe-raven-answer-key/v1",
+  "purpose": "Numbers shown by Raven Colonial for a real layout, used only as expected values for the ED-Finder planner. No Raven code or data files are copied; the facility_id mapping and these figures were recorded by hand.",
+  "source": {
+    "service": "Raven Colonial (ravencolonial.com)",
+    "system_name": "Praea Euq WV-W b2-2",
+    "system_id64": 5076786292249,
+    "layout": "main",
+    "revision": 174,
+    "read_on": "2026-10-30",
+    "how_read": "Raven system page, Tier points line, read in both settings of the \"Include incomplete sites in calculations?\" toggle"
+  },
+  "raven_status_mapping": {
+    "complete": "complete",
+    "build": "building"
+  },
+  "sites_in_raven_order": [
+    {
+      "site_id": "S01",
+      "name": "Mapighi Settlement",
+      "raven_build_type": "vulcan",
+      "facility_id": "orbital_outpost_industrial",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S02",
+      "name": "Altshuller Reach",
+      "raven_build_type": "prometheus",
+      "facility_id": "orbital_outpost_scientific",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S03",
+      "name": "Schoening Sanctuary",
+      "raven_build_type": "nemesis",
+      "facility_id": "orbital_outpost_military",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S04",
+      "name": "Uncle Touchy's Puzzle Basement",
+      "raven_build_type": "quad_truss",
+      "facility_id": "coriolis_station",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S05",
+      "name": "Cornucopia",
+      "raven_build_type": "dec_truss",
+      "facility_id": "dodecahedron_t3",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S06",
+      "name": "Baynes Gateway",
+      "raven_build_type": "plutus",
+      "facility_id": "orbital_outpost_commercial",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S07",
+      "name": "Ambartsumian Landing",
+      "raven_build_type": "aletheia",
+      "facility_id": "orbital_installation_comm_station",
+      "slot_kind": "orbital",
+      "status": "building",
+      "body_ref": null
+    },
+    {
+      "site_id": "S08",
+      "name": "Washington Hub",
+      "raven_build_type": "aletheia",
+      "facility_id": "orbital_installation_comm_station",
+      "slot_kind": "orbital",
+      "status": "building",
+      "body_ref": null
+    },
+    {
+      "site_id": "S09",
+      "name": "Lynch's Paycut",
+      "raven_build_type": "ocellus",
+      "facility_id": "ocellus_station",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S10",
+      "name": "Lopez Beacon",
+      "raven_build_type": "demeter",
+      "facility_id": "orbital_installation_space_farm",
+      "slot_kind": "orbital",
+      "status": "complete",
+      "body_ref": null
+    },
+    {
+      "site_id": "S11",
+      "name": "Ihejirika Complex",
+      "raven_build_type": "hephaestus",
+      "facility_id": "surface_planetary_port_outpost_industrial",
+      "slot_kind": "surface",
+      "status": "building",
+      "body_ref": null
+    },
+    {
+      "site_id": "S12",
+      "name": "Mamoulian Platform",
+      "raven_build_type": "silenus",
+      "facility_id": "refinery",
+      "slot_kind": "surface",
+      "status": "building",
+      "body_ref": null
+    },
+    {
+      "site_id": "S13",
+      "name": "KarlDiesel Sanctuary",
+      "raven_build_type": "aletheia",
+      "facility_id": "orbital_installation_comm_station",
+      "slot_kind": "orbital",
+      "status": "building",
+      "body_ref": null
+    }
+  ],
+  "expected": {
+    "completed_sites_only": {
+      "raven_label": "Completed sites only",
+      "cpe_view": "now",
+      "t2": 1,
+      "t3": -17
+    },
+    "all_sites": {
+      "raven_label": "All sites",
+      "cpe_view": "after_plan",
+      "t2": 5,
+      "t3": -16
+    }
+  },
+  "known_differences": [
+    {
+      "what": "Sixth counted Tier 2 port",
+      "raven": "12 Tier 2 points",
+      "ed_finder": "11 Tier 2 points",
+      "reason": "RB-0003 (Mega Guide v2.3.0 p27-28) gives max(3, 2n-1); not exercised by this layout"
+    }
+  ]
+}
