@@ -202,6 +202,11 @@ REQUEST_SQL = phase_sql('read', """SELECT COALESCE((SELECT jsonb_build_object('c
  'completed_at',(SELECT created_at FROM v3_meta.derived_purge_copy_event WHERE copy_id=q.copy_id AND event_kind='COMPLETED'))
  FROM v3_meta.derived_purge_copy_request q WHERE q.plan_sha256=%(plan_sha256)s),'null'::jsonb);""", write=False)
 # Staging maintenance and freeze evidence (F12), live/staging sizes for gate 2.
+# live_index_bytes is the live indexes the index build will still create: 021's
+# build_indexes skips (after checking) every live index whose name already
+# exists on the staging table -- the GiST index prepare created empty and the
+# chunk inserts filled -- so its bytes are already on disk, inside the copy.
+# Before prepare (no staging table) it equals pg_indexes_size(live).
 STAGING_SQL = phase_sql('read', """SELECT jsonb_build_object(
  'staging_present',""" + _STAGING + """ IS NOT NULL,
  'staging_bytes',pg_total_relation_size(""" + _STAGING + """),
@@ -213,7 +218,10 @@ STAGING_SQL = phase_sql('read', """SELECT jsonb_build_object(
  'xid_next',pg_snapshot_xmax(pg_current_snapshot())::text::bigint,
  'live_reltuples',(SELECT reltuples::bigint FROM pg_class WHERE oid=""" + _LIVE + """),
  'live_heap_bytes',pg_relation_size(""" + _LIVE + """),
- 'live_index_bytes',pg_indexes_size(""" + _LIVE + """),
+ 'live_index_bytes',(SELECT COALESCE(sum(pg_total_relation_size(x.indexrelid)),0)::bigint FROM pg_index x
+   JOIN pg_class i ON i.oid=x.indexrelid WHERE x.indrelid=""" + _LIVE + """
+   AND NOT EXISTS (SELECT 1 FROM pg_index y JOIN pg_class s ON s.oid=y.indexrelid
+     WHERE y.indrelid=""" + _STAGING + """ AND s.relname=i.relname)),
  'live_total_bytes',pg_total_relation_size(""" + _LIVE + """),
  'max_wal_size_bytes',pg_size_bytes(current_setting('max_wal_size')),
  'wal_segment_bytes',pg_size_bytes(current_setting('wal_segment_size')),

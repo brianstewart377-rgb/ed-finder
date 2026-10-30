@@ -109,9 +109,13 @@ ACCEPTED_REHEARSALS = {
             # no NOT VALID check. Production validated all 18 on 2026-10-18 and
             # preflight run 41034514200 stopped on the old statement; the
             # rehearsal fixture kept them NOT VALID, a path this leaves as is.
+            # Owner decision 2026-10-30, after copy run 41070830382 stopped at
+            # the index-build space gate: STAGING_SQL's live_index_bytes leaves
+            # out the live indexes prepare already built on staging (the Search
+            # GiST index), which the index build skips. Accepted digest updated.
             'scripts/operator/lib/v3_purge_copy.py': {
                 'rehearsed': 'deed2681f510044ee81f5879ed4c332a92b2b0d1f37a9801e4c902abef41a775',
-                'accepted': '9a342b163799825fac7c532d20c101065af6f8e8864e71f871b811a1257e626e',
+                'accepted': '50f4795d810916479759c7a4c9d6cbe383d4042c24ee99bd2df76084b33a4622',
             },
         },
     },
