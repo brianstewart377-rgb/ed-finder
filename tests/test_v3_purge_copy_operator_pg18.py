@@ -16,6 +16,7 @@ import threading
 from time import monotonic
 
 import psycopg
+import psycopg.sql
 from psycopg.conninfo import make_conninfo
 import pytest
 
@@ -272,6 +273,42 @@ def test_operator_reads_execute_and_preflight_passes_on_the_fresh_lineage(copy_d
     # Freeze-age evidence names all four live heaps.
     ages = {(a['relation_code'], a['scope']) for a in observed['ages']}
     assert {(code, 'heap') for code in copy.RELATIONS} <= ages
+
+
+def test_search_scan_counts_nothing_once_every_check_is_validated(copy_database):
+    """Production validated all 18 Search checks on 2026-10-18 (step 3); the
+    rehearsal fixture, like this one, keeps 010's checks NOT VALID. With none
+    left the scan must answer {} rather than generate a statement over every
+    survivor: preflight run 41034514200 stopped on that (SQLSTATE 2200M)."""
+    import os
+    c = copy_database[0]
+    _authorize(copy_database)
+    _reset(c)
+    checks = _json(c, copy.PREFLIGHT_SQL, {'relation': 'system_search'})['not_valid_checks']
+    _reset(c)
+    assert checks, 'the fixture keeps 010 checks NOT VALID, as the rehearsal did'
+    with psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                                       dbname=c.info.dbname), autocommit=True) as admin:
+        for name in checks:
+            admin.execute(psycopg.sql.SQL('ALTER TABLE v3_derived.system_search VALIDATE CONSTRAINT {}').format(
+                psycopg.sql.Identifier(name)))
+    survivors = c.execute("SELECT count(*) FROM v3_derived.system_search WHERE "
+                          "derived_generation_id='cfc25d36-3bc7-4011-a465-d6460eaaf826'").fetchone()[0]
+    assert survivors > 1
+    observed = _json(c, copy.PREFLIGHT_SQL, {'relation': 'system_search'})
+    _reset(c)
+    violations = _json(c, copy.SEARCH_VIOLATIONS_SQL)
+    _reset(c)
+    assert observed['not_valid_checks'] == []
+    assert violations == {'constraints': 0, 'violations': {}}
+    result = copy.evaluate_preflight(observed, violations=violations, relation='system_search')
+    assert result['passed'] is True and result['checks']['survivor_violations'] == {}
+    # The statement before the fix, in the same state: what production hit.
+    unfixed = copy.SEARCH_VIOLATIONS_SQL.replace(' HAVING count(*)>0', '')
+    assert unfixed != copy.SEARCH_VIOLATIONS_SQL
+    with pytest.raises(psycopg.errors.InvalidXmlDocument):
+        _json(c, unfixed)
+    c.execute('ROLLBACK')
 
 
 def test_phase_wrappers_drive_one_relation_through_019_with_their_set_local_bounds(copy_database):

@@ -325,7 +325,10 @@ SELECT jsonb_build_object(
 # Search only: one scan of the published survivors counting rows that violate
 # each live NOT VALID check (the staging copy enforces them). The expressions
 # come from the catalog, never from a caller; query_to_xml runs the generated
-# statement inside this one fixed statement. {} when no NOT VALID check exists.
+# statement inside this one fixed statement. {} when no NOT VALID check exists:
+# HAVING keeps the aggregate from returning its one row over zero checks, which
+# would generate a statement selecting every survivor (production validated all
+# 18 checks on 2026-10-18; preflight run 41034514200 stopped on it).
 SEARCH_VIOLATIONS_SQL = owner_sql('preflight_scan', """SELECT jsonb_build_object(
  'constraints',(SELECT count(*) FROM pg_constraint WHERE conrelid='v3_derived.system_search'::regclass
     AND contype='c' AND NOT convalidated),
@@ -333,7 +336,7 @@ SEARCH_VIOLATIONS_SQL = owner_sql('preflight_scan', """SELECT jsonb_build_object
     'SELECT jsonb_build_object(%s)::text AS j FROM v3_derived.system_search WHERE derived_generation_id=%L',
     string_agg(format('%L,count(*) FILTER (WHERE NOT (%s))',conname,pg_get_expr(conbin,conrelid)),',' ORDER BY conname),
     'cfc25d36-3bc7-4011-a465-d6460eaaf826'),false,true,'')))[1]::text)::jsonb
-  FROM pg_constraint WHERE conrelid='v3_derived.system_search'::regclass AND contype='c' AND NOT convalidated),'{}'::jsonb));""")
+  FROM pg_constraint WHERE conrelid='v3_derived.system_search'::regclass AND contype='c' AND NOT convalidated HAVING count(*)>0),'{}'::jsonb));""")
 # F7: planner statistics for economy_opportunity.system_id64 after its swap.
 RECALIBRATE_COUNT_SQL = phase_sql('recalibrate_count', """SELECT jsonb_build_object('rows',count(*),
  'distinct_systems',count(DISTINCT system_id64)) FROM v3_derived.economy_opportunity;""", write=False)

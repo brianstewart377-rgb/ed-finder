@@ -228,9 +228,13 @@ newer dated source wins).
   `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`, survivors 198,528,286
   systems in each published product, 316 GB free. Background parallel WAL
   archiving (precondition 5) was turned on by the owner on 2026-10-30.
-  Receipts under `docs/operations/evidence/`. Next, each with the owner's
-  approval: `verify-system-archetype-empty`, then the four relations'
-  preflight, copy, swap and drop, then `complete`.
+  Receipts under `docs/operations/evidence/`. `verify-system-archetype-empty`
+  passed on 2026-10-30 (run 41031168041). The first Search preflight (run
+  41034514200) stopped read-only on the survivor scan, which failed once
+  production had no NOT VALID check left; the owner accepted a one-line fix
+  to the pinned `v3_purge_copy.py` without a new rehearsal (recorded in the
+  pin's `amended_files`). Next, each with the owner's approval: the four
+  relations' preflight, copy, swap and drop, then `complete`.
 
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the

@@ -525,21 +525,35 @@ def test_accepted_rehearsal_pins_exactly_the_files_the_action_identity_hashes():
         files = accepted['files']
         assert evidence.canonical_sha256(files) == accepted['script_sha256']
         current = dict(files)
+        for relative, change in accepted.get('amended_files', {}).items():
+            assert change['rehearsed'] == files[relative], (seal, relative)
+            current[relative] = change['accepted']
         current[tool.RECEIPT_MODULE] = hashlib.sha256((tool.ROOT / tool.RECEIPT_MODULE).read_bytes()).hexdigest()
         # Equal only if the pinned paths are exactly script_identity()'s and
-        # every file but this module is byte-for-byte as rehearsed. If this
-        # fails, a purge file changed after the rehearsal: delete the entry
-        # and run a new one_percent rehearsal.
+        # every file but this module is byte-for-byte as rehearsed or as its
+        # owner-accepted amendment. If this fails, a purge file changed after
+        # the rehearsal: delete the entry and run a new one_percent rehearsal,
+        # or record the owner's acceptance of that one change in amended_files.
         assert evidence.canonical_sha256(current) == tool.code_identity()['script_sha256'], seal
 
 
-def _accepted_receipt(monkeypatch, *, change=None, drop_module=False):
+def test_the_pinned_rehearsal_still_authorizes_a_plan_after_the_accepted_copy_amendment():
+    # The committed run 40704251158 receipt itself, against the current tree.
+    receipt = json.loads((ROOT / 'docs/operations/evidence/'
+                          '2026-10-28-v3-derived-purge-rehearsal-receipt-run-40704251158.json').read_text())
+    assert receipt['content_sha256'] in tool.ACCEPTED_REHEARSALS
+    assert tool._accepted_before_gate_change(receipt) is True
+    accepted = tool.ACCEPTED_REHEARSALS[receipt['content_sha256']]
+    assert set(accepted['amended_files']) == {'scripts/operator/lib/v3_purge_copy.py'}
+
+
+def _accepted_receipt(monkeypatch, *, change=None, drop_module=False, amended=None):
     """A receipt that ran under an earlier receipt module, with a pinned entry."""
     files = _identity_files()
     files[tool.RECEIPT_MODULE] = '0' * 64
     pinned = dict(files)
-    if change:
-        pinned[change] = '1' * 64
+    for path in ([change] if isinstance(change, str) else change or ()):
+        pinned[path] = '1' * 64
     if drop_module:
         del pinned[tool.RECEIPT_MODULE]
     evidence = tool._evidence()
@@ -547,8 +561,10 @@ def _accepted_receipt(monkeypatch, *, change=None, drop_module=False):
     body = {key: item for key, item in receipt.items() if key != 'content_sha256'}
     body['script_sha256'] = evidence.canonical_sha256(pinned)
     receipt = evidence.seal(body)
-    monkeypatch.setattr(tool, 'ACCEPTED_REHEARSALS', {receipt['content_sha256']: {
-        'script_sha256': receipt['script_sha256'], 'files': pinned}})
+    entry = {'script_sha256': receipt['script_sha256'], 'files': pinned}
+    if amended is not None:
+        entry['amended_files'] = amended(pinned, files)
+    monkeypatch.setattr(tool, 'ACCEPTED_REHEARSALS', {receipt['content_sha256']: entry})
     return receipt
 
 
@@ -589,6 +605,47 @@ def test_pinned_rehearsal_refuses_any_other_change(monkeypatch, case):
     # No plan can be built from it, so no plan can report it as accepted.
     with pytest.raises(ValueError, match=code):
         tool.apply_to_plan({}, receipt)
+
+
+COPY_MODULE = 'scripts/operator/lib/v3_purge_copy.py'
+
+
+def test_amended_file_at_its_accepted_digest_keeps_the_pin(monkeypatch, tmp_path):
+    receipt = _accepted_receipt(monkeypatch, change=COPY_MODULE, amended=lambda pinned, current: {
+        COPY_MODULE: {'rehearsed': pinned[COPY_MODULE], 'accepted': current[COPY_MODULE]}})
+    loaded = tool.load_reviewed(write_receipt(tmp_path, receipt), receipt['content_sha256'])
+    assert tool.apply_to_plan({}, loaded)['rehearsal']['accepted_before_gate_change'] is True
+
+
+@pytest.mark.parametrize('case', ('current_not_the_accepted_digest', 'rehearsed_digest_not_pinned',
+                                  'receipt_module_amended', 'file_not_pinned', 'malformed_digest'))
+def test_amendment_is_refused_unless_it_names_exactly_the_change(monkeypatch, case):
+    def amended(pinned, current):
+        change = {'rehearsed': pinned[COPY_MODULE], 'accepted': current[COPY_MODULE]}
+        if case == 'current_not_the_accepted_digest':
+            change['accepted'] = '2' * 64
+        elif case == 'rehearsed_digest_not_pinned':
+            change['rehearsed'] = '3' * 64
+        elif case == 'malformed_digest':
+            change['accepted'] = current[COPY_MODULE].upper()
+        elif case == 'receipt_module_amended':
+            return {COPY_MODULE: change, tool.RECEIPT_MODULE: {'rehearsed': pinned[tool.RECEIPT_MODULE],
+                                                              'accepted': '4' * 64}}
+        elif case == 'file_not_pinned':
+            return {COPY_MODULE: change, 'scripts/operator/lib/not_rehearsed.py': {
+                'rehearsed': '5' * 64, 'accepted': '6' * 64}}
+        return {COPY_MODULE: change}
+    receipt = _accepted_receipt(monkeypatch, change=COPY_MODULE, amended=amended)
+    with pytest.raises(ValueError, match='rehearsal_script_sha256_mismatch'):
+        tool.validate(receipt)
+
+
+def test_an_amendment_never_covers_a_second_changed_file(monkeypatch):
+    other = 'scripts/operator/lib/v3_purge_copy_dispatch.py'
+    receipt = _accepted_receipt(monkeypatch, change=(COPY_MODULE, other), amended=lambda pinned, current: {
+        COPY_MODULE: {'rehearsed': pinned[COPY_MODULE], 'accepted': current[COPY_MODULE]}})
+    with pytest.raises(ValueError, match='rehearsal_script_sha256_mismatch'):
+        tool.validate(receipt)
 
 
 def test_plan_acceptance_flag_is_the_validation_check(monkeypatch, tmp_path):
