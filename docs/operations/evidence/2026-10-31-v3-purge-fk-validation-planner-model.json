@@ -1,0 +1,63 @@
+{
+  "schema_version": "ed-finder/v3-purge-planner-model/v1",
+  "recorded_at": "2026-10-31T13:45:00Z",
+  "purpose": "Which join PostgreSQL 18 plans for each foreign-key validation still ahead on the copy-and-drop route, and how much temporary-file space it needs against the phase's temp_file_limit, before swap-economy-opportunity was dispatched.",
+  "database": "local disposable PostgreSQL 18 (embedded-postgres), never production",
+  "scale": "1/100 of production rows, with production's heap and index page densities",
+  "settings": {
+    "random_page_cost": 4,
+    "random_page_cost_source": "production's 1-row index scans cost 8.16 in docs/operations/evidence/2026-10-23-v3-finder-publication-receipt-run-39933842811.json (default 4)",
+    "seq_page_cost": 1,
+    "maintenance_work_mem": "20972kB (production 2 GB / 100); RI_Initial_Check plans with work_mem = maintenance_work_mem and hash_mem_multiplier = 1",
+    "effective_cache_size": "1311MB (production 128 GB / 100)",
+    "parallel": "none (RI_Initial_Check plans without parallel workers)"
+  },
+  "model_relations": {
+    "body": {"pages": 151280, "tuples": 11799840, "production_pages": 15676459, "production_rows": 1179977226},
+    "body_pkey": {"pages": 100732, "production_pages": 9981929},
+    "economy_copy": {"pages": 84097, "tuples": 7400523, "production_pages": 8469015, "production_rows": 740001532},
+    "economy_copy_pkey": {"pages": 53272},
+    "body_copy": {"pages": 74066, "tuples": 5777012},
+    "body_copy_pkey": {"pages": 49137},
+    "vector_live": {"pages": 160798, "tuples": 4019950, "production_pages": 16079786, "production_rows": 401994572},
+    "vector_live_pkey": {"pages": 28098, "production_pages": 2781076},
+    "vector_copy": {"pages": 79412, "tuples": 1985258},
+    "vector_copy_pkey": {"pages": 9844}
+  },
+  "checks": [
+    {
+      "route_step": "copy-economy-opportunity verify: opportunity copy -> live body_mechanics (three generations)",
+      "phase_temp_file_limit": "64 GiB",
+      "plan": "Merge Anti Join over two index-only scans",
+      "cost": 1048025.36,
+      "hash_alternative_cost": 1217640.46,
+      "temp_blocks_written": 0,
+      "production_outcome": "run 41194211040 verified in 1,592 s"
+    },
+    {
+      "route_step": "copy-body-mechanics verify: body copy -> live system_rating_vector (three generations)",
+      "phase_temp_file_limit": "64 GiB",
+      "plan": "Merge Anti Join over two index-only scans",
+      "cost": 565165.70,
+      "temp_blocks_written": 0
+    },
+    {
+      "route_step": "swap-body-mechanics validate_fks: economy_opportunity -> body copy",
+      "phase_temp_file_limit": "32 GiB",
+      "plan": "Merge Anti Join over two index-only scans",
+      "cost": 706131.69,
+      "hash_alternative_cost": 746525.05,
+      "temp_blocks_written": 0
+    },
+    {
+      "route_step": "swap-system-rating-vector validate_fks: body_mechanics -> vector copy",
+      "phase_temp_file_limit": "32 GiB",
+      "plan": "Hash Anti Join, 8 batches",
+      "cost": 379506.41,
+      "temp_blocks_written": 36474,
+      "temp_bytes_written_model": 298795008,
+      "temp_file_limit_model_kb": 335544,
+      "full_scale_estimate": "about 30 GB of temporary files against 34.4 GB (32 GiB)"
+    }
+  ]
+}

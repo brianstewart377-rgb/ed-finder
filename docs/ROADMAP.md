@@ -266,6 +266,20 @@ newer dated source wins).
   schema-identity checksum and purge dispatches refuse on the ledger, as after
   #891; none is planned in that window.
 
+  **`economy_opportunity` is purged (2026-10-31):** the first copy (486.2
+  million rows) was abandoned in run 41176670411 and 022 applied (plan run
+  41180417409, apply run 41180459540; schema identity through-022
+  `c58e73a5…891f`). The restarted copy read each chunk in about 0.23 s (runs
+  41181532586 and 41182249937: 740,001,532 survivors, indexes built in 488 s,
+  frozen in 2,256 s), was verified in run 41194211040 (1,592 s), swapped in
+  run 41198027388 (lock 0.11 s; `n_distinct` for `system_id64` recalibrated
+  from fresh counts to −0.10208, the archetype builder's chunk read still a
+  nested loop over `economy_opportunity_pkey`, Finder smoke passed) and the
+  retired table dropped in run 41206256540 (free space 260.9 → 526.4 GB).
+  `copy-body-mechanics` started the same day (run 41206570787). Next, each
+  with the owner's approval: `body_mechanics` and `system_rating_vector`
+  (copy, swap, drop), then `complete`.
+
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
     owner accepts a replacement.
