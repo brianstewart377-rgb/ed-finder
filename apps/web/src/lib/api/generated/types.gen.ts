@@ -4376,6 +4376,10 @@ export type PlanBodiesV1 = {
      * Bodies
      */
     bodies: Array<PlanSystemBodyV1>;
+    /**
+     * Belts
+     */
+    belts: Array<PlanSystemBeltV1>;
 };
 
 /**
@@ -4738,6 +4742,44 @@ export type PlanSummaryV1 = {
      * Ignored
      */
     IGNORED: number;
+};
+
+/**
+ * PlanSystemBeltV1
+ */
+export type PlanSystemBeltV1 = {
+    /**
+     * Belt Id
+     */
+    belt_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Parent Body Id
+     */
+    parent_body_id: string;
+    /**
+     * Ring Type
+     */
+    ring_type: string | null;
+    /**
+     * Reserve
+     */
+    reserve: string | null;
+    /**
+     * Mass Mt
+     */
+    mass_mt: number | null;
+    /**
+     * Inner Radius Km
+     */
+    inner_radius_km: number | null;
+    /**
+     * Outer Radius Km
+     */
+    outer_radius_km: number | null;
 };
 
 /**

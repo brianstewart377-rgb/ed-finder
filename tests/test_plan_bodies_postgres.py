@@ -97,9 +97,19 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
             for row in await pool.fetch(f'SELECT {column}, display_name FROM v3_vocab.{table}')
         }
     ring_rows = await pool.fetch(
-        f'SELECT body_pk, kind FROM {schema}.rings WHERE system_id64=$1', system_id)
+        f'SELECT ring_pk, body_pk, kind FROM {schema}.rings WHERE system_id64=$1', system_id)
     ring_bodies = {row['body_pk'] for row in ring_rows if row['kind'] == 'RING'}
     belt_only_bodies = {row['body_pk'] for row in ring_rows if row['kind'] == 'BELT'} - ring_bodies
+    expected_belts = await pool.fetch(
+        f'''SELECT ring.ring_pk::text AS belt_id, ring.name,
+                   ring.body_pk::text AS parent_body_id,
+                   ring_type.display_name AS ring_type, reserve_type.display_name AS reserve,
+                   ring.mass_mt, ring.inner_radius_km, ring.outer_radius_km
+              FROM {schema}.rings ring
+              LEFT JOIN v3_vocab.ring_type ring_type USING(ring_type_id)
+              LEFT JOIN v3_vocab.reserve_type reserve_type USING(reserve_type_id)
+             WHERE ring.system_id64=$1 AND ring.kind='BELT'
+             ORDER BY ring.ring_pk''', system_id)
     signal_rows = await pool.fetch(
         f'''SELECT signal.body_pk, signal.signal_count, signal_type.display_name
               FROM {schema}.body_signal_current signal
@@ -130,6 +140,13 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
     assert result['publication_sequence'] == str(publication['publication_sequence'])
     assert result['system_id64'] == str(system_id)
     bodies = result['bodies']
+    assert result['belts'] == [dict(row) for row in expected_belts]
+    assert {belt['belt_id'] for belt in result['belts']}.isdisjoint(
+        str(row['ring_pk']) for row in ring_rows if row['kind'] == 'RING')
+    if system_id == SOL:
+        assert expected_belts
+        assert any(belt['ring_type'] is not None for belt in result['belts'])
+        assert any(belt['reserve'] is None for belt in result['belts'])
     canonical_bodies = canonical_response.json()
     expected_ids = [str(row['body_pk']) for row in expected_bodies]
     assert [row['body_id'] for row in bodies] == expected_ids
@@ -160,6 +177,34 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
 
 
 @pytest.mark.asyncio
+async def test_plan_belts_preserve_null_ring_type_and_resolve_reserve(pool):
+    publication = await _published(pool)
+    schema = publication['relation_schema']
+    belt = await pool.fetchrow(
+        f'''SELECT ring_pk, ring_type_id, reserve_type_id FROM {schema}.rings
+             WHERE system_id64=$1 AND kind='BELT' ORDER BY ring_pk LIMIT 1''', SOL)
+    assert belt is not None
+    reserve = await pool.fetchrow(
+        'SELECT reserve_type_id, display_name FROM v3_vocab.reserve_type ORDER BY reserve_type_id LIMIT 1')
+    assert reserve is not None
+    try:
+        await pool.execute(
+            f'''UPDATE {schema}.rings SET ring_type_id=NULL, reserve_type_id=$2
+                 WHERE ring_pk=$1''', belt['ring_pk'], reserve['reserve_type_id'])
+        async with _client(pool) as client:
+            response = await client.get(f'/api/v1/plan/systems/{SOL}/bodies')
+        assert response.status_code == 200, response.text
+        result = next(row for row in response.json()['belts']
+                      if row['belt_id'] == str(belt['ring_pk']))
+        assert result['ring_type'] is None
+        assert result['reserve'] == reserve['display_name']
+    finally:
+        await pool.execute(
+            f'''UPDATE {schema}.rings SET ring_type_id=$2, reserve_type_id=$3
+                 WHERE ring_pk=$1''', belt['ring_pk'], belt['ring_type_id'], belt['reserve_type_id'])
+
+
+@pytest.mark.asyncio
 async def test_plan_bodies_unknown_system_is_empty_and_ids_are_bounded(pool):
     publication = await _published(pool)
     schema = publication['relation_schema']
@@ -177,7 +222,7 @@ async def test_plan_bodies_unknown_system_is_empty_and_ids_are_bounded(pool):
     assert missing.json() == {
         'generation_id': str(publication['generation_id']),
         'publication_sequence': str(publication['publication_sequence']),
-        'system_id64': str(UNKNOWN), 'bodies': [],
+        'system_id64': str(UNKNOWN), 'bodies': [], 'belts': [],
     }
 
 
