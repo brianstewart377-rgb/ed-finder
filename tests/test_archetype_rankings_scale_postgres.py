@@ -19,8 +19,9 @@ the OS page cache. Use only a disposable server dedicated to this run.
 
 The Finder CI lane discovers this module but must skip it even with
 EDF_DB_TESTS_REQUIRED=1: opting out is not a database-availability failure.
-Receipt EXPLAIN text is a lossless text rendering of the measured JSON output,
-not a second execution that would warm the cold sample or change its timings.
+Receipt EXPLAIN evidence keeps the warm-median run's lossless compact JSON from
+the same measured execution and only the cold run's plan summary, without a
+second execution that would warm the cold sample or change its timings.
 """
 from __future__ import annotations
 
@@ -342,32 +343,24 @@ async def _explain_json(connection, sql, params):
     return (json.loads(raw) if isinstance(raw, str) else raw)[0]
 
 
-def _explain_text(document):
-    """Losslessly render the SAME sample, retaining even uncommon plan fields.
+def _store_warm_explain(measurement, document):
+    measurement['warm_explain_json'] = json.dumps(document, separators=(',', ':'), sort_keys=True)
 
-    PostgreSQL accepts only one EXPLAIN format per execution. Re-executing with
-    FORMAT TEXT would produce a different, warm sample. Use the original JSON
-    field names in an indented text tree; do not label this as native PG TEXT.
-    """
-    lines = []
 
-    def render(value, indent=0):
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if isinstance(item, (dict, list)):
-                    lines.append(' ' * indent + f'{key}:')
-                    render(item, indent + 2)
-                else:
-                    lines.append(' ' * indent + f'{key}: {item}')
-        elif isinstance(value, list):
-            for item in value:
-                lines.append(' ' * indent + '-')
-                render(item, indent + 2)
-        else:
-            lines.append(' ' * indent + str(value))
+def _write_receipt(destination, receipt):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n', encoding='utf-8')
 
-    render(document)
-    return '\n'.join(lines) + '\n'
+
+def test_receipt_stores_compact_warm_explain_json(tmp_path):
+    document = {'Plan': {'Plans': [], 'Node Type': 'Result'}, 'Execution Time': 1.25}
+    measurement = {}
+    _store_warm_explain(measurement, document)
+    destination = tmp_path / 'receipt.json'
+    _write_receipt(destination, {'measurements': [measurement]})
+    stored = json.loads(destination.read_text(encoding='utf-8'))['measurements'][0]['warm_explain_json']
+    assert stored == '{"Execution Time":1.25,"Plan":{"Node Type":"Result","Plans":[]}}'
+    assert json.loads(stored) == document
 
 
 def _total_rows(node):
@@ -511,7 +504,7 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
         'seed': SEED, 'row_counts': {}, 'eligible_counts': [], 'settings': {},
         'cold_label': ('io-cold' if os.environ.get('EDF_RANKINGS_SCALE_COLD_LABEL') == 'io-cold'
                        else 'buffer-cold'),
-        'explain_text_format': 'text_rendered_from_json_same_execution',
+        'explain_format': 'warm_median_compact_json_same_execution; cold_plan_summary_only',
         'measurements': [], 'failures': [], 'passed': False,
     }
     failures = receipt['failures']
@@ -559,7 +552,7 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
                             measurement['warm_median_ms'] = warm_median
                             median_index = totals.index(warm_median)
                             measurement['warm_median_run'] = median_index + 1
-                            measurement['warm_explain_text'] = _explain_text(documents[median_index])
+                            _store_warm_explain(measurement, documents[median_index])
                             _check(warm_median <= warm_budget,
                                    f'{context}: warm median {warm_median:.3f} ms > {warm_budget} ms',
                                    measurement['failures'])
@@ -592,7 +585,6 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
                         document, rows, expected[key, floor], key, floor, query,
                         receipt['cold_label'], measurement['failures'],
                     )
-                    measurement['cold_explain_text'] = _explain_text(document)
                     # Read these AFTER the cold EXPLAIN. A no-op command is not
                     # a restart, and a settings reload must not silently make
                     # the warm/cold comparison describe different configurations.
@@ -628,8 +620,6 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
         receipt['passed'] = complete and not failures
         path = os.environ.get('EDF_RANKINGS_SCALE_RECEIPT')
         if path:
-            destination = Path(path)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+            _write_receipt(Path(path), receipt)
     if not receipt['passed']:
         pytest.fail('\n'.join(failures) or f'{context}: incomplete 72-measurement receipt', pytrace=False)

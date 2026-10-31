@@ -18,9 +18,10 @@ ranking plans and the owner-accepted warm/cold latency budgets on a disposable
 PostgreSQL 18 database with one million systems, for all eight archetypes at
 each B/A/S floor. It is opt-in via `EDF_RANKINGS_SCALE_PROOF=1` because seeding
 the corpus and restarting the server before all 72 cold measurements must not
-run in the Finder lane on every PR. Its JSON receipt records plans, timings,
-identities and failures; a passing receipt is the representative-scale evidence
-that unblocks F4b. The proof has not been run by this change.
+run in the Finder lane on every PR. Its JSON receipt records compact warm-median
+plans, cold plan summaries, timings, identities and failures; a passing receipt
+is the representative-scale evidence that unblocks F4b. The proof has not been
+run by this change.
 
 ## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
 
