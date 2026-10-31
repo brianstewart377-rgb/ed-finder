@@ -201,7 +201,7 @@ async def test_core_invalid_plan_returns_plan_issue_shape(client, facility_id, c
     response = await client.post('/api/v1/plan/evaluate', json=_request(
         sites=[_site('invalid', facility_id)],
     ))
-    assert response.status_code == 422
+    assert response.status_code == 400
     body = response.json()
     assert body['error'] == 'plan_invalid'
     assert any(
@@ -220,7 +220,7 @@ async def test_core_validation_preserves_all_issues_in_core_order(client):
     )
     expected_issues = [asdict(issue) for issue in validate_plan(_core_plan(request))]
     response = await client.post('/api/v1/plan/evaluate', json=request)
-    assert response.status_code == 422
+    assert response.status_code == 400
     assert response.json() == {'error': 'plan_invalid', 'issues': expected_issues}
     assert len(expected_issues) >= 5
 
@@ -309,8 +309,12 @@ def test_openapi_documents_operations_invalid_response_and_no_database_dependenc
     assert operations['/api/v1/plan/catalogue']['get']['operationId'] == 'getV3PlanCatalogue'
     evaluate = operations['/api/v1/plan/evaluate']['post']
     assert evaluate['operationId'] == 'evaluateV3Plan'
-    assert evaluate['responses']['422']['content']['application/json']['schema'] == {
+    assert evaluate['responses']['400']['content']['application/json']['schema'] == {
         '$ref': '#/components/schemas/PlanInvalidV1',
+    }
+    # Malformed bodies keep FastAPI's own 422 shape, documented separately.
+    assert evaluate['responses']['422']['content']['application/json']['schema'] == {
+        '$ref': '#/components/schemas/HTTPValidationError',
     }
     # FastAPI includes routers lazily; inspect their concrete API routes.
     routes = [route for route in plan.router.routes if isinstance(route, APIRoute)]

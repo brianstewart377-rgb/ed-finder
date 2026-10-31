@@ -184,7 +184,10 @@ async def get_catalogue() -> PlanCatalogueV1:
     "/evaluate",
     response_model=PlanEvaluationV1,
     operation_id="evaluateV3Plan",
-    responses={422: {"model": PlanInvalidV1}},
+    # A plan that is well-formed JSON but breaks a planner rule is a 400 with
+    # PlanInvalidV1; FastAPI keeps 422 (HTTPValidationError) for malformed
+    # bodies, so the OpenAPI contract describes both shapes accurately.
+    responses={400: {"model": PlanInvalidV1}},
 )
 @limiter.limit("60/minute")
 async def evaluate(request: Request, body: PlanRequestV1) -> PlanEvaluationV1 | JSONResponse:
@@ -200,7 +203,7 @@ async def evaluate(request: Request, body: PlanRequestV1) -> PlanEvaluationV1 | 
             error="plan_invalid",
             issues=[PlanIssueV1(**asdict(issue)) for issue in exc.issues],
         )
-        return JSONResponse(status_code=422, content=invalid.model_dump())
+        return JSONResponse(status_code=400, content=invalid.model_dump())
 
     cited = {
         rule_id
