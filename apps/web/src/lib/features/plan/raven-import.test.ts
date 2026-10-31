@@ -184,7 +184,20 @@ describe('parseRavenLayout', () => {
     expect(result.warnings[0]?.code).toBe('unknown_status');
   });
 
-  it.each([-1, -2, 0.5, 65, NaN, Infinity, '4', null])(
+  it("treats Raven's -1 marker as unknown without a warning", () => {
+    const result = parseRavenLayout(layout({ slots: { '16': [-1, -1] } }));
+    expect(result.ok).toBe(true);
+    expect(result.slots).toEqual([
+      {
+        raven_body_name: 'Velora Lantern A 1',
+        orbital_slots: null,
+        surface_slots: null,
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it.each([-2, 0.5, 65, NaN, Infinity, '4', null])(
     'turns invalid orbital and surface slot count %s into null with one warning per entry',
     (count) => {
       const result = parseRavenLayout(
@@ -217,7 +230,7 @@ describe('parseRavenLayout', () => {
       { raven_body_name: 'Lower', orbital_slots: 0, surface_slots: 64 },
       { raven_body_name: 'Upper', orbital_slots: null, surface_slots: 6 },
     ]);
-    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings).toHaveLength(0);
   });
 
   it('keeps a site whose body is absent, and identifies the missing body', () => {

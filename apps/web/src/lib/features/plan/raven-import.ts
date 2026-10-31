@@ -310,11 +310,15 @@ function parseLayout(input: unknown): RavenImportResult {
     }
     const orbital = Array.isArray(counts) ? slotCount(counts[0]) : null;
     const surface = Array.isArray(counts) ? slotCount(counts[1]) : null;
+    // Raven writes -1 for "unknown / not applicable": that is a normal value,
+    // so it becomes null without a warning. Anything else invalid is reported.
+    const known = (value: unknown, count: number | null) =>
+      count !== null || value === -1;
     if (
       !Array.isArray(counts) ||
       counts.length !== 2 ||
-      orbital === null ||
-      surface === null
+      !known(counts[0], orbital) ||
+      !known(counts[1], surface)
     ) {
       warn(
         'invalid_slots',
