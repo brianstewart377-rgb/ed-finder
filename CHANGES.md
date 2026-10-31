@@ -95,6 +95,18 @@ offset-zero pages and counts. The revised query defers detail reads until
 after pagination; PostgreSQL regression tests compare its complete output
 with the old SQL and bound detail reads to the page size.
 
+## 2026-10-31 — CRE rulebook v0.5.0 pinned: strong links with both port kinds
+
+ED-Finder now reads CRE release `cre-knowledge-v0.5.0` (CRE commit `db7ee07`,
+SHA-256 `03faf90c…1f53`, 29 rules), approved by the owner on 2026-10-31. New
+`RB-0029` (`Confirmed`, CRE evidence `EV-0007`: the Dodec and the Large
+Planetary Port on Wregoe ZN-X c28-28 A 5): on a body with both an orbital and a
+planetary port, surface facilities link to the planetary port, which passes
+their links on to the orbital port with its own strong link per economy;
+orbital facilities link to the orbital port only. Contradiction `C-0014` records
+that the guide's footnote 20 is contradicted. The parity test finds no new or
+resolved difference.
+
 ## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
 
 ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,
