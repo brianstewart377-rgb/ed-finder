@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
+
+The Finder derived-data weights now come from CI run `41227989407` (PR #943,
+head `8718e895`), replacing the local PostgreSQL 18 timings. Its three green
+shards took 17.5 / 13.5 / 16.7 minutes, with 1,012.5 / 776.6 / 964.1 s of
+test time: CI's relative module speeds differ from the local run. The refresh
+uses all three `finder-derived-data-durations-*` artifacts, covering
+228 + 311 + 328 = 867 distinct node ids with every shard exitstatus 0.
+The new weights plan 918.2 / 917.7 / 917.7 s across the three shards.
+
+The EDDN freshness test now imports the client in a fresh interpreter and
+checks that its initial elapsed time is finite, nonnegative and below 60 s.
+Previously it measured time since collection imported the module, so the full
+backend unit suite failed after 140.36 s in Codex worker run `41223127055`
+even though the module passed alone. The subprocess check tests process-start
+freshness independently of session duration or test order.
+
 ## 2026-10-31 — CI: Finder derived-data lane in three time-balanced shards
 
 The PostgreSQL 18 Finder derived-data lane now uses three shards balanced by
