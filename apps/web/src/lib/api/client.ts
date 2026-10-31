@@ -50,6 +50,9 @@ import {
   getV3CurrentGeneration,
   getV3JournalTravelHeatmap,
   getV3System,
+  getV3PlanCatalogue as getPlanCatalogueSdk,
+  listV3PlanBodies as listPlanBodiesSdk,
+  evaluateV3Plan as evaluatePlanSdk,
   getWatchlistApiV2WatchlistSyncKeyGet,
   healthApiHealthGet,
   listIdentitiesApiV1AuthIdentitiesGet,
@@ -95,6 +98,7 @@ import type {
   SystemV1,
   V3JournalImportRequest,
   V3TravelHeatmapResponse,
+  PlanRequestV1,
 } from './generated';
 
 export type {
@@ -107,7 +111,53 @@ export type {
   V3VerifiedImportReceipt,
   ContributionRow,
   GalaxyImpactSummary,
+  PlanBodiesV1,
+  PlanBodyV1,
+  PlanCatalogueV1,
+  PlanCheckV1,
+  PlanEvaluationV1,
+  PlanFacilityV1,
+  PlanInvalidV1,
+  PlanIssueV1,
+  PlanRequestV1,
+  PlanRuleExplanationV1,
+  PlanSiteV1,
+  PlanStepV1,
+  PlanSummaryV1,
+  PlanSystemBeltV1,
+  PlanSystemBodyV1,
+  PlanTotalsV1,
 } from './generated';
+
+export const getV3PlanCatalogue = async (signal?: AbortSignal) =>
+  (await getPlanCatalogueSdk({ throwOnError: true, signal })).data;
+
+export const listV3PlanBodies = async (
+  systemId: string,
+  signal?: AbortSignal,
+) =>
+  (
+    await listPlanBodiesSdk({
+      path: { system_id: parseId64(systemId) },
+      throwOnError: true,
+      signal,
+    })
+  ).data;
+
+export const evaluateV3Plan = async (
+  body: PlanRequestV1,
+  signal?: AbortSignal,
+) => (await evaluatePlanSdk({ body, throwOnError: true, signal })).data;
+
+/** Identity only: Plan does not load Inspect's map, stations or ratings. */
+export const getPlanSystem = async (systemId: string, signal?: AbortSignal) =>
+  (
+    await getV3System({
+      path: { system_id: parseId64(systemId) },
+      throwOnError: true,
+      signal,
+    })
+  ).data;
 
 export const getVerifiedCommanders = async (signal?: AbortSignal) =>
   (await listVerifiedCommanders({ throwOnError: true, signal })).data;
