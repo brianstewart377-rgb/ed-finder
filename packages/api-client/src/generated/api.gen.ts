@@ -5307,6 +5307,8 @@ export interface components {
             system_id64: string;
             /** Bodies */
             bodies: components["schemas"]["PlanSystemBodyV1"][];
+            /** Belts */
+            belts: components["schemas"]["PlanSystemBeltV1"][];
         };
         /** PlanBodyV1 */
         PlanBodyV1: {
@@ -5506,6 +5508,25 @@ export interface components {
             COUNTED: number;
             /** Ignored */
             IGNORED: number;
+        };
+        /** PlanSystemBeltV1 */
+        PlanSystemBeltV1: {
+            /** Belt Id */
+            belt_id: string;
+            /** Name */
+            name: string;
+            /** Parent Body Id */
+            parent_body_id: string;
+            /** Ring Type */
+            ring_type: string | null;
+            /** Reserve */
+            reserve: string | null;
+            /** Mass Mt */
+            mass_mt: number | null;
+            /** Inner Radius Km */
+            inner_radius_km: number | null;
+            /** Outer Radius Km */
+            outer_radius_km: number | null;
         };
         /** PlanSystemBodyV1 */
         PlanSystemBodyV1: {
