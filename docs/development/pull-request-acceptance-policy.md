@@ -140,6 +140,14 @@ remote setting at that date; it does not prove the setting on any later date,
 and operators should still check it when Octopus reviews appear without being
 asked for.
 
+**Upgraded 2026-10-31:** the instance now runs
+`ghcr.io/octopusreview/octopus-selfhost:1.3.3` (digest `sha256:dd36e9e7…d043`),
+installed by the governed `octopus-upgrade-apply` operation (run 41228291272;
+receipt `docs/operations/evidence/2026-10-31-octopus-upgrade-apply-receipt-run-41228291272.json`).
+The upgrade migrated the existing Octopus database in place rather than
+replacing it. This note does not prove the Auto Review or spend-limit settings
+on 1.3.3; check them as above.
+
 This cadence changes *when* Octopus is invoked, not the exact-head safety rule.
 A stale Octopus review from an earlier SHA can never contribute to merge
 eligibility.
