@@ -242,7 +242,7 @@
   data-system-id64={id64}
   aria-busy={detail.isPending}
 >
-  <p class="sr-only" aria-live="polite" aria-atomic="true">
+  <p class="system-detail-announcement" aria-live="polite" aria-atomic="true">
     {selectionAnnouncement}
   </p>
   {#if detail.isPending}

@@ -6,6 +6,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
@@ -409,7 +411,7 @@ describe('shared system detail', () => {
     );
     expect(announcements).toHaveLength(1);
     const announcement = announcements[0] as HTMLElement;
-    expect(announcement).toHaveClass('sr-only');
+    expect(announcement).toHaveClass('system-detail-announcement');
     expect(announcement.textContent?.trim()).toBe('');
 
     await fireEvent.click(
@@ -433,6 +435,19 @@ describe('shared system detail', () => {
     expect(announcement).toBeInTheDocument();
     expect(announcement.textContent?.trim()).toBe('');
     expect(screen.queryByRole('article')).toBeNull();
+  });
+
+  it('hides the selection announcement visually through a global rule', () => {
+    // SystemDetail has no scoped styles; a class missing from app.css would
+    // render the announcement as visible page text.
+    const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
+    const rule = /\.system-detail-announcement\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/width:\s*1px/);
+    expect(rule).toMatch(/height:\s*1px/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(rule).toMatch(/clip-path:\s*inset\(50%\)/);
   });
 
   it('treats 404 and out-of-range 422 as not found and retries other API errors', async () => {
