@@ -1,13 +1,14 @@
 {
   "schema": "cre-rulebook/v1",
-  "knowledge_version": "0.3.0",
-  "release_tag": "cre-knowledge-v0.3.0",
+  "knowledge_version": "0.4.0",
+  "release_tag": "cre-knowledge-v0.4.0",
   "title": "Colonisation Research Engine rulebook",
   "purpose": "A pinned, machine-readable list of Elite Dangerous colonisation rules with stable IDs, exact values and sources. Tools such as ed-finder read a tagged release of this file; a rule enters or changes here only after owner review.",
   "game_basis": {
     "community_guide": "Elite Dangerous Colonization Mega Guide 2.3.0 (31 October 2025, game version 4.2.1.2)",
     "first_party": "Frontier: Trailblazers Update 3 (30 April 2025), update 4.1.2.101, Vanguards Patch 1 (22 August 2025)",
-    "not_incorporated": "The 4.2.2.0 patch-note change (a nerf announced at -70%, later revised to -25%) is not reflected in the guide or in this rulebook."
+    "not_incorporated": "The 4.2.2.0 patch-note change (a nerf announced at -70%, later revised to -25%) is not reflected in the guide or in this rulebook.",
+    "in_game": "Colony port economy strengths measured from game journals (game 4.4.1.1 to 4.4.2.1, October 2026) and Spansh station data (EV-0006)."
   },
   "status_vocabulary": {
     "Confirmed": "A Frontier first-party source states it, or evidence in this repository verified it in game.",
@@ -44,6 +45,12 @@
       "tier": "Tier 1 - Frontier first-party",
       "citation_file": "reference_sources/FD-0003-update-4-1-2-101/README.md",
       "url": "https://cms.zaonce.net/en-GB/node/6696"
+    },
+    {
+      "id": "EV-0006",
+      "title": "Colony port economy strengths from journals and Spansh (measured 2026-10)",
+      "tier": "Tier 1 - in-game measurement",
+      "citation_file": "evidence/EV-0006-colony-port-economy-strengths.md"
     }
   ],
   "rules": [
@@ -531,7 +538,7 @@
       ],
       "contradictions": [],
       "caveats": [
-        "Each inherited economy has strength 1.0 before other modifiers and links (RB-0012); volcanism also adds a bonus of undocumented size to planetary intrinsic values (RB-0013)."
+        "Each inherited economy has strength 1.0 before other modifiers and links (RB-0012). The strong-link modifier list then applies to it (RB-0028), and volcanism adds 0.4 to Extraction (RB-0013)."
       ]
     },
     {
@@ -583,7 +590,7 @@
       "id": "RB-0012",
       "topic": "economy",
       "title": "Body economies and modifiers do not stack",
-      "status": "Disputed",
+      "status": "Confirmed",
       "statement": "An inherited economy has strength 1.0 before any other modifiers, whether it comes from the body, from a modifier, or from both, and modifiers do not stack with each other: an Icy body with geologicals has Industrial 1.0, not 2.0; a high metal content body with rings and geologicals has Extraction 1.0, not 3.0.",
       "value": {
         "kind": "inheritance_strength",
@@ -605,6 +612,10 @@
         {
           "source_id": "FD-0001",
           "quote": "These overrides may stack."
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "Industrial 2.20 at Vasellini Prefecture is below the 2.40 that stacking would give before any links, so the body economy and the geologicals did not stack."
         }
       ],
       "related": [
@@ -615,23 +626,32 @@
         "C-0011"
       ],
       "caveats": [
-        "Frontier's 'may stack' plausibly means that different economies can be added together, which the guide agrees with; the guide's worked examples are the working rule until a live test settles it.",
-        "Other modifiers can still change the 1.0: the guide says volcanism also boosts planetary intrinsic values (footnote 13, MG-0001 page 50; RB-0013), and its revision table lists 'TO FIX: Modifiers on planetary intrinsics DO apply' (page 2)."
+        "Settled in game (EV-0006): at Vasellini Prefecture an icy body with geologicals in a Pristine system shows Industrial 2.20, below the 2.40 that stacking would give before any links. Frontier's 'may stack' is read as different economies being added together, which the guide agrees with (C-0011).",
+        "Modifiers still move the 1.0: the strong-link modifier list applies to a port's own economies (RB-0028), and volcanism adds 0.4 to Extraction (RB-0013)."
       ]
     },
     {
       "id": "RB-0013",
       "topic": "economy",
-      "title": "Volcanism also boosts the planet's intrinsic economy",
-      "status": "Extracted",
-      "statement": "Volcanism is a strong-link modifier for Extraction (RB-0018), but it also gives a bonus to the planetary intrinsic values. The size of that bonus is not documented.",
-      "value": null,
+      "title": "Volcanism adds 0.4 to the port's own Extraction",
+      "status": "Confirmed",
+      "statement": "Volcanism on the local body is a strong-link boost for Extraction (RB-0018), and it also raises the port's own Extraction by 0.4 (RB-0028). It does not change the port's other economies.",
+      "value": {
+        "kind": "own_economy_modifier",
+        "condition": "on_or_orbiting_body_with_volcanism",
+        "economy": "Extraction",
+        "boost": 0.4
+      },
       "sources": [
         {
           "source_id": "MG-0001",
           "page": 50,
           "footnote": 13,
           "quote": "Confusingly, Volcanism ALSO provides a bonus to planetary intrinsic values, in addition to strong links."
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "Volcanism on the host body added exactly 0.4 to the port's own Extraction and did not change its other economies."
         }
       ],
       "related": [
@@ -639,7 +659,7 @@
       ],
       "contradictions": [],
       "caveats": [
-        "The guide's 2.2.0 revision note says 'TO FIX: Modifiers on planetary intrinsics DO apply (e.g., Volcanism)' (MG-0001 page 2)."
+        "The guide's 2.2.0 revision note says 'TO FIX: Modifiers on planetary intrinsics DO apply (e.g., Volcanism)' (MG-0001 page 2); EV-0006 measured the size: Rosseland Hub (no volcanism) Extraction 1.40 against Pordenone Vision (volcanism) 1.80, both on high metal content worlds in Pristine systems, and Vasellini Prefecture 1.0 + 0.4 + 0.4 = 1.80 in the current game."
       ]
     },
     {
@@ -705,7 +725,7 @@
       "id": "RB-0016",
       "topic": "links",
       "title": "Weak links are a fixed 0.05",
-      "status": "Likely",
+      "status": "Confirmed",
       "statement": "Every supporting facility with an economy type sends a weak link to every port outside its local body. Ports converted to supporting facilities do too, except the oldest top-tier planetary port that links to an orbital port on the same body (RB-0020). A weak link is worth a fixed 0.05 and is never modified.",
       "value": {
         "kind": "link_strength",
@@ -730,6 +750,10 @@
         {
           "source_id": "FD-0001",
           "quote": "Weak links are unaffected by this mechanic."
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "Each weak link added exactly 0.05 to a port's economy."
         }
       ],
       "related": [
@@ -738,7 +762,8 @@
       ],
       "contradictions": [],
       "caveats": [
-        "Ports converted to supporting facilities are shielded from incoming weak links (MG-0001 page 53, footnote 19, and page 60)."
+        "Ports converted to supporting facilities are shielded from incoming weak links (MG-0001 page 53, footnote 19, and page 60).",
+        "Measured in game (EV-0006): the three Praea Euq WV-W b2-2 ports show Military 0.05 and Extraction 0.05 from facilities on other bodies."
       ]
     },
     {
@@ -848,7 +873,8 @@
                   "FD-0001",
                   "MG-0001"
                 ],
-                "status": "Confirmed"
+                "status": "Confirmed",
+                "in_game": "includes a tidally locked planet in a binary pair that orbits the star (EV-0006)"
               },
               {
                 "condition": "orbiting_moon_tidally_locked_to_planet_tidally_locked_to_star",
@@ -1093,6 +1119,10 @@
           "page": 2,
           "footnote": 2,
           "quote": "This is NOT reported in the patch notes, but IS reported in the in-game Codex, and experimental verification proved that the latter source is correct."
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "Both ports dropped by exactly 0.45 when the two farms were demolished, which fits only if a water world tidally locked within a binary pair takes the tidal-lock-to-star decrease."
         }
       ],
       "related": [
@@ -1111,7 +1141,10 @@
         "'Life' on water worlds, ammonia worlds, gas giants and Earth-like worlds does not count as organics for these conditions (MG-0001 page 56, footnote 22).",
         "The Agriculture and HighTech water-world boosts are guide-only here, but the guide says they are listed in the in-game Codex and that experiments confirmed them (MG-0001 page 2, footnote 2; C-0012).",
         "Frontier lists the terraformable Agriculture boost, but the guide reports it 'PRESENTLY BUGGED - NOT WORKING' (MG-0001 page 55), so it is marked Disputed (C-0013); do not apply it.",
-        "Frontier lists the moon tidal-lock Agriculture decrease only for ports orbiting such a moon; the guide also lists ports on it (MG-0001 page 55)."
+        "Frontier lists the moon tidal-lock Agriculture decrease only for ports orbiting such a moon; the guide also lists ports on it (MG-0001 page 55).",
+        "A tidally locked planet in a binary pair that orbits the star counts as tidally locked to its star for the Agriculture decrease (EV-0006: two farms at Praea Euq WV-W b2-2).",
+        "The Water World boost to Agriculture applies to a port's own Agriculture (EV-0006: Heyerdahl Beacon and Low Town, 1.40), which supports the guide's list (C-0012); it stays Extracted for strong links until a link is measured directly.",
+        "One older observation (Spansh, 2025-05-16) is consistent with the terraformable Agriculture boost not working: Simak's Progress shows Agriculture 1.00 on a terraformable water world (EV-0006). It stays Disputed until a current-version observation exists."
       ]
     },
     {
@@ -1150,7 +1183,8 @@
       ],
       "contradictions": [],
       "caveats": [
-        "The guide introduces the size with 'While additional research is necessary, it would appear'; treat the 0.4 as provisional."
+        "The guide introduces the size with 'While additional research is necessary, it would appear'; treat the 0.4 as provisional.",
+        "EV-0006 measured 0.4 steps on ports' own economies (RB-0028), which supports the 0.4 size; strong links themselves were not measured in isolation."
       ]
     },
     {
@@ -1673,6 +1707,47 @@
       "contradictions": [],
       "caveats": [
         "Frontier's override list (FD-0001) does not say this; it is the guide's statement only."
+      ]
+    },
+    {
+      "id": "RB-0028",
+      "topic": "economy",
+      "title": "Modifiers also apply to a port's own economies",
+      "status": "Confirmed",
+      "statement": "Each economy a colony-type port inherits from its local body (RB-0010) or from local body modifiers (RB-0011) starts at 1.0, even when more than one source gives it (RB-0012), and then gains 0.4 for each boost and loses 0.4 for each decrease in the strong-link modifier list (RB-0018) that applies to that economy on the port's local body or in its system. Only the conditions listed for that economy count: volcanism raises Extraction and nothing else (RB-0013). A tidally locked planet in a binary pair that orbits the star counts as tidally locked to its star.",
+      "value": {
+        "kind": "own_economy_modifiers",
+        "starting_strength": 1.0,
+        "boost": 0.4,
+        "decrease": -0.4,
+        "conditions_from": "RB-0018",
+        "binary_pair_tidal_lock_counts_as_locked_to_star": true
+      },
+      "sources": [
+        {
+          "source_id": "MG-0001",
+          "page": 2,
+          "quote": "TO FIX: Modifiers on planetary intrinsics DO apply (e.g., Volcanism)"
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "The port's own economies took the same plus or minus 0.4 modifiers as strong links, starting from 1.0."
+        },
+        {
+          "source_id": "EV-0006",
+          "quote": "Both ports dropped by exactly 0.45 when the two farms were demolished, which fits only if a water world tidally locked within a binary pair takes the tidal-lock-to-star decrease."
+        }
+      ],
+      "related": [
+        "M-0006",
+        "M-0008"
+      ],
+      "contradictions": [],
+      "caveats": [
+        "Measured on colony-type ports. Whether a specialised port's own economy takes these modifiers is not settled (RB-0009).",
+        "No port's own economy was observed below 1.0, so whether the 0.1 floor for strong links (RB-0019) also applies here is not known.",
+        "The terraformable Agriculture boost stays off (RB-0018, C-0013).",
+        "The current-version cases are the journal observations of October 2026; the Spansh cases date from 2025-05 to 2026-10 (EV-0006)."
       ]
     }
   ]
