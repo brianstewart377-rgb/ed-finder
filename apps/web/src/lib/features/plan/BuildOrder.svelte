@@ -31,6 +31,8 @@
     onmove,
     onupdate,
     onremove,
+    hidden = false,
+    onclose,
   }: {
     model: PlannerModel;
     facilities: PlanFacilityV1[];
@@ -46,6 +48,8 @@
     onmove: (id: string, direction: 'up' | 'down') => void;
     onupdate: (id: string, patch: Partial<PlannerSite>) => void;
     onremove: (id: string) => void;
+    hidden?: boolean;
+    onclose?: () => void;
   } = $props();
   const steps = $derived(
     new Map(evaluation?.steps.map((step) => [step.site_id, step]) ?? []),
@@ -91,13 +95,16 @@
 </script>
 
 <section
+  id="plan-build-order"
   class="plan-pane build-order-pane"
   aria-labelledby="plan-order-title"
   data-plan-build-order
+  {hidden}
 >
   <div class="pane-heading">
-    <h2 id="plan-order-title">Build order</h2>
+    <h2 id="plan-order-title" tabindex="-1">Build order</h2>
     <span>{model.sites.length} sites</span>
+    {#if onclose}<button type="button" onclick={onclose}>Close</button>{/if}
   </div>
   <div class="plan-filters" role="group" aria-label="Filter build order">
     {#each [['All', 'All'], ['BLOCKED', 'Blocked'], ['NEEDS_INFO', 'Needs info'], ['body', `On ${selectedBody ? shortBodyName(locationById.get(selectedBody)?.name ?? selectedBody, systemName) : 'selected body'}`]] as [value, label] (value)}
@@ -378,14 +385,18 @@
   }
   .step-metrics {
     min-height: 1.5rem;
+    flex-wrap: wrap;
   }
   .step-state {
     text-transform: capitalize;
     flex-shrink: 0;
   }
   .step-budget {
-    white-space: nowrap;
+    flex-wrap: wrap;
     font-variant-numeric: tabular-nums;
+  }
+  .step-budget > span {
+    white-space: nowrap;
   }
   .step-budget .plan-chip {
     padding: 0.1rem 0.2rem;
@@ -442,18 +453,6 @@
   }
   .step-edit select {
     width: 100%;
-  }
-  @media (max-width: 1399px) {
-    .step-metrics,
-    .step-budget {
-      flex-wrap: wrap;
-    }
-    .step-budget {
-      white-space: normal;
-    }
-    .step-budget > span {
-      white-space: nowrap;
-    }
   }
   @media (max-width: 480px) {
     .step-title {

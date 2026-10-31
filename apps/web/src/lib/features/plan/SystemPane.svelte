@@ -29,6 +29,7 @@
     evaluation,
     selectedBody,
     stale,
+    hidden = false,
     onselectbody,
     onselectsite,
     onslot,
@@ -41,6 +42,7 @@
     evaluation: PlanEvaluationV1 | null;
     selectedBody: string | null;
     stale: boolean;
+    hidden?: boolean;
     onselectbody: (ref: string) => void;
     onselectsite: (id: string) => void;
     onslot: (
@@ -111,6 +113,7 @@
 {#snippet tiles(sites: PlannerSite[])}
   <div class="plan-tiles">
     {#each sites as site (site.site_id)}
+      {@const siteIndex = model.sites.indexOf(site)}
       {@const step = steps.get(site.site_id)}
       {@const facility = facilityById.get(site.facility_id)}
       <button
@@ -119,10 +122,13 @@
         class:blocked={step?.result === 'BLOCKED'}
         class:stale
         title={`${facility?.name ?? site.facility_id}${showNames && site.name ? ` · ${site.name}` : ''}`}
-        aria-label={`Step ${model.sites.indexOf(site) + 1}: ${site.status}, ${facility?.name ?? site.facility_id}${showNames && site.name ? `, ${site.name}` : ''}${site.status === 'planned' && step ? `, ${resultLabel[step.result]}` : ''}`}
+        aria-label={`Step ${siteIndex + 1}: ${site.status}, ${facility?.name ?? site.facility_id}${showNames && site.name ? `, ${site.name}` : ''}${site.status === 'planned' && step ? `, ${resultLabel[step.result]}` : ''}${siteIndex === 0 ? ', Primary Port' : ''}`}
         onclick={() => onselectsite(site.site_id)}
       >
-        <span class="tile-number">{model.sites.indexOf(site) + 1}</span
+        <span class="tile-number"
+          >{#if siteIndex === 0}<span aria-hidden="true"
+              >★
+            </span>{/if}{siteIndex + 1}</span
         ><PlanIcon kind={site.status} />
         <span class="tile-label"
           >{facility?.name ??
@@ -139,7 +145,11 @@
   </div>
 {/snippet}
 
-<section class="plan-pane system-pane" aria-labelledby="plan-system-title">
+<section
+  class="plan-pane system-pane"
+  aria-labelledby="plan-system-title"
+  {hidden}
+>
   <div class="pane-heading">
     <h2 id="plan-system-title">System</h2>
     <button
@@ -187,22 +197,25 @@
               >{/each}
           </div>
           <div class="body-slots">
-            <SlotEditor
-              label={location.name}
-              kind="orbital"
-              used={used.orbital_slots}
-              value={model.slots[location.body_ref]?.orbital_slots ?? null}
-              onchange={(value) => onslot(location.body_ref, 'orbital', value)}
-            />
-            {#if location.kind !== 'belt'}<SlotEditor
+            {#if !hidden}
+              <SlotEditor
                 label={location.name}
-                kind="surface"
-                used={used.surface_slots}
-                value={model.slots[location.body_ref]?.surface_slots ?? null}
-                disabled={location.is_landable === false}
+                kind="orbital"
+                used={used.orbital_slots}
+                value={model.slots[location.body_ref]?.orbital_slots ?? null}
                 onchange={(value) =>
-                  onslot(location.body_ref, 'surface', value)}
-              />{/if}
+                  onslot(location.body_ref, 'orbital', value)}
+              />
+              {#if location.kind !== 'belt'}<SlotEditor
+                  label={location.name}
+                  kind="surface"
+                  used={used.surface_slots}
+                  value={model.slots[location.body_ref]?.surface_slots ?? null}
+                  disabled={location.is_landable === false}
+                  onchange={(value) =>
+                    onslot(location.body_ref, 'surface', value)}
+                />{/if}
+            {/if}
           </div>
           <button
             type="button"
