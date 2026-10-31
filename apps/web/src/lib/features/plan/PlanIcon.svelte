@@ -2,8 +2,11 @@
   import type { PlanStepV1 } from '$lib/api';
   import type { PlannerSite } from './model';
 
-  let { kind }: { kind: PlannerSite['status'] | PlanStepV1['result'] } =
-    $props();
+  let {
+    kind,
+  }: {
+    kind: PlannerSite['status'] | PlanStepV1['result'] | 'orbital' | 'surface';
+  } = $props();
 </script>
 
 <svg
@@ -19,7 +22,13 @@
   aria-hidden="true"
   focusable="false"
 >
-  {#if kind === 'complete' || kind === 'COUNTED'}
+  {#if kind === 'orbital'}
+    <circle cx="8" cy="8" r="5.5" stroke-dasharray="0.5 3" />
+  {:else if kind === 'surface'}
+    <circle cx="8" cy="8" r="5.5" />
+    <ellipse cx="8" cy="8" rx="2.5" ry="5.5" />
+    <path d="M2.5 8h11" />
+  {:else if kind === 'complete' || kind === 'COUNTED'}
     <circle cx="8" cy="8" r="5.5" fill="currentColor" stroke="none" />
   {:else if kind === 'building'}
     <circle cx="8" cy="8" r="5.5" />
