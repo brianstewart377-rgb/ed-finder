@@ -59,10 +59,12 @@ The planner replaces that placeholder. On `/plan?system=<id64>` the commander ca
    - **Surface slots** are predicted (from S3b) unless the commander has
      entered them.
 
-   Sites go on bodies or on an asteroid belt, if the system has one. Individual
-   belt clusters cannot be built on; the planner shows them only as information
-   under their belt. A belt's slots start unknown and are entered by the
-   commander.
+   Sites go on bodies or on an asteroid belt, if the system has one. The game's
+   system map shows each belt as one buildable item, and the construction
+   screen names that location after the belt's first cluster ("... A Belt
+   Cluster 1"). The other clusters never appear in the game, so the planner
+   hides them. A belt's orbital slots start unknown and are entered by the
+   commander from Architect Mode. An Asteroid Base can be built in a belt.
 
 2. **Add builds.** The commander picks a facility from the catalogue, puts it
    on a body (orbital or surface) or an asteroid belt, and gives it a status:
@@ -333,9 +335,13 @@ same way `routers/v3.py` does: `current_canonical_generation()` and the explicit
 way as the existing body route. It is tested on a disposable PostgreSQL 18
 database.
 
-Sites go on bodies or on an asteroid belt, if the system has one. Individual
-belt clusters cannot be built on; the planner shows them only as information
-under their belt. A belt's slots start unknown and are entered by the commander.
+Sites go on bodies or on an asteroid belt, if the system has one. The game
+builds on a belt through its first cluster (the construction screen shows
+"<system> A A Belt Cluster 1"), and no other cluster appears in the game. The
+page therefore shows one row per belt, uses that belt's lowest-numbered cluster
+body (matched by the name prefix "<belt name> Cluster ") as the site location,
+falls back to the belt itself when the data has no cluster, and hides every
+other cluster. A belt's slots start unknown and are entered by the commander.
 Belts are canonical `rings` rows with `kind = 'BELT'`, attached to a parent
 body; belt clusters remain canonical bodies. S3a.1 returns belts separately
 from bodies, ordered by `ring_pk`, with their parent body id, name, ring type,
@@ -535,4 +541,10 @@ The owner chose the default for each question:
    does not fetch from Raven's servers.
 4. **The sixth-port difference:** follow RB-0003 (11 T2 points) and show
    Raven's figure (12) as a note.
-5. **2026-10-31 — Belts:** sites go on bodies or an asteroid belt if present, never on individual belt clusters; clusters appear only as information under their belt, whose slots start unknown and are entered by the commander.
+5. **2026-10-31 — Belts:** sites go on bodies or an asteroid belt if present. The
+   owner checked in game: the system map shows the belt as one buildable item,
+   built through its first cluster ("Wregoe ZN-X c28-28 A A Belt Cluster 1"),
+   other clusters never appear, and an Asteroid Base was offered there for 5
+   Tier 2 points with +1 Tier 3. The Elite Dangerous Wiki's statement that an
+   Asteroid Base needs a planetary ring rather than a star's belt is therefore
+   not followed. A belt's slots start unknown and are entered by the commander.
