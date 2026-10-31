@@ -694,6 +694,107 @@ def test_partial_opportunity_copy_abandons_clears_the_fence_and_restarts(copy_da
     assert set(kinds[5:-2]) == {'CHUNK_COPIED'} and kinds[-2:] == ['INDEXES_BUILT', 'VERIFIED']
 
 
+def test_opportunity_swap_and_drop_replay_through_the_dispatcher(copy_database, monkeypatch):
+    """Production replay (2026-10-31) of the two modes after copy run
+    41194211040 verified economy_opportunity: Search dropped, the opportunity
+    copy read at 022's keyset and verified, then the dispatcher's own
+    swap-economy-opportunity and drop-economy-opportunity. The swap moves the
+    copy in, keeps the retired table and recalibrates n_distinct once; the
+    drop re-runs the recalibration without a second ALTER, drops only the
+    retired table and names copy-body-mechanics next; a lost-response re-drop
+    changes nothing; the backup skip and the shared fence are clear until
+    body's prepare."""
+    with _temp_file_limit_grant(copy_database[0]):
+        _swap_and_drop_journey(copy_database, monkeypatch)
+
+
+def _swap_and_drop_journey(copy_database, monkeypatch):
+    c = _owner(copy_database[0])
+    executor = _fence_executor(c, monkeypatch)
+    purge, plan = _authorize(copy_database)
+    purge = str(purge)
+    # The live options production carried into the purge
+    # (docs/operations/v3-postgres-server-settings.md); prepare copies them.
+    c.execute('ALTER TABLE v3_derived.economy_opportunity ALTER COLUMN system_id64 SET STATISTICS 1000')
+    c.execute('ALTER TABLE v3_derived.economy_opportunity ALTER COLUMN system_id64 SET (n_distinct = -0.13)')
+    controller, dispatch, copy_module, runtime, saved = _phase_harness(monkeypatch, c, name='replay_swap_drop')
+    # The fixture's planner choice for the chunk read is not under test here.
+    monkeypatch.setattr(copy_module, 'chunk_read_plan_ok', lambda plan_: True)
+    controller._load('v3_purge_delete').free_space = lambda source: {'free_bytes': 1, 'source': source}
+    copy_tests.staged(c, purge, 'system_search')
+    copy_tests.finish(c, purge, 'system_search')
+    _reset(c)
+    copy_tests.staged(c, purge, 'economy_opportunity')
+    _reset(c)
+    original = oid(c, 'v3_derived.economy_opportunity')
+    copied = oid(c, 'v3_purge_staging.economy_opportunity')
+    survivors = c.execute('SELECT count(*), sum(hashtext(o::text)) FROM v3_purge_staging.economy_opportunity o').fetchone()
+    state = _state_now(copy_module, runtime, plan, 'economy_opportunity')
+    assert (state['copy_position'], state['phase']) == ('staged', 'VERIFIED')
+    ids = [purge, purge]
+    identity = {'data_directory': '/unused'}
+    stop = threading.Event()
+    swapped = {'reviewed_plan_sha256': plan['plan_sha256']}
+    dispatch._swap(controller, copy_module, runtime, swapped, ids, identity, 'economy_opportunity', state,
+                   controller_alive=lambda: None, stop=stop, max_wal_size=1)
+    assert swapped['result'] == 'swap_verified'
+    assert swapped['next_admissible_mode'] == {'mode': 'drop-economy-opportunity', 'implemented': True}
+    assert swapped['long_phases'] == ['validate_fks', 'recalibrate_count', 'recalibrate_analyze']
+    assert [a['outcome'] for a in swapped['swap_attempts']] == ['committed']
+    assert swapped['finder_smoke'] == {'passed': True, 'origin': 'pg18-fixture'}
+    recalibration = swapped['n_distinct_recalibration']
+    wanted = copy_module.n_distinct_option(-recalibration['n_distinct'])
+    assert recalibration['counts']['rows'] == survivors[0]
+    assert recalibration['host_state']['already_set'] is False and 'already_set' not in recalibration['altered']
+    assert oid(c, 'v3_derived.economy_opportunity') == copied and oid(c, 'v3_retired.economy_opportunity') == original
+    assert _attoptions(c, 'v3_derived.economy_opportunity') == [wanted]
+    assert _attoptions(c, 'v3_retired.economy_opportunity') == ['n_distinct=-0.13']
+    assert len(saved) == 1 and saved[0][1].endswith('derived-purge-copy-statistics.json')
+    assert c.execute('SELECT count(*), sum(hashtext(o::text)) FROM v3_derived.economy_opportunity o').fetchone() == survivors
+    # Between the swap and the drop the retired table is the undo: backups skip.
+    status = _json(c, copy_module.STATUS_SQL)
+    _reset(c)
+    assert status['backup_skip'] is True
+    state = _state_now(copy_module, runtime, plan, 'economy_opportunity')
+    assert (state['copy_position'], state['phase']) == ('swapped', 'SWAPPED') and state['fk_validated'] is not None
+    dropped = {'reviewed_plan_sha256': plan['plan_sha256'], 'data_mount': {'source': '/unused'}}
+    dispatch._drop(controller, copy_module, runtime, dropped, ids, identity, 'economy_opportunity', state,
+                   controller_alive=lambda: None, stop=stop, max_wal_size=1)
+    assert dropped['result'] == 'retired_relation_dropped'
+    assert dropped['next_admissible_mode'] == {'mode': 'copy-body-mechanics', 'implemented': True}
+    assert dropped['drop_statistics_reverified'] is True
+    assert dropped['long_phases'] == ['recalibrate_count', 'recalibrate_analyze']
+    assert dropped['n_distinct_recalibration']['altered']['already_set'] is True
+    assert dropped['n_distinct_recalibration']['host_state'] is None and len(saved) == 1
+    assert dropped['filesystem_reclamation_performed'] is True and dropped['copy_steps'][-1]['phase'] == 'drop'
+    assert oid(c, 'v3_retired.economy_opportunity') is None
+    assert oid(c, 'v3_derived.economy_opportunity') == copied
+    assert _attoptions(c, 'v3_derived.economy_opportunity') == [wanted]
+    assert c.execute('SELECT count(*), sum(hashtext(o::text)) FROM v3_derived.economy_opportunity o').fetchone() == survivors
+    # A drop whose response was lost has committed: report it, change nothing.
+    state = _state_now(copy_module, runtime, plan, 'economy_opportunity')
+    assert state['copy_position'] == 'dropped'
+    runtime.statements.clear()
+    again = {'reviewed_plan_sha256': plan['plan_sha256'], 'data_mount': {'source': '/unused'}}
+    dispatch._drop(controller, copy_module, runtime, again, ids, identity, 'economy_opportunity', state,
+                   controller_alive=lambda: None, stop=stop, max_wal_size=1)
+    assert again['result'] == 'retired_relation_already_dropped' and runtime.statements == []
+    assert again['next_admissible_mode'] == {'mode': 'copy-body-mechanics', 'implemented': True}
+    # Nothing is between COPY_STARTED and DROPPED now: scheduled backups run
+    # again until body's prepare, and the shared fence is clear.
+    status = _json(c, copy_module.STATUS_SQL)
+    _reset(c)
+    assert status['backup_skip'] is False and status['staging_relations'] == []
+    assert _json(c, copy_module.BACKUP_SKIP_SQL)['backup_skip'] is False
+    _reset(c)
+    assert fence.check(executor, lease_held_by_caller=True)['status'] == 'clear'
+    staging = _json(c, copy_module.STAGING_SQL, {'relation': 'body_mechanics'})
+    _reset(c)
+    frozen = _json(c, copy_module.REQUEST_SQL, {'plan_sha256': plan['plan_sha256']})['frozen_survivors']['body_mechanics']
+    _reset(c)
+    assert copy_module.next_step(_state_now(copy_module, runtime, plan, 'body_mechanics'), frozen, staging) == 'prepare'
+
+
 def test_opportunity_swap_back_restores_its_statistics_in_both_directions(copy_database, monkeypatch):
     """Codex 4379797637: swap-R recalibrates n_distinct on the copy; 019's
     swap-back compares attribute options with the retired table. swap-back-R
