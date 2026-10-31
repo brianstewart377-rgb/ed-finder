@@ -98,6 +98,21 @@ remains stopped. Production PostgreSQL/data must not fill that gap.
 Ollama was experimental residue used to test local inference for Octopus. It
 has been removed from production and is not part of the V3 architecture.
 
+**Octopus upgrade (2026-10-31, owner-approved):** the self-hosted Octopus
+review stack in `/opt/octopus` was upgraded from 1.0.122 to 1.3.3 through the
+governed `octopus-upgrade-*` operations in `chatgpt-ed-new-ops.yml`. The first
+preflight (run 41213766551) was `blocked` by two over-strict checks (the Git
+origin ends in `.git`, and the database URL was compared with a hard-coded
+value); #941 fixed them. The second preflight (run 41227580961) was `ready`, and apply
+(run 41228291272) `passed`: web was stopped for about 12 seconds, the Octopus
+database went from 35 to 61 finished migrations, ten OpenAI model rows were
+added, and web now runs image digest `sha256:dd36e9e7…d043`. Only the web
+container was recreated; the Octopus Postgres and Qdrant containers and the
+ED-Finder application were not touched.
+A database dump and the previous `.env` are kept for rollback in
+`/opt/octopus/backups/` (suffix `20261031T181326Z`). Receipts:
+`docs/operations/evidence/2026-10-31-octopus-upgrade-*`.
+
 ## V3 database recovery boundary
 
 This repository **does not currently contain an executable PostgreSQL 18 backup/restore/PITR recovery runbook**. This file records the infrastructure boundary; it is not itself a recovery procedure.
