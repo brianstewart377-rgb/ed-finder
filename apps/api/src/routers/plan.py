@@ -1,4 +1,4 @@
-"""Database-free V3 planner catalogue and stateless budget evaluation."""
+"""V3 planner catalogue, stateless evaluation and canonical body facts."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ from dataclasses import asdict
 from functools import cache
 from typing import Literal
 
-from fastapi import APIRouter, Request
+import asyncpg
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,7 +17,14 @@ from edfinder_api.cpe.budget import _cost
 from edfinder_api.cpe.catalogue import planner_facilities, prerequisites_for
 from edfinder_api.cpe.explain import explain_rule
 from edfinder_api.cpe.plan import PlanInvalid
+from edfinder_api.deps import get_readonly_pool
 from edfinder_api.mechanics.cp_rules import escalating_port_tier
+from edfinder_api.routers.v3 import (
+    SystemId,
+    _bounded,
+    _numeric_system_id,
+    current_canonical_generation,
+)
 
 router = APIRouter(prefix="/api/v1/plan", tags=["v3-plan"])
 
@@ -45,6 +53,34 @@ class PlanFacilityV1(PlanModel):
 class PlanCatalogueV1(PlanModel):
     rulebook_release: str
     facilities: list[PlanFacilityV1]
+
+
+class PlanSystemBodyV1(PlanModel):
+    body_id: str
+    name: str
+    direct_parent_body_id: str | None
+    body_type: str | None
+    is_main_star: bool | None
+    is_landable: bool | None
+    radius_km: float | None
+    surface_gravity_g: float | None
+    surface_temperature_k: float | None
+    atmosphere: str | None
+    terraforming_state: str | None
+    volcanism: str | None
+    distance_from_arrival_ls: float | None
+    has_rings: bool
+    geological_signals: int
+    biological_signals: int
+    signals_complete: bool | None
+    lifecycle_state: str
+
+
+class PlanBodiesV1(PlanModel):
+    generation_id: str
+    publication_sequence: str
+    system_id64: str
+    bodies: list[PlanSystemBodyV1]
 
 
 class PlanBodyV1(BaseModel):
@@ -178,6 +214,90 @@ def _catalogue_response() -> PlanCatalogueV1:
 @router.get("/catalogue", response_model=PlanCatalogueV1, operation_id="getV3PlanCatalogue")
 async def get_catalogue() -> PlanCatalogueV1:
     return _catalogue_response()
+
+
+@router.get(
+    "/systems/{system_id}/bodies",
+    response_model=PlanBodiesV1,
+    operation_id="listV3PlanBodies",
+)
+async def bodies(
+    system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonly_pool),
+) -> PlanBodiesV1:
+    numeric_id = _numeric_system_id(system_id)
+    schema, generation = await current_canonical_generation(pool)
+    rows = await _bounded(pool.fetch(
+        f"""SELECT body.body_pk,body.name,body.direct_parent_body_pk,
+                   body_type.public_code AS body_type,body.is_main_star,body.is_landable,
+                   body.radius_km,body.surface_gravity_g,body.surface_temperature_k,
+                   atmosphere.display_name AS atmosphere,
+                   terraforming.display_name AS terraforming_state,
+                   volcanism.display_name AS volcanism,body.distance_from_arrival_ls,
+                   body.signals_complete,body.lifecycle_state
+              FROM {schema}.bodies body
+              LEFT JOIN v3_vocab.body_type body_type USING(body_type_id)
+              LEFT JOIN v3_vocab.atmosphere_classification atmosphere
+                     USING(atmosphere_classification_id)
+              LEFT JOIN v3_vocab.terraforming_state terraforming USING(terraforming_state_id)
+              LEFT JOIN v3_vocab.volcanism_type volcanism USING(volcanism_type_id)
+             WHERE body.system_id64=$1 ORDER BY body.body_pk""",
+        numeric_id,
+    ))
+    ring_rows = await _bounded(pool.fetch(
+        f"""SELECT ring.body_pk
+              FROM {schema}.rings ring
+             WHERE ring.system_id64=$1 AND ring.kind='RING'
+             GROUP BY ring.body_pk""",
+        numeric_id,
+    ))
+    signal_rows = await _bounded(pool.fetch(
+        f"""SELECT signal.body_pk,
+                   COALESCE(SUM(signal.signal_count) FILTER
+                       (WHERE signal_type.display_name='Geological'),0) AS geological_signals,
+                   COALESCE(SUM(signal.signal_count) FILTER
+                       (WHERE signal_type.display_name='Biological'),0) AS biological_signals
+              FROM {schema}.body_signal_current signal
+              JOIN {schema}.bodies body USING(body_pk)
+              JOIN v3_vocab.signal_type signal_type USING(signal_type_id)
+             WHERE body.system_id64=$1
+               AND signal_type.display_name IN ('Geological','Biological')
+             GROUP BY signal.body_pk""",
+        numeric_id,
+    ))
+    ringed_bodies = {row["body_pk"] for row in ring_rows}
+    signals_by_body = {row["body_pk"]: row for row in signal_rows}
+    result = []
+    for row in rows:
+        signal = signals_by_body.get(row["body_pk"])
+        result.append(PlanSystemBodyV1(
+            body_id=str(row["body_pk"]),
+            name=row["name"],
+            direct_parent_body_id=(
+                str(row["direct_parent_body_pk"])
+                if row["direct_parent_body_pk"] is not None else None
+            ),
+            body_type=row["body_type"],
+            is_main_star=row["is_main_star"],
+            is_landable=row["is_landable"],
+            radius_km=row["radius_km"],
+            surface_gravity_g=row["surface_gravity_g"],
+            surface_temperature_k=row["surface_temperature_k"],
+            atmosphere=row["atmosphere"],
+            terraforming_state=row["terraforming_state"],
+            volcanism=row["volcanism"],
+            distance_from_arrival_ls=row["distance_from_arrival_ls"],
+            has_rings=row["body_pk"] in ringed_bodies,
+            geological_signals=signal["geological_signals"] if signal else 0,
+            biological_signals=signal["biological_signals"] if signal else 0,
+            signals_complete=row["signals_complete"],
+            lifecycle_state=row["lifecycle_state"],
+        ))
+    return PlanBodiesV1(
+        generation_id=generation.generation_id,
+        publication_sequence=generation.publication_sequence,
+        system_id64=system_id,
+        bodies=result,
+    )
 
 
 @router.post(
