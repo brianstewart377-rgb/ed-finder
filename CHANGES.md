@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Codex worker model pin moved to `gpt-6-astra` at `xhigh` effort
+
+By owner decision, the Contabo Codex worker moves from `gpt-6.1-sol` at
+`high` effort to `gpt-6-astra` at `xhigh` (extra high) effort "for now": most of
+this week's Codex allowance is unused and it resets on Monday. Both execution
+modes keep the single hard-pinned model contract (`--ignore-user-config
+--strict-config --model … --config model_reasoning_effort=…`). Requests still
+cannot choose a model or effort, and the governance test now rejects the old
+`gpt-6.1-sol` and `high` literals. Whether to return to `gpt-6.1-sol` after the
+reset is the owner's call.
+
 ## 2026-10-31 — Purge: opportunity relation done
 
 `v3_derived.economy_opportunity` now holds only the 740,001,532 published
