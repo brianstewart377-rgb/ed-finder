@@ -39,7 +39,7 @@ governed purge operator code; the
 identity/journal shipped; both Finder products (`system_search`, `system_archetype`) are
 READY/VERIFIED and **published** on `ratings_v4_prod_p4_parallel_v1` (owner-approved publish
 run 39933842811 after the first attempt, run 39808363037, was refused with nothing
-committed); the governed purge P is the next gated step (`docs/ROADMAP.md` status entry); Finder
+committed); the governed purge P is **COMPLETED** (2026-10-31, `complete` run 41241201758; `docs/ROADMAP.md` status entry); Finder
 **F2b `system_archetype` builder merged (#771)**; **F2c ranking profile + F3
 slice 1 merged (#777)** — `/api/local/search` and `/api/archetypes/rankings`
 read the V3 projections; **F3 slice 2** repointed `/rerank`, `/system/{id64}`,

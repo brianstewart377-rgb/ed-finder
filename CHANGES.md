@@ -11,6 +11,49 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
+
+The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
+(ROADMAP step P) finished on the copy-and-drop route. Every run below was
+approved by the owner in chat.
+
+**`body_mechanics`:**
+- **Copy:** run 41206570787 copied all 577,709,320 survivors (5,778 chunks in
+  6,862.9 s), built the indexes in 517 s and froze the copy in 1,537 s.
+- **Verify:** run 41218286633 verified it in 1,208 s.
+- **Swap:** run 41220237129 swapped it in with a 0.114 s lock. It validated the
+  `economy_opportunity` foreign key to the new table in 163.5 s and passed the
+  Finder smoke.
+- **Drop:** run 41220886721 dropped the retired table with a 5.4 s lock, taking
+  free space from 433.1 GB to 643.3 GB.
+
+**`system_rating_vector`:**
+- **Copy:** run 41228458030 copied all 198,528,286 survivors, built the indexes
+  in 321 s and froze the copy in 1,278 s.
+- **Verify:** run 41239134283 verified it in 605 s.
+- **Swap:** run 41240118438 swapped it in with a 0.145 s lock. It validated the
+  foreign keys of all four children (`body_mechanics`, `system_archetype`,
+  `system_search` and `v3_spatial.cluster_member`) in 124 s, recreated
+  `v3_derived.system_economy_rating` unchanged and passed the Finder smoke. The
+  database's temporary-file counter did not change during those checks; the
+  1/100-scale planner model had allowed for about 30 GB for the
+  `body_mechanics` check.
+- **Drop:** run 41240648857 dropped the retired table with a 4.4 s lock, taking
+  free space from 568.0 GB to 725.9 GB.
+
+**`complete`:** run 41241201758 appended 019's `COMPLETED` (event 22040). The
+purge state is `clear`, no relation is staged or retired, and the backup skip is
+off. The canonical, derived and spatial pointers are unchanged. Both published
+Finder products are unchanged: READY, 198,528,286 rows each, same manifests.
+
+The dispatcher's swap, drop and `complete` steps for both relations were
+replayed on PostgreSQL 18 in the production order before they ran
+(`test_body_and_vector_swap_drop_and_complete_replay_through_the_dispatcher`).
+
+The runbook's full backup after `COMPLETED` is the scheduled Sunday
+2026-11-01 02:30 UTC full backup, which was still to run when this was
+written.
+
 ## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
 
 ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,

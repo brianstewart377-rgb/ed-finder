@@ -280,11 +280,31 @@ newer dated source wins).
   with the owner's approval: `body_mechanics` and `system_rating_vector`
   (copy, swap, drop), then `complete`.
 
+  **Step P is COMPLETED (2026-10-31).**
+  - **`body_mechanics`:** copied in run 41206570787 (577,709,320 survivors,
+    indexes in 517 s, frozen in 1,537 s) and verified in run 41218286633
+    (1,208 s). Swapped in run 41220237129 (lock 0.114 s; the opportunity
+    foreign key validated in 163.5 s; Finder smoke passed). The retired table
+    was dropped in run 41220886721 (free space 433.1 → 643.3 GB).
+  - **`system_rating_vector`:** copied in run 41228458030 (198,528,286
+    survivors, indexes in 321 s, frozen in 1,278 s) and verified in run
+    41239134283 (605 s). Swapped in run 41240118438 (lock 0.145 s; the four
+    child foreign keys validated in 124 s with no temporary files;
+    `system_economy_rating` recreated unchanged; Finder smoke passed). The
+    retired table was dropped in run 41240648857 (free space 568.0 →
+    725.9 GB).
+  - **`complete`:** run 41241201758 appended 019's `COMPLETED`. The purge state
+    is clear, the pointers are unchanged and both published Finder products are
+    unchanged.
+  - **Still to come:** the runbook's full backup after `COMPLETED`, which is the
+    scheduled Sunday 2026-11-01 02:30 UTC full backup.
+
   **What does not change:**
-  - Step P stays not runnable, and its design and gates are unchanged until the
-    owner accepts a replacement.
-  - Work that waits on P keeps waiting. This includes the anchored
-    picked-archetype body filters below.
+  - The original delete/rewrite route stays disabled. P ran on the
+    copy-and-drop route that the owner accepted (#890).
+  - Work that waited on P is no longer blocked by it, but it keeps its own
+    gates. This includes the anchored picked-archetype body filters below,
+    which still need their own probe statement and re-attestation.
 
 - **Owner decisions 2026-10-23: the Finder screen (decided, not implemented).**
   After go-live the owner reviewed the live Explore page and confirmed it is an

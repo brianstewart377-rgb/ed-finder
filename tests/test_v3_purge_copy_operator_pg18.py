@@ -795,6 +795,95 @@ def _swap_and_drop_journey(copy_database, monkeypatch):
     assert copy_module.next_step(_state_now(copy_module, runtime, plan, 'body_mechanics'), frozen, staging) == 'prepare'
 
 
+def test_body_and_vector_swap_drop_and_complete_replay_through_the_dispatcher(copy_database, monkeypatch):
+    """Production replay (2026-10-31) of the route after drop run 41206256540:
+    Search and economy_opportunity dropped, then the dispatcher's own
+    swap-body-mechanics (economy's FK re-pointed and validated), drop-body-
+    mechanics, swap-system-rating-vector (four child FKs re-pointed and
+    validated, the dependent view recreated), drop-system-rating-vector, and
+    019's COMPLETED. Neither swap recalibrates statistics; each drop names the
+    next relation's copy (then complete), and backups skip only while a
+    relation is between its copy and its drop."""
+    with _temp_file_limit_grant(copy_database[0]):
+        _body_and_vector_journey(copy_database, monkeypatch)
+
+
+def _child_foreign_keys(c, parent):
+    return sorted(_owner(c).execute(
+        'SELECT conrelid::regclass::text, convalidated FROM pg_constraint '
+        'WHERE confrelid=%s::regclass AND contype=%s', (parent, 'f')).fetchall())
+
+
+def _body_and_vector_journey(copy_database, monkeypatch):
+    c = _owner(copy_database[0])
+    executor = _fence_executor(c, monkeypatch)
+    purge, plan = _authorize(copy_database)
+    purge = str(purge)
+    controller, dispatch, copy_module, runtime, saved = _phase_harness(monkeypatch, c, name='replay_body_vector')
+    controller._load('v3_purge_delete').free_space = lambda source: {'free_bytes': 1, 'source': source}
+    for code in ('system_search', 'economy_opportunity'):
+        copy_tests.staged(c, purge, code)
+        copy_tests.finish(c, purge, code)
+        _reset(c)
+    ids = [purge, purge]
+    identity = {'data_directory': '/unused'}
+    stop = threading.Event()
+
+    def backup_skip():
+        status = _json(c, copy_module.STATUS_SQL)
+        _reset(c)
+        return status['backup_skip']
+
+    def step(kind, code):
+        report = {'reviewed_plan_sha256': plan['plan_sha256'], 'data_mount': {'source': '/unused'}}
+        getattr(dispatch, '_' + kind)(controller, copy_module, runtime, report, ids, identity, code,
+                                      _state_now(copy_module, runtime, plan, code),
+                                      controller_alive=lambda: None, stop=stop, max_wal_size=1)
+        return report
+
+    for code, children, following in (
+            ('body_mechanics', [('v3_derived.economy_opportunity', True)], 'copy-system-rating-vector'),
+            ('system_rating_vector', [('v3_derived.body_mechanics', True), ('v3_derived.system_archetype', True),
+                                      ('v3_derived.system_search', True), ('v3_spatial.cluster_member', True)],
+             'complete')):
+        assert backup_skip() is False
+        copy_tests.staged(c, purge, code)
+        _reset(c)
+        assert backup_skip() is True
+        live = 'v3_derived.' + code
+        original = oid(c, live)
+        copied = oid(c, 'v3_purge_staging.' + code)
+        rows = c.execute(f'SELECT count(*), sum(hashtext(t::text)) FROM v3_purge_staging.{code} t').fetchone()
+        views = None
+        if code == 'system_rating_vector':
+            views = _owner(c).execute("SELECT pg_get_viewdef('v3_derived.system_economy_rating'::regclass,false)").fetchone()
+        swapped = step('swap', code)
+        assert swapped['result'] == 'swap_verified' and swapped['long_phases'] == ['validate_fks']
+        assert swapped['next_admissible_mode'] == {'mode': 'drop-' + code.replace('_', '-'), 'implemented': True}
+        assert [a['outcome'] for a in swapped['swap_attempts']] == ['committed']
+        assert 'n_distinct_recalibration' not in swapped and saved == []
+        assert oid(c, live) == copied and oid(c, 'v3_retired.' + code) == original
+        assert c.execute(f'SELECT count(*), sum(hashtext(t::text)) FROM {live} t').fetchone() == rows
+        # Every child FK now references the copy and is validated.
+        assert _child_foreign_keys(c, live) == children
+        if views is not None:
+            assert _owner(c).execute(
+                "SELECT pg_get_viewdef('v3_derived.system_economy_rating'::regclass,false)").fetchone() == views
+        assert backup_skip() is True
+        dropped = step('drop', code)
+        assert dropped['result'] == 'retired_relation_dropped'
+        assert dropped['next_admissible_mode'] == {'mode': following, 'implemented': True}
+        assert 'drop_statistics_reverified' not in dropped and dropped['copy_steps'][-1]['phase'] == 'drop'
+        assert oid(c, 'v3_retired.' + code) is None and oid(c, live) == copied
+        assert _child_foreign_keys(c, live) == children
+        assert backup_skip() is False
+        assert fence.check(executor, lease_held_by_caller=True)['status'] == 'clear'
+    # Every relation dropped: 019 records COMPLETED.
+    assert type(_json(c, copy_module.COMPLETE_SQL, {'purge_id': purge})['event']) is int
+    _reset(c)
+    assert copy_tests.events(c)[-1] == 'COMPLETED'
+
+
 def test_opportunity_swap_back_restores_its_statistics_in_both_directions(copy_database, monkeypatch):
     """Codex 4379797637: swap-R recalibrates n_distinct on the copy; 019's
     swap-back compares attribute options with the retired table. swap-back-R
