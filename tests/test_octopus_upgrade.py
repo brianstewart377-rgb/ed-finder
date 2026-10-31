@@ -36,7 +36,6 @@ def test_reviewed_payloads_and_upgrade_constants_are_pinned():
         "ghcr.io/brianstewart377-rgb/ed-finder/mirror/node@sha256:"
         "e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf",
         "https://github.com/octopusreview/octopus",
-        "20260929150000_sonnet55",
         "ed-finder/operator-operation-result/v1",
     ):
         assert value in source
@@ -87,14 +86,16 @@ state_file = root / "state.json"
 state = json.loads(state_file.read_text())
 args = sys.argv[1:]
 tool = Path(sys.argv[0]).name
-entry = {"tool": tool, "args": args, "version": state["version"]}
+entry = {"tool": tool, "args": args, "version": state["version"], "running": state["running"],
+         "env_bytes": (root / "octopus/.env").read_bytes().hex()}
 if tool == "docker" and args and args[0] == "run":
     mount = args[args.index("--mount") + 1]
     directory = Path(mount.split("src=", 1)[1].split(",dst=", 1)[0])
     migration_dir = directory / "packages/db/prisma/migrations"
-    entry["stage"] = directory.name
+    entry["directory"] = directory.name
     entry["migrations"] = sorted(path.name for path in migration_dir.iterdir() if path.is_dir())
-    entry["env_bytes"] = (root / "octopus/.env").read_bytes().hex()
+    entry["package_hashes"] = {name: __import__("hashlib").sha256((directory / name).read_bytes()).hexdigest()
+                               for name in ("package.json", "package-lock.json")}
 with (root / "commands.jsonl").open("a") as log:
     log.write(json.dumps(entry) + "\n")
 
@@ -148,9 +149,14 @@ elif args[0] == "compose":
         assert args[-3:] == ["-d", "--no-deps", "web"]
         env = (root / "octopus/.env").read_bytes()
         state["version"] = "1.3.3" if b"OCTOPUS_VERSION=1.3.3" in env else "1.0.122"
+        state["running"] = True
         save()
     elif "stop" in args:
         assert args[-2:] == ["stop", "web"]
+        if state.get("fail_stop"):
+            sys.exit(1)
+        state["running"] = bool(state.get("stop_stays_running"))
+        save()
     else:
         raise RuntimeError("unexpected compose call")
 elif args[0] == "inspect":
@@ -159,7 +165,7 @@ elif args[0] == "inspect":
     elif args[-1] == "octopus-qdrant-1":
         print(json.dumps([{"Config": {"Image": "qdrant/qdrant:v1.17.0"}}]))
     else:
-        print(json.dumps([{"Config": {"Image": "ghcr.io/octopusreview/octopus-selfhost:" + state["version"]}, "Image": "test-image-" + state["version"], "State": {"Running": True, "Health": {"Status": "healthy"}}}]))
+        print(json.dumps([{"Config": {"Image": "ghcr.io/octopusreview/octopus-selfhost:" + state["version"]}, "Image": "test-image-" + state["version"], "State": {"Running": state["running"], "Health": {"Status": "unhealthy" if state.get("fail_new_health") and state["version"] == "1.3.3" else "healthy"}}}]))
 elif args[:2] == ["image", "inspect"]:
     version = "1.3.3" if "1.3.3" in args[-1] else "1.0.122"
     digest = ("sha256:dd36e9e7b9a8c092cf4382c1129500aa776e0848d72f28e45fdb5ac3e53fd043" if version == "1.3.3" else
@@ -168,29 +174,31 @@ elif args[:2] == ["image", "inspect"]:
 elif args[0] == "pull":
     pass
 elif args[0] == "run":
-    if entry["stage"] == "stage1" and state.get("signal_stage1"):
+    assert entry["directory"] == "migrations-src"
+    assert state["version"] == "1.0.122" and not state["running"], "migrations require the write barrier"
+    if state.get("signal_migrate"):
         os.kill(os.getppid(), signal.SIGTERM)
         time.sleep(0.15)  # The attached migration remains in flight after SIGTERM.
-    if entry["stage"] == "stage1":
-        state["count"] = 36 if state["fail_stage1"] else 60
-    else:
-        assert state["version"] == "1.3.3", "stage 2 must follow compatible code"
-        state["count"] = 61
+    state["count"] = 36 if state.get("fail_migrate") else 61
     save()
-    if entry["stage"] == "stage1" and state.get("signal_stage1"):
+    if state.get("signal_migrate"):
         (root / "migration-completed").write_text("completed before rollback")
-    if ((entry["stage"] == "stage1" and state["fail_stage1"]) or
-            (entry["stage"] == "stage2" and state.get("fail_stage2"))):
+    if state.get("fail_migrate"):
         sys.exit(1)
 elif args[0] == "exec":
     if "node" in args:
         print("healthy" if "/api/health" in args[-1] else json.dumps({"version": state["version"]}))
     elif "pg_dump" in args:
+        assert not state["running"], "backup requires the write barrier"
+        if state.get("fail_dump"):
+            sys.exit(1)
         sys.stdout.buffer.write(b"PGDMP disposable fixture")
     elif "pg_restore" in args:
         assert sys.stdin.buffer.read().startswith(b"PGDMP")
         if "--list" in args:
-            print("1; 1259 123 TABLE public fixture octopus")
+            if state.get("fail_backup_verification"):
+                sys.exit(1)
+            print("no table entries" if state.get("backup_missing_table") else "1; 1259 123 TABLE public fixture octopus")
         else:
             if state.get("fail_restore"):
                 sys.exit(1)
@@ -199,11 +207,14 @@ elif args[0] == "exec":
             save()
     elif "psql" in args:
         if "-q" in args:
+            assert not state["running"], "model changes require the write barrier"
+            if state.get("fail_models"):
+                sys.exit(1)
             assert b'ON CONFLICT ("modelId") DO NOTHING' in sys.stdin.buffer.read()
             state["models"] = 10
             save()
         elif "-c" in args:
-            if state.get("signal_stage1"):
+            if state.get("signal_migrate"):
                 assert (root / "migration-completed").exists(), "restore raced an active migration"
             assert args[-4:] == ["-c", "DROP DATABASE octopus WITH (FORCE)", "-c", "CREATE DATABASE octopus OWNER octopus"]
             state["count"] = 0
@@ -215,7 +226,9 @@ elif args[0] == "exec":
             elif "to_regclass" in query:
                 print("f" if state.get("jobs_absent") else "t")
             elif "pgboss.job" in query:
-                print(state.get("jobs", 0))
+                state["jobs_probes"] = state.get("jobs_probes", 0) + 1
+                save()
+                print(state.get("jobs_recheck", state.get("jobs", 0)) if state["jobs_probes"] > 1 else state.get("jobs", 0))
             elif "claude-opus-5-5" in query:
                 print("2")
             elif "available_models" in query:
@@ -248,11 +261,16 @@ def operator(tmp_path):
         stub.write_text("#!" + sys.executable + "\n" + STUB)
         stub.chmod(0o755)
     state_file = tmp_path / "state.json"
-    default_state = {"version": "1.0.122", "count": 35, "models": 0, "fenced": False, "fail_stage1": False}
+    default_state = {"version": "1.0.122", "count": 35, "models": 0, "fenced": False, "running": True}
     state_file.write_text(json.dumps(default_state))
     script = tmp_path / "action.sh"
     original_source = ACTION.read_text()
     isolated_source = original_source.replace("/opt/octopus", str(octopus)).replace("/opt/ed-finder", str(repo)).replace("/var/lib/docker", str(docker_dir))
+    # Only the injected new-web health failure gets a short real timeout loop.
+    isolated_source = isolated_source.replace(
+        "time.monotonic() + 180",
+        "time.monotonic() + (1 if version == TO_VERSION and os.environ.get('OCTOPUS_TEST_FAIL_NEW_HEALTH') == '1' else 180)",
+    )
     script.write_text(
         "hostname() { printf '%s\\n' ed-finder-prod; }\n"
         "id() { printf '%s\\n' 0; }\n"
@@ -270,6 +288,8 @@ def operator(tmp_path):
         if state:
             state_file.write_text(json.dumps(default_state | state))
         invocation_env = environment.copy()
+        if state and state.get("fail_new_health"):
+            invocation_env["OCTOPUS_TEST_FAIL_NEW_HEALTH"] = "1"
         if corrupt:
             invocation_env[corrupt] = base64.b64encode(b"wrong reviewed bytes").decode()
         result = subprocess.run(
@@ -350,17 +370,19 @@ def _find_event(commands, predicate, start=0):
     return next(index for index in range(start, len(commands)) if predicate(commands[index]))
 
 
-def test_apply_backs_up_then_runs_compatible_stages_and_preserves_env_bytes(operator):
+def test_apply_holds_write_barrier_until_all_database_changes_and_preserves_env_bytes(operator):
     execute, octopus, before_env, state_file = operator
     result, report, commands = execute()
     assert result.returncode == 0, report
     assert report["status"] == "passed"
     assert report["migrations_before"]["finished"] == 35
-    assert report["migrations_stage1"]["finished"] == 60
+    assert "migrations_stage1" not in report
     assert report["migrations_after"]["finished"] == 61
     assert report["image_digest_before"] == FROM_DIGEST
     assert report["image_digest_after"] == TO_DIGEST
     assert report["model_rows_added"] == 10
+    assert report["web_stopped_at_step"] == "write_barrier"
+    assert isinstance(report["downtime_seconds"], (int, float)) and report["downtime_seconds"] > 0
     expected_env = before_env.replace(b"OCTOPUS_VERSION=1.0.122", b"OCTOPUS_VERSION=1.3.3")
     assert (octopus / ".env").read_bytes() == expected_env
     assert (octopus / ".env").stat().st_mode & 0o777 == 0o640
@@ -368,52 +390,119 @@ def test_apply_backs_up_then_runs_compatible_stages_and_preserves_env_bytes(oper
     assert Path(report["database_backup"]).read_bytes().startswith(b"PGDMP")
     assert Path(report["database_backup"]).stat().st_mode & 0o777 == 0o600
     assert (octopus / "backups").stat().st_mode & 0o777 == 0o700
+    fence = _find_event(commands, lambda e: e["tool"] == "fence")
+    pulls = [index for index, event in enumerate(commands) if event["args"][:1] == ["pull"]]
+    source = _find_event(commands, lambda e: e["tool"] == "git" and "archive" in e["args"])
+    jobs = _find_event(commands, lambda e: "psql" in e["args"] and "from pgboss.job" in e["args"][-1], source)
+    stop = _find_event(commands, lambda e: "stop" in e["args"])
     dump = _find_event(commands, lambda e: "pg_dump" in e["args"])
     verified = _find_event(commands, lambda e: "pg_restore" in e["args"] and "--list" in e["args"])
-    stage1 = _find_event(commands, lambda e: e.get("stage") == "stage1")
-    switched = _find_event(commands, lambda e: "up" in e["args"])
-    new_version_probe = _find_event(commands, lambda e: "node" in e["args"] and "/api/version" in e["args"][-1] and e["version"] == "1.3.3", switched)
-    stage2 = _find_event(commands, lambda e: e.get("stage") == "stage2")
+    migrators = [index for index, event in enumerate(commands) if event.get("directory") == "migrations-src"]
+    assert len(migrators) == 1
+    migrate = migrators[0]
     models = _find_event(commands, lambda e: "psql" in e["args"] and "-q" in e["args"])
-    assert dump < verified < stage1 < switched < new_version_probe < stage2 < models
-    assert len(commands[stage1]["migrations"]) == 60
-    assert "20260929150000_sonnet55" not in commands[stage1]["migrations"]
-    assert len(commands[stage2]["migrations"]) == 61
-    assert "20260929150000_sonnet55" in commands[stage2]["migrations"]
-    assert bytes.fromhex(commands[stage1]["env_bytes"]) == before_env
-    assert bytes.fromhex(commands[stage2]["env_bytes"]) == expected_env
+    env_edit = _find_event(commands, lambda e: bytes.fromhex(e["env_bytes"]) == expected_env)
+    switched = _find_event(commands, lambda e: "up" in e["args"])
+    health = _find_event(commands, lambda e: "node" in e["args"] and "/api/health" in e["args"][-1], switched)
+    assert len(pulls) == 2 and fence < min(pulls) <= max(pulls) < source < jobs < stop < dump < verified < migrate < models < env_edit
+    assert env_edit == switched < health
+    assert not any("pg_dump" in event["args"] for event in commands[:stop])
+    assert not any("up" in event["args"] for event in commands[stop:env_edit])
+    assert all(not event["running"] for event in commands[stop + 1:switched + 1])
+    assert len(commands[migrate]["migrations"]) == 61
+    assert "20260929150000_sonnet55" in commands[migrate]["migrations"]
+    assert bytes.fromhex(commands[migrate]["env_bytes"]) == before_env
+    assert commands[migrate]["package_hashes"] == {name: PINS[name] for name in ("package.json", "package-lock.json")}
     assert json.loads(state_file.read_text())["count"] == 61
-    for event in (commands[stage1], commands[stage2]):
-        args = event["args"]
-        assert args.count("--mount") == 1
-        assert args[args.index("--network") + 1] == "octopus_default"
-        assert "--rm" in args
-        assert "npm ci --ignore-scripts --no-audit --no-fund" in args[-1]
-    mount = commands[stage1]["args"][commands[stage1]["args"].index("--mount") + 1]
+    args = commands[migrate]["args"]
+    assert args.count("--mount") == 1
+    assert args[args.index("--network") + 1] == "octopus_default"
+    assert "--rm" in args
+    assert "npm ci --ignore-scripts --no-audit --no-fund" in args[-1]
+    assert args[-1].count("prisma migrate deploy") == 1
+    mount = args[args.index("--mount") + 1]
     assert not Path(mount.split("src=", 1)[1].split(",dst=", 1)[0]).parent.exists(), "temporary migration files must be removed"
 
 
-def test_stage1_failure_restores_database_and_old_web_in_order(operator):
+@pytest.mark.parametrize("failure,reason", [("fail_dump", "backup_command_failed"), ("fail_backup_verification", "backup_verification_failed"), ("backup_missing_table", "backup_verification_failed")])
+def test_backup_failure_restarts_old_web_without_restoring_untouched_database(operator, failure, reason):
     execute, octopus, before_env, state_file = operator
-    result, report, commands = execute(state={"fail_stage1": True})
+    result, report, commands = execute(state={failure: True})
+    assert result.returncode != 0
+    assert report["status"] == "stopped", report
+    assert report["reason"] == reason
+    assert report["failed_step"] == "backup"
+    assert report["web_stopped_at_step"] == "write_barrier"
+    assert report["downtime_seconds"] > 0
+    stop = _find_event(commands, lambda e: "stop" in e["args"])
+    dump = _find_event(commands, lambda e: "pg_dump" in e["args"])
+    start = _find_event(commands, lambda e: "up" in e["args"])
+    healthy = _find_event(commands, lambda e: "node" in e["args"] and "/api/health" in e["args"][-1], start)
+    assert stop < dump < start < healthy
+    assert commands[healthy]["version"] == "1.0.122"
+    assert any(e["args"][:2] == ["image", "inspect"] and "1.0.122" in e["args"][-1] for e in commands[start:])
+    assert not any("DROP DATABASE octopus WITH (FORCE)" in e["args"] or "--no-owner" in e["args"] or e.get("directory") for e in commands)
+    assert (octopus / ".env").read_bytes() == before_env
+    state = json.loads(state_file.read_text())
+    assert state["count"] == 35 and state["version"] == "1.0.122" and state["running"]
+
+
+@pytest.mark.parametrize("failure,reason", [("fail_stop", "write_barrier_command_failed"), ("stop_stays_running", "web_still_running")])
+def test_failed_write_barrier_restarts_old_web_without_backup_or_restore(operator, failure, reason):
+    execute, octopus, before_env, state_file = operator
+    result, report, commands = execute(state={failure: True})
+    assert result.returncode != 0
+    assert report["status"] == "stopped", report
+    assert report["reason"] == reason
+    assert report["failed_step"] == "write_barrier"
+    assert report["downtime_seconds"] > 0
+    assert not any("pg_dump" in e["args"] or "pg_restore" in e["args"] or "DROP DATABASE octopus WITH (FORCE)" in e["args"] for e in commands)
+    assert any("up" in e["args"] for e in commands)
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert json.loads(state_file.read_text())["running"]
+
+
+def test_model_failure_restores_database_before_starting_old_web(operator):
+    execute, octopus, before_env, state_file = operator
+    result, report, commands = execute(state={"fail_models": True})
     assert result.returncode != 0
     assert report["status"] == "rolled_back", report
-    assert report["reason"] == "stage1_command_failed"
-    assert report["failed_step"] == "stage1"
+    assert report["reason"] == "models_insert_failed"
+    assert report["failed_step"] == "models"
+    models = _find_event(commands, lambda e: "psql" in e["args"] and "-q" in e["args"])
+    restore = _find_event(commands, lambda e: "--no-owner" in e["args"])
+    start = _find_event(commands, lambda e: "up" in e["args"])
+    assert models < restore < start
+    assert all(bytes.fromhex(e["env_bytes"]) == before_env for e in commands)
+    assert (octopus / ".env").read_bytes() == before_env
+    state = json.loads(state_file.read_text())
+    assert state["count"] == 35 and state["version"] == "1.0.122" and state["running"]
+
+
+def test_migration_failure_restores_database_and_old_web_in_order(operator):
+    execute, octopus, before_env, state_file = operator
+    result, report, commands = execute(state={"fail_migrate": True})
+    assert result.returncode != 0
+    assert report["status"] == "rolled_back", report
+    assert report["reason"] == "migrate_command_failed"
+    assert report["failed_step"] == "migrate"
     assert report["rollback_migrations"]["finished"] == 35
-    stage1 = _find_event(commands, lambda e: e.get("stage") == "stage1")
-    stop = _find_event(commands, lambda e: "stop" in e["args"])
+    assert report["web_stopped_at_step"] == "write_barrier"
+    assert report["downtime_seconds"] > 0
+    migrate = _find_event(commands, lambda e: e.get("directory") == "migrations-src")
+    stop = _find_event(commands, lambda e: "stop" in e["args"], migrate)
     recreate = _find_event(commands, lambda e: "DROP DATABASE octopus WITH (FORCE)" in e["args"])
     restore = _find_event(commands, lambda e: "pg_restore" in e["args"] and "--no-owner" in e["args"])
     verified = _find_event(commands, lambda e: "psql" in e["args"] and "_prisma_migrations" in e["args"][-1], restore)
     start = _find_event(commands, lambda e: "up" in e["args"])
     version_probe = _find_event(commands, lambda e: "node" in e["args"] and "/api/version" in e["args"][-1], start)
-    assert stage1 < stop < recreate < restore < verified < start < version_probe
+    assert migrate < stop < recreate < restore < verified < start < version_probe
     assert commands[version_probe]["version"] == "1.0.122"
-    assert not any(event.get("stage") == "stage2" for event in commands)
     assert (octopus / ".env").read_bytes() == before_env
     assert Path(report["database_backup"]).exists()
-    assert json.loads(state_file.read_text())["count"] == 35
+    state = json.loads(state_file.read_text())
+    assert state["count"] == 35 and state["running"]
 
 
 def test_already_upgraded_apply_changes_nothing(operator):
@@ -440,6 +529,21 @@ def test_active_background_jobs_block_apply_before_changes(operator):
     assert all(not {"pull", "up", "stop", "run", "fetch"}.intersection(event["args"]) for event in commands)
 
 
+def test_active_jobs_at_write_barrier_refuse_before_stopping_web(operator):
+    execute, octopus, before_env, state_file = operator
+    result, report, commands = execute(state={"jobs_recheck": 1})
+    assert result.returncode != 0
+    assert report["status"] == "stopped", report
+    assert report["reason"] == "active_background_jobs"
+    assert report["failed_step"] == "write_barrier"
+    assert any("archive" in event["args"] for event in commands)
+    assert json.loads(state_file.read_text())["jobs_probes"] == 2
+    assert all(not {"stop", "up", "run", "pg_dump", "pg_restore"}.intersection(event["args"]) for event in commands)
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert json.loads(state_file.read_text())["running"]
+
+
 @pytest.mark.parametrize("version_bytes", [b"OCTOPUS_VERSION=env-secret-sentinel", b"OCTOPUS_VERSION=1.0.122\nOCTOPUS_VERSION=1.0.122"])
 def test_invalid_version_lines_fail_without_leaking_environment(operator, version_bytes):
     execute, octopus, before_env, _ = operator
@@ -454,49 +558,54 @@ def test_invalid_version_lines_fail_without_leaking_environment(operator, versio
     assert all(not {"pull", "up", "stop", "run", "fetch"}.intersection(event["args"]) for event in commands)
 
 
-def test_stage2_failure_restores_original_env_and_database(operator):
+def test_new_web_health_timeout_restores_original_env_and_database(operator):
     execute, octopus, before_env, state_file = operator
-    result, report, commands = execute(state={"fail_stage2": True})
+    result, report, commands = execute(state={"fail_new_health": True})
     assert result.returncode != 0
     assert report["status"] == "rolled_back", report
-    assert report["reason"] == "stage2_command_failed"
-    assert report["failed_step"] == "stage2"
-    stage2 = _find_event(commands, lambda e: e.get("stage") == "stage2")
-    stop = _find_event(commands, lambda e: "stop" in e["args"])
-    assert stage2 < stop
-    assert bytes.fromhex(commands[stage2]["env_bytes"]) != before_env
+    assert report["reason"] == "web_health_timeout"
+    assert report["failed_step"] == "switch_web"
+    assert report["rollback_migrations"]["finished"] == 35
+    assert report["web_stopped_at_step"] == "write_barrier"
+    assert report["downtime_seconds"] > 0
+    start = _find_event(commands, lambda e: "up" in e["args"])
+    failed_health = _find_event(commands, lambda e: e["args"] == ["inspect", "octopus-web-1"] and e["version"] == "1.3.3", start)
+    stop = _find_event(commands, lambda e: "stop" in e["args"], start)
+    restore = _find_event(commands, lambda e: "pg_restore" in e["args"] and "--no-owner" in e["args"])
+    restart = _find_event(commands, lambda e: "up" in e["args"], start + 1)
+    assert start < failed_health < stop < restore < restart
+    assert bytes.fromhex(commands[stop]["env_bytes"]) == before_env
     assert (octopus / ".env").read_bytes() == before_env
     assert (octopus / ".env").stat().st_mode & 0o777 == 0o640
-    assert json.loads(state_file.read_text())["count"] == 35
-    assert json.loads(state_file.read_text())["version"] == "1.0.122"
+    state = json.loads(state_file.read_text())
+    assert state["count"] == 35 and state["version"] == "1.0.122" and state["running"]
 
 
 def test_failed_restore_names_rollback_step_and_original_failure(operator):
     execute, _, _, _ = operator
-    result, report, commands = execute(state={"fail_stage1": True, "fail_restore": True})
+    result, report, commands = execute(state={"fail_migrate": True, "fail_restore": True})
     assert result.returncode != 0
     assert report["status"] == "rollback_failed"
-    assert report["reason"] == "stage1_command_failed"
+    assert report["reason"] == "migrate_command_failed"
     assert report["rollback_failed_step"] == "rollback_restore_database"
     assert not any("up" in event["args"] for event in commands)
 
 
 def test_sigterm_during_attached_migration_waits_then_rolls_back(operator):
     execute, octopus, before_env, state_file = operator
-    result, report, commands = execute(state={"signal_stage1": True})
+    result, report, commands = execute(state={"signal_migrate": True})
     assert result.returncode != 0
     assert report["status"] == "rolled_back", report
     assert report["reason"] == "interrupted_signal_15"
-    assert report["failed_step"] == "stage1"
+    assert report["failed_step"] == "migrate"
     assert report["rollback_migrations"]["finished"] == 35
     assert (octopus.parent / "migration-completed").read_text() == "completed before rollback"
     assert json.loads(state_file.read_text())["count"] == 35
     assert json.loads(state_file.read_text())["version"] == "1.0.122"
     assert (octopus / ".env").read_bytes() == before_env
-    stage1 = _find_event(commands, lambda event: event.get("stage") == "stage1")
+    migrate = _find_event(commands, lambda event: event.get("directory") == "migrations-src")
     recreate = _find_event(commands, lambda event: "DROP DATABASE octopus WITH (FORCE)" in event["args"])
-    assert stage1 < recreate
-    assert not any(event.get("stage") == "stage2" for event in commands)
+    assert migrate < recreate
 
 
 def test_apply_rerun_accepts_its_own_backups_and_changes_nothing(operator):

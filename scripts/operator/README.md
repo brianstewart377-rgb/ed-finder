@@ -158,35 +158,55 @@ verified 1.3.3 installation returns `already_done` without changes.
 The implemented order is:
 
 1. Verify the three streamed files against their pinned SHA-256 values and run
-   the host, source, Compose, database, disk and purge checks.
+   the host, source, Compose, database, disk and purge checks; preflight must
+   return `ready`, including 35 finished migrations and no active pgboss jobs.
 2. Pull and verify the pinned 1.3.3 image digest, then pull the pinned Node 24
-   migrator mirror. Fetch the exact upstream commit and archive only Prisma
-   source into two temporary stages, preserving the working checkout and its
-   local Qdrant Compose repair. Stage 1 excludes `20260929150000_sonnet55` and
-   has 60 migration directories; stage 2 has all 61.
-3. Keep a mode-0600 custom-format PostgreSQL dump and a mode/owner-preserving
+   migrator mirror.
+3. Fetch the exact upstream commit and use `git archive` for
+   `packages/db/prisma` and `packages/db/prisma.config.ts` into one temporary
+   `migrations-src/` directory, preserving the working checkout and its local
+   Qdrant Compose repair. Require exactly 61 migration directories, including
+   `20260929150000_sonnet55`, and copy the checksum-verified `package.json` and
+   `package-lock.json` into its root.
+4. Re-check active pgboss jobs immediately before stopping web; a nonzero count
+   refuses with `active_background_jobs` before any service or database change.
+   Run `docker compose ... stop web` and require that web is no longer running.
+   Web also runs the review workers and is Octopus's only writer, so keep it
+   stopped through all database changes.
+5. Keep a mode-0600 custom-format PostgreSQL dump and a mode/owner-preserving
    `.env` copy under mode-0700 `/opt/octopus/backups`, with UTC timestamps.
-   Verify the dump contains a TABLE entry before migration.
-4. Run stage 1 with the pinned Prisma CLI on the existing single Postgres
-   network; require 60 finished, zero failed migrations and healthy old web
-   version 1.0.122.
-5. Atomically replace only the single `OCTOPUS_VERSION=1.0.122` line with
-   `OCTOPUS_VERSION=1.3.3`, preserving other bytes, mode and owner. Recreate
-   only web and require its pinned digest and version 1.3.3 within 180 seconds.
-6. Run stage 2 and require 61 finished, zero failed migrations. Only now may
-   the held-back Sonnet 5.5 catalog migration land on compatible code.
+   Verify the dump contains a TABLE entry before migration. If backup or its
+   verification fails, start web with `up -d --no-deps web` and require healthy
+   1.0.122 on its pinned digest; report `stopped` without restoring the untouched
+   database.
+6. Apply all 26 pending migrations in one `prisma migrate deploy` using the
+   full directory and pinned Prisma CLI on the existing single Postgres
+   network; require 61 finished and zero failed migrations.
 7. Insert the ten reviewed OpenAI rows idempotently; require their IDs with
-   provider `openai` and category `llm`, plus Opus 5.5 and Sonnet 5.5. Verify
-   final web health/version and emit a `passed` receipt with backup paths,
-   migration counts, image digests and added model rows.
+   provider `openai` and category `llm`, plus Opus 5.5 and Sonnet 5.5.
+8. Atomically replace only the single `OCTOPUS_VERSION=1.0.122` line with
+   `OCTOPUS_VERSION=1.3.3`, preserving other bytes, mode and owner. Recreate
+   only web with `up -d --no-deps web` and require its pinned digest and version
+   1.3.3 within 180 seconds.
+9. Verify final web health/version and emit a `passed` receipt with backup paths,
+   migration counts, image digests and added model rows. Receipts record
+   `web_stopped_at_step: "write_barrier"` and `downtime_seconds`, measured with
+   a monotonic clock from the stop until healthy 1.3.3, or until healthy 1.0.122
+   returns after a rollback or backup failure.
 
-Any failure from stage 1 onward automatically restores `.env` if changed,
+Any failure from migration onward automatically restores `.env` if changed,
 stops web, drops/recreates only the Octopus database, restores the verified
 pre-upgrade dump, requires 35 finished migrations, and starts/verifies 1.0.122
-within 180 seconds. A `rolled_back` receipt retains the original failure and
-returns nonzero; a failed recovery returns `rollback_failed` naming the failed
-rollback step. Qdrant and its volume are untouched on every upgrade and rollback
-path. Temporary files are removed on exit; backups remain for the operator.
+on its pinned digest within 180 seconds. A `rolled_back` receipt retains the
+original failure and returns nonzero; a failed recovery returns
+`rollback_failed` naming the failed rollback step. The only writes rollback can
+discard are those accepted by a 1.3.3 web that then failed its own health window.
+GitHub webhooks sent while
+web is stopped (about a minute or two) are not retried by GitHub, which is
+acceptable because reviews are requested manually.
+
+Qdrant and its volume are untouched on every upgrade and rollback path.
+Temporary files are removed on exit; backups remain for the operator.
 Both operations retain JSON receipts as workflow artifacts for 30 days.
 
 ## Other scripts in this directory

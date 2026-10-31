@@ -85,8 +85,10 @@ inspection. Apply requires `workflow_dispatch` on `refs/heads/main` and a clear
 purge fence, so it runs only between purge phases. The reviewed script and
 three checksum-verified migration/model inputs come from trusted main; callers
 supply no versions, paths, commands or migration content. Apply preserves the
-checkout and Qdrant, verifies a database backup before its two migration
-stages, and automatically restores the old database and web on failure.
+checkout and Qdrant, re-checks active jobs and stops web before backing up the
+database, then applies all 26 pending migrations in one run and inserts the
+models before starting 1.3.3. Backup failure restarts the unchanged old web;
+failure from migration onward automatically restores the old database and web.
 See [the rehearsed order and rollback](../../scripts/operator/README.md#governed-octopus-133-upgrade).
 Repository tests validate with stubs only; they never contact production.
 

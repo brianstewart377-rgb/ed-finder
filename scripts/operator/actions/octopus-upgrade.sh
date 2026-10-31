@@ -62,8 +62,7 @@ PAYLOADS = {
     "package-lock.json": ("OCTOPUS_PACKAGE_LOCK_B64", "871e50428cfae28914c7d871b8a70f9b0cd27704ac47d3ff9216c9ec92694ba0"),
     "openai-models.sql": ("OCTOPUS_MODELS_SQL_B64", "bbf4daa73643b00f1b979b43f0950ffda5357e24ff84dff766053646fcdd70d3"),
 }
-BEFORE_COUNT, STAGE1_COUNT, AFTER_COUNT = 35, 60, 61
-HELD_MIGRATION = "20260929150000_sonnet55"
+BEFORE_COUNT, AFTER_COUNT = 35, 61
 BEFORE_NEWEST = "20260813200000_retire_opus_4647_reorder_models"
 IMAGE_REPO = "ghcr.io/octopusreview/octopus-selfhost"
 DATABASE_URL = "postgresql://octopus:octopus@postgres:5432/octopus"
@@ -73,6 +72,8 @@ COMPOSE = ["docker", "compose", "--project-directory", str(OCTOPUS_DIR), "-f", s
 mode, work, purge_clear = sys.argv[1], Path(sys.argv[2]), sys.argv[3] == "true"
 result = {"schema_version": "ed-finder/operator-operation-result/v1", "operation": "octopus-upgrade-" + mode}
 rollback_required = False
+web_restart_required = False
+downtime_started = None
 env_changed = False
 step = "payload_verification"
 defer_signal = False
@@ -115,6 +116,12 @@ def run(args, *, data=None, output=None, env=None, strip=True, timeout=None, def
 
 def sql(query):
     return run(["docker", "exec", "octopus-postgres-1", "psql", "-U", "octopus", "-d", "octopus", "-tAc", query])
+
+
+def active_background_jobs():
+    present = sql("SELECT to_regclass('pgboss.job') IS NOT NULL")
+    require(present in ("t", "f"), "invalid_background_jobs_probe")
+    return int(sql("select count(*) from pgboss.job where state='active'")) if present == "t" else None
 
 
 def migrations():
@@ -215,11 +222,11 @@ def edit_env():
         Path(name).unlink(missing_ok=True)
 
 
-def migrate(stage):
+def migrate():
     environment = os.environ.copy()
     environment["DATABASE_URL"] = DATABASE_URL
     run(["docker", "run", "--rm", "--network", network, "--mount",
-         "type=bind,src=" + str(work / stage) + ",dst=/work", "--workdir", "/work",
+         "type=bind,src=" + str(work / "migrations-src") + ",dst=/work", "--workdir", "/work",
          "--env", "DATABASE_URL", MIGRATOR_IMAGE, "sh", "-ec",
          "npm ci --ignore-scripts --no-audit --no-fund && cd packages/db && ../../node_modules/.bin/prisma migrate deploy"], env=environment, defer_interruption=True)
 
@@ -246,6 +253,17 @@ def rollback():
     run(COMPOSE + ["up", "-d", "--no-deps", "web"])
     step = "rollback_verify_web"
     wait_web(FROM_VERSION, FROM_IMAGE_DIGEST)
+    result["downtime_seconds"] = time.monotonic() - downtime_started
+
+
+def restart_old_web():
+    global step
+    # No database mutation has begun, so recovery must not restore the dump.
+    step = "restart_start_web"
+    run(COMPOSE + ["up", "-d", "--no-deps", "web"])
+    step = "restart_verify_web"
+    wait_web(FROM_VERSION, FROM_IMAGE_DIGEST)
+    result["downtime_seconds"] = time.monotonic() - downtime_started
 
 
 def interrupted(signum, _frame):
@@ -309,11 +327,7 @@ try:
     result["running_web_image_digest"] = before_digest
     before = migrations()
     result["migrations_before"] = before
-    active = None
-    jobs_present = sql("SELECT to_regclass('pgboss.job') IS NOT NULL")
-    require(jobs_present in ("t", "f"), "invalid_background_jobs_probe")
-    if jobs_present == "t":
-        active = int(sql("select count(*) from pgboss.job where state='active'"))
+    active = active_background_jobs()
     result["active_background_jobs"] = active
     version = web_version()
     result["web_version"] = version if version in (FROM_VERSION, TO_VERSION) else None
@@ -368,16 +382,22 @@ try:
         archive = work / "migrations.tar"
         with archive.open("wb") as stream:
             run(["git", "-C", str(OCTOPUS_DIR), "archive", TO_COMMIT, "packages/db/prisma", "packages/db/prisma.config.ts"], output=stream)
-        for stage in ("stage1", "stage2"):
-            directory = work / stage
-            directory.mkdir()
-            run(["tar", "-xf", str(archive), "-C", str(directory)])
-            for filename in ("package.json", "package-lock.json"):
-                shutil.copyfile(work / filename, directory / filename)
-        shutil.rmtree(work / "stage1/packages/db/prisma/migrations" / HELD_MIGRATION)
-        for stage, count in (("stage1", STAGE1_COUNT), ("stage2", AFTER_COUNT)):
-            dirs = [path for path in (work / stage / "packages/db/prisma/migrations").iterdir() if path.is_dir()]
-            require(len(dirs) == count, stage + "_migration_directory_count_mismatch")
+        directory = work / "migrations-src"
+        directory.mkdir()
+        run(["tar", "-xf", str(archive), "-C", str(directory)])
+        dirs = [path for path in (directory / "packages/db/prisma/migrations").iterdir() if path.is_dir()]
+        require(len(dirs) == AFTER_COUNT, "migration_directory_count_mismatch")
+        for filename in ("package.json", "package-lock.json"):
+            shutil.copyfile(work / filename, directory / filename)
+        step = "write_barrier"
+        # web is the only writer, including the review workers. Recheck jobs
+        # immediately before stopping it, then keep it down through all DB work.
+        require(active_background_jobs() in (None, 0), "active_background_jobs")
+        downtime_started = time.monotonic()
+        web_restart_required = True
+        result.update(web_stopped_at_step=step, downtime_seconds=None)
+        run(COMPOSE + ["stop", "web"])
+        require(container("octopus-web-1").get("State", {}).get("Running") is False, "web_still_running")
         step = "backup"
         backup_dir = OCTOPUS_DIR / "backups"
         backup_dir.mkdir(mode=0o700, exist_ok=True)
@@ -398,18 +418,8 @@ try:
         run(["cp", "--preserve=mode,ownership,timestamps", "--", str(ENV_FILE), str(env_backup)])
         # Point of no return: every exception from here invokes rollback.
         rollback_required = True
-        step = "stage1"
-        migrate("stage1")
-        result["migrations_stage1"] = require_migrations(STAGE1_COUNT)
-        require(web_version() == FROM_VERSION and web_healthy(), "old_web_version_changed")
-        step = "switch_web"
-        # Mark before the atomic edit so even a post-rename failure restores it.
-        env_changed = True
-        edit_env()
-        run(COMPOSE + ["up", "-d", "--no-deps", "web"])
-        wait_web(TO_VERSION, TO_IMAGE_DIGEST)
-        step = "stage2"
-        migrate("stage2")
+        step = "migrate"
+        migrate()
         result["migrations_after"] = require_migrations(AFTER_COUNT)
         step = "models"
         with (work / "openai-models.sql").open("rb") as stream:
@@ -419,6 +429,13 @@ try:
         require(model_count() == 10, "openai_model_rows_missing")
         require(sql("SELECT count(*) FROM available_models WHERE \"modelId\" IN ('claude-opus-5-5','claude-sonnet-5-5')") == "2", "claude_model_rows_missing")
         result["model_rows_added"] = 10 - openai_before
+        step = "switch_web"
+        # Mark before the atomic edit so even a post-rename failure restores it.
+        env_changed = True
+        edit_env()
+        run(COMPOSE + ["up", "-d", "--no-deps", "web"])
+        wait_web(TO_VERSION, TO_IMAGE_DIGEST)
+        result["downtime_seconds"] = time.monotonic() - downtime_started
         step = "final_health"
         wait_web(TO_VERSION, TO_IMAGE_DIGEST)
         result["image_digest_before"] = before_digest
@@ -430,13 +447,18 @@ except Exception as exc:
     result.update(status="stopped", reason=reason, failed_step=step)
     if mode == "preflight":
         result.update(verdict="blocked", reasons=[reason])
-    if rollback_required:
+    if web_restart_required:
+        # A failed recovery has no healthy endpoint for the downtime interval.
+        result["downtime_seconds"] = None
         try:
             pending_signal = None
             for watched_signal in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
                 signal.signal(watched_signal, signal.SIG_IGN)
-            rollback()
-            result["status"] = "rolled_back"
+            if rollback_required:
+                rollback()
+                result["status"] = "rolled_back"
+            else:
+                restart_old_web()
         except Exception:
             result.update(status="rollback_failed", rollback_failed_step=step)
     print(json.dumps(result, separators=(",", ":")))
