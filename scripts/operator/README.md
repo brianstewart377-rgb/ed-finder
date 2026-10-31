@@ -139,6 +139,10 @@ disposable copy of the 1.0.122 database with data, including restoring the
 pre-upgrade dump to a working 1.0.122. Implementation and repository validation
 never execute it against production.
 
+It was run on production on 2026-10-31 (preflight run 41227580961 `ready`,
+apply run 41228291272 `passed`); receipts are in
+`docs/operations/evidence/2026-10-31-octopus-upgrade-*`.
+
 Dispatch `octopus-upgrade-preflight` first. This read-only operation reports the
 purge fence, rendered images and running web digest, version-line cardinality
 and value, source identity and changed filenames, migration ledger, active
