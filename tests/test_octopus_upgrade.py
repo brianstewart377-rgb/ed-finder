@@ -23,6 +23,7 @@ FROM_DIGEST = "sha256:7a65a6009136376a74ff0a4dd58fae26c10f610879bed7f9c97adb0530
 TO_DIGEST = "sha256:dd36e9e7b9a8c092cf4382c1129500aa776e0848d72f28e45fdb5ac3e53fd043"
 FROM_COMMIT = "55583ac832472ad8b535f1f678f9c11837f7cfdb"
 TO_COMMIT = "634c32d71f06576e5e71ee2895d694668fd15a7a"
+DATABASE_URL = "postgresql://octopus:disposable-non-default-password@postgres:5432/octopus"
 
 
 def test_reviewed_payloads_and_upgrade_constants_are_pinned():
@@ -50,6 +51,7 @@ def test_action_never_prints_env_or_uses_tracing_or_manages_qdrant():
     assert "--privileged" not in source
     assert re.search(r"(?:up|stop|restart|rm|down)[^\n]*qdrant", source) is None
     assert "docker volume" not in source
+    assert "postgresql://octopus:octopus@postgres:5432/octopus" not in source
 
 
 def _receipt(result):
@@ -89,6 +91,7 @@ tool = Path(sys.argv[0]).name
 entry = {"tool": tool, "args": args, "version": state["version"], "running": state["running"],
          "env_bytes": (root / "octopus/.env").read_bytes().hex()}
 if tool == "docker" and args and args[0] == "run":
+    entry["database_url"] = os.environ.get("DATABASE_URL")
     mount = args[args.index("--mount") + 1]
     directory = Path(mount.split("src=", 1)[1].split(",dst=", 1)[0])
     migration_dir = directory / "packages/db/prisma/migrations"
@@ -112,7 +115,7 @@ if tool == "git":
     if args[:2] == ["rev-parse", "HEAD"]:
         print("55583ac832472ad8b535f1f678f9c11837f7cfdb")
     elif args[:2] == ["remote", "get-url"]:
-        print("https://github.com/octopusreview/octopus")
+        print(state["origin"])
     elif args[0] == "status":
         sys.stdout.write(" M docker-compose.selfhost.yml\0?? docker-compose.selfhost.yml.before-qdrant-healthcheck-repair.20261031T120000Z\0")
         if "--untracked-files=all" in args:
@@ -141,7 +144,7 @@ elif args[0] == "compose":
     if "config" in args:
         print(json.dumps({"services": {
             "web": {"image": "ghcr.io/octopusreview/octopus-selfhost:" + state["version"],
-                    "environment": {"DATABASE_URL": "postgresql://octopus:octopus@postgres:5432/octopus", "PRIVATE": "env-secret-sentinel"}},
+                    "environment": state["compose_environment"]},
             "postgres": {"image": "postgres:17-alpine"},
             "qdrant": {"image": "qdrant/qdrant:v1.17.0"},
         }}))
@@ -165,7 +168,7 @@ elif args[0] == "inspect":
     elif args[-1] == "octopus-qdrant-1":
         print(json.dumps([{"Config": {"Image": "qdrant/qdrant:v1.17.0"}}]))
     else:
-        print(json.dumps([{"Config": {"Image": "ghcr.io/octopusreview/octopus-selfhost:" + state["version"]}, "Image": "test-image-" + state["version"], "State": {"Running": state["running"], "Health": {"Status": "unhealthy" if state.get("fail_new_health") and state["version"] == "1.3.3" else "healthy"}}}]))
+        print(json.dumps([{"Config": {"Image": "ghcr.io/octopusreview/octopus-selfhost:" + state["version"], "Env": state["web_environment"]}, "Image": "test-image-" + state["version"], "State": {"Running": state["running"], "Health": {"Status": "unhealthy" if state.get("fail_new_health") and state["version"] == "1.3.3" else "healthy"}}}]))
 elif args[:2] == ["image", "inspect"]:
     version = "1.3.3" if "1.3.3" in args[-1] else "1.0.122"
     digest = ("sha256:dd36e9e7b9a8c092cf4382c1129500aa776e0848d72f28e45fdb5ac3e53fd043" if version == "1.3.3" else
@@ -261,7 +264,12 @@ def operator(tmp_path):
         stub.write_text("#!" + sys.executable + "\n" + STUB)
         stub.chmod(0o755)
     state_file = tmp_path / "state.json"
-    default_state = {"version": "1.0.122", "count": 35, "models": 0, "fenced": False, "running": True}
+    default_state = {
+        "version": "1.0.122", "count": 35, "models": 0, "fenced": False, "running": True,
+        "origin": "https://github.com/octopusreview/octopus",
+        "web_environment": ["UNRELATED=env-secret-sentinel", "DATABASE_URL=" + DATABASE_URL],
+        "compose_environment": {"DATABASE_URL": DATABASE_URL, "PRIVATE": "env-secret-sentinel"},
+    }
     state_file.write_text(json.dumps(default_state))
     script = tmp_path / "action.sh"
     original_source = ACTION.read_text()
@@ -297,6 +305,23 @@ def operator(tmp_path):
             env=invocation_env, text=True, capture_output=True, check=False, timeout=25,
         )
         assert "env-secret-sentinel" not in result.stdout + result.stderr
+        web_environment = (default_state | (state or {}))["web_environment"]
+        for value in web_environment or []:
+            if isinstance(value, str) and value.startswith("DATABASE_URL="):
+                database_url = value.removeprefix("DATABASE_URL=")
+                if database_url:
+                    assert database_url not in result.stdout + result.stderr
+        compose_environment = (default_state | (state or {}))["compose_environment"]
+        if isinstance(compose_environment, dict):
+            compose_values = [compose_environment.get("DATABASE_URL")]
+        elif isinstance(compose_environment, list):
+            compose_values = [value.split("=", 1)[1] for value in compose_environment
+                              if isinstance(value, str) and value.startswith("DATABASE_URL=")]
+        else:
+            compose_values = []
+        for database_url in compose_values:
+            if isinstance(database_url, str) and database_url:
+                assert database_url not in result.stdout + result.stderr
         return result, _receipt(result), _events(tmp_path / "commands.jsonl")
 
     return execute, octopus, env_bytes, state_file
@@ -334,6 +359,160 @@ def test_preflight_reports_fence_without_any_mutation(operator):
         if "psql" in args:
             assert "-tAc" in args
             assert args[-1].lower().startswith("select ")
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("suffix", ["", ".git"])
+def test_exact_octopus_origins_are_accepted(operator, mode, suffix):
+    execute, _, _, _ = operator
+    result, report, _ = execute(mode, state={"origin": "https://github.com/octopusreview/octopus" + suffix})
+    assert result.returncode == 0, report
+    assert report["git"]["origin_matches"] is True
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("origin", [
+    "https://github.com/octopusreview/octopus/",
+    "https://github.com/octopusreview/octopus.git/",
+    "http://github.com/octopusreview/octopus",
+    "git@github.com:octopusreview/octopus.git",
+    "https://github.com/other/octopus",
+    "https://github.com/octopusreview/octopus.git?extra=true",
+    "https://github.com.example/octopusreview/octopus",
+])
+def test_other_octopus_origins_block_before_changes(operator, mode, origin):
+    execute, octopus, before_env, _ = operator
+    result, report, commands = execute(mode, state={"origin": origin})
+    assert (result.returncode == 0) is (mode == "preflight")
+    assert report["verdict"] == "blocked"
+    assert report["git"]["origin_matches"] is False
+    assert "unexpected_git_origin" in report["reasons"]
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert all(not {"pull", "up", "stop", "run", "fetch"}.intersection(event["args"]) for event in commands)
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("scheme", ["postgresql", "postgres"])
+@pytest.mark.parametrize("compose_shape", ["mapping", "list"])
+def test_running_database_url_with_non_default_password_is_used_without_disclosure(operator, mode, scheme, compose_shape):
+    execute, _, _, _ = operator
+    database_url = DATABASE_URL.replace("postgresql:", scheme + ":", 1)
+    compose_environment = ({"DATABASE_URL": database_url, "OTHER": "value"} if compose_shape == "mapping"
+                           else ["OTHER=value", "DATABASE_URL=" + database_url])
+    result, report, commands = execute(mode, state={
+        "web_environment": ["DATABASE_URL=" + database_url], "compose_environment": compose_environment,
+    })
+    assert result.returncode == 0, report
+    assert report["verdict"] == "ready"
+    assert report["database_url_shape_ok"] is True
+    assert report["database_url_matches_compose"] is True
+    assert database_url not in json.dumps(report)
+    assert database_url not in result.stdout + result.stderr
+    assert all(database_url not in json.dumps(event["args"]) for event in commands)
+    migrators = [event for event in commands if event.get("directory") == "migrations-src"]
+    if mode == "apply":
+        assert len(migrators) == 1
+        assert migrators[0]["database_url"] == database_url
+        args = migrators[0]["args"]
+        assert args[args.index("--env") + 1] == "DATABASE_URL"
+    else:
+        assert not migrators
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("compose_shape", ["mapping", "list"])
+@pytest.mark.parametrize("rendered_url", [
+    DATABASE_URL.replace("disposable-non-default-password", "different-disposable-password"),
+    DATABASE_URL.replace("postgresql:", "postgres:"),
+    DATABASE_URL.replace("disposable-", "%64isposable-"),
+], ids=["different-password", "equivalent-scheme", "equivalent-password-encoding"])
+def test_rendered_database_url_must_match_running_value_byte_for_byte(operator, mode, compose_shape, rendered_url):
+    execute, octopus, before_env, state_file = operator
+    compose_environment = ({"DATABASE_URL": rendered_url} if compose_shape == "mapping"
+                           else ["DATABASE_URL=" + rendered_url])
+    result, report, commands = execute(mode, state={"compose_environment": compose_environment})
+    assert (result.returncode == 0) is (mode == "preflight")
+    assert report["verdict"] == "blocked"
+    assert report["database_url_shape_ok"] is True
+    assert report["database_url_matches_compose"] is False
+    assert report["reasons"] == ["unexpected_database_url"]
+    for database_url in (DATABASE_URL, rendered_url):
+        assert database_url not in json.dumps(report)
+        assert database_url not in result.stdout + result.stderr
+        assert all(database_url not in json.dumps(event["args"]) for event in commands)
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert all(not {"pull", "up", "stop", "run", "fetch", "pg_dump", "pg_restore"}.intersection(event["args"]) for event in commands)
+    state = json.loads(state_file.read_text())
+    assert state["version"] == "1.0.122" and state["count"] == 35 and state["models"] == 0 and state["running"]
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("compose_environment", [
+    {},
+    [],
+    None,
+    {"OTHER": "value"},
+    ["OTHER=value"],
+    {"DATABASE_URL": None},
+    {"DATABASE_URL": 42},
+    ["DATABASE_URL"],
+    ["DATABASE_URL="],
+    ["DATABASE_URL=" + DATABASE_URL, "DATABASE_URL=" + DATABASE_URL],
+    ["DATABASE_URL=" + DATABASE_URL, "DATABASE_URL=" + DATABASE_URL.replace("disposable-", "different-")],
+], ids=[
+    "empty-mapping", "empty-list", "missing-environment", "mapping-missing-url", "list-missing-url",
+    "null-url", "non-string-url", "bare-key", "empty-url", "duplicate-equal", "duplicate-different",
+])
+def test_missing_or_duplicate_rendered_database_url_blocks_before_changes(operator, mode, compose_environment):
+    execute, octopus, before_env, _ = operator
+    result, report, commands = execute(mode, state={"compose_environment": compose_environment})
+    assert (result.returncode == 0) is (mode == "preflight")
+    assert report["verdict"] == "blocked"
+    assert report["database_url_shape_ok"] is True
+    assert report["database_url_matches_compose"] is False
+    assert report["reasons"] == ["unexpected_database_url"]
+    assert DATABASE_URL not in json.dumps(report)
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert all(not {"pull", "up", "stop", "run", "fetch", "pg_dump", "pg_restore"}.intersection(event["args"]) for event in commands)
+
+
+@pytest.mark.parametrize("mode", ["preflight", "apply"])
+@pytest.mark.parametrize("web_environment", [
+    ["DATABASE_URL=" + DATABASE_URL.replace("//octopus:", "//other:")],
+    ["DATABASE_URL=" + DATABASE_URL.replace("@postgres:", "@other:")],
+    ["DATABASE_URL=" + DATABASE_URL.replace(":5432/", ":5433/")],
+    ["DATABASE_URL=" + DATABASE_URL.replace(":5432/octopus", ":5432/other")],
+    ["DATABASE_URL=" + DATABASE_URL.replace("postgresql:", "mysql:")],
+    ["DATABASE_URL=postgresql://octopus@postgres:5432/octopus"],
+    ["DATABASE_URL=postgresql://octopus:@postgres:5432/octopus"],
+    ["DATABASE_URL=" + DATABASE_URL + "?sslmode=require"],
+    ["DATABASE_URL=" + DATABASE_URL + "#fragment"],
+    ["DATABASE_URL=" + DATABASE_URL, "DATABASE_URL=" + DATABASE_URL],
+    ["OTHER=value"],
+    ["DATABASE_URL=" + DATABASE_URL.replace(":5432/", ":invalid/")],
+    ["DATABASE_URL=" + DATABASE_URL.replace(":5432/", ":65536/")],
+    ["DATABASE_URL=" + DATABASE_URL.replace("@postgres:", "@[postgres:")],
+    ["DATABASE_URL="],
+    None,
+], ids=[
+    "wrong-user", "wrong-host", "wrong-port", "wrong-database", "wrong-scheme",
+    "missing-password", "empty-password", "query", "fragment", "duplicate", "absent",
+    "invalid-port", "port-out-of-range", "invalid-host", "empty-url", "missing-environment",
+])
+def test_database_url_shape_violation_blocks_without_disclosure_or_changes(operator, mode, web_environment):
+    execute, octopus, before_env, _ = operator
+    result, report, commands = execute(mode, state={"web_environment": web_environment})
+    assert (result.returncode == 0) is (mode == "preflight")
+    assert report["verdict"] == "blocked"
+    assert report["database_url_shape_ok"] is False
+    assert report["database_url_matches_compose"] is False
+    assert report["reasons"] == ["unexpected_database_url"]
+    assert not (octopus / "backups").exists()
+    assert (octopus / ".env").read_bytes() == before_env
+    assert all(not {"pull", "up", "stop", "run", "fetch"}.intersection(event["args"]) for event in commands)
 
 
 def test_missing_background_job_table_is_reported_as_null(operator):
