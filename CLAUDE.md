@@ -60,7 +60,9 @@ run 39113822236; receipts under `docs/operations/evidence/`); **`019` applied
 2026-10-26** (apply run 40338736148; copy-and-drop purge capability only, no
 payload change); **`020` applied 2026-10-27** (apply run 40551173291; swap lock
 order only, no payload change); **`021` applied 2026-10-28** (apply run
-40654201809; copy long-phase bounds only, no payload change). **Amendment
+40654201809; copy long-phase bounds only, no payload change); **`022` applied
+2026-10-31** (apply run 41180459540; copy keyset start only, no payload
+change). **Amendment
 2026-10-17 (owner):** the Finder goes live first — the 2026-10-11 pre-build
 purge ordering is superseded, and the governed purge of `ratings_v4_prod_p4`
 and `ratings_v4_prod_p4_opt1` (`docs/development/v3-governed-derived-purge-design.md`;

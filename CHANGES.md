@@ -11,6 +11,39 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Purge: opportunity relation done
+
+`v3_derived.economy_opportunity` now holds only the 740,001,532 published
+survivors. The first copy (runs 41140926027, 41155213939 and 41166416358)
+reached 486.2 million rows at 2.92, 6.85 and 9.06 s per 100,000-row chunk
+before the owner stopped it; `abandon-economy-opportunity` (run 41176670411)
+dropped the staging copy and left the live table untouched. Migration 022 was
+then applied (plan run 41180417409, apply run 41180459540) and the copy
+restarted from `prepare`: every chunk read took about 0.23 s (runs
+41181532586 and 41182249937; indexes built in 488 s, copy frozen in
+2,256 s), and run 41194211040 verified it in 1,592 s, including the foreign
+key to `body_mechanics`. `swap-economy-opportunity` (run 41198027388)
+swapped it in with a 0.11 s lock, recalibrated `n_distinct` for
+`system_id64` from fresh counts (75,539,150 systems over 740,001,532 rows,
+−0.10208), confirmed the archetype builder's chunk read still plans as a
+nested loop over `economy_opportunity_pkey` and passed the Finder smoke.
+`drop-economy-opportunity` (run 41206256540) repeated the count, statistics
+and plan check and the Finder smoke, then dropped the retired table, taking
+free space from 260.9 GB to 526.4 GB; backups are no longer skipped until
+`body_mechanics` prepares.
+
+The dispatcher's swap and drop steps for this relation were replayed on
+PostgreSQL 18 in the production order before they ran
+(`test_opportunity_swap_and_drop_replay_through_the_dispatcher`). The
+foreign-key checks still ahead on the route were also planned on a local
+1/100-scale model with production's planner settings (`random_page_cost` 4,
+`maintenance_work_mem` 2 GB): the opportunity → body checks and the body
+copy's check against the live vector plan as merge anti-joins over the two
+primary keys with no temporary files, and the body → vector check after the
+vector swap as a hash anti-join writing about 30 GB of temporary files, under
+its 32 GiB limit
+(`docs/operations/evidence/2026-10-31-v3-purge-fk-validation-planner-model.json`).
+
 ## 2026-10-31 — Purge chunk reads start at their keyset (migration 022)
 
 `copy-economy-opportunity` slowed from 2.92 s to 6.85 s per 100,000-row chunk
