@@ -4357,6 +4357,28 @@ export type OwnerClaimRequest = {
 };
 
 /**
+ * PlanBodiesV1
+ */
+export type PlanBodiesV1 = {
+    /**
+     * Generation Id
+     */
+    generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: string;
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * Bodies
+     */
+    bodies: Array<PlanSystemBodyV1>;
+};
+
+/**
  * PlanBodyV1
  */
 export type PlanBodyV1 = {
@@ -4716,6 +4738,84 @@ export type PlanSummaryV1 = {
      * Ignored
      */
     IGNORED: number;
+};
+
+/**
+ * PlanSystemBodyV1
+ */
+export type PlanSystemBodyV1 = {
+    /**
+     * Body Id
+     */
+    body_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Direct Parent Body Id
+     */
+    direct_parent_body_id: string | null;
+    /**
+     * Body Type
+     */
+    body_type: string | null;
+    /**
+     * Is Main Star
+     */
+    is_main_star: boolean | null;
+    /**
+     * Is Landable
+     */
+    is_landable: boolean | null;
+    /**
+     * Radius Km
+     */
+    radius_km: number | null;
+    /**
+     * Surface Gravity G
+     */
+    surface_gravity_g: number | null;
+    /**
+     * Surface Temperature K
+     */
+    surface_temperature_k: number | null;
+    /**
+     * Atmosphere
+     */
+    atmosphere: string | null;
+    /**
+     * Terraforming State
+     */
+    terraforming_state: string | null;
+    /**
+     * Volcanism
+     */
+    volcanism: string | null;
+    /**
+     * Distance From Arrival Ls
+     */
+    distance_from_arrival_ls: number | null;
+    /**
+     * Has Rings
+     */
+    has_rings: boolean;
+    /**
+     * Geological Signals
+     */
+    geological_signals: number;
+    /**
+     * Biological Signals
+     */
+    biological_signals: number;
+    /**
+     * Signals Complete
+     */
+    signals_complete: boolean | null;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
 };
 
 /**
@@ -12822,6 +12922,36 @@ export type GetV3PlanCatalogueResponses = {
 };
 
 export type GetV3PlanCatalogueResponse = GetV3PlanCatalogueResponses[keyof GetV3PlanCatalogueResponses];
+
+export type ListV3PlanBodiesData = {
+    body?: never;
+    path: {
+        /**
+         * System Id
+         */
+        system_id: string;
+    };
+    query?: never;
+    url: '/api/v1/plan/systems/{system_id}/bodies';
+};
+
+export type ListV3PlanBodiesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListV3PlanBodiesError = ListV3PlanBodiesErrors[keyof ListV3PlanBodiesErrors];
+
+export type ListV3PlanBodiesResponses = {
+    /**
+     * Successful Response
+     */
+    200: PlanBodiesV1;
+};
+
+export type ListV3PlanBodiesResponse = ListV3PlanBodiesResponses[keyof ListV3PlanBodiesResponses];
 
 export type EvaluateV3PlanData = {
     body: PlanRequestV1;

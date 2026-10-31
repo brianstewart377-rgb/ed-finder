@@ -1,11 +1,13 @@
-"""Database-free HTTP contracts for the V3 colony planner's pure core."""
+"""Database-free HTTP and dependency contracts for the V3 colony planner."""
 
 from __future__ import annotations
 
+import ast
 from dataclasses import asdict, fields
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 from fastapi import FastAPI
@@ -25,6 +27,7 @@ from edfinder_api.cpe.catalogue import planner_facilities, prerequisites_for  # 
 from edfinder_api.cpe.explain import explain_rule  # noqa: E402
 from edfinder_api.cpe.plan import validate_plan  # noqa: E402
 from edfinder_api.cpe.rules import RULEBOOK_RELEASE  # noqa: E402
+from edfinder_api.deps import get_readonly_pool  # noqa: E402
 from edfinder_api.mechanics import cp_rules  # noqa: E402
 from edfinder_api.routers import plan  # noqa: E402
 
@@ -303,10 +306,20 @@ async def test_explanations_include_plan_check_rules_and_demolished_steps(client
     assert body['summary']['IGNORED'] == 1
 
 
-def test_openapi_documents_operations_invalid_response_and_no_database_dependencies():
+def test_openapi_documents_operations_invalid_response_and_database_dependencies():
     app = _test_app()
     operations = app.openapi()['paths']
     assert operations['/api/v1/plan/catalogue']['get']['operationId'] == 'getV3PlanCatalogue'
+    bodies = operations['/api/v1/plan/systems/{system_id}/bodies']['get']
+    assert bodies['operationId'] == 'listV3PlanBodies'
+    assert bodies['responses']['200']['content']['application/json']['schema'] == {
+        '$ref': '#/components/schemas/PlanBodiesV1',
+    }
+    system_id = next(parameter for parameter in bodies['parameters'] if parameter['name'] == 'system_id')
+    assert system_id['in'] == 'path'
+    assert system_id['required'] is True
+    assert system_id['schema']['type'] == 'string'
+    assert system_id['schema']['pattern'] == '^[0-9]{1,19}$'
     evaluate = operations['/api/v1/plan/evaluate']['post']
     assert evaluate['operationId'] == 'evaluateV3Plan'
     assert evaluate['responses']['400']['content']['application/json']['schema'] == {
@@ -320,16 +333,42 @@ def test_openapi_documents_operations_invalid_response_and_no_database_dependenc
     routes = [route for route in plan.router.routes if isinstance(route, APIRoute)]
     assert {route.path for route in routes} == {
         '/api/v1/plan/catalogue', '/api/v1/plan/evaluate',
+        '/api/v1/plan/systems/{system_id}/bodies',
     }
     for route in routes:
         pending = list(route.dependant.dependencies)
+        dependency_calls = []
         while pending:
             dependency = pending.pop()
-            assert getattr(dependency.call, '__name__', '') not in {
-                'get_pool', 'get_readonly_pool',
-            }
+            dependency_calls.append(dependency.call)
             pending.extend(dependency.dependencies)
-        assert not route.dependant.dependencies
+        if route.path == '/api/v1/plan/systems/{system_id}/bodies':
+            assert dependency_calls == [get_readonly_pool]
+        else:
+            # Catalogue/evaluate remain strictly dependency-free, including
+            # indirect dependencies that could accidentally acquire a pool.
+            assert not dependency_calls
+            assert not route.dependant.dependencies
+
+
+def test_plan_sql_reads_no_derived_application_or_spatial_relations():
+    source = ast.parse((ROOT / 'apps/api/src/routers/plan.py').read_text(encoding='utf-8'))
+    sql_texts = []
+    for node in ast.walk(source):
+        if isinstance(node, ast.JoinedStr):
+            text = ''.join(
+                part.value for part in node.values
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value
+        else:
+            continue
+        if re.search(r'\b(?:SELECT|FROM|JOIN)\b', text, re.IGNORECASE):
+            sql_texts.append(text)
+    assert sql_texts, 'The canonical bodies queries must be covered by this guard'
+    for text in sql_texts:
+        assert not re.search(r'\bv3_(?:derived|app|spatial)\b', text, re.IGNORECASE), text
 
 
 def test_evaluate_has_sixty_per_minute_rate_limit():
