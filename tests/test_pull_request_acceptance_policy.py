@@ -277,7 +277,14 @@ def test_canonical_policy_requires_both_reviewers_on_latest_head():
     assert "chatgpt-codex-connector" in policy
     assert "codex review" in policy
     assert "octopus review" in policy
-    assert "both configured automated reviewers" in policy
+    assert (
+        "codex review (`chatgpt-codex-connector`) is required on every pr and must have "
+        "completed against the exact latest pr head sha"
+    ) in policy
+    assert (
+        "octopus review is required only when the pr is in octopus scope, and must then "
+        "have completed once on the final-candidate head against that exact sha"
+    ) in policy
     assert "exact latest pr head sha" in policy
     assert "record each reviewer's reviewed sha" in policy
     assert "any new commit invalidates all prior ci and reviewer evidence" in policy

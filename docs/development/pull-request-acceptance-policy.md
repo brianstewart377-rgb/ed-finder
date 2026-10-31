@@ -11,16 +11,18 @@ All of the following are mandatory:
 1. Every protected CI, security, coverage, and status check has completed
    successfully against the exact latest PR head SHA. Green CI alone is
    insufficient.
-2. Both configured automated reviewers have completed against that exact SHA:
-   - `chatgpt-codex-connector` (**Codex Review**)
-   - **Octopus Review**
+2. Codex Review (`chatgpt-codex-connector`) is required on every PR and must
+   have completed against the exact latest PR head SHA. Octopus Review is
+   required only when the PR is in Octopus scope, and must then have completed
+   once on the final-candidate head against that exact SHA.
 
-   A reviewer that did not auto-run must be explicitly triggered when the head
-   is being evaluated as a final merge candidate. Pending and still-reviewing
-   services must be awaited; ordinary pending or in-progress review cannot be
-   waived. This trigger obligation does not require Octopus to review every
-   intermediate implementation/remediation head; review cadence is defined
-   below.
+   A required reviewer that did not auto-run must be explicitly triggered when
+   the head is being evaluated as a final merge candidate. Pending and
+   still-reviewing services must be awaited; ordinary pending or in-progress
+   review cannot be waived. For Octopus, these obligations apply only to PRs
+   in Octopus scope. This trigger obligation does not require Octopus to review
+   every intermediate implementation/remediation head; review cadence is
+   defined below.
 3. Inspect every review surface with pagination: top-level PR conversation
    comments, formal review bodies, inline review comments, and unresolved
    review conversations/threads. Use `--paginate` or an equivalent complete
@@ -39,11 +41,11 @@ All of the following are mandatory:
 5. Any new commit invalidates all prior CI and reviewer evidence for merge
    eligibility on the new head. Re-run protected checks on the new head as
    normal. Do not automatically rerun Octopus on every intermediate head;
-   only trigger it after the new head again satisfies the final-candidate
-   criteria below. Before merge, both reviewer services must have completed
-   against the exact latest head; record each reviewer's reviewed SHA for that
-   head. The only exception is the docs-only update-merge rule below, which
-   applies to Octopus alone.
+   for PRs in Octopus scope, only trigger it after the new head again satisfies
+   the final-candidate criteria below. Before merge, Codex Review must have
+   completed against the exact latest head on every PR. Octopus Review must
+   also have completed against the exact latest head when the PR is in Octopus
+   scope. Record each reviewer's reviewed SHA for that head.
 
 Reviewer findings are evidence, not ground truth. Verify them against the
 actual code before acting: trace values to where they are persisted or used,
@@ -51,7 +53,50 @@ search the whole repository before declaring code unused, and read the relevant
 tests before claiming a gap. This verification discipline does not relax the
 requirement to disposition every substantive finding.
 
+## Octopus scope (owner decision 2026-10-31)
+
+Octopus is paid per review, so it reviews only PRs where a missed defect could
+damage production data, production hosts, credentials or sign-in.
+
+A PR is in Octopus scope when at least one file in its own diff against `main`
+(`git diff --name-only origin/main...HEAD`) matches any of these rules. Ignore
+Markdown (`.md`) files, which never put a PR in scope.
+
+1. `sql/` — database migrations and SQL.
+2. `.github/workflows/` — CI, deploy and Codex-bridge workflows.
+3. `deploy/` — production and checkpoint deployment.
+4. `scripts/operator/` and `scripts/rehearsal/` — production operator and
+   purge-rehearsal tooling.
+5. Any path outside `docs/` whose name contains `purge` (any letter case) — the
+   governed purge.
+6. Sign-in, identity and personal data: `apps/api/src/auth.py`,
+   `apps/api/src/routers/auth.py`, `apps/web/src/lib/auth/`,
+   `apps/api/src/edfinder_api/journal/`.
+
+Everything else is out of scope, including docs-only PRs, application and
+planner code, tests, generated API clients and dependency updates. Those PRs
+still need green protected CI, a completed Codex Review on the exact latest
+head, the paginated inspection of every review surface, and a recorded
+disposition for every substantive finding.
+
+For an out-of-scope PR, do not request Octopus. Record on the PR, before merge,
+a comment saying it is out of Octopus scope under the owner decision of
+2026-10-31, with the head SHA and the output of the scope check (the changed-file
+list).
+
+Scope is decided on the exact latest head. If a later commit adds an in-scope
+file, the PR becomes in scope and needs Octopus on its final-candidate head.
+
+The owner may request Octopus on any PR, or declare any PR in scope; then the
+normal Octopus rules apply to it.
+
+If Octopus reviews an out-of-scope PR anyway (for example the owner asked, or an
+automatic review ran), its findings are substantive findings like any other and
+need a recorded disposition.
+
 ## Final-candidate review cadence
+
+This cadence applies to PRs in Octopus scope.
 
 Octopus is a merge-candidate reviewer, not an iterative-edit reviewer. Paid or
 resource-heavy independent review must be concentrated on heads that are
@@ -96,47 +141,14 @@ and operators should still check it when Octopus reviews appear without being
 asked for.
 
 This cadence changes *when* Octopus is invoked, not the exact-head safety rule.
-Outside the one narrow case in the next section, a stale Octopus review from an
-earlier SHA can never contribute to merge eligibility.
+A stale Octopus review from an earlier SHA can never contribute to merge
+eligibility.
 
-## Docs-only update merges (owner decision 2026-10-30)
+## Docs-only update merges (superseded 2026-10-31)
 
-Branch protection on `main` requires a PR branch to be up to date before merge.
-When `main` moves, the branch has to merge it in, which makes a new head. The
-owner decided on 2026-10-30 that, for a docs-only PR, that alone does not need a
-fresh Octopus review.
-
-The Octopus review of an earlier head still counts for the new head **only when
-every one of these holds**:
-
-1. **Docs-only.** Every file in the PR's own diff against `main`
-   (`git diff --name-only origin/main...HEAD`) is under `docs/` or is a Markdown
-   (`.md`) file. No file is under `.github/`, `apps/`, `scripts/`, `sql/`,
-   `tests/` or `deploy/`.
-2. **Only update merges since the review.** Every commit after the
-   Octopus-reviewed head is a merge of `main` into the branch, made with no
-   conflict resolution and no other edit.
-3. **The PR's own lines are unchanged.** The added and removed lines of the PR's
-   own diff are identical at both heads. Line numbers may shift. Check it by
-   comparing the `+`/`-` lines of `git diff $(git merge-base origin/main <SHA>) <SHA>`,
-   leaving out the `+++`/`---` file headers, for the reviewed SHA and the new
-   head. Run against the current `origin/main`: `git merge-base` then gives each
-   head's own base.
-4. **The earlier Octopus review is settled.** It completed on the earlier head,
-   and every finding from it has a recorded disposition under the acceptance
-   gate.
-5. **Everything else is on the new exact head.** All protected CI checks are
-   green on the new head. Codex Review has completed on the new head with no
-   unresolved finding. The paginated inspection of every review surface is done
-   on the new head.
-6. **It is recorded on the PR.** A PR comment names the Octopus-reviewed SHA,
-   the new head SHA, the merge commits between them, and the result of check 3.
-
-If any condition fails, the normal rule applies and Octopus is requested again
-for the new head. That includes any edit to the PR's own text, any file outside
-the docs-only set, and any conflict resolution that touches the PR's lines.
-This rule never applies to code PRs. It changes nothing about Codex Review or
-CI, which still run on every head.
+The 2026-10-30 rule let a docs-only PR keep an earlier Octopus review across
+update merges of `main`. Since 2026-10-31 docs-only PRs are out of Octopus scope,
+so the rule no longer has any use. Codex Review and CI still run on every head.
 
 ## Reviewer failure and owner waiver
 

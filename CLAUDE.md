@@ -226,7 +226,7 @@ Actions workflow exercises the review journey on pull requests.
 
 Every pull request must satisfy the canonical [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md) before merge. Acceptance is fail-closed and must apply to the **exact latest PR head SHA**.
 
-Both Codex Review (`chatgpt-codex-connector`) and Octopus Review must satisfy that policy for the exact latest PR head SHA. **Green CI alone is insufficient**: every substantive reviewer finding must have an explicit recorded disposition and no substantive unresolved thread may remain before merge.
+Codex Review (`chatgpt-codex-connector`) must satisfy that policy for the exact latest PR head SHA on every PR, and Octopus Review must too when the PR is in the policy's Octopus scope. **Green CI alone is insufficient**: every substantive reviewer finding must have an explicit recorded disposition and no substantive unresolved thread may remain before merge.
 
 Required checks are defined by branch protection and current workflows. Do not weaken tests just to make a PR green.
 
