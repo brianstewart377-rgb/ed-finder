@@ -73,6 +73,17 @@
 #                                 read. Installation copies, swaps, drops or deletes no
 #                                 payload row. It must be applied before purge plan and
 #                                 authorize. Registration is not application.
+#
+#   022_v3_purge_keyset_start.sql is declared after 021 (production
+#                                 copy-economy-opportunity runs 41140926027 and
+#                                 41155213939: every chunk read walked the survivor
+#                                 index entries before its low key). It replaces 019's
+#                                 chunk copy, 021's verify and 016's request check:
+#                                 each chunk read starts at its keyset, and a purge
+#                                 authorized before 022 accepts exactly 022's own
+#                                 ledger row. Installation copies, swaps, drops or
+#                                 deletes no payload row. It is applied with no copy
+#                                 staged or swapped. Registration is not application.
 
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
@@ -93,3 +104,4 @@ a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf  010_v3_system_
 111f1aac4b6b8b0aea74e1c57ba1edd32f9ab39fa583d9969129e9208cfbee46  019_v3_purge_copy_and_drop.sql  v3/migrations/019_v3_purge_copy_and_drop.sql
 73f9bf7bf3b9d603046374f82239791fbcc78b139f0c33c46a3947fa64c0b23a  020_v3_purge_swap_lock_order.sql  v3/migrations/020_v3_purge_swap_lock_order.sql
 bdc73a55c13872343c116f8c5846e6989b0b2ffc583d397334ae05a157cbfd64  021_v3_purge_long_phase_bounds.sql  v3/migrations/021_v3_purge_long_phase_bounds.sql
+c69b2bf5eaef8c4deb0c18c562c18cd336159030b6f45bc46c913ef6809061ef  022_v3_purge_keyset_start.sql  v3/migrations/022_v3_purge_keyset_start.sql

@@ -252,6 +252,20 @@ newer dated source wins).
   larger relations' verify must be re-estimated against the 7,200 s statement
   bound and the 32 GiB temp-file limit.
 
+  **Keyset start (2026-10-31):** `copy-economy-opportunity` slowed from 2.92 s
+  to 6.85 s per 100,000-row chunk between runs 41140926027 and 41155213939
+  (391.4 million of 740.0 million rows copied): every chunk read, and every
+  verification re-read, started its index scan at the first survivor entry,
+  so the verification could never fit its 19,200 s bound. Migration
+  `022_v3_purge_keyset_start.sql` starts each read at its keyset and lets the
+  existing authorization accept exactly 022's own ledger row (runbook, fifth
+  amendment). Owner-approved order: copy run 3 (41166416358) finishes, then
+  `abandon-economy-opportunity`, then 022 is merged and applied through the
+  governed migration workflow, then the opportunities copy restarts. Between
+  the merge and the apply, application promotions refuse on the
+  schema-identity checksum and purge dispatches refuse on the ledger, as after
+  #891; none is planned in that window.
+
   **What does not change:**
   - Step P stays not runnable, and its design and gates are unchanged until the
     owner accepts a replacement.

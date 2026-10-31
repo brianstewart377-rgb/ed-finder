@@ -324,12 +324,13 @@ def test_second_database_full_manifest_adopts_same_executor_and_installs_local_p
                     # The canonical fixture's identity/journal tables belong to
                     # its administrator; install their migrations as that owner.
                     # The derived lineage (including 016) belongs to the app.
-                    # 019 (copy-and-drop), 020 (its swap lock order) and 021
-                    # (its long-phase bounds) must be installed by the same
-                    # payload owner.
+                    # 019 (copy-and-drop), 020 (its swap lock order), 021
+                    # (its long-phase bounds) and 022 (its keyset start) must be
+                    # installed by the same payload owner.
                     if creator == 'non_superuser' and migration.name in (
                             *CHAIN, PURGE_MIGRATION, '019_v3_purge_copy_and_drop.sql',
-                            '020_v3_purge_swap_lock_order.sql', '021_v3_purge_long_phase_bounds.sql'):
+                            '020_v3_purge_swap_lock_order.sql', '021_v3_purge_long_phase_bounds.sql',
+                            '022_v3_purge_keyset_start.sql'):
                         connection.execute('SET SESSION AUTHORIZATION edfinder_v3')
                     connection.execute(migration.read_text())
                     connection.execute('RESET SESSION AUTHORIZATION')

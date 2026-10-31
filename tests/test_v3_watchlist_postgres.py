@@ -50,14 +50,15 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
         '016_v3_governed_derived_purge.sql',
     ]
     # That transition was applied on 2026-10-18 (apply run 39113822236), 019 on
-    # 2026-10-26 (apply run 40338736148) and 020 on 2026-10-27 (apply run
-    # 40551173291); the registered transition is now through-020 -> through-021
-    # (copy long-phase bounds).
-    assert [entry['ledger_name'] for entry in entries[stop + 6:stop + 8]] == [
-        '019_v3_purge_copy_and_drop.sql', '020_v3_purge_swap_lock_order.sql']
-    before = entries[:stop + 8]
-    tail = entries[stop + 8:]
-    assert [entry['ledger_name'] for entry in tail] == ['021_v3_purge_long_phase_bounds.sql']
+    # 2026-10-26 (apply run 40338736148), 020 on 2026-10-27 (apply run
+    # 40551173291) and 021 on 2026-10-28 (apply run 40654201809); the registered
+    # transition is now through-021 -> through-022 (copy keyset start).
+    assert [entry['ledger_name'] for entry in entries[stop + 6:stop + 9]] == [
+        '019_v3_purge_copy_and_drop.sql', '020_v3_purge_swap_lock_order.sql',
+        '021_v3_purge_long_phase_bounds.sql']
+    before = entries[:stop + 9]
+    tail = entries[stop + 9:]
+    assert [entry['ledger_name'] for entry in tail] == ['022_v3_purge_keyset_start.sql']
     applied, pending = migrate.plan_migrations(entries, before)
     assert applied == before and pending == tail
     before_document = {
@@ -73,12 +74,13 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
     assert transition['to_migration_set_identity'] == document['migration_set_identity']
     assert authority['external_authority']['schema_identity_sha256'] == hashlib.sha256(target_payload).hexdigest()
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # 021 is applied (2026-10-28). The accepted fourth F2d release (1e748c9d)
-    # attests the installed through-021 identity only; never the superseded
+    # The accepted fourth F2d release (1e748c9d) attests the installed through-021
+    # identity and the registered through-022 target; never the superseded
     # through-012 or through-020 sources.
     through_012 = identity.migration_set_identity(entries[:stop])
-    assert through_012 not in compatible
-    assert before_document['migration_set_identity'] not in compatible
+    through_020 = identity.migration_set_identity(entries[:stop + 8])
+    assert through_012 not in compatible and through_020 not in compatible
+    assert before_document['migration_set_identity'] in compatible
     assert document['migration_set_identity'] in compatible
 
 

@@ -137,7 +137,7 @@ def test_004_never_touches_canonical_truth():
 
 
 def test_governed_purge_is_registered_immediately_after_product_publication():
-    assert _entries()[-5:] == [
+    assert _entries()[-6:] == [
         ("015_v3_derived_product_publication.sql",
          "sql/v3/migrations/015_v3_derived_product_publication.sql"),
         ("016_v3_governed_derived_purge.sql",
@@ -148,6 +148,8 @@ def test_governed_purge_is_registered_immediately_after_product_publication():
          "sql/v3/migrations/020_v3_purge_swap_lock_order.sql"),
         ("021_v3_purge_long_phase_bounds.sql",
          "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql"),
+        ("022_v3_purge_keyset_start.sql",
+         "sql/v3/migrations/022_v3_purge_keyset_start.sql"),
     ]
 
 
@@ -222,6 +224,84 @@ def test_021_only_bounds_the_copy_long_phases():
     chunk = _function((ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text(), "purge_copy_chunk")
     assert "WHERE derived_generation_id=$1%2$s ORDER BY %3$s LIMIT $3" in chunk
     assert "CASCADE" not in source
+
+
+def test_022_only_moves_the_keyset_start_and_tolerates_its_own_ledger_row():
+    source = (ROOT / "sql/v3/migrations/022_v3_purge_keyset_start.sql").read_text()
+    assert re.findall(r"CREATE (?:OR REPLACE )?FUNCTION v3_meta\.(\w+)\(", source) == [
+        "purge_copy_keyset", "purge_copy_chunk", "purge_copy_verify", "purge_assert_request",
+    ]
+    assert source.count("CREATE OR REPLACE FUNCTION") == 3 and source.count("CREATE FUNCTION") == 1
+    top_level = re.sub(r"CREATE(?: OR REPLACE)? FUNCTION\b.*?\$\$.*?\$\$;", "", source,
+                       flags=re.DOTALL | re.IGNORECASE)
+    top_level = re.sub(r"--[^\n]*", "", top_level)
+    top_level = re.sub(r"'[^']*'", "''", top_level)
+    # Installation creates no relation and writes no row; the only privilege
+    # statement takes the new internal helper away from PUBLIC.
+    assert re.findall(r"\b(?:GRANT|REVOKE)\b.*", top_level) == [
+        "REVOKE ALL ON FUNCTION v3_meta.purge_copy_keyset(text,boolean) FROM PUBLIC;"]
+    assert not re.search(r"\b(?:CREATE\s+(?:TABLE|VIEW|SCHEMA|INDEX|ROLE)|ALTER\s+(?:TABLE|VIEW|FUNCTION)|DROP|"
+                         r"INSERT|UPDATE|DELETE|TRUNCATE|VACUUM|GRANT)\b", top_level, re.IGNORECASE)
+    assert "CASCADE" not in source
+    migration_016 = (ROOT / "sql/v3/migrations/016_v3_governed_derived_purge.sql").read_text()
+    migration_019 = (ROOT / "sql/v3/migrations/019_v3_purge_copy_and_drop.sql").read_text()
+    migration_021 = (ROOT / "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql").read_text()
+
+    def replaced(text, *pairs):
+        for old, new in pairs:
+            assert text.count(old) == 1, old
+            text = text.replace(old, new, 1)
+        return text
+
+    # 019's chunk copy with only the keyset predicate moved into the helper.
+    assert _function(source, "purge_copy_chunk") == replaced(
+        _function(migration_019, "purge_copy_chunk"),
+        ("CREATE FUNCTION v3_meta.purge_copy_chunk(", "CREATE OR REPLACE FUNCTION v3_meta.purge_copy_chunk("),
+        ("order_ text; key_ text; after_ text;", "order_ text; key_ text; keyset_ text;"),
+        ("    after_ := CASE WHEN last_ IS NULL THEN '' ELSE\n"
+         "        format(' AND (%s) > ($1,%s)',order_,v3_meta.purge_copy_key_params(code_,2)) END;\n",
+         "    -- 022: the first chunk reads from the start of the generation, every later\n"
+         "    -- chunk from the row after the last copied key (see the header).\n"
+         "    keyset_ := CASE WHEN last_ IS NULL THEN 'derived_generation_id=$1'\n"
+         "        ELSE v3_meta.purge_copy_keyset(code_,false) END;\n"),
+        ("SELECT * FROM %1$s WHERE derived_generation_id=$1%2$s ORDER BY %3$s LIMIT $3)",
+         "SELECT * FROM %1$s WHERE %2$s ORDER BY %3$s LIMIT $3)"),
+        ("FROM chosen c',live_,after_,order_,staging_,key_)", "FROM chosen c',live_,keyset_,order_,staging_,key_)"),
+    )
+    # 021's verification with only the per-chunk re-read's predicate replaced.
+    assert _function(source, "purge_copy_verify") == replaced(
+        _function(migration_021, "purge_copy_verify"),
+        ("frozen_ bigint; order_ text; key_ text; after_ text;", "frozen_ bigint; order_ text; key_ text; keyset_ text;"),
+        ("    -- so the scan stops after that chunk; see the header.\n"
+         "    after_ := format('(%s) >= ($1,%s)',order_,v3_meta.purge_copy_key_params(code_,2));\n",
+         "    -- so the scan stops after that chunk; see the header. 022: and it starts\n"
+         "    -- at that low key, not at the start of the generation (022's header).\n"
+         "    keyset_ := v3_meta.purge_copy_keyset(code_,true);\n"),
+        ("SELECT * FROM %3$s WHERE derived_generation_id=$1 AND %4$s\n", "SELECT * FROM %3$s WHERE %4$s\n"),
+        ("FROM chosen c',key_,order_,staging_,after_)", "FROM chosen c',key_,order_,staging_,keyset_)"),
+    )
+    # 016's request check: the marked block is the only change, and it is the
+    # same ledger hash, compared whole or without exactly 022's own row.
+    request = _function(source, "purge_assert_request")
+    blocks = re.findall(r"^ *-- 022 begin.*?^ *-- 022 end\n", request, flags=re.DOTALL | re.MULTILINE)
+    assert len(blocks) == 1
+    ledger = ("encode(sha256(convert_to(COALESCE(jsonb_agg(jsonb_build_array(migration_name,\n"
+              "          encode(migration_sha256,'hex')) ORDER BY migration_name)::text,'[]'),'UTF8')),'hex')\n")
+    original_check = ("    IF (SELECT " + ledger + "          FROM v3_meta.schema_migration) IS DISTINCT FROM "
+                      "r.frozen_snapshot->>'schema_ledger_sha256' THEN\n"
+                      "        RAISE EXCEPTION 'purge schema ledger drift';\n    END IF;\n")
+    assert re.sub(r"^ *-- 022 begin.*?^ *-- 022 end\n", original_check, request,
+                  flags=re.DOTALL | re.MULTILINE) == replaced(
+        _function(migration_016, "purge_assert_request"),
+        ("CREATE FUNCTION v3_meta.purge_assert_request(", "CREATE OR REPLACE FUNCTION v3_meta.purge_assert_request("))
+    assert blocks[0].count("FROM v3_meta.schema_migration") == 2 and blocks[0].count(ledger) == 2
+    assert "WHERE migration_name<>'022_v3_purge_keyset_start.sql')" in blocks[0]
+    assert blocks[0].count("RAISE EXCEPTION 'purge schema ledger drift';") == 1 and " AND (SELECT " in blocks[0]
+    # The helper bounds the generation with <= (never =) and reuses 019's key text.
+    helper = _function(source, "purge_copy_keyset")
+    assert "derived_generation_id<=$1 AND (%s) %s ($1,%s)" in helper
+    assert "v3_meta.purge_copy_order_columns(code_)" in helper and "v3_meta.purge_copy_key_params(code_,2)" in helper
+    assert "LANGUAGE plpgsql STABLE SET search_path=pg_catalog" in helper and "SECURITY DEFINER" not in helper
 
 
 def test_020_only_replaces_the_swap_locking():
