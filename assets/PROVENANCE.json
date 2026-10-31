@@ -74,7 +74,7 @@
       "rights_status": "noncommercial_only",
       "commercial_use_approved": false,
       "notice_reference": "docs/reference/colonisation/cre-rulebook/rulebook.json",
-      "notes": "Reference data for the parity test (tests/test_cre_rulebook_parity.py); not read by any build or runtime. Held as noncommercial_only because it describes Elite Dangerous mechanics and quotes the Mega Guide, whose Frontier permission covers non-commercial purposes; the CC BY-SA 4.0 share-alike terms apply to the quoted passages."
+      "notes": "Pinned rule authority for the parity test (tests/test_cre_rulebook_parity.py) and the CPE runtime copy at apps/api/src/cpe/data/rulebook.json. Held as noncommercial_only because it describes Elite Dangerous mechanics and quotes the Mega Guide, whose Frontier permission covers non-commercial purposes; the CC BY-SA 4.0 share-alike terms apply to the quoted passages."
     },
     {
       "filename": "docs/reference/colonisation/sources/mega-guide-v2.3.0/mega-guide-v2.3.0.txt",
