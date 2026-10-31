@@ -873,31 +873,9 @@ export function normaliseMyWorkRecord(
 }
 
 function normalisePlacements(value: unknown): JsonRecord[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((placement, index) => {
-    if (!isRecord(placement)) return [];
-    if (
-      typeof placement.facility_template_id !== 'string' ||
-      !placement.facility_template_id.trim()
-    )
-      return [];
-    return [
-      {
-        facility_template_id: placement.facility_template_id,
-        local_body_id:
-          placement.local_body_id === null ||
-          placement.local_body_id === undefined
-            ? null
-            : String(placement.local_body_id),
-        is_primary_port: Boolean(placement.is_primary_port),
-        build_order:
-          typeof placement.build_order === 'number' &&
-          Number.isFinite(placement.build_order)
-            ? placement.build_order
-            : index + 1,
-      },
-    ];
-  });
+  // Placements are versioned by their owning planner. V2 items are read-only
+  // evidence and CPE items must survive hydration without legacy conversion.
+  return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
 function normaliseColonyStatus(value: unknown): ColonyProjectRecord['status'] {
@@ -918,7 +896,15 @@ export function normaliseColonyProjectRecord(
       : [];
   const projects: Record<string, ColonyProjectRecord> = {};
   for (const candidate of candidates) {
-    const normalised = canonicaliseIds(candidate);
+    if (!isRecord(candidate)) continue;
+    // These opaque planner-owned values must remain byte-for-byte JSON values,
+    // including unknown V2 fields and assignment namespaces owned elsewhere.
+    const {
+      build_plan_placements: placements,
+      selected_body_assignments: assignments,
+      ...projectFields
+    } = candidate;
+    const normalised = canonicaliseIds(projectFields);
     if (
       !isRecord(normalised) ||
       typeof normalised.id !== 'string' ||
@@ -930,12 +916,8 @@ export function normaliseColonyProjectRecord(
       ...normalised,
       id: normalised.id,
       system_id64: normalised.system_id64 as Id64,
-      build_plan_placements: normalisePlacements(
-        normalised.build_plan_placements,
-      ),
-      selected_body_assignments: isRecord(normalised.selected_body_assignments)
-        ? normalised.selected_body_assignments
-        : {},
+      build_plan_placements: normalisePlacements(placements),
+      selected_body_assignments: isRecord(assignments) ? assignments : {},
       declared_roles: Array.isArray(normalised.declared_roles)
         ? normalised.declared_roles.filter(isRecord)
         : [],

@@ -1,0 +1,461 @@
+import { describe, expect, it } from 'vitest';
+import type { PlanBodiesV1, PlanFacilityV1, PlanSystemBodyV1 } from '$lib/api';
+import { colonyProjectsCodec } from '$lib/persistence/storage';
+import { resolvePlanLocations } from './locations';
+import {
+  MAX_IMPORT_BYTES,
+  addSite,
+  canMoveSite,
+  countUsedSlots,
+  emptyPlan,
+  exportPlan,
+  findFreeLocation,
+  findPlannerProject,
+  importPlan,
+  insertSiteBefore,
+  moveSite,
+  plannerToRecord,
+  recordToPlanner,
+  rejectInvalidLocations,
+  removeSite,
+  replacePlan,
+  setSlotCount,
+  toPlanRequest,
+  updateSite,
+  unplaceMissingLocations,
+  type PlannerModel,
+  type PlannerSite,
+} from './model';
+
+function site(id: string, overrides: Partial<PlannerSite> = {}): PlannerSite {
+  return {
+    schema: 'cpe_site_v1',
+    site_id: id,
+    facility_id: 'outpost',
+    body_ref: '1',
+    slot_kind: 'orbital',
+    status: 'planned',
+    name: '',
+    ...overrides,
+  };
+}
+
+function plan(...sites: PlannerSite[]): PlannerModel {
+  return { ...emptyPlan('42'), sites };
+}
+
+function body(id: string, type = 'planet'): PlanSystemBodyV1 {
+  return {
+    body_id: id,
+    name: `Test ${id}`,
+    direct_parent_body_id: null,
+    body_type: type,
+    is_main_star: false,
+    is_landable: true,
+    radius_km: null,
+    surface_gravity_g: null,
+    surface_temperature_k: null,
+    atmosphere: null,
+    terraforming_state: null,
+    volcanism: null,
+    distance_from_arrival_ls: null,
+    has_rings: false,
+    geological_signals: 0,
+    biological_signals: 0,
+    signals_complete: null,
+    lifecycle_state: 'active',
+  };
+}
+
+function bodies(): PlanBodiesV1 {
+  return {
+    system_id64: '42',
+    generation_id: 'fixture',
+    publication_sequence: '1',
+    bodies: [
+      body('1'),
+      body('2', 'barycentre'),
+      { ...body('3', 'belt cluster'), name: 'Test A Belt Cluster 8' },
+      { ...body('4', 'belt cluster'), name: 'Test A Belt Cluster 1' },
+    ],
+    belts: [
+      {
+        belt_id: '10',
+        parent_body_id: '1',
+        name: 'Test A Belt',
+        ring_type: null,
+        reserve: null,
+        mass_mt: null,
+        inner_radius_km: null,
+        outer_radius_km: null,
+      },
+    ],
+  };
+}
+
+describe('planner persistence codec', () => {
+  it('round trips through the existing colonyProjects envelope and keeps V2 items and other assignments exactly', () => {
+    const model = setSlotCount(
+      plan(
+        site('one'),
+        site('two', { body_ref: null, name: 'Named installation' }),
+      ),
+      '1',
+      'orbital',
+      4,
+    );
+    const legacy = {
+      facility_template_id: 'old-v2',
+      local_body_id: 9,
+      arbitrary: { source_id64: 123, unknown: [false, null] },
+      is_primary_port: true,
+    };
+    const existing = plannerToRecord(emptyPlan('42'), undefined, {
+      id: 'legacy-project',
+      now: '2026-01-01',
+      systemName: 'Test',
+    });
+    existing.build_plan_placements = [legacy];
+    existing.selected_body_assignments = {
+      old_assignment: { system_id64: 123, unknown: 'preserved' },
+    };
+    const record = plannerToRecord(model, existing, { now: '2026-02-01' });
+    const decoded = colonyProjectsCodec.decode(
+      colonyProjectsCodec.encode({
+        version: 3,
+        state: { projects: { [record.id]: record } },
+      }),
+    );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw new Error('Expected stored plan to hydrate');
+    const restored = decoded.value.state.projects[record.id];
+    expect(recordToPlanner(restored)).toEqual(model);
+    expect(restored.build_plan_placements[0]).toEqual(legacy);
+    expect(restored.selected_body_assignments.old_assignment).toEqual(
+      existing.selected_body_assignments.old_assignment,
+    );
+    expect(restored.id).toBe('legacy-project');
+    expect(restored.created_at).toBe('2026-01-01');
+    expect(restored.updated_at).toBe('2026-02-01');
+  });
+
+  it('follows the colony-system-UUID ID convention and reuses the planner project', () => {
+    const old = plannerToRecord(emptyPlan('42'));
+    const current = plannerToRecord(plan(site('one')));
+    expect(current.id).toMatch(/^colony-42-[a-f\d-]+$/);
+    expect(findPlannerProject({ old, current }, '42')?.id).toBe(current.id);
+    expect(findPlannerProject({ current }, '43')).toBeUndefined();
+    expect(() => plannerToRecord(emptyPlan('43'), old)).toThrow(
+      'another system',
+    );
+  });
+
+  it('writes just planner-owned slots and preserves unknown counts as null', () => {
+    const model = setSlotCount(emptyPlan('42'), 'belt:10', 'orbital', 0);
+    expect(model.slots).toEqual({
+      'belt:10': { orbital_slots: 0, surface_slots: null },
+    });
+    expect(recordToPlanner(plannerToRecord(model))).toEqual(model);
+    expect(() => setSlotCount(model, '1', 'surface', 65)).toThrow('0 to 64');
+    expect(() => setSlotCount(model, '1', 'surface', 1.5)).toThrow('0 to 64');
+  });
+});
+
+describe('planner request and slots', () => {
+  it('maps every non-cluster body and one resolved belt to the API with no computed CP', () => {
+    const model = setSlotCount(
+      setSlotCount(plan(site('one', { body_ref: '4' })), '1', 'surface', 7),
+      '4',
+      'orbital',
+      5,
+    );
+    const request = toPlanRequest(model, bodies());
+    expect(request.bodies).toEqual([
+      {
+        body_ref: '1',
+        orbital_slots: null,
+        surface_slots: 7,
+        is_landable: true,
+        is_ringed: false,
+      },
+      {
+        body_ref: '2',
+        orbital_slots: null,
+        surface_slots: null,
+        is_landable: true,
+        is_ringed: false,
+      },
+      {
+        body_ref: '4',
+        orbital_slots: 5,
+        surface_slots: 0,
+        is_landable: false,
+        is_ringed: true,
+      },
+    ]);
+    expect(request.sites).toEqual([
+      {
+        site_id: 'one',
+        facility_id: 'outpost',
+        body_ref: '4',
+        slot_kind: 'orbital',
+        status: 'planned',
+        name: '',
+      },
+    ]);
+    expect(() => toPlanRequest(emptyPlan('43'), bodies())).toThrow(
+      'different system',
+    );
+  });
+
+  it('maps fallback belts exactly once and never maps unmatched clusters', () => {
+    const data = bodies();
+    data.belts[0].name = 'Missing cluster';
+    expect(
+      toPlanRequest(emptyPlan('42'), data).bodies?.map(
+        ({ body_ref }) => body_ref,
+      ),
+    ).toEqual(['1', '2', 'belt:10']);
+  });
+
+  it('rejects imported sites on hidden clusters and barycentres, but accepts the resolved belt', () => {
+    expect(() =>
+      rejectInvalidLocations(plan(site('hidden', { body_ref: '3' })), bodies()),
+    ).toThrow('not a buildable location');
+    expect(() =>
+      rejectInvalidLocations(
+        plan(site('barycentre', { body_ref: '2' })),
+        bodies(),
+      ),
+    ).toThrow('not a buildable location');
+    expect(() =>
+      rejectInvalidLocations(plan(site('belt', { body_ref: '4' })), bodies()),
+    ).not.toThrow();
+    expect(() =>
+      rejectInvalidLocations(
+        plan(site('unknown', { body_ref: 'missing' })),
+        bodies(),
+      ),
+    ).not.toThrow();
+  });
+
+  it('explicitly unplaces missing foreign-import locations without rewriting the original model', () => {
+    const imported = plan(
+      site('missing', { body_ref: 'missing' }),
+      site('hidden', { body_ref: '3' }),
+      site('belt', { body_ref: '4' }),
+    );
+    expect(
+      unplaceMissingLocations(imported, bodies()).sites.map(
+        ({ body_ref }) => body_ref,
+      ),
+    ).toEqual([null, null, '4']);
+    expect(imported.sites[0].body_ref).toBe('missing');
+    expect(() =>
+      rejectInvalidLocations(
+        unplaceMissingLocations(imported, bodies()),
+        bodies(),
+      ),
+    ).not.toThrow();
+  });
+
+  it('counts all occupied statuses except demolished, separately per location and slot kind', () => {
+    expect(
+      countUsedSlots(
+        [
+          site('1'),
+          site('2', { status: 'building' }),
+          site('3', { status: 'complete', slot_kind: 'surface' }),
+          site('4', { status: 'demolished' }),
+          site('5', { body_ref: null }),
+          site('6', { body_ref: 'other' }),
+        ],
+        '1',
+      ),
+    ).toEqual({ orbital_slots: 2, surface_slots: 1 });
+  });
+
+  it('places payer suggestions only in known compatible free slots, otherwise unplaced', () => {
+    const locations = resolvePlanLocations(bodies());
+    const orbital = { allowed_location: 'orbital' } as PlanFacilityV1;
+    const ringed = { allowed_location: 'orbital_ringed' } as PlanFacilityV1;
+    const model = setSlotCount(
+      setSlotCount(plan(site('used')), '1', 'orbital', 1),
+      '4',
+      'orbital',
+      1,
+    );
+    expect(findFreeLocation(model, locations, orbital)).toBe('4');
+    expect(findFreeLocation(model, locations, ringed)).toBe('4');
+    expect(
+      findFreeLocation(
+        addSite(model, site('belt', { body_ref: '4' })),
+        locations,
+        orbital,
+      ),
+    ).toBeNull();
+    expect(findFreeLocation(emptyPlan('42'), locations, orbital)).toBeNull();
+  });
+});
+
+describe('planner actions', () => {
+  it('appends and inserts immutable planned sites in order', () => {
+    const initial = plan(site('primary'), site('last'));
+    const appended = addSite(initial, site('new'));
+    expect(initial.sites).toHaveLength(2);
+    expect(appended.sites.map(({ site_id }) => site_id)).toEqual([
+      'primary',
+      'last',
+      'new',
+    ]);
+    expect(
+      insertSiteBefore(
+        initial,
+        site('payer', { status: 'complete' }),
+        'last',
+      ).sites.map(({ site_id, status }) => [site_id, status]),
+    ).toEqual([
+      ['primary', 'planned'],
+      ['payer', 'planned'],
+      ['last', 'planned'],
+    ]);
+    expect(() => insertSiteBefore(initial, site('payer'), 'primary')).toThrow(
+      'before the Primary Port',
+    );
+    expect(() => addSite(initial, site('last'))).toThrow('unique');
+  });
+
+  it('allows adjacent planned steps to move without crossing the Primary Port or fixed statuses', () => {
+    const initial = plan(
+      site('primary'),
+      site('first'),
+      site('last'),
+      site('building', { status: 'building' }),
+    );
+    expect(
+      moveSite(initial, 'last', 'up').sites.map(({ site_id }) => site_id),
+    ).toEqual(['primary', 'last', 'first', 'building']);
+    expect(
+      moveSite(initial, 'first', 'down').sites.map(({ site_id }) => site_id),
+    ).toEqual(['primary', 'last', 'first', 'building']);
+    for (const [id, direction] of [
+      ['primary', 'down'],
+      ['first', 'up'],
+      ['last', 'down'],
+      ['building', 'up'],
+    ] as const) {
+      expect(canMoveSite(initial, id, direction)).toBe(false);
+      expect(() => moveSite(initial, id, direction)).toThrow('planned builds');
+    }
+  });
+
+  it('renames, moves, changes status and removes non-protected sites', () => {
+    const initial = plan(site('primary'), site('second'));
+    const updated = updateSite(initial, 'second', {
+      name: 'Mine',
+      status: 'complete',
+      body_ref: '2',
+    });
+    expect(updated.sites[1]).toMatchObject({
+      name: 'Mine',
+      status: 'complete',
+      body_ref: '2',
+    });
+    expect(initial.sites[1].name).toBe('');
+    expect(removeSite(updated, 'second').sites).toHaveLength(1);
+    expect(() =>
+      updateSite(initial, 'second', { name: 'x'.repeat(65) }),
+    ).toThrow('64');
+  });
+
+  it('protects a completed Primary Port from move, remove, facility or status changes and import replacement', () => {
+    const initial = plan(site('primary', { status: 'complete' }), site('next'));
+    expect(() => removeSite(initial, 'primary')).toThrow('RB-0008');
+    expect(() => moveSite(initial, 'primary', 'down')).toThrow();
+    for (const patch of [
+      { body_ref: 'other' },
+      { facility_id: 'other' },
+      { status: 'planned' as const },
+      { slot_kind: 'surface' as const },
+    ])
+      expect(() => updateSite(initial, 'primary', patch)).toThrow('RB-0008');
+    expect(updateSite(initial, 'primary', { name: 'Home' }).sites[0].name).toBe(
+      'Home',
+    );
+    expect(() => replacePlan(initial, plan())).toThrow('RB-0008');
+    expect(() =>
+      replacePlan(initial, plan(site('new', { status: 'complete' }))),
+    ).toThrow('RB-0008');
+    expect(
+      replacePlan(initial, updateSite(initial, 'primary', { name: 'Home' }))
+        .sites[0].name,
+    ).toBe('Home');
+  });
+
+  it('blocks adding or inserting above the 300-site API limit', () => {
+    const full = plan(
+      ...Array.from({ length: 300 }, (_, index) => site(String(index))),
+    );
+    expect(() => addSite(full, site('overflow'))).toThrow('at most 300');
+    expect(() => insertSiteBefore(full, site('overflow'), '1')).toThrow(
+      'at most 300',
+    );
+  });
+});
+
+describe('plan JSON exchange', () => {
+  it('exports the versioned planner-only shape and imports it without loss', () => {
+    const original = setSlotCount(plan(site('primary')), '1', 'orbital', 3);
+    const text = exportPlan(original);
+    expect(JSON.parse(text)).toEqual({
+      schema: 'cpe_plan_export_v1',
+      ...original,
+    });
+    expect(importPlan(text, '42')).toEqual(original);
+  });
+
+  it('requires explicit confirmation for another system and adopts the current system after confirmation', () => {
+    const text = exportPlan(plan(site('primary')));
+    expect(() => importPlan(text, '43')).toThrow('another system');
+    expect(
+      importPlan(text, '43', { confirmOtherSystem: true }).system_id64,
+    ).toBe('43');
+  });
+
+  it('rejects malformed, oversized, duplicate, out-of-range and incorrectly versioned imports', () => {
+    const exported = JSON.parse(exportPlan(plan(site('primary'))));
+    for (const value of [
+      { ...exported, schema: 'v2' },
+      { ...exported, system_id64: 42 },
+      { ...exported, sites: [site('same'), site('same')] },
+      { ...exported, sites: [{ ...site('bad-status'), status: ['planned'] }] },
+      { ...exported, sites: [site('long', { name: 'x'.repeat(65) })] },
+      { ...exported, sites: [site('x'.repeat(65))] },
+      { ...exported, sites: [site('long', { facility_id: 'x'.repeat(65) })] },
+      { ...exported, sites: [site('long', { body_ref: 'x'.repeat(65) })] },
+      {
+        ...exported,
+        sites: Array.from({ length: 301 }, (_, index) => site(String(index))),
+      },
+      {
+        ...exported,
+        slots: { '1': { orbital_slots: 65, surface_slots: null } },
+      },
+      { ...exported, slots: null },
+      {
+        ...exported,
+        slots: {
+          ['x'.repeat(65)]: { orbital_slots: null, surface_slots: null },
+        },
+      },
+    ])
+      expect(() => importPlan(JSON.stringify(value), '42')).toThrow();
+    expect(() => importPlan('{broken', '42')).toThrow('valid JSON');
+    expect(() => importPlan(' '.repeat(MAX_IMPORT_BYTES + 1), '42')).toThrow(
+      '2 MB',
+    );
+    expect(() =>
+      importPlan('é'.repeat(MAX_IMPORT_BYTES / 2 + 1), '42'),
+    ).toThrow('2 MB');
+  });
+});
