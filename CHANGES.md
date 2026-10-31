@@ -11,6 +11,26 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — CI: Finder derived-data lane in three time-balanced shards
+
+The PostgreSQL 18 Finder derived-data lane now uses three shards balanced by
+measured module seconds. Its former two-shard byte-size split took 35:32 /
+15:18 on PR #936, making the lane the PR critical path. A local PostgreSQL 18
+run measured `test_v3_governed_derived_purge.py` alone at 2,079.6 s of
+3,608.7 s across 40 modules, so keeping every module whole could not balance
+three shards. A pytest plugin collects every discovered module on every shard,
+splits the dominant module at test level, keeps smaller modules whole, and
+assigns each test exactly once with deterministic greedy balancing. The
+45-minute pytest bound and disposable-database guardrails are unchanged.
+
+Each shard uploads per-test phase durations. To refresh the weights, download
+all three `finder-derived-data-durations-*` artifacts from one green run, run
+`python scripts/ci/finder_derived_data_weights.py --measured "DATE: run evidence"
+finder-derived-data-durations-{1,2,3}.json > scripts/ci/finder_derived_data_weights.json`,
+and commit the new weights file. The refresh tool refuses incomplete, failed
+or overlapping shard results; new modules use a byte-size fallback calibrated
+by the measured modules until the next refresh.
+
 ## 2026-10-31 — Codex worker model pin moved to `gpt-6-astra` at `xhigh` effort
 
 By owner decision, the Contabo Codex worker moves from `gpt-6.1-sol` at
