@@ -29,6 +29,7 @@
     evaluation,
     selectedBody,
     stale,
+    hidden = false,
     onselectbody,
     onselectsite,
     onslot,
@@ -41,6 +42,7 @@
     evaluation: PlanEvaluationV1 | null;
     selectedBody: string | null;
     stale: boolean;
+    hidden?: boolean;
     onselectbody: (ref: string) => void;
     onselectsite: (id: string) => void;
     onslot: (
@@ -108,45 +110,84 @@
   }
 </script>
 
-{#snippet tiles(sites: PlannerSite[])}
-  <div class="plan-tiles">
-    {#each sites as site (site.site_id)}
-      {@const step = steps.get(site.site_id)}
-      {@const facility = facilityById.get(site.facility_id)}
-      <button
-        type="button"
-        class="plan-tile"
-        class:blocked={step?.result === 'BLOCKED'}
-        class:stale
-        title={`${facility?.name ?? site.facility_id}${showNames && site.name ? ` · ${site.name}` : ''}`}
-        aria-label={`Step ${model.sites.indexOf(site) + 1}: ${site.status}, ${facility?.name ?? site.facility_id}${showNames && site.name ? `, ${site.name}` : ''}${site.status === 'planned' && step ? `, ${resultLabel[step.result]}` : ''}`}
-        onclick={() => onselectsite(site.site_id)}
-      >
-        <span class="tile-number">{model.sites.indexOf(site) + 1}</span
-        ><PlanIcon kind={site.status} />
-        <span class="tile-label"
-          >{facility?.name ??
-            site.facility_id}{#if showNames && site.name}<small>
-              · {site.name}</small
-            >{/if}</span
+{#snippet siteGroups(sites: PlannerSite[], locationLabel: string)}
+  {#each ['orbital', 'surface'] as kind (kind)}
+    {@const groupSites = sites.filter((site) => site.slot_kind === kind)}
+    {@const groupName = kind === 'orbital' ? 'Orbital' : 'Surface'}
+    {#if groupSites.length}
+      <div class="plan-site-group" class:surface={kind === 'surface'}>
+        <h3 class="site-group-heading">
+          <PlanIcon kind={kind === 'orbital' ? 'orbital' : 'surface'} />
+          {groupName}
+        </h3>
+        <ul
+          class="plan-sites"
+          aria-label={`${groupName} sites ${locationLabel}`}
         >
-        {#if facility}<span class="plan-chip">T{facility.tier}</span>{/if}
-        {#if site.status === 'planned' && step}<PlanIcon
-            kind={step.result}
-          />{/if}
-      </button>
-    {/each}
-  </div>
+          {#each groupSites as site (site.site_id)}
+            {@const siteIndex = model.sites.indexOf(site)}
+            {@const step = steps.get(site.site_id)}
+            {@const facility = facilityById.get(site.facility_id)}
+            {@const facilityName = facility?.name ?? site.facility_id}
+            {@const name = showNames ? site.name : ''}
+            {@const label = [
+              `Step ${siteIndex + 1}`,
+              ...(siteIndex === 0 ? ['Primary Port'] : []),
+              site.status,
+              ...(name ? [name] : []),
+              facilityName,
+              site.slot_kind,
+              ...(site.status === 'planned' && step
+                ? [resultLabel[step.result]]
+                : []),
+            ].join(', ')}
+            <li class="plan-site-row">
+              <button
+                type="button"
+                class="plan-tile"
+                class:blocked={step?.result === 'BLOCKED'}
+                class:stale
+                title={label}
+                aria-label={label}
+                onclick={() => onselectsite(site.site_id)}
+              >
+                <span class="tile-number"
+                  >{#if siteIndex === 0}<span aria-hidden="true"
+                      >★
+                    </span>{/if}{siteIndex + 1}</span
+                ><PlanIcon kind={site.status} />
+                <span class="tile-label">
+                  <strong class="site-name">{name || facilityName}</strong>
+                  {#if name}<span class="site-type" title={facilityName}
+                      >{facilityName}</span
+                    >{/if}
+                </span>
+                {#if facility}<span class="plan-chip">T{facility.tier}</span
+                  >{/if}
+                {#if site.status === 'planned' && step}<PlanIcon
+                    kind={step.result}
+                  />{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+  {/each}
 {/snippet}
 
-<section class="plan-pane system-pane" aria-labelledby="plan-system-title">
+<section
+  class="plan-pane system-pane"
+  aria-labelledby="plan-system-title"
+  {hidden}
+>
   <div class="pane-heading">
     <h2 id="plan-system-title">System</h2>
     <button
       type="button"
       aria-pressed={showNames}
       onclick={() => (showNames = !showNames)}
-      >{showNames ? 'Types + names' : 'Types only'}</button
+      >{showNames ? 'Names and types' : 'Types only'}</button
     >
   </div>
   <p class="plan-muted">
@@ -187,22 +228,25 @@
               >{/each}
           </div>
           <div class="body-slots">
-            <SlotEditor
-              label={location.name}
-              kind="orbital"
-              used={used.orbital_slots}
-              value={model.slots[location.body_ref]?.orbital_slots ?? null}
-              onchange={(value) => onslot(location.body_ref, 'orbital', value)}
-            />
-            {#if location.kind !== 'belt'}<SlotEditor
+            {#if !hidden}
+              <SlotEditor
                 label={location.name}
-                kind="surface"
-                used={used.surface_slots}
-                value={model.slots[location.body_ref]?.surface_slots ?? null}
-                disabled={location.is_landable === false}
+                kind="orbital"
+                used={used.orbital_slots}
+                value={model.slots[location.body_ref]?.orbital_slots ?? null}
                 onchange={(value) =>
-                  onslot(location.body_ref, 'surface', value)}
-              />{/if}
+                  onslot(location.body_ref, 'orbital', value)}
+              />
+              {#if location.kind !== 'belt'}<SlotEditor
+                  label={location.name}
+                  kind="surface"
+                  used={used.surface_slots}
+                  value={model.slots[location.body_ref]?.surface_slots ?? null}
+                  disabled={location.is_landable === false}
+                  onchange={(value) =>
+                    onslot(location.body_ref, 'surface', value)}
+                />{/if}
+            {/if}
           </div>
           <button
             type="button"
@@ -216,8 +260,9 @@
             }}>+</button
           >
         </div>
-        {@render tiles(
+        {@render siteGroups(
           model.sites.filter((site) => site.body_ref === location.body_ref),
+          `on ${shortBodyName(location.name, systemName)}`,
         )}
         {#if picker === location.body_ref}
           <FacilityPicker
@@ -240,7 +285,7 @@
     <p class="plan-muted">
       Choose a recorded location in the build's edit row.
     </p>
-    {@render tiles(unplaced)}{/if}
+    {@render siteGroups(unplaced, 'in Unplaced')}{/if}
   {#if model.sites.length >= MAX_SITES}<p role="status">
       300-site limit reached. Remove a site before adding another.
     </p>{/if}
@@ -348,45 +393,6 @@
     font-size: 1rem;
     line-height: 1;
   }
-  .plan-tiles {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 4px;
-    padding-left: 1.8rem;
-  }
-  :global(.plan-workspace) .plan-tile {
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 0.2rem;
-    min-width: 0;
-    max-width: calc(50% - 2px);
-    height: 24px;
-    padding: 0 0.3rem;
-    text-align: left;
-    font-size: 0.65rem;
-    white-space: nowrap;
-  }
-  .tile-number {
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .tile-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .plan-tile small {
-    display: inline;
-    color: var(--muted);
-    font-size: inherit;
-  }
-  .plan-tile .plan-chip {
-    flex-shrink: 0;
-    padding: 0 0.15rem;
-    font-size: 0.6rem;
-    line-height: 1.25;
-  }
   @media (max-width: 600px) {
     .plan-body {
       margin-left: calc(var(--body-depth) * 0.3rem);
@@ -399,12 +405,6 @@
     }
     .body-feature {
       font-size: 0.6rem;
-    }
-    .plan-tiles {
-      padding-left: 1rem;
-    }
-    :global(.plan-workspace) .plan-tile {
-      max-width: 100%;
     }
   }
 </style>

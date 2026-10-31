@@ -48,7 +48,7 @@ function renderOrder(fixture: Fixture, onupdate = vi.fn()) {
 afterEach(cleanup);
 
 describe('compact planner layout', () => {
-  it('keeps 40 bodies, two belts and 80 sites in compact body rows and two-line closed steps', () => {
+  it('keeps 40 bodies, two belts and 80 sites in compact body rows, individual site lines and two-line closed steps', () => {
     const fixture = compactPlanFixture();
     const system = renderSystem(fixture);
     const bodyRows = system.container.querySelectorAll('.compact-body-row');
@@ -65,10 +65,35 @@ describe('compact planner layout', () => {
         `[data-plan-body="${body.body_id}"] > .compact-body-row`,
       )!;
       expect(row.querySelectorAll('.slot-box')).toHaveLength(2);
-      const tiles = row.parentElement!.querySelector('.plan-tiles')!;
-      expect(row.contains(tiles)).toBe(false);
-      expect(tiles.querySelectorAll('.plan-tile')).toHaveLength(2);
+      const groups = row.parentElement!.querySelectorAll('.plan-site-group');
+      expect(groups.length).toBeGreaterThan(0);
+      for (const group of groups) {
+        expect(row.contains(group)).toBe(false);
+        expect(group.querySelectorAll('.site-group-heading')).toHaveLength(1);
+        expect(group.querySelectorAll('ul.plan-sites')).toHaveLength(1);
+      }
+      const sites = row.parentElement!.querySelectorAll(
+        '.plan-sites > .plan-site-row',
+      );
+      expect(sites).toHaveLength(2);
+      for (const site of sites) {
+        expect(site.tagName).toBe('LI');
+        expect(site.children).toHaveLength(1);
+        const line = site.firstElementChild!;
+        expect(line).toHaveClass('plan-tile');
+        expect(line.tagName).toBe('BUTTON');
+        expect(line.children[0]).toHaveClass('tile-number');
+        expect(line.children[1].tagName.toLowerCase()).toBe('svg');
+        expect(line.children[2]).toHaveClass('tile-label');
+        expect(line.querySelectorAll('.site-name')).toHaveLength(1);
+        expect(line.querySelectorAll('.site-type')).toHaveLength(1);
+        expect(line.querySelectorAll('.plan-chip')).toHaveLength(1);
+        expect(line.querySelector('p, h3, h4, br')).toBeNull();
+      }
     }
+    expect(system.container.querySelectorAll('.plan-site-row')).toHaveLength(
+      80,
+    );
     expect(system.container.querySelectorAll('.plan-tile')).toHaveLength(80);
 
     const order = renderOrder(fixture);
@@ -275,7 +300,7 @@ describe('compact planner layout', () => {
     for (const site of fixture.model.sites) {
       const tile = within(system.container).getByRole('button', {
         name: new RegExp(
-          `^Step ${fixture.model.sites.indexOf(site) + 1}: ${site.status},`,
+          `^Step ${fixture.model.sites.indexOf(site) + 1}, ${fixture.model.sites.indexOf(site) === 0 ? 'Primary Port, ' : ''}${site.status},`,
         ),
       });
       expect(tile.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
