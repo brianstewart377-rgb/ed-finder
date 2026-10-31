@@ -20,8 +20,22 @@ each B/A/S floor. It is opt-in via `EDF_RANKINGS_SCALE_PROOF=1` because seeding
 the corpus and restarting the server before all 72 cold measurements must not
 run in the Finder lane on every PR. Its JSON receipt records compact warm-median
 plans, cold plan summaries, timings, identities and failures; a passing receipt
-is the representative-scale evidence that unblocks F4b. The proof has not been
-run by this change.
+is the representative-scale evidence that unblocks F4b.
+
+The proof was then run on a disposable PostgreSQL 18.4 server (2 CPUs, 7 GB
+RAM, default memory settings). The first run measured the near-ceiling page
+(offset 9950) over budget for all 24 archetype/floor pairs (705–1,098 ms warm
+against 600 ms): the page joined all 10,000 window rows to `system_search`
+before paging and the planner chose a sequential scan of the whole table. With
+the owner-approved query fix (#948), it passed all 72 measurements (receipt
+`docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`,
+buffer-cold):
+
+| Query | Warm (budget) | Cold (budget) |
+|---|---|---|
+| First page | 3.3–4.8 ms (300 ms) | 8.8–14.1 ms (1,500 ms) |
+| Near-ceiling page | 39.1–51.0 ms (600 ms) | 64.4–113.1 ms (2,500 ms) |
+| Count | 35.5–46.3 ms (600 ms) | 64.0–107.8 ms (2,500 ms) |
 
 ## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
 
