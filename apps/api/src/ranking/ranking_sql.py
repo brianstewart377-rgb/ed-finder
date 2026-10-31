@@ -233,6 +233,11 @@ def _picked_page_query(
         f"picked.{picked_archetype}_confidence_ppm",
     )
 
+    # Keep the partial-index window unchanged, then page only its keys after
+    # the same published-search membership join as the count. Missing search
+    # rows are excluded before OFFSET/LIMIT, preserving page contents. Search
+    # details are fetched only for those page keys, so a deep offset does not
+    # join or sort 10,000 wide search rows.
     # The final fetch reads the physical row of the generation the fenced
     # page already came from: every page row was admitted by both v3_app
     # views, so the fetch adds no visibility, and keyed by (generation,
@@ -248,13 +253,18 @@ def _picked_page_query(
         f"      AND ar.{score} >= {floor}\n"
         f"    ORDER BY ar.{weighted} DESC, ar.system_id64 ASC\n"
         f"    LIMIT {RANKING_WINDOW_LIMIT}\n"
-        "), ranked_page AS (\n"
-        "    SELECT s.*, aw.selected_archetype_weighted_e4\n"
+        "), ranked_page_keys AS (\n"
+        "    SELECT aw.system_id64, aw.selected_archetype_weighted_e4\n"
         "    FROM archetype_window aw\n"
-        "    JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64\n"
-        f"    WHERE {_pinned('s')}\n"
+        "    JOIN v3_app.system_search member ON member.system_id64 = aw.system_id64\n"
+        f"    WHERE {_pinned('member')}\n"
         f"    ORDER BY {order}\n"
         f"    LIMIT {limit_param} OFFSET {offset_param}\n"
+        "), ranked_page AS (\n"
+        "    SELECT s.*, page_keys.selected_archetype_weighted_e4\n"
+        "    FROM ranked_page_keys page_keys\n"
+        "    JOIN v3_app.system_search s ON s.system_id64 = page_keys.system_id64\n"
+        f"    WHERE {_pinned('s')}\n"
         ")\n"
         "SELECT page.*,\n"
         f"       picked.{score} AS primary_score,\n"
