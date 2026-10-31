@@ -10,7 +10,7 @@ import BuildOrder from './BuildOrder.svelte';
 import SystemPane from './SystemPane.svelte';
 import { compactPlanFixture } from './__fixtures__/compact-plan';
 import { resolvePlanLocations } from './locations';
-import { PRIMARY_PORT_PROTECTION, updateSite } from './model';
+import { primaryPortLocks, PRIMARY_PORT_PROTECTION, updateSite } from './model';
 
 type Fixture = ReturnType<typeof compactPlanFixture>;
 
@@ -160,11 +160,11 @@ describe('compact planner layout', () => {
     expect(status).toHaveValue('complete');
     expect(
       screen.getByRole('combobox', { name: 'Facility for step 1' }),
-    ).toBeEnabled();
+    ).toBeDisabled();
     expect(
-      screen.getByRole('button', { name: 'Remove Colony site 1' }),
-    ).toBeEnabled();
-    expect(screen.queryByText(PRIMARY_PORT_PROTECTION)).not.toBeInTheDocument();
+      screen.queryByRole('button', { name: 'Remove Colony site 1' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(PRIMARY_PORT_PROTECTION)).toBeVisible();
 
     await fireEvent.change(location, { target: { value: '1' } });
     expect(onupdate).toHaveBeenLastCalledWith('site-1', { body_ref: '1' });
@@ -179,6 +179,94 @@ describe('compact planner layout', () => {
       screen.queryByRole('button', { name: 'Remove Colony site 1' }),
     ).not.toBeInTheDocument();
     expect(screen.getByText(PRIMARY_PORT_PROTECTION)).toBeVisible();
+  });
+
+  it.each([
+    { status: 'planned', body_ref: null },
+    { status: 'planned', body_ref: '1' },
+    { status: 'building', body_ref: null },
+    { status: 'building', body_ref: '1' },
+    { status: 'complete', body_ref: null },
+    { status: 'complete', body_ref: '1' },
+    { status: 'demolished', body_ref: null },
+    { status: 'demolished', body_ref: '1' },
+  ] as const)(
+    'uses the Primary Port locks for a $status primary on body $body_ref',
+    async ({ status, body_ref }) => {
+      const fixture = compactPlanFixture(2, 4);
+      const primary = fixture.model.sites[0];
+      primary.status = status;
+      primary.body_ref = body_ref;
+      const locks = primaryPortLocks(primary);
+      renderOrder(fixture);
+
+      await fireEvent.click(screen.getByLabelText('Edit Colony site 1'));
+      for (const [field, locked] of [
+        ['Facility', locks.facility],
+        ['Body', locks.body],
+        ['Status', locks.status],
+      ] as const) {
+        const control = screen.getByRole('combobox', {
+          name: `${field} for step 1`,
+        });
+        if (locked) expect(control).toBeDisabled();
+        else expect(control).toBeEnabled();
+      }
+      expect(
+        screen.getByRole('textbox', { name: 'Name for step 1' }),
+      ).toBeEnabled();
+      expect(
+        screen.queryByRole('button', { name: 'Remove Colony site 1' }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(PRIMARY_PORT_PROTECTION)).toBeVisible();
+      const statusControl = screen.getByRole('combobox', {
+        name: 'Status for step 1',
+      });
+      expect(
+        within(statusControl)
+          .getAllByRole('option')
+          .map((option) => option.getAttribute('value')),
+      ).toEqual(['planned', 'building', 'complete']);
+      expect(
+        within(statusControl).queryByRole('option', { name: 'demolished' }),
+      ).not.toBeInTheDocument();
+      const facilityControl = screen.getByRole('combobox', {
+        name: 'Facility for step 1',
+      });
+      expect(
+        within(facilityControl)
+          .getAllByRole('option')
+          .map((option) => option.getAttribute('value')),
+      ).toEqual(['primary-port']);
+      for (const direction of ['up', 'down']) {
+        const control = screen.getByRole('button', {
+          name: `Move ${direction} Colony site 1`,
+        });
+        expect(control).toBeDisabled();
+        expect(control).toHaveAttribute('title', PRIMARY_PORT_PROTECTION);
+      }
+    },
+  );
+
+  it('keeps secondary sites editable and removable with all four statuses', async () => {
+    const fixture = compactPlanFixture(2, 4);
+    renderOrder(fixture);
+    await fireEvent.click(screen.getByLabelText('Edit Colony site 2'));
+
+    for (const field of ['Facility', 'Body', 'Status']) {
+      expect(
+        screen.getByRole('combobox', { name: `${field} for step 2` }),
+      ).toBeEnabled();
+    }
+    const status = screen.getByRole('combobox', { name: 'Status for step 2' });
+    expect(
+      within(status)
+        .getAllByRole('option')
+        .map((option) => option.getAttribute('value')),
+    ).toEqual(['planned', 'building', 'complete', 'demolished']);
+    expect(
+      screen.getByRole('button', { name: 'Remove Colony site 2' }),
+    ).toBeEnabled();
   });
 
   it('uses SVG status and result icons and keeps Primary Port protection inside the edit disclosure', async () => {

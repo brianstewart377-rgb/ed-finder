@@ -26,6 +26,8 @@
     moveSite,
     removeSite,
     updateSite,
+    abandonPlan,
+    isProtectedPrimary,
     setSlotCount,
     findFreeLocation,
     exportPlan,
@@ -68,6 +70,9 @@
   );
   const model = $derived(
     record ? recordToPlanner(record) : emptyPlan(systemId),
+  );
+  const primaryProtected = $derived(
+    !!model.sites[0] && isProtectedPrimary(model, model.sites[0].site_id),
   );
   const systemName = $derived(
     identity.data?.name ??
@@ -157,7 +162,7 @@
     };
   });
 
-  function change(action: (current: PlannerModel) => PlannerModel): void {
+  function change(action: (current: PlannerModel) => PlannerModel): boolean {
     try {
       const next = action(model);
       const projects = $colonyProjects.value;
@@ -172,11 +177,13 @@
       actionError = saved
         ? ''
         : 'This browser could not save the plan. Export a copy before leaving.';
+      return saved;
     } catch (error) {
       actionError =
         error instanceof Error
           ? error.message
           : 'The plan could not be changed.';
+      return false;
     }
   }
   function makeSite(facility: PlanFacilityV1, ref: string | null): PlannerSite {
@@ -202,14 +209,17 @@
       (facility) => facility.id === facilityId && facility.is_port,
     );
   }
-  function remove(id: string): void {
-    change((current) => {
-      if (current.sites[0]?.site_id === id && !catalogue.data)
-        throw new Error(
-          'Wait for the facility list to load before removing the Primary Port.',
-        );
-      return removeSite(current, id, isPort);
-    });
+  async function abandon(): Promise<void> {
+    if (!model.sites.length || primaryProtected) return;
+    if (
+      !window.confirm(
+        `Abandon this plan? All ${model.sites.length} sites for ${systemName} will be removed, as if the claim were cancelled. Slot counts are kept.`,
+      )
+    )
+      return;
+    if (!change(abandonPlan)) return;
+    await tick();
+    if (active) announcement = 'Plan abandoned.';
   }
   async function jumpToStep(id: string): Promise<void> {
     selectedSite = id;
@@ -330,6 +340,13 @@
         <button type="button" onclick={download}>Export plan</button><button
           type="button"
           onclick={() => fileInput?.click()}>Import plan</button
+        ><button
+          type="button"
+          disabled={!model.sites.length || primaryProtected}
+          title={primaryProtected
+            ? 'A completed Primary Port can never be removed (RB-0008).'
+            : undefined}
+          onclick={abandon}>Abandon plan</button
         ><input
           bind:this={fileInput}
           type="file"
@@ -395,7 +412,7 @@
           change((current) => moveSite(current, id, direction))}
         onupdate={(id, patch) =>
           change((current) => updateSite(current, id, patch))}
-        onremove={remove}
+        onremove={(id) => change((current) => removeSite(current, id))}
       />
       <SummaryPane
         {model}

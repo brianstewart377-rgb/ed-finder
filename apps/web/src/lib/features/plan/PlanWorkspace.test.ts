@@ -26,6 +26,7 @@ import {
   emptyPlan,
   exportPlan,
   plannerToRecord,
+  recordToPlanner,
   type PlannerSite,
 } from './model';
 import PlanWorkspaceTestHost from './PlanWorkspaceTestHost.svelte';
@@ -118,10 +119,10 @@ function importedSite(name = 'Imported port'): PlannerSite {
   };
 }
 
-function seedPrimary() {
+function seedPrimary(patch: Partial<PlannerSite> = {}) {
   const record = plannerToRecord({
     ...emptyPlan('42'),
-    sites: [importedSite('Primary port')],
+    sites: [{ ...importedSite('Primary port'), ...patch }],
   });
   colonyProjects.set({
     version: 3,
@@ -286,16 +287,14 @@ describe('planner workspace evaluation and browser state', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the last evaluation greyed when the final planned site is removed', async () => {
+  it('keeps the last evaluation greyed when the plan is abandoned', async () => {
     seedPrimary();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(PlanWorkspaceTestHost);
     await advance(250);
     expect(evaluateV3Plan).toHaveBeenCalledOnce();
     vi.mocked(evaluateV3Plan).mockClear();
-    await fireEvent.click(screen.getByLabelText('Edit Primary port'));
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Remove Primary port' }),
-    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Abandon plan' }));
     await advance(1000);
     expect(evaluateV3Plan).not.toHaveBeenCalled();
     const summary = screen.getByRole('complementary', { name: 'Summary' });
@@ -303,13 +302,21 @@ describe('planner workspace evaluation and browser state', () => {
     expect(summary).toHaveAttribute('aria-busy', 'false');
   });
 
-  it.each(['planned', 'building'] as const)(
-    'refuses removing a %s primary that would promote a completed non-port',
-    async (status) => {
+  it.each([
+    { status: 'planned', body_ref: '1' },
+    { status: 'planned', body_ref: null },
+    { status: 'building', body_ref: '1' },
+    { status: 'building', body_ref: null },
+    { status: 'complete', body_ref: null },
+  ] as const)(
+    'abandons a $status primary at $body_ref with confirmation, keeps slots and announces',
+    async (primary) => {
+      const slots = { '1': { orbital_slots: 5, surface_slots: null } };
       const record = plannerToRecord({
         ...emptyPlan('42'),
+        slots,
         sites: [
-          { ...importedSite('Primary port'), status },
+          { ...importedSite('Primary port'), ...primary },
           {
             ...importedSite('Completed installation'),
             site_id: 'installation',
@@ -322,41 +329,93 @@ describe('planner workspace evaluation and browser state', () => {
         version: 3,
         state: { projects: { [record.id]: record } },
       });
-      const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
       render(PlanWorkspaceTestHost);
-      await fireEvent.click(screen.getByLabelText('Edit Primary port'));
-      await fireEvent.click(
-        screen.getByRole('button', { name: 'Remove Primary port' }),
+      const abandon = screen.getByRole('button', { name: 'Abandon plan' });
+      expect(abandon).toBeEnabled();
+      await fireEvent.click(abandon);
+      await advance(1000);
+      expect(confirm).toHaveBeenCalledExactlyOnceWith(
+        'Abandon this plan? All 2 sites for Test System will be removed, as if the claim were cancelled. Slot counts are kept.',
       );
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Removing this would make “Completed installation” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.',
+      const updated = get(colonyProjects).value.state.projects[record.id];
+      expect(recordToPlanner(updated)).toEqual({
+        system_id64: '42',
+        sites: [],
+        slots,
+      });
+      const stored = JSON.parse(
+        localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)!,
       );
-      expect(get(colonyProjects).value.state.projects[record.id]).toEqual(
-        record,
+      expect(stored.state.projects[record.id]).toEqual(updated);
+      expect(
+        within(
+          screen.getByRole('region', { name: 'Build order' }),
+        ).queryAllByRole('heading', { level: 3 }),
+      ).toHaveLength(0);
+      expect(screen.getByText('Plan abandoned.')).toHaveAttribute(
+        'aria-live',
+        'polite',
       );
-      expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(
-        stored,
-      );
+      expect(abandon).toBeDisabled();
+      expect(evaluateV3Plan).not.toHaveBeenCalled();
     },
   );
 
-  it('refuses removing the primary before the facility list is loaded', async () => {
+  it('keeps the plan and storage unchanged when abandonment is cancelled', async () => {
     const record = seedPrimary();
     const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(PlanWorkspaceTestHost);
-    await fireEvent.click(screen.getByLabelText('Edit Primary port'));
-    const remove = screen.getByRole('button', { name: 'Remove Primary port' });
-    const pendingCatalogue = deferred<typeof catalogue>();
-    vi.mocked(getV3PlanCatalogue).mockReturnValue(pendingCatalogue.promise);
-    void queryClient.resetQueries({
-      queryKey: ['ed-finder', 'plan-catalogue'],
-    });
-    await fireEvent.click(remove);
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Wait for the facility list to load before removing the Primary Port.',
+    await fireEvent.click(screen.getByRole('button', { name: 'Abandon plan' }));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(
+      'Abandon this plan? All 1 sites for Test System will be removed, as if the claim were cancelled. Slot counts are kept.',
     );
     expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
     expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(stored);
+    expect(screen.queryByText('Plan abandoned.')).not.toBeInTheDocument();
+  });
+
+  it('disables abandonment for a complete and placed primary with its protection title', async () => {
+    const record = seedPrimary({ status: 'complete' });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    const abandon = screen.getByRole('button', { name: 'Abandon plan' });
+    expect(abandon).toBeDisabled();
+    expect(abandon).toHaveAttribute(
+      'title',
+      'A completed Primary Port can never be removed (RB-0008).',
+    );
+    await fireEvent.click(abandon);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
+  });
+
+  it('disables abandonment when the plan has no sites', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    const abandon = screen.getByRole('button', { name: 'Abandon plan' });
+    expect(abandon).toBeDisabled();
+    await fireEvent.click(abandon);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBeNull();
+  });
+
+  it('keeps the abandonment announcement when an earlier evaluation arrives', async () => {
+    seedPrimary();
+    const pendingEvaluation = deferred<PlanEvaluationV1>();
+    vi.mocked(evaluateV3Plan).mockReturnValue(pendingEvaluation.promise);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await advance(250);
+    await fireEvent.click(screen.getByRole('button', { name: 'Abandon plan' }));
+    expect(vi.mocked(evaluateV3Plan).mock.calls[0][1]?.aborted).toBe(true);
+    pendingEvaluation.resolve(evaluated(17, 2));
+    await advance(0);
+    expect(screen.getByText('Plan abandoned.')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
   });
 
   it.each([false, true])(

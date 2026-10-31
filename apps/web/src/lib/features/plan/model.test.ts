@@ -4,6 +4,8 @@ import { colonyProjectsCodec } from '$lib/persistence/storage';
 import { resolvePlanLocations } from './locations';
 import {
   MAX_IMPORT_BYTES,
+  PRIMARY_PORT_PROTECTION,
+  abandonPlan,
   addSite,
   canMoveSite,
   countUsedSlots,
@@ -16,6 +18,7 @@ import {
   isProtectedPrimary,
   moveSite,
   plannerToRecord,
+  primaryPortLocks,
   recordToPlanner,
   rejectInvalidLocations,
   removeSite,
@@ -43,10 +46,6 @@ function site(id: string, overrides: Partial<PlannerSite> = {}): PlannerSite {
 
 function plan(...sites: PlannerSite[]): PlannerModel {
   return { ...emptyPlan('42'), sites };
-}
-
-function isPort(facilityId: string): boolean {
-  return facilityId === 'outpost';
 }
 
 function body(id: string, type = 'planet'): PlanSystemBodyV1 {
@@ -367,15 +366,14 @@ describe('planner actions', () => {
       body_ref: '2',
     });
     expect(initial.sites[1].name).toBe('');
-    expect(removeSite(updated, 'second', isPort).sites).toHaveLength(1);
+    expect(removeSite(updated, 'second').sites).toHaveLength(1);
     expect(() =>
       updateSite(initial, 'second', { name: 'x'.repeat(65) }),
     ).toThrow('64');
   });
 
-  it('protects a completed Primary Port from move, remove, facility or status changes and import replacement', () => {
+  it('protects a completed Primary Port from move, facility or status changes and import replacement', () => {
     const initial = plan(site('primary', { status: 'complete' }), site('next'));
-    expect(() => removeSite(initial, 'primary', isPort)).toThrow('RB-0008');
     expect(() => moveSite(initial, 'primary', 'down')).toThrow();
     for (const patch of [
       { body_ref: 'other' },
@@ -397,73 +395,41 @@ describe('planner actions', () => {
     ).toBe('Home');
   });
 
-  it.each(['planned', 'building'] as const)(
-    'refuses removing a %s primary when any non-port would become primary without changing the model',
+  it.each(['planned', 'building', 'complete', 'demolished'] as const)(
+    'never removes a %s Primary Port, regardless of its location or the next site',
     (primaryStatus) => {
-      for (const status of [
-        'planned',
-        'building',
-        'complete',
-        'demolished',
-      ] as const) {
-        const initial = plan(
-          site('primary', { status: primaryStatus }),
-          site('installation', {
-            facility_id: 'mining-installation',
-            name: 'Mine',
-            status,
-          }),
-        );
-        const original = structuredClone(initial);
-        expect(() => removeSite(initial, 'primary', isPort)).toThrow(
-          'Removing this would make “Mine” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.',
-        );
-        expect(initial).toEqual(original);
-      }
+      for (const body_ref of [null, '1'])
+        for (const following of [
+          [],
+          [site('next-port')],
+          [site('installation', { facility_id: 'mining-installation' })],
+        ]) {
+          const initial = plan(
+            site('primary', { status: primaryStatus, body_ref }),
+            ...following,
+          );
+          const original = structuredClone(initial);
+          expect(() => removeSite(initial, 'primary')).toThrow(
+            "The Primary Port can't be removed. In the game it can only be cancelled together with the whole claim; use Abandon plan to start this system again.",
+          );
+          expect(initial).toEqual(original);
+        }
     },
   );
 
   it.each(['planned', 'building', 'complete', 'demolished'] as const)(
-    'allows removing an editable primary when the next site is a %s port',
-    (status) => {
-      for (const primaryStatus of ['planned', 'building'] as const) {
-        const initial = plan(
-          site('primary', { status: primaryStatus }),
-          site('next', { status }),
-        );
-        expect(removeSite(initial, 'primary', isPort).sites).toEqual([
-          initial.sites[1],
-        ]);
-        expect(initial.sites).toHaveLength(2);
-      }
-    },
-  );
-
-  it.each(['planned', 'building', 'complete', 'demolished'] as const)(
-    'removes a non-first %s site without consulting the port check',
+    'removes a non-first %s site without changing the Primary Port',
     (status) => {
       const initial = plan(
         site('primary', { status: 'complete' }),
         site('installation', { facility_id: 'mining-installation', status }),
       );
-      expect(
-        removeSite(initial, 'installation', () => {
-          throw new Error('Non-first removal must not check port status.');
-        }).sites,
-      ).toEqual([initial.sites[0]]);
+      expect(removeSite(initial, 'installation').sites).toEqual([
+        initial.sites[0],
+      ]);
       expect(initial.sites).toHaveLength(2);
     },
   );
-
-  it('allows removal of the only editable site without consulting the port check', () => {
-    const initial = plan(site('primary'));
-    expect(
-      removeSite(initial, 'primary', () => {
-        throw new Error('An empty plan needs no primary port check.');
-      }).sites,
-    ).toEqual([]);
-    expect(initial.sites).toHaveLength(1);
-  });
 
   it('protects a completed primary only once it is placed', () => {
     const initial = plan(
@@ -471,7 +437,6 @@ describe('planner actions', () => {
     );
     expect(isProtectedPrimary(initial, 'primary')).toBe(false);
     expect(isProtectedPrimary(initial, 'missing')).toBe(false);
-    expect(removeSite(initial, 'primary', isPort).sites).toEqual([]);
     expect(
       updateSite(initial, 'primary', { status: 'planned' }).sites[0].status,
     ).toBe('planned');
@@ -500,6 +465,190 @@ describe('planner actions', () => {
     expect(() => insertSiteBefore(full, site('overflow'), '1')).toThrow(
       'at most 300',
     );
+  });
+});
+
+describe('Primary Port locks', () => {
+  const cases = [
+    {
+      status: 'planned',
+      body_ref: null,
+      facility: false,
+      body: false,
+      lockedStatus: false,
+    },
+    {
+      status: 'planned',
+      body_ref: '1',
+      facility: false,
+      body: false,
+      lockedStatus: false,
+    },
+    {
+      status: 'building',
+      body_ref: null,
+      facility: true,
+      body: false,
+      lockedStatus: false,
+    },
+    {
+      status: 'building',
+      body_ref: '1',
+      facility: true,
+      body: true,
+      lockedStatus: false,
+    },
+    {
+      status: 'complete',
+      body_ref: null,
+      facility: true,
+      body: false,
+      lockedStatus: false,
+    },
+    {
+      status: 'complete',
+      body_ref: '1',
+      facility: true,
+      body: true,
+      lockedStatus: true,
+    },
+  ] as const;
+
+  it.each(cases)(
+    'reports every lock for a $status primary at $body_ref',
+    ({ status, body_ref, facility, body, lockedStatus }) => {
+      expect(primaryPortLocks(site('primary', { status, body_ref }))).toEqual({
+        remove: true,
+        facility,
+        body,
+        status: lockedStatus,
+        allowedStatuses: ['planned', 'building', 'complete'],
+      });
+    },
+  );
+
+  it.each(cases)(
+    'enforces field locks for a $status primary at $body_ref and always allows its name',
+    ({ status, body_ref, facility, body, lockedStatus }) => {
+      const initial = plan(site('primary', { status, body_ref }));
+      const original = structuredClone(initial);
+      const fields = [
+        { patch: { facility_id: 'coriolis' }, locked: facility },
+        { patch: { slot_kind: 'surface' as const }, locked: facility },
+        { patch: { body_ref: 'other' }, locked: body },
+        { patch: { body_ref: null }, locked: body },
+      ];
+      for (const { patch, locked } of fields) {
+        if (locked)
+          expect(() => updateSite(initial, 'primary', patch)).toThrow(
+            PRIMARY_PORT_PROTECTION,
+          );
+        else
+          expect(updateSite(initial, 'primary', patch).sites[0]).toMatchObject(
+            patch,
+          );
+      }
+      for (const nextStatus of [
+        'planned',
+        'building',
+        'complete',
+        'demolished',
+      ] as const) {
+        if (nextStatus === 'demolished')
+          expect(() =>
+            updateSite(initial, 'primary', { status: nextStatus }),
+          ).toThrow("The Primary Port can't be demolished (RB-0008).");
+        else if (lockedStatus && nextStatus !== status)
+          expect(() =>
+            updateSite(initial, 'primary', { status: nextStatus }),
+          ).toThrow(PRIMARY_PORT_PROTECTION);
+        else
+          expect(
+            updateSite(initial, 'primary', { status: nextStatus }).sites[0]
+              .status,
+          ).toBe(nextStatus);
+      }
+      expect(
+        updateSite(initial, 'primary', {
+          name: 'Home',
+          status,
+          body_ref,
+          facility_id: 'outpost',
+          slot_kind: 'orbital',
+        }).sites[0].name,
+      ).toBe('Home');
+      expect(initial).toEqual(original);
+    },
+  );
+
+  it.each(['building', 'complete'] as const)(
+    'allows an Unplaced %s primary to record its body exactly once',
+    (status) => {
+      const initial = plan(site('primary', { status, body_ref: null }));
+      const placed = updateSite(initial, 'primary', { body_ref: '1' });
+      expect(placed.sites[0].body_ref).toBe('1');
+      for (const body_ref of [null, 'other'])
+        expect(() => updateSite(placed, 'primary', { body_ref })).toThrow(
+          PRIMARY_PORT_PROTECTION,
+        );
+      expect(initial.sites[0].body_ref).toBeNull();
+    },
+  );
+
+  it('allows planned → building → complete and then locks the placed primary status', () => {
+    const planned = plan(site('primary'));
+    const building = updateSite(planned, 'primary', { status: 'building' });
+    expect(building.sites[0].status).toBe('building');
+    const complete = updateSite(building, 'primary', { status: 'complete' });
+    expect(complete.sites[0].status).toBe('complete');
+    expect(() =>
+      updateSite(complete, 'primary', { status: 'building' }),
+    ).toThrow(PRIMARY_PORT_PROTECTION);
+  });
+
+  it('allows naming a legacy demolished primary and recovering its status, but never setting demolished', () => {
+    const initial = importPlan(
+      exportPlan(plan(site('primary', { status: 'demolished' }))),
+      '42',
+    );
+    expect(updateSite(initial, 'primary', { name: 'Home' }).sites[0].name).toBe(
+      'Home',
+    );
+    expect(() =>
+      updateSite(initial, 'primary', { status: 'demolished' }),
+    ).toThrow("The Primary Port can't be demolished (RB-0008).");
+    for (const status of ['planned', 'building', 'complete'] as const)
+      expect(updateSite(initial, 'primary', { status }).sites[0].status).toBe(
+        status,
+      );
+    expect(initial.sites[0]).toMatchObject({ name: '', status: 'demolished' });
+  });
+
+  it.each(cases)(
+    'abandons a $status primary at $body_ref only before it is complete and placed, keeping slots',
+    ({ status, body_ref, lockedStatus }) => {
+      const initial = setSlotCount(
+        plan(site('primary', { status, body_ref }), site('next')),
+        '1',
+        'orbital',
+        5,
+      );
+      const original = structuredClone(initial);
+      if (lockedStatus)
+        expect(() => abandonPlan(initial)).toThrow(PRIMARY_PORT_PROTECTION);
+      else {
+        const abandoned = abandonPlan(initial);
+        expect(abandoned).toEqual({ ...initial, sites: [] });
+        expect(abandoned.slots).toBe(initial.slots);
+      }
+      expect(initial).toEqual(original);
+    },
+  );
+
+  it('keeps an empty plan and its slots when abandoned', () => {
+    const initial = setSlotCount(plan(), '1', 'surface', 3);
+    expect(abandonPlan(initial)).toEqual(initial);
+    expect(abandonPlan(initial).slots).toBe(initial.slots);
   });
 });
 

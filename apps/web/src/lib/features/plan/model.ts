@@ -16,7 +16,7 @@ import {
 export const MAX_SITES = 300;
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 export const PRIMARY_PORT_PROTECTION =
-  'The completed Primary Port cannot be moved, removed, or replaced (RB-0008).';
+  "The Primary Port can't be removed, and once it is being built its type and body can't change (RB-0008).";
 
 export interface PlannerSite extends PlanSiteV1 {
   schema: 'cpe_site_v1';
@@ -361,18 +361,27 @@ export function isProtectedPrimary(
   );
 }
 
-export function removeSite(
-  model: PlannerModel,
-  siteId: string,
-  isPort: (facilityId: string) => boolean,
-): PlannerModel {
+export function primaryPortLocks(site: PlannerSite): {
+  remove: true;
+  facility: boolean;
+  body: boolean;
+  status: boolean;
+  allowedStatuses: PlannerSite['status'][];
+} {
+  return {
+    remove: true,
+    facility: site.status !== 'planned',
+    body: site.status !== 'planned' && site.body_ref !== null,
+    status: site.status === 'complete' && site.body_ref !== null,
+    allowedStatuses: ['planned', 'building', 'complete'],
+  };
+}
+
+export function removeSite(model: PlannerModel, siteId: string): PlannerModel {
   const index = siteIndex(model, siteId);
-  if (isProtectedPrimary(model, siteId))
-    throw new Error(PRIMARY_PORT_PROTECTION);
-  const next = model.sites[1];
-  if (index === 0 && next && !isPort(next.facility_id))
+  if (index === 0 && primaryPortLocks(model.sites[index]).remove)
     throw new Error(
-      `Removing this would make “${next.name || next.facility_id}” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.`,
+      "The Primary Port can't be removed. In the game it can only be cancelled together with the whole claim; use Abandon plan to start this system again.",
     );
   return {
     ...model,
@@ -393,20 +402,32 @@ export function updateSite(
   const index = siteIndex(model, siteId);
   const current = model.sites[index];
   const updated = { ...current, ...patch };
-  if (
-    isProtectedPrimary(model, siteId) &&
-    (updated.body_ref !== current.body_ref ||
-      updated.facility_id !== current.facility_id ||
-      updated.slot_kind !== current.slot_kind ||
-      updated.status !== current.status)
-  )
-    throw new Error(PRIMARY_PORT_PROTECTION);
+  if (index === 0) {
+    const locks = primaryPortLocks(current);
+    if ('status' in patch && !locks.allowedStatuses.includes(updated.status))
+      throw new Error("The Primary Port can't be demolished (RB-0008).");
+    if (
+      (locks.body && updated.body_ref !== current.body_ref) ||
+      (locks.facility &&
+        (updated.facility_id !== current.facility_id ||
+          updated.slot_kind !== current.slot_kind)) ||
+      (locks.status && updated.status !== current.status)
+    )
+      throw new Error(PRIMARY_PORT_PROTECTION);
+  }
   if (!isPlannerSite(updated))
     throw new Error('Invalid site: names must be at most 64 characters.');
   return {
     ...model,
     sites: model.sites.map((site, at) => (at === index ? updated : site)),
   };
+}
+
+export function abandonPlan(model: PlannerModel): PlannerModel {
+  const primary = model.sites[0];
+  if (primary && isProtectedPrimary(model, primary.site_id))
+    throw new Error(PRIMARY_PORT_PROTECTION);
+  return { ...model, sites: [] };
 }
 
 export function replacePlan(

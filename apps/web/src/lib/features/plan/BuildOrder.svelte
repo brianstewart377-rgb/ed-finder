@@ -7,7 +7,7 @@
   } from './locations';
   import {
     canMoveSite,
-    isProtectedPrimary,
+    primaryPortLocks,
     PRIMARY_PORT_PROTECTION,
     type PlannerModel,
     type PlannerSite,
@@ -117,7 +117,7 @@
       {@const index = model.sites.indexOf(site)}
       {@const step = steps.get(site.site_id)}
       {@const facility = facilityById.get(site.facility_id)}
-      {@const locked = isProtectedPrimary(model, site.site_id)}
+      {@const locks = index === 0 ? primaryPortLocks(site) : null}
       <li
         value={index + 1}
         class="build-step compact-step"
@@ -176,7 +176,7 @@
               <button
                 type="button"
                 aria-label={`Move up ${name(site)}`}
-                title={locked ? PRIMARY_PORT_PROTECTION : 'Move up'}
+                title={locks ? PRIMARY_PORT_PROTECTION : 'Move up'}
                 disabled={!canMoveSite(model, site.site_id, 'up')}
                 onclick={() => onmove(site.site_id, 'up')}
                 ><span aria-hidden="true">↑</span></button
@@ -184,7 +184,7 @@
               <button
                 type="button"
                 aria-label={`Move down ${name(site)}`}
-                title={locked ? PRIMARY_PORT_PROTECTION : 'Move down'}
+                title={locks ? PRIMARY_PORT_PROTECTION : 'Move down'}
                 disabled={!canMoveSite(model, site.site_id, 'down')}
                 onclick={() => onmove(site.site_id, 'down')}
                 ><span aria-hidden="true">↓</span></button
@@ -206,7 +206,7 @@
                 >Facility <select
                   aria-label={`Facility for step ${index + 1}`}
                   value={site.facility_id}
-                  disabled={locked}
+                  disabled={locks?.facility ?? false}
                   onchange={(event) =>
                     onupdate(site.site_id, {
                       facility_id: event.currentTarget.value,
@@ -234,7 +234,7 @@
               <label
                 >Status <select
                   aria-label={`Status for step ${index + 1}`}
-                  disabled={locked}
+                  disabled={locks?.status ?? false}
                   value={site.status}
                   onchange={(event) =>
                     onupdate(site.site_id, {
@@ -242,7 +242,7 @@
                         .value as PlannerSite['status'],
                     })}
                 >
-                  {#each ['planned', 'building', 'complete', 'demolished'] as status (status)}<option
+                  {#each locks?.allowedStatuses ?? ['planned', 'building', 'complete', 'demolished'] as status (status)}<option
                       value={status}>{status}</option
                     >{/each}
                 </select></label
@@ -250,7 +250,7 @@
               <label
                 >Move to body <select
                   aria-label={`Body for step ${index + 1}`}
-                  disabled={locked}
+                  disabled={locks?.body ?? false}
                   value={site.body_ref ?? ''}
                   onchange={(event) =>
                     onupdate(site.site_id, {
@@ -264,7 +264,7 @@
                     >{/each}
                 </select></label
               >
-              {#if locked}<p>{PRIMARY_PORT_PROTECTION}</p>{:else}<button
+              {#if locks?.remove}<p>{PRIMARY_PORT_PROTECTION}</p>{:else}<button
                   type="button"
                   class="remove-build"
                   aria-label={`Remove ${name(site)}`}
