@@ -108,8 +108,8 @@ their earlier approval dates.
 
 One entry was updated without a full re-audit:
 `docs/reference/colonisation/cre-rulebook/rulebook.json` now holds CRE release
-`cre-knowledge-v0.4.0` (CRE commit `3ca81b6`), approved by the owner on
-2026-10-31. Its licence, rights status and attribution are unchanged. The
+`cre-knowledge-v0.5.0` (CRE commit `db7ee07`; v0.4.0 earlier the same day),
+approved by the owner on 2026-10-31. Its licence, rights status and attribution are unchanged. The
 manifest `audit_date` moved to 2026-10-31 so that this entry's approval date is
 valid. The other entries keep their earlier approval dates.
 

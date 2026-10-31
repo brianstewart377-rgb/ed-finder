@@ -25,7 +25,7 @@ def test_runtime_rulebook_matches_the_pin_and_docs_bytes():
 
     assert hashlib.sha256(runtime).hexdigest() == pin['sha256']
     assert runtime == (directory / 'rulebook.json').read_bytes()
-    assert RULEBOOK_RELEASE == pin['release_tag'] == 'cre-knowledge-v0.4.0'
+    assert RULEBOOK_RELEASE == pin['release_tag'] == 'cre-knowledge-v0.5.0'
 
 
 def test_rules_preserve_status_and_first_source_citations():
