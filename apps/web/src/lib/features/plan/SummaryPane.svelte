@@ -10,6 +10,9 @@
     evaluation,
     view,
     error,
+    canRetry = false,
+    retrySeconds = 0,
+    onretry,
     pending,
     stale,
     onstep,
@@ -22,6 +25,9 @@
     evaluation: PlanEvaluationV1 | null;
     view: 'now' | 'after_plan';
     error: string;
+    canRetry?: boolean;
+    retrySeconds?: number;
+    onretry?: () => void;
     pending: boolean;
     stale: boolean;
     onstep: (id: string) => void;
@@ -76,6 +82,14 @@
       Add a Primary Port to evaluate this plan.
     </p>{/if}
   {#if error}<p class="plan-error" role="alert">{error}</p>{/if}
+  {#if error && canRetry}<button
+      type="button"
+      disabled={pending || retrySeconds > 0}
+      onclick={onretry}
+      >{retrySeconds > 0
+        ? `Try again in ${retrySeconds} s`
+        : 'Try again'}</button
+    >{/if}
   {#if pending}<p class="plan-muted" role="status">Evaluating plan…</p>{/if}
   {#if stale && evaluation}<p class="plan-muted">
       Last good evaluation — awaiting a valid current result.

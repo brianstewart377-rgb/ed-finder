@@ -5527,6 +5527,8 @@ export interface components {
             inner_radius_km: number | null;
             /** Outer Radius Km */
             outer_radius_km: number | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
         };
         /** PlanSystemBodyV1 */
         PlanSystemBodyV1: {

@@ -92,6 +92,10 @@
   let evaluation = $state<PlanEvaluationV1 | null>(null);
   let evaluatedRequest = $state('');
   let evaluationError = $state('');
+  let canRetry = $state(false);
+  let retryAt = $state(0);
+  let retrySeconds = $state(0);
+  let retryEvaluation = $state<(() => void) | null>(null);
   let actionError = $state('');
   let pending = $state(false);
   let announcement = $state('');
@@ -113,7 +117,9 @@
     bodies.data ? toPlanRequest(model, bodies.data) : null,
   );
   const requestKey = $derived(request ? JSON.stringify(request) : '');
-  const stale = $derived(requestKey !== evaluatedRequest || !!evaluationError);
+  const stale = $derived(
+    requestKey !== evaluatedRequest || !!evaluationError || pending,
+  );
   const whyStep = $derived(
     evaluation?.steps.find((step) => step.site_id === whySite),
   );
@@ -186,8 +192,32 @@
   }
 
   $effect(() => {
+    const deadline = retryAt;
+    if (!deadline) {
+      retrySeconds = 0;
+      return;
+    }
+    const update = () => {
+      retrySeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    };
+    update();
+    const timer = setInterval(() => {
+      update();
+      if (retrySeconds === 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  });
+
+  function tryAgain(): void {
+    if (canRetry && !pending && Date.now() >= retryAt) retryEvaluation?.();
+  }
+
+  $effect(() => {
     const snapshot = request;
     const fingerprint = requestKey;
+    canRetry = false;
+    retryAt = 0;
+    retryEvaluation = null;
     if (!snapshot || !$colonyProjects.hydrated) return;
     if (snapshot.sites.length === 0) {
       pending = false;
@@ -200,7 +230,11 @@
     pending = true;
     evaluationError = '';
     announcement = '';
-    const timer = setTimeout(() => {
+    const evaluate = (): void => {
+      pending = true;
+      evaluationError = '';
+      canRetry = false;
+      retryAt = 0;
       void evaluateV3Plan(snapshot, controller.signal)
         .then((result) => {
           if (!current) return;
@@ -218,11 +252,22 @@
             invalid?.error === 'plan_invalid' && Array.isArray(invalid.issues)
               ? invalid.issues.map((issue) => issue.message).join(' ')
               : 'The plan could not be evaluated. Try again shortly.';
+          const status = error instanceof ApiError ? error.status : 0;
+          canRetry =
+            status === 0 || status === 429 || (status >= 500 && status < 600);
+          const seconds =
+            error instanceof Error && 'retryAfterSeconds' in error
+              ? error.retryAfterSeconds
+              : null;
+          if (canRetry && typeof seconds === 'number' && seconds > 0)
+            retryAt = Date.now() + seconds * 1000;
         })
         .finally(() => {
           if (current) pending = false;
         });
-    }, 250);
+    };
+    retryEvaluation = evaluate;
+    const timer = setTimeout(evaluate, 250);
     return () => {
       current = false;
       clearTimeout(timer);
@@ -372,7 +417,7 @@
       if (source !== systemId) {
         if (
           !window.confirm(
-            `This file belongs to system ${source}. Import its sites and slot counts into ${systemName} (${systemId})? Missing locations will become Unplaced. A completed Primary Port without a location here will stay editable until you give it one.`,
+            `This file belongs to system ${source}. Import its sites and slot counts into ${systemName} (${systemId})? Missing or non-current locations will become Unplaced. A completed Primary Port without a location here will stay editable until you give it one.`,
           )
         )
           return;
@@ -503,6 +548,7 @@
       />
       <BuildOrder
         hidden={!buildOrderOpen}
+        bodies={bodies.data}
         onclose={closeBuildOrder}
         {model}
         {facilities}
@@ -528,6 +574,9 @@
         {evaluation}
         {view}
         error={evaluationError}
+        {canRetry}
+        {retrySeconds}
+        onretry={tryAgain}
         {pending}
         {stale}
         onstep={jumpToStep}

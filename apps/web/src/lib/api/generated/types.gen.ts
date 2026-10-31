@@ -4780,6 +4780,10 @@ export type PlanSystemBeltV1 = {
      * Outer Radius Km
      */
     outer_radius_km: number | null;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
 };
 
 /**

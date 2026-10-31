@@ -85,6 +85,7 @@ class PlanSystemBeltV1(PlanModel):
     mass_mt: float | None
     inner_radius_km: float | None
     outer_radius_km: float | None
+    lifecycle_state: str
 
 
 class PlanBodiesV1(PlanModel):
@@ -259,6 +260,7 @@ async def bodies(
         f"""SELECT ring.body_pk
               FROM {schema}.rings ring
              WHERE ring.system_id64=$1 AND ring.kind='RING'
+               AND ring.lifecycle_state='ACTIVE'
              GROUP BY ring.body_pk""",
         numeric_id,
     ))
@@ -280,7 +282,8 @@ async def bodies(
         f"""SELECT ring.ring_pk,ring.name,ring.body_pk,
                    ring_type.display_name AS ring_type,
                    reserve_type.display_name AS reserve,
-                   ring.mass_mt,ring.inner_radius_km,ring.outer_radius_km
+                   ring.mass_mt,ring.inner_radius_km,ring.outer_radius_km,
+                   ring.lifecycle_state
               FROM {schema}.rings ring
               LEFT JOIN v3_vocab.ring_type ring_type USING(ring_type_id)
               LEFT JOIN v3_vocab.reserve_type reserve_type USING(reserve_type_id)
@@ -332,6 +335,7 @@ async def bodies(
                 mass_mt=row["mass_mt"],
                 inner_radius_km=row["inner_radius_km"],
                 outer_radius_km=row["outer_radius_km"],
+                lifecycle_state=row["lifecycle_state"],
             )
             for row in belt_rows
         ],

@@ -7,8 +7,10 @@ import type {
 import { parseId64 } from '$lib/domain/id64';
 import type { ColonyProjectRecord } from '$lib/persistence/storage';
 import {
+  beltBodyRefs,
   facilityFitsLocation,
   isBeltCluster,
+  nonCurrentLocation,
   resolvePlanLocations,
   type PlannerLocation,
 } from './locations';
@@ -184,14 +186,26 @@ export function toPlanRequest(
 ): PlanRequestV1 {
   if (model.system_id64 !== data.system_id64)
     throw new Error('Bodies belong to a different system.');
-  const belts = resolvePlanLocations(data).filter(
-    (location) => location.kind === 'belt',
+  const referenced = new Set(model.sites.map((site) => site.body_ref));
+  const belts = data.belts.map((belt) => ({
+    belt,
+    refs: beltBodyRefs(data, belt),
+  }));
+  const beltRefs = new Set(belts.flatMap(({ refs }) => refs));
+  const evaluatedBelts = belts.flatMap(({ belt, refs }) =>
+    refs.filter(
+      (ref) => belt.lifecycle_state === 'ACTIVE' || referenced.has(ref),
+    ),
   );
   return {
     system_id64: model.system_id64,
     bodies: [
       ...data.bodies
-        .filter((body) => !isBeltCluster(body))
+        .filter((body) =>
+          body.lifecycle_state === 'ACTIVE'
+            ? !isBeltCluster(body)
+            : referenced.has(body.body_id) && !beltRefs.has(body.body_id),
+        )
         .map((body) => ({
           body_ref: body.body_id,
           orbital_slots: model.slots[body.body_id]?.orbital_slots ?? null,
@@ -199,9 +213,9 @@ export function toPlanRequest(
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
         })),
-      ...belts.map((belt) => ({
-        body_ref: belt.body_ref,
-        orbital_slots: model.slots[belt.body_ref]?.orbital_slots ?? null,
+      ...evaluatedBelts.map((body_ref) => ({
+        body_ref,
+        orbital_slots: model.slots[body_ref]?.orbital_slots ?? null,
         surface_slots: 0,
         is_landable: false,
         is_ringed: true,
@@ -220,7 +234,7 @@ export function toPlanRequest(
   };
 }
 
-/** Import validation: hidden clusters and barycentres can never be build locations. */
+/** Imported sites must use current locations, without hidden clusters or barycentres. */
 export function rejectInvalidLocations(
   model: PlannerModel,
   data: PlanBodiesV1,
@@ -236,6 +250,16 @@ export function rejectInvalidLocations(
       .map((body) => [body.body_id, body]),
   );
   for (const site of model.sites) {
+    const nonCurrent = nonCurrentLocation(data, site.body_ref);
+    if (nonCurrent) {
+      const reason =
+        nonCurrent.lifecycle_state === 'RETIRED'
+          ? 'retired'
+          : 'missing from the latest data';
+      throw new Error(
+        `“${nonCurrent.name}” is no longer in the current galaxy data (${reason}). Move this site to a current body, or to Unplaced, before importing.`,
+      );
+    }
     const body = site.body_ref === null ? undefined : hidden.get(site.body_ref);
     if (body)
       throw new Error(

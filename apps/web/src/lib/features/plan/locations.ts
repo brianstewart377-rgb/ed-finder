@@ -31,6 +31,51 @@ function isBarycentre(body: PlanSystemBodyV1): boolean {
   );
 }
 
+function beltClusters(data: PlanBodiesV1, belt: PlanSystemBeltV1) {
+  const prefix = `${belt.name} Cluster `;
+  return data.bodies
+    .flatMap((body, order) => {
+      if (!isBeltCluster(body) || !body.name.startsWith(prefix)) return [];
+      const suffix = body.name.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) return [];
+      const number = Number(suffix);
+      return Number.isSafeInteger(number) ? [{ body, number, order }] : [];
+    })
+    .sort((a, b) => a.number - b.number || a.order - b.order);
+}
+
+/** Active belts use one current cluster; non-current belts retain saved aliases. */
+export function beltBodyRefs(
+  data: PlanBodiesV1,
+  belt: PlanSystemBeltV1,
+): string[] {
+  const clusters = beltClusters(data, belt);
+  const fallback = `belt:${belt.belt_id}`;
+  if (belt.lifecycle_state !== 'ACTIVE')
+    return [...clusters.map(({ body }) => body.body_id), fallback];
+  const representative = clusters.find(
+    ({ body }) => body.lifecycle_state === 'ACTIVE',
+  );
+  return [representative?.body.body_id ?? fallback];
+}
+
+export function nonCurrentLocation(
+  data: PlanBodiesV1,
+  bodyRef: string | null,
+): { name: string; lifecycle_state: string } | null {
+  if (bodyRef === null) return null;
+  // A representative cluster identifies its belt, whose lifecycle is authoritative.
+  const location =
+    data.belts.find(
+      (belt) =>
+        bodyRef === `belt:${belt.belt_id}` ||
+        beltBodyRefs(data, belt).includes(bodyRef),
+    ) ?? data.bodies.find((body) => body.body_id === bodyRef);
+  return location && location.lifecycle_state !== 'ACTIVE'
+    ? { name: location.name, lifecycle_state: location.lifecycle_state }
+    : null;
+}
+
 /** One game location per belt; hidden clusters never become selectable locations. */
 export function resolvePlanLocations(data: PlanBodiesV1): PlannerLocation[] {
   const bodies = new Map(data.bodies.map((body) => [body.body_id, body]));
@@ -44,7 +89,12 @@ export function resolvePlanLocations(data: PlanBodiesV1): PlannerLocation[] {
       visited.add(parentId);
       const parent = bodies.get(parentId);
       if (!parent) return null;
-      if (!isBarycentre(parent) && !isBeltCluster(parent)) return parentId;
+      if (
+        parent.lifecycle_state === 'ACTIVE' &&
+        !isBarycentre(parent) &&
+        !isBeltCluster(parent)
+      )
+        return parentId;
       parentId = parent.direct_parent_body_id;
     }
     return null;
@@ -52,7 +102,12 @@ export function resolvePlanLocations(data: PlanBodiesV1): PlannerLocation[] {
 
   const entries: { order: number; location: PlannerLocation }[] = [];
   data.bodies.forEach((body, order) => {
-    if (isBarycentre(body) || isBeltCluster(body)) return;
+    if (
+      body.lifecycle_state !== 'ACTIVE' ||
+      isBarycentre(body) ||
+      isBeltCluster(body)
+    )
+      return;
     entries.push({
       order,
       location: {
@@ -69,22 +124,15 @@ export function resolvePlanLocations(data: PlanBodiesV1): PlannerLocation[] {
     });
   });
   data.belts.forEach((belt, beltIndex) => {
-    const prefix = `${belt.name} Cluster `;
-    const clusters = data.bodies.flatMap((body, order) => {
-      if (!isBeltCluster(body) || !body.name.startsWith(prefix)) return [];
-      const suffix = body.name.slice(prefix.length);
-      if (!/^\d+$/.test(suffix)) return [];
-      const number = Number(suffix);
-      return Number.isSafeInteger(number) ? [{ body, number, order }] : [];
-    });
-    clusters.sort((a, b) => a.number - b.number || a.order - b.order);
+    if (belt.lifecycle_state !== 'ACTIVE') return;
+    const clusters = beltClusters(data, belt);
     entries.push({
       // The cluster's position retains the parent's canonical child ordering.
       order: clusters.length
         ? Math.min(...clusters.map((cluster) => cluster.order))
         : data.bodies.length + beltIndex,
       location: {
-        body_ref: clusters[0]?.body.body_id ?? `belt:${belt.belt_id}`,
+        body_ref: beltBodyRefs(data, belt)[0],
         name: belt.name,
         parent_ref: visibleParent(belt.parent_body_id),
         kind: 'belt',
