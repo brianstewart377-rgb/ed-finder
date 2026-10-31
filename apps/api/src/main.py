@@ -84,6 +84,7 @@ from edfinder_api.routers.systems import router as systems_router
 from edfinder_api.routers.warehouse_planner_evidence import router as warehouse_planner_evidence_router
 from edfinder_api.routers.watchlist import router as watchlist_router
 from edfinder_api.routers.v3 import router as v3_router
+from edfinder_api.routers.plan import router as plan_router
 from edfinder_api.routers.v3_journal import router as v3_journal_router
 from edfinder_api.routers.v3_journal_research import router as v3_journal_research_router
 from edfinder_api.routers.v3_journal_contributions import router as v3_journal_contributions_router
@@ -402,6 +403,7 @@ app.include_router(provenance_cockpit_router)
 app.include_router(warehouse_planner_evidence_router)
 app.include_router(operator_router)
 app.include_router(v3_router)
+app.include_router(plan_router)
 app.include_router(v3_journal_router)
 app.include_router(v3_journal_research_router)
 app.include_router(v3_journal_contributions_router)
