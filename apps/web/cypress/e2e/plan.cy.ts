@@ -288,6 +288,11 @@ describe('Colony planner browser-kept main path', () => {
       addFacility(primaryId);
       addFacility(consumerId);
       addFacility(payerId);
+      cy.get('[aria-live="polite"]').should('contain.text', '1 blocked');
+      cy.contains('button', /^Build order \(3\)/)
+        .should('have.attr', 'aria-expanded', 'false')
+        .click()
+        .should('have.attr', 'aria-expanded', 'true');
       cy.get('[data-plan-build-order] [data-plan-site]').should(
         'have.length',
         3,
@@ -304,8 +309,6 @@ describe('Colony planner browser-kept main path', () => {
         .contains('dt', 'Next Tier 3 port cost')
         .next('dd')
         .should('have.text', '6 T3');
-      cy.get('[aria-live="polite"]').should('contain.text', '1 blocked');
-
       cy.get('[data-plan-build-order] [data-plan-site]')
         .eq(1)
         .contains('button', 'Why?')
@@ -352,7 +355,16 @@ describe('Colony planner browser-kept main path', () => {
       });
 
       cy.reload();
+      cy.contains('button', /^Build order \(3\)/).should(
+        'have.attr',
+        'aria-expanded',
+        'true',
+      );
+      cy.get('[data-plan-build-order]')
+        .contains('button', /^Close$/)
+        .click();
       cy.get('[data-plan-body="planet-1"]').should('contain.text', '3/3');
+      cy.contains('button', /^Build order \(3\)/).click();
       cy.get('[data-plan-build-order] [data-plan-site]').should(
         'have.length',
         3,
