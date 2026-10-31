@@ -12,6 +12,8 @@ on:
           - octopus-edge-status
           - recover-v3-runtime-contract
           - octopus-qdrant-healthcheck-repair
+          - octopus-upgrade-preflight
+          - octopus-upgrade-apply
           - v3-app-status
           - ratings-v4-generation-start
           - ratings-v4-generation-status
@@ -97,13 +99,18 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-derived-lifecycle-status) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair|octopus-upgrade-preflight|v3-app-status|ratings-v4-generation-start|ratings-v4-generation-status|v3-system-search-f1-start|v3-system-search-f1-status|v3-system-search-f1-finalize|v3-system-archetype-start|v3-system-archetype-status|v3-system-archetype-finalize|v3-spatial-status|v3-system-search-validate-constraints-start|v3-system-search-validate-constraints-status|v3-archetype-calibration-probe|v3-archetype-calibration-complete-start|v3-archetype-calibration-complete-status|v3-finder-capacity-gate|v3-archetype-plan-probe|v3-derived-lifecycle-status) ;;
             v3-derived-purge-plan|v3-derived-purge-status) ;;
             v3-disk-inventory) ;;
             v3-host-storage-detail) ;;
             v3-host-cleanup)
               [ "$EVENT_NAME" = workflow_dispatch ] && [ "$CURRENT_REF" = refs/heads/main ] || {
                 echo "V3 host clean-up requires a manual dispatch on main" >&2; exit 64;
+              }
+              ;;
+            octopus-upgrade-apply)
+              [ "$EVENT_NAME" = workflow_dispatch ] && [ "$CURRENT_REF" = refs/heads/main ] || {
+                echo "Octopus upgrade apply requires a manual dispatch on main" >&2; exit 64;
               }
               ;;
             v3-backup-wrapper-install) ;;
@@ -124,17 +131,23 @@ jobs:
           persist-credentials: false
 
       - name: Prepare trusted purge-fenced streamed actions
-        if: contains(fromJSON('["v3-backup-wrapper-install", "octopus-qdrant-healthcheck-repair", "v3-system-search-validate-constraints-start"]'), steps.request.outputs.operation)
+        if: contains(fromJSON('["v3-backup-wrapper-install", "octopus-qdrant-healthcheck-repair", "octopus-upgrade-preflight", "octopus-upgrade-apply", "v3-system-search-validate-constraints-start"]'), steps.request.outputs.operation)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/v3-purge-fenced-actions"
-          for action in v3-backup-wrapper-install octopus-qdrant-healthcheck-repair v3-system-search-validate-constraints; do
+          for action in v3-backup-wrapper-install octopus-qdrant-healthcheck-repair octopus-upgrade v3-system-search-validate-constraints; do
             {
               printf "v3_purge_state_check() {\n python3.14 -I -S - <<'V3_PURGE_PYTHON'\n"
               cat trusted-main/scripts/operator/lib/v3_purge_state.py
               printf '\nV3_PURGE_PYTHON\n}\n'
               cat trusted-main/scripts/operator/lib/v3-purge-state.sh
+              if [ "$action" = octopus-upgrade ]; then
+                # Only reviewed main supplies these bytes; no caller value is streamed.
+                printf "OCTOPUS_PACKAGE_JSON_B64='%s'\n" "$(base64 -w0 trusted-main/scripts/operator/octopus-upgrade/package.json)"
+                printf "OCTOPUS_PACKAGE_LOCK_B64='%s'\n" "$(base64 -w0 trusted-main/scripts/operator/octopus-upgrade/package-lock.json)"
+                printf "OCTOPUS_MODELS_SQL_B64='%s'\n" "$(base64 -w0 trusted-main/scripts/operator/octopus-upgrade/openai-models.sql)"
+              fi
               cat "trusted-main/scripts/operator/actions/$action.sh"
             } > "$RUNNER_TEMP/v3-purge-fenced-actions/$action.sh"
           done
@@ -873,6 +886,43 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'cd /opt/ed-finder && bash -s' < "$RUNNER_TEMP/v3-purge-fenced-actions/octopus-qdrant-healthcheck-repair.sh"
+
+      - name: Run Octopus upgrade preflight
+        if: steps.request.outputs.operation == 'octopus-upgrade-preflight'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s -- preflight' < "$RUNNER_TEMP/v3-purge-fenced-actions/octopus-upgrade.sh" \
+            | tee "$RUNNER_TEMP/octopus-upgrade-receipt.json"
+
+      - name: Run Octopus upgrade apply
+        if: steps.request.outputs.operation == 'octopus-upgrade-apply'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'cd /opt/ed-finder && bash -s -- apply' < "$RUNNER_TEMP/v3-purge-fenced-actions/octopus-upgrade.sh" \
+            | tee "$RUNNER_TEMP/octopus-upgrade-receipt.json"
+
+      - name: Upload Octopus upgrade receipt
+        if: always() && (steps.request.outputs.operation == 'octopus-upgrade-preflight' || steps.request.outputs.operation == 'octopus-upgrade-apply')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: octopus-upgrade-receipt
+          path: ${{ runner.temp }}/octopus-upgrade-receipt.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Inspect Octopus edge status
         if: steps.request.outputs.operation == 'octopus-edge-status'

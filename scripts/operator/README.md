@@ -112,6 +112,12 @@ Do not promote a repository helper into a production command merely because it e
   verifies the existing Postgres container is healthy without accessing it,
   and starts/verifies web without managing its dependencies. It does not read
   `.env`, access a database, or modify volumes.
+- `actions/octopus-upgrade.sh`: governed, pinned Octopus 1.0.122 → 1.3.3
+  upgrade on `ed-finder-prod`, exposed as `octopus-upgrade-preflight` and
+  `octopus-upgrade-apply` in `chatgpt-ed-new-ops.yml`. Apply requires manual
+  dispatch on `refs/heads/main`; both modes stream reviewed main's action,
+  purge helper, pinned npm manifest/lock and idempotent model SQL. See the
+  procedure below before dispatching.
 - `actions/octopus-edge-status.sh`: fail-closed, read-only status receipt for
   the current Octopus edge on `ed-finder-prod` / `nb79a3d.mevnode.com`. It
   reports bounded listeners, relevant containers, internal health/version,
@@ -125,6 +131,83 @@ Do not promote a repository helper into a production command merely because it e
   remote-host writes.
 
 These helpers still require their own host/environment checks. Their presence here does not authorize a production action by itself.
+
+## Governed Octopus 1.3.3 upgrade
+
+This is the owner's 2026-10-31 procedure, rehearsed end to end against a
+disposable copy of the 1.0.122 database with data, including restoring the
+pre-upgrade dump to a working 1.0.122. Implementation and repository validation
+never execute it against production.
+
+Dispatch `octopus-upgrade-preflight` first. This read-only operation reports the
+purge fence, rendered images and running web digest, version-line cardinality
+and value, source identity and changed filenames, migration ledger, active
+pgboss jobs, internal web version, and free bytes. It returns `ready`,
+`already_upgraded`, or `blocked` with machine-readable reasons. It never pulls
+images, changes containers or database state, or writes outside its private
+temporary directory. It reports a refusing purge fence without preventing
+inspection. Environment contents and rendered secrets are never printed.
+
+Dispatch `octopus-upgrade-apply` manually on main only after reviewing preflight.
+Apply is purge-fenced and runs only between purge phases: an active purge lease,
+unresolved fence, or unavailable purge-state evidence refuses it before any
+pull, backup, migration or version-file write. It also refuses active jobs,
+less than 10 GiB free space, or drift from the pinned 1.0.122 facts; an already
+verified 1.3.3 installation returns `already_done` without changes.
+
+The implemented order is:
+
+1. Verify the three streamed files against their pinned SHA-256 values and run
+   the host, source, Compose, database, disk and purge checks; preflight must
+   return `ready`, including 35 finished migrations and no active pgboss jobs.
+2. Pull and verify the pinned 1.3.3 image digest, then pull the pinned Node 24
+   migrator mirror.
+3. Fetch the exact upstream commit and use `git archive` for
+   `packages/db/prisma` and `packages/db/prisma.config.ts` into one temporary
+   `migrations-src/` directory, preserving the working checkout and its local
+   Qdrant Compose repair. Require exactly 61 migration directories, including
+   `20260929150000_sonnet55`, and copy the checksum-verified `package.json` and
+   `package-lock.json` into its root.
+4. Re-check active pgboss jobs immediately before stopping web; a nonzero count
+   refuses with `active_background_jobs` before any service or database change.
+   Run `docker compose ... stop web` and require that web is no longer running.
+   Web also runs the review workers and is Octopus's only writer, so keep it
+   stopped through all database changes.
+5. Keep a mode-0600 custom-format PostgreSQL dump and a mode/owner-preserving
+   `.env` copy under mode-0700 `/opt/octopus/backups`, with UTC timestamps.
+   Verify the dump contains a TABLE entry before migration. If backup or its
+   verification fails, start web with `up -d --no-deps web` and require healthy
+   1.0.122 on its pinned digest; report `stopped` without restoring the untouched
+   database.
+6. Apply all 26 pending migrations in one `prisma migrate deploy` using the
+   full directory and pinned Prisma CLI on the existing single Postgres
+   network; require 61 finished and zero failed migrations.
+7. Insert the ten reviewed OpenAI rows idempotently; require their IDs with
+   provider `openai` and category `llm`, plus Opus 5.5 and Sonnet 5.5.
+8. Atomically replace only the single `OCTOPUS_VERSION=1.0.122` line with
+   `OCTOPUS_VERSION=1.3.3`, preserving other bytes, mode and owner. Recreate
+   only web with `up -d --no-deps web` and require its pinned digest and version
+   1.3.3 within 180 seconds.
+9. Verify final web health/version and emit a `passed` receipt with backup paths,
+   migration counts, image digests and added model rows. Receipts record
+   `web_stopped_at_step: "write_barrier"` and `downtime_seconds`, measured with
+   a monotonic clock from the stop until healthy 1.3.3, or until healthy 1.0.122
+   returns after a rollback or backup failure.
+
+Any failure from migration onward automatically restores `.env` if changed,
+stops web, drops/recreates only the Octopus database, restores the verified
+pre-upgrade dump, requires 35 finished migrations, and starts/verifies 1.0.122
+on its pinned digest within 180 seconds. A `rolled_back` receipt retains the
+original failure and returns nonzero; a failed recovery returns
+`rollback_failed` naming the failed rollback step. The only writes rollback can
+discard are those accepted by a 1.3.3 web that then failed its own health window.
+GitHub webhooks sent while
+web is stopped (about a minute or two) are not retried by GitHub, which is
+acceptable because reviews are requested manually.
+
+Qdrant and its volume are untouched on every upgrade and rollback path.
+Temporary files are removed on exit; backups remain for the operator.
+Both operations retain JSON receipts as workflow artifacts for 30 days.
 
 ## Other scripts in this directory
 
