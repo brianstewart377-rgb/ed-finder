@@ -475,14 +475,20 @@ export function setSlotCount(
   };
 }
 
+export function facilitySlotKind(
+  facility: PlanFacilityV1,
+): 'orbital' | 'surface' {
+  return facility.allowed_location.toLowerCase().includes('surface')
+    ? 'surface'
+    : 'orbital';
+}
+
 export function findFreeLocation(
   model: PlannerModel,
   locations: PlannerLocation[],
   facility: PlanFacilityV1,
 ): string | null {
-  const kind = facility.allowed_location.toLowerCase().includes('surface')
-    ? 'surface'
-    : 'orbital';
+  const kind = facilitySlotKind(facility);
   const key = `${kind}_slots` as const;
   return (
     locations.find((location) => {

@@ -11,6 +11,7 @@ import {
   countUsedSlots,
   emptyPlan,
   exportPlan,
+  facilitySlotKind,
   findFreeLocation,
   findPlannerProject,
   importPlan,
@@ -279,6 +280,19 @@ describe('planner request and slots', () => {
     ).toEqual({ orbital_slots: 2, surface_slots: 1 });
   });
 
+  it.each([
+    ['orbital', 'orbital'],
+    ['orbital_ringed', 'orbital'],
+    ['surface', 'surface'],
+  ] as const)(
+    'uses %s facilities in %s slots',
+    (allowed_location, slotKind) => {
+      expect(facilitySlotKind({ allowed_location } as PlanFacilityV1)).toBe(
+        slotKind,
+      );
+    },
+  );
+
   it('places payer suggestions only in known compatible free slots, otherwise unplaced', () => {
     const locations = resolvePlanLocations(bodies());
     const orbital = { allowed_location: 'orbital' } as PlanFacilityV1;
@@ -535,6 +549,10 @@ describe('Primary Port locks', () => {
       const fields = [
         { patch: { facility_id: 'coriolis' }, locked: facility },
         { patch: { slot_kind: 'surface' as const }, locked: facility },
+        {
+          patch: { facility_id: 'surface-port', slot_kind: 'surface' as const },
+          locked: facility,
+        },
         { patch: { body_ref: 'other' }, locked: body },
         { patch: { body_ref: null }, locked: body },
       ];

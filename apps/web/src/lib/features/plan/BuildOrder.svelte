@@ -7,6 +7,7 @@
   } from './locations';
   import {
     canMoveSite,
+    facilitySlotKind,
     primaryPortLocks,
     PRIMARY_PORT_PROTECTION,
     type PlannerModel,
@@ -83,7 +84,6 @@
       : undefined;
     return facilities.filter(
       (facility) =>
-        facility.allowed_location.includes(site.slot_kind) &&
         (index !== 0 || facility.is_port) &&
         (!location || facilityFitsLocation(facility, location)),
     );
@@ -118,6 +118,7 @@
       {@const step = steps.get(site.site_id)}
       {@const facility = facilityById.get(site.facility_id)}
       {@const locks = index === 0 ? primaryPortLocks(site) : null}
+      {@const options = facilityOptions(site, index)}
       <li
         value={index + 1}
         class="build-step compact-step"
@@ -207,19 +208,29 @@
                   aria-label={`Facility for step ${index + 1}`}
                   value={site.facility_id}
                   disabled={locks?.facility ?? false}
-                  onchange={(event) =>
-                    onupdate(site.site_id, {
-                      facility_id: event.currentTarget.value,
-                    })}
+                  onchange={(event) => {
+                    const chosen = facilityById.get(event.currentTarget.value);
+                    if (chosen)
+                      onupdate(site.site_id, {
+                        facility_id: chosen.id,
+                        slot_kind: facilitySlotKind(chosen),
+                      });
+                  }}
                 >
-                  {#if !facilityOptions(site, index).some((item) => item.id === site.facility_id)}<option
+                  {#if !options.some((item) => item.id === site.facility_id)}<option
                       value={site.facility_id}
                       disabled
                       >{facility?.name ?? site.facility_id} — choose a valid facility</option
                     >{/if}
-                  {#each facilityOptions(site, index) as option (option.id)}<option
-                      value={option.id}>{option.name}</option
-                    >{/each}
+                  {#each ['orbital', 'surface'] as kind (kind)}
+                    <optgroup
+                      label={kind === 'orbital' ? 'Orbital' : 'Surface'}
+                    >
+                      {#each options.filter((option) => facilitySlotKind(option) === kind) as option (option.id)}<option
+                          value={option.id}>{option.name}</option
+                        >{/each}
+                    </optgroup>
+                  {/each}
                 </select></label
               >
               <label

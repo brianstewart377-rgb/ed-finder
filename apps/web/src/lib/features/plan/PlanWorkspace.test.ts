@@ -232,6 +232,110 @@ describe('planner workspace evaluation and browser state', () => {
     });
   });
 
+  it('moves a planned installation between orbital and surface slots and updates capacity highlights', async () => {
+    const landableBodies: PlanBodiesV1 = {
+      ...bodyData,
+      bodies: [
+        ...bodyData.bodies,
+        {
+          ...bodyData.bodies[0],
+          body_id: '2',
+          name: 'Test System A 1',
+          direct_parent_body_id: '1',
+          body_type: 'planet',
+          is_main_star: false,
+          is_landable: true,
+        },
+      ],
+    };
+    const surfaceInstallation: PlanFacilityV1 = {
+      ...nonPort,
+      id: 'surface-installation',
+      name: 'Surface Installation',
+      allowed_location: 'surface',
+    };
+    const switchCatalogue = {
+      ...catalogue,
+      facilities: [...catalogue.facilities, surfaceInstallation],
+    };
+    vi.mocked(listV3PlanBodies).mockResolvedValue(landableBodies);
+    vi.mocked(getV3PlanCatalogue).mockResolvedValue(switchCatalogue);
+    queryClient.setQueryData(
+      ['ed-finder', 'plan-bodies', '42'],
+      landableBodies,
+    );
+    queryClient.setQueryData(['ed-finder', 'plan-catalogue'], switchCatalogue);
+    const record = plannerToRecord({
+      ...emptyPlan('42'),
+      sites: [
+        importedSite('Primary port'),
+        {
+          ...importedSite('Second build'),
+          site_id: 'second',
+          facility_id: nonPort.id,
+          body_ref: '2',
+        },
+      ],
+      slots: { '2': { orbital_slots: 0, surface_slots: 0 } },
+    });
+    colonyProjects.set({
+      version: 3,
+      state: { projects: { [record.id]: record } },
+    });
+    render(PlanWorkspaceTestHost);
+    const systemPane = within(screen.getByRole('region', { name: 'System' }));
+    const orbital = systemPane.getByRole('button', {
+      name: 'Orbital slots on Test System A 1: 1 used, 0 total, over capacity',
+    });
+    const surface = systemPane.getByRole('button', {
+      name: 'Surface slots on Test System A 1: 0 used, 0 total',
+    });
+    expect(orbital).toHaveTextContent('1/0');
+    expect(orbital).toHaveClass('over-capacity');
+    expect(surface).toHaveTextContent('0/0');
+    expect(surface).not.toHaveClass('over-capacity');
+
+    await fireEvent.click(screen.getByLabelText('Edit Second build'));
+    const facility = screen.getByRole('combobox', {
+      name: 'Facility for step 2',
+    });
+    await fireEvent.change(facility, {
+      target: { value: surfaceInstallation.id },
+    });
+    expect(facility).toHaveValue(surfaceInstallation.id);
+    expect(
+      recordToPlanner(get(colonyProjects).value.state.projects[record.id])
+        .sites[1],
+    ).toMatchObject({
+      facility_id: surfaceInstallation.id,
+      slot_kind: 'surface',
+      body_ref: '2',
+    });
+    expect(orbital).toHaveAccessibleName(
+      'Orbital slots on Test System A 1: 0 used, 0 total',
+    );
+    expect(orbital).toHaveTextContent('0/0');
+    expect(orbital).not.toHaveClass('over-capacity');
+    expect(surface).toHaveAccessibleName(
+      'Surface slots on Test System A 1: 1 used, 0 total, over capacity',
+    );
+    expect(surface).toHaveTextContent('1/0');
+    expect(surface).toHaveClass('over-capacity');
+
+    await fireEvent.change(facility, { target: { value: nonPort.id } });
+    expect(facility).toHaveValue(nonPort.id);
+    expect(orbital).toHaveAccessibleName(
+      'Orbital slots on Test System A 1: 1 used, 0 total, over capacity',
+    );
+    expect(orbital).toHaveTextContent('1/0');
+    expect(orbital).toHaveClass('over-capacity');
+    expect(surface).toHaveAccessibleName(
+      'Surface slots on Test System A 1: 0 used, 0 total',
+    );
+    expect(surface).toHaveTextContent('0/0');
+    expect(surface).not.toHaveClass('over-capacity');
+  });
+
   it('ignores an earlier response even if it arrives after the current evaluation', async () => {
     seedPrimary();
     const oldRequest = deferred<PlanEvaluationV1>();
