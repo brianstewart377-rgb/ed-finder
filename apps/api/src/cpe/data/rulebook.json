@@ -1,14 +1,14 @@
 {
   "schema": "cre-rulebook/v1",
-  "knowledge_version": "0.4.0",
-  "release_tag": "cre-knowledge-v0.4.0",
+  "knowledge_version": "0.5.0",
+  "release_tag": "cre-knowledge-v0.5.0",
   "title": "Colonisation Research Engine rulebook",
   "purpose": "A pinned, machine-readable list of Elite Dangerous colonisation rules with stable IDs, exact values and sources. Tools such as ed-finder read a tagged release of this file; a rule enters or changes here only after owner review.",
   "game_basis": {
     "community_guide": "Elite Dangerous Colonization Mega Guide 2.3.0 (31 October 2025, game version 4.2.1.2)",
     "first_party": "Frontier: Trailblazers Update 3 (30 April 2025), update 4.1.2.101, Vanguards Patch 1 (22 August 2025)",
     "not_incorporated": "The 4.2.2.0 patch-note change (a nerf announced at -70%, later revised to -25%) is not reflected in the guide or in this rulebook.",
-    "in_game": "Colony port economy strengths measured from game journals (game 4.4.1.1 to 4.4.2.1, October 2026) and Spansh station data (EV-0006)."
+    "in_game": "Colony port economy strengths measured from game journals (game 4.4.1.1 to 4.4.2.1, October 2026) and Spansh station data (EV-0006, EV-0007)."
   },
   "status_vocabulary": {
     "Confirmed": "A Frontier first-party source states it, or evidence in this repository verified it in game.",
@@ -51,6 +51,12 @@
       "title": "Colony port economy strengths from journals and Spansh (measured 2026-10)",
       "tier": "Tier 1 - in-game measurement",
       "citation_file": "evidence/EV-0006-colony-port-economy-strengths.md"
+    },
+    {
+      "id": "EV-0007",
+      "title": "Strong links on a body with both an orbital and a planetary port (Wregoe ZN-X c28-28 A 5, measured 2026-10)",
+      "tier": "Tier 1 - in-game measurement",
+      "citation_file": "evidence/EV-0007-dual-port-strong-links-wregoe-a5.md"
     }
   ],
   "rules": [
@@ -806,11 +812,13 @@
       "related": [
         "M-0006"
       ],
-      "contradictions": [],
+      "contradictions": [
+        "C-0014"
+      ],
       "caveats": [
         "Frontier states only that strong links form on or around the same body; 'at most one', and 'no port means no strong links', are the guide's (MG-0001 page 55).",
         "With several ports on one body, strong links go to the highest-tier port (earliest built if tied) (RB-0020).",
-        "Footnote 20 (MG-0001 page 55): if both one or more planetary ports and one or more space ports are present, strong links form with both the planetary and the space primary ports. Page 59 describes the same case as the planetary port passing its links on to the orbital port."
+        "Footnote 20 (MG-0001 page 55) says strong links form with both the planetary and the space primary ports when both are present. In-game measurement contradicts it for orbital facilities: they link to the orbital port only (EV-0007, RB-0029, C-0014)."
       ]
     },
     {
@@ -1242,9 +1250,9 @@
       "contradictions": [],
       "caveats": [
         "The guide quotes this as Frontier's official documentation, but CRE does not hold the first-party text, so it is not Confirmed here.",
-        "Planetary ports also pass their planet's inherent economy to the spaceport above them; the guide believes this is a bug (MG-0001 page 59).",
         "The guide calls these mechanics 'confusing, potentially bugged, and rather clunky' (MG-0001 page 59).",
-        "Footnote 20 (MG-0001 page 55) says strong links form with both the planetary and the space primary ports when both are present (RB-0017)."
+        "How links flow on a body with both port kinds was measured in game (EV-0007) and is RB-0029: surface facilities link to the planetary port, which passes them on to the orbital port with its own strong link per economy; orbital facilities link to the orbital port only. The guide suspects that a planetary port passing its planet's economy on to the orbital port is a bug (MG-0001 page 59); in game it happens, as a strong link per economy (RB-0029).",
+        "The priority among several ports of the same kind (highest tier, then earliest built) and the conversion of extra ports are not measured; this rule stays Extracted."
       ]
     },
     {
@@ -1748,6 +1756,48 @@
         "No port's own economy was observed below 1.0, so whether the 0.1 floor for strong links (RB-0019) also applies here is not known.",
         "The terraformable Agriculture boost stays off (RB-0018, C-0013).",
         "The current-version cases are the journal observations of October 2026; the Spansh cases date from 2025-05 to 2026-10 (EV-0006)."
+      ]
+    },
+    {
+      "id": "RB-0029",
+      "topic": "links",
+      "title": "A body with both an orbital and a planetary port: how strong links flow",
+      "status": "Confirmed",
+      "statement": "When a body has both an orbital port and a planetary port, supporting facilities on the surface form strong links with the planetary port, which passes them on unchanged to the orbital port. Supporting facilities in orbit form strong links with the orbital port only; the planetary port receives nothing from them. The planetary port also forms a strong link with the orbital port in each of its own economies, worth its tier's link value (RB-0015) plus the body's modifiers for that economy (RB-0018, RB-0019), and sends no weak links (RB-0020).",
+      "value": {
+        "kind": "dual_port_links",
+        "surface_facilities_link_to": "planetary_port",
+        "planetary_port_passes_links_to_orbital_port": true,
+        "orbital_facilities_link_to": "orbital_port_only",
+        "planetary_port_own_link_per_economy": true,
+        "planetary_port_own_link_strength": "tier link value plus the body's modifiers for that economy",
+        "planetary_port_sends_weak_links": false
+      },
+      "sources": [
+        {
+          "source_id": "MG-0001",
+          "page": 59,
+          "quote": "planetary facilities will create strong links with the planetary port, which will pass these strong links on to the orbital port"
+        },
+        {
+          "source_id": "EV-0007",
+          "quote": "Orbital facilities on a body with both kinds of port linked to the orbital port only, while surface facilities linked to the planetary port, which passed their links on to the orbital port together with its own strong link."
+        },
+        {
+          "source_id": "EV-0007",
+          "quote": "The difference between the Dodec and the planetary port matched the rule exactly in all six economies."
+        }
+      ],
+      "related": [
+        "M-0006",
+        "M-0009"
+      ],
+      "contradictions": [
+        "C-0014"
+      ],
+      "caveats": [
+        "Measured on one body with a Tier 3 orbital port and a Tier 3 planetary port (Wregoe ZN-X c28-28 A 5, EV-0007). Lower-tier and specialised planetary ports are expected to behave the same but are not measured.",
+        "The guide's footnote 20 (MG-0001 page 55) says links form with both ports; the measurement shows orbital facilities link to the orbital port only (C-0014)."
       ]
     }
   ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -25,10 +26,18 @@ def test_runtime_rulebook_matches_the_pin_and_docs_bytes():
 
     assert hashlib.sha256(runtime).hexdigest() == pin['sha256']
     assert runtime == (directory / 'rulebook.json').read_bytes()
-    assert RULEBOOK_RELEASE == pin['release_tag'] == 'cre-knowledge-v0.4.0'
+    assert RULEBOOK_RELEASE == pin['release_tag'] == 'cre-knowledge-v0.5.0'
 
 
-def test_rules_preserve_status_and_first_source_citations():
+def _plain(value):
+    if isinstance(value, Mapping):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain(item) for item in value]
+    return value
+
+
+def test_rules_preserve_values_status_and_first_source_citations():
     data = json.loads(
         (ROOT / 'apps' / 'api' / 'src' / 'cpe' / 'data' / 'rulebook.json').read_text(
             encoding='utf-8',
@@ -37,6 +46,7 @@ def test_rules_preserve_status_and_first_source_citations():
     for item in data['rules']:
         actual = rule(item['id'])
         assert actual.topic == item['topic']
+        assert _plain(actual.value) == item['value']
         assert actual.quote == item['sources'][0]['quote']
         assert actual.page == item['sources'][0].get('page')
         assert explain_rule(item['id']) == {
@@ -46,6 +56,24 @@ def test_rules_preserve_status_and_first_source_citations():
     assert rule('RB-0003').status == 'Extracted'
     with pytest.raises(FrozenInstanceError):
         rule('RB-0003').status = 'Confirmed'
+
+
+def test_rule_values_are_deeply_immutable():
+    tiers = rule('RB-0015').value
+    with pytest.raises(TypeError):
+        tiers['strong_by_tier'] = {}
+    with pytest.raises(TypeError):
+        tiers['strong_by_tier']['1'] = 99
+    conditions = rule('RB-0018').value['economies']['Agriculture']['boosts']
+    assert isinstance(conditions, tuple)
+    with pytest.raises(TypeError):
+        conditions[0] = {}
+    with pytest.raises(TypeError):
+        conditions[0]['condition'] = 'changed'
+    with pytest.raises(FrozenInstanceError):
+        rule('RB-0015').value = {}
+    assert rule('RB-0015').value['strong_by_tier']['1'] == 0.4
+    assert rule('RB-0018').value['economies']['Agriculture']['boosts'][0]['condition'] == 'orbiting_earth_like_world'
 
 
 def test_unknown_rule_fails_closed():
