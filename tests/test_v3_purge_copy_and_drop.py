@@ -27,11 +27,12 @@ from tests.test_v3_governed_derived_purge import (  # noqa: E402
 )
 
 COPY_MIGRATION = '019_v3_purge_copy_and_drop.sql'
-# 020 replaces the swap's locking and 021 bounds the long phases (GiST indexes
-# filled by the chunks, verification chunk re-read); the copy capability is
-# 019 plus 020 plus 021.
+# 020 replaces the swap's locking, 021 bounds the long phases (GiST indexes
+# filled by the chunks, verification chunk re-read) and 022 starts every chunk
+# read at its keyset; the copy capability is 019 plus 020, 021 and 022.
 LOCK_ORDER_MIGRATION = '020_v3_purge_swap_lock_order.sql'
 LONG_PHASE_MIGRATION = '021_v3_purge_long_phase_bounds.sql'
+KEYSET_MIGRATION = '022_v3_purge_keyset_start.sql'
 COPY_KINDS = {
     'COPY_STARTED', 'CHUNK_COPIED', 'INDEXES_BUILT', 'VERIFIED', 'SWAPPED',
     'SWAPPED_BACK', 'FK_VALIDATED', 'DROPPED', 'COMPLETED', 'FAILED_STOP',
@@ -55,10 +56,12 @@ PUBLIC_FUNCTIONS = (
 )
 
 
-def _install_copy(connection):
+def _install_copy(connection, *, keyset=True):
     connection.execute((MIGRATIONS / COPY_MIGRATION).read_text())
     connection.execute((MIGRATIONS / LOCK_ORDER_MIGRATION).read_text())
     connection.execute((MIGRATIONS / LONG_PHASE_MIGRATION).read_text())
+    if keyset:
+        connection.execute((MIGRATIONS / KEYSET_MIGRATION).read_text())
     # Keep autovacuum workers off the new ledger, as 016's fixture does for v3_*.
     for table in ('derived_purge_copy_request', 'derived_purge_copy_event'):
         connection.execute(sql.SQL('ALTER TABLE {} SET (autovacuum_enabled=false)').format(

@@ -11,6 +11,26 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Purge chunk reads start at their keyset (migration 022)
+
+`copy-economy-opportunity` slowed from 2.92 s to 6.85 s per 100,000-row chunk
+between its first two runs, the Search copy had shown the same slope, and the
+`economy_opportunity` verification could never have fitted its 19,200 s
+bound. 019's chunk read and 021's verification re-read bounded each chunk
+with a row comparison led by `derived_generation_id` plus a separate equality
+on it; the equality wins the btree scan's start position, so every chunk
+walked all the survivor index entries before its low key. Migration
+`022_v3_purge_keyset_start.sql` adds `v3_meta.purge_copy_keyset`, which bounds
+the generation with `<=` so the row comparison starts the scan (same rows,
+same plan shape; flat cost per chunk on PostgreSQL 18), and replaces
+`purge_copy_chunk` and `purge_copy_verify` to use it. The purge authorized
+on 2026-10-29 froze the through-021 migration ledger, so 016's
+`purge_assert_request` also accepts the live ledger minus exactly 022's own
+row; any other difference still refuses. Registered through-021 →
+through-022 with `1e748c9d` attested for both endpoints. Not applied: the
+governed apply refuses while a copy is staged, so the partial opportunities
+copy is abandoned first (owner-approved) and copied again afterwards.
+
 ## 2026-10-30 — Purge verify gets a longer bound for the larger relations
 
 The Search verify took 4,247 s (about 4.7 × its production-speed estimate)

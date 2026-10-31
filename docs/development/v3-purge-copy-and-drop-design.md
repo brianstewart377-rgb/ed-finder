@@ -162,6 +162,27 @@ alone. Verification's fingerprint still compares every index with the live one.
 Chunks get slower by that index's insert cost, within the chunk statement
 timeout, gate 2 and the WAL throttle.
 
+**Keyset start (migration 022, 2026-10-31).** 021 fixed where each re-read
+*ends*; its start had the same defect, in the copy as well as the re-read. A
+btree scan takes at most one boundary key per index column and an equality
+wins, so with `derived_generation_id = $1` beside the row comparison the scan
+started at the first survivor entry and checked the row comparison entry by
+entry up to the chunk's low key. 021's measurement compared one chunk at two
+table sizes, not chunks at different positions, so it could not show this.
+Production showed it: `copy-economy-opportunity` slowed from 2.92 s to 6.85 s
+per chunk between its first two runs, and its verification (7,401 chunks)
+extrapolated to about 40,000–55,000 s. 022's `v3_meta.purge_copy_keyset`
+bounds the generation with `derived_generation_id <= $1` instead, so the row
+comparison is the start key (extended by its lower-order columns); the rows
+are the same, and the planner, which estimates a row comparison by its first
+column only, keeps the same ordered primary-key index scan. On PostgreSQL 18
+one chunk read 1,335 buffers at the first position and 1,334 at the last,
+where 019's predicate grew from 1,930 to 18,596. `purge_copy_chunk` and
+`purge_copy_verify` change only their predicate; the ledger, digests and checks
+are unchanged, so chunks copied before 022 verify after it. Because 016 froze
+the applied-migrations ledger at authorize, 022 also lets a purge authorized
+before it accept exactly 022's own ledger row (runbook, fifth amendment).
+
 **Production host speed (2026-10-28).** With `021` the one_percent rehearsal
 (run 40704251158) brought the Search index build to about 1,410 s, but
 `body_mechanics` and `economy_opportunity` verification still extrapolated to

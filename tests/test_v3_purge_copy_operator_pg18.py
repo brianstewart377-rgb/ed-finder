@@ -621,6 +621,79 @@ def test_long_phase_runs_its_watch_callback_on_a_real_psql_backend(superuser_dat
         assert failure['classification'] == 'retryable'
 
 
+def test_partial_opportunity_copy_abandons_clears_the_fence_and_restarts(copy_database, monkeypatch):
+    """Production replay (2026-10-31): Search dropped and economy_opportunity
+    staged after some chunks. The operator's abandon SQL, with the owner's
+    evidence, drops only the staging copy and leaves the live table alone;
+    the backup skip and the shared mutator fence (which migration apply runs)
+    clear; the relation is back at prepare and a fresh copy verifies."""
+    c = _owner(copy_database[0])
+    executor = _fence_executor(c, monkeypatch)
+    purge, plan = _authorize(copy_database)
+    copy_tests.staged(c, purge, 'system_search')
+    copy_tests.finish(c, purge, 'system_search')
+    _reset(c)
+    params = {'purge_id': purge, 'relation': 'economy_opportunity'}
+    assert type(_json(c, copy.PREPARE_SQL, params)['event']) is int
+    _reset(c)
+    for _ in range(2):
+        assert _json(c, copy.CHUNK_SQL, {**params, 'max_rows': '2'})['rows'] == 2
+        _reset(c)
+    state = copy.relation_state(_json(c, copy.STATUS_SQL), plan['plan_sha256'], 'economy_opportunity')
+    _reset(c)
+    assert (state['copy_position'], state['phase'], state['rows_total']) == ('staged', 'CHUNK_COPIED', 4)
+    live = c.execute('SELECT count(*), sum(hashtext(o::text)) FROM v3_derived.economy_opportunity o').fetchone()
+    with pytest.raises(fence.PurgeStateError) as refused:
+        fence.check(executor, lease_held_by_caller=True)
+    assert refused.value.report['failures'] == ['purge_copy_backup_skip', 'purge_copy_relation_staged']
+    # The dispatcher's own abandon step: evidence, bounded retry, result.
+    controller, dispatch, copy_module, runtime, _saved = _phase_harness(monkeypatch, c, name='abandon')
+    report = {'runner_state': {'controller_run_id': '41166416358', 'controller_pid': 1}}
+    staged_state = _state_now(copy_module, runtime, plan, 'economy_opportunity')
+    dispatch._abandon(controller, copy_module, runtime, report, [purge, purge], 'economy_opportunity', staged_state)
+    assert report['result'] == 'staging_copy_abandoned'
+    assert report['next_admissible_mode'] == {'mode': 'copy-economy-opportunity', 'implemented': True}
+    assert report['phase_timeouts']['abandon'] == copy_module.phase_settings('abandon')
+    assert [a['outcome'] for a in report['swap_attempts']] == ['committed']
+    event = report['copy_steps'][-1]['result']['event']
+    assert report['copy_steps'][-1]['phase'] == 'abandon' and type(event) is int
+    kind, payload, recorded = c.execute(
+        'SELECT event_kind, operational_payload, failure_evidence FROM v3_meta.derived_purge_copy_event '
+        'WHERE event_sequence=%s', (event,)).fetchone()
+    assert kind == 'FAILED_STOP' and payload['abandoned'] is True
+    assert recorded == {'condition': 'owner_abandon', 'integrity_failed': False, 'workflow_run_id': '41166416358',
+                        'controller': report['runner_state']}
+    assert c.execute("SELECT to_regclass('v3_purge_staging.economy_opportunity')").fetchone()[0] is None
+    assert c.execute('SELECT count(*), sum(hashtext(o::text)) FROM v3_derived.economy_opportunity o').fetchone() == live
+    status = _json(c, copy.STATUS_SQL)
+    _reset(c)
+    state = copy.relation_state(status, plan['plan_sha256'], 'economy_opportunity')
+    assert (state['copy_position'], state['failed'], state['rows_total']) == ('none', False, 0)
+    assert copy.relation_state(status, plan['plan_sha256'], 'system_search')['copy_position'] == 'dropped'
+    assert status['staging_relations'] == [] and status['backup_skip'] is False
+    assert _json(c, copy.BACKUP_SKIP_SQL)['backup_skip'] is False
+    _reset(c)
+    assert fence.check(executor, lease_held_by_caller=True)['status'] == 'clear'
+    # A second abandon refuses, in the dispatcher and in 019: nothing is staged.
+    with pytest.raises(ValueError, match='only_an_unswapped_staging_copy_can_be_abandoned'):
+        dispatch._abandon(controller, copy_module, runtime, {'runner_state': {}}, [purge, purge],
+                          'economy_opportunity', state)
+    with pytest.raises(psycopg.errors.RaiseException, match='only an unswapped staging copy can be abandoned'):
+        _json(c, copy.ABANDON_SQL, {**params, 'evidence': json.dumps({'condition': 'owner_abandon'})})
+    c.execute('ROLLBACK')
+    _reset(c)
+    # copy-R starts again at prepare, and the fresh copy verifies.
+    staging = _json(c, copy.STAGING_SQL, {'relation': 'economy_opportunity'})
+    _reset(c)
+    frozen = _json(c, copy.REQUEST_SQL, {'plan_sha256': plan['plan_sha256']})['frozen_survivors']['economy_opportunity']
+    _reset(c)
+    assert copy.next_step(state, frozen, staging) == 'prepare'
+    copy_tests.staged(c, purge, 'economy_opportunity')
+    kinds = copy_tests.events(c, 'economy_opportunity')
+    assert kinds[:5] == ['COPY_STARTED', 'CHUNK_COPIED', 'CHUNK_COPIED', 'FAILED_STOP', 'COPY_STARTED']
+    assert set(kinds[5:-2]) == {'CHUNK_COPIED'} and kinds[-2:] == ['INDEXES_BUILT', 'VERIFIED']
+
+
 def test_opportunity_swap_back_restores_its_statistics_in_both_directions(copy_database, monkeypatch):
     """Codex 4379797637: swap-R recalibrates n_distinct on the copy; 019's
     swap-back compares attribute options with the retired table. swap-back-R

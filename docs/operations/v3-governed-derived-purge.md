@@ -259,6 +259,32 @@ about 30 GB to spare. If a verify still does not finish, the dispatch stops
 retryably and `abandon-R` remains. `amended_files` carries the new digests of
 `v3_purge_copy.py` and `v3_purge_copy_dispatch.py`.
 
+**Fifth owner-accepted amendment (2026-10-31), keyset start (migration 022).**
+Under the same 9,000 s budget `copy-economy-opportunity` run 41140926027
+copied 267.9 million rows (2.92 s per 100,000-row chunk) and run 41155213939
+only 123.5 million (6.85 s per chunk); the Search copy had shown the same
+slope (3.32 s, then 5.25 s). 019's chunk read and 021's verification re-read
+paired a row comparison led by `derived_generation_id` with a separate
+equality on it, so every chunk's btree scan started at the first survivor
+entry and walked every entry before the chunk's low key: the cost is
+quadratic in the relation. The rest of the copy would have taken about five
+more dispatches, and its verification (7,401 chunks) about 40,000–55,000 s,
+which can never fit its 19,200 s bound. Migration 022 moves the start:
+`v3_meta.purge_copy_keyset` bounds the generation with `<=` so the row
+comparison is the scan's start key (same rows; measured flat on PostgreSQL 18,
+1,335 buffers per chunk at the first and last positions where 019's grew from
+1,930 to 18,596), and `purge_copy_chunk` and `purge_copy_verify` use it.
+Because `authorize` (run 40971335172) froze the through-021 ledger, 016's
+`purge_assert_request` also accepts the live ledger minus exactly 022's own row;
+any other ledger difference still refuses, and recovery steps never compared
+the ledger. Governed migration apply refuses while any relation is staged or
+swapped, so the owner approved this order: let copy run 3 (41166416358)
+finish; `abandon-economy-opportunity` (drops only the staging copy; the live
+table and the Finder are untouched, and scheduled backups resume); merge and
+apply 022 through the governed migration workflow; then `copy-economy-opportunity`
+again from `prepare`. No operator file changes, so the rehearsal pin is
+unaffected; the plan and authorization stay as they are.
+
 **Watchdog (F3).** Every long phase runs under the same root-owned
 `systemd-run` watchdog as the 016 rewrite (unit
 `edfinder-v3-purge-copy-<relation>-<phase>-<pid>`), pinned to the container,

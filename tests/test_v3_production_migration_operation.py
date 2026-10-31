@@ -86,6 +86,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "019_v3_purge_copy_and_drop.sql",
         "020_v3_purge_swap_lock_order.sql",
         "021_v3_purge_long_phase_bounds.sql",
+        "022_v3_purge_keyset_start.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -100,25 +101,24 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     desired = module.desired_entries(ROOT)
     # The Finder transition (through-012 -> through-016) was applied on
     # 2026-10-18 (apply run 39113822236), the copy-and-drop capability 019 on
-    # 2026-10-26 (apply run 40338736148) and its swap lock order 020 on
-    # 2026-10-27 (apply run 40551173291). The registered transition is now the
-    # copy long-phase bounds: installed through-020, pending [021].
+    # 2026-10-26 (apply run 40338736148), its swap lock order 020 on 2026-10-27
+    # (apply run 40551173291) and its long-phase bounds 021 on 2026-10-28 (apply
+    # run 40654201809). The registered transition is now the copy keyset start:
+    # installed through-021, pending [022].
     installed_count = next(
         index + 1 for index, entry in enumerate(desired)
-        if entry["ledger_name"] == "020_v3_purge_swap_lock_order.sql"
+        if entry["ledger_name"] == "021_v3_purge_long_phase_bounds.sql"
     )
-    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["021"]
+    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["022"]
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    # 021 was applied on 2026-10-28 (apply run 40654201809). The accepted
-    # release is now the fourth F2d release (1e748c9d, 2026-10-29), attested
-    # only for the installed through-021 target, so replaying the completed
-    # transition fails closed until a new reviewed transition is committed.
+    # The accepted fourth F2d release (1e748c9d, 2026-10-29) is attested for
+    # every reachable prefix: the installed through-021 and the pending
+    # through-022 target.
     compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
-    assert reachable[-1] in compatible
-    assert not set(reachable[:-1]) & set(compatible)
+    assert set(reachable) <= set(compatible) and len(reachable) == 2
     assert deployer.validate_authority(authority) == []
 
 
@@ -149,6 +149,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "019_v3_purge_copy_and_drop.sql",
         "020_v3_purge_swap_lock_order.sql",
         "021_v3_purge_long_phase_bounds.sql",
+        "022_v3_purge_keyset_start.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
@@ -354,7 +355,7 @@ def test_transition_binds_live_prefix_target_identity_and_every_rollback_prefix(
         )
 
 
-@pytest.mark.parametrize("omitted_migration", ["021"])
+@pytest.mark.parametrize("omitted_migration", ["021", "022"])
 def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, omitted_migration):
     module = _load()
     deployer = _load_path(DEPLOYER, "committed_prefix_deployer")
@@ -367,7 +368,7 @@ def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, o
                  if entry["ledger_name"].startswith(omitted_migration + "_"))
     omitted_identity = identity.migration_set_identity(desired[:count])
     installed_count = next(index + 1 for index, entry in enumerate(desired)
-                           if entry["ledger_name"] == "020_v3_purge_swap_lock_order.sql")
+                           if entry["ledger_name"] == "021_v3_purge_long_phase_bounds.sql")
     # Reconstruct the fully attested pre-apply set, then drop exactly one
     # pending prefix so the refusal names that omission alone.
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
