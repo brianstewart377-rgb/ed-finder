@@ -43,6 +43,15 @@ def _connect(c, **kwargs):
                                          dbname=c.info.dbname), **kwargs)
 
 
+def _wait_for_backend_exit(c, pid, timeout=10):
+    """Closing a client returns before the server ends its backend and drops its locks."""
+    deadline = time.monotonic() + timeout
+    while c.execute('SELECT 1 FROM pg_stat_activity WHERE pid=%s', (pid,)).fetchone():
+        if time.monotonic() >= deadline:
+            pytest.fail(f'backend {pid} still present {timeout} seconds after its client closed')
+        time.sleep(0.05)
+
+
 class Readers:
     """One autocommit connection per Finder read, looping like the rehearsal's reader."""
 
@@ -140,6 +149,7 @@ def test_a_reader_holding_a_later_relation_fails_the_attempt_at_once(superuser_d
     staged(c, purge, 'system_search')
     before = state(c)
     holder = _connect(c)
+    holder_pid = holder.info.backend_pid
     try:
         # A direct read of the live table (no view) inside an open transaction.
         holder.execute('SELECT count(*) FROM v3_derived.system_search').fetchone()
@@ -154,6 +164,7 @@ def test_a_reader_holding_a_later_relation_fails_the_attempt_at_once(superuser_d
             assert other.execute('SELECT count(*) FROM v3_app.system_search').fetchone()[0] > 0
     finally:
         holder.close()
+    _wait_for_backend_exit(c, holder_pid)
     swap(c, purge, 'system_search')
     assert events(c, 'system_search')[-1] == 'SWAPPED'
 

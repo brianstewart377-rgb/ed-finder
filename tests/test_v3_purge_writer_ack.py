@@ -101,6 +101,9 @@ def test_committed_integrity_failed_rewrite_acknowledgement_requires_departed_ba
                            (purge_id, 'system_search'))
         for request_id in ids.values():
             assert _batch(connection, request_id, 'system_search') == 12
+        # The phase check refuses any other writing backend; let the batch's
+        # maintenance finish first, as the other purge PG18 tests do.
+        _wait_for_fixture_maintenance(connection)
         connection.execute('SELECT v3_meta.complete_derived_payload_relation(%s,%s,%s)',
                            (purge_id, 'system_search', Jsonb(_receipt())))
         with _application_worker(connection) as worker:
