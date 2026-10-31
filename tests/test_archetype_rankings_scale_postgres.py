@@ -19,9 +19,10 @@ the OS page cache. Use only a disposable server dedicated to this run.
 
 The Finder CI lane discovers this module but must skip it even with
 EDF_DB_TESTS_REQUIRED=1: opting out is not a database-availability failure.
-Receipt EXPLAIN evidence keeps the warm-median run's lossless compact JSON from
-the same measured execution and only the cold run's plan summary, without a
-second execution that would warm the cold sample or change its timings.
+Each run measures a prepared statement with EXPLAIN (ANALYZE, BUFFERS, FORMAT
+JSON) EXECUTE under force_generic_plan, proven by pg_prepared_statements counters.
+The receipt keeps the warm median's lossless compact JSON from that same
+execution and only the cold run's plan summary.
 """
 from __future__ import annotations
 
@@ -60,6 +61,7 @@ pytestmark = [pytest.mark.db, pytest.mark.slow]
 SYSTEMS = 1_000_000
 SEED = 20261031
 GENERATION = UUID('00000000-0000-4000-8000-000020261031')
+PREPARED_STATEMENT = 'edf_rankings_scale_proof'
 FLOORS = {60: 'b', 76: 'a', 88: 's'}
 QUERIES = {
     'first_page': (0, 300, 1500),
@@ -338,8 +340,15 @@ def _plan_nodes(node):
         yield from _plan_nodes(child)
 
 
-async def _explain_json(connection, sql, params):
-    raw = await connection.fetchval(f'EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n{sql}', *params)
+def _execute_arguments(params):
+    """EXECUTE arguments must be literals; accept only exact ints, never bools."""
+    if any(type(param) is not int for param in params):
+        raise TypeError('prepared-statement arguments must be exact ints')
+    return '(' + ', '.join(str(param) for param in params) + ')' if params else ''
+
+
+async def _explain_json(connection, sql):
+    raw = await connection.fetchval(f'EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n{sql}')
     return (json.loads(raw) if isinstance(raw, str) else raw)[0]
 
 
@@ -361,6 +370,17 @@ def test_receipt_stores_compact_warm_explain_json(tmp_path):
     stored = json.loads(destination.read_text(encoding='utf-8'))['measurements'][0]['warm_explain_json']
     assert stored == '{"Execution Time":1.25,"Plan":{"Node Type":"Result","Plans":[]}}'
     assert json.loads(stored) == document
+
+
+@pytest.mark.parametrize(('params', 'expected'), [([50, 9950], '(50, 9950)'), ([], '')])
+def test_execute_arguments_renders_integer_literals(params, expected):
+    assert _execute_arguments(params) == expected
+
+
+@pytest.mark.parametrize('param', [True, 1.0, '1', None])
+def test_execute_arguments_rejects_non_ints(param):
+    with pytest.raises(TypeError, match='must be exact ints'):
+        _execute_arguments([50, param])
 
 
 def _total_rows(node):
@@ -442,15 +462,34 @@ def _query(key, floor, query):
     )
 
 
-async def _run(pool, sql, params, *, check_results=True):
+async def _run(pool, sql, params, *, context, failures, check_results=True):
+    execute_sql = f'EXECUTE {PREPARED_STATEMENT}{_execute_arguments(params)}'
     async with pool.acquire() as connection:
-        async with connection.transaction(isolation='repeatable_read', readonly=True):
-            await connection.execute('SET LOCAL plan_cache_mode = force_generic_plan')
-            document = await _explain_json(connection, sql, params)
-            # EXPLAIN discards query results. Verify them afterwards, in the
-            # same snapshot; never pre-read/warm the cold measurement.
-            rows = await connection.fetch(sql, *params) if check_results else []
-    return document, rows
+        prepared = False
+        try:
+            async with connection.transaction(isolation='repeatable_read', readonly=True):
+                await connection.execute('SET LOCAL plan_cache_mode = force_generic_plan')
+                await connection.execute(f'PREPARE {PREPARED_STATEMENT} AS {sql}')
+                prepared = True
+                document = await _explain_json(connection, execute_sql)
+                counters = await connection.fetchrow(
+                    'SELECT generic_plans, custom_plans FROM pg_prepared_statements WHERE name = $1',
+                    PREPARED_STATEMENT,
+                )
+                plan_cache = (dict(counters) if counters is not None else
+                              {'generic_plans': None, 'custom_plans': None})
+                _check(plan_cache['generic_plans'] == 1 and plan_cache['custom_plans'] == 0,
+                       f'{context}: expected generic_plans=1 and custom_plans=0; got {plan_cache}',
+                       failures)
+                # EXPLAIN discards results. Verify them in the same snapshot,
+                # after the cold measurement and its first-use counters.
+                rows = await connection.fetch(execute_sql) if check_results else []
+        finally:
+            # PREPARE survives commit/rollback; clean up before pool release.
+            # A failed PREPARE stays fatal and never reuses an existing name.
+            if prepared:
+                await connection.execute(f'DEALLOCATE {PREPARED_STATEMENT}')
+    return document, rows, plan_cache
 
 
 async def _server_evidence(pool):
@@ -463,7 +502,7 @@ async def _server_evidence(pool):
     return settings, started.isoformat()
 
 
-def _run_evidence(document, rows, expected, key, floor, query, label, failures):
+def _run_evidence(document, rows, plan_cache, expected, key, floor, query, label, failures):
     plan = _plan_evidence(document, key, floor, query, label, failures)
     context = f'{key}/{floor}/{query}/{label}'
     if query == 'count':
@@ -478,7 +517,7 @@ def _run_evidence(document, rows, expected, key, floor, query, label, failures):
     planning = document['Planning Time']
     execution = document['Execution Time']
     return {'planning_ms': planning, 'execution_ms': execution,
-            'total_ms': planning + execution, 'plan_summary': plan}
+            'total_ms': planning + execution, 'plan_summary': plan, 'plan_cache': plan_cache}
 
 
 def _restart(command):
@@ -504,7 +543,11 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
         'seed': SEED, 'row_counts': {}, 'eligible_counts': [], 'settings': {},
         'cold_label': ('io-cold' if os.environ.get('EDF_RANKINGS_SCALE_COLD_LABEL') == 'io-cold'
                        else 'buffer-cold'),
-        'explain_format': 'warm_median_compact_json_same_execution; cold_plan_summary_only',
+        'explain_format': (
+            'prepared statement measured with EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE '
+            'under force_generic_plan; generic plan proven for every run by pg_prepared_statements; '
+            'warm_median_compact_json_same_execution; cold_plan_summary_only'
+        ),
         'measurements': [], 'failures': [], 'passed': False,
     }
     failures = receipt['failures']
@@ -538,13 +581,19 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
                             }
                             receipt['measurements'].append(measurement)
                             sql, params = _query(key, floor, query)
-                            await _run(pool, sql, params, check_results=False)  # One discarded warm-up.
+                            await _run(  # One discarded warm-up.
+                                pool, sql, params, context=f'{context}/warm-up',
+                                failures=measurement['failures'], check_results=False,
+                            )
                             documents = []
                             for run in range(5):
-                                document, rows = await _run(pool, sql, params)
+                                document, rows, plan_cache = await _run(
+                                    pool, sql, params, context=f'{context}/warm-{run + 1}',
+                                    failures=measurement['failures'],
+                                )
                                 documents.append(document)
                                 measurement['warm_runs'].append(_run_evidence(
-                                    document, rows, expected[key, floor], key, floor, query,
+                                    document, rows, plan_cache, expected[key, floor], key, floor, query,
                                     f'warm-{run + 1}', measurement['failures'],
                                 ))
                             totals = [run['total_ms'] for run in measurement['warm_runs']]
@@ -580,9 +629,12 @@ async def test_selected_archetype_rankings_representative_scale(monkeypatch):
                 pool = await _asyncpg_pool(database)
                 try:
                     sql, params = _query(key, floor, query)
-                    document, rows = await _run(pool, sql, params)
+                    document, rows, plan_cache = await _run(
+                        pool, sql, params, context=f'{key}/{floor}/{query}/{receipt["cold_label"]}',
+                        failures=measurement['failures'],
+                    )
                     measurement['cold_run'] = _run_evidence(
-                        document, rows, expected[key, floor], key, floor, query,
+                        document, rows, plan_cache, expected[key, floor], key, floor, query,
                         receipt['cold_label'], measurement['failures'],
                     )
                     # Read these AFTER the cold EXPLAIN. A no-op command is not
