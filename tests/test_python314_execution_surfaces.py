@@ -16,6 +16,7 @@ EXPECTED_REQUIRES_PYTHON = ">=3.14,<3.15"
 CURRENT_OPERATOR_ACTIONS = (
     "octopus-edge-status.sh",
     "octopus-qdrant-healthcheck-repair.sh",
+    "octopus-upgrade.sh",
     "remove-ollama.sh",
     "v3-app-live-checkpoint-preflight.sh",
     "v3-app-status.sh",
@@ -170,7 +171,7 @@ def test_current_remote_operator_actions_reject_non_cpython314_before_work(
         assert "sys.version_info[:2] == (3, 14)" in source
 
         result = subprocess.run(
-            ["/bin/bash", str(action)],
+            ["/bin/bash", str(action), *(["apply"] if script_name == "octopus-upgrade.sh" else [])],
             cwd=ROOT,
             env=env,
             capture_output=True,
