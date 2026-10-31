@@ -29,7 +29,7 @@ import sys
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 PUBLIC_NAME = "octopus.ed-finder.app"
-EXPECTED_VERSION = "1.0.122"
+EXPECTED_VERSIONS = ("1.0.122", "1.3.3")
 MAX_RESPONSE = 4096
 
 
@@ -58,9 +58,9 @@ def bounded_get(url, *, insecure=False):
     }, bounded
 
 
-def version_matches(body):
+def detected_release(body):
     if len(body.encode("utf-8")) > MAX_RESPONSE:
-        return False
+        return None
     try:
         value = json.loads(body)
     except json.JSONDecodeError:
@@ -70,8 +70,15 @@ def version_matches(body):
         candidates.append(value)
     elif isinstance(value, dict):
         candidates.extend(str(value.get(key, "")) for key in ("version", "release", "tag"))
-    return any(re.search(r"(?:^|[^0-9])v?" + re.escape(EXPECTED_VERSION) + r"(?:$|[^0-9])", item)
-               for item in candidates)
+    for version in EXPECTED_VERSIONS:
+        if any(re.search(r"(?:^|[^0-9])v?" + re.escape(version) + r"(?:$|[^0-9])", item)
+               for item in candidates):
+            return version
+    return None
+
+
+def version_matches(body):
+    return detected_release(body) is not None
 
 
 def host_identity_matches(short_host, fqdn, fqdn_returncode):
@@ -231,7 +238,9 @@ receipt["proxy"] = proxy
 
 health, _ = bounded_get("http://127.0.0.1:43300/api/health")
 version, version_body = bounded_get("http://127.0.0.1:43300/api/version")
-version["expected_release"] = EXPECTED_VERSION
+version["expected_releases"] = list(EXPECTED_VERSIONS)
+version["detected_release"] = detected_release(version_body)
+version["expected_release"] = version["detected_release"]
 version["expected_release_present"] = version_matches(version_body)
 version["bounded_response"] = version_body[:MAX_RESPONSE]
 receipt["octopus_internal"] = {"health": health, "version": version}

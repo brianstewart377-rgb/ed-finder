@@ -85,6 +85,9 @@ def test_version_requires_exact_expected_release_not_http_success_or_substring()
     matches = _python_functions()["version_matches"]
     assert matches('{"version":"1.0.122"}') is True
     assert matches('{"release":"v1.0.122"}') is True
+    assert matches('{"version":"1.3.3"}') is True
+    assert matches('{"release":"v1.3.3"}') is True
+    assert matches('{"version":"11.3.30"}') is False
     assert matches('{"version":"1.0.121"}') is False
     assert matches('{"version":"11.0.1220"}') is False
     assert matches("x" * 4097 + "1.0.122") is False
@@ -166,3 +169,15 @@ def test_host_identity_accepts_only_exact_short_host_and_fqdn():
     assert matches("another-host", "nb79a3d.mevnode.com", 0) is False
     assert matches("ed-finder-prod", "another.example.com", 0) is False
     assert matches("ed-finder-prod", "nb79a3d.mevnode.com", 1) is False
+
+
+def test_version_receipt_identifies_the_supported_release():
+    functions = _python_functions()
+    detected = functions["detected_release"]
+    assert detected('{"version":"1.0.122"}') == "1.0.122"
+    assert detected('{"version":"1.3.3"}') == "1.3.3"
+    assert detected('{"version":"1.3.4"}') is None
+    source = ACTION.read_text(encoding="utf-8")
+    assert 'version["expected_releases"] = list(EXPECTED_VERSIONS)' in source
+    assert 'version["detected_release"] = detected_release(version_body)' in source
+    assert 'version["expected_release"] = version["detected_release"]' in source

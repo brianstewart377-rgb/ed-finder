@@ -71,8 +71,24 @@ The only current replacement-host helpers presently identified by the V3 control
 - `scripts/operator/actions/v3-app-status.sh`;
 - `scripts/operator/actions/octopus-edge-status.sh`;
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
+- `scripts/operator/actions/octopus-upgrade.sh` through `octopus-upgrade-preflight`
+  (read-only) or manual main-only `octopus-upgrade-apply` (purge-fenced);
 - `scripts/operator/recover_v3_runtime_contract.py`;
 - `scripts/operator/actions/v3-host-cleanup.sh` through the bounded operation below.
+
+### Governed Octopus upgrade
+
+The `chatgpt-ed-new-ops.yml` operations `octopus-upgrade-preflight` and
+`octopus-upgrade-apply` target only `ed-finder-prod` and the pinned Octopus
+1.0.122 → 1.3.3 transition. Preflight reports the purge fence without refusing
+inspection. Apply requires `workflow_dispatch` on `refs/heads/main` and a clear
+purge fence, so it runs only between purge phases. The reviewed script and
+three checksum-verified migration/model inputs come from trusted main; callers
+supply no versions, paths, commands or migration content. Apply preserves the
+checkout and Qdrant, verifies a database backup before its two migration
+stages, and automatically restores the old database and web on failure.
+See [the rehearsed order and rollback](../../scripts/operator/README.md#governed-octopus-133-upgrade).
+Repository tests validate with stubs only; they never contact production.
 
 ### Fixed production host clean-up
 
