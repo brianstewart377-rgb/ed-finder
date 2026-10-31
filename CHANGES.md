@@ -11,6 +11,29 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
+
+ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,
+SHA-256 `d2e64e8f…7976`, 28 rules), approved by the owner on 2026-10-31. It is
+the first release with rules settled by in-game measurement (CRE evidence
+`EV-0006`: colony port economy strengths from the owner's game journals and
+Spansh station data).
+
+- `RB-0012` (body economies and modifiers do not stack) is `Confirmed`.
+- `RB-0013` gives volcanism's size: +0.4 to the port's own Extraction only.
+- `RB-0016` (weak links 0.05) is `Confirmed`.
+- New `RB-0028`: the strong-link modifier list also applies to a port's own
+  economies. Each inherited economy starts at 1.0 and moves 0.4 per applicable
+  condition, and a tidally locked planet in a binary pair counts as locked to
+  its star.
+
+Both copies (`docs/reference/colonisation/cre-rulebook/` and the planner's
+runtime copy `apps/api/src/cpe/data/rulebook.json`), `pin.json` and
+`assets/PROVENANCE.json` are updated. The parity test found no new or resolved
+difference; one listed reason now cites the new status. The CRE tag itself
+could not be pushed from the agent session; the pin is by commit, which the
+rulebook README makes authoritative.
+
 ## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
 
 The Finder derived-data weights now come from CI run `41227989407` (PR #943,
