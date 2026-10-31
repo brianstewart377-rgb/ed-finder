@@ -4357,6 +4357,382 @@ export type OwnerClaimRequest = {
 };
 
 /**
+ * PlanBodyV1
+ */
+export type PlanBodyV1 = {
+    /**
+     * Body Ref
+     */
+    body_ref: string;
+    /**
+     * Orbital Slots
+     */
+    orbital_slots?: number | null;
+    /**
+     * Surface Slots
+     */
+    surface_slots?: number | null;
+    /**
+     * Is Landable
+     */
+    is_landable?: boolean | null;
+    /**
+     * Is Ringed
+     */
+    is_ringed?: boolean | null;
+};
+
+/**
+ * PlanCatalogueV1
+ */
+export type PlanCatalogueV1 = {
+    /**
+     * Rulebook Release
+     */
+    rulebook_release: string;
+    /**
+     * Facilities
+     */
+    facilities: Array<PlanFacilityV1>;
+};
+
+/**
+ * PlanCheckV1
+ */
+export type PlanCheckV1 = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Rule Ids
+     */
+    rule_ids: Array<string>;
+};
+
+/**
+ * PlanEvaluationV1
+ */
+export type PlanEvaluationV1 = {
+    /**
+     * Rulebook Release
+     */
+    rulebook_release: string;
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    now: PlanTotalsV1;
+    after_plan: PlanTotalsV1;
+    next_port_cost: PlanTotalsV1;
+    /**
+     * Steps
+     */
+    steps: Array<PlanStepV1>;
+    /**
+     * Plan Checks
+     */
+    plan_checks: Array<PlanCheckV1>;
+    summary: PlanSummaryV1;
+    /**
+     * Explanations
+     */
+    explanations: {
+        [key: string]: PlanRuleExplanationV1;
+    };
+};
+
+/**
+ * PlanFacilityV1
+ */
+export type PlanFacilityV1 = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Category
+     */
+    category: string;
+    /**
+     * Tier
+     */
+    tier: number;
+    /**
+     * Allowed Location
+     */
+    allowed_location: string;
+    /**
+     * Economy
+     */
+    economy: string | null;
+    /**
+     * Is Port
+     */
+    is_port: boolean;
+    /**
+     * Escalating Port Tier
+     */
+    escalating_port_tier: number | null;
+    /**
+     * Yellow Cp Cost
+     */
+    yellow_cp_cost: number;
+    /**
+     * Green Cp Cost
+     */
+    green_cp_cost: number;
+    /**
+     * Yellow Cp Generated
+     */
+    yellow_cp_generated: number;
+    /**
+     * Green Cp Generated
+     */
+    green_cp_generated: number;
+    /**
+     * Prerequisites
+     */
+    prerequisites: Array<Array<string>>;
+    /**
+     * Rule Ids
+     */
+    rule_ids: Array<string>;
+};
+
+/**
+ * PlanInvalidV1
+ */
+export type PlanInvalidV1 = {
+    /**
+     * Error
+     */
+    error: 'plan_invalid';
+    /**
+     * Issues
+     */
+    issues: Array<PlanIssueV1>;
+};
+
+/**
+ * PlanIssueV1
+ */
+export type PlanIssueV1 = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Site Id
+     */
+    site_id: string | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * PlanRequestV1
+ */
+export type PlanRequestV1 = {
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * Bodies
+     */
+    bodies?: Array<PlanBodyV1>;
+    /**
+     * Sites
+     */
+    sites: Array<PlanSiteV1>;
+};
+
+/**
+ * PlanRuleExplanationV1
+ */
+export type PlanRuleExplanationV1 = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Statement
+     */
+    statement: string;
+    /**
+     * Quote
+     */
+    quote: string;
+    /**
+     * Page
+     */
+    page: number | null;
+};
+
+/**
+ * PlanSiteV1
+ */
+export type PlanSiteV1 = {
+    /**
+     * Site Id
+     */
+    site_id: string;
+    /**
+     * Facility Id
+     */
+    facility_id: string;
+    /**
+     * Body Ref
+     */
+    body_ref?: string | null;
+    /**
+     * Slot Kind
+     */
+    slot_kind: 'orbital' | 'surface';
+    /**
+     * Status
+     */
+    status: 'planned' | 'building' | 'complete' | 'demolished';
+    /**
+     * Name
+     */
+    name?: string | null;
+};
+
+/**
+ * PlanStepV1
+ */
+export type PlanStepV1 = {
+    /**
+     * Site Id
+     */
+    site_id: string;
+    /**
+     * Facility Id
+     */
+    facility_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * View
+     */
+    view: 'now' | 'after_plan' | 'ignored';
+    /**
+     * Result
+     */
+    result: 'OK' | 'BLOCKED' | 'NEEDS_INFO' | 'COUNTED' | 'IGNORED';
+    /**
+     * Counted Port Number
+     */
+    counted_port_number: number | null;
+    /**
+     * Cost T2
+     */
+    cost_t2: number;
+    /**
+     * Cost T3
+     */
+    cost_t3: number;
+    /**
+     * Reward T2
+     */
+    reward_t2: number;
+    /**
+     * Reward T3
+     */
+    reward_t3: number;
+    /**
+     * T2 Before
+     */
+    t2_before: number;
+    /**
+     * T3 Before
+     */
+    t3_before: number;
+    /**
+     * T2 After
+     */
+    t2_after: number;
+    /**
+     * T3 After
+     */
+    t3_after: number;
+    /**
+     * Reasons
+     */
+    reasons: Array<string>;
+    /**
+     * Rule Ids
+     */
+    rule_ids: Array<string>;
+    /**
+     * Payers
+     */
+    payers: Array<string>;
+};
+
+/**
+ * PlanSummaryV1
+ */
+export type PlanSummaryV1 = {
+    /**
+     * Ok
+     */
+    OK: number;
+    /**
+     * Blocked
+     */
+    BLOCKED: number;
+    /**
+     * Needs Info
+     */
+    NEEDS_INFO: number;
+    /**
+     * Counted
+     */
+    COUNTED: number;
+    /**
+     * Ignored
+     */
+    IGNORED: number;
+};
+
+/**
+ * PlanTotalsV1
+ */
+export type PlanTotalsV1 = {
+    /**
+     * T2
+     */
+    t2: number;
+    /**
+     * T3
+     */
+    t3: number;
+};
+
+/**
  * PlannedFacility
  *
  * One facility in a build simulation plan.
@@ -12430,6 +12806,51 @@ export type ListV3SystemStationsResponses = {
 };
 
 export type ListV3SystemStationsResponse = ListV3SystemStationsResponses[keyof ListV3SystemStationsResponses];
+
+export type GetV3PlanCatalogueData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/plan/catalogue';
+};
+
+export type GetV3PlanCatalogueResponses = {
+    /**
+     * Successful Response
+     */
+    200: PlanCatalogueV1;
+};
+
+export type GetV3PlanCatalogueResponse = GetV3PlanCatalogueResponses[keyof GetV3PlanCatalogueResponses];
+
+export type EvaluateV3PlanData = {
+    body: PlanRequestV1;
+    path?: never;
+    query?: never;
+    url: '/api/v1/plan/evaluate';
+};
+
+export type EvaluateV3PlanErrors = {
+    /**
+     * Bad Request
+     */
+    400: PlanInvalidV1;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EvaluateV3PlanError = EvaluateV3PlanErrors[keyof EvaluateV3PlanErrors];
+
+export type EvaluateV3PlanResponses = {
+    /**
+     * Successful Response
+     */
+    200: PlanEvaluationV1;
+};
+
+export type EvaluateV3PlanResponse = EvaluateV3PlanResponses[keyof EvaluateV3PlanResponses];
 
 export type CreateV3JournalImportData = {
     body: V3JournalImportRequest;

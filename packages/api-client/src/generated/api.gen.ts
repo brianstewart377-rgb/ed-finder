@@ -2190,6 +2190,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plan/catalogue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Catalogue */
+        get: operations["getV3PlanCatalogue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluate */
+        post: operations["evaluateV3Plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/journal/imports": {
         parameters: {
             query?: never;
@@ -5245,6 +5279,212 @@ export interface components {
         OwnerClaimRequest: {
             /** Admin Token */
             admin_token: string;
+        };
+        /** PlanBodyV1 */
+        PlanBodyV1: {
+            /** Body Ref */
+            body_ref: string;
+            /** Orbital Slots */
+            orbital_slots?: number | null;
+            /** Surface Slots */
+            surface_slots?: number | null;
+            /** Is Landable */
+            is_landable?: boolean | null;
+            /** Is Ringed */
+            is_ringed?: boolean | null;
+        };
+        /** PlanCatalogueV1 */
+        PlanCatalogueV1: {
+            /** Rulebook Release */
+            rulebook_release: string;
+            /** Facilities */
+            facilities: components["schemas"]["PlanFacilityV1"][];
+        };
+        /** PlanCheckV1 */
+        PlanCheckV1: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Rule Ids */
+            rule_ids: string[];
+        };
+        /** PlanEvaluationV1 */
+        PlanEvaluationV1: {
+            /** Rulebook Release */
+            rulebook_release: string;
+            /** System Id64 */
+            system_id64: string;
+            now: components["schemas"]["PlanTotalsV1"];
+            after_plan: components["schemas"]["PlanTotalsV1"];
+            next_port_cost: components["schemas"]["PlanTotalsV1"];
+            /** Steps */
+            steps: components["schemas"]["PlanStepV1"][];
+            /** Plan Checks */
+            plan_checks: components["schemas"]["PlanCheckV1"][];
+            summary: components["schemas"]["PlanSummaryV1"];
+            /** Explanations */
+            explanations: {
+                [key: string]: components["schemas"]["PlanRuleExplanationV1"];
+            };
+        };
+        /** PlanFacilityV1 */
+        PlanFacilityV1: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Category */
+            category: string;
+            /** Tier */
+            tier: number;
+            /** Allowed Location */
+            allowed_location: string;
+            /** Economy */
+            economy: string | null;
+            /** Is Port */
+            is_port: boolean;
+            /** Escalating Port Tier */
+            escalating_port_tier: number | null;
+            /** Yellow Cp Cost */
+            yellow_cp_cost: number;
+            /** Green Cp Cost */
+            green_cp_cost: number;
+            /** Yellow Cp Generated */
+            yellow_cp_generated: number;
+            /** Green Cp Generated */
+            green_cp_generated: number;
+            /** Prerequisites */
+            prerequisites: string[][];
+            /** Rule Ids */
+            rule_ids: string[];
+        };
+        /** PlanInvalidV1 */
+        PlanInvalidV1: {
+            /**
+             * Error
+             * @constant
+             */
+            error: "plan_invalid";
+            /** Issues */
+            issues: components["schemas"]["PlanIssueV1"][];
+        };
+        /** PlanIssueV1 */
+        PlanIssueV1: {
+            /** Code */
+            code: string;
+            /** Site Id */
+            site_id: string | null;
+            /** Message */
+            message: string;
+        };
+        /** PlanRequestV1 */
+        PlanRequestV1: {
+            /** System Id64 */
+            system_id64: string;
+            /** Bodies */
+            bodies?: components["schemas"]["PlanBodyV1"][];
+            /** Sites */
+            sites: components["schemas"]["PlanSiteV1"][];
+        };
+        /** PlanRuleExplanationV1 */
+        PlanRuleExplanationV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Statement */
+            statement: string;
+            /** Quote */
+            quote: string;
+            /** Page */
+            page: number | null;
+        };
+        /** PlanSiteV1 */
+        PlanSiteV1: {
+            /** Site Id */
+            site_id: string;
+            /** Facility Id */
+            facility_id: string;
+            /** Body Ref */
+            body_ref?: string | null;
+            /**
+             * Slot Kind
+             * @enum {string}
+             */
+            slot_kind: "orbital" | "surface";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "planned" | "building" | "complete" | "demolished";
+            /** Name */
+            name?: string | null;
+        };
+        /** PlanStepV1 */
+        PlanStepV1: {
+            /** Site Id */
+            site_id: string;
+            /** Facility Id */
+            facility_id: string;
+            /** Status */
+            status: string;
+            /**
+             * View
+             * @enum {string}
+             */
+            view: "now" | "after_plan" | "ignored";
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "OK" | "BLOCKED" | "NEEDS_INFO" | "COUNTED" | "IGNORED";
+            /** Counted Port Number */
+            counted_port_number: number | null;
+            /** Cost T2 */
+            cost_t2: number;
+            /** Cost T3 */
+            cost_t3: number;
+            /** Reward T2 */
+            reward_t2: number;
+            /** Reward T3 */
+            reward_t3: number;
+            /** T2 Before */
+            t2_before: number;
+            /** T3 Before */
+            t3_before: number;
+            /** T2 After */
+            t2_after: number;
+            /** T3 After */
+            t3_after: number;
+            /** Reasons */
+            reasons: string[];
+            /** Rule Ids */
+            rule_ids: string[];
+            /** Payers */
+            payers: string[];
+        };
+        /** PlanSummaryV1 */
+        PlanSummaryV1: {
+            /** Ok */
+            OK: number;
+            /** Blocked */
+            BLOCKED: number;
+            /** Needs Info */
+            NEEDS_INFO: number;
+            /** Counted */
+            COUNTED: number;
+            /** Ignored */
+            IGNORED: number;
+        };
+        /** PlanTotalsV1 */
+        PlanTotalsV1: {
+            /** T2 */
+            t2: number;
+            /** T3 */
+            t3: number;
         };
         /**
          * PlannedFacility
@@ -11725,6 +11965,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StationV1"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getV3PlanCatalogue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanCatalogueV1"];
+                };
+            };
+        };
+    };
+    evaluateV3Plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanEvaluationV1"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanInvalidV1"];
                 };
             };
             /** @description Validation Error */
