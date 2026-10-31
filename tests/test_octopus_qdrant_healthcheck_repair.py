@@ -73,6 +73,7 @@ def test_repair_action_has_fail_closed_scope_and_guards():
         'EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"',
         'EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"',
         'ghcr.io/octopusreview/octopus-selfhost:1.0.122',
+        'ghcr.io/octopusreview/octopus-selfhost:1.3.3',
         'test_line.strip() == expected',
         '"CMD", "wget", "--no-verbose", "--tries=1", "--spider"',
         "*:18BD) exit 0",
@@ -85,7 +86,7 @@ def test_repair_action_has_fail_closed_scope_and_guards():
         "qdrant_health_timeout",
         "http://127.0.0.1:43333/readyz",
         "http://127.0.0.1:43300",
-        'payload.get("version") == "1.0.122"',
+        'payload.get("version") in ("1.0.122", "1.3.3")',
     )
     for guard in required:
         assert guard in source
@@ -219,8 +220,11 @@ def test_version_probe_requires_exact_octopus_version():
 
     assert version_matches({"version": "1.0.122", "buildId": "abc", "server": "selfhost",
                             "selfHosted": True})
+    assert version_matches({"version": "1.3.3"})
     for payload in (
         {"version": "1.0.121"},
+        {"version": "1.3.4"},
+        {"version": "11.3.30"},
         {"version": "v1.0.122"},
         {"release": "1.0.122"},
         {"version": 1.0122},
@@ -228,3 +232,22 @@ def test_version_probe_requires_exact_octopus_version():
         "1.0.122",
     ):
         assert not version_matches(payload)
+
+
+@pytest.mark.parametrize(("image", "accepted"), (
+    ("ghcr.io/octopusreview/octopus-selfhost:1.0.122", True),
+    ("ghcr.io/octopusreview/octopus-selfhost:1.3.3", True),
+    ("ghcr.io/octopusreview/octopus-selfhost:1.3.4", False),
+    ("ghcr.io/octopusreview/octopus-selfhost:latest", False),
+))
+def test_rendered_web_image_guard_accepts_only_reviewed_releases(image, accepted):
+    source = ACTION.read_text(encoding="utf-8")
+    guard = 'case "$rendered_web_image" in' + source.split(
+        'case "$rendered_web_image" in', 1
+    )[1].split("esac", 1)[0] + "esac"
+    result = subprocess.run(
+        ["bash", "-c", 'stop() { exit 1; }; rendered_web_image="$1"; ' + guard,
+         "image-guard-test", image],
+        capture_output=True, text=True, check=False,
+    )
+    assert (result.returncode == 0) is accepted

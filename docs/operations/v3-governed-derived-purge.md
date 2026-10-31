@@ -436,6 +436,8 @@ booleans exits non-zero before starting pgBackRest. See the
 | `v3-archetype-plan-probe.sh run` | Worker launcher, fenced | Database reads are read-only, but launches a container and writes host run/env/receipt state. |
 | `v3-finder-capacity-gate.sh run` | Worker launcher, fenced | Database reads are read-only, but launches a container and writes host run/env/receipt state. |
 | `octopus-qdrant-healthcheck-repair.sh` | Mutator, fenced | Changes Compose and recreates/starts services. |
+| `octopus-upgrade.sh apply` | Mutator, fenced | Changes the Octopus database, `.env` and containers; runs only between purge phases. |
+| `octopus-upgrade.sh preflight` | Read-only | Reports upgrade readiness and the purge fence without changing services or database state. |
 | `v3-backup-wrapper-install.sh` | Mutator, fenced | Atomically replaces the installed backup runtime file. |
 | `v3-host-cleanup.sh` | Filesystem mutator, workflow-serialized and host-leased | Removes only four owner-approved unused directories; shares the `chatgpt-ed-new-ops` concurrency group with the purge job and holds the same host lease through receipt printing, with no database or service writes. See [operator boundary](operator-command-contexts.md#fixed-production-host-clean-up). |
 | `host-status` (inline) | Read-only | Host and container inventory. |

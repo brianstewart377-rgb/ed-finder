@@ -90,7 +90,7 @@ read -r rendered_image rendered_web_image rendered_postgres_image < <(docker com
   || stop "compose_render_failed"
 [ "$rendered_image" = "$EXPECTED_IMAGE" ] || stop "unexpected_qdrant_image"
 case "$rendered_web_image" in
-  ghcr.io/octopusreview/octopus-selfhost:1.0.122) ;;
+  ghcr.io/octopusreview/octopus-selfhost:1.0.122|ghcr.io/octopusreview/octopus-selfhost:1.3.3) ;;
   *) stop "unexpected_octopus_web_image" ;;
 esac
 [ "$rendered_postgres_image" = "$EXPECTED_POSTGRES_IMAGE" ] || stop "unexpected_postgres_image"
@@ -235,7 +235,7 @@ import json
 from urllib.request import urlopen
 
 def version_matches(payload):
-    return isinstance(payload, dict) and payload.get("version") == "1.0.122"
+    return isinstance(payload, dict) and payload.get("version") in ("1.0.122", "1.3.3")
 
 for path in ("/", "/api/health"):
     with urlopen("http://127.0.0.1:43300" + path, timeout=5) as response:
