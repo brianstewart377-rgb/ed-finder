@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Codex worker model pin moved to `gpt-6-astra` at `xhigh`
+
+Owner decision 2026-10-31: the Contabo Codex worker moves from `gpt-6.1-sol` at
+`high` effort to `gpt-6-astra` at `xhigh`, because the ChatGPT Codex allowance is
+largely unused. This reverses the 2026-10-14 choice of 6.1 Sol to limit credit
+use. The single-model governance contract keeps its shape: both execution modes
+pass the literal model and effort, requests still cannot override them, `max`
+stays forbidden, and the test now also rejects the old `gpt-6.1-sol` and `high`
+literals. The first worker run after merge is the live check that the worker's
+Codex CLI (0.162.1, ChatGPT-account sign-in) accepts Astra at `xhigh`; if it is
+rejected, this change is reverted as #784 was.
+
 ## 2026-10-31 — Purge: opportunity relation done
 
 `v3_derived.economy_opportunity` now holds only the 740,001,532 published
