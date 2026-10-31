@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { resolve } from '$app/paths';
   import {
     ApiError,
@@ -95,6 +95,10 @@
   let actionError = $state('');
   let pending = $state(false);
   let announcement = $state('');
+  const buildOrderPreferenceKey = 'ed-finder.plan.buildOrderOpen';
+  let buildOrderOpen = $state(false);
+  let wideLayout = $state(false);
+  let buildOrderToggle = $state<HTMLButtonElement>();
   let view = $state<'now' | 'after_plan'>('after_plan');
   let selectedBody = $state<string | null>(null);
   let selectedSite = $state<string | null>(null);
@@ -116,6 +120,70 @@
   const whyBuild = $derived(
     model.sites.find((site) => site.site_id === whySite),
   );
+
+  onMount(() => {
+    // CSS owns the layout breakpoint; mirror it for hidden panes and focus.
+    const media =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(min-width: 1400px)')
+        : null;
+    wideLayout = media?.matches ?? false;
+    try {
+      buildOrderOpen =
+        window.localStorage.getItem(buildOrderPreferenceKey) === 'true';
+    } catch {
+      buildOrderOpen = false;
+    }
+    async function updateLayout(event: MediaQueryListEvent): Promise<void> {
+      const hidingFocus =
+        !event.matches &&
+        buildOrderOpen &&
+        document.activeElement?.closest('.system-pane');
+      wideLayout = event.matches;
+      await tick();
+      if (active && hidingFocus && buildOrderOpen && !wideLayout)
+        document.getElementById('plan-order-title')?.focus();
+    }
+    media?.addEventListener?.('change', updateLayout);
+    return () => media?.removeEventListener?.('change', updateLayout);
+  });
+
+  function setBuildOrderOpen(open: boolean): void {
+    if (buildOrderOpen === open) return;
+    buildOrderOpen = open;
+    try {
+      window.localStorage.setItem(buildOrderPreferenceKey, String(open));
+    } catch {
+      // A viewer preference must never prevent use of the planner.
+    }
+    announcement = open ? 'Build order opened' : 'Build order closed';
+  }
+  function closeBuildOrder(): void {
+    setBuildOrderOpen(false);
+    buildOrderToggle?.focus();
+  }
+  async function toggleBuildOrder(): Promise<void> {
+    if (buildOrderOpen) {
+      closeBuildOrder();
+      return;
+    }
+    setBuildOrderOpen(true);
+    await tick();
+    if (active && buildOrderOpen)
+      document.getElementById('plan-order-title')?.focus();
+  }
+  function paneKeydown(event: KeyboardEvent): void {
+    if (
+      event.key === 'Escape' &&
+      buildOrderOpen &&
+      !(whyStep && whyBuild && evaluation) &&
+      event.target instanceof Element &&
+      event.target.closest('#plan-build-order')
+    ) {
+      event.preventDefault();
+      closeBuildOrder();
+    }
+  }
 
   $effect(() => {
     const snapshot = request;
@@ -222,18 +290,36 @@
     if (active) announcement = 'Plan abandoned.';
   }
   async function jumpToStep(id: string): Promise<void> {
+    setBuildOrderOpen(true);
     selectedSite = id;
     filter = 'All';
     await tick();
-    document.getElementById(`plan-step-${id}`)?.focus();
+    if (!active) return;
+    const step = document.getElementById(`plan-step-${id}`);
+    step?.focus();
+    step?.scrollIntoView?.({ block: 'nearest' });
   }
   function showWhy(id: string): void {
     selectedSite = id;
     filter = 'All';
     whySite = id;
   }
+  async function closeWhy(): Promise<void> {
+    whySite = null;
+    await tick();
+    // Resizing can hide the System chip that the drawer would return to.
+    if (
+      active &&
+      (document.activeElement === document.body ||
+        document.activeElement?.closest('[hidden]'))
+    ) {
+      if (buildOrderOpen) document.getElementById('plan-order-title')?.focus();
+      else buildOrderToggle?.focus();
+    }
+  }
   async function selectBody(ref: string): Promise<void> {
     selectedBody = ref;
+    if (!wideLayout) setBuildOrderOpen(false);
     await tick();
     const row = [
       ...document.querySelectorAll<HTMLElement>('[data-plan-body]'),
@@ -309,6 +395,8 @@
   }
 </script>
 
+<svelte:window onkeydown={paneKeydown} />
+
 <main class="plan-workspace product-page">
   <header class="plan-header">
     <nav aria-label="Planner breadcrumbs">
@@ -337,6 +425,22 @@
             onclick={() => (view = 'after_plan')}>After the plan</button
           >
         </div>
+        <button
+          bind:this={buildOrderToggle}
+          type="button"
+          aria-expanded={buildOrderOpen}
+          aria-controls="plan-build-order"
+          disabled={bodies.isPending ||
+            catalogue.isPending ||
+            bodies.isError ||
+            catalogue.isError ||
+            !bodies.data}
+          onclick={toggleBuildOrder}
+          >Build order ({model.sites.length}) {#if evaluation && !stale && model.sites.length > 0 && evaluation.summary.BLOCKED > 0}<span
+              class="build-order-blocked"
+              >· {evaluation.summary.BLOCKED} blocked</span
+            >{/if}</button
+        >
         <button type="button" onclick={download}>Export plan</button><button
           type="button"
           onclick={() => fileInput?.click()}>Import plan</button
@@ -381,8 +485,9 @@
       >
     </section>
   {:else if bodies.data}
-    <div class="plan-columns">
+    <div class="plan-columns" class:build-order-open={buildOrderOpen}>
       <SystemPane
+        hidden={buildOrderOpen && !wideLayout}
         bodies={bodies.data}
         {model}
         {systemName}
@@ -397,6 +502,8 @@
         onadd={add}
       />
       <BuildOrder
+        hidden={!buildOrderOpen}
+        onclose={closeBuildOrder}
         {model}
         {facilities}
         {locations}
@@ -448,7 +555,7 @@
       {evaluation}
       {facilities}
       {stale}
-      onclose={() => (whySite = null)}
+      onclose={closeWhy}
       oninsert={insertPayer}
       canInsert={!stale &&
         model.sites.length < MAX_SITES &&
