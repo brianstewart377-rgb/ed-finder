@@ -170,6 +170,9 @@ async def test_plan_bodies_unknown_system_is_empty_and_ids_are_bounded(pool):
         for invalid in ('18446744073709551615', '9223372036854775808', 'not-a-number', '-1'):
             response = await client.get(f'/api/v1/plan/systems/{invalid}/bodies')
             assert response.status_code == 422, (invalid, response.text)
+        padded = await client.get(f'/api/v1/plan/systems/000{UNKNOWN}/bodies')
+    assert padded.status_code == 200, padded.text
+    assert padded.json()['system_id64'] == str(UNKNOWN)
     assert missing.status_code == 200, missing.text
     assert missing.json() == {
         'generation_id': str(publication['generation_id']),

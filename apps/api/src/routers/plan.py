@@ -295,7 +295,8 @@ async def bodies(
     return PlanBodiesV1(
         generation_id=generation.generation_id,
         publication_sequence=generation.publication_sequence,
-        system_id64=system_id,
+        # Echo the canonical decimal form, so "000123" and "123" answer alike.
+        system_id64=str(numeric_id),
         bodies=result,
     )
 

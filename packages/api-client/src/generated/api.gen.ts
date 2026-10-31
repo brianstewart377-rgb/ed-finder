@@ -2207,6 +2207,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plan/systems/{system_id}/bodies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bodies */
+        get: operations["listV3PlanBodies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plan/evaluate": {
         parameters: {
             query?: never;
@@ -5280,6 +5297,17 @@ export interface components {
             /** Admin Token */
             admin_token: string;
         };
+        /** PlanBodiesV1 */
+        PlanBodiesV1: {
+            /** Generation Id */
+            generation_id: string;
+            /** Publication Sequence */
+            publication_sequence: string;
+            /** System Id64 */
+            system_id64: string;
+            /** Bodies */
+            bodies: components["schemas"]["PlanSystemBodyV1"][];
+        };
         /** PlanBodyV1 */
         PlanBodyV1: {
             /** Body Ref */
@@ -5478,6 +5506,45 @@ export interface components {
             COUNTED: number;
             /** Ignored */
             IGNORED: number;
+        };
+        /** PlanSystemBodyV1 */
+        PlanSystemBodyV1: {
+            /** Body Id */
+            body_id: string;
+            /** Name */
+            name: string;
+            /** Direct Parent Body Id */
+            direct_parent_body_id: string | null;
+            /** Body Type */
+            body_type: string | null;
+            /** Is Main Star */
+            is_main_star: boolean | null;
+            /** Is Landable */
+            is_landable: boolean | null;
+            /** Radius Km */
+            radius_km: number | null;
+            /** Surface Gravity G */
+            surface_gravity_g: number | null;
+            /** Surface Temperature K */
+            surface_temperature_k: number | null;
+            /** Atmosphere */
+            atmosphere: string | null;
+            /** Terraforming State */
+            terraforming_state: string | null;
+            /** Volcanism */
+            volcanism: string | null;
+            /** Distance From Arrival Ls */
+            distance_from_arrival_ls: number | null;
+            /** Has Rings */
+            has_rings: boolean;
+            /** Geological Signals */
+            geological_signals: number;
+            /** Biological Signals */
+            biological_signals: number;
+            /** Signals Complete */
+            signals_complete: boolean | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
         };
         /** PlanTotalsV1 */
         PlanTotalsV1: {
@@ -11994,6 +12061,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanCatalogueV1"];
+                };
+            };
+        };
+    };
+    listV3PlanBodies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanBodiesV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
