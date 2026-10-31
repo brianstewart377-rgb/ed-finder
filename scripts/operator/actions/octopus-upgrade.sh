@@ -161,6 +161,18 @@ def running_database_url(web):
     return value if valid else None
 
 
+def database_url_matches_compose(environment, value):
+    if value is None:
+        return False
+    if isinstance(environment, dict):
+        return environment.get("DATABASE_URL") == value
+    if isinstance(environment, list):
+        entries = [entry for entry in environment
+                   if isinstance(entry, str) and entry.split("=", 1)[0] == "DATABASE_URL"]
+        return len(entries) == 1 and entries[0] == "DATABASE_URL=" + value
+    return False
+
+
 def image_digest(info, timeout=None):
     digests = json.loads(run(["docker", "image", "inspect", info["Image"]], timeout=timeout))[0].get("RepoDigests", [])
     matches = [d.split("@", 1)[1] for d in digests if d.startswith(IMAGE_REPO + "@")]
@@ -316,7 +328,6 @@ try:
         require(purge_clear, "purge_state_refused")
     config = json.loads(run(COMPOSE + ["config", "--format", "json"]))["services"]
     images = {service: config[service].get("image") for service in ("web", "postgres", "qdrant")}
-    del config
     result["rendered_images"] = images
     version_lines = [line for line in ENV_FILE.read_bytes().splitlines() if line.startswith(b"OCTOPUS_VERSION=")]
     env_version = version_lines[0].split(b"=", 1)[1].decode() if len(version_lines) == 1 else None
@@ -342,6 +353,8 @@ try:
     web = container("octopus-web-1")
     database_url = running_database_url(web)
     result["database_url_shape_ok"] = database_url is not None
+    result["database_url_matches_compose"] = database_url_matches_compose(config["web"].get("environment"), database_url)
+    del config
     before_digest = image_digest(web)
     result["running_web_image_digest"] = before_digest
     before = migrations()
@@ -361,7 +374,7 @@ try:
     checks = {
         "unexpected_postgres_image": images["postgres"] == "postgres:17-alpine",
         "unexpected_qdrant_image": images["qdrant"] == "qdrant/qdrant:v1.17.0",
-        "unexpected_database_url": result["database_url_shape_ok"],
+        "unexpected_database_url": result["database_url_shape_ok"] and result.get("database_url_matches_compose", False),
         "unexpected_running_postgres_image": postgres.get("Config", {}).get("Image") == "postgres:17-alpine",
         "unexpected_running_qdrant_image": qdrant.get("Config", {}).get("Image") == "qdrant/qdrant:v1.17.0",
         "unexpected_git_head": head == FROM_COMMIT,

@@ -149,6 +149,7 @@ temporary directory. It reports a refusing purge fence without preventing
 inspection. Environment contents and rendered secrets are never printed.
 The pinned Git origin may end in `.git`. The migrator uses the running web
 container's own `DATABASE_URL` after a shape check; its value is never printed.
+The rendered Compose `DATABASE_URL` must equal the running web container's byte for byte, because web is recreated from Compose during switch and rollback.
 
 Dispatch `octopus-upgrade-apply` manually on main only after reviewing preflight.
 Apply is purge-fenced and runs only between purge phases: an active purge lease,
