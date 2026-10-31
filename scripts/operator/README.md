@@ -147,6 +147,8 @@ pgboss jobs, internal web version, and free bytes. It returns `ready`,
 images, changes containers or database state, or writes outside its private
 temporary directory. It reports a refusing purge fence without preventing
 inspection. Environment contents and rendered secrets are never printed.
+The pinned Git origin may end in `.git`. The migrator uses the running web
+container's own `DATABASE_URL` after a shape check; its value is never printed.
 
 Dispatch `octopus-upgrade-apply` manually on main only after reviewing preflight.
 Apply is purge-fenced and runs only between purge phases: an active purge lease,

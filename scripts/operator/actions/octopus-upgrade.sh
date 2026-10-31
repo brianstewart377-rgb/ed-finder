@@ -47,6 +47,7 @@ import sys
 import tempfile
 import time
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 FROM_VERSION = "1.0.122"
 FROM_COMMIT = "55583ac832472ad8b535f1f678f9c11837f7cfdb"
@@ -56,7 +57,7 @@ TO_COMMIT = "634c32d71f06576e5e71ee2895d694668fd15a7a"
 TO_IMAGE = "ghcr.io/octopusreview/octopus-selfhost:1.3.3"
 TO_IMAGE_DIGEST = "sha256:dd36e9e7b9a8c092cf4382c1129500aa776e0848d72f28e45fdb5ac3e53fd043"
 MIGRATOR_IMAGE = "ghcr.io/brianstewart377-rgb/ed-finder/mirror/node@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf"
-OCTOPUS_REMOTE = "https://github.com/octopusreview/octopus"
+OCTOPUS_REMOTES = ("https://github.com/octopusreview/octopus", "https://github.com/octopusreview/octopus.git")
 PAYLOADS = {
     "package.json": ("OCTOPUS_PACKAGE_JSON_B64", "fe6e369eac296a68d283576f484093f6a0213fc77cf97998d79463d07f1f0d5e"),
     "package-lock.json": ("OCTOPUS_PACKAGE_LOCK_B64", "871e50428cfae28914c7d871b8a70f9b0cd27704ac47d3ff9216c9ec92694ba0"),
@@ -65,7 +66,6 @@ PAYLOADS = {
 BEFORE_COUNT, AFTER_COUNT = 35, 61
 BEFORE_NEWEST = "20260813200000_retire_opus_4647_reorder_models"
 IMAGE_REPO = "ghcr.io/octopusreview/octopus-selfhost"
-DATABASE_URL = "postgresql://octopus:octopus@postgres:5432/octopus"
 OCTOPUS_DIR = Path("/opt/octopus")
 ENV_FILE = OCTOPUS_DIR / ".env"
 COMPOSE = ["docker", "compose", "--project-directory", str(OCTOPUS_DIR), "-f", str(OCTOPUS_DIR / "docker-compose.selfhost.yml")]
@@ -140,6 +140,25 @@ def require_migrations(count):
 
 def container(name, timeout=None):
     return json.loads(run(["docker", "inspect", name], timeout=timeout))[0]
+
+
+def running_database_url(web):
+    environment = web.get("Config", {}).get("Env")
+    if not isinstance(environment, list):
+        return None
+    entries = [entry for entry in environment if isinstance(entry, str) and entry.startswith("DATABASE_URL=")]
+    if len(entries) != 1:
+        return None
+    value = entries[0].split("=", 1)[1]
+    try:
+        parsed = urlsplit(value)
+        valid = (parsed.scheme in ("postgresql", "postgres") and parsed.username == "octopus"
+                 and bool(parsed.password) and parsed.hostname == "postgres" and parsed.port == 5432
+                 and parsed.path == "/octopus" and not parsed.query and not parsed.fragment)
+    except ValueError:
+        # Parser diagnostics can contain credentials; expose only a boolean.
+        return None
+    return value if valid else None
 
 
 def image_digest(info, timeout=None):
@@ -224,7 +243,7 @@ def edit_env():
 
 def migrate():
     environment = os.environ.copy()
-    environment["DATABASE_URL"] = DATABASE_URL
+    environment["DATABASE_URL"] = database_url
     run(["docker", "run", "--rm", "--network", network, "--mount",
          "type=bind,src=" + str(work / "migrations-src") + ",dst=/work", "--workdir", "/work",
          "--env", "DATABASE_URL", MIGRATOR_IMAGE, "sh", "-ec",
@@ -297,9 +316,7 @@ try:
         require(purge_clear, "purge_state_refused")
     config = json.loads(run(COMPOSE + ["config", "--format", "json"]))["services"]
     images = {service: config[service].get("image") for service in ("web", "postgres", "qdrant")}
-    environment = config["web"].get("environment", {})
-    database_matches = isinstance(environment, dict) and environment.get("DATABASE_URL") == DATABASE_URL
-    del config, environment
+    del config
     result["rendered_images"] = images
     version_lines = [line for line in ENV_FILE.read_bytes().splitlines() if line.startswith(b"OCTOPUS_VERSION=")]
     env_version = version_lines[0].split(b"=", 1)[1].decode() if len(version_lines) == 1 else None
@@ -315,7 +332,7 @@ try:
     entries = status.rstrip("\0").split("\0") if status else []
     names = [entry[3:] for entry in entries]
     result["git"] = {"head": head, "matches_from_commit": head == FROM_COMMIT,
-                     "origin_matches": origin == OCTOPUS_REMOTE, "status_files": names}
+                     "origin_matches": origin in OCTOPUS_REMOTES, "status_files": names}
     allowed_status = bool(entries) and all(
         entry == " M docker-compose.selfhost.yml" or
         re.fullmatch(r"\?\? docker-compose\.selfhost\.yml\.before-qdrant-healthcheck-repair\.[0-9]{8}T[0-9]{6}Z", entry) or
@@ -323,6 +340,8 @@ try:
         for entry in entries
     ) and " M docker-compose.selfhost.yml" in entries
     web = container("octopus-web-1")
+    database_url = running_database_url(web)
+    result["database_url_shape_ok"] = database_url is not None
     before_digest = image_digest(web)
     result["running_web_image_digest"] = before_digest
     before = migrations()
@@ -342,11 +361,11 @@ try:
     checks = {
         "unexpected_postgres_image": images["postgres"] == "postgres:17-alpine",
         "unexpected_qdrant_image": images["qdrant"] == "qdrant/qdrant:v1.17.0",
-        "unexpected_database_url": database_matches,
+        "unexpected_database_url": result["database_url_shape_ok"],
         "unexpected_running_postgres_image": postgres.get("Config", {}).get("Image") == "postgres:17-alpine",
         "unexpected_running_qdrant_image": qdrant.get("Config", {}).get("Image") == "qdrant/qdrant:v1.17.0",
         "unexpected_git_head": head == FROM_COMMIT,
-        "unexpected_git_origin": origin == OCTOPUS_REMOTE,
+        "unexpected_git_origin": origin in OCTOPUS_REMOTES,
         "unexpected_git_status": allowed_status,
         "active_background_jobs": active in (None, 0),
         "insufficient_disk_space": min(result["free_bytes"].values()) >= 10 * 1024**3,
