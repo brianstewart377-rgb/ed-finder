@@ -152,7 +152,8 @@ def test_canonical_v3_journey_stays_explore_inspect_plan_review():
         encoding="utf-8"
     )
 
-    assert "new Set(['explore', 'inspect', 'plan', 'review'])" in matcher
+    assert "new Set(['explore', 'inspect', 'review'])" in matcher
+    assert (routes / "plan" / "+page.svelte").is_file()
     assert not (routes / "finder").exists()
     assert not (routes / "system").exists()
     assert not (routes / "colony-planner").exists()

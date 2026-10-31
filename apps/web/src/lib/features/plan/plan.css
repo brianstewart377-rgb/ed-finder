@@ -1,0 +1,283 @@
+.plan-workspace.product-page {
+  width: calc(100% - 1.5rem);
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+  overflow-wrap: anywhere;
+}
+.plan-workspace button,
+.plan-workspace input,
+.plan-workspace select {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel-raised);
+  padding: 0.45rem 0.65rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.plan-workspace button {
+  cursor: pointer;
+}
+.plan-workspace button:hover:not(:disabled) {
+  border-color: var(--color-signal);
+}
+.plan-workspace button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.plan-workspace button[aria-pressed='true'] {
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 15%, var(--color-panel));
+}
+.plan-header nav,
+.plan-header-actions,
+.plan-view,
+.pane-heading,
+.plan-filters,
+.summary-results,
+.picker-heading,
+.picker-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.plan-header nav {
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+.plan-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.plan-title h1 {
+  margin: 0.15rem 0;
+  font-size: clamp(1.6rem, 3vw, 2.5rem);
+}
+.plan-title p {
+  margin: 0.3rem 0;
+}
+.plan-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr) minmax(240px, 0.55fr);
+  align-items: start;
+  gap: 1rem;
+}
+.plan-pane {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--color-panel);
+  padding: 0.65rem;
+}
+.pane-heading {
+  justify-content: space-between;
+}
+.plan-pane h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+.plan-pane h3 {
+  font-size: 0.95rem;
+}
+.plan-muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.plan-chip {
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.72rem;
+}
+.plan-body-tree,
+.build-order-list,
+.attention-list,
+.facility-picker ul {
+  list-style: none;
+  padding: 0;
+}
+/* Row layout belongs to SystemPane and BuildOrder, including their phone rules. */
+.plan-filters {
+  margin: 0.6rem 0;
+  font-size: 0.8rem;
+}
+.facility-picker label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.7rem 0;
+  font-size: 0.85rem;
+}
+.blocked {
+  background: color-mix(
+    in srgb,
+    var(--color-signal) 10%,
+    var(--color-panel)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--color-signal) 60%,
+    var(--line)
+  ) !important;
+}
+.stale {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.negative,
+.plan-error {
+  color: #ffb18b;
+}
+.negative {
+  text-decoration: underline dotted;
+}
+.plan-error {
+  padding: 0.7rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+}
+.plan-totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin: 0.85rem 0;
+}
+.plan-totals > div {
+  padding: 0.7rem;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+.plan-totals dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.plan-totals dd {
+  margin: 0.3rem 0 0;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+.plan-totals small {
+  display: block;
+  font-size: 0.75rem;
+}
+.next-port > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+}
+.next-port dd {
+  margin: 0;
+  white-space: nowrap;
+}
+.summary-results {
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin: 0.85rem 0;
+}
+.attention-list {
+  font-size: 0.85rem;
+}
+.attention-list li {
+  margin: 0.5rem 0;
+}
+.attention-list button {
+  width: 100%;
+  text-align: left;
+}
+.attention-list small {
+  display: block;
+}
+.rulebook {
+  margin-top: 1.5rem;
+}
+.facility-picker {
+  padding: 0.7rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-cyan);
+  border-radius: 0.4rem;
+  background: var(--color-void);
+}
+.picker-heading {
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+.picker-heading h3 {
+  margin: 0;
+}
+.facility-picker h4 {
+  margin: 0.7rem 0;
+  font-size: 0.85rem;
+}
+.facility-picker li {
+  margin: 0.4rem 0;
+}
+.facility-picker li button {
+  width: 100%;
+  text-align: left;
+}
+.picker-cost {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+.picker-pages {
+  justify-content: space-between;
+  font-size: 0.7rem;
+}
+.older-items {
+  margin-top: 1rem;
+}
+.older-items pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.plan-empty {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.plan-file-input,
+.plan-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (min-width: 1400px) {
+  .system-pane,
+  .build-order-pane {
+    max-height: calc(100dvh - 22rem);
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .summary-pane {
+    position: sticky;
+    top: 1rem;
+  }
+}
+@media (max-width: 1399px) {
+  .plan-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-workspace *,
+  .plan-workspace *::before {
+    scroll-behavior: auto;
+    transition: none;
+    animation: none;
+  }
+}

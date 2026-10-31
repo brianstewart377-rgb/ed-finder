@@ -70,7 +70,10 @@ The planner replaces that placeholder. On `/plan?system=<id64>` the commander ca
    on a body (orbital or surface) or an asteroid belt, and gives it a status:
    Planned, Building or Complete. They can name it, reorder it, move it to
    another body or belt, or remove it. The first site is the Primary Port and
-   is labelled as such.
+   is labelled as such. As in the game, it can never be removed. Its type and
+   body can change only while it is planned, and it can never be demolished
+   (RB-0008). Abandon plan clears every site, like cancelling the claim, unless
+   the Primary Port is complete.
 3. **See the CP budget live.** Tier 2 and Tier 3 points are shown in two views:
    - "Now": what is complete or building.
    - "After the plan": every site in the list.
