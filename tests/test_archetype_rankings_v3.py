@@ -274,10 +274,27 @@ def _plan_nodes(node):
         yield from _plan_nodes(child)
 
 
-async def _explain_json(connection, sql, params):
-    raw = await connection.fetchval(f'EXPLAIN (FORMAT JSON)\n{sql}', *params)
+async def _explain_json(connection, sql, params, *, analyze=False):
+    options = 'ANALYZE, TIMING OFF, FORMAT JSON' if analyze else 'FORMAT JSON'
+    raw = await connection.fetchval(f'EXPLAIN ({options})\n{sql}', *params)
     document = json.loads(raw) if isinstance(raw, str) else raw
     return document[0]['Plan']
+
+
+def _assert_search_details_bounded_by_page(page_plan, page_size):
+    heap_scans = [
+        node for node in _plan_nodes(page_plan)
+        if node.get('Relation Name') == 'system_search'
+        and node.get('Node Type') != 'Index Only Scan'
+    ]
+    assert heap_scans
+    # Membership may inspect the entire window through an index-only scan;
+    # fetching search details must visit no more than the admitted page rows.
+    assert all(
+        (node['Actual Rows'] + node.get('Rows Removed by Filter', 0))
+        * node['Actual Loops'] <= page_size
+        for node in heap_scans
+    ), heap_scans
 
 
 @pytest.mark.asyncio
@@ -288,6 +305,8 @@ async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(da
     retaining ``force_generic_plan`` and the real views/query text."""
     connection, _, _, _ = database
     _build_published_generation(database)
+    connection.execute('VACUUM (ANALYZE) v3_derived.system_search')
+    connection.execute('VACUUM (ANALYZE) v3_derived.system_archetype')
     pool = await _asyncpg_pool(connection)
     floor_suffix = {60: 'b', 76: 'a', 88: 's'}
 
@@ -327,8 +346,11 @@ async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(da
                             limit=page_size,
                             offset=0,
                         )
-                        page_plan = await _explain_json(conn, page_sql, page_params)
+                        page_plan = await _explain_json(
+                            conn, page_sql, page_params, analyze=True,
+                        )
                         page_nodes = list(_plan_nodes(page_plan))
+                        _assert_search_details_bounded_by_page(page_plan, page_size)
                         matching_page_scans = [
                             node for node in page_nodes
                             if node.get('Node Type') == 'Index Only Scan'
@@ -363,8 +385,117 @@ async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(da
                             for node in fetches
                         )
                         assert all(node['Plan Rows'] <= page_size for node in fetches)
+
+                    page_sql, page_params = build_ranked_query(
+                        archetypes.PROFILE_SPEC,
+                        picked_archetype='mining_hub',
+                        picked_economy=None,
+                        hard_filters={},
+                        reference_coords=None,
+                        min_score=floor,
+                        limit=50,
+                        offset=9950,
+                    )
+                    deep_plan = await _explain_json(
+                        conn, page_sql, page_params, analyze=True,
+                    )
+                    _assert_search_details_bounded_by_page(deep_plan, 50)
+
+                # A one-row page at a nonzero offset exposes reads before the
+                # page boundary even on this 12-system fixture. The near-ceiling
+                # pages above are empty here; scale latency is a separate gate.
+                page_sql, page_params = build_ranked_query(
+                    archetypes.PROFILE_SPEC,
+                    picked_archetype=_pick_scored_archetype_key(connection),
+                    picked_economy=None,
+                    hard_filters={},
+                    reference_coords=None,
+                    min_score=60,
+                    limit=1,
+                    offset=1,
+                )
+                small_plan = await _explain_json(
+                    conn, page_sql, page_params, analyze=True,
+                )
+                assert small_plan['Actual Rows'] == 1
+                _assert_search_details_bounded_by_page(small_plan, 1)
     finally:
         await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_archetype_rankings_v3_page_matches_previous_sql(database):
+    """Freeze the old detail-before-paging SQL as an independent result oracle.
+
+    Compare every column and value in order for every key/floor, including the
+    existing tiny fixture's empty near-ceiling pages. This is a result contract,
+    not a substitute for the separately governed saturated-window scale proof.
+    """
+    connection, _, _, _ = database
+    _build_published_generation(database)
+    old_sql = '''WITH archetype_window AS (
+    SELECT ar.system_id64, ar.{key}_weighted_e4 AS selected_archetype_weighted_e4
+    FROM v3_app.system_archetype ar
+    WHERE ar.derived_generation_id = (SELECT pinned.derived_generation_id FROM v3_meta.current_derived_generation pinned WHERE pinned.singleton)
+      AND ar.{key}_score >= {floor}
+    ORDER BY ar.{key}_weighted_e4 DESC, ar.system_id64 ASC
+    LIMIT 10000
+), ranked_page AS (
+    SELECT s.*, aw.selected_archetype_weighted_e4
+    FROM archetype_window aw
+    JOIN v3_app.system_search s ON s.system_id64 = aw.system_id64
+    WHERE s.derived_generation_id = (SELECT pinned.derived_generation_id FROM v3_meta.current_derived_generation pinned WHERE pinned.singleton)
+    ORDER BY selected_archetype_weighted_e4 DESC, system_id64 ASC
+    LIMIT $1 OFFSET $2
+)
+SELECT page.*,
+       picked.{key}_score AS primary_score,
+       picked.{key}_tier AS selected_archetype_tier,
+       (picked.{key}_confidence_ppm / 1000000.0)::double precision AS ranking_confidence,
+       ((picked.{key}_confidence_ppm / 1000000.0)::double precision * page.completeness) AS uncertainty_factor,
+       picked.primary_archetype AS summary_primary_archetype,
+       picked.secondary_archetype AS summary_secondary_archetype,
+       picked.best_colony_potential AS summary_best_colony_potential,
+       (picked.archetype_confidence_ppm / 1000000.0)::double precision AS summary_archetype_confidence,
+       picked.weighted_potential AS weighted_potential
+FROM ranked_page page
+JOIN v3_derived.system_archetype picked
+  ON picked.derived_generation_id = page.derived_generation_id
+ AND picked.system_id64 = page.system_id64
+ORDER BY picked.{key}_weighted_e4 DESC, page.system_id64 ASC'''
+    pool = await _asyncpg_pool(connection)
+    nonempty_comparisons = 0
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction(readonly=True):
+                await conn.execute('SET LOCAL plan_cache_mode = force_generic_plan')
+                for key in ARCHETYPE_KEYS:
+                    for floor in (60, 76, 88):
+                        new_sql, _ = build_ranked_query(
+                            archetypes.PROFILE_SPEC,
+                            picked_archetype=key,
+                            picked_economy=None,
+                            hard_filters={},
+                            reference_coords=None,
+                            min_score=floor,
+                            limit=50,
+                            offset=0,
+                        )
+                        new_statement = await conn.prepare(new_sql)
+                        old_statement = await conn.prepare(old_sql.format(key=key, floor=floor))
+                        # Prepared metadata also compares column names, order
+                        # and types when an offset or floor yields no rows.
+                        assert new_statement.get_attributes() == old_statement.get_attributes()
+                        for limit, offset in (
+                            (1, 0), (1, 1), (50, 0), (50, 2), (50, 9950), (1, 9999),
+                        ):
+                            actual = await new_statement.fetch(limit, offset)
+                            expected = await old_statement.fetch(limit, offset)
+                            assert actual == expected, (key, floor, limit, offset)
+                            nonempty_comparisons += bool(expected)
+    finally:
+        await pool.close()
+    assert nonempty_comparisons
 
 
 @pytest.mark.asyncio
