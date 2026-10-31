@@ -488,7 +488,7 @@ describe('build order panel', () => {
     render(PlanWorkspaceTestHost);
     await openBuildOrder();
     const systemPane = screen.getByRole('region', { name: 'System' });
-    within(systemPane).getByRole('button', { name: 'Types + names' }).focus();
+    within(systemPane).getByRole('button', { name: 'Names and types' }).focus();
     const order = screen.getByRole('region', { name: 'Build order' });
 
     media.matches = false;
@@ -564,7 +564,7 @@ describe('build order panel', () => {
       await advance(250);
       await openBuildOrder();
       const systemPane = screen.getByRole('region', { name: 'System' });
-      const chip = within(systemPane).getByRole('button', { name: /^Step 1:/ });
+      const chip = within(systemPane).getByRole('button', { name: /^Step 1,/ });
       chip.focus();
       await fireEvent.click(chip);
       const drawer = screen.getByRole('dialog', {
@@ -650,7 +650,7 @@ describe('build order panel', () => {
       .querySelector('[data-plan-body="1"]')!;
     await fireEvent.click(body.querySelector('.body-name')!);
     const chip = within(body as HTMLElement).getByRole('button', {
-      name: /^Step 1:/,
+      name: /^Step 1,/,
     });
     expect(chip).toHaveAccessibleName(/Primary Port/);
     expect(within(chip).getByText('★')).toHaveAttribute('aria-hidden', 'true');

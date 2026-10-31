@@ -109,7 +109,86 @@
   list-style: none;
   padding: 0;
 }
-/* Row layout belongs to SystemPane and BuildOrder, including their phone rules. */
+/* Body and build-order row layouts remain with their components. */
+.plan-site-group {
+  min-width: 0;
+  margin: 0 0 2px 1.8rem;
+  padding: 2px 0.25rem;
+}
+.plan-site-group.surface {
+  border-radius: 0.3rem;
+  background: var(--panel-raised);
+}
+.plan-pane .site-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 16px;
+}
+.plan-sites {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-site-row {
+  min-width: 0;
+}
+.plan-workspace .plan-tile {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px 0.3rem;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  font-size: 0.7rem;
+  line-height: 16px;
+}
+.plan-tile .tile-number {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-tile .tile-label {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.plan-tile .site-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.plan-tile .site-type {
+  flex: 0 2 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-tile .plan-chip {
+  flex-shrink: 0;
+  padding: 0 0.15rem;
+  font-size: 0.6rem;
+  line-height: 1.25;
+  white-space: nowrap;
+}
 .plan-filters {
   margin: 0.6rem 0;
   font-size: 0.8rem;
@@ -261,6 +340,11 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .plan-site-group {
+    margin-left: 1rem;
+  }
 }
 @media (min-width: 1400px) {
   .plan-columns {
