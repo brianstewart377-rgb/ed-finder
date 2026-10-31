@@ -315,6 +315,7 @@ def test_openapi_documents_operations_invalid_response_and_database_dependencies
     assert bodies['responses']['200']['content']['application/json']['schema'] == {
         '$ref': '#/components/schemas/PlanBodiesV1',
     }
+    assert 'belts' in app.openapi()['components']['schemas']['PlanBodiesV1']['properties']
     system_id = next(parameter for parameter in bodies['parameters'] if parameter['name'] == 'system_id')
     assert system_id['in'] == 'path'
     assert system_id['required'] is True

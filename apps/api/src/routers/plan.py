@@ -76,11 +76,23 @@ class PlanSystemBodyV1(PlanModel):
     lifecycle_state: str
 
 
+class PlanSystemBeltV1(PlanModel):
+    belt_id: str
+    name: str
+    parent_body_id: str
+    ring_type: str | None
+    reserve: str | None
+    mass_mt: float | None
+    inner_radius_km: float | None
+    outer_radius_km: float | None
+
+
 class PlanBodiesV1(PlanModel):
     generation_id: str
     publication_sequence: str
     system_id64: str
     bodies: list[PlanSystemBodyV1]
+    belts: list[PlanSystemBeltV1]
 
 
 class PlanBodyV1(BaseModel):
@@ -264,6 +276,18 @@ async def bodies(
              GROUP BY signal.body_pk""",
         numeric_id,
     ))
+    belt_rows = await _bounded(pool.fetch(
+        f"""SELECT ring.ring_pk,ring.name,ring.body_pk,
+                   ring_type.display_name AS ring_type,
+                   reserve_type.display_name AS reserve,
+                   ring.mass_mt,ring.inner_radius_km,ring.outer_radius_km
+              FROM {schema}.rings ring
+              LEFT JOIN v3_vocab.ring_type ring_type USING(ring_type_id)
+              LEFT JOIN v3_vocab.reserve_type reserve_type USING(reserve_type_id)
+             WHERE ring.system_id64=$1 AND ring.kind='BELT'
+             ORDER BY ring.ring_pk""",
+        numeric_id,
+    ))
     ringed_bodies = {row["body_pk"] for row in ring_rows}
     signals_by_body = {row["body_pk"]: row for row in signal_rows}
     result = []
@@ -298,6 +322,19 @@ async def bodies(
         # Echo the canonical decimal form, so "000123" and "123" answer alike.
         system_id64=str(numeric_id),
         bodies=result,
+        belts=[
+            PlanSystemBeltV1(
+                belt_id=str(row["ring_pk"]),
+                name=row["name"],
+                parent_body_id=str(row["body_pk"]),
+                ring_type=row["ring_type"],
+                reserve=row["reserve"],
+                mass_mt=row["mass_mt"],
+                inner_radius_km=row["inner_radius_km"],
+                outer_radius_km=row["outer_radius_km"],
+            )
+            for row in belt_rows
+        ],
     )
 
 

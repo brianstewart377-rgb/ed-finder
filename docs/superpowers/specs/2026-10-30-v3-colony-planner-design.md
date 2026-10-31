@@ -58,10 +58,17 @@ The planner replaces that placeholder. On `/plan?system=<id64>` the commander ca
      imported from a Raven layout.
    - **Surface slots** are predicted (from S3b) unless the commander has
      entered them.
+
+   Sites go on bodies or on an asteroid belt, if the system has one. Individual
+   belt clusters cannot be built on; the planner shows them only as information
+   under their belt. A belt's slots start unknown and are entered by the
+   commander.
+
 2. **Add builds.** The commander picks a facility from the catalogue, puts it
-   on a body (orbital or surface), and gives it a status: Planned, Building or
-   Complete. They can name it, reorder it, move it to another body, or remove
-   it. The first site is the Primary Port and is labelled as such.
+   on a body (orbital or surface) or an asteroid belt, and gives it a status:
+   Planned, Building or Complete. They can name it, reorder it, move it to
+   another body or belt, or remove it. The first site is the Primary Port and
+   is labelled as such.
 3. **See the CP budget live.** Tier 2 and Tier 3 points are shown in two views:
    - "Now": what is complete or building.
    - "After the plan": every site in the list.
@@ -326,6 +333,14 @@ same way `routers/v3.py` does: `current_canonical_generation()` and the explicit
 way as the existing body route. It is tested on a disposable PostgreSQL 18
 database.
 
+Sites go on bodies or on an asteroid belt, if the system has one. Individual
+belt clusters cannot be built on; the planner shows them only as information
+under their belt. A belt's slots start unknown and are entered by the commander.
+Belts are canonical `rings` rows with `kind = 'BELT'`, attached to a parent
+body; belt clusters remain canonical bodies. S3a.1 returns belts separately
+from bodies, ordered by `ring_pk`, with their parent body id, name, ring type,
+reserve, mass and inner and outer radii. Missing vocabulary values stay unknown.
+
 **What the evidence showed** (`docs/development/evidence/2026-10-31-slot-formula-vs-recorded-counts.md`):
 on the owner's system, `validated-slot-v1` matched the recorded **surface** slots
 for all 24 landable bodies, but the recorded **orbital** slots for only 17 of
@@ -520,3 +535,4 @@ The owner chose the default for each question:
    does not fetch from Raven's servers.
 4. **The sixth-port difference:** follow RB-0003 (11 T2 points) and show
    Raven's figure (12) as a note.
+5. **2026-10-31 — Belts:** sites go on bodies or an asteroid belt if present, never on individual belt clusters; clusters appear only as information under their belt, whose slots start unknown and are entered by the commander.
