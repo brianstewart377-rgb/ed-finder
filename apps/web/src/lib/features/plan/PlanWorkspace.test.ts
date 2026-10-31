@@ -82,7 +82,14 @@ const port: PlanFacilityV1 = {
   prerequisites: [],
   rule_ids: [],
 };
-const catalogue = { rulebook_release: 'test', facilities: [port] };
+const nonPort: PlanFacilityV1 = {
+  ...port,
+  id: 'installation',
+  name: 'Installation',
+  category: 'installation',
+  is_port: false,
+};
+const catalogue = { rulebook_release: 'test', facilities: [port, nonPort] };
 const system = v3System({ id64: '42', name: 'Test System' });
 
 function evaluated(t2: number, blocked = 0): PlanEvaluationV1 {
@@ -120,6 +127,7 @@ function seedPrimary() {
     version: 3,
     state: { projects: { [record.id]: record } },
   });
+  return record;
 }
 
 function deferred<T>() {
@@ -295,6 +303,62 @@ describe('planner workspace evaluation and browser state', () => {
     expect(summary).toHaveAttribute('aria-busy', 'false');
   });
 
+  it.each(['planned', 'building'] as const)(
+    'refuses removing a %s primary that would promote a completed non-port',
+    async (status) => {
+      const record = plannerToRecord({
+        ...emptyPlan('42'),
+        sites: [
+          { ...importedSite('Primary port'), status },
+          {
+            ...importedSite('Completed installation'),
+            site_id: 'installation',
+            facility_id: nonPort.id,
+            status: 'complete',
+          },
+        ],
+      });
+      colonyProjects.set({
+        version: 3,
+        state: { projects: { [record.id]: record } },
+      });
+      const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+      render(PlanWorkspaceTestHost);
+      await fireEvent.click(screen.getByLabelText('Edit Primary port'));
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Remove Primary port' }),
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Removing this would make “Completed installation” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.',
+      );
+      expect(get(colonyProjects).value.state.projects[record.id]).toEqual(
+        record,
+      );
+      expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(
+        stored,
+      );
+    },
+  );
+
+  it('refuses removing the primary before the facility list is loaded', async () => {
+    const record = seedPrimary();
+    const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    render(PlanWorkspaceTestHost);
+    await fireEvent.click(screen.getByLabelText('Edit Primary port'));
+    const remove = screen.getByRole('button', { name: 'Remove Primary port' });
+    const pendingCatalogue = deferred<typeof catalogue>();
+    vi.mocked(getV3PlanCatalogue).mockReturnValue(pendingCatalogue.promise);
+    void queryClient.resetQueries({
+      queryKey: ['ed-finder', 'plan-catalogue'],
+    });
+    await fireEvent.click(remove);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Wait for the facility list to load before removing the Primary Port.',
+    );
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(stored);
+  });
+
   it.each([false, true])(
     'moves the third site in storage, DOM and evaluation after opening Why: %s',
     async (openWhy) => {
@@ -451,6 +515,11 @@ describe('planner workspace evaluation and browser state', () => {
     expect(confirm).toHaveBeenLastCalledWith(
       expect.stringContaining('system 43'),
     );
+    expect(confirm).toHaveBeenLastCalledWith(
+      expect.stringContaining(
+        'A completed Primary Port without a location here will stay editable until you give it one.',
+      ),
+    );
     expect(Object.keys(get(colonyProjects).value.state.projects)).toEqual([]);
     confirm.mockReturnValueOnce(true).mockReturnValueOnce(true);
     await upload(text);
@@ -458,5 +527,65 @@ describe('planner workspace evaluation and browser state', () => {
     expect(
       Object.values(get(colonyProjects).value.state.projects)[0].system_id64,
     ).toBe('42');
+  });
+
+  it.each(['42', '43'])(
+    'refuses an imported non-port primary from system %s before any confirmation',
+    async (systemId) => {
+      const record = seedPrimary();
+      const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(PlanWorkspaceTestHost);
+      await upload(
+        exportPlan({
+          ...emptyPlan(systemId),
+          sites: [
+            {
+              ...importedSite('Completed installation'),
+              facility_id: nonPort.id,
+              status: 'complete',
+            },
+          ],
+        }),
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "This plan's first site is not a port, so it cannot be the Primary Port.",
+      );
+      expect(confirm).not.toHaveBeenCalled();
+      expect(get(colonyProjects).value.state.projects[record.id]).toEqual(
+        record,
+      );
+      expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(
+        stored,
+      );
+    },
+  );
+
+  it('lets an imported completed primary gain a missing location, then protects it', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await upload(
+      exportPlan({
+        ...emptyPlan('43'),
+        sites: [{ ...importedSite(), body_ref: '99', status: 'complete' }],
+      }),
+    );
+    await fireEvent.click(screen.getByLabelText('Edit Imported port'));
+    const body = screen.getByLabelText('Body for step 1');
+    const status = screen.getByLabelText('Status for step 1');
+    expect(body).toBeEnabled();
+    expect(body).toHaveValue('');
+    expect(status).toBeEnabled();
+    expect(status).toHaveValue('complete');
+    await fireEvent.change(body, { target: { value: '1' } });
+    expect(
+      Object.values(get(colonyProjects).value.state.projects)[0]
+        .build_plan_placements[0],
+    ).toMatchObject({ body_ref: '1', status: 'complete' });
+    expect(body).toBeDisabled();
+    expect(status).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Remove Imported port' }),
+    ).not.toBeInTheDocument();
   });
 });

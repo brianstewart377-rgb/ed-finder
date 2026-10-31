@@ -355,14 +355,25 @@ export function isProtectedPrimary(
   siteId: string,
 ): boolean {
   return (
-    model.sites[0]?.site_id === siteId && model.sites[0]?.status === 'complete'
+    model.sites[0]?.site_id === siteId &&
+    model.sites[0]?.status === 'complete' &&
+    model.sites[0]?.body_ref !== null
   );
 }
 
-export function removeSite(model: PlannerModel, siteId: string): PlannerModel {
-  siteIndex(model, siteId);
+export function removeSite(
+  model: PlannerModel,
+  siteId: string,
+  isPort: (facilityId: string) => boolean,
+): PlannerModel {
+  const index = siteIndex(model, siteId);
   if (isProtectedPrimary(model, siteId))
     throw new Error(PRIMARY_PORT_PROTECTION);
+  const next = model.sites[1];
+  if (index === 0 && next && !isPort(next.facility_id))
+    throw new Error(
+      `Removing this would make “${next.name || next.facility_id}” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.`,
+    );
   return {
     ...model,
     sites: model.sites.filter((site) => site.site_id !== siteId),
@@ -407,7 +418,8 @@ export function replacePlan(
   const primary = model.sites[0];
   const next = replacement.sites[0];
   if (
-    primary?.status === 'complete' &&
+    primary &&
+    isProtectedPrimary(model, primary.site_id) &&
     (!next ||
       next.site_id !== primary.site_id ||
       next.facility_id !== primary.facility_id ||

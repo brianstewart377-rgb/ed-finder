@@ -13,6 +13,7 @@ import {
   findPlannerProject,
   importPlan,
   insertSiteBefore,
+  isProtectedPrimary,
   moveSite,
   plannerToRecord,
   recordToPlanner,
@@ -42,6 +43,10 @@ function site(id: string, overrides: Partial<PlannerSite> = {}): PlannerSite {
 
 function plan(...sites: PlannerSite[]): PlannerModel {
   return { ...emptyPlan('42'), sites };
+}
+
+function isPort(facilityId: string): boolean {
+  return facilityId === 'outpost';
 }
 
 function body(id: string, type = 'planet'): PlanSystemBodyV1 {
@@ -362,7 +367,7 @@ describe('planner actions', () => {
       body_ref: '2',
     });
     expect(initial.sites[1].name).toBe('');
-    expect(removeSite(updated, 'second').sites).toHaveLength(1);
+    expect(removeSite(updated, 'second', isPort).sites).toHaveLength(1);
     expect(() =>
       updateSite(initial, 'second', { name: 'x'.repeat(65) }),
     ).toThrow('64');
@@ -370,7 +375,7 @@ describe('planner actions', () => {
 
   it('protects a completed Primary Port from move, remove, facility or status changes and import replacement', () => {
     const initial = plan(site('primary', { status: 'complete' }), site('next'));
-    expect(() => removeSite(initial, 'primary')).toThrow('RB-0008');
+    expect(() => removeSite(initial, 'primary', isPort)).toThrow('RB-0008');
     expect(() => moveSite(initial, 'primary', 'down')).toThrow();
     for (const patch of [
       { body_ref: 'other' },
@@ -390,6 +395,101 @@ describe('planner actions', () => {
       replacePlan(initial, updateSite(initial, 'primary', { name: 'Home' }))
         .sites[0].name,
     ).toBe('Home');
+  });
+
+  it.each(['planned', 'building'] as const)(
+    'refuses removing a %s primary when any non-port would become primary without changing the model',
+    (primaryStatus) => {
+      for (const status of [
+        'planned',
+        'building',
+        'complete',
+        'demolished',
+      ] as const) {
+        const initial = plan(
+          site('primary', { status: primaryStatus }),
+          site('installation', {
+            facility_id: 'mining-installation',
+            name: 'Mine',
+            status,
+          }),
+        );
+        const original = structuredClone(initial);
+        expect(() => removeSite(initial, 'primary', isPort)).toThrow(
+          'Removing this would make “Mine” the Primary Port, but it is not a port. Move a planned port up to second place first, or change this site to a different port.',
+        );
+        expect(initial).toEqual(original);
+      }
+    },
+  );
+
+  it.each(['planned', 'building', 'complete', 'demolished'] as const)(
+    'allows removing an editable primary when the next site is a %s port',
+    (status) => {
+      for (const primaryStatus of ['planned', 'building'] as const) {
+        const initial = plan(
+          site('primary', { status: primaryStatus }),
+          site('next', { status }),
+        );
+        expect(removeSite(initial, 'primary', isPort).sites).toEqual([
+          initial.sites[1],
+        ]);
+        expect(initial.sites).toHaveLength(2);
+      }
+    },
+  );
+
+  it.each(['planned', 'building', 'complete', 'demolished'] as const)(
+    'removes a non-first %s site without consulting the port check',
+    (status) => {
+      const initial = plan(
+        site('primary', { status: 'complete' }),
+        site('installation', { facility_id: 'mining-installation', status }),
+      );
+      expect(
+        removeSite(initial, 'installation', () => {
+          throw new Error('Non-first removal must not check port status.');
+        }).sites,
+      ).toEqual([initial.sites[0]]);
+      expect(initial.sites).toHaveLength(2);
+    },
+  );
+
+  it('allows removal of the only editable site without consulting the port check', () => {
+    const initial = plan(site('primary'));
+    expect(
+      removeSite(initial, 'primary', () => {
+        throw new Error('An empty plan needs no primary port check.');
+      }).sites,
+    ).toEqual([]);
+    expect(initial.sites).toHaveLength(1);
+  });
+
+  it('protects a completed primary only once it is placed', () => {
+    const initial = plan(
+      site('primary', { status: 'complete', body_ref: null }),
+    );
+    expect(isProtectedPrimary(initial, 'primary')).toBe(false);
+    expect(isProtectedPrimary(initial, 'missing')).toBe(false);
+    expect(removeSite(initial, 'primary', isPort).sites).toEqual([]);
+    expect(
+      updateSite(initial, 'primary', { status: 'planned' }).sites[0].status,
+    ).toBe('planned');
+    const placed = updateSite(initial, 'primary', { body_ref: '1' });
+    expect(isProtectedPrimary(placed, 'primary')).toBe(true);
+    expect(initial.sites[0].body_ref).toBeNull();
+  });
+
+  it('allows replacement of a completed unplaced primary and protects it once placed', () => {
+    const initial = plan(
+      site('primary', { status: 'complete', body_ref: null }),
+    );
+    const replacement = plan(site('replacement'));
+    expect(replacePlan(initial, replacement)).toBe(replacement);
+    expect(replacePlan(initial, plan()).sites).toEqual([]);
+    const placed = updateSite(initial, 'primary', { body_ref: '1' });
+    expect(() => replacePlan(placed, replacement)).toThrow('RB-0008');
+    expect(() => replacePlan(placed, initial)).toThrow('RB-0008');
   });
 
   it('blocks adding or inserting above the 300-site API limit', () => {
@@ -420,6 +520,34 @@ describe('plan JSON exchange', () => {
     expect(
       importPlan(text, '43', { confirmOtherSystem: true }).system_id64,
     ).toBe('43');
+  });
+
+  it('lets a completed primary imported from another system be placed, then protects its location and status', () => {
+    const original = plan(
+      site('primary', { status: 'complete', body_ref: 'foreign-body' }),
+    );
+    const destinationBodies = { ...bodies(), system_id64: '43' };
+    const imported = unplaceMissingLocations(
+      importPlan(exportPlan(original), '43', { confirmOtherSystem: true }),
+      destinationBodies,
+    );
+    const current = replacePlan(emptyPlan('43'), imported);
+    expect(current.sites[0]).toMatchObject({
+      status: 'complete',
+      body_ref: null,
+    });
+    expect(isProtectedPrimary(current, 'primary')).toBe(false);
+    const placed = updateSite(current, 'primary', { body_ref: '1' });
+    expect(placed.sites[0].body_ref).toBe('1');
+    expect(isProtectedPrimary(placed, 'primary')).toBe(true);
+    for (const patch of [
+      { body_ref: null },
+      { body_ref: '4' },
+      { status: 'planned' as const },
+    ])
+      expect(() => updateSite(placed, 'primary', patch)).toThrow('RB-0008');
+    expect(original.sites[0].body_ref).toBe('foreign-body');
+    expect(current.sites[0].body_ref).toBeNull();
   });
 
   it('rejects malformed, oversized, duplicate, out-of-range and incorrectly versioned imports', () => {

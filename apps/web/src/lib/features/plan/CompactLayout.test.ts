@@ -10,7 +10,7 @@ import BuildOrder from './BuildOrder.svelte';
 import SystemPane from './SystemPane.svelte';
 import { compactPlanFixture } from './__fixtures__/compact-plan';
 import { resolvePlanLocations } from './locations';
-import { PRIMARY_PORT_PROTECTION } from './model';
+import { PRIMARY_PORT_PROTECTION, updateSite } from './model';
 
 type Fixture = ReturnType<typeof compactPlanFixture>;
 
@@ -26,7 +26,7 @@ function renderSystem(fixture: Fixture) {
   });
 }
 
-function renderOrder(fixture: Fixture) {
+function renderOrder(fixture: Fixture, onupdate = vi.fn()) {
   return render(BuildOrder, {
     model: fixture.model,
     facilities: fixture.facilities,
@@ -40,7 +40,7 @@ function renderOrder(fixture: Fixture) {
     onfilter: vi.fn(),
     onwhy: vi.fn(),
     onmove: vi.fn(),
-    onupdate: vi.fn(),
+    onupdate,
     onremove: vi.fn(),
   });
 }
@@ -139,6 +139,46 @@ describe('compact planner layout', () => {
         name: 'Surface slots on Compact Test System A: not available',
       }),
     ).toBeDisabled();
+  });
+
+  it('allows location and status edits for a completed Unplaced primary and locks them once placed', async () => {
+    const fixture = compactPlanFixture(2, 4);
+    fixture.model.sites[0].body_ref = null;
+    const onupdate = vi.fn();
+    const order = renderOrder(fixture, onupdate);
+
+    await fireEvent.click(screen.getByLabelText('Edit Colony site 1'));
+    const location = screen.getByRole('combobox', {
+      name: 'Body for step 1',
+    });
+    const status = screen.getByRole('combobox', {
+      name: 'Status for step 1',
+    });
+    expect(location).toBeEnabled();
+    expect(location).toHaveValue('');
+    expect(status).toBeEnabled();
+    expect(status).toHaveValue('complete');
+    expect(
+      screen.getByRole('combobox', { name: 'Facility for step 1' }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Remove Colony site 1' }),
+    ).toBeEnabled();
+    expect(screen.queryByText(PRIMARY_PORT_PROTECTION)).not.toBeInTheDocument();
+
+    await fireEvent.change(location, { target: { value: '1' } });
+    expect(onupdate).toHaveBeenLastCalledWith('site-1', { body_ref: '1' });
+
+    const placed = updateSite(fixture.model, 'site-1', { body_ref: '1' });
+    await order.rerender({ model: placed });
+    expect(location).toHaveValue('1');
+    expect(location).toBeDisabled();
+    expect(status).toHaveValue('complete');
+    expect(status).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Remove Colony site 1' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(PRIMARY_PORT_PROTECTION)).toBeVisible();
   });
 
   it('uses SVG status and result icons and keeps Primary Port protection inside the edit disclosure', async () => {

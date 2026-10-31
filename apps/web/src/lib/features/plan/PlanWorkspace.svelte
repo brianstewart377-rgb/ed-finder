@@ -197,6 +197,20 @@
     change((current) => addSite(current, site));
     selectedSite = site.site_id;
   }
+  function isPort(facilityId: string): boolean {
+    return facilities.some(
+      (facility) => facility.id === facilityId && facility.is_port,
+    );
+  }
+  function remove(id: string): void {
+    change((current) => {
+      if (current.sites[0]?.site_id === id && !catalogue.data)
+        throw new Error(
+          'Wait for the facility list to load before removing the Primary Port.',
+        );
+      return removeSite(current, id, isPort);
+    });
+  }
   async function jumpToStep(id: string): Promise<void> {
     selectedSite = id;
     filter = 'All';
@@ -255,10 +269,14 @@
         throw new Error(
           'Wait for the system bodies to load before importing a plan.',
         );
+      if (candidate.sites[0] && !isPort(candidate.sites[0].facility_id))
+        throw new Error(
+          "This plan's first site is not a port, so it cannot be the Primary Port.",
+        );
       if (source !== systemId) {
         if (
           !window.confirm(
-            `This file belongs to system ${source}. Import its sites and slot counts into ${systemName} (${systemId})? Missing locations will become Unplaced.`,
+            `This file belongs to system ${source}. Import its sites and slot counts into ${systemName} (${systemId})? Missing locations will become Unplaced. A completed Primary Port without a location here will stay editable until you give it one.`,
           )
         )
           return;
@@ -377,7 +395,7 @@
           change((current) => moveSite(current, id, direction))}
         onupdate={(id, patch) =>
           change((current) => updateSite(current, id, patch))}
-        onremove={(id) => change((current) => removeSite(current, id))}
+        onremove={remove}
       />
       <SummaryPane
         {model}
