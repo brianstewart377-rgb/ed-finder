@@ -26,7 +26,9 @@ Any new commit invalidates all prior CI and reviewer evidence for merge
 eligibility on the new head. Re-run protected CI as normal, but do not
 deliberately rerun Octopus during iterative remediation. Trigger it only after
 the new head again qualifies as a final candidate. Before merge, both reviewer
-reviewed SHAs must equal the exact latest PR head. A pending or still-reviewing
+reviewed SHAs must equal the exact latest PR head. The one exception: a
+docs-only PR whose only new commits merge `main` in may keep its earlier Octopus
+review under the policy's "Docs-only update merges" rule, recorded on the PR. A pending or still-reviewing
 service at the final-candidate gate must be triggered when needed and awaited;
 ordinary pending/in-progress review cannot be waived. All other safeguards in
 the canonical [Pull Request Acceptance Policy](../blob/main/docs/development/pull-request-acceptance-policy.md)
