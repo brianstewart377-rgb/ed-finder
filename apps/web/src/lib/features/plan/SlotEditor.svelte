@@ -119,12 +119,16 @@
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-controls={open ? `${id}-editor` : undefined}
+    title={disabled
+      ? `${slotLabel} slots on ${label}: not available`
+      : `${slotLabel} slots on ${label}: ${used} used, ${value ?? 'unknown'} total${overCapacity ? ', over capacity' : ''}`}
     onclick={toggle}
   >
-    <span>{slotLabel}</span>
+    <span aria-hidden="true">{kind === 'orbital' ? '◌' : '◍'}</span>
     <strong>{disabled ? '–' : `${used}/${value ?? '?'}`}</strong>
-    {#if overCapacity && !disabled}<span class="warning">Over capacity</span
-      >{/if}
+    {#if overCapacity && !disabled}<span class="warning" aria-hidden="true"
+        >!</span
+      ><span class="slot-sr-only">Over capacity</span>{/if}
   </button>
   {#if open}
     <div
@@ -172,6 +176,7 @@
 <style>
   .slot-container {
     position: relative;
+    flex: 0 0 auto;
   }
   button {
     border: 1px solid var(--line);
@@ -186,26 +191,38 @@
     opacity: 0.6;
   }
   .slot-box {
-    display: grid;
-    gap: 0.15rem;
-    min-width: 4.3rem;
-    min-height: 2.75rem;
-    padding: 0.3rem 0.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    min-width: 2.65rem;
+    height: 24px;
+    padding: 0 0.25rem;
     text-align: center;
-    font-size: 0.72rem;
+    white-space: nowrap;
+    font-size: 0.65rem;
   }
   .slot-box strong {
-    font-size: 0.85rem;
+    font-size: inherit;
     font-variant-numeric: tabular-nums;
   }
   .over-capacity {
     border-color: var(--color-signal);
-    border-width: 2px;
+    box-shadow: inset 0 0 0 1px var(--color-signal);
     background: color-mix(in srgb, var(--color-signal) 12%, var(--color-panel));
   }
   .warning {
     font-size: 0.65rem;
     font-weight: 650;
+  }
+  .slot-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .slot-editor {
     position: fixed;

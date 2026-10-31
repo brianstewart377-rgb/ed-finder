@@ -2,6 +2,7 @@
   import type { PlanEvaluationV1, PlanFacilityV1 } from '$lib/api';
   import type { PlannerModel } from './model';
   import type { PlannerLocation } from './locations';
+  import PlanIcon from './PlanIcon.svelte';
   let {
     model,
     facilities,
@@ -106,9 +107,13 @@
         </div>
       </dl>
       <div class="summary-results">
-        <span>✓ {evaluation.summary.OK} OK</span><span
-          >✕ {evaluation.summary.BLOCKED} Blocked</span
-        ><span>? {evaluation.summary.NEEDS_INFO} Needs info</span>
+        <span><PlanIcon kind="OK" /> {evaluation.summary.OK} OK</span><span
+          ><PlanIcon kind="BLOCKED" />
+          {evaluation.summary.BLOCKED} Blocked</span
+        ><span
+          ><PlanIcon kind="NEEDS_INFO" />
+          {evaluation.summary.NEEDS_INFO} Needs info</span
+        >
       </div>
     {:else}<p class="plan-empty">
         The API evaluation will show your construction points here.
@@ -144,7 +149,9 @@
             disabled={!evaluation?.steps.some(
               (step) => step.site_id === site.site_id,
             )}
-            onclick={() => onwhy(site.site_id)}>◐ {name(site.site_id)}</button
+            aria-label={`Building: ${name(site.site_id)}`}
+            onclick={() => onwhy(site.site_id)}
+            ><PlanIcon kind="building" /> {name(site.site_id)}</button
           >
         </li>{/each}
     </ul>{:else}<p class="plan-muted">No builds in progress.</p>{/if}

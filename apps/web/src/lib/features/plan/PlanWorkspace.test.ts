@@ -284,7 +284,7 @@ describe('planner workspace evaluation and browser state', () => {
     await advance(250);
     expect(evaluateV3Plan).toHaveBeenCalledOnce();
     vi.mocked(evaluateV3Plan).mockClear();
-    await fireEvent.click(screen.getByText('Edit Primary port'));
+    await fireEvent.click(screen.getByLabelText('Edit Primary port'));
     await fireEvent.click(
       screen.getByRole('button', { name: 'Remove Primary port' }),
     );

@@ -12,7 +12,8 @@
     type PlannerModel,
     type PlannerSite,
   } from './model';
-  import { resultIcon, resultLabel, statusIcon } from './presentation';
+  import PlanIcon from './PlanIcon.svelte';
+  import { resultLabel } from './presentation';
 
   let {
     model,
@@ -119,7 +120,7 @@
       {@const locked = isProtectedPrimary(model, site.site_id)}
       <li
         value={index + 1}
-        class="build-step"
+        class="build-step compact-step"
         class:selected={selectedSite === site.site_id}
         class:blocked={step?.result === 'BLOCKED'}
         id={`plan-step-${site.site_id}`}
@@ -128,137 +129,150 @@
       >
         <div class="step-title">
           <span class="step-number">{index + 1}</span>
-          <h3>{name(site)}</h3>
+          <h3 title={name(site)}>{name(site)}</h3>
           {#if index === 0}<span class="plan-chip primary-label"
               >Primary Port</span
             >{/if}
-        </div>
-        <p class="plan-muted">
-          {facility?.name ?? site.facility_id} · {site.slot_kind} · {site.body_ref &&
-          locationById.has(site.body_ref)
-            ? shortBodyName(locationById.get(site.body_ref)!.name, systemName)
-            : 'Unplaced'}
-        </p>
-        <p class="step-state">
           <span
-            ><span aria-hidden="true">{statusIcon[site.status]}</span>
-            {site.status}</span
+            class="step-description plan-muted"
+            title={`${facility?.name ?? site.facility_id} · ${site.slot_kind} · ${site.body_ref && locationById.has(site.body_ref) ? shortBodyName(locationById.get(site.body_ref)!.name, systemName) : 'Unplaced'}`}
           >
+            {facility?.name ?? site.facility_id} · {site.slot_kind} · {site.body_ref &&
+            locationById.has(site.body_ref)
+              ? shortBodyName(locationById.get(site.body_ref)!.name, systemName)
+              : 'Unplaced'}
+          </span>
           {#if step}<span
               class="plan-chip evaluation-value"
               class:stale
               data-result={step.result}
-              >{resultIcon[step.result]} {resultLabel[step.result]}</span
-            >{:else}<span class="plan-muted">Awaiting evaluation</span>{/if}
-        </p>
-        {#if step}
-          <div class="step-budget" class:stale>
-            <span class="plan-chip"
-              >Cost {step.cost_t2} T2 / {step.cost_t3} T3</span
-            >
-            <span class="plan-chip"
-              >Earns {step.reward_t2} T2 / {step.reward_t3} T3</span
-            >
-            {#if step.counted_port_number !== null}<span class="plan-chip"
-                >port #{step.counted_port_number}</span
-              >{/if}
-            <span class:negative={step.t2_after < 0 || step.t3_after < 0}
-              >After: {step.t2_after} T2 / {step.t3_after} T3</span
-            >
-          </div>
-        {/if}
-        <div class="step-actions">
-          {#if locked}<p class="plan-muted">{PRIMARY_PORT_PROTECTION}</p>{:else}
-            <button
-              type="button"
-              aria-label={`Move up ${name(site)}`}
-              disabled={!canMoveSite(model, site.site_id, 'up')}
-              onclick={() => onmove(site.site_id, 'up')}>↑ Move up</button
-            >
-            <button
-              type="button"
-              aria-label={`Move down ${name(site)}`}
-              disabled={!canMoveSite(model, site.site_id, 'down')}
-              onclick={() => onmove(site.site_id, 'down')}>↓ Move down</button
-            >
-          {/if}
-          <button
-            type="button"
-            aria-label={`Why? ${name(site)}`}
-            disabled={!step}
-            onclick={() => onwhy(site.site_id)}>Why?</button
-          >
-        </div>
-        <details class="step-edit">
-          <summary>Edit {name(site)}</summary>
-          <label
-            >Facility <select
-              aria-label={`Facility for step ${index + 1}`}
-              value={site.facility_id}
-              disabled={locked}
-              onchange={(event) =>
-                onupdate(site.site_id, {
-                  facility_id: event.currentTarget.value,
-                })}
-            >
-              {#if !facilityOptions(site, index).some((item) => item.id === site.facility_id)}<option
-                  value={site.facility_id}
-                  disabled
-                  >{facility?.name ?? site.facility_id} — choose a valid facility</option
-                >{/if}
-              {#each facilityOptions(site, index) as option (option.id)}<option
-                  value={option.id}>{option.name}</option
-                >{/each}
-            </select></label
-          >
-          <label
-            >Name <input
-              maxlength="64"
-              aria-label={`Name for step ${index + 1}`}
-              value={site.name}
-              oninput={(event) =>
-                onupdate(site.site_id, { name: event.currentTarget.value })}
-            /></label
-          >
-          <label
-            >Status <select
-              aria-label={`Status for step ${index + 1}`}
-              disabled={locked}
-              value={site.status}
-              onchange={(event) =>
-                onupdate(site.site_id, {
-                  status: event.currentTarget.value as PlannerSite['status'],
-                })}
-            >
-              {#each ['planned', 'building', 'complete', 'demolished'] as status (status)}<option
-                  value={status}>{status}</option
-                >{/each}
-            </select></label
-          >
-          <label
-            >Move to body <select
-              aria-label={`Body for step ${index + 1}`}
-              disabled={locked}
-              value={site.body_ref ?? ''}
-              onchange={(event) =>
-                onupdate(site.site_id, {
-                  body_ref: event.currentTarget.value || null,
-                })}
-            >
-              <option value="">Unplaced</option
-              >{#each moveOptions(site) as location (location.body_ref)}<option
-                  value={location.body_ref}
-                  >{shortBodyName(location.name, systemName)}</option
-                >{/each}
-            </select></label
-          >
-          {#if locked}<p>{PRIMARY_PORT_PROTECTION}</p>{:else}<button
-              type="button"
-              class="remove-build"
-              aria-label={`Remove ${name(site)}`}
-              onclick={() => onremove(site.site_id)}>Remove build</button
+              ><PlanIcon kind={step.result} /> {resultLabel[step.result]}</span
+            >{:else}<span class="step-awaiting plan-muted"
+              >Awaiting evaluation</span
             >{/if}
-        </details>
+        </div>
+        <div class="step-detail-row">
+          <div class="step-metrics">
+            <span class="step-state"
+              ><PlanIcon kind={site.status} /> {site.status}</span
+            >
+            {#if step}
+              <div class="step-budget" class:stale>
+                <span class="plan-chip"
+                  >Cost {step.cost_t2} T2 / {step.cost_t3} T3</span
+                >
+                <span class="plan-chip"
+                  >Earns {step.reward_t2} T2 / {step.reward_t3} T3</span
+                >
+                {#if step.counted_port_number !== null}<span class="plan-chip"
+                    >port #{step.counted_port_number}</span
+                  >{/if}
+                <span class:negative={step.t2_after < 0 || step.t3_after < 0}
+                  >After: {step.t2_after} T2 / {step.t3_after} T3</span
+                >
+              </div>
+            {/if}
+            <div class="step-actions">
+              <button
+                type="button"
+                aria-label={`Move up ${name(site)}`}
+                title={locked ? PRIMARY_PORT_PROTECTION : 'Move up'}
+                disabled={!canMoveSite(model, site.site_id, 'up')}
+                onclick={() => onmove(site.site_id, 'up')}
+                ><span aria-hidden="true">↑</span></button
+              >
+              <button
+                type="button"
+                aria-label={`Move down ${name(site)}`}
+                title={locked ? PRIMARY_PORT_PROTECTION : 'Move down'}
+                disabled={!canMoveSite(model, site.site_id, 'down')}
+                onclick={() => onmove(site.site_id, 'down')}
+                ><span aria-hidden="true">↓</span></button
+              >
+              <button
+                type="button"
+                aria-label={`Why? ${name(site)}`}
+                disabled={!step}
+                onclick={() => onwhy(site.site_id)}>Why?</button
+              >
+            </div>
+          </div>
+          <details class="step-edit">
+            <summary aria-label={`Edit ${name(site)}`}
+              >Edit<span class="plan-sr-only"> {name(site)}</span></summary
+            >
+            <div class="step-edit-fields">
+              <label
+                >Facility <select
+                  aria-label={`Facility for step ${index + 1}`}
+                  value={site.facility_id}
+                  disabled={locked}
+                  onchange={(event) =>
+                    onupdate(site.site_id, {
+                      facility_id: event.currentTarget.value,
+                    })}
+                >
+                  {#if !facilityOptions(site, index).some((item) => item.id === site.facility_id)}<option
+                      value={site.facility_id}
+                      disabled
+                      >{facility?.name ?? site.facility_id} — choose a valid facility</option
+                    >{/if}
+                  {#each facilityOptions(site, index) as option (option.id)}<option
+                      value={option.id}>{option.name}</option
+                    >{/each}
+                </select></label
+              >
+              <label
+                >Name <input
+                  maxlength="64"
+                  aria-label={`Name for step ${index + 1}`}
+                  value={site.name}
+                  oninput={(event) =>
+                    onupdate(site.site_id, { name: event.currentTarget.value })}
+                /></label
+              >
+              <label
+                >Status <select
+                  aria-label={`Status for step ${index + 1}`}
+                  disabled={locked}
+                  value={site.status}
+                  onchange={(event) =>
+                    onupdate(site.site_id, {
+                      status: event.currentTarget
+                        .value as PlannerSite['status'],
+                    })}
+                >
+                  {#each ['planned', 'building', 'complete', 'demolished'] as status (status)}<option
+                      value={status}>{status}</option
+                    >{/each}
+                </select></label
+              >
+              <label
+                >Move to body <select
+                  aria-label={`Body for step ${index + 1}`}
+                  disabled={locked}
+                  value={site.body_ref ?? ''}
+                  onchange={(event) =>
+                    onupdate(site.site_id, {
+                      body_ref: event.currentTarget.value || null,
+                    })}
+                >
+                  <option value="">Unplaced</option
+                  >{#each moveOptions(site) as location (location.body_ref)}<option
+                      value={location.body_ref}
+                      >{shortBodyName(location.name, systemName)}</option
+                    >{/each}
+                </select></label
+              >
+              {#if locked}<p>{PRIMARY_PORT_PROTECTION}</p>{:else}<button
+                  type="button"
+                  class="remove-build"
+                  aria-label={`Remove ${name(site)}`}
+                  onclick={() => onremove(site.site_id)}>Remove build</button
+                >{/if}
+            </div>
+          </details>
+        </div>
       </li>
     {/each}
   </ol>
@@ -266,3 +280,179 @@
       No builds match this filter.
     </p>{/if}
 </section>
+
+<style>
+  .build-order-list {
+    margin: 0;
+  }
+  .compact-step {
+    display: grid;
+    gap: 0.125rem;
+    border: 1px solid var(--line);
+    border-radius: 0.35rem;
+    margin-top: 0.25rem;
+    padding: 0.25rem;
+    scroll-margin-top: 0.5rem;
+  }
+  .build-step.selected {
+    border-color: var(--color-cyan);
+  }
+  .step-title,
+  .step-metrics,
+  .step-budget,
+  .step-actions,
+  .step-state,
+  .evaluation-value {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+  .step-title {
+    height: 1.5rem;
+  }
+  .step-title h3 {
+    flex: 0 1 auto;
+    min-width: 2rem;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    line-height: 1.2;
+  }
+  .step-number {
+    display: grid;
+    place-items: center;
+    flex: 0 0 1.25rem;
+    height: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .primary-label {
+    flex: 0 0 auto;
+    color: var(--color-signal);
+    font-size: 0.7rem;
+  }
+  .step-description {
+    flex: 1 1 5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.7rem;
+  }
+  .evaluation-value,
+  .step-awaiting {
+    flex: 0 0 auto;
+    margin-left: auto;
+    white-space: nowrap;
+    font-size: 0.7rem;
+  }
+  .step-detail-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.25rem;
+    min-width: 0;
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+  .step-metrics {
+    min-height: 1.5rem;
+  }
+  .step-state {
+    text-transform: capitalize;
+    flex-shrink: 0;
+  }
+  .step-budget {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .step-budget .plan-chip {
+    padding: 0.1rem 0.2rem;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  .step-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .step-actions button,
+  .step-edit summary {
+    box-sizing: border-box;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+    border: 1px solid var(--line);
+    border-radius: 0.25rem;
+    background: var(--panel-raised);
+    padding: 0.125rem 0.25rem;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    cursor: pointer;
+  }
+  .step-edit {
+    min-width: 0;
+  }
+  .step-edit[open] {
+    grid-column: 1 / -1;
+  }
+  .step-edit summary {
+    position: relative;
+    list-style: none;
+  }
+  .step-edit summary::-webkit-details-marker {
+    display: none;
+  }
+  .step-edit summary:hover {
+    border-color: var(--color-signal);
+  }
+  .step-edit-fields {
+    border-top: 1px solid var(--line);
+    margin-top: 0.5rem;
+    padding: 0 0.25rem 0.25rem;
+    font-size: 0.8rem;
+  }
+  .step-edit label {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.7rem 0;
+    font-size: 0.85rem;
+  }
+  .step-edit select {
+    width: 100%;
+  }
+  @media (max-width: 1399px) {
+    .step-metrics,
+    .step-budget {
+      flex-wrap: wrap;
+    }
+    .step-budget {
+      white-space: normal;
+    }
+    .step-budget > span {
+      white-space: nowrap;
+    }
+  }
+  @media (max-width: 480px) {
+    .step-title {
+      height: auto;
+      min-height: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .step-title h3 {
+      flex: 1;
+    }
+    .step-description {
+      flex-basis: 50%;
+    }
+    .step-actions {
+      margin-left: 0;
+    }
+  }
+</style>

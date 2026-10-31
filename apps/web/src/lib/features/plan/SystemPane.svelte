@@ -16,7 +16,8 @@
     type PlannerModel,
     type PlannerSite,
   } from './model';
-  import { statusIcon, resultIcon, resultLabel } from './presentation';
+  import { resultLabel } from './presentation';
+  import PlanIcon from './PlanIcon.svelte';
   import SlotEditor from './SlotEditor.svelte';
   import FacilityPicker from './FacilityPicker.svelte';
 
@@ -65,33 +66,45 @@
         !tree.some((body) => body.body_ref === site.body_ref),
     ),
   );
-  function features(location: PlannerLocation): string[] {
+  function features(
+    location: PlannerLocation,
+  ): { marker: string; label: string }[] {
     if (location.belt)
-      return [location.belt.ring_type, location.belt.reserve].filter(
-        (item): item is string => !!item,
-      );
+      return [location.belt.ring_type, location.belt.reserve]
+        .filter((item): item is string => !!item)
+        .map((label) => ({ marker: label[0], label }));
     const body = location.body!;
     return [
-      body.is_landable === true ? 'Landable' : null,
-      body.has_rings ? 'Rings' : null,
-      body.geological_signals ? `Geological ${body.geological_signals}` : null,
-      body.biological_signals ? `Biological ${body.biological_signals}` : null,
+      body.is_landable === true ? { marker: 'L', label: 'Landable' } : null,
+      body.has_rings ? { marker: '◎', label: 'Rings' } : null,
+      body.geological_signals
+        ? {
+            marker: `G${body.geological_signals}`,
+            label: `Geological ${body.geological_signals}`,
+          }
+        : null,
+      body.biological_signals
+        ? {
+            marker: `B${body.biological_signals}`,
+            label: `Biological ${body.biological_signals}`,
+          }
+        : null,
       body.volcanism && body.volcanism.toLowerCase() !== 'no volcanism'
-        ? `Volcanism: ${body.volcanism}`
+        ? { marker: 'V', label: `Volcanism: ${body.volcanism}` }
         : null,
       body.terraforming_state &&
       body.terraforming_state.toLowerCase() !== 'not terraformable'
-        ? `Terraformable: ${body.terraforming_state}`
+        ? { marker: 'T', label: `Terraformable: ${body.terraforming_state}` }
         : null,
       body.atmosphere && body.atmosphere.toLowerCase() !== 'no atmosphere'
-        ? `Atmosphere: ${body.atmosphere}`
+        ? { marker: 'A', label: `Atmosphere: ${body.atmosphere}` }
         : null,
-    ].filter((item): item is string => !!item);
+    ].filter((item): item is { marker: string; label: string } => !!item);
   }
   function discSize(radius: number | null): number {
     return radius === null
       ? 24
-      : Math.min(38, Math.max(16, 10 + Math.log10(Math.max(1, radius)) * 4));
+      : Math.min(28, Math.max(16, 10 + Math.log10(Math.max(1, radius)) * 4));
   }
 </script>
 
@@ -105,22 +118,22 @@
         class="plan-tile"
         class:blocked={step?.result === 'BLOCKED'}
         class:stale
+        title={`${facility?.name ?? site.facility_id}${showNames && site.name ? ` · ${site.name}` : ''}`}
         aria-label={`Step ${model.sites.indexOf(site) + 1}: ${site.status}, ${facility?.name ?? site.facility_id}${showNames && site.name ? `, ${site.name}` : ''}${site.status === 'planned' && step ? `, ${resultLabel[step.result]}` : ''}`}
         onclick={() => onselectsite(site.site_id)}
       >
-        <span>{model.sites.indexOf(site) + 1}</span><span aria-hidden="true"
-          >{statusIcon[site.status]}</span
-        >
-        <span
+        <span class="tile-number">{model.sites.indexOf(site) + 1}</span
+        ><PlanIcon kind={site.status} />
+        <span class="tile-label"
           >{facility?.name ??
-            site.facility_id}{#if showNames && site.name}<small
-              >{site.name}</small
+            site.facility_id}{#if showNames && site.name}<small>
+              · {site.name}</small
             >{/if}</span
         >
         {#if facility}<span class="plan-chip">T{facility.tier}</span>{/if}
-        {#if site.status === 'planned' && step}<span aria-hidden="true"
-            >{resultIcon[step.result]}</span
-          >{/if}
+        {#if site.status === 'planned' && step}<PlanIcon
+            kind={step.result}
+          />{/if}
       </button>
     {/each}
   </div>
@@ -149,7 +162,7 @@
         style={`--body-depth: ${Math.min(location.depth, 4)}`}
         data-plan-body={location.body_ref}
       >
-        <div class="body-heading">
+        <div class="body-heading compact-body-row">
           <span
             class="body-disc"
             class:star={location.body?.body_type?.toLowerCase() === 'star'}
@@ -160,10 +173,37 @@
           <button
             type="button"
             class="body-name"
+            title={location.name}
             aria-pressed={selectedBody === location.body_ref}
             onclick={() => onselectbody(location.body_ref)}
             >{shortBodyName(location.name, systemName)}</button
           >
+          <div class="body-features">
+            {#each features(location) as feature, featureIndex (featureIndex)}<span
+                class="body-feature"
+                role="img"
+                title={feature.label}
+                aria-label={feature.label}>{feature.marker}</span
+              >{/each}
+          </div>
+          <div class="body-slots">
+            <SlotEditor
+              label={location.name}
+              kind="orbital"
+              used={used.orbital_slots}
+              value={model.slots[location.body_ref]?.orbital_slots ?? null}
+              onchange={(value) => onslot(location.body_ref, 'orbital', value)}
+            />
+            {#if location.kind !== 'belt'}<SlotEditor
+                label={location.name}
+                kind="surface"
+                used={used.surface_slots}
+                value={model.slots[location.body_ref]?.surface_slots ?? null}
+                disabled={location.is_landable === false}
+                onchange={(value) =>
+                  onslot(location.body_ref, 'surface', value)}
+              />{/if}
+          </div>
           <button
             type="button"
             class="add-build"
@@ -175,30 +215,6 @@
               picker = picker === location.body_ref ? null : location.body_ref;
             }}>+</button
           >
-        </div>
-        <div class="body-features">
-          {#each features(location) as feature, featureIndex (featureIndex)}<span
-              class="plan-chip"
-              title={feature}
-              aria-label={feature}>{feature}</span
-            >{/each}
-        </div>
-        <div class="body-slots">
-          <SlotEditor
-            label={location.name}
-            kind="orbital"
-            used={used.orbital_slots}
-            value={model.slots[location.body_ref]?.orbital_slots ?? null}
-            onchange={(value) => onslot(location.body_ref, 'orbital', value)}
-          />
-          {#if location.kind !== 'belt'}<SlotEditor
-              label={location.name}
-              kind="surface"
-              used={used.surface_slots}
-              value={model.slots[location.body_ref]?.surface_slots ?? null}
-              disabled={location.is_landable === false}
-              onchange={(value) => onslot(location.body_ref, 'surface', value)}
-            />{/if}
         </div>
         {@render tiles(
           model.sites.filter((site) => site.body_ref === location.body_ref),
@@ -229,3 +245,166 @@
       300-site limit reached. Remove a site before adding another.
     </p>{/if}
 </section>
+
+<style>
+  .plan-body-tree {
+    margin: 0.5rem 0 0;
+  }
+  .plan-body {
+    position: relative;
+    margin: 2px 0 2px calc(var(--body-depth) * 0.45rem);
+    padding: 0 0 0 0.3rem;
+    border-left: 1px solid transparent;
+  }
+  .plan-body.child {
+    border-left-color: var(--line);
+  }
+  .plan-body.child::before {
+    content: '';
+    position: absolute;
+    width: 0.3rem;
+    border-top: 1px solid var(--line);
+    top: 16px;
+    left: 0;
+  }
+  .plan-body.selected {
+    background: color-mix(in srgb, var(--color-cyan) 4%, var(--color-panel));
+    border-left-color: var(--color-cyan);
+    border-radius: 0.25rem;
+  }
+  .compact-body-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    min-width: 0;
+    height: 32px;
+  }
+  .body-disc {
+    display: inline-block;
+    width: var(--disc-size);
+    height: var(--disc-size);
+    flex: 0 0 var(--disc-size);
+    border-radius: 50%;
+    background: radial-gradient(
+      circle at 30% 25%,
+      var(--color-cyan),
+      #365271 65%,
+      #192d47
+    );
+    border: 1px solid var(--color-cyan);
+  }
+  .body-disc.star {
+    background: radial-gradient(
+      circle at 35% 30%,
+      #fff3cb,
+      #edb257 50%,
+      #b85926
+    );
+    border-color: #edb257;
+  }
+  .body-disc.belt {
+    background: repeating-radial-gradient(
+      ellipse,
+      var(--line) 0 2px,
+      var(--muted) 3px 4px,
+      transparent 5px 6px
+    );
+    transform: rotate(-25deg) scaleY(0.65);
+    border: 2px dotted var(--muted);
+  }
+  :global(.plan-workspace) .body-name {
+    min-width: 0;
+    flex: 1;
+    padding: 0.2rem 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 650;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .body-features,
+  .body-slots {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.2rem;
+  }
+  .body-feature {
+    color: var(--muted);
+    font-size: 0.65rem;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  :global(.plan-workspace) .add-build {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .plan-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 4px;
+    padding-left: 1.8rem;
+  }
+  :global(.plan-workspace) .plan-tile {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.2rem;
+    min-width: 0;
+    max-width: calc(50% - 2px);
+    height: 24px;
+    padding: 0 0.3rem;
+    text-align: left;
+    font-size: 0.65rem;
+    white-space: nowrap;
+  }
+  .tile-number {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plan-tile small {
+    display: inline;
+    color: var(--muted);
+    font-size: inherit;
+  }
+  .plan-tile .plan-chip {
+    flex-shrink: 0;
+    padding: 0 0.15rem;
+    font-size: 0.6rem;
+    line-height: 1.25;
+  }
+  @media (max-width: 600px) {
+    .plan-body {
+      margin-left: calc(var(--body-depth) * 0.3rem);
+    }
+    .compact-body-row {
+      gap: 0.2rem;
+    }
+    .body-features {
+      gap: 0.12rem;
+    }
+    .body-feature {
+      font-size: 0.6rem;
+    }
+    .plan-tiles {
+      padding-left: 1rem;
+    }
+    :global(.plan-workspace) .plan-tile {
+      max-width: 100%;
+    }
+  }
+</style>

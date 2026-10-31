@@ -1,7 +1,8 @@
-.plan-workspace {
+.plan-workspace.product-page {
+  width: calc(100% - 1.5rem);
   max-width: 1800px;
   margin: 0 auto;
-  padding: 1.5rem clamp(0.75rem, 2vw, 2rem) 3rem;
+  padding: 1rem 0 2rem;
   overflow-wrap: anywhere;
 }
 .plan-workspace button,
@@ -35,12 +36,7 @@
 .plan-view,
 .pane-heading,
 .plan-filters,
-.step-actions,
-.step-budget,
-.step-state,
 .summary-results,
-.body-slots,
-.body-features,
 .picker-heading,
 .picker-pages {
   display: flex;
@@ -69,7 +65,7 @@
 }
 .plan-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(240px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr) minmax(240px, 0.55fr);
   align-items: start;
   gap: 1rem;
 }
@@ -78,7 +74,7 @@
   border: 1px solid var(--line);
   border-radius: 0.8rem;
   background: var(--color-panel);
-  padding: 1rem;
+  padding: 0.65rem;
 }
 .pane-heading {
   justify-content: space-between;
@@ -107,158 +103,16 @@
   list-style: none;
   padding: 0;
 }
-.plan-body {
-  position: relative;
-  margin: 0.7rem 0 0.7rem calc(var(--body-depth) * 0.7rem);
-  padding: 0.75rem 0.5rem;
-  border: 1px solid transparent;
-  border-bottom-color: var(--line);
-}
-.plan-body.child {
-  border-left-color: var(--line);
-}
-.plan-body.child::before {
-  content: '';
-  position: absolute;
-  width: 0.5rem;
-  border-top: 1px solid var(--line);
-  top: 1.9rem;
-  left: 0;
-}
-.plan-body.selected {
-  background: color-mix(in srgb, var(--color-cyan) 4%, var(--color-panel));
-  border-color: var(--color-cyan);
-  border-radius: 0.4rem;
-}
-.body-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-.body-disc {
-  display: inline-block;
-  width: var(--disc-size);
-  height: var(--disc-size);
-  flex: 0 0 var(--disc-size);
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 30% 25%,
-    var(--color-cyan),
-    #365271 65%,
-    #192d47
-  );
-  border: 1px solid var(--color-cyan);
-}
-.body-disc.star {
-  background: radial-gradient(circle at 35% 30%, #fff3cb, #edb257 50%, #b85926);
-  border-color: #edb257;
-}
-.body-disc.belt {
-  background: repeating-radial-gradient(
-    ellipse,
-    var(--line) 0 2px,
-    var(--muted) 3px 4px,
-    transparent 5px 6px
-  );
-  transform: rotate(-25deg) scaleY(0.65);
-  border: 2px dotted var(--muted);
-}
-.plan-workspace .body-name {
-  background: transparent;
-  border: 0;
-  padding-left: 0;
-  text-align: left;
-  font-weight: 650;
-  flex: 1;
-}
-.add-build {
-  font-size: 1.2rem !important;
-}
-.body-features {
-  margin: 0.5rem 0;
-}
-.body-slots {
-  margin: 0.55rem 0;
-}
-.plan-tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.plan-workspace .plan-tile {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  text-align: left;
-  font-size: 0.75rem;
-}
-.plan-tile small {
-  display: block;
-  color: var(--muted);
-}
+/* Row layout belongs to SystemPane and BuildOrder, including their phone rules. */
 .plan-filters {
-  margin: 1rem 0;
+  margin: 0.6rem 0;
   font-size: 0.8rem;
 }
-.build-step {
-  border: 1px solid var(--line);
-  border-radius: 0.55rem;
-  margin-top: 0.75rem;
-  padding: 0.8rem;
-  scroll-margin-top: 1rem;
-}
-.build-step.selected {
-  border-color: var(--color-cyan);
-}
-.step-title {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.step-title h3 {
-  flex: 1;
-  margin: 0;
-}
-.step-number {
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  min-width: 1.8rem;
-  height: 1.8rem;
-  font-size: 0.8rem;
-}
-.primary-label {
-  color: var(--color-signal);
-}
-.step-state {
-  justify-content: space-between;
-  text-transform: capitalize;
-  font-size: 0.8rem;
-}
-.step-budget {
-  font-size: 0.8rem;
-}
-.step-actions {
-  margin: 0.7rem 0;
-  font-size: 0.75rem;
-}
-.step-edit summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-.step-edit label,
 .facility-picker label {
   display: grid;
   gap: 0.35rem;
   margin: 0.7rem 0;
   font-size: 0.85rem;
-}
-.step-edit select {
-  width: 100%;
 }
 .blocked {
   background: color-mix(
@@ -292,7 +146,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
-  margin: 1.3rem 0;
+  margin: 0.85rem 0;
 }
 .plan-totals > div {
   padding: 0.7rem;
@@ -327,7 +181,7 @@
 .summary-results {
   justify-content: space-between;
   font-size: 0.8rem;
-  margin: 1rem 0 1.5rem;
+  margin: 0.85rem 0;
 }
 .attention-list {
   font-size: 0.85rem;
@@ -402,12 +256,21 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-@media (max-width: 1050px) {
+@media (min-width: 1400px) {
+  .system-pane,
+  .build-order-pane {
+    max-height: calc(100dvh - 22rem);
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .summary-pane {
+    position: sticky;
+    top: 1rem;
+  }
+}
+@media (max-width: 1399px) {
   .plan-columns {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .plan-body {
-    margin-left: calc(var(--body-depth) * 0.5rem);
   }
 }
 @media (prefers-reduced-motion: reduce) {
