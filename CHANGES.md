@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Finder slice 1c: opt-in representative-scale ranking proof
+
+Added `tests/test_archetype_rankings_scale_postgres.py` to prove bounded selected
+ranking plans and the owner-accepted warm/cold latency budgets on a disposable
+PostgreSQL 18 database with one million systems, for all eight archetypes at
+each B/A/S floor. It is opt-in via `EDF_RANKINGS_SCALE_PROOF=1` because seeding
+the corpus and restarting the server before all 72 cold measurements must not
+run in the Finder lane on every PR. Its JSON receipt records plans, timings,
+identities and failures; a passing receipt is the representative-scale evidence
+that unblocks F4b. The proof has not been run by this change.
+
 ## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
 
 The Finder derived-data weights now come from CI run `41227989407` (PR #943,
