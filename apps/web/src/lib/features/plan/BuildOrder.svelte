@@ -461,10 +461,14 @@
       flex-wrap: wrap;
     }
     .step-title h3 {
-      flex: 1;
+      /* The name keeps the first line with its number and wraps rather than being cut. */
+      flex: 1 1 calc(100% - 2.5rem);
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .step-description {
-      flex-basis: 50%;
+      flex-basis: 100%;
+      white-space: normal;
     }
     .step-actions {
       margin-left: 0;
