@@ -10,7 +10,9 @@ second monitoring mechanism for what's architecturally the same kind of
 thing (a long-lived EDDN consumer) — see config/prometheus_rules.yml's
 EddnSimulationIngestFlushStalled alert and CLAUDE.md.
 """
+import math
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,7 +43,24 @@ def test_initialised_fresh_at_import_time():
     """Set at module import (process start), not left unset — a freshly
     started process must not immediately read as stalled before its first
     real flush cycle has had a chance to complete."""
-    assert eddn_client.seconds_since_last_flush() < 60
+    env = os.environ.copy()
+    env.setdefault('CORS_ORIGINS', 'http://test')
+    env.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
+    env.setdefault('LOG_FILE', os.path.join(os.getcwd(), 'test-local.log'))
+    env['PYTHONPATH'] = str(ROOT / 'apps' / 'api' / 'src')
+    if os.environ.get('PYTHONPATH'):
+        env['PYTHONPATH'] += os.pathsep + os.environ['PYTHONPATH']
+
+    completed = subprocess.run(
+        [sys.executable, '-c',
+         'from edfinder_api.ingest import eddn_client; '
+         'print(eddn_client.seconds_since_last_flush())'],
+        cwd=ROOT, env=env, timeout=30, capture_output=True, text=True, check=True,
+    )
+    elapsed = float(completed.stdout)
+
+    assert math.isfinite(elapsed)
+    assert 0 <= elapsed < 60
 
 
 def test_metrics_endpoint_exposes_the_gauge():

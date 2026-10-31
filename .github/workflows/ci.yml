@@ -344,19 +344,24 @@ jobs:
   # skipped silently in CI. This lane discovers those modules by the fixture
   # they import, so a new fixture-backed test is covered without editing CI.
   finder-derived-data:
-    name: Finder derived-data tests (PostgreSQL 18, shard ${{ matrix.shard }}/2)
+    name: Finder derived-data tests (PostgreSQL 18, shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    # The copy-and-drop purge suites (019 and its operator) took the single
-    # run to 44m59s of its 45-minute bound (PR #894, 790 passed, then exit
-    # 124). Two shards, each with the same bounds, run in parallel.
+    # Three shards balance measured seconds: PR #936's byte-size split took
+    # 35:32 / 15:18 (488 / 376 tests); PR #938 took 27.3 / 15.7 minutes.
+    # The 2026-10-31 local PG18 run measured 3,608.7 s across 40 modules:
+    # test_v3_governed_derived_purge.py alone took 2,079.6 s (215 tests),
+    # so the pytest plugin splits that dominant module at test level while
+    # keeping smaller modules whole. Each shard collects every module.
+    # Refresh: download all three durations artifacts from a green run, run
+    # python scripts/ci/finder_derived_data_weights.py --measured "DATE: run evidence" \
+    #   finder-derived-data-durations-{1,2,3}.json > scripts/ci/finder_derived_data_weights.json
+    # and commit the new weights file.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    # The purge PG18 suites (migration 016, P2a-P2b) pushed this lane to the
-    # old 30-minute limit; main pushes were cancelled at 30:00. The pytest
-    # step below has its own 45-minute bound (plus a 60 s kill-after), so a
-    # hang still fails visibly; 60 minutes leaves room for setup before it.
+        shard: [1, 2, 3]
+    # Keep the 45-minute pytest bound (plus a 60 s kill-after); 60 minutes
+    # leaves room for setup before it.
     timeout-minutes: 60
     services:
       postgres:
@@ -414,7 +419,7 @@ jobs:
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
-          PYTHONPATH: ${{ github.workspace }}/apps/api/src
+          PYTHONPATH: ${{ github.workspace }}/apps/api/src:${{ github.workspace }}/scripts/ci
           # This job provides PostgreSQL: a fixture-backed test that cannot reach
           # it must fail, not skip (tests/helpers/db_isolation.py).
           EDF_DB_TESTS_REQUIRED: "1"
@@ -428,22 +433,20 @@ jobs:
           printf 'Fixture-backed modules (%s):\n' "${#fixture_backed[@]}"
           printf '  %s\n' "${fixture_backed[@]}"
           [ "${#fixture_backed[@]}" -ge 10 ] || { echo "fixture-backed module discovery looks broken" >&2; exit 1; }
-          # Balance by module size, a proxy for run time: largest first, each
-          # to the shard with fewer bytes so far (ties by path). Every shard
-          # computes the same split, so together they run each module once.
-          case "$SHARD" in 1|2) ;; *) echo "shard must be 1 or 2" >&2; exit 1 ;; esac
-          shard_modules=()
-          totals=(0 0)
-          while read -r size path; do
-            if [ "${totals[0]}" -le "${totals[1]}" ]; then target=0; else target=1; fi
-            totals[target]=$(( totals[target] + size ))
-            if [ "$target" -eq $(( SHARD - 1 )) ]; then shard_modules+=("$path"); fi
-          done < <(for path in "${fixture_backed[@]}"; do printf '%s %s\n' "$(wc -c < "$path")" "$path"; done | sort -k1,1nr -k2,2)
-          printf 'Shard %s/2 runs %s of %s modules:\n' "$SHARD" "${#shard_modules[@]}" "${#fixture_backed[@]}"
-          printf '  %s\n' "${shard_modules[@]}"
-          [ "${#shard_modules[@]}" -ge 1 ] || { echo "empty shard" >&2; exit 1; }
+          case "$SHARD" in 1|2|3) ;; *) echo "shard must be 1, 2 or 3" >&2; exit 1 ;; esac
           timeout --signal=INT --kill-after=60s 45m \
-            apps/api/.venv/bin/python -m pytest "${shard_modules[@]}" -q -p no:warnings -rs --durations=25
+            apps/api/.venv/bin/python -m pytest "${fixture_backed[@]}" -q -p no:warnings -rs --durations=25 \
+              -p finder_derived_data_shards --finder-shard "$SHARD" --finder-shards 3 \
+              --finder-weights scripts/ci/finder_derived_data_weights.json \
+              --finder-durations-out "$RUNNER_TEMP/finder-derived-data-durations-$SHARD.json"
+      - name: Upload shard durations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: finder-derived-data-durations-${{ matrix.shard }}
+          path: ${{ runner.temp }}/finder-derived-data-durations-${{ matrix.shard }}.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   canonical-safety:
     name: Canonical safety tests

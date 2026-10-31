@@ -11,6 +11,66 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
+
+ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,
+SHA-256 `d2e64e8f…7976`, 28 rules), approved by the owner on 2026-10-31. It is
+the first release with rules settled by in-game measurement (CRE evidence
+`EV-0006`: colony port economy strengths from the owner's game journals and
+Spansh station data).
+
+- `RB-0012` (body economies and modifiers do not stack) is `Confirmed`.
+- `RB-0013` gives volcanism's size: +0.4 to the port's own Extraction only.
+- `RB-0016` (weak links 0.05) is `Confirmed`.
+- New `RB-0028`: the strong-link modifier list also applies to a port's own
+  economies. Each inherited economy starts at 1.0 and moves 0.4 per applicable
+  condition, and a tidally locked planet in a binary pair counts as locked to
+  its star.
+
+Both copies (`docs/reference/colonisation/cre-rulebook/` and the planner's
+runtime copy `apps/api/src/cpe/data/rulebook.json`), `pin.json` and
+`assets/PROVENANCE.json` are updated. The parity test found no new or resolved
+difference; one listed reason now cites the new status. The CRE tag itself
+could not be pushed from the agent session; the pin is by commit, which the
+rulebook README makes authoritative.
+
+## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
+
+The Finder derived-data weights now come from CI run `41227989407` (PR #943,
+head `8718e895`), replacing the local PostgreSQL 18 timings. Its three green
+shards took 17.5 / 13.5 / 16.7 minutes, with 1,012.5 / 776.6 / 964.1 s of
+test time: CI's relative module speeds differ from the local run. The refresh
+uses all three `finder-derived-data-durations-*` artifacts, covering
+228 + 311 + 328 = 867 distinct node ids with every shard exitstatus 0.
+The new weights plan 918.2 / 917.7 / 917.7 s across the three shards.
+
+The EDDN freshness test now imports the client in a fresh interpreter and
+checks that its initial elapsed time is finite, nonnegative and below 60 s.
+Previously it measured time since collection imported the module, so the full
+backend unit suite failed after 140.36 s in Codex worker run `41223127055`
+even though the module passed alone. The subprocess check tests process-start
+freshness independently of session duration or test order.
+
+## 2026-10-31 — CI: Finder derived-data lane in three time-balanced shards
+
+The PostgreSQL 18 Finder derived-data lane now uses three shards balanced by
+measured module seconds. Its former two-shard byte-size split took 35:32 /
+15:18 on PR #936, making the lane the PR critical path. A local PostgreSQL 18
+run measured `test_v3_governed_derived_purge.py` alone at 2,079.6 s of
+3,608.7 s across 40 modules, so keeping every module whole could not balance
+three shards. A pytest plugin collects every discovered module on every shard,
+splits the dominant module at test level, keeps smaller modules whole, and
+assigns each test exactly once with deterministic greedy balancing. The
+45-minute pytest bound and disposable-database guardrails are unchanged.
+
+Each shard uploads per-test phase durations. To refresh the weights, download
+all three `finder-derived-data-durations-*` artifacts from one green run, run
+`python scripts/ci/finder_derived_data_weights.py --measured "DATE: run evidence"
+finder-derived-data-durations-{1,2,3}.json > scripts/ci/finder_derived_data_weights.json`,
+and commit the new weights file. The refresh tool refuses incomplete, failed
+or overlapping shard results; new modules use a byte-size fallback calibrated
+by the measured modules until the next refresh.
+
 ## 2026-10-31 — Codex worker model pin moved to `gpt-6-astra` at `xhigh` effort
 
 By owner decision, the Contabo Codex worker moves from `gpt-6.1-sol` at

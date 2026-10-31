@@ -95,7 +95,7 @@ checksums and extraction details are in the folder's `README.md`.
 
 `docs/reference/colonisation/cre-rulebook/rulebook.json` is the repository
 owner's colonisation rulebook, copied unchanged from the Colonisation Research
-Engine release `cre-knowledge-v0.3.0`. It quotes short passages from the
+Engine release `cre-knowledge-v0.4.0`. It quotes short passages from the
 **Elite Dangerous Colonization Mega Guide** (CMDR Mechan and contributing CMDRs,
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); see the section
 above) and from Frontier Developments' update notes, and it describes Elite
