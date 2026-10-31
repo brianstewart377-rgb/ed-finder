@@ -1,0 +1,9 @@
+{
+  "name": "edfinder-octopus-migrator",
+  "private": true,
+  "description": "Pinned Prisma CLI used only by scripts/operator/actions/octopus-upgrade.sh to apply Octopus v1.3.3 database migrations.",
+  "dependencies": {
+    "prisma": "7.5.0",
+    "dotenv": "17.4.2"
+  }
+}

@@ -135,3 +135,15 @@ def test_read_only_status_modes_remain_available_during_purge(name: str) -> None
     body = source.split("status_operation() {\n", 1)[1].split("\n}", 1)[0]
     assert "require_purge_clear" not in body
     assert "v3_purge_state_check" not in body
+
+
+@pytest.mark.parametrize(("mode", "classification"), (
+    ("apply", "Mutator, fenced"),
+    ("preflight", "Read-only"),
+))
+def test_octopus_upgrade_modes_keep_explicit_purge_classification(mode, classification):
+    runbook = (ROOT / "docs/operations/v3-governed-derived-purge.md").read_text()
+    rows = [row.split("|") for row in runbook.splitlines()
+            if row.startswith(f"| `octopus-upgrade.sh {mode}` | ")]
+    assert len(rows) == 1
+    assert rows[0][2].strip() == classification
