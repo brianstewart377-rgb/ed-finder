@@ -34,6 +34,10 @@ ARCHETYPE_COLUMNS: Final[dict[str, dict[str, str]]] = {
     key: dict(columns)
     for key, columns in PROFILE_SPEC["archetype_columns"].items()
 }
+_PICKED_SCORE_COLUMNS: Final[str] = "".join(
+    f"       picked.{columns['score']} AS picked_{key}_score,\n"
+    for key, columns in ARCHETYPE_COLUMNS.items()
+)
 _FLOOR_SQL: Final[dict[int, str]] = {
     floor: str(floor) for floor in ACCEPTED_ARCHETYPE_SCORE_FLOORS
 }
@@ -276,14 +280,7 @@ def _picked_page_query(
         "       picked.best_colony_potential AS summary_best_colony_potential,\n"
         "       (picked.archetype_confidence_ppm / 1000000.0)::double precision "
         "AS summary_archetype_confidence,\n"
-        "       picked.paradise_score AS picked_paradise_score,\n"
-        "       picked.mining_hub_score AS picked_mining_hub_score,\n"
-        "       picked.manufacturing_hub_score AS picked_manufacturing_hub_score,\n"
-        "       picked.megacomplex_score AS picked_megacomplex_score,\n"
-        "       picked.research_hub_score AS picked_research_hub_score,\n"
-        "       picked.stronghold_score AS picked_stronghold_score,\n"
-        "       picked.population_capital_score AS picked_population_capital_score,\n"
-        "       picked.flexible_score AS picked_flexible_score,\n"
+        f"{_PICKED_SCORE_COLUMNS}"
         "       picked.weighted_potential AS weighted_potential\n"
         "FROM ranked_page page\n"
         "JOIN v3_derived.system_archetype picked\n"
