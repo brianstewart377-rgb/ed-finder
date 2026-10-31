@@ -15,7 +15,8 @@
 - [ ] This head is a final candidate: intended implementation/remediation is complete and, absent a new reviewer finding, this is the head intended to merge
 - [ ] All protected CI/security/coverage/status checks passed for that exact SHA
 - [ ] Codex Review (`chatgpt-codex-connector`) completed — status: `________`; reviewed SHA: `________________________________________`
-- [ ] Octopus Review completed on the final-candidate head — status: `________`; reviewed SHA: `________________________________________`
+- [ ] Octopus scope checked (policy "Octopus scope"): in scope / out of scope — changed files that put it in scope: `________`
+- [ ] If in Octopus scope: Octopus Review completed on the final-candidate head — status: `________`; reviewed SHA: `________________________________________`
 - [ ] Octopus was not deliberately triggered on intermediate heads that were already expected to change
 - [ ] Paginated top-level PR conversation comments, formal review bodies, inline review comments, and unresolved review conversations/threads were inspected
 - [ ] Every substantive finding has an explicit recorded disposition and no substantive unresolved thread remains
@@ -25,10 +26,10 @@
 Any new commit invalidates all prior CI and reviewer evidence for merge
 eligibility on the new head. Re-run protected CI as normal, but do not
 deliberately rerun Octopus during iterative remediation. Trigger it only after
-the new head again qualifies as a final candidate. Before merge, both reviewer
-reviewed SHAs must equal the exact latest PR head. The one exception: a
-docs-only PR whose only new commits merge `main` in may keep its earlier Octopus
-review under the policy's "Docs-only update merges" rule, recorded on the PR. A pending or still-reviewing
+the new head again qualifies as a final candidate. Before merge, the Codex
+reviewed SHA, and the Octopus reviewed SHA when the PR is in Octopus scope, must
+equal the exact latest PR head. PRs outside Octopus scope do not request Octopus
+(owner decision 2026-10-31). A pending or still-reviewing
 service at the final-candidate gate must be triggered when needed and awaited;
 ordinary pending/in-progress review cannot be waived. All other safeguards in
 the canonical [Pull Request Acceptance Policy](../blob/main/docs/development/pull-request-acceptance-policy.md)
