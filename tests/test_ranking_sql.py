@@ -10,7 +10,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api/src"))
 
-from edfinder_api.ranking.profile import ARCHETYPE_KEYS, PROFILE_SPEC  # noqa: E402
+from edfinder_api.ranking.profile import (  # noqa: E402
+    ARCHETYPE_KEYS,
+    PROFILE_SPEC,
+    RANKING_VERSION,
+    ranking_sha256,
+)
 from edfinder_api.ranking.ranking_sql import (  # noqa: E402
     ARCHETYPE_COLUMNS,
     build_count_query,
@@ -94,28 +99,85 @@ PIN = (
 
 def test_picked_page_has_all_four_bounded_stages_and_three_orders():
     sql, params = _picked_page(limit=50, offset=75)
+    window, remainder = sql.split("), ranked_page_keys AS (\n", 1)
+    keys, remainder = remainder.split("), ranked_page AS (\n", 1)
+    details, fetch = remainder.split(")\nSELECT page.*,\n", 1)
     assert sql.count("v3_app.system_archetype") == 1
     assert "FROM v3_app.system_archetype ar" in sql
-    # Both fenced reads name the published generation as an InitPlan constant
+    # All fenced reads name the published generation as an InitPlan constant
     # so the generation-led indexes supply the window order (2026-10-22).
-    assert f"WHERE ar.derived_generation_id = {PIN}" in sql
-    assert f"WHERE s.derived_generation_id = {PIN}" in sql
-    assert "LIMIT 10000" in sql
+    assert f"WHERE ar.derived_generation_id = {PIN}" in window
+    assert f"WHERE member.derived_generation_id = {PIN}" in keys
+    assert f"WHERE s.derived_generation_id = {PIN}" in details
+    assert "LIMIT 10000" in window
     assert sql.count("ORDER BY") == 3
-    assert "ORDER BY ar.paradise_weighted_e4 DESC" in sql
+    assert "ORDER BY ar.paradise_weighted_e4 DESC" in window
     assert sql.count("selected_archetype_weighted_e4 DESC") == 1
-    assert "JOIN v3_app.system_search" in sql
+    assert sql.count("JOIN v3_app.system_search") == 2
+    # Search membership is checked before paging, but only window keys are
+    # selected, allowing the same index-only search join as the count.
+    selected_keys, key_from = keys.split("    FROM ", 1)
+    assert selected_keys == (
+        "    SELECT aw.system_id64, aw.selected_archetype_weighted_e4\n"
+    )
+    assert key_from.startswith("archetype_window aw\n")
+    assert (
+        "JOIN v3_app.system_search member "
+        "ON member.system_id64 = aw.system_id64" in keys
+    )
+    assert keys.endswith(
+        "    ORDER BY selected_archetype_weighted_e4 DESC, system_id64 ASC\n"
+        "    LIMIT $1 OFFSET $2\n"
+    )
+    # Only the admitted page keys join to search details. In particular,
+    # s.* must never widen the 10,000-row membership page before LIMIT/OFFSET.
+    assert details == (
+        "    SELECT s.*, page_keys.selected_archetype_weighted_e4\n"
+        "    FROM ranked_page_keys page_keys\n"
+        "    JOIN v3_app.system_search s ON s.system_id64 = page_keys.system_id64\n"
+        f"    WHERE s.derived_generation_id = {PIN}\n"
+    )
+    assert sql.count("s.*") == 1
+    assert "LIMIT" not in details
+    assert "OFFSET" not in details
     # The final fetch reads the physical row of the page's own generation
     # (every page row already passed both fenced views) under the alias the
-    # plan probe requires, and sorts the page rows by the fetched key.
-    assert (
+    # plan probe requires, and sorts the page rows by the fetched key. Its
+    # projection, join and order are unchanged from the original page query.
+    assert fetch == (
+        "       picked.paradise_score AS primary_score,\n"
+        "       picked.paradise_tier AS selected_archetype_tier,\n"
+        "       (picked.paradise_confidence_ppm / 1000000.0)::double precision "
+        "AS ranking_confidence,\n"
+        "       ((picked.paradise_confidence_ppm / 1000000.0)::double precision "
+        "* page.completeness) AS uncertainty_factor,\n"
+        "       picked.primary_archetype AS summary_primary_archetype,\n"
+        "       picked.secondary_archetype AS summary_secondary_archetype,\n"
+        "       picked.best_colony_potential AS summary_best_colony_potential,\n"
+        "       (picked.archetype_confidence_ppm / 1000000.0)::double precision "
+        "AS summary_archetype_confidence,\n"
+        "       picked.weighted_potential AS weighted_potential\n"
+        "FROM ranked_page page\n"
         "JOIN v3_derived.system_archetype picked\n"
         "  ON picked.derived_generation_id = page.derived_generation_id\n"
-        " AND picked.system_id64 = page.system_id64" in sql
+        " AND picked.system_id64 = page.system_id64\n"
+        "ORDER BY picked.paradise_weighted_e4 DESC, page.system_id64 ASC"
     )
     assert sql.endswith("ORDER BY picked.paradise_weighted_e4 DESC, page.system_id64 ASC")
     assert params == [50, 75]
     _assert_no_legacy(sql)
+
+
+def test_picked_page_sql_preserves_the_pinned_ranking_identity():
+    # These are the deployed pins in test_ranking_profile_identity.py. The
+    # page staging changes access cost, with no change to hashed semantics.
+    for key in ARCHETYPE_KEYS:
+        for floor in (60, 76, 88):
+            _picked_page(key=key, floor=floor, limit=50, offset=9950)
+    assert RANKING_VERSION == "v3-colony-potential-2"
+    assert ranking_sha256() == (
+        "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4"
+    )
 
 
 def test_picked_count_has_fixed_sentinel_over_the_ordered_window():
