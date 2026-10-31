@@ -37,6 +37,97 @@ buffer-cold):
 | Near-ceiling page | 39.1–51.0 ms (600 ms) | 64.4–113.1 ms (2,500 ms) |
 | Count | 35.5–46.3 ms (600 ms) | 64.0–107.8 ms (2,500 ms) |
 
+## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
+
+The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
+(ROADMAP step P) finished on the copy-and-drop route. Every run below was
+approved by the owner in chat.
+
+**`body_mechanics`:**
+- **Copy:** run 41206570787 copied all 577,709,320 survivors (5,778 chunks in
+  6,862.9 s), built the indexes in 517 s and froze the copy in 1,537 s.
+- **Verify:** run 41218286633 verified it in 1,208 s.
+- **Swap:** run 41220237129 swapped it in with a 0.114 s lock. It validated the
+  `economy_opportunity` foreign key to the new table in 163.5 s and passed the
+  Finder smoke.
+- **Drop:** run 41220886721 dropped the retired table with a 5.4 s lock, taking
+  free space from 433.1 GB to 643.3 GB.
+
+**`system_rating_vector`:**
+- **Copy:** run 41228458030 copied all 198,528,286 survivors, built the indexes
+  in 321 s and froze the copy in 1,278 s.
+- **Verify:** run 41239134283 verified it in 605 s.
+- **Swap:** run 41240118438 swapped it in with a 0.145 s lock. It validated the
+  foreign keys of all four children (`body_mechanics`, `system_archetype`,
+  `system_search` and `v3_spatial.cluster_member`) in 124 s, recreated
+  `v3_derived.system_economy_rating` unchanged and passed the Finder smoke. The
+  database's temporary-file counter did not change during those checks; the
+  1/100-scale planner model had allowed for about 30 GB for the
+  `body_mechanics` check.
+- **Drop:** run 41240648857 dropped the retired table with a 4.4 s lock, taking
+  free space from 568.0 GB to 725.9 GB.
+
+**`complete`:** run 41241201758 appended 019's `COMPLETED` (event 22040). The
+purge state is `clear`, no relation is staged or retired, and the backup skip is
+off. The canonical, derived and spatial pointers are unchanged. Both published
+Finder products are unchanged: READY, 198,528,286 rows each, same manifests.
+
+The dispatcher's swap, drop and `complete` steps for both relations were
+replayed on PostgreSQL 18 in the production order before they ran
+(`test_body_and_vector_swap_drop_and_complete_replay_through_the_dispatcher`).
+
+The runbook's full backup after `COMPLETED` is the scheduled Sunday
+2026-11-01 02:30 UTC full backup, which was still to run when this was
+written.
+
+## 2026-10-31 — Finder: deep selected-archetype pages read search details for the page only
+
+The owner-approved query change keeps the selected archetype's partial-index
+window unchanged at 10,000 rows, checks published Search membership using only
+keys, and applies the existing order and page limit/offset before reading
+`system_search` details. The final `picked` fetch is unchanged. Results, order,
+response shape and ranking identity are unchanged; the count and Any-mode
+queries are unchanged. This takes effect in production only at the next
+governed application release.
+
+The Finder F4 slice 1c PostgreSQL 18 proof used 1,000,000 systems, saturated
+every window, and exercised all eight archetypes at the B/A/S floors under
+`plan_cache_mode = force_generic_plan`. First pages passed 24/24 cases at
+2–4 ms warm and 7–21 ms cold (budgets 300 / 1,500 ms); bounded counts passed
+24/24 at 38–67 ms warm and 63–185 ms cold (600 / 2,500 ms). Near-ceiling pages
+(`offset=9950`, `limit=50`) failed 24/24 at 705–1,098 ms warm against 600 ms,
+also under production's planner settings (`effective_cache_size=128GB`,
+`work_mem=32MB`). The old page joined 10,000 wide Search rows before paging,
+choosing a hash join over a 1,000,000-row sequential scan (about 650 ms) and a
+wide-row sort; the count's key-only join used primary-key index-only scans
+(10,001 loops, about 45 ms). The 2026-10-23 publication probe covered only
+offset-zero pages and counts. The revised query defers detail reads until
+after pagination; PostgreSQL regression tests compare its complete output
+with the old SQL and bound detail reads to the page size.
+
+## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
+
+ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,
+SHA-256 `d2e64e8f…7976`, 28 rules), approved by the owner on 2026-10-31. It is
+the first release with rules settled by in-game measurement (CRE evidence
+`EV-0006`: colony port economy strengths from the owner's game journals and
+Spansh station data).
+
+- `RB-0012` (body economies and modifiers do not stack) is `Confirmed`.
+- `RB-0013` gives volcanism's size: +0.4 to the port's own Extraction only.
+- `RB-0016` (weak links 0.05) is `Confirmed`.
+- New `RB-0028`: the strong-link modifier list also applies to a port's own
+  economies. Each inherited economy starts at 1.0 and moves 0.4 per applicable
+  condition, and a tidally locked planet in a binary pair counts as locked to
+  its star.
+
+Both copies (`docs/reference/colonisation/cre-rulebook/` and the planner's
+runtime copy `apps/api/src/cpe/data/rulebook.json`), `pin.json` and
+`assets/PROVENANCE.json` are updated. The parity test found no new or resolved
+difference; one listed reason now cites the new status. The CRE tag itself
+could not be pushed from the agent session; the pin is by commit, which the
+rulebook README makes authoritative.
+
 ## 2026-10-31 — CI: Finder lane weights from CI and a session-independent EDDN freshness test
 
 The Finder derived-data weights now come from CI run `41227989407` (PR #943,

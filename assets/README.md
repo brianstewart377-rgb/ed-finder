@@ -104,6 +104,15 @@ rulebook (owner decision D1). It is the owner's own work but quotes the CC BY-SA
 2026-10-27 so that this entry's approval date is valid. The other entries keep
 their earlier approval dates.
 
+## Update 2026-10-31
+
+One entry was updated without a full re-audit:
+`docs/reference/colonisation/cre-rulebook/rulebook.json` now holds CRE release
+`cre-knowledge-v0.4.0` (CRE commit `3ca81b6`), approved by the owner on
+2026-10-31. Its licence, rights status and attribution are unchanged. The
+manifest `audit_date` moved to 2026-10-31 so that this entry's approval date is
+valid. The other entries keep their earlier approval dates.
+
 See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for distributed
 credits and license notices. Re-run the audit when asset locations, build
 pipelines, remote font imports, or commercial posture changes.
