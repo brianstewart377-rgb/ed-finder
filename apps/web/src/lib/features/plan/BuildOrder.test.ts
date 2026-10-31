@@ -104,6 +104,11 @@ describe('build order facility editing', () => {
       name: 'Facility for step 1',
     });
     expect(optionValues(select)).toEqual(['primary-port', 'ringed-port']);
+    expect(
+      within(select)
+        .getAllByRole('group')
+        .map((group) => group.getAttribute('label')),
+    ).toEqual(['Orbital']);
   });
 
   it('still requires rings for an orbital_ringed port', async () => {

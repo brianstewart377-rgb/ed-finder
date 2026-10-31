@@ -223,13 +223,18 @@
                       >{facility?.name ?? site.facility_id} — choose a valid facility</option
                     >{/if}
                   {#each ['orbital', 'surface'] as kind (kind)}
-                    <optgroup
-                      label={kind === 'orbital' ? 'Orbital' : 'Surface'}
-                    >
-                      {#each options.filter((option) => facilitySlotKind(option) === kind) as option (option.id)}<option
-                          value={option.id}>{option.name}</option
-                        >{/each}
-                    </optgroup>
+                    {@const group = options.filter(
+                      (option) => facilitySlotKind(option) === kind,
+                    )}
+                    {#if group.length}
+                      <optgroup
+                        label={kind === 'orbital' ? 'Orbital' : 'Surface'}
+                      >
+                        {#each group as option (option.id)}<option
+                            value={option.id}>{option.name}</option
+                          >{/each}
+                      </optgroup>
+                    {/if}
                   {/each}
                 </select></label
               >
