@@ -5,6 +5,20 @@
 **Status: Design only; not implemented — 2026-10-30 — base `origin/main`
 `1807ca33ef6903a16380c76735cd99f82010fcac`.**
 
+**Status update — 2026-10-31:**
+- **S1 is merged in #927.** It is the `cpe` core.
+- **S2 is merged in #930.** It adds the catalogue and evaluate routes.
+- **Slot counts changed after an evidence check**
+  (`docs/development/evidence/2026-10-31-slot-formula-vs-recorded-counts.md`;
+  owner agreed 2026-10-31):
+  - **Surface slots** are predicted with `validated-slot-v1`. It matched all 24
+    landable bodies of the owner's system. Predictions arrive in S3b, after step
+    P, because they need the planet class.
+  - **Orbital slots** are not predicted. The formula matched only 17 of 42
+    bodies, and Raven does not predict them either. They are entered from
+    Architect Mode or imported from a Raven layout.
+- **S3 is split into S3a and S3b** (sections 5.3 and 7).
+
 **Owner direction (2026-10-30):** "The colony planner is part of the ed-finder.
 Once a system has been decided on, a user needs to be able to build." The owner
 also asked for "our version of Raven Colonial, but more intuitive and linking
@@ -39,8 +53,11 @@ as "Migration placeholder" (`apps/web/src/routes/[journey=journey]/+page.svelte`
 The planner replaces that placeholder. On `/plan?system=<id64>` the commander can:
 
 1. **See the system's bodies.** Bodies are listed as a parent/child tree, each
-   showing its orbital and surface slots (predicted, or entered by the
-   commander) and how many slots the plan has used.
+   showing its orbital and surface slots and how many slots the plan has used:
+   - **Orbital slots** are entered by the commander from Architect Mode, or
+     imported from a Raven layout.
+   - **Surface slots** are predicted (from S3b) unless the commander has
+     entered them.
 2. **Add builds.** The commander picks a facility from the catalogue, puts it
    on a body (orbital or surface), and gives it a status: Planned, Building or
    Complete. They can name it, reorder it, move it to another body, or remove
@@ -76,7 +93,7 @@ commander can see why they picked it.
 
 | Raven Colonial idea we keep | What the ED-Finder planner adds |
 |---|---|
-| Bodies list with sites per body | Slots come from the validated predictor, with "unknown" when inputs are missing; the commander can enter slots seen in Architect Mode |
+| Bodies list with sites per body | Surface slots come from the validated formula, which matched all 24 landable bodies tested. Orbital slots are entered from Architect Mode, as in Raven, or imported. Any value can be overridden by the commander |
 | Site status (plan / build / complete) | The Primary Port is labelled and, once complete, protected from changes (RB-0008) |
 | CP totals | Two clear views ("Now" and "After the plan"); the next port's cost is shown before you add it |
 | Named plan copies | Several plans per system: kept in the browser first, then in the account (S6) |
@@ -126,7 +143,7 @@ CPE recommendation 4).
 | At most five under construction | new `cpe` rule code | RB-0007 |
 | Economies (later slice) | rulebook values; `domain/colonisation_rules.py` only where the parity test shows it matches | RB-0009 to RB-0014, RB-0027 |
 | Links (later slice) | `mechanics/link_rules.py` where it matches | RB-0015 to RB-0020 |
-| Slots | `apps/api/src/ingest/slot_prediction.py` (`validated-slot-v1`) | none yet: CRE gap |
+| Surface slots (orbital slots are entered, not predicted; section 5.3) | `apps/api/src/ingest/slot_prediction.py` (`validated-slot-v1`), surface rule only | none yet: CRE gap |
 
 **The rulebook is the authority.** The pinned copy is
 `docs/reference/colonisation/cre-rulebook/rulebook.json`: release
@@ -153,7 +170,7 @@ two things the planner relies on:
 - the Primary Port is the first site, and it must be a port.
 
 Both are how the game and Raven behave. Until the rulebook covers all of these,
-the planner uses ED-Finder's catalogue and slot predictor, plus these two
+the planner uses ED-Finder's catalogue and surface-slot formula, plus these two
 behaviours written as `cpe` code. The CRE is asked to publish each one as a
 rule. When a later rulebook release adds them, the parity test switches to
 compare against it.
@@ -302,44 +319,56 @@ Response shapes go into OpenAPI. The web client is regenerated
 
 ### 5.3 V3 body adapter and slots
 
-The adapter reads the database, so it lives outside `cpe`: in
-`routers/plan.py` or a helper module beside it, which may import
-`ingest/slot_prediction.py`. It reads the published canonical generation the
+The adapter reads the database, so it lives outside `cpe`: in `routers/plan.py`
+or a helper module beside it. It reads the published canonical generation the
 same way `routers/v3.py` does: `current_canonical_generation()` and the explicit
-`v3_gen_*` schema, never `search_path`. It returns, for each body:
+`v3_gen_*` schema, never `search_path`. It is read-only and bounded in the same
+way as the existing body route. It is tested on a disposable PostgreSQL 18
+database.
+
+**What the evidence showed** (`docs/development/evidence/2026-10-31-slot-formula-vs-recorded-counts.md`):
+on the owner's system, `validated-slot-v1` matched the recorded **surface** slots
+for all 24 landable bodies, but the recorded **orbital** slots for only 17 of
+42 bodies. Raven Colonial does not predict orbital slots either. So:
+
+- **Orbital slots are never predicted.** They start unknown. The commander
+  enters them from Architect Mode, or imports them from a Raven layout. Steps on
+  a body with unknown slots come out as "Needs info", which the `cpe` core
+  already does.
+- **Surface slots are predicted with `validated-slot-v1`** for landable bodies,
+  unless the commander has entered a value. Their source is shown as
+  "predicted" or "entered by you".
+
+**S3a (now): the bodies list, with no predictions.** It reads only canonical
+relations and none that step P touches. For each body it returns:
 
 - the fields `listV3SystemBodies` returns;
-- the extra inputs the predictor needs;
-- the slot prediction.
+- surface gravity, temperature, and the atmosphere, terraforming and volcanism
+  names;
+- whether it has rings (`kind = 'RING'`);
+- geological and biological signal counts.
 
-The predictor (`predict_body_slots`) needs these inputs. The V3 canonical
-`bodies` table (`sql/v3/migrations/001_v3_baseline.sql:1059-1121`) and its
-neighbours supply them:
+**S3b (after step P completes): surface slot predictions.** The formula's
+high-metal-content bonus needs the planet class. V3 canonical bodies do not
+store it: `v3_vocab.body_type` is only star, planet, barycentre or belt cluster.
+The class is in `v3_derived.body_mechanics.body_class` of the published derived
+generation, a relation step P is copying. S3b reads it only after P's
+`complete`. The formula's inputs then come from:
 
-| Predictor input | V3 source | Conversion |
+| Formula input | V3 source | Conversion |
 |---|---|---|
 | `is_landable` | `bodies.is_landable` | none |
 | `radius` (metres) | `bodies.radius_km` | × 1000 |
 | `surface_temp` (K) | `bodies.surface_temperature_k` | none |
 | `gravity` (g) | `bodies.surface_gravity_g` | none |
-| `atmosphere` | `atmosphere_classification_id` → `v3_vocab.atmosphere_classification` | vocabulary name |
-| `planet_class` | `body_type_id` → `v3_vocab.body_type` | vocabulary name |
-| `terraform_state`, `is_terraformable` | `terraforming_state_id` → `v3_vocab.terraforming_state` | vocabulary name |
-| `volcanism` | `volcanism_type_id` → `v3_vocab.volcanism_type` | vocabulary name |
-| `is_ringed` | the system's rings (`kind = 'RING'`) on that body | true if any |
-| `geo_signal_count`, `bio_signal_count` | `body_signal_current` | signal counts |
+| `atmosphere` | `atmosphere_classification_id` → `v3_vocab.atmosphere_classification.display_name` | name, for example "Thin Ammonia" or "No atmosphere"; NULL stays unknown |
+| `planet_class` | `v3_derived.body_mechanics.body_class` (published derived generation) | name, for example "High metal content world" |
+| `terraform_state` | `terraforming_state_id` → `v3_vocab.terraforming_state.display_name` | name |
+| `volcanism` | `volcanism_type_id` → `v3_vocab.volcanism_type.display_name` | name |
+| `geo_signal_count`, `bio_signal_count` | `body_signal_current` (geological and biological signal types) | counts |
 
-Each conversion gets a unit test. The predictor was written against journal
-names, so the adapter's vocabulary mapping is checked against the predictor's
-expected strings with fixtures.
-
-When an input is missing, the body's slots are "unknown" with the predictor's
-own reasons. The page asks the commander to enter what Architect Mode shows. A
-commander-entered value is sent as `observed_orbital_slots` /
-`observed_ground_slots` and is shown as "entered by you".
-
-The adapter is read-only and bounded in the same way as the existing body
-route. It is tested on a disposable PostgreSQL 18 database.
+Each conversion gets a unit test, and the owner's system is an answer key: the
+24 recorded surface counts in the evidence file.
 
 ### 5.4 Web
 
@@ -412,10 +441,12 @@ reviewed before merge.
 | S0 | This design and a roadmap entry | No | No |
 | S1 | `cpe` core: plan model, catalogue wrapper with structured prerequisites, budget walk (D3), order checks, explanations; boundary test; parity additions; answer-key fixtures | No | No |
 | S2 | `/api/v1/plan/catalogue` and `/api/v1/plan/evaluate`; OpenAPI and client regeneration | No | No |
-| S3 | Body adapter `/api/v1/plan/systems/{id64}/bodies` with slot predictions; PostgreSQL 18 test | No | No |
-| S4 | The `/plan` page, browser-kept plans, JSON export and import; replaces the placeholder | No | Yes |
+| S3a | Bodies list `/api/v1/plan/systems/{id64}/bodies` from canonical relations only; no slot predictions; PostgreSQL 18 test | No | No |
+| S3b | Surface slot predictions with `validated-slot-v1`, using `body_mechanics.body_class`; only after step P's `complete` | No | No |
+| S4 | The `/plan` page, browser-kept plans, slot counts entered by the commander, JSON export and import; replaces the placeholder | No | Yes |
+| S4b | Raven layout import from a file the commander exports: sites, statuses and recorded slot counts. Moved out of S6 because it needs no server storage | No | Yes |
 | S5 | Economies and strong and weak links, with explanations (RB-0009 to RB-0020, RB-0027) | No | Yes |
-| S6 | Account-saved plans: new empty `v3_private` tables following migration 014's pattern (new relations only, lock and statement timeouts); Raven layout import from a file the commander exports | Yes | Yes |
+| S6 | Account-saved plans: new empty `v3_private` tables following migration 014's pattern (new relations only, lock and statement timeouts) | Yes | Yes |
 | S7 | Mark the legacy V2 planner endpoints "not available on V3" | No | No |
 
 D3 said that, until a Plan feature ships, the `/plan` page should say plainly
@@ -424,10 +455,11 @@ S4 removes the need for it.
 
 ## 8. Risks
 
-- **Slot predictions on V3 data are unproven.** The predictor was validated on
-  journal scans. S3 compares V3-adapter predictions against the predictor's own
-  evidence set before the page relies on them. Bodies stay "unknown" rather than
-  guessed.
+- **Slot counts.** The 2026-10-31 check showed the formula's orbital rule is
+  unreliable, so orbital slots are never predicted. Surface predictions matched
+  all 24 landable bodies tested, but that is one system. S3b keeps that system
+  as an answer key, and the page always lets the commander correct a predicted
+  value.
 - **The rulebook is incomplete** (section 4). The planner states which numbers
   come from the catalogue rather than the rulebook.
 - **The guide is behind the game.** RB-0001 says the 4.2.2.0 change is not
@@ -464,10 +496,13 @@ one up.
 
 The rules are therefore:
 
-- **S0–S5 are built now.** They add no migration. They read only the published
-  canonical generation and none of the derived products P is purging. They
-  change no Finder product. They ship only through the normal governed
+- **S0–S5 are built now, except S3b.** They add no migration. They read only the
+  published canonical generation and none of the derived products P is purging.
+  They change no Finder product. They ship only through the normal governed
   application promotion, between purge phases.
+- **S3b waits for P's `complete`.** It reads `v3_derived.body_mechanics`, one of
+  the relations P is copying and swapping, so it must not run while P is under
+  way.
 - **S6 waits.** Its migration is not applied while step P is between its first
   preflight and `complete`. A migration changes the production schema identity,
   and P's operations are being run one owner approval at a time.
