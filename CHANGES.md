@@ -11,6 +11,26 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Finder: /api/archetypes/rankings accepts its documented min_score values
+
+Production evidence reported on 2026-10-31: `GET
+https://ed-finder.app/api/archetypes/rankings?archetype=paradise&limit=2`
+returns 200, but adding `min_score=60`, `76` or `88` returns 422. For `76`,
+the validation error is `{"type":"literal_error","loc":["query","min_score"],"msg":"Input should be 60, 76 or 88","input":"76"}`.
+FastAPI 0.141 / Pydantic 2.13 does not coerce query strings to the integer
+values in `Literal[60, 76, 88]`; only the omitted parameter's integer default
+worked. The F4a rankings client sends `min_score` explicitly, so this would
+fail every F4b rankings request. No live UI sends it yet: F4 remains behind its
+default-off flag.
+
+The handler now parses an integer before restricting it to the same three
+indexed floors. The integer enum and default 60 in OpenAPI, helper validation,
+ranking SQL/profile/identity, response fields and paging bounds are unchanged.
+New database-free tests exercise the real FastAPI app's query parsing for
+omitted, accepted and rejected floors, the OpenAPI schema, and the 10,000-row
+window bound; the existing direct-helper tests could not expose this bug.
+This takes effect in production only with the next governed application release.
+
 ## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
 
 The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
