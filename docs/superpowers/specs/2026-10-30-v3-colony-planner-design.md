@@ -159,11 +159,14 @@ CPE recommendation 4).
 
 **The rulebook is the authority.** The pinned copy is
 `docs/reference/colonisation/cre-rulebook/rulebook.json`: release
-`cre-knowledge-v0.3.0`, 27 rules, CRE commit `59dd198`, sha256 `0487fcfb…1bd4`.
+`cre-knowledge-v0.4.0`, 28 rules, CRE commit `3ca81b6`, sha256 `d2e64e8f…7976`.
 `tests/test_cre_rulebook_parity.py` already compares ED-Finder's hand-coded
 tables with it. The planner adds its own rules to that parity check. A rule
-marked **Disputed** in the rulebook (for example RB-0012, "Body economies and
-modifiers do not stack") is shown as disputed on the page, never as fact.
+marked **Disputed** in the rulebook (for example the terraformable Agriculture
+boost in RB-0018) is shown as disputed on the page, never as fact. Release
+v0.4.0 settled RB-0012 (no stacking) and RB-0013 (volcanism +0.4 to Extraction)
+from in-game measurements (CRE evidence EV-0006), and added RB-0028: the
+strong-link modifier list also applies to a port's own economies.
 
 Where the planner's economy explanation differs from the frozen Finder score
 (the Ratings V4.0 findings listed for V4.1 in the 2026-10-21 Mega Guide audit),

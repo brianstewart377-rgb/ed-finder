@@ -72,8 +72,8 @@ KNOWN_DIFFERENCES: dict[str, str] = {
     ),
     # RB-0012: inherited strength.
     'RB-0012: ratings_v4 scores native plus modifier above native alone': (
-        f'Frozen Ratings V4.0 scores 85 against 75 ({AUDIT}, F1). RB-0012 is Disputed (C-0011); the '
-        'owner decided on 2026-10-21 to publish on V4.0 and fix this in Ratings V4.1.'
+        f'Frozen Ratings V4.0 scores 85 against 75 ({AUDIT}, F1). RB-0012 is Confirmed in game since '
+        'cre-knowledge-v0.4.0 (CRE evidence EV-0006); the owner decided on 2026-10-21 to publish on V4.0 and fix this in Ratings V4.1.'
     ),
     'RB-0012: ratings_v4 scores a modifier-only economy below a native one': (
         f'Frozen Ratings V4.0 scores 55 against 75 by design ({AUDIT}, F2: "inheritance establishes '
