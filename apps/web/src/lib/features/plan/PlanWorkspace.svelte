@@ -436,7 +436,7 @@
             catalogue.isError ||
             !bodies.data}
           onclick={toggleBuildOrder}
-          >Build order ({model.sites.length}) {#if evaluation && evaluation.summary.BLOCKED > 0}<span
+          >Build order ({model.sites.length}) {#if evaluation && !stale && model.sites.length > 0 && evaluation.summary.BLOCKED > 0}<span
               class="build-order-blocked"
               >· {evaluation.summary.BLOCKED} blocked</span
             >{/if}</button

@@ -879,6 +879,22 @@ describe('planner workspace evaluation and browser state', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the blocked count only for a current evaluation of a non-empty plan', async () => {
+    seedPrimary();
+    vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await advance(250);
+    expect(buildOrderToggle()).toHaveAccessibleName(
+      'Build order (1) · 1 blocked',
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Abandon plan' }));
+    await advance(1000);
+    // The greyed last evaluation stays in the Summary, but the header must not
+    // present its blocked count as current, least of all for an empty plan.
+    expect(buildOrderToggle()).toHaveAccessibleName('Build order (0)');
+  });
+
   it('keeps the last evaluation greyed when the plan is abandoned', async () => {
     seedPrimary();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
