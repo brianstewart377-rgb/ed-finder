@@ -11,6 +11,31 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Finder: deep selected-archetype pages read search details for the page only
+
+The owner-approved query change keeps the selected archetype's partial-index
+window unchanged at 10,000 rows, checks published Search membership using only
+keys, and applies the existing order and page limit/offset before reading
+`system_search` details. The final `picked` fetch is unchanged. Results, order,
+response shape and ranking identity are unchanged; the count and Any-mode
+queries are unchanged. This takes effect in production only at the next
+governed application release.
+
+The Finder F4 slice 1c PostgreSQL 18 proof used 1,000,000 systems, saturated
+every window, and exercised all eight archetypes at the B/A/S floors under
+`plan_cache_mode = force_generic_plan`. First pages passed 24/24 cases at
+2–4 ms warm and 7–21 ms cold (budgets 300 / 1,500 ms); bounded counts passed
+24/24 at 38–67 ms warm and 63–185 ms cold (600 / 2,500 ms). Near-ceiling pages
+(`offset=9950`, `limit=50`) failed 24/24 at 705–1,098 ms warm against 600 ms,
+also under production's planner settings (`effective_cache_size=128GB`,
+`work_mem=32MB`). The old page joined 10,000 wide Search rows before paging,
+choosing a hash join over a 1,000,000-row sequential scan (about 650 ms) and a
+wide-row sort; the count's key-only join used primary-key index-only scans
+(10,001 loops, about 45 ms). The 2026-10-23 publication probe covered only
+offset-zero pages and counts. The revised query defers detail reads until
+after pagination; PostgreSQL regression tests compare its complete output
+with the old SQL and bound detail reads to the page size.
+
 ## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
 
 ED-Finder now reads CRE release `cre-knowledge-v0.4.0` (CRE commit `3ca81b6`,
