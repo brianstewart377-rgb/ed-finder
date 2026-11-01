@@ -21,6 +21,22 @@ keeps its existing invocation. Regression tests compare the exact file set with
 the former CLI command and verify a temporary planner lint error fails the
 launcher, including when started from an unrelated directory.
 
+## 2026-11-01 — Public Ratings V4 smoke receipt after governed releases
+
+Adds a standard-library CPython 3.14 check of public health, published generation
+and ratings/explanations for Sol, Achenar and Alioth. Bounded read-only GETs
+validate response fields, seven economy scores, confidence and generation
+identity, and write a JSON receipt with build identity and per-request timing.
+Failures exit non-zero. Local stub tests cover success, generation mismatch,
+invalid scores, HTTP failures and timeouts without contacting production.
+
+The production release runbook now requires the owner to run this check after
+each accepted governed promotion, compare the served build with the accepted
+SHA, and commit the actual receipt in the release record PR. Failed attempts
+need an explicit disposition and a fresh run after a remedy. This closes the
+2026-10-31 audit's missing repeatable smoke procedure; it does not claim a new
+public verification or change deployment acceptance gates.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
