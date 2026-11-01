@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SystemPane from './SystemPane.svelte';
 import { compactPlanFixture } from './__fixtures__/compact-plan';
+import { setSlotCount } from './model';
 
 function siteGroupsFixture() {
   const fixture = compactPlanFixture(2, 3);
@@ -34,6 +35,91 @@ function siteButton(step: number) {
 }
 
 afterEach(cleanup);
+
+describe('surface slot sources', () => {
+  it.each([0, 5])(
+    'labels an API surface prediction of %s, leaving orbital slots unknown',
+    (count) => {
+      const fixture = compactPlanFixture(2, 0);
+      fixture.model.slots = {};
+      Object.assign(fixture.bodies.bodies[1], {
+        predicted_surface_slots: count,
+        prediction_status: 'predicted',
+      });
+      renderSystem(fixture);
+      const surface = screen.getByRole('button', {
+        name: `Surface slots on Compact Test System A 1: 0 used, ${count} total`,
+      });
+      expect(surface).toHaveTextContent(`0/${count}`);
+      expect(surface).toHaveAccessibleDescription('predicted');
+      expect(screen.getByText('predicted')).toBeVisible();
+      expect(
+        screen.getByRole('button', {
+          name: 'Orbital slots on Compact Test System A 1: 0 used, unknown total',
+        }),
+      ).toHaveTextContent('0/?');
+    },
+  );
+
+  it('lets an entered zero win, keeps it editable, and offers the prediction again when cleared', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    fixture.model.slots = {};
+    Object.assign(fixture.bodies.bodies[1], {
+      predicted_surface_slots: 5,
+      prediction_status: 'predicted',
+    });
+    const { rerender } = renderSystem(fixture);
+    const onslot = vi.fn();
+    const model = setSlotCount(fixture.model, '2', 'surface', 0);
+    await rerender({ model, onslot });
+    const surface = screen.getByRole('button', {
+      name: 'Surface slots on Compact Test System A 1: 0 used, 0 total',
+    });
+    expect(surface).toHaveAccessibleDescription('entered by you');
+    expect(screen.getByText('entered by you')).toBeVisible();
+    expect(screen.queryByText('predicted')).not.toBeInTheDocument();
+    await fireEvent.click(surface);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Increase surface slots' }),
+    );
+    expect(onslot).toHaveBeenLastCalledWith('2', 'surface', 1);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Use prediction' }),
+    );
+    expect(onslot).toHaveBeenLastCalledWith('2', 'surface', null);
+    await rerender({ model: setSlotCount(model, '2', 'surface', null) });
+    expect(surface).toHaveTextContent('0/5');
+    expect(surface).toHaveAccessibleDescription('predicted');
+    expect(screen.getByLabelText('Surface slot total')).toHaveTextContent('5');
+    expect(
+      screen.getByText(
+        /Predicted slots — high-accuracy algorithm, not guaranteed/,
+      ),
+    ).toHaveTextContent('Verify in Architect Mode.');
+  });
+
+  it('shows an unknown prediction as unknown without a predicted source label', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    fixture.model.slots = {};
+    Object.assign(fixture.bodies.bodies[1], {
+      predicted_surface_slots: null,
+      prediction_status: 'unknown',
+      missing_inputs: ['atmosphere'],
+    });
+    renderSystem(fixture);
+    const surface = screen.getByRole('button', {
+      name: 'Surface slots on Compact Test System A 1: 0 used, unknown total',
+    });
+    expect(surface).toHaveTextContent('0/?');
+    expect(screen.queryByText('predicted')).not.toBeInTheDocument();
+    expect(screen.queryByText('entered by you')).not.toBeInTheDocument();
+    await fireEvent.click(surface);
+    expect(screen.getByRole('button', { name: 'Unknown' })).toBeVisible();
+    expect(screen.getByText(/Surface slots are unknown/)).toHaveTextContent(
+      'Verify in Architect Mode.',
+    );
+  });
+});
 
 describe('System pane site groups', () => {
   it('shows two orbital sites before one surface site in named lists beneath the body row', () => {

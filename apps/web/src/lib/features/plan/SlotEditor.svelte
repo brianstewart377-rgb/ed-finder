@@ -6,6 +6,8 @@
     kind: 'orbital' | 'surface';
     used: number;
     value: number | null;
+    source?: 'predicted' | 'entered by you';
+    prediction?: number | null;
     disabled?: boolean;
     onchange: (value: number | null) => void;
   };
@@ -14,6 +16,8 @@
     kind,
     used,
     value,
+    source = 'entered by you',
+    prediction = null,
     disabled = false,
     onchange,
   }: Props = $props();
@@ -28,6 +32,9 @@
   let container: HTMLDivElement;
   const overCapacity = $derived(value !== null && used > value);
   const slotLabel = $derived(kind === 'orbital' ? 'Orbital' : 'Surface');
+  const showSource = $derived(
+    kind === 'surface' && value !== null && !disabled,
+  );
 
   async function toggle() {
     if (disabled) return;
@@ -61,8 +68,8 @@
   }
 
   function change(next: number | null) {
-    draft = next === null ? null : Math.min(64, Math.max(0, next));
-    onchange(draft);
+    draft = next === null ? prediction : Math.min(64, Math.max(0, next));
+    onchange(next === null ? null : draft);
   }
 
   function keydown(event: KeyboardEvent) {
@@ -119,6 +126,7 @@
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-controls={open ? `${id}-editor` : undefined}
+    aria-describedby={showSource ? `${id}-source` : undefined}
     title={disabled
       ? `${slotLabel} slots on ${label}: not available`
       : `${slotLabel} slots on ${label}: ${used} used, ${value ?? 'unknown'} total${overCapacity ? ', over capacity' : ''}`}
@@ -130,6 +138,8 @@
         >!</span
       ><span class="slot-sr-only">Over capacity</span>{/if}
   </button>
+  {#if showSource}<span class="slot-source" id={`${id}-source`}>{source}</span
+    >{/if}
   {#if open}
     <div
       bind:this={editor}
@@ -144,9 +154,15 @@
     >
       <h4 id={`${id}-title`}>{slotLabel} slots on {label}</h4>
       <p id={`${id}-help`}>
-        This value is entered by the commander.
-        {#if kind === 'orbital'}Copy orbital slots from Architect Mode.{/if}
-        Enter 0–64, or leave it unknown.
+        {#if kind === 'orbital'}This value is entered by the commander. Copy
+          orbital slots from Architect Mode.
+        {:else if value !== null && source === 'predicted'}Predicted slots —
+          high-accuracy algorithm, not guaranteed. Verify in Architect Mode.
+        {:else if value !== null}This value was entered by you.
+        {:else}Surface slots are unknown. Verify in Architect Mode.{/if}
+        Enter 0–64{prediction !== null
+          ? ', or use the prediction.'
+          : ', or leave it unknown.'}
       </p>
       <div class="stepper">
         <button
@@ -166,7 +182,9 @@
         >
       </div>
       <div class="editor-actions">
-        <button type="button" onclick={() => change(null)}>Unknown</button>
+        <button type="button" onclick={() => change(null)}
+          >{prediction !== null ? 'Use prediction' : 'Unknown'}</button
+        >
         <button type="button" onclick={close}>Done</button>
       </div>
     </div>
@@ -177,6 +195,14 @@
   .slot-container {
     position: relative;
     flex: 0 0 auto;
+  }
+  .slot-source {
+    display: block;
+    color: var(--muted);
+    font-size: 0.6rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
   }
   button {
     border: 1px solid var(--line);

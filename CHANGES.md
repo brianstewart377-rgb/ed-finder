@@ -11,6 +11,41 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Colony Planner S3b: surface slot predictions
+
+The planner bodies route now returns surface slot predictions from the canonical
+`validated-slot-v1` predictor, with version, status, missing required inputs and
+an unavailable reason. It reuses S5b's published mechanics read and generation
+guard: a missing or mismatched derived publication leaves prediction fields
+null without rejecting the canonical bodies response. Radius is converted from
+kilometres to metres; vocabulary names and signal counts retain unknown inputs.
+Non-landable bodies, barycentres and belts have no surface prediction. Orbital
+slots are never predicted. No migration or evaluate-route database access is
+added.
+
+The `/plan` surface totals show “predicted” or “entered by you”. Entered values,
+including zero, take precedence and remain editable; clearing an override uses
+the available prediction. Evaluation and free-slot selection use the same
+effective totals, while saved plans keep only commander-entered overrides.
+
+Both API clients are regenerated with `OPENAPI_INPUT=/tmp/edfinder-s3b-openapi.json
+pnpm generate:api`, using the full application's `app.openapi()` export without
+starting services. The second generation is byte-identical. Unit/component
+coverage checks conversions, nulls, lineage guards and override/source behavior;
+`tests/test_plan_bodies_postgres.py` extends the PostgreSQL 18 contract. The
+retained Praea Euq WV-W b2-2 fixture includes all 24 landable bodies but lacks
+their atmosphere inputs; it therefore tests unknown predictions. There is no
+complete committed fixture for replaying the 2026-10-31 numeric answer key.
+
+Validation: `apps/web` frozen install, `pnpm check` (no errors or warnings),
+`pnpm test` (1,053 passed), `pnpm build`, targeted ESLint and
+`ruff check apps/api tests` passed. The requested database-free Python suite
+passed with 8,602 tests and 658 skips, after repairing this runner's local
+CPython 3.14.7 library lookup; repetitive dependency deprecation warnings were
+suppressed. All 16 planner PostgreSQL tests collect, but need execution by the
+reviewer/CI on disposable PostgreSQL 18. Browser visual acceptance remains
+required before promotion.
+
 ## 2026-11-01 — Colony Planner S4b part 2: Raven layout file import
 
 The `/plan` page imports commander-exported Raven Colonial JSON files with
