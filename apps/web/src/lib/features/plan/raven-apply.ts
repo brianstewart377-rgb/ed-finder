@@ -11,25 +11,21 @@ import {
   type PlannerSite,
   type SlotCounts,
 } from './model';
-import { matchRavenBodies, type RavenImportResult } from './raven-import';
+import {
+  matchRavenBodies,
+  normalizeRavenBodyName,
+  type RavenImportResult,
+} from './raven-import';
 
 type Warning = { code: string; detail: string };
 type BeltMatch = { location: PlannerLocation; cluster: bigint | null };
 type BeltResolution = BeltMatch | { location: null; cluster: null };
 
-function clusterNumber(
-  name: string,
-  beltName: string,
-  ignoreCase = false,
-): bigint | null {
-  const prefix = `${beltName} Cluster `;
-  if (
-    !(ignoreCase
-      ? name.toLowerCase().startsWith(prefix.toLowerCase())
-      : name.startsWith(prefix))
-  )
-    return null;
-  const suffix = name.slice(prefix.length);
+function clusterNumber(name: string, beltName: string): bigint | null {
+  const normalizedName = normalizeRavenBodyName(name);
+  const prefix = `${normalizeRavenBodyName(beltName)} cluster `;
+  if (!normalizedName.startsWith(prefix)) return null;
+  const suffix = normalizedName.slice(prefix.length);
   return /^\d+$/.test(suffix) ? BigInt(suffix) : null;
 }
 
@@ -67,10 +63,15 @@ export function ravenToPlannerModel(
 
   const matchBelt = (name: string | null): BeltResolution | null => {
     if (name === null) return null;
+    const normalizedName = normalizeRavenBodyName(name);
     const candidates = new Map<string, BeltMatch>();
     for (const location of belts) {
       const cluster = clusterNumber(name, location.name);
-      if (name !== location.name && cluster === null) continue;
+      if (
+        normalizedName !== normalizeRavenBodyName(location.name) &&
+        cluster === null
+      )
+        continue;
       candidates.set(location.body_ref, { location, cluster });
     }
     if (candidates.size > 1) {
@@ -221,7 +222,7 @@ export function ravenToPlannerModel(
       cluster:
         belt?.cluster ??
         (location.kind === 'belt'
-          ? clusterNumber(source.raven_body_name.trim(), location.name, true)
+          ? clusterNumber(source.raven_body_name, location.name)
           : null),
     });
     slotRows.set(ref, rows);

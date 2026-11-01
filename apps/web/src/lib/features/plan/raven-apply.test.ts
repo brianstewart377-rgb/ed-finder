@@ -148,9 +148,14 @@ describe('ravenToPlannerModel', () => {
     expect(codes(result)).toContain('ambiguous_body');
   });
 
-  it.each(['duplicate belt names', 'overlapping belt aliases'])(
-    'keeps %s Unplaced and drops their slots without falling through to body matching',
-    (scenario) => {
+  it.each([
+    ['duplicate belt names', false],
+    ['duplicate belt names', true],
+    ['overlapping belt aliases', false],
+    ['overlapping belt aliases', true],
+  ])(
+    'keeps %s Unplaced and drops their slots without falling through to body matching (case/space variant: %s)',
+    (scenario, variant) => {
       const data = bodies();
       const raven_body_name =
         scenario === 'duplicate belt names'
@@ -164,7 +169,7 @@ describe('ravenToPlannerModel', () => {
       data.belts.push({
         ...data.belts[0],
         belt_id: 'other',
-        name: raven_body_name,
+        name: variant ? ` ${raven_body_name.toUpperCase()} ` : raven_body_name,
       });
       const source = layout({
         sites: [site({ raven_body_name }), site({ raven_site_id: 'ordinary' })],
@@ -231,18 +236,55 @@ describe('ravenToPlannerModel', () => {
     ['Amber Lantern A Belt Cluster 3', true],
     ['Amber Lantern A Belt Cluster 999', true],
     ['Amber Lantern A Belt', false],
+    ['AMBER LANTERN A BELT CLUSTER 2', true],
+    ['aMbEr LaNtErN a BeLt cLuStEr 3', true],
+    [' AMBER LANTERN A BELT CLUSTER 2 ', true],
+    [' aMbEr LaNtErN a BeLt cLuStEr 3 ', true],
+    [' Amber Lantern A Belt Cluster 2 ', true],
+    ['AMBER LANTERN A BELT', false],
+    [' AMBER LANTERN A BELT ', false],
+    [' Amber Lantern A Belt ', false],
   ])('maps %s to the single belt location', (raven_body_name, moved) => {
     const result = ravenToPlannerModel(
-      layout({ sites: [site({ raven_body_name })] }),
+      layout({
+        sites: [site({ raven_body_name })],
+        slots: [{ raven_body_name, orbital_slots: 7, surface_slots: 0 }],
+      }),
       bodies(),
     );
     expect(result.model.sites[0].body_ref).toBe('11');
-    expect(codes(result)).toEqual(moved ? ['belt_cluster_moved'] : []);
+    expect(result.model.slots).toEqual({
+      '11': { orbital_slots: 7, surface_slots: 0 },
+    });
+    expect(codes(result)).toEqual(
+      moved ? ['belt_cluster_moved', 'belt_cluster_moved'] : [],
+    );
     if (moved) {
       expect(result.warnings[0].detail).toContain(raven_body_name);
       expect(result.warnings[0].detail).toContain('Amber Lantern A Belt');
     }
   });
+
+  it.each(['2x', '2.0', '+2', '-2', '2 3', ''])(
+    'rejects a non-digit cluster suffix %j after normalising the name',
+    (suffix) => {
+      const raven_body_name = ` AMBER LANTERN A BELT CLUSTER ${suffix} `;
+      const result = ravenToPlannerModel(
+        layout({
+          sites: [site({ raven_body_name })],
+          slots: [{ raven_body_name, orbital_slots: 7, surface_slots: 0 }],
+        }),
+        bodies(),
+      );
+      expect(result.model.sites[0].body_ref).toBeNull();
+      expect(result.model.slots).toEqual({});
+      expect(codes(result)).toEqual([
+        'unmatched_body',
+        'unmatched_body',
+        'slots_dropped',
+      ]);
+    },
+  );
 
   it('maps a Raven cluster to belt:<id> when ED-Finder has no clusters', () => {
     const data = bodies();

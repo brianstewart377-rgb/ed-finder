@@ -440,6 +440,10 @@ export function parseRavenLayout(input: unknown): RavenImportResult {
   }
 }
 
+export function normalizeRavenBodyName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 /** Match names only; do not infer body identity from Raven's body numbers. */
 export function matchRavenBodies(
   result: RavenImportResult,
@@ -448,7 +452,7 @@ export function matchRavenBodies(
   const warnings: RavenBodyMatchResult['warnings'] = [];
   const refs = new Map<string, string | null>();
   for (const body of bodies) {
-    const key = body.name.trim().toLowerCase();
+    const key = normalizeRavenBodyName(body.name);
     // Ambiguous names cannot safely identify a body.
     refs.set(
       key,
@@ -463,7 +467,7 @@ export function matchRavenBodies(
       });
       return null;
     }
-    const ref = refs.get(bodyName.trim().toLowerCase());
+    const ref = refs.get(normalizeRavenBodyName(bodyName));
     if (ref === undefined || ref === null) {
       warnings.push({
         code: ref === null ? 'ambiguous_body' : 'unmatched_body',
