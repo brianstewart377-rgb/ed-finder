@@ -82,6 +82,15 @@
 .plan-pane[hidden] {
   display: none;
 }
+.plan-import-notes {
+  margin-bottom: 1rem;
+}
+.plan-import-notes summary {
+  cursor: pointer;
+}
+.plan-import-notes li + li {
+  margin-top: 0.35rem;
+}
 .pane-heading {
   justify-content: space-between;
 }

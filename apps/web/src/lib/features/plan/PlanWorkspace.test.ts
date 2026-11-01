@@ -27,9 +27,11 @@ import {
   exportPlan,
   plannerToRecord,
   recordToPlanner,
+  MAX_IMPORT_BYTES,
   type PlannerSite,
 } from './model';
 import PlanWorkspaceTestHost from './PlanWorkspaceTestHost.svelte';
+import ravenLayout from './__fixtures__/raven-workspace-layout.json';
 
 vi.mock('$lib/api/client', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/api/client')>()),
@@ -211,6 +213,19 @@ async function upload(text: string) {
   await advance(0);
 }
 
+async function uploadRaven(text: string, size?: number) {
+  const file = new File([text], 'raven-layout.json', {
+    type: 'application/json',
+  });
+  Object.defineProperty(file, 'text', { value: async () => text });
+  if (size !== undefined) Object.defineProperty(file, 'size', { value: size });
+  await fireEvent.change(
+    screen.getByLabelText('Import Raven Colonial layout file'),
+    { target: { files: [file] } },
+  );
+  await advance(0);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
@@ -232,6 +247,203 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+describe('Raven layout import', () => {
+  beforeEach(() => {
+    const ravenCatalogue = {
+      ...catalogue,
+      facilities: [
+        ...catalogue.facilities,
+        { ...port, id: 'orbital_outpost_commercial' },
+        { ...nonPort, id: 'orbital_installation_comm_station' },
+        { ...nonPort, id: 'orbital_installation_satellite' },
+      ],
+    };
+    vi.mocked(getV3PlanCatalogue).mockResolvedValue(ravenCatalogue);
+    queryClient.setQueryData(['ed-finder', 'plan-catalogue'], ravenCatalogue);
+  });
+
+  it('imports sites in order, leaves unknown locations Unplaced, and announces dismissible notes', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    const input = screen.getByLabelText('Import Raven Colonial layout file');
+    const click = vi.spyOn(input, 'click');
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Import from Raven' }),
+    );
+    expect(click).toHaveBeenCalledOnce();
+    expect(input).toHaveAttribute('accept', 'application/json,.json');
+    await uploadRaven(JSON.stringify(ravenLayout));
+
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(
+      "Replace this system's planner sites and slot counts with 3 sites from Raven Colonial? 1 will be Unplaced and 1 items need checking. The first site becomes the Primary Port.",
+    );
+    expect(
+      screen.getByText('3 sites imported from Raven Colonial.'),
+    ).toHaveAttribute('aria-live', 'polite');
+    const record = Object.values(get(colonyProjects).value.state.projects)[0];
+    expect(recordToPlanner(record)).toMatchObject({
+      sites: [
+        { name: 'Lumen Port', body_ref: '1', status: 'planned' },
+        { name: 'Echo Relay', body_ref: '1', status: 'building' },
+        { name: 'Far Lantern', body_ref: null, status: 'complete' },
+      ],
+      slots: { '1': { orbital_slots: 5, surface_slots: null } },
+    });
+    // Keep only planner data; raw import fields never reach browser storage.
+    expect(JSON.stringify(record)).not.toContain('buildType');
+    expect(JSON.stringify(record)).not.toContain('raven_body_name');
+    await fireEvent.click(screen.getByText('Import notes (1)'));
+    const notes = screen.getByText('Import notes (1)').closest('details')!;
+    expect(within(notes).getAllByRole('listitem')).toHaveLength(1);
+    expect(notes).toHaveTextContent('Test System Lost Moon');
+
+    await openBuildOrder();
+    const order = screen.getByRole('region', { name: 'Build order' });
+    expect(
+      within(order)
+        .getAllByRole('heading', { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(['Lumen Port', 'Echo Relay', 'Far Lantern']);
+    const unplaced = within(order)
+      .getByRole('heading', { name: 'Far Lantern' })
+      .closest('[data-plan-site]')!;
+    expect(unplaced).toHaveTextContent('Unplaced');
+    await fireEvent.click(
+      within(notes).getByRole('button', { name: 'Dismiss' }),
+    );
+    expect(screen.queryByText('Import notes (1)')).not.toBeInTheDocument();
+    expect(buildOrderToggle()).toHaveAccessibleName('Build order (3)');
+  });
+
+  it('refuses a different system before confirmation and preserves the current plan', async () => {
+    const record = seedPrimary();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(
+      JSON.stringify({ ...ravenLayout, id64: '43', name: 'Other Lantern' }),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "This Raven layout is for Other Lantern (43). Open that system's planner to import it.",
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
+  });
+
+  it('preserves sites and slot counts when replacement is cancelled', async () => {
+    const record = seedPrimary();
+    const before = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(JSON.stringify(ravenLayout));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(before);
+    expect(
+      screen.queryByText(/sites imported from Raven Colonial/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Import notes/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a completed Primary Port locked through replacePlan (RB-0008)', async () => {
+    const record = seedPrimary({ status: 'complete' });
+    const before = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(JSON.stringify(ravenLayout));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert')).toHaveTextContent('RB-0008');
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(record);
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(before);
+    expect(
+      screen.queryByText(/sites imported from Raven Colonial/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Import notes/)).not.toBeInTheDocument();
+  });
+
+  it('rejects a non-port first site before confirmation', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(
+      JSON.stringify({ ...ravenLayout, sites: ravenLayout.sites.slice(1) }),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "This plan's first site is not a port, so it cannot be the Primary Port.",
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(Object.keys(get(colonyProjects).value.state.projects)).toEqual([]);
+  });
+
+  it.each([
+    '{"v":6,"id64":9007199254740993,"name":"Far Lantern","sites":[]}',
+    '{"v":6,"id64":"42","name":"Test System","sites":[{"id":9007199254740993,"name":"Lumen Port","buildType":"plutus","status":"plan"}]}',
+  ])(
+    'rejects unsafe numeric ids from raw file text without rounding or importing: %s',
+    async (text) => {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(PlanWorkspaceTestHost);
+      await uploadRaven(text);
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'not a safe integer; its exact digits cannot be imported',
+      );
+      expect(confirm).not.toHaveBeenCalled();
+      expect(Object.keys(get(colonyProjects).value.state.projects)).toEqual([]);
+    },
+  );
+
+  it('preserves a quoted large system id exactly in the refusal', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(
+      '{"v":6,"id64":"9007199254740993","name":"Far Lantern","sites":[]}',
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "This Raven layout is for Far Lantern (9007199254740993). Open that system's planner to import it.",
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['{', 'This file is not a Raven Colonial layout (it is not valid JSON).'],
+    [
+      JSON.stringify({ ...ravenLayout, v: 5 }),
+      'Only Raven layout version 6 is supported.',
+    ],
+  ])(
+    'reports invalid file data before confirmation: %s',
+    async (text, message) => {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(PlanWorkspaceTestHost);
+      await uploadRaven(text);
+      expect(screen.getByRole('alert')).toHaveTextContent(message);
+      expect(confirm).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects files larger than the import limit', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(JSON.stringify(ravenLayout), MAX_IMPORT_BYTES + 1);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Plan files must be no larger than 2 MB.',
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('waits for the system bodies before mapping and confirming', async () => {
+    queryClient.removeQueries({ queryKey: ['ed-finder', 'plan-bodies', '42'] });
+    vi.mocked(listV3PlanBodies).mockReturnValue(
+      deferred<PlanBodiesV1>().promise,
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await uploadRaven(JSON.stringify(ravenLayout));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Wait for the system bodies to load before importing a plan.',
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });
 
 describe('build order panel', () => {

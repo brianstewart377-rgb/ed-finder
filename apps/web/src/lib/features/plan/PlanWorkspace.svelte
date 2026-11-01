@@ -15,6 +15,8 @@
   import type { Id64 } from '$lib/domain/id64';
   import { colonyProjects } from '$lib/persistence/stores';
   import { resolvePlanLocations } from './locations';
+  import { parseRavenLayout } from './raven-import';
+  import { ravenToPlannerModel } from './raven-apply';
   import {
     emptyPlan,
     recordToPlanner,
@@ -109,6 +111,8 @@
   let whySite = $state<string | null>(null);
   let filter = $state('All');
   let fileInput = $state<HTMLInputElement>();
+  let ravenFileInput = $state<HTMLInputElement>();
+  let importNotes = $state<{ code: string; detail: string }[]>([]);
   let active = true;
   onDestroy(() => {
     active = false;
@@ -441,6 +445,87 @@
           : 'The plan file could not be read.';
     }
   }
+  async function uploadRaven(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      if (file.size > MAX_IMPORT_BYTES)
+        throw new Error('Plan files must be no larger than 2 MB.');
+      const text = await file.text();
+      if (!active) return;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text, (key: string, value: unknown) => {
+          // Reject rounded numeric identifiers at the file boundary. String
+          // identifiers retain their exact digits through JSON decoding.
+          if (
+            ['id64', 'id', 'num', 'bodyNum'].includes(key) &&
+            typeof value === 'number' &&
+            !Number.isSafeInteger(value)
+          )
+            throw new Error(
+              `This Raven layout contains a numeric ${key} that is not a safe integer; its exact digits cannot be imported. Use a string for a large system or site id.`,
+            );
+          return value;
+        });
+      } catch (error) {
+        if (error instanceof SyntaxError)
+          throw new Error(
+            'This file is not a Raven Colonial layout (it is not valid JSON).',
+          );
+        throw error;
+      }
+      const result = parseRavenLayout(raw);
+      if (!result.ok || !result.system)
+        throw new Error(
+          result.errors[0]?.detail ??
+            'This file is not a Raven Colonial layout.',
+        );
+      if (!bodies.data)
+        throw new Error(
+          'Wait for the system bodies to load before importing a plan.',
+        );
+      if (result.system.id64 !== systemId)
+        throw new Error(
+          `This Raven layout is for ${result.system.name} (${result.system.id64}). Open that system's planner to import it.`,
+        );
+      if (!catalogue.data)
+        throw new Error(
+          'Wait for the planner catalogue to load before importing a Raven layout.',
+        );
+      const { model: candidate, warnings } = ravenToPlannerModel(
+        result,
+        bodies.data,
+        facilities,
+      );
+      if (candidate.sites[0] && !isPort(candidate.sites[0].facility_id))
+        throw new Error(
+          "This plan's first site is not a port, so it cannot be the Primary Port.",
+        );
+      rejectInvalidLocations(candidate, bodies.data);
+      const count = candidate.sites.length;
+      const unplaced = candidate.sites.filter(
+        (site) => site.body_ref === null,
+      ).length;
+      if (
+        !window.confirm(
+          `Replace this system's planner sites and slot counts with ${count} sites from Raven Colonial? ${unplaced} will be Unplaced and ${warnings.length} items need checking. The first site becomes the Primary Port.`,
+        )
+      )
+        return;
+      if (!change((current) => replacePlan(current, candidate))) return;
+      importNotes = warnings;
+      await tick();
+      if (active) announcement = `${count} sites imported from Raven Colonial.`;
+    } catch (error) {
+      actionError =
+        error instanceof Error
+          ? error.message
+          : 'The Raven layout file could not be read.';
+    }
+  }
 </script>
 
 <svelte:window onkeydown={paneKeydown} />
@@ -492,6 +577,8 @@
         <button type="button" onclick={download}>Export plan</button><button
           type="button"
           onclick={() => fileInput?.click()}>Import plan</button
+        ><button type="button" onclick={() => ravenFileInput?.click()}
+          >Import from Raven</button
         ><button
           type="button"
           disabled={!model.sites.length || primaryProtected}
@@ -506,6 +593,13 @@
           aria-label="Import plan file"
           class="plan-file-input"
           onchange={upload}
+        /><input
+          bind:this={ravenFileInput}
+          type="file"
+          accept="application/json,.json"
+          aria-label="Import Raven Colonial layout file"
+          class="plan-file-input"
+          onchange={uploadRaven}
         />
       </div>
     </div>
@@ -513,6 +607,17 @@
   <p class="plan-sr-only" aria-live="polite" aria-atomic="true">
     {announcement}
   </p>
+  {#if importNotes.length}
+    <details class="plan-pane plan-import-notes">
+      <summary>Import notes ({importNotes.length})</summary>
+      <ul>
+        {#each importNotes as note, index (index)}
+          <li>{note.detail}</li>
+        {/each}
+      </ul>
+      <button type="button" onclick={() => (importNotes = [])}>Dismiss</button>
+    </details>
+  {/if}
   {#if actionError}<p class="plan-error" role="alert">{actionError}</p>{/if}
   {#if $colonyProjects.diagnostic}<p class="plan-error" role="alert">
       Browser storage: {$colonyProjects.diagnostic.detail}. Export your plan to

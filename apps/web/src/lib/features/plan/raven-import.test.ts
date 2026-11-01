@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import catalogue from '../../../../../api/src/domain/facility_catalogue_v1.json';
 import sample from './__fixtures__/raven-layout-sample.json';
-import { matchRavenBodies, parseRavenLayout } from './raven-import';
+import { isPlannerSite } from './model';
+import {
+  BUILD_TYPES,
+  matchRavenBodies,
+  parseRavenLayout,
+} from './raven-import';
 
-// An interoperability table supplied for this importer, independent of Raven code.
+// Original 23 import-contract entries must retain their existing mappings.
 const buildTypes = [
   ['aerecura', 'surface_settlement_extraction_t2_l', 'surface'],
   ['aletheia', 'orbital_installation_comm_station', 'orbital'],
@@ -135,17 +140,194 @@ describe('parseRavenLayout', () => {
     },
   );
 
-  it('maps every interoperability entry to an existing facility in the real catalogue', () => {
+  it('contains all 112 unique DaftMav layout keys in workbook row order', () => {
+    // Owner-supplied Lists rows 48–159, not identifiers taken from Raven code.
+    const keys = [
+      'no_truss',
+      'dual_truss',
+      'quad_truss',
+      'ice',
+      'metal',
+      'rock',
+      'ocellus',
+      'apollo',
+      'artemis',
+      'no_truss_dodo',
+      'quint_truss',
+      'dec_truss',
+      'plutus',
+      'vulcan',
+      'dysnomia',
+      'vesta',
+      'prometheus',
+      'nemesis',
+      'hermes',
+      'angelia',
+      'eirene',
+      'pistis',
+      'soter',
+      'aletheia',
+      'demeter',
+      'apate',
+      'laverna',
+      'euthenia',
+      'phorcys',
+      'enodia',
+      'ichnaea',
+      'vacuna',
+      'alastor',
+      'dicaeosyne',
+      'poena',
+      'eunomia',
+      'nomos',
+      'harmonia',
+      'asclepius',
+      'eupraxia',
+      'astraeus',
+      'coeus',
+      'dodona',
+      'dione',
+      'hedone',
+      'opora',
+      'pasithea',
+      'dionysus',
+      'bacchus',
+      'hestia',
+      'decima',
+      'atropos',
+      'nona',
+      'lachesis',
+      'clotho',
+      'hephaestus',
+      'opis',
+      'ponos',
+      'tethys',
+      'bia',
+      'mefitis',
+      'necessitas',
+      'ananke',
+      'fauna',
+      'providentia',
+      'antevorta',
+      'porrima',
+      'zeus',
+      'hera',
+      'poseidon',
+      'aphrodite',
+      'consus',
+      'picumnus',
+      'annona',
+      'ceres',
+      'fornax',
+      'ourea',
+      'mantus',
+      'orcus',
+      'erebus',
+      'aerecura',
+      'fontus',
+      'meteope',
+      'palici',
+      'minthe',
+      'gaea',
+      'ioke',
+      'bellona',
+      'enyo',
+      'polemos',
+      'minerva',
+      'pheobe',
+      'asteria',
+      'caerus',
+      'chronos',
+      'aergia',
+      'comos',
+      'gelos',
+      'fufluns',
+      'tartarus',
+      'aegle',
+      'tellus_a',
+      'io',
+      'athena',
+      'caelus',
+      'alala',
+      'ares',
+      'silenus',
+      'janus',
+      'molae',
+      'tellus_b',
+      'eunostus',
+    ];
+    expect(keys).toHaveLength(112);
+    expect(new Set(keys).size).toBe(112);
+    expect(BUILD_TYPES.size).toBe(112);
+    expect([...BUILD_TYPES.keys()]).toEqual(keys);
+  });
+
+  it('maps all 112 layouts to accepted planner facilities and their listed slot kinds', () => {
+    // This bundled catalogue supplies /plan/catalogue and the evaluator; its
+    // planner wrapper excludes colony_ship only.
     const facilities = new Map(
-      catalogue.templates.map((entry) => [entry.id, entry]),
+      catalogue.templates
+        .filter((entry) => entry.id !== 'colony_ship')
+        .map((entry) => [entry.id, entry]),
     );
-    for (const [buildType, facilityId, slotKind] of buildTypes) {
+    for (const [index, [buildType, [facilityId, slotKind]]] of [
+      ...BUILD_TYPES,
+    ].entries()) {
       const result = parseRavenLayout(layout({ sites: [site({ buildType })] }));
-      const facility = facilities.get(result.sites[0].facility_id);
+      expect(result.ok, buildType).toBe(true);
+      expect(result.warnings, buildType).toEqual([]);
+      expect(result.sites, buildType).toHaveLength(1);
+      const imported = result.sites[0];
+      const facility = facilities.get(imported.facility_id);
       expect(facility, buildType).toBeDefined();
-      expect(facility?.id).toBe(facilityId);
-      expect(facility?.allowed_location).toBe(slotKind);
+      expect(imported.facility_id, buildType).toBe(facilityId);
+      // Lists rows 48–96 are orbital, rows 97–159 are surface.
+      expect(slotKind, buildType).toBe(index < 49 ? 'orbital' : 'surface');
+      expect(imported.slot_kind, buildType).toBe(slotKind);
+      expect(
+        facility?.allowed_location === 'ringed_orbital'
+          ? 'orbital'
+          : facility?.allowed_location,
+        buildType,
+      ).toBe(slotKind);
+      expect(
+        isPlannerSite({
+          schema: 'cpe_site_v1',
+          site_id: imported.raven_site_id,
+          body_ref: null,
+          name: imported.name,
+          facility_id: imported.facility_id,
+          slot_kind: imported.slot_kind,
+          status: imported.status,
+        }),
+        buildType,
+      ).toBe(true);
     }
+  });
+
+  it('imports Phorcys, Nomos, Harmonia, Gaea and Aphrodite sites in order', () => {
+    const buildTypes = ['phorcys', 'nomos', 'harmonia', 'gaea', 'aphrodite'];
+    const result = parseRavenLayout(
+      layout({
+        sites: buildTypes.map((buildType) =>
+          site({ id: `synthetic-${buildType}`, buildType }),
+        ),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(result.sites.map((entry) => entry.raven_build_type)).toEqual(
+      buildTypes,
+    );
+    expect(
+      result.sites.map((entry) => [entry.facility_id, entry.slot_kind]),
+    ).toEqual([
+      ['orbital_installation_mining_outpost', 'orbital'],
+      ['orbital_installation_security_station', 'orbital'],
+      ['orbital_installation_government', 'orbital'],
+      ['surface_settlement_industrial_t2_l', 'surface'],
+      ['planetary_port', 'surface'],
+    ]);
   });
 
   it('skips an unknown build type with a warning identifying the type and site', () => {

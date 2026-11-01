@@ -58,6 +58,15 @@ const catalogue: PlanCatalogueV1 = {
       green_cp_generated: 1,
     }),
     facility(payerId, 'Mining Installation', { yellow_cp_generated: 2 }),
+    // Raven uses the catalogue's real identifiers; retain the existing journey
+    // fixtures above and make these two imported facilities available too.
+    facility('coriolis_station', 'Coriolis Starport', {
+      category: 'port',
+      tier: 2,
+      is_port: true,
+      escalating_port_tier: 2,
+    }),
+    facility('orbital_installation_mining_outpost', 'Mining Outpost', {}),
   ],
 };
 
@@ -388,6 +397,40 @@ describe('Colony planner browser-kept main path', () => {
         'have.length',
         3,
       );
+
+      cy.window().then((window) => {
+        cy.stub(window, 'confirm').returns(true).as('confirmRaven');
+      });
+      cy.contains('button', /^Import from Raven$/).click();
+      cy.get(
+        'input[aria-label="Import Raven Colonial layout file"]',
+      ).selectFile('cypress/fixtures/plan/raven-layout.json', { force: true });
+      cy.get('@confirmRaven').should('have.been.calledOnce');
+      cy.get('[data-plan-build-order] [data-plan-site]').should(
+        'have.length',
+        2,
+      );
+      cy.get('[data-plan-build-order] [data-plan-site]')
+        .eq(0)
+        .should('contain.text', 'Lantern Harbour')
+        .and('contain.text', 'Primary Port');
+      cy.get('[data-plan-build-order] [data-plan-site]')
+        .eq(1)
+        .should('contain.text', 'Copper Quarry')
+        .and('contain.text', 'A A Belt')
+        .and('not.contain.text', 'Cluster 3');
+      cy.contains('summary', /^Import notes \(/).click();
+      cy.contains('li', /Cluster 3/).should('contain.text', 'A A Belt');
+      cy.get('[aria-live="polite"]').should('contain.text', '0 blocked');
+      cy.injectAxe();
+      cy.checkA11y();
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width);
+      });
+      cy.screenshot(`plan/raven-${Cypress.browser.name}-${width}x${height}`, {
+        capture: 'fullPage',
+        overwrite: true,
+      });
     });
   }
 });
