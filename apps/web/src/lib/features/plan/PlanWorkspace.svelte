@@ -378,7 +378,10 @@
     change((current) =>
       insertSiteBefore(
         current,
-        makeSite(facility, findFreeLocation(current, locations, facility)),
+        makeSite(
+          facility,
+          findFreeLocation(current, locations, facility, bodies.data),
+        ),
         before,
       ),
     );

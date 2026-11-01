@@ -12,7 +12,8 @@
     type PlannerLocation,
   } from './locations';
   import {
-    countUsedSlots,
+    countLocationSlots,
+    locationSlots,
     MAX_SITES,
     type PlannerModel,
     type PlannerSite,
@@ -218,7 +219,8 @@
   </p>
   <ul class="plan-body-tree">
     {#each tree as location (location.body_ref)}
-      {@const used = countUsedSlots(model.sites, location.body_ref)}
+      {@const used = countLocationSlots(model, bodies, location.body_ref)}
+      {@const slots = locationSlots(model, bodies, location.body_ref)}
       <li
         class="plan-body"
         class:selected={selectedBody === location.body_ref}
@@ -256,7 +258,7 @@
                 label={location.name}
                 kind="orbital"
                 used={used.orbital_slots}
-                value={model.slots[location.body_ref]?.orbital_slots ?? null}
+                value={slots?.orbital_slots ?? null}
                 onchange={(value) =>
                   onslot(location.body_ref, 'orbital', value)}
               />
@@ -264,7 +266,7 @@
                   label={location.name}
                   kind="surface"
                   used={used.surface_slots}
-                  value={model.slots[location.body_ref]?.surface_slots ?? null}
+                  value={slots?.surface_slots ?? null}
                   disabled={location.is_landable === false}
                   onchange={(value) =>
                     onslot(location.body_ref, 'surface', value)}

@@ -8,7 +8,10 @@ import {
   abandonPlan,
   addSite,
   canMoveSite,
+  countLocationSlots,
   countUsedSlots,
+  locationAliases,
+  locationSlots,
   emptyPlan,
   exportPlan,
   facilitySlotKind,
@@ -264,6 +267,36 @@ describe('planner request and slots', () => {
     ]);
     // The saved plan itself keeps its original reference.
     expect(model.sites[1].body_ref).toBe('4');
+  });
+
+  it('looks up belt capacity and occupancy through every alias, as the plan check does', () => {
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    const model = setSlotCount(
+      plan(
+        site('port'),
+        site('base', { body_ref: '4', status: 'complete' }),
+        site('gone', { body_ref: '4', status: 'demolished' }),
+      ),
+      '4',
+      'orbital',
+      2,
+    );
+    expect(locationAliases(data, '3')).toEqual(['3', '4', 'belt:10']);
+    expect(locationAliases(data, '1')).toEqual(['1']);
+    expect(locationSlots(model, data, '3')?.orbital_slots).toBe(2);
+    expect(countLocationSlots(model, data, '3')).toEqual({
+      orbital_slots: 1,
+      surface_slots: 0,
+    });
+    // A total entered on the current reference wins over the old alias's.
+    const edited = setSlotCount(model, '3', 'orbital', 3);
+    expect(locationSlots(edited, data, '3')?.orbital_slots).toBe(3);
+    expect(
+      toPlanRequest(edited, data).bodies?.find(
+        ({ body_ref }) => body_ref === '3',
+      )?.orbital_slots,
+    ).toBe(3);
   });
 
   it('keeps slot counts entered on a belt alias the belt no longer selects', () => {

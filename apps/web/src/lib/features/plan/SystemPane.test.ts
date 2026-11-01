@@ -287,6 +287,41 @@ describe('System pane site groups', () => {
     expect(fixture.model.sites).toEqual(savedSites);
   });
 
+  it('shows a belt slot total and usage saved under a cluster the belt no longer selects', () => {
+    // The belt's first cluster was retired after a site and a slot total were
+    // saved on it, so the belt row now uses cluster 2. The row must show the
+    // same capacity and occupancy as the plan check, not "0/?".
+    const fixture = compactPlanFixture(2, 1);
+    const belt = fixture.bodies.belts[0];
+    const cluster = (id: string, number: number, lifecycle_state: string) => ({
+      ...fixture.bodies.bodies[1],
+      body_id: id,
+      name: `${belt.name} Cluster ${number}`,
+      body_type: 'belt cluster',
+      direct_parent_body_id: '1',
+      lifecycle_state,
+    });
+    fixture.bodies.bodies.push(
+      cluster('c1', 1, 'RETIRED'),
+      cluster('c2', 2, 'ACTIVE'),
+    );
+    fixture.model.sites[0] = {
+      ...fixture.model.sites[0],
+      body_ref: 'c1',
+      slot_kind: 'orbital',
+      status: 'complete',
+    };
+    fixture.model.slots = {
+      c1: { orbital_slots: 2, surface_slots: null },
+    };
+    renderSystem(fixture);
+    expect(
+      screen.getByRole('button', {
+        name: `Orbital slots on ${belt.name}: 1 used, 2 total`,
+      }),
+    ).toBeVisible();
+  });
+
   it('offers the facility picker only on current locations', async () => {
     const fixture = compactPlanFixture(3, 0);
     fixture.bodies.bodies[1].lifecycle_state = 'RETIRED';

@@ -195,7 +195,7 @@ export function toPlanRequest(
   // one slot total and keep the belt's properties (ringed, no surface). Only
   // the request is normalised; saved site references are never rewritten.
   const evaluationRef = new Map<string, string>();
-  const evaluatedBelts: { body_ref: string; aliases: string[] }[] = [];
+  const evaluatedBelts: { body_ref: string }[] = [];
   for (const belt of data.belts) {
     const aliases = beltAliases(data, belt);
     const canonical =
@@ -205,12 +205,9 @@ export function toPlanRequest(
     if (canonical === undefined || evaluationRef.has(canonical)) continue;
     for (const alias of aliases)
       if (!evaluationRef.has(alias)) evaluationRef.set(alias, canonical);
-    evaluatedBelts.push({ body_ref: canonical, aliases });
+    evaluatedBelts.push({ body_ref: canonical });
   }
   const beltRefs = new Set(evaluationRef.keys());
-  const beltSlots = (canonical: string, aliases: string[]) =>
-    model.slots[canonical] ??
-    aliases.map((alias) => model.slots[alias]).find(Boolean);
   return {
     system_id64: model.system_id64,
     bodies: [
@@ -227,9 +224,10 @@ export function toPlanRequest(
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
         })),
-      ...evaluatedBelts.map(({ body_ref, aliases }) => ({
+      ...evaluatedBelts.map(({ body_ref }) => ({
         body_ref,
-        orbital_slots: beltSlots(body_ref, aliases)?.orbital_slots ?? null,
+        orbital_slots:
+          locationSlots(model, data, body_ref)?.orbital_slots ?? null,
         surface_slots: 0,
         is_landable: false,
         is_ringed: true,
@@ -301,6 +299,53 @@ export function unplaceMissingLocations(
         : site,
     ),
   };
+}
+
+/**
+ * Every saved reference the plan check treats as this location, the location's
+ * own reference first: all of a belt's aliases (its clusters and `belt:<id>`),
+ * or just the reference itself for anything else. See `toPlanRequest`.
+ */
+export function locationAliases(
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): string[] {
+  for (const belt of data?.belts ?? []) {
+    const aliases = beltAliases(data!, belt);
+    if (aliases.includes(bodyRef))
+      return [bodyRef, ...aliases.filter((ref) => ref !== bodyRef)];
+  }
+  return [bodyRef];
+}
+
+/** The slot totals the plan check uses for a location: its own, else an alias's. */
+export function locationSlots(
+  model: PlannerModel,
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): SlotCounts | undefined {
+  return locationAliases(data, bodyRef)
+    .map((ref) => model.slots[ref])
+    .find(Boolean);
+}
+
+/** Slots used at a location, counting sites saved under any of its aliases. */
+export function countLocationSlots(
+  model: PlannerModel,
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): { orbital_slots: number; surface_slots: number } {
+  const aliases = new Set(locationAliases(data, bodyRef));
+  const counts = { orbital_slots: 0, surface_slots: 0 };
+  for (const site of model.sites) {
+    if (
+      site.body_ref !== null &&
+      aliases.has(site.body_ref) &&
+      site.status !== 'demolished'
+    )
+      counts[`${site.slot_kind}_slots`]++;
+  }
+  return counts;
 }
 
 export function countUsedSlots(
@@ -526,16 +571,17 @@ export function findFreeLocation(
   model: PlannerModel,
   locations: PlannerLocation[],
   facility: PlanFacilityV1,
+  data?: PlanBodiesV1,
 ): string | null {
   const kind = facilitySlotKind(facility);
   const key = `${kind}_slots` as const;
   return (
     locations.find((location) => {
-      const available = model.slots[location.body_ref]?.[key];
+      const available = locationSlots(model, data, location.body_ref)?.[key];
       return (
         facilityFitsLocation(facility, location) &&
         typeof available === 'number' &&
-        countUsedSlots(model.sites, location.body_ref)[key] < available
+        countLocationSlots(model, data, location.body_ref)[key] < available
       );
     })?.body_ref ?? null
   );
