@@ -245,6 +245,87 @@ jobs:
           PYTHONPATH: apps/api/src:.
         run: apps/api/.venv/bin/pytest tests/test_journal_contributions_postgres.py -q
 
+  # These journal flows require a fresh V3 schema; the general integration
+  # lane below seeds V2 and intentionally skips them.
+  journal-flows:
+    name: V3 journal flows (PG18+Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
+        env:
+          POSTGRES_USER: edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB: journal_flow_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up CPython 3.14 for V3 application validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install pinned uv and frozen V3 backend test environment
+        run: |
+          python -m pip install uv==0.11.33
+          test "$(python -m uv --version | cut -d' ' -f1-2)" = "uv 0.11.33"
+          python -m uv lock --project apps/api --check
+          python -m uv sync --project apps/api --frozen --group test --no-install-project
+      - name: Assert V3 application runtime identity
+        run: apps/api/.venv/bin/python scripts/checks/assert_v3_python_runtime.py
+      - name: Apply V3 journal fixture migrations
+        env:
+          PGPASSWORD: edfinder
+        run: |
+          set -euo pipefail
+          for migration in \
+            sql/v3/migrations/001_v3_baseline.sql \
+            sql/v3/migrations/002_v3_accounts_identity.sql \
+            sql/v3/migrations/005_v3_journal_intelligence.sql \
+            sql/v3/migrations/008_v3_journal_commander_ownership.sql \
+            sql/v3/migrations/009_v3_journal_galaxy_contributions.sql
+          do
+            psql -X -h localhost -U edfinder -d journal_flow_test \
+              -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Run V3 journal research and import flows
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/journal_flow_test
+          REDIS_URL: redis://localhost:6379/15
+          CORS_ORIGINS: http://test
+          ADMIN_TOKEN: test-admin-token
+          LOG_LEVEL: WARNING
+          EDDN_SIMULATION_INGEST_ENABLED: "false"
+          EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET: "yes"
+          EDF_DB_TESTS_REQUIRED: "1"
+          PYTHONPATH: apps/api/src:.
+        run: |
+          set -euo pipefail
+          apps/api/.venv/bin/python -m pytest -q \
+            tests/integration/test_v3_journal_research_flow.py \
+            tests/integration/test_v3_journal_import_flow.py \
+            --junitxml="$RUNNER_TEMP/journal-flows.xml"
+          # EDF_DB_TESTS_REQUIRED rejects availability failures. Schema/module
+          # skips are allowed in V2 lanes, but must fail this dedicated V3 lane.
+          apps/api/.venv/bin/python - "$RUNNER_TEMP/journal-flows.xml" <<'PY'
+          import sys
+          from defusedxml import ElementTree
+
+          report = ElementTree.parse(sys.argv[1])
+          cases = report.findall(".//testcase")
+          skipped = report.findall(".//skipped")
+          if not cases or skipped:
+              raise SystemExit(f"V3 journal flows must run without skips: {len(cases)} cases, {len(skipped)} skipped")
+          PY
+
   # V3 production uses PostgreSQL 18. This protected integration lane therefore
   # validates every migration, seed invariant and DB-backed integration test on
   # PostgreSQL 18 instead of relying only on the legacy/local PG16 Compose file.
