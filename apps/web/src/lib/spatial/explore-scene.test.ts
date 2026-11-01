@@ -224,4 +224,39 @@ describe('Explore Galaxy scene mapper', () => {
     ).toBeNull();
     expect(createExploreSelectionContribution(null, [], 1)).toBeNull();
   });
+
+  it('does not map unrelated page entries to deduplicate the retained selection', () => {
+    const selectedPoint = mapExploreSelectedSystemPoint({
+      id64: parseId64('42'),
+      name: 'Retained selection',
+      coords: { x: 1, y: 2, z: 3 },
+    } as ExploreSystem)!;
+    const unrelated = {
+      id64: parseId64('43'),
+      get coords(): never {
+        throw new Error('Unrelated page coordinates must not be remapped');
+      },
+    } as ExploreSystem;
+    expect(
+      createExploreSelectionContribution(selectedPoint, [unrelated], 1)
+        ?.layers[0]?.targetCount,
+    ).toBe(1);
+    expect(
+      createExploreSelectionContribution(
+        selectedPoint,
+        [
+          unrelated,
+          { id64: selectedPoint.systemId64, coords: selectedPoint.positionLy },
+        ] as ExploreSystem[],
+        1,
+      ),
+    ).toBeNull();
+    expect(
+      createExploreSelectionContribution(
+        selectedPoint,
+        [{ id64: selectedPoint.systemId64, coords: null }] as ExploreSystem[],
+        1,
+      )?.layers[0]?.targetCount,
+    ).toBe(1);
+  });
 });

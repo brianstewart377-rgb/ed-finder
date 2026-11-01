@@ -149,7 +149,8 @@
         href={FINDER_F4_ENABLED
           ? inspectHref(id64, page.url)
           : resolve(`/inspect?system=${id64}`)}
-        onclick={openInspect}>Open canonical Inspect</a
+        onclick={FINDER_F4_ENABLED ? openInspect : undefined}
+        >Open canonical Inspect</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </div>

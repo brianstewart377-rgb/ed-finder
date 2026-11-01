@@ -93,8 +93,9 @@ function status(entry: CompareEntry): string {
 /** Normalize legacy snapshots at the display boundary without changing stored data. */
 export function buildCompareRows(
   entries: readonly CompareEntry[],
-  { suppressDistance = false }: CompareMetricOptions = {},
+  options?: CompareMetricOptions,
 ): CompareMetricRow[] {
+  const suppressDistance = options?.suppressDistance ?? false;
   const plain = (
     label: string,
     render: (entry: CompareEntry) => string,
@@ -203,7 +204,7 @@ export function buildCompareRows(
 
 export function compareCsv(
   entries: readonly CompareEntry[],
-  options: CompareMetricOptions = {},
+  options?: CompareMetricOptions,
 ): string {
   const quote = (value: string | number) => {
     const safe =

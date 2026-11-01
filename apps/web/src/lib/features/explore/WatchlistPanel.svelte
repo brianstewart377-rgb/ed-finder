@@ -238,7 +238,9 @@
                     href={FINDER_F4_ENABLED
                       ? inspectHref(entry.id64, page.url)
                       : resolve(`/inspect?system=${entry.id64}`)}
-                    onclick={(event) => followInspect(event, entry.id64)}
+                    onclick={FINDER_F4_ENABLED
+                      ? (event) => followInspect(event, entry.id64)
+                      : undefined}
                     aria-label={`Inspect ${entry.name}`}>{entry.name}</a
                   >{#if entry.is_colonised}<span class="detail-line"
                       >Colonised</span
@@ -389,7 +391,9 @@
                     href={FINDER_F4_ENABLED
                       ? inspectHref(entry.system_id64, page.url)
                       : resolve(`/inspect?system=${entry.system_id64}`)}
-                    onclick={(event) => followInspect(event, entry.system_id64)}
+                    onclick={FINDER_F4_ENABLED
+                      ? (event) => followInspect(event, entry.system_id64)
+                      : undefined}
                     aria-label={`Inspect ${entry.name}`}>{entry.name}</a
                   >{#if entry.is_colonised}<span class="detail-line"
                       >Colonised</span

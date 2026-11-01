@@ -257,6 +257,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
   });
 
   it('patches an older cached density viewport without reloading the scene', async () => {
+    featureGate.enabled = true;
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     vi.mocked(api.getMapHeatmap).mockImplementation(async (request) =>
       request.voxel_size === 590 ? pyramidFixture : coarsePyramidFixture,
@@ -320,6 +321,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
   });
 
   it('removes a density contribution once when a refreshed response is unavailable', async () => {
+    featureGate.enabled = true;
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
     render(ExploreWorkspaceTestHost);
     await screen.findByText(/2 density cells/);

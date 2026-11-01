@@ -77,7 +77,7 @@ export function createExploreSelectionContribution(
     !hasKnownSelectionPosition(point) ||
     systems.some(
       (system) =>
-        mapExploreSystemPoint(system)?.systemId64 === point.systemId64,
+        system.id64 === point.systemId64 && mapExploreSystemPoint(system),
     )
   ) {
     return null;
@@ -214,10 +214,14 @@ export function buildExploreGalaxyScene(
         ? [{ kind: 'region', id: context.selectedRegionId } as const]
         : []),
     ],
-    contributions: [
-      finderContribution,
-      ...(selectionContribution ? [selectionContribution] : []),
-      ...(context.spatialContributions ?? []),
-    ],
+    // Without an F4 selection this is the original main composition, without
+    // allocating or scanning an extra selection array.
+    contributions: selectionContribution
+      ? [
+          finderContribution,
+          selectionContribution,
+          ...(context.spatialContributions ?? []),
+        ]
+      : [finderContribution, ...(context.spatialContributions ?? [])],
   };
 }

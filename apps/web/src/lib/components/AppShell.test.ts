@@ -130,6 +130,28 @@ describe('AppShell selection hydration', () => {
     expect(mockedGoto).not.toHaveBeenCalled();
   });
 
+  it("retains main's exact selection writes across disabled detail visits", async () => {
+    const setSelection = vi.spyOn(selectedSystem, 'set');
+    mount(`/explore?system=${inspectedId}`);
+    await screen.findByRole('dialog', { name: 'System Detail' });
+    expect(setSelection.mock.calls).toEqual([[inspectedId]]);
+
+    // Unrelated query changes leave the same visit and selection untouched.
+    restore(`/explore?system=${inspectedId}&selected=${selectedId}`);
+    await waitFor(() =>
+      expect(navigation.page.url.searchParams.get('selected')).toBe(selectedId),
+    );
+    expect(setSelection.mock.calls).toEqual([[inspectedId]]);
+
+    restore('/explore');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(setSelection.mock.calls).toEqual([[inspectedId]]);
+    restore(`/explore?system=${inspectedId}`);
+    await screen.findByRole('dialog', { name: 'System Detail' });
+    // Main restarts the URL-selection latch after a visit without system=.
+    expect(setSelection.mock.calls).toEqual([[inspectedId], [inspectedId]]);
+  });
+
   it('hydrates a lossless passive selection without opening detail', async () => {
     featureGate.enabled = true;
     mount(`/explore?selected=${selectedId}`);

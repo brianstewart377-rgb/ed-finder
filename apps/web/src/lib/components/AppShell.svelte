@@ -20,6 +20,7 @@
   const persistence = usePersistenceContext();
   const { selectedSystem } = persistence;
   let persistenceReady = $state(false);
+  let lastUrlSelection: Id64 | null = null;
 
   const detailId = $derived.by((): Id64 | null => {
     const raw = page.url.searchParams.get('system');
@@ -50,8 +51,20 @@
   let overlayId = $derived(page.url.pathname === '/explore' ? detailId : null);
 
   function establishUrlSelection(): void {
-    // Explore owns even an absent selection. Other routes and disabled builds
-    // keep the existing detail-driven selection without clearing on omission.
+    if (!FINDER_F4_ENABLED) {
+      // Keep main's detail-driven latch, without reading the F4 selection
+      // derived or subscribing to the persisted store via get().
+      if (!detailId) {
+        lastUrlSelection = null;
+        return;
+      }
+      if (detailId === lastUrlSelection) return;
+      selectedSystem.set(detailId);
+      lastUrlSelection = detailId;
+      return;
+    }
+    // F4 Explore owns even an absent selection. Other routes keep the
+    // detail-driven selection without clearing on omission.
     if (!urlSelection && !exploreSelection) return;
     if (get(selectedSystem).value !== urlSelection)
       selectedSystem.set(urlSelection);
@@ -102,8 +115,9 @@
       href={exploreSelection
         ? inspectHref($selectedSystem.value, page.url)
         : resolve(`/inspect?system=${$selectedSystem.value}`)}
-      onclick={(event) => followInspect(event, $selectedSystem.value!)}
-      >Inspect</a
+      onclick={FINDER_F4_ENABLED
+        ? (event) => followInspect(event, $selectedSystem.value!)
+        : undefined}>Inspect</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
     <a href={resolve(`/plan?system=${$selectedSystem.value}`)}>Open plan</a>

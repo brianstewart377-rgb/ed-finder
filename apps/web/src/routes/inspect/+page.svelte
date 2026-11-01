@@ -16,15 +16,10 @@
       return null;
     }
   });
-  const backHref = $derived(exploreHref(false));
-  const openHref = $derived(exploreHref(true));
+  const backHref = $derived(FINDER_F4_ENABLED ? exploreHref(false) : null);
+  const openHref = $derived(FINDER_F4_ENABLED ? exploreHref(true) : null);
 
   function exploreHref(selectSystem: boolean): string {
-    if (!FINDER_F4_ENABLED) {
-      return selectSystem && systemId
-        ? resolve(`/explore?system=${systemId}`)
-        : resolve('/explore');
-    }
     const params = new URLSearchParams(page.url.searchParams.get('from') ?? '');
     if (selectSystem && systemId) {
       // Replace prior selections, including every duplicate in the source query.
@@ -61,13 +56,19 @@
       <!-- eslint-disable svelte/no-navigation-without-resolve -- exploreHref resolves the Explore route -->
       <a
         class="secondary-button"
-        href={backHref}
-        onclick={(event) => followExplore(event, backHref)}>Back to Explore</a
+        href={FINDER_F4_ENABLED ? backHref! : resolve('/explore')}
+        onclick={FINDER_F4_ENABLED
+          ? (event) => followExplore(event, backHref!)
+          : undefined}>Back to Explore</a
       >
       <a
         class="secondary-button"
-        href={openHref}
-        onclick={(event) => followExplore(event, openHref)}>Open in Explore</a
+        href={FINDER_F4_ENABLED
+          ? openHref!
+          : resolve(`/explore?system=${systemId}`)}
+        onclick={FINDER_F4_ENABLED
+          ? (event) => followExplore(event, openHref!)
+          : undefined}>Open in Explore</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
       <a class="primary-button" href={resolve(`/plan?system=${systemId}`)}

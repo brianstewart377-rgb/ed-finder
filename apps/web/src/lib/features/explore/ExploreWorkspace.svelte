@@ -18,6 +18,7 @@
     type AutocompleteSystem,
     type CatalogueViewportResponse,
     type DistanceAnchor,
+    type ExploreSearchRequest,
     type ExploreSystem,
     type FinderPageEnvelope,
   } from '$lib/api/client';
@@ -26,6 +27,7 @@
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
   import {
+    DEFAULT_RANKING_STATE,
     hasRankingSearchParams,
     lastPageCorrection,
     normalizeRankingState,
@@ -167,9 +169,7 @@
   const parsedRanking = $derived(
     FINDER_F4_ENABLED ? parseRankingSearchParams(page.url.searchParams) : null,
   );
-  const rankingState = $derived(
-    parsedRanking?.state ?? normalizeRankingState(null),
-  );
+  const rankingState = $derived(parsedRanking?.state ?? DEFAULT_RANKING_STATE);
   const urlSelection = $derived.by((): Id64 | null => {
     if (!FINDER_F4_ENABLED) return null;
     const values = page.url.searchParams.getAll('selected');
@@ -208,6 +208,25 @@
   const anchorReference = $derived<DistanceAnchor | null>(
     anchor ? { id64: anchor.id64, name: anchor.name } : null,
   );
+  // Keep the disabled query identical to main: no F4 request/state wrapping,
+  // placeholder observer options, or additional response-normalization pass.
+  const searchRequest = $derived.by((): ExploreSearchRequest => {
+    if (
+      anchor &&
+      typeof anchor.x === 'number' &&
+      typeof anchor.y === 'number' &&
+      typeof anchor.z === 'number'
+    ) {
+      return {
+        reference_coords: { x: anchor.x, y: anchor.y, z: anchor.z },
+        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+        sort_by: 'distance',
+        size: 24,
+        from: 0,
+      };
+    }
+    return { galaxy_wide: true, sort_by: 'development', size: 24, from: 0 };
+  });
   const finderQueryKey = $derived(
     finderRequest.kind === 'rankings'
       ? queryKeys.rankings(finderRequest.request)
@@ -221,10 +240,17 @@
   type FinderResponse = {
     results: readonly ExploreSystem[];
     page: FinderPageEnvelope;
-    finderState: FinderRankingState;
-    finderIdentity: string;
+    finderState?: FinderRankingState;
+    finderIdentity?: string;
   };
   const results = createQuery<FinderResponse>(() => {
+    if (!FINDER_F4_ENABLED)
+      return {
+        queryKey: queryKeys.explore(searchRequest, anchorReference),
+        queryFn: ({ signal }) =>
+          searchExploreSystems(searchRequest, signal, anchorReference),
+        retry: 0,
+      };
     // Capture the complete request identity with its envelope. Placeholder rows
     // keep their old mode, floor and offset until the replacement arrives.
     const request = finderRequest;
@@ -240,32 +266,31 @@
               request.request,
               signal,
               reference,
-              FINDER_F4_ENABLED ? request.pageSize : undefined,
+              request.pageSize,
             )),
         finderState: state,
         finderIdentity: identity,
       }),
       enabled: rankingUrlReady,
-      ...(FINDER_F4_ENABLED ? { staleTime: 0 } : {}),
-      placeholderData: FINDER_F4_ENABLED
-        ? (previous: FinderResponse | undefined) => previous
-        : undefined,
+      staleTime: 0,
+      placeholderData: (previous: FinderResponse | undefined) => previous,
       retry: 0,
     };
   });
-  let retainedResults = $state<FinderResponse>();
-  let retainedResultsRevision = $state(0);
+  // Query data is immutable and structurally shared. A deep $state proxy here
+  // would give retained rows a different identity and rebuild their map layer.
+  let retainedResults = $state.raw<FinderResponse>();
   $effect(() => {
     if (FINDER_F4_ENABLED && results.data && !results.isPlaceholderData) {
       retainedResults = results.data;
-      retainedResultsRevision = results.dataUpdatedAt;
     }
   });
   const displayedResults = $derived(
     results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined),
   );
   const currentResponse = $derived(
-    rankingUrlReady &&
+    FINDER_F4_ENABLED &&
+      rankingUrlReady &&
       !results.isPlaceholderData &&
       results.data?.finderIdentity === finderIdentity &&
       results.data.page.page_size === rankingState.pageSize &&
@@ -566,19 +591,22 @@
     revision: 0,
     layers: [],
   };
+  const legacyDensityContribution = $derived(
+    densityContributionFrom(heatmap.data, heatmap.dataUpdatedAt),
+  );
   let densityContribution = $state.raw<SpatialContribution | null>(null);
+  let appliedDensityData: typeof heatmap.data;
   let densityRevision = 0;
   let densityRemovalRevision = $state(0);
   $effect(() => {
     // A placeholder is the already-applied density, not a new empty revision.
-    if (heatmap.isPlaceholderData) return;
-    void heatmap.dataUpdatedAt;
+    if (!FINDER_F4_ENABLED || heatmap.isPlaceholderData) return;
+    const data = heatmap.data;
+    if (data === appliedDensityData) return;
+    appliedDensityData = data;
     // Cached viewport responses can have older timestamps. The renderer's
     // patch revision must advance even when returning to one of those views.
-    const replacement = densityContributionFrom(
-      heatmap.data,
-      ++densityRevision,
-    );
+    const replacement = densityContributionFrom(data, ++densityRevision);
     if (!replacement && untrack(() => densityContribution) !== null) {
       // A null contribution is not dispatched as a patch; reload to remove it.
       densityRemovalRevision = untrack(() => densityRemovalRevision) + 1;
@@ -626,11 +654,15 @@
   const systems = $derived(
     displayedResults?.results ?? (FINDER_F4_ENABLED ? [] : viewportSystems),
   );
-  const finderRevision = $derived(
-    results.dataUpdatedAt ||
-      retainedResultsRevision ||
-      appliedCatalogueRevision,
-  );
+  let finderSequence = 0;
+  const finderRevision = $derived.by(() => {
+    if (!FINDER_F4_ENABLED)
+      return results.dataUpdatedAt || appliedCatalogueRevision;
+    // Freshness, placeholder and retained-envelope changes do not change the
+    // map. TanStack preserves the row array's identity when its data is equal.
+    void systems;
+    return ++finderSequence;
+  });
   const finderContribution = $derived(
     createExploreFinderContribution(systems, finderRevision),
   );
@@ -663,7 +695,7 @@
       ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
       : null,
   );
-  let retainedSelectedSystem = $state<ExploreSystem | null>(null);
+  let retainedSelectedSystem = $state.raw<ExploreSystem | null>(null);
   const selectedId = $derived(
     FINDER_F4_ENABLED ? urlSelection : $selectedSystem.value,
   );
@@ -689,19 +721,21 @@
         !mapExploreSelectedSystemPoint(retainedSelectedSystem)) &&
       !results.isPending,
   );
-  const selectedDetail = createQuery(() => {
-    const id64 = urlSelection;
-    return {
-      queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
-      queryFn: ({ signal }: { signal: AbortSignal }) => {
-        if (!id64) throw new Error('No selected system');
-        return getSystem(id64, signal);
-      },
-      enabled: needsSelectionResolution,
-      retry: 0,
-    };
-  });
-  const selectedDetailData = $derived(selectedDetail.data);
+  const selectedDetail = FINDER_F4_ENABLED
+    ? createQuery(() => {
+        const id64 = urlSelection;
+        return {
+          queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
+          queryFn: ({ signal }: { signal: AbortSignal }) => {
+            if (!id64) throw new Error('No selected system');
+            return getSystem(id64, signal);
+          },
+          enabled: needsSelectionResolution,
+          retry: 0,
+        };
+      })
+    : undefined;
+  const selectedDetailData = $derived(selectedDetail?.data);
   const reconstructedSelection = $derived<ExploreSystem | null>(
     FINDER_F4_ENABLED &&
       selectedDetailData?.id64 === urlSelection &&
@@ -717,11 +751,45 @@
         }
       : null,
   );
-  const selectedMapSystem = $derived<ExploreSystem | null>(
-    knownSelectedSystem ??
-      reconstructedSelection ??
-      (FINDER_F4_ENABLED && urlSelection ? { id64: urlSelection } : null),
-  );
+  const selectedMapSystem = $derived.by((): ExploreSystem | null => {
+    if (FINDER_F4_ENABLED)
+      return (
+        knownSelectedSystem ??
+        reconstructedSelection ??
+        (urlSelection ? { id64: urlSelection } : null)
+      );
+    const finder = systems.find(
+      (system) => system.id64 === $selectedSystem.value,
+    );
+    if (finder)
+      return {
+        id64: finder.id64,
+        name: finder.name,
+        main_star_type: finder.main_star_type,
+        main_star_subtype: finder.main_star_subtype,
+        distance: finder.distance,
+        population: finder.population,
+        primaryEconomy: finder.primaryEconomy,
+        allegiance: finder.allegiance,
+        security: finder.security,
+      };
+    const catalogue = catalogueStars.data?.systems.find(
+      (system) => system.id64 === $selectedSystem.value,
+    );
+    return catalogue
+      ? {
+          id64: catalogue.id64,
+          name: catalogue.name,
+          main_star_type: catalogue.mainStarClass,
+          main_star_subtype: null,
+          distance: null,
+          population: null,
+          primaryEconomy: null,
+          allegiance: null,
+          security: null,
+        }
+      : null;
+  });
   const selectedPoint = $derived(
     FINDER_F4_ENABLED && selectedMapSystem
       ? (mapExploreSelectedSystemPoint(selectedMapSystem) ??
@@ -733,12 +801,15 @@
             : null))
       : null,
   );
+  let selectionSequence = 0;
   const selectionContribution = $derived(
-    createExploreSelectionContribution(
-      selectedPoint,
-      systems,
-      finderRevision + selectedDetail.dataUpdatedAt,
-    ),
+    FINDER_F4_ENABLED
+      ? createExploreSelectionContribution(
+          selectedPoint,
+          systems,
+          ++selectionSequence,
+        )
+      : null,
   );
   $effect(() => {
     if (!FINDER_F4_ENABLED) return;
@@ -762,37 +833,58 @@
       subtype: selectedMapSystem?.main_star_subtype,
     }),
   );
-  const scene = $derived(
-    buildExploreGalaxyScene(
+  let sceneSequence = 0;
+  const scene = $derived.by(() => {
+    if (FINDER_F4_ENABLED) {
+      // Density patches and camera receipts have their own renderer updates.
+      // Snapshot them only when visual scene inputs change. Neither timestamps
+      // nor placeholder bookkeeping may rebuild all the scene contributions.
+      void densityRemovalRevision;
+      return buildExploreGalaxyScene(systems, selectedId, ++sceneSequence, {
+        finderContribution,
+        finderRevision,
+        selectedPoint,
+        selectionContribution,
+        camera: untrack(() => retainedCamera?.camera ?? null),
+        spatialContributions: collectGalaxySpatialContributions({
+          regions: regionContribution,
+          nebulae: nebulaContribution,
+          density: untrack(
+            () => densityContribution ?? emptyDensityContribution,
+          ),
+          catalogueStars: catalogueStarsContribution,
+          commanderHistory: commanderHistoryContribution,
+        }),
+        selectedRegionId,
+      });
+    }
+    return buildExploreGalaxyScene(
       systems,
-      selectedId,
+      $selectedSystem.value,
       finderRevision +
         selectionRevision +
-        selectedDetail.dataUpdatedAt +
         regionResourceRevision +
         streamRevision +
         layerToggleRevision +
         appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
         nebulaResourceRevision +
-        densityRemovalRevision,
+        (heatmap.dataUpdatedAt ?? 0),
       {
         finderContribution,
         finderRevision,
-        selectedPoint,
-        selectionContribution,
         camera: retainedCamera?.camera ?? null,
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: densityContribution ?? emptyDensityContribution,
+          density: legacyDensityContribution,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
         selectedRegionId,
       },
-    ),
-  );
+    );
+  });
 
   $effect(() => {
     if (!anchor || !results.data || results.isFetching) return;
@@ -990,7 +1082,7 @@
     // starts so the viewport debounce cannot load the pre-flight close view
     // and then switch back to the overview on settle. FLY_TO supplies its camera
     // only on completion; its in-flight samples are still ignored.
-    if (camera && 'focusLy' in camera) {
+    if ((FINDER_F4_ENABLED || !active) && camera && 'focusLy' in camera) {
       retainCamera(camera);
     }
   }
@@ -1001,7 +1093,13 @@
     const canvas = mapSection?.querySelector('canvas');
     requestView(
       fitGalaxyPlaneCamera(
-        { ...scene.camera, bearingRad: 0, pitchRad: Math.PI / 2 },
+        {
+          ...(FINDER_F4_ENABLED
+            ? (retainedCamera?.camera ?? scene.camera)
+            : scene.camera),
+          bearingRad: 0,
+          pitchRad: Math.PI / 2,
+        },
         {
           min: { x: origin.x, y: 0, z: origin.z },
           max: {
@@ -1023,7 +1121,15 @@
       (candidate) => String(candidate.id) === selectedRegionId,
     );
     if (region)
-      requestView(focusGalaxyCamera(scene.camera, region.labelLy, 18_000));
+      requestView(
+        focusGalaxyCamera(
+          FINDER_F4_ENABLED
+            ? (retainedCamera?.camera ?? scene.camera)
+            : scene.camera,
+          region.labelLy,
+          18_000,
+        ),
+      );
   }
 
   async function loadRegions(): Promise<void> {
@@ -1241,7 +1347,7 @@
           <FinderResultRanking
             variant="summary"
             page={displayedResults.page}
-            archetype={displayedResults.finderState.archetype}
+            archetype={displayedResults.finderState!.archetype}
           />
         {:else}<span>{systems.length} shown</span>{/if}
       </div>
@@ -1355,11 +1461,11 @@
                   ><strong>{system.name ?? `System ${system.id64}`}</strong
                   ><code>{system.id64}</code></span
                 >
-                {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState.archetype !== 'any')}
+                {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
                   <FinderResultRanking
                     variant="row"
                     {system}
-                    archetype={displayedResults.finderState.archetype}
+                    archetype={displayedResults.finderState!.archetype}
                   />
                 {/if}
                 <span class="result-facts">
@@ -1384,7 +1490,9 @@
                 href={FINDER_F4_ENABLED
                   ? inspectHref(system.id64, page.url)
                   : resolve(`/inspect?system=${system.id64}`)}
-                onclick={(event) => followInspect(event, system.id64)}
+                onclick={FINDER_F4_ENABLED
+                  ? (event) => followInspect(event, system.id64)
+                  : undefined}
                 aria-label={`Inspect ${system.name ?? system.id64}`}
               >
                 Inspect <ArrowRight aria-hidden="true" size={16} />
@@ -1557,7 +1665,7 @@
             0}
           data-density-cell-count={densityCellCount}
         >
-          {#if densityContribution}
+          {#if FINDER_F4_ENABLED ? densityContribution : legacyDensityContribution}
             {densityCellCount.toLocaleString()} density cells{densityTruncated
               ? ' · bounded view'
               : ''}
@@ -1615,8 +1723,10 @@
         {cameraRequestRevision}
         {focusTarget}
         {focusRevision}
-        contributionPatch={densityContribution}
-        contributionPatchRevision={densityContribution?.revision ?? 0}
+        contributionPatch={FINDER_F4_ENABLED ? densityContribution : null}
+        contributionPatchRevision={FINDER_F4_ENABLED
+          ? (densityContribution?.revision ?? 0)
+          : 0}
         onRuntimeEvent={handleRuntimeEvent}
         onTransitionChange={handleCameraTransitionChange}
       />
@@ -1682,8 +1792,9 @@
               href={FINDER_F4_ENABLED
                 ? inspectHref(selectedMapSystem.id64, page.url)
                 : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
-              onclick={(event) => followInspect(event, selectedMapSystem!.id64)}
-              >Open System Map</a
+              onclick={FINDER_F4_ENABLED
+                ? (event) => followInspect(event, selectedMapSystem!.id64)
+                : undefined}>Open System Map</a
             >
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
             <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}

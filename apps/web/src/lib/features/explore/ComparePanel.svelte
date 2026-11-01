@@ -10,8 +10,11 @@
   let { onOpenDetail } = $props<{ onOpenDetail?: (id64: Id64) => void }>();
   const { compare } = usePersistenceContext();
   const entries = $derived($compare.value);
-  const metricOptions = { suppressDistance: FINDER_F4_ENABLED };
-  const rows = $derived(buildCompareRows(entries, metricOptions));
+  const rows = $derived(
+    FINDER_F4_ENABLED
+      ? buildCompareRows(entries, { suppressDistance: true })
+      : buildCompareRows(entries),
+  );
   const componentId = $props.id();
   const headingId = `${componentId}-compare-title`;
 
@@ -25,9 +28,14 @@
   }
 
   function exportCsv(): void {
-    const blob = new Blob([compareCsv(entries, metricOptions)], {
-      type: 'text/csv;charset=utf-8',
-    });
+    const blob = new Blob(
+      [
+        FINDER_F4_ENABLED
+          ? compareCsv(entries, { suppressDistance: true })
+          : compareCsv(entries),
+      ],
+      { type: 'text/csv;charset=utf-8' },
+    );
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -128,9 +136,12 @@
                   <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectLink resolves both legacy and state-preserving destinations -->
                   <a
                     class="system-name"
-                    href={inspectLink(entry.id64)}
-                    onclick={(event) => openInspect(event, entry.id64)}
-                    >{entry.name}</a
+                    href={FINDER_F4_ENABLED
+                      ? inspectLink(entry.id64)
+                      : resolve(`/inspect?system=${entry.id64}`)}
+                    onclick={FINDER_F4_ENABLED
+                      ? (event) => openInspect(event, entry.id64)
+                      : undefined}>{entry.name}</a
                   >
                   <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 {/if}
