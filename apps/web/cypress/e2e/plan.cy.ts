@@ -303,10 +303,13 @@ describe('Colony planner browser-kept main path', () => {
       cy.wait(['@catalogue', '@planBodies']);
       const opener = `button[aria-label="Add a build on ${systemName} A 1"]`;
       let bodyTop = 0;
+      // Measure inside the body list: content above the pane may finish
+      // loading after this point, but the popup must not move the rows.
+      const offsetInTree = (body: HTMLElement) =>
+        body.getBoundingClientRect().top -
+        body.closest('.plan-body-tree')!.getBoundingClientRect().top;
       cy.get('[data-plan-body="planet-1"]').then(($body) => {
-        bodyTop =
-          $body[0].getBoundingClientRect().top +
-          $body[0].ownerDocument.defaultView!.scrollY;
+        bodyTop = offsetInTree($body[0]);
       });
       cy.get(opener).focus().click();
       cy.get('[role="dialog"]')
@@ -354,10 +357,7 @@ describe('Colony planner browser-kept main path', () => {
         .should('have.attr', 'role', 'tab')
         .and('have.text', 'Orbital');
       cy.get('[data-plan-body="planet-1"]').should(($body) => {
-        expect(
-          $body[0].getBoundingClientRect().top +
-            $body[0].ownerDocument.defaultView!.scrollY,
-        ).to.equal(bodyTop);
+        expect(offsetInTree($body[0])).to.equal(bodyTop);
       });
       cy.get('[role="dialog"] [role="tabpanel"]').should(($list) => {
         expect($list[0].scrollHeight).to.be.greaterThan($list[0].clientHeight);
