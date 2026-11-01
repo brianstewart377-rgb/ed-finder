@@ -16,6 +16,7 @@ from psycopg.conninfo import make_conninfo
 import pytest
 
 from tests import test_v3_purge_copy_and_drop as copy_tests
+from tests.helpers.purge_pg import connect, wait_for_backend_exit as _wait_for_backend_exit
 from tests.test_v3_purge_copy_and_drop import (
     _authorize, _owner, drop, events, finish, staged, state, swap, swap_back, validate, verify,
 )
@@ -39,8 +40,8 @@ PUBLICATION_TABLES = {'v3_meta.current_derived_generation', 'v3_meta.derived_gen
 
 
 def _connect(c, **kwargs):
-    return psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
-                                         dbname=c.info.dbname), **kwargs)
+    return connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                                 dbname=c.info.dbname), **kwargs)
 
 
 class Readers:
@@ -73,6 +74,8 @@ class Readers:
 
     def __exit__(self, *exc):
         self.stop.set()
+        # The shared connection helper waits for backend exit before the
+        # reader thread returns, including server-side rollback and lock release.
         for thread in self.threads:
             thread.join(60)
         assert not any(thread.is_alive() for thread in self.threads)
@@ -140,6 +143,7 @@ def test_a_reader_holding_a_later_relation_fails_the_attempt_at_once(superuser_d
     staged(c, purge, 'system_search')
     before = state(c)
     holder = _connect(c)
+    holder_pid = holder.info.backend_pid
     try:
         # A direct read of the live table (no view) inside an open transaction.
         holder.execute('SELECT count(*) FROM v3_derived.system_search').fetchone()
@@ -154,6 +158,7 @@ def test_a_reader_holding_a_later_relation_fails_the_attempt_at_once(superuser_d
             assert other.execute('SELECT count(*) FROM v3_app.system_search').fetchone()[0] > 0
     finally:
         holder.close()
+    _wait_for_backend_exit(c, holder_pid)
     swap(c, purge, 'system_search')
     assert events(c, 'system_search')[-1] == 'SWAPPED'
 

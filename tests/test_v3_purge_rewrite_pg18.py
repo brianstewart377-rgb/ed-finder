@@ -12,7 +12,8 @@ from psycopg.types.json import Jsonb
 from scripts.operator.lib import v3_purge_rewrite as tool
 from scripts.operator.lib import v3_purge_transactions as tx
 from scripts.operator.lib import v3_generation_purge as controller
-from tests.ratings_v4_pg_fixture import canonical_database  # noqa: F401
+from tests.helpers.purge_pg import ClientCursor, canonical_database  # noqa: F401
+from tests.helpers.purge_pg import diagnose_competing_writers, wait_for_backend_exit
 from tests.test_v3_governed_derived_purge import (
     RELATIONS, SURVIVOR, TARGETS, _application_worker, _authorize, _batch,
     _count, _fresh_purge_controller, _operator_query, _receipt, _wait_for_fixture_maintenance, _writer_fence,
@@ -28,7 +29,7 @@ def _query(connection):
         connection.execute('RESET ROLE')
         results = []
         try:
-            with psycopg.ClientCursor(connection) as cursor:
+            with ClientCursor(connection) as cursor:
                 cursor.execute(statement, parameters)
                 while True:
                     if cursor.description is not None:
@@ -108,15 +109,24 @@ def test_operator_three_steps_recover_committed_and_rolled_back_then_complete(da
                     runtime = controller.Runtime({})
                     with monkeypatch.context() as patcher:
                         patcher.setattr(controller.subprocess, 'Popen', local_popen)
-                        with runtime.rewrite_backend(30_000, on_wait=lambda: observed_waits.append(True)) as backend:
-                            started = tool.start_rewrite(backend.query, purge_ids, relation, _receipt())
-                            # The marker is emitted after COMMIT: another backend
-                            # sees the durable row before VACUUM is submitted.
-                            assert connection.execute(
-                                'SELECT backend_pid FROM v3_meta.derived_generation_purge_event WHERE event_sequence=%s',
-                                (started['start_event'],),
-                            ).fetchone()[0] == started['backend_pid']
-                            backend.command(tool.rewrite_command(relation))
+                        backend_pid = None
+                        try:
+                            with runtime.rewrite_backend(30_000, on_wait=lambda: observed_waits.append(True)) as backend:
+                                backend_pid = backend.query("SELECT jsonb_build_object('pid',pg_backend_pid());")['pid']
+                                # psql deliberately exposes only SQLSTATE, so
+                                # retain activity evidence for any transport failure.
+                                with diagnose_competing_writers(connection, backend_pid=backend_pid, any_error=True):
+                                    started = tool.start_rewrite(backend.query, purge_ids, relation, _receipt())
+                                    # The marker is emitted after COMMIT: another backend
+                                    # sees the durable row before VACUUM is submitted.
+                                    assert connection.execute(
+                                        'SELECT backend_pid FROM v3_meta.derived_generation_purge_event WHERE event_sequence=%s',
+                                        (started['start_event'],),
+                                    ).fetchone()[0] == started['backend_pid']
+                                    backend.command(tool.rewrite_command(relation))
+                        finally:
+                            if backend_pid is not None:
+                                wait_for_backend_exit(connection, backend_pid)
                     assert observed_waits and runtime.report['transaction_outcome'] == 'committed'
                 elif index == 0:
                     started = tool.start_rewrite(_query(worker), purge_ids, relation, _receipt())

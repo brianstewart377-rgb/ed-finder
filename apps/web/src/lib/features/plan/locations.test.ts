@@ -9,6 +9,7 @@ import {
   buildBodyTree,
   facilityFitsLocation,
   flattenBodyTree,
+  nonCurrentLocation,
   resolvePlanLocations,
   shortBodyName,
 } from './locations';
@@ -37,7 +38,7 @@ function body(
     geological_signals: 0,
     biological_signals: 0,
     signals_complete: null,
-    lifecycle_state: 'active',
+    lifecycle_state: 'ACTIVE',
   };
 }
 
@@ -55,6 +56,7 @@ function belt(
     mass_mt: null,
     inner_radius_km: null,
     outer_radius_km: null,
+    lifecycle_state: 'ACTIVE',
   };
 }
 
@@ -72,6 +74,127 @@ function data(
 }
 
 describe('planner body locations', () => {
+  it.each(['RETIRED', 'MISSING_CANDIDATE'])(
+    'excludes a landable %s planet and identifies its saved location',
+    (lifecycle_state) => {
+      const fixture = data([{ ...body('3', null), lifecycle_state }]);
+      expect(fixture.bodies[0]).toMatchObject({
+        body_id: '3',
+        is_landable: true,
+        has_rings: false,
+        geological_signals: 0,
+        biological_signals: 0,
+      });
+      expect(resolvePlanLocations(fixture)).toEqual([]);
+      expect(nonCurrentLocation(fixture, '3')).toEqual({
+        name: 'Test 3',
+        lifecycle_state,
+      });
+    },
+  );
+
+  it('requires the exact ACTIVE lifecycle and ignores current, unknown and Unplaced references', () => {
+    const fixture = data([
+      body('1', null),
+      { ...body('2', null), lifecycle_state: 'active' },
+    ]);
+    expect(
+      resolvePlanLocations(fixture).map(({ body_ref }) => body_ref),
+    ).toEqual(['1']);
+    expect(nonCurrentLocation(fixture, '1')).toBeNull();
+    expect(nonCurrentLocation(fixture, 'missing')).toBeNull();
+    expect(nonCurrentLocation(fixture, null)).toBeNull();
+  });
+
+  it.each(['RETIRED', 'MISSING_CANDIDATE'])(
+    'excludes a %s belt and identifies both saved aliases',
+    (lifecycle_state) => {
+      const fixture = data(
+        [
+          {
+            ...body('3', null, 'belt cluster', 'Test A Belt Cluster 1'),
+            lifecycle_state: 'RETIRED',
+          },
+          body('4', null, 'belt cluster', 'Test A Belt Cluster 2'),
+        ],
+        [{ ...belt('10'), lifecycle_state }],
+      );
+      expect(resolvePlanLocations(fixture)).toEqual([]);
+      for (const bodyRef of ['3', '4', 'belt:10'])
+        expect(nonCurrentLocation(fixture, bodyRef)).toEqual({
+          name: 'Test A Belt',
+          lifecycle_state,
+        });
+      expect(
+        nonCurrentLocation(
+          data([], [{ ...belt('10'), lifecycle_state }]),
+          'belt:10',
+        ),
+      ).toEqual({ name: 'Test A Belt', lifecycle_state });
+    },
+  );
+
+  it('uses only current clusters to represent an ACTIVE belt, with a fallback when all clusters are non-current', () => {
+    const fixture = data(
+      [
+        {
+          ...body('3', null, 'belt cluster', 'Test A Belt Cluster 1'),
+          lifecycle_state: 'RETIRED',
+        },
+        body('4', null, 'belt cluster', 'Test A Belt Cluster 2'),
+      ],
+      [belt('10')],
+    );
+    expect(
+      resolvePlanLocations(fixture).map(({ body_ref }) => body_ref),
+    ).toEqual(['4']);
+    expect(nonCurrentLocation(fixture, '3')).toEqual({
+      name: 'Test A Belt Cluster 1',
+      lifecycle_state: 'RETIRED',
+    });
+    expect(nonCurrentLocation(fixture, '4')).toBeNull();
+    expect(nonCurrentLocation(fixture, 'belt:10')).toBeNull();
+    fixture.bodies[1].lifecycle_state = 'MISSING_CANDIDATE';
+    expect(
+      resolvePlanLocations(fixture).map(({ body_ref }) => body_ref),
+    ).toEqual(['belt:10']);
+    expect(nonCurrentLocation(fixture, '4')).toEqual({
+      name: 'Test A Belt Cluster 2',
+      lifecycle_state: 'MISSING_CANDIDATE',
+    });
+  });
+
+  it('walks through non-current parents to the nearest current ancestor, or root', () => {
+    const fixture = data([
+      body('1', null, 'star'),
+      { ...body('2', '1'), lifecycle_state: 'RETIRED' },
+      { ...body('3', '2'), lifecycle_state: 'MISSING_CANDIDATE' },
+      body('4', '3'),
+      { ...body('5', null), lifecycle_state: 'RETIRED' },
+      body('6', '5'),
+    ]);
+    expect(
+      resolvePlanLocations(fixture).map(({ body_ref, parent_ref }) => ({
+        body_ref,
+        parent_ref,
+      })),
+    ).toEqual([
+      { body_ref: '1', parent_ref: null },
+      { body_ref: '4', parent_ref: '1' },
+      { body_ref: '6', parent_ref: null },
+    ]);
+    expect(nonCurrentLocation(fixture, '4')).toBeNull();
+    expect(nonCurrentLocation(fixture, '6')).toBeNull();
+    expect(nonCurrentLocation(fixture, '2')).toEqual({
+      name: 'Test 2',
+      lifecycle_state: 'RETIRED',
+    });
+    expect(nonCurrentLocation(fixture, '3')).toEqual({
+      name: 'Test 3',
+      lifecycle_state: 'MISSING_CANDIDATE',
+    });
+  });
+
   it('reparents barycentre descendants to the nearest visible ancestor or root', () => {
     const tree = buildBodyTree(
       data([

@@ -36,7 +36,16 @@
   }>();
   let heading = $state<HTMLHeadingElement>();
   let lastFocusedId: Id64 | null = null;
-  let selectedBodyId = $state<number | undefined>();
+  let selection = $state<{
+    systemId: Id64;
+    bodyId: number;
+    name: string;
+  }>();
+  const selectionAnnouncement = $derived(
+    selection && selection.systemId === id64
+      ? `Selected ${selection.name}`
+      : '',
+  );
   let systemMapRevision = $state(0);
 
   const detail = createQuery(() => ({
@@ -46,6 +55,13 @@
       !(error instanceof ApiError && isAbsent(error.status)) &&
       failureCount < 1,
   }));
+  // Frontier BodyIDs are local to a system. Guard both consumers before any
+  // render, including while the query is switching to the next system.
+  const selectedBodyId = $derived(
+    selection && selection.systemId === id64 && detail.data?.id64 === id64
+      ? selection.bodyId
+      : undefined,
+  );
   // 404: no such system in the published catalogue. 422: an id64 beyond the
   // catalogue's signed 64-bit key space, which therefore cannot exist there.
   function isAbsent(status: number): boolean {
@@ -117,6 +133,12 @@
       isFleetCarrier(station.stationType),
     ),
   );
+
+  $effect.pre(() => {
+    // Leaving a system ends the visit; returning must not restore its pick.
+    // Refetches of the same system leave the selection intact.
+    if (selection && selection.systemId !== id64) selection = undefined;
+  });
 
   $effect(() => {
     if (!autofocusHeading || !detail.data || lastFocusedId === id64) return;
@@ -196,12 +218,21 @@
   }
 
   function selectBody(bodyId: number): void {
-    selectedBodyId = bodyId;
+    const system = detail.data;
+    if (!system || system.id64 !== id64) return;
+    const body = system.bodies.find((body) => body.id === bodyId);
+    if (!body) return;
+    // Capture the announcement on selection, not on catalogue refetches.
+    selection = { systemId: id64, bodyId, name: body.name };
     systemMapRevision += 1;
   }
 
   function handleSystemMapEvent(event: RuntimeEvent): void {
-    if (event.type === 'TARGET_PICKED' && event.target?.kind === 'body') {
+    if (
+      event.type === 'TARGET_PICKED' &&
+      event.target?.kind === 'body' &&
+      event.target.ref.systemId64 === id64
+    ) {
       selectBody(event.target.ref.bodyId);
     }
   }
@@ -212,6 +243,9 @@
   data-system-id64={id64}
   aria-busy={detail.isPending}
 >
+  <p class="system-detail-announcement" aria-live="polite" aria-atomic="true">
+    {selectionAnnouncement}
+  </p>
   {#if detail.isPending}
     <p class="eyebrow">Inspect</p>
     <h1 id={headingId}>Loading system…</h1>
@@ -329,7 +363,6 @@
           {#if selectedBody}
             <article
               class="system-body-card"
-              aria-live="polite"
               data-selected-body-id={selectedBody.id}
             >
               <p class="eyebrow">Selected body</p>

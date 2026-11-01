@@ -31,16 +31,16 @@ from typing import Any, Optional
 
 import asyncpg
 import sentry_sdk
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse as _FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
 from edfinder_api.config import settings, log, limiter
+from edfinder_api.rate_limits import default_rate_limit, rate_limit_exceeded_handler
 from edfinder_api.request_logging import redact_frontier_oauth_target
 from edfinder_api.deps import connect_redis
 from edfinder_api.state import (
@@ -288,13 +288,14 @@ app = FastAPI(
     version=settings.app_version,
     description='Search 186M Elite Dangerous star systems by economy, body types, and distance.',
     lifespan=lifespan,
+    dependencies=[Depends(default_rate_limit)],
     docs_url='/docs',
     redoc_url='/redoc',
 )
 
-# Rate limiter — attach to app state (slowapi middleware auto-discovers it).
+# Decorators use app state; the dependency enforces defaults after routing.
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

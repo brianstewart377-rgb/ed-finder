@@ -33,6 +33,31 @@ before enabling F4 in a governed production or release build remains unchanged,
 including slice 1c's representative-scale proof, product publication and F4c/F4e.
 No production enablement or deployment is authorized by this entry.
 
+## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
+
+`tests/integration/test_v3_journal_research_flow.py` and
+`test_v3_journal_import_flow.py` never ran in CI: the integration job's
+database has only the V2 schema, so both modules skipped. One test had been
+failing unnoticed: `test_export_replay_limited_batch_matches_receipt` still
+expected the old oldest-first export order. The export reads the newest rows
+first, so a 5-row limit now gives 3 observations. The test now names them and
+still proves that the limit applies before sanitization and that the replay
+matches the receipt. A new CI job, "V3 journal flows (PG18+Redis)", applies
+V3 migrations 001, 002, 005, 008 and 009 to an empty PostgreSQL 18 database,
+runs both modules, and fails on any skip. Workflow contract tests pin the job.
+
+## 2026-11-01 — Journal research export paused (owner decision D4)
+
+`RESEARCH_EXPORT_PAUSED` in `apps/api/src/routers/v3_journal_research.py`
+refuses new research exports and consent grants with HTTP 503 and reason
+`research_export_paused`, after the existing authentication and origin checks.
+Exports cannot yet carry colonisation events the CRE can use; resuming them
+requires a reviewed code change. Withdrawal still supersedes lineage batches,
+and all consent and export reads remain available. Database-free route tests
+cover the refusals and withdrawal; PostgreSQL integration coverage preserves
+the export-builder and consent flows with the pause explicitly disabled.
+
+
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 
 Selected-archetype ranking rows now carry `rival_archetype` and `rival_score`,
@@ -48,6 +73,64 @@ Ranking membership, order, windows, counts, existing fields and identity are
 unchanged, as are Any-mode queries and responses. Regression tests cover rival
 selection, the final-SELECT-only SQL addition, fixture recomputation at every
 floor and facade compatibility with servers that omit the new fields.
+
+## 2026-10-31 — Finder: /api/archetypes/rankings accepts its documented min_score values
+
+Production evidence reported on 2026-10-31: `GET
+https://ed-finder.app/api/archetypes/rankings?archetype=paradise&limit=2`
+returns 200, but adding `min_score=60`, `76` or `88` returns 422. For `76`,
+the validation error is `{"type":"literal_error","loc":["query","min_score"],"msg":"Input should be 60, 76 or 88","input":"76"}`.
+FastAPI 0.141 / Pydantic 2.13 does not coerce query strings to the integer
+values in `Literal[60, 76, 88]`; only the omitted parameter's integer default
+worked. The F4a rankings client sends `min_score` explicitly, so this would
+fail every F4b rankings request. No live UI sends it yet: F4 remains behind its
+default-off flag.
+
+The handler now parses an integer before restricting it to the same three
+indexed floors. The integer enum and default 60 in OpenAPI, helper validation,
+ranking SQL/profile/identity, response fields and paging bounds are unchanged.
+New database-free tests exercise the real FastAPI app's query parsing for
+omitted, accepted and rejected floors, the OpenAPI schema, and the 10,000-row
+window bound; the existing direct-helper tests could not expose this bug.
+This takes effect in production only with the next governed application release.
+
+## 2026-10-31 — Finder slice 1c: opt-in representative-scale ranking proof
+
+Added `tests/test_archetype_rankings_scale_postgres.py` to prove bounded selected
+ranking plans and the owner-accepted warm/cold latency budgets on a disposable
+PostgreSQL 18 database with one million systems, for all eight archetypes at
+each B/A/S floor. It is opt-in via `EDF_RANKINGS_SCALE_PROOF=1` because seeding
+the corpus and restarting the server before all 72 cold measurements must not
+run in the Finder lane on every PR. Each run prepares the route's SQL and
+measures it with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE` under
+`plan_cache_mode = force_generic_plan`, and fails unless `pg_prepared_statements`
+shows that the run used a generic plan. Its JSON receipt records compact
+warm-median plans, cold plan summaries, timings, each run's plan-cache counters,
+identities and failures; a passing receipt is the representative-scale evidence
+that unblocks F4b.
+
+The proof was then run on a disposable PostgreSQL 18.4 server (2 CPUs, 7 GB
+RAM, default memory settings). The first run measured the near-ceiling page
+(offset 9950) over budget for all 24 archetype/floor pairs (705–1,098 ms warm
+against 600 ms): the page joined all 10,000 window rows to `system_search`
+before paging and the planner chose a sequential scan of the whole table. The
+owner approved a query fix (#948).
+
+Codex review of this proof then found that those first runs, and the
+measurements quoted in the #948 entry below, passed the page's `LIMIT`/`OFFSET`
+to `EXPLAIN` as bound values. PostgreSQL plans those as constants, so the runs
+measured custom plans, not the generic plans the F4 design requires, even
+though `force_generic_plan` was set. The harness was corrected to the
+prepared-statement method above. With #948, it passed all 72 measurements, and
+every one of the 432 timed runs used a generic plan (receipt
+`docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`,
+buffer-cold):
+
+| Query | Warm (budget) | Cold (budget) |
+|---|---|---|
+| First page | 3.5–6.9 ms (300 ms) | 9.2–22.4 ms (1,500 ms) |
+| Near-ceiling page | 39.5–72.4 ms (600 ms) | 70.7–169.0 ms (2,500 ms) |
+| Count | 37.0–65.6 ms (600 ms) | 62.8–138.1 ms (2,500 ms) |
 
 ## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
 
@@ -116,6 +199,18 @@ wide-row sort; the count's key-only join used primary-key index-only scans
 offset-zero pages and counts. The revised query defers detail reads until
 after pagination; PostgreSQL regression tests compare its complete output
 with the old SQL and bound detail reads to the page size.
+
+## 2026-10-31 — CRE rulebook v0.5.0 pinned: strong links with both port kinds
+
+ED-Finder now reads CRE release `cre-knowledge-v0.5.0` (CRE commit `db7ee07`,
+SHA-256 `03faf90c…1f53`, 29 rules), approved by the owner on 2026-10-31. New
+`RB-0029` (`Confirmed`, CRE evidence `EV-0007`: the Dodec and the Large
+Planetary Port on Wregoe ZN-X c28-28 A 5): on a body with both an orbital and a
+planetary port, surface facilities link to the planetary port, which passes
+their links on to the orbital port with its own strong link per economy;
+orbital facilities link to the orbital port only. Contradiction `C-0014` records
+that the guide's footnote 20 is contradicted. The parity test finds no new or
+resolved difference.
 
 ## 2026-10-31 — CRE rulebook v0.4.0 pinned: economy rules settled in game
 

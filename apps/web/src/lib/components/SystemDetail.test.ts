@@ -6,6 +6,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
@@ -26,6 +28,7 @@ import {
   v3System,
 } from '$lib/api/v3-system-fixtures';
 import { parseId64 } from '$lib/domain/id64';
+import { buildSystemScene } from '$lib/spatial/system-scene';
 import SystemDetailTestHost from './SystemDetailTestHost.svelte';
 
 vi.mock('$lib/api/client', async (loadOriginal) => {
@@ -38,9 +41,16 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
   };
 });
 
+vi.mock('$lib/spatial/system-scene', async (loadOriginal) => {
+  const original =
+    await loadOriginal<typeof import('$lib/spatial/system-scene')>();
+  return { ...original, buildSystemScene: vi.fn(original.buildSystemScene) };
+});
+
 const mockedGetSystem = vi.mocked(getSystem);
 const mockedGetRatings = vi.mocked(getSystemRatings);
 const mockedGetExplanation = vi.mocked(getSystemRatingExplanation);
+const mockedBuildSystemScene = vi.mocked(buildSystemScene);
 
 /** Each child element's text, whitespace-normalised: one entry per column. */
 const partsOf = (element: HTMLElement): string[] =>
@@ -203,6 +213,275 @@ describe('shared system detail', () => {
     expect(within(star).getByText('Star · G2 V')).toBeInTheDocument();
     expect(within(star).getByText('Belts')).toBeInTheDocument();
     expect(within(star).getAllByText('None recorded')).toHaveLength(2);
+  });
+
+  it('clears the selected body and every scene input when the next system is cached', async () => {
+    const id64 = parseId64('10477373803');
+    const next = parseId64('42');
+    const firstSystem = referenceSystemDetail();
+    const secondSystem = referenceSystemDetail({
+      id64: next,
+      name: 'Second System',
+    });
+    mockedGetSystem.mockResolvedValue(firstSystem);
+    queryClient.setQueryData(queryKeys.system(next), secondSystem);
+    queryClient.setQueryData(
+      queryKeys.systemRatings(next),
+      referenceSystemRatings(),
+    );
+    const view = render(SystemDetailTestHost, { props: { id64 } });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
+    );
+    expect(screen.getByRole('article')).toHaveAttribute(
+      'data-selected-body-id',
+      '3',
+    );
+    expect(mockedBuildSystemScene).toHaveBeenLastCalledWith(
+      firstSystem,
+      expect.any(Number),
+      3,
+    );
+    mockedBuildSystemScene.mockClear();
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Second System' });
+
+    expect(screen.queryByRole('article')).toBeNull();
+    const bodies = screen.getByRole('list', { name: 'System bodies' });
+    for (const button of within(bodies).getAllByRole('button')) {
+      expect(button).toHaveAttribute('aria-pressed', 'false');
+    }
+    expect(mockedBuildSystemScene).toHaveBeenCalledWith(
+      secondSystem,
+      expect.any(Number),
+      undefined,
+    );
+    // Inspect every call, including any render before the new query settles.
+    expect(
+      mockedBuildSystemScene.mock.calls.every(
+        ([, , selectedBodyId]) => selectedBodyId === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it('clears the selected body and scene input while another system loads and after it resolves', async () => {
+    const id64 = parseId64('10477373803');
+    const next = parseId64('42');
+    const secondSystem = referenceSystemDetail({
+      id64: next,
+      name: 'Second System',
+    });
+    let complete!: (system: typeof secondSystem) => void;
+    const secondResponse = new Promise<typeof secondSystem>((resolve) => {
+      complete = resolve;
+    });
+    mockedGetSystem.mockImplementation((requestedId) =>
+      requestedId === next
+        ? secondResponse
+        : Promise.resolve(referenceSystemDetail()),
+    );
+    const view = render(SystemDetailTestHost, { props: { id64 } });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
+    );
+    expect(screen.getByRole('article')).toHaveAttribute(
+      'data-selected-body-id',
+      '3',
+    );
+    mockedBuildSystemScene.mockClear();
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Loading system…' });
+    await waitFor(() =>
+      expect(mockedGetSystem).toHaveBeenCalledWith(next, expect.anything()),
+    );
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(
+      view.container
+        .querySelector('.system-detail > [aria-live="polite"]')
+        ?.textContent?.trim(),
+    ).toBe('');
+    expect(
+      mockedBuildSystemScene.mock.calls.every(
+        ([, , selectedBodyId]) => selectedBodyId === undefined,
+      ),
+    ).toBe(true);
+
+    complete(secondSystem);
+    await screen.findByRole('heading', { name: 'Second System' });
+
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(mockedBuildSystemScene).toHaveBeenCalledWith(
+      secondSystem,
+      expect.any(Number),
+      undefined,
+    );
+    expect(
+      mockedBuildSystemScene.mock.calls.every(
+        ([, , selectedBodyId]) => selectedBodyId === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it.each(['invalidate', 'refetch'] as const)(
+    'keeps the selected body through a same-system %s',
+    async (refresh) => {
+      const id64 = parseId64('10477373803');
+      const refreshedDetail = referenceSystemDetail({
+        name: 'Refreshed System',
+      });
+      const refreshedSystem = {
+        ...refreshedDetail,
+        bodies: refreshedDetail.bodies.map((body) =>
+          body.id === 3 ? { ...body, name: 'Updated body name' } : body,
+        ),
+      };
+      let complete!: (system: typeof refreshedSystem) => void;
+      mockedGetSystem
+        .mockResolvedValueOnce(referenceSystemDetail())
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              complete = resolve;
+            }),
+        );
+      const view = render(SystemDetailTestHost, { props: { id64 } });
+      await fireEvent.click(
+        await screen.findByRole('button', {
+          name: 'Reference System 3 Planet',
+        }),
+      );
+      const options = { queryKey: queryKeys.system(id64), exact: true };
+      const refreshed =
+        refresh === 'invalidate'
+          ? queryClient.invalidateQueries(options)
+          : queryClient.refetchQueries(options);
+      await waitFor(() => expect(mockedGetSystem).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole('article')).toHaveAttribute(
+        'data-selected-body-id',
+        '3',
+      );
+
+      complete(refreshedSystem);
+      await refreshed;
+      await screen.findByRole('heading', { name: 'Refreshed System' });
+
+      expect(screen.getByRole('article')).toHaveAttribute(
+        'data-selected-body-id',
+        '3',
+      );
+      expect(
+        screen.getByRole('button', { name: 'Updated body name Planet' }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      expect(
+        within(screen.getByRole('article')).getByRole('heading', {
+          name: 'Updated body name',
+        }),
+      ).toBeInTheDocument();
+      expect(
+        view.container
+          .querySelector('.system-detail > [aria-live="polite"]')
+          ?.textContent?.trim(),
+      ).toBe('Selected Reference System 3');
+      expect(mockedBuildSystemScene).toHaveBeenLastCalledWith(
+        refreshedSystem,
+        expect.any(Number),
+        3,
+      );
+    },
+  );
+
+  it('does not restore a body selection when returning to a previously visited system', async () => {
+    const id64 = parseId64('10477373803');
+    const next = parseId64('42');
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    queryClient.setQueryData(
+      queryKeys.system(next),
+      referenceSystemDetail({ id64: next, name: 'Second System' }),
+    );
+    const view = render(SystemDetailTestHost, { props: { id64 } });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
+    );
+    expect(screen.getByRole('article')).toHaveAttribute(
+      'data-selected-body-id',
+      '3',
+    );
+    mockedBuildSystemScene.mockClear();
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Second System' });
+    expect(screen.queryByRole('article')).toBeNull();
+
+    await view.rerender({ id64 });
+    await screen.findByRole('heading', { name: 'Reference System' });
+
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Reference System 3 Planet' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      mockedBuildSystemScene.mock.calls.every(
+        ([, , selectedBodyId]) => selectedBodyId === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it('announces only the selected body name and silently clears the announcement on a system change', async () => {
+    const id64 = parseId64('10477373803');
+    const next = parseId64('42');
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    queryClient.setQueryData(
+      queryKeys.system(next),
+      referenceSystemDetail({ id64: next, name: 'Second System' }),
+    );
+    const view = render(SystemDetailTestHost, { props: { id64 } });
+    await screen.findByRole('heading', { name: 'Reference System' });
+    // SpatialCanvas has its own renderer-status live region. Body selection
+    // gets exactly one persistent, visually hidden region owned by Inspect.
+    const announcements = view.container.querySelectorAll(
+      '.system-detail > [aria-live="polite"]',
+    );
+    expect(announcements).toHaveLength(1);
+    const announcement = announcements[0] as HTMLElement;
+    expect(announcement).toHaveClass('system-detail-announcement');
+    expect(announcement.textContent?.trim()).toBe('');
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Reference System 3 Planet' }),
+    );
+    expect(announcement.textContent?.trim()).toBe(
+      'Selected Reference System 3',
+    );
+    const card = screen.getByRole('article');
+    expect(card).toHaveAttribute('data-selected-body-id', '3');
+    expect(card).not.toHaveAttribute('aria-live');
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Reference System Star · G2 V' }),
+    );
+    expect(announcement.textContent?.trim()).toBe('Selected Reference System');
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Second System' });
+
+    expect(announcement).toBeInTheDocument();
+    expect(announcement.textContent?.trim()).toBe('');
+    expect(screen.queryByRole('article')).toBeNull();
+  });
+
+  it('hides the selection announcement visually through a global rule', () => {
+    // SystemDetail has no scoped styles; a class missing from app.css would
+    // render the announcement as visible page text.
+    const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
+    const rule = /\.system-detail-announcement\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/width:\s*1px/);
+    expect(rule).toMatch(/height:\s*1px/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(rule).toMatch(/clip-path:\s*inset\(50%\)/);
   });
 
   it('treats 404 and out-of-range 422 as not found and retries other API errors', async () => {

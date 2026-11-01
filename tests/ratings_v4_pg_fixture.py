@@ -8,7 +8,7 @@ from tests.helpers import db_isolation
 
 
 @contextmanager
-def canonical_database(*, prepare=None):
+def canonical_database(*, prepare=None, connection_class=None):
     import psycopg
     from psycopg import sql
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -29,7 +29,8 @@ def canonical_database(*, prepare=None):
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
         try:
-            with psycopg.connect(make_conninfo(dsn, dbname=database), autocommit=True) as connection:
+            connection_class = connection_class or psycopg.Connection
+            with connection_class.connect(make_conninfo(dsn, dbname=database), autocommit=True) as connection:
                 connection.execute((root / 'sql/v3/migrations/001_v3_baseline.sql').read_text())
 
                 # Shared with scripts/dev/seed_cypress_v3_generation.py so the

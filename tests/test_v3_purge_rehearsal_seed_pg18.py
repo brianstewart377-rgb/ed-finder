@@ -20,7 +20,8 @@ from scripts.operator.lib import v3_purge_rewrite as rewrite
 from scripts.operator.lib import v3_purge_transactions as transactions
 from scripts.rehearsal import v3_derived_purge_rehearsal as rehearsal
 from scripts.rehearsal import v3_purge_crashes as crashes
-from tests.ratings_v4_pg_fixture import canonical_database
+from tests.helpers.purge_pg import ClientCursor, canonical_database, connect
+from tests.test_v3_governed_derived_purge import _suppress_fixture_automatic_maintenance
 
 
 @contextmanager
@@ -50,7 +51,7 @@ def fresh_harness_database():
             ).fetchone() is None
             administrator.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
             created = True
-            with psycopg.connect(make_conninfo(administrator.info.dsn, password=administrator.info.password, dbname=database), autocommit=True) as connection:
+            with connect(make_conninfo(administrator.info.dsn, password=administrator.info.password, dbname=database), autocommit=True) as connection:
                 yield connection
         finally:
             if created:
@@ -78,7 +79,7 @@ def fresh_harness_database():
 def _sql_adapter(connection):
     def execute(statement, parameters=None):
         outputs = []
-        with psycopg.ClientCursor(connection) as cursor:
+        with ClientCursor(connection) as cursor:
             cursor.execute(statement, parameters)
             while True:
                 if cursor.description is not None:
@@ -112,6 +113,10 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         # sets archive_mode=on. Everything else is the harness's own seed.
         harness.archived = lambda: None
         harness.seed()
+        # This independent fixture bypasses installed_purge. Suppress its own
+        # tables' maintenance before the guarded copy route, preserving the
+        # payload reloptions checked by the autovacuum restoration tests.
+        _suppress_fixture_automatic_maintenance(connection)
         identities = {key: identity for key, (identity, _) in rehearsal.controller.TARGETS.items()}
         identities[rehearsal.controller.PUBLISHED_KEY] = rehearsal.controller.PUBLISHED_ID
         for relation in rehearsal.RELATIONS:
@@ -223,8 +228,8 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
         password = uuid4().hex
         connection.execute(sql.SQL('ALTER ROLE {} PASSWORD {}').format(
             sql.Identifier(rehearsal.OBSERVER_USER), sql.Literal(password)))
-        with psycopg.connect(make_conninfo(connection.info.dsn, user=rehearsal.OBSERVER_USER,
-                                          password=password), autocommit=True) as observer:
+        with connect(make_conninfo(connection.info.dsn, user=rehearsal.OBSERVER_USER,
+                                  password=password), autocommit=True) as observer:
             assert observer.execute('SHOW default_transaction_read_only').fetchone() == ('on',)
             assert observer.execute('SELECT current_user').fetchone() == (rehearsal.OBSERVER_USER,)
             assert observer.execute('SELECT count(*) FROM v3_meta.derived_generation').fetchone() == (3,)
@@ -235,7 +240,7 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
             # The crash driver's snapshot queries run as this observer: no
             # executor role switch, and oid-typed identities as JSON numbers.
             assert 'SET ROLE' not in crashes.POINTER_OBSERVATION_SQL
-            with psycopg.ClientCursor(observer) as cursor:
+            with ClientCursor(observer) as cursor:
                 cursor.execute(crashes.POINTER_OBSERVATION_SQL)
                 pointers = None
                 while True:
@@ -244,7 +249,7 @@ def test_harness_full_manifest_and_tiny_seed_produce_real_plan_prerequisites(tmp
                     if not cursor.nextset():
                         break
             assert pointers['derived']['derived_generation_id'] == rehearsal.controller.PUBLISHED_ID
-            with psycopg.ClientCursor(observer) as cursor:
+            with ClientCursor(observer) as cursor:
                 cursor.execute(crashes.STATE_SQL, {'published': rehearsal.controller.PUBLISHED_ID})
                 state = cursor.fetchone()[0]
             assert state['events'] == [] and state['tables'] == {'v3_derived': state['tables']['v3_derived']}
@@ -313,10 +318,10 @@ def test_observer_survives_real_writer_fence_session_recycles():
         try:
             observer_dsn = make_conninfo(connection.info.dsn, user=rehearsal.OBSERVER_USER, password=password)
             application_dsn = make_conninfo(connection.info.dsn, user=rehearsal.USER, password=password)
-            with psycopg.connect(observer_dsn, autocommit=True) as observer:
+            with connect(observer_dsn, autocommit=True) as observer:
                 observer_pid = observer.execute('SELECT pg_backend_pid()').fetchone()[0]
                 for enabled in (True, False):
-                    with psycopg.connect(application_dsn, autocommit=True) as application:
+                    with connect(application_dsn, autocommit=True) as application:
                         connection.execute('SET ROLE v3_derived_purge_executor')
                         connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,%s)', (purge_id, enabled))
                         assert connection.execute(
@@ -356,8 +361,8 @@ def test_rewrite_verified_transaction_rolls_back_and_recovers_without_second_rew
         connection.execute('RESET ROLE')
         # A real dispatch backend commits STARTED and VACUUM independently,
         # then departs before the verification transaction begins.
-        with psycopg.connect(make_conninfo(connection.info.dsn, password=connection.info.password),
-                             autocommit=True) as backend:
+        with connect(make_conninfo(connection.info.dsn, password=connection.info.password),
+                     autocommit=True) as backend:
             backend.execute('SET ROLE v3_derived_purge_executor')
             backend.execute('SELECT v3_meta.purge_record_event(%s,%s,%s,%s)',
                             (purge_id, 'REWRITE_STARTED', relation, Jsonb(_receipt())))

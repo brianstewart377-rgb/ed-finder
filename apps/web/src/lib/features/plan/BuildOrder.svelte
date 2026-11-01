@@ -1,7 +1,12 @@
 <script lang="ts">
-  import type { PlanEvaluationV1, PlanFacilityV1 } from '$lib/api';
+  import type {
+    PlanBodiesV1,
+    PlanEvaluationV1,
+    PlanFacilityV1,
+  } from '$lib/api';
   import {
     facilityFitsLocation,
+    nonCurrentLocation,
     shortBodyName,
     type PlannerLocation,
   } from './locations';
@@ -20,6 +25,7 @@
     model,
     facilities,
     locations,
+    bodies,
     systemName,
     evaluation,
     stale,
@@ -37,6 +43,7 @@
     model: PlannerModel;
     facilities: PlanFacilityV1[];
     locations: PlannerLocation[];
+    bodies?: PlanBodiesV1;
     systemName: string;
     evaluation: PlanEvaluationV1 | null;
     stale: boolean;
@@ -73,6 +80,19 @@
     return (
       site.name || facilityById.get(site.facility_id)?.name || site.facility_id
     );
+  }
+  function locationName(bodyRef: string | null): string {
+    const location = bodyRef ? locationById.get(bodyRef) : undefined;
+    if (location) return shortBodyName(location.name, systemName);
+    const nonCurrent = bodies ? nonCurrentLocation(bodies, bodyRef) : null;
+    if (nonCurrent) {
+      const state =
+        nonCurrent.lifecycle_state === 'RETIRED'
+          ? 'retired'
+          : 'missing from the latest data';
+      return `${shortBodyName(nonCurrent.name, systemName)} (${state})`;
+    }
+    return 'Unplaced';
   }
   function moveOptions(site: PlannerSite): PlannerLocation[] {
     const facility = facilityById.get(site.facility_id);
@@ -126,6 +146,9 @@
       {@const facility = facilityById.get(site.facility_id)}
       {@const locks = index === 0 ? primaryPortLocks(site) : null}
       {@const options = facilityOptions(site, index)}
+      {@const nonCurrent = bodies
+        ? nonCurrentLocation(bodies, site.body_ref)
+        : null}
       <li
         value={index + 1}
         class="build-step compact-step"
@@ -143,12 +166,11 @@
             >{/if}
           <span
             class="step-description plan-muted"
-            title={`${facility?.name ?? site.facility_id} · ${site.slot_kind} · ${site.body_ref && locationById.has(site.body_ref) ? shortBodyName(locationById.get(site.body_ref)!.name, systemName) : 'Unplaced'}`}
+            title={`${facility?.name ?? site.facility_id} · ${site.slot_kind} · ${locationName(site.body_ref)}`}
           >
-            {facility?.name ?? site.facility_id} · {site.slot_kind} · {site.body_ref &&
-            locationById.has(site.body_ref)
-              ? shortBodyName(locationById.get(site.body_ref)!.name, systemName)
-              : 'Unplaced'}
+            {facility?.name ?? site.facility_id} · {site.slot_kind} · {locationName(
+              site.body_ref,
+            )}
           </span>
           {#if step}<span
               class="plan-chip evaluation-value"
@@ -280,6 +302,9 @@
                       body_ref: event.currentTarget.value || null,
                     })}
                 >
+                  {#if nonCurrent}<option value={site.body_ref} disabled
+                      >{locationName(site.body_ref)} — location no longer current</option
+                    >{/if}
                   <option value="">Unplaced</option
                   >{#each moveOptions(site) as location (location.body_ref)}<option
                       value={location.body_ref}

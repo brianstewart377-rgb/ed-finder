@@ -148,7 +148,23 @@ export const listV3PlanBodies = async (
 export const evaluateV3Plan = async (
   body: PlanRequestV1,
   signal?: AbortSignal,
-) => (await evaluatePlanSdk({ body, throwOnError: true, signal })).data;
+) => {
+  const result = await evaluatePlanSdk({ body, throwOnError: false, signal });
+  if (result.data !== undefined) return result.data;
+  const header = result.response?.headers.get('Retry-After')?.trim();
+  const seconds = header && /^\d+$/.test(header) ? Number(header) : null;
+  const retryAfterSeconds =
+    seconds !== null && Number.isSafeInteger(seconds) ? seconds : null;
+  const error =
+    result.error instanceof ApiError
+      ? result.error
+      : new ApiError(
+          result.response?.status ?? 0,
+          '/api/v1/plan/evaluate',
+          result.error,
+        );
+  throw Object.assign(error, { retryAfterSeconds });
+};
 
 /** Identity only: Plan does not load Inspect's map, stations or ratings. */
 export const getPlanSystem = async (systemId: string, signal?: AbortSignal) =>

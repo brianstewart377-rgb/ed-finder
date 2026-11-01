@@ -5,15 +5,18 @@ judgement remain separate layers and are deliberately absent from this route.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import asdict
 from datetime import datetime
 import json
 from typing import Any, Mapping
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
 
+from edfinder_api.config import limiter
+from edfinder_api.cpu_work import CpuWorkBusy, run_cpu_bound
 from edfinder_api.deps import get_readonly_pool
 from edfinder_api.domain.ratings_v4 import BodyFact, ECONOMIES, SystemFacts, opportunities_from_facts, rate_all
 
@@ -23,6 +26,9 @@ _BODY_FIELDS = ('body_class', 'spectral_class', 'luminosity_class', 'rings',
                 'biologicals', 'geologicals', 'volcanism', 'terraformable',
                 'tidally_locked', 'is_main_star', 'reserve_level', 'usable_ground_opportunity')
 _VECTOR_FIELDS = ('potential', 'quality', 'quality_min', 'quality_max', 'completeness', 'confidence')
+EXPLANATION_CACHE_SIZE = 256
+# Accessed only on the event loop; published ratings generations are immutable.
+_explanation_cache: OrderedDict[tuple[str, int, str, str, str, int], dict[str, Any]] = OrderedDict()
 
 
 class RatingSummaryResponse(BaseModel):
@@ -186,6 +192,35 @@ def _summary(vector: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _system_response(current: Mapping[str, Any], vector: Mapping[str, Any], system_id64: int) -> dict[str, Any]:
+    return {
+        'derived_generation_id': str(current['derived_generation_id']),
+        'publication_sequence': current['publication_sequence'],
+        'canonical_generation_id': str(current['canonical_generation_id']),
+        'canonical_publication_sequence': current['canonical_publication_sequence'],
+        'scorer_version': current['scorer_version'],
+        'mechanics_version': current['mechanics_version'],
+        'system_id64': system_id64,
+        'ratings': _summary(vector),
+    }
+
+
+def _replay_explanation(
+    current: Mapping[str, Any], vector: Mapping[str, Any], bodies: list[Mapping[str, Any]], system_id64: int,
+) -> dict[str, Any]:
+    response = _system_response(current, vector, system_id64)
+    facts = _facts(current['manifest'], vector, bodies)
+    ratings = rate_all(opportunities_from_facts(facts))
+    replayed = [{'economy': economy, **asdict(ratings[economy])} for economy in ECONOMIES]
+    if response['ratings'] != [{key: row[key] for key in (
+            'economy', 'potential_score', 'specialisation_quality',
+            'specialisation_quality_min', 'specialisation_quality_max',
+            'evidence_completeness', 'confidence')} for row in replayed]:
+        raise ValueError('stored rating differs from immutable explanation replay')
+    response['ratings'] = replayed
+    return response
+
+
 async def _current(connection: asyncpg.Connection) -> asyncpg.Record:
     row = await connection.fetchrow('''
         SELECT c.derived_generation_id, c.publication_sequence, c.published_at,
@@ -213,36 +248,37 @@ async def _read_system(pool: asyncpg.Pool, system_id64: int, *, explanation: boo
                 ''', current['derived_generation_id'], system_id64)
                 if vector is None:
                     return None
-                response = {
-                    'derived_generation_id': str(current['derived_generation_id']),
-                    'publication_sequence': current['publication_sequence'],
-                    'canonical_generation_id': str(current['canonical_generation_id']),
-                    'canonical_publication_sequence': current['canonical_publication_sequence'],
-                    'scorer_version': current['scorer_version'],
-                    'mechanics_version': current['mechanics_version'],
-                    'system_id64': system_id64,
-                    'ratings': _summary(vector),
-                }
-                if explanation:
-                    bodies = await connection.fetch('''
-                        SELECT derived_generation_id,system_id64,body_pk,source_body_id64,body_class,spectral_class,
-                               luminosity_class,rings,biologicals,geologicals,volcanism,terraformable,tidally_locked,
-                               is_main_star,reserve_level,usable_ground_opportunity,subtype_present,subtype_observed_at
-                        FROM v3_derived.body_mechanics
-                        WHERE derived_generation_id=$1 AND system_id64=$2 ORDER BY body_pk
-                    ''', current['derived_generation_id'], system_id64)
-                    facts = _facts(current['manifest'], vector, bodies)
-                    ratings = rate_all(opportunities_from_facts(facts))
-                    replayed = [{'economy': economy, **asdict(ratings[economy])} for economy in ECONOMIES]
-                    if _summary(vector) != [{key: row[key] for key in (
-                            'economy', 'potential_score', 'specialisation_quality',
-                            'specialisation_quality_min', 'specialisation_quality_max',
-                            'evidence_completeness', 'confidence')} for row in replayed]:
-                        raise ValueError('stored rating differs from immutable explanation replay')
-                    response['ratings'] = replayed
-                return response
+                if not explanation:
+                    return _system_response(current, vector, system_id64)
+                # The publication sequence is part of the response and changes when a
+                # retired generation is republished, so it belongs in the key too.
+                cache_key = (
+                    str(current['derived_generation_id']), current['publication_sequence'],
+                    current['scorer_version'], current['mechanics_version'],
+                    current['adapter_version'], system_id64,
+                )
+                cached = _explanation_cache.get(cache_key)
+                if cached is not None:
+                    _explanation_cache.move_to_end(cache_key)
+                    return cached
+                bodies = await connection.fetch('''
+                    SELECT derived_generation_id,system_id64,body_pk,source_body_id64,body_class,spectral_class,
+                           luminosity_class,rings,biologicals,geologicals,volcanism,terraformable,tidally_locked,
+                           is_main_star,reserve_level,usable_ground_opportunity,subtype_present,subtype_observed_at
+                    FROM v3_derived.body_mechanics
+                    WHERE derived_generation_id=$1 AND system_id64=$2 ORDER BY body_pk
+                ''', current['derived_generation_id'], system_id64)
+        # Release the read-only transaction and pooled connection before replay or admission wait.
+        response = await run_cpu_bound(_replay_explanation, current, vector, bodies, system_id64)
+        _explanation_cache[cache_key] = response
+        _explanation_cache.move_to_end(cache_key)
+        if len(_explanation_cache) > EXPLANATION_CACHE_SIZE:
+            _explanation_cache.popitem(last=False)
+        return response
     except HTTPException:
         raise
+    except CpuWorkBusy as exc:
+        raise HTTPException(503, 'Server busy, try again shortly', headers={'Retry-After': '2'}) from exc
     except (asyncpg.exceptions.UndefinedTableError,
             asyncpg.exceptions.InvalidSchemaNameError) as exc:
         raise HTTPException(503, 'Ratings V4 generation is unavailable') from exc
@@ -294,7 +330,9 @@ async def system_scores(
 
 
 @router.get('/systems/{system_id64}/explanation')
+@limiter.shared_limit('30/minute', scope='system_explanation')
 async def system_explanation(
+    request: Request,
     system_id64: int = Path(ge=0, le=9223372036854775807), pool: asyncpg.Pool = Depends(get_readonly_pool),
 ) -> SystemExplanationResponse:
     result = await _read_system(pool, system_id64, explanation=True)

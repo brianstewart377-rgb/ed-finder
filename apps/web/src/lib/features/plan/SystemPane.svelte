@@ -7,11 +7,13 @@
   import {
     buildBodyTree,
     flattenBodyTree,
+    nonCurrentLocation,
     shortBodyName,
     type PlannerLocation,
   } from './locations';
   import {
-    countUsedSlots,
+    countLocationSlots,
+    locationSlots,
     MAX_SITES,
     type PlannerModel,
     type PlannerSite,
@@ -65,9 +67,16 @@
     model.sites.filter(
       (site) =>
         site.body_ref === null ||
-        !tree.some((body) => body.body_ref === site.body_ref),
+        (!tree.some((body) => body.body_ref === site.body_ref) &&
+          !nonCurrentLocation(bodies, site.body_ref)),
     ),
   );
+  const nonCurrentSites = $derived(
+    model.sites.filter((site) => nonCurrentLocation(bodies, site.body_ref)),
+  );
+  function lifecycleLabel(state: string): string {
+    return state === 'RETIRED' ? 'retired' : 'missing from the latest data';
+  }
   function features(
     location: PlannerLocation,
   ): { marker: string; label: string }[] {
@@ -130,6 +139,7 @@
             {@const facility = facilityById.get(site.facility_id)}
             {@const facilityName = facility?.name ?? site.facility_id}
             {@const name = showNames ? site.name : ''}
+            {@const nonCurrent = nonCurrentLocation(bodies, site.body_ref)}
             {@const label = [
               `Step ${siteIndex + 1}`,
               ...(siteIndex === 0 ? ['Primary Port'] : []),
@@ -139,6 +149,13 @@
               site.slot_kind,
               ...(site.status === 'planned' && step
                 ? [resultLabel[step.result]]
+                : []),
+              ...(nonCurrent
+                ? [
+                    nonCurrent.name,
+                    lifecycleLabel(nonCurrent.lifecycle_state),
+                    'location no longer current',
+                  ]
                 : []),
             ].join(', ')}
             <li class="plan-site-row">
@@ -160,6 +177,13 @@
                   <strong class="site-name">{name || facilityName}</strong>
                   {#if name}<span class="site-type" title={facilityName}
                       >{facilityName}</span
+                    >{/if}
+                  {#if nonCurrent}<span
+                      class="site-type"
+                      title={`${nonCurrent.name} · ${lifecycleLabel(nonCurrent.lifecycle_state)}`}
+                      >{nonCurrent.name} · {lifecycleLabel(
+                        nonCurrent.lifecycle_state,
+                      )}</span
                     >{/if}
                 </span>
                 {#if facility}<span class="plan-chip">T{facility.tier}</span
@@ -195,7 +219,8 @@
   </p>
   <ul class="plan-body-tree">
     {#each tree as location (location.body_ref)}
-      {@const used = countUsedSlots(model.sites, location.body_ref)}
+      {@const used = countLocationSlots(model, bodies, location.body_ref)}
+      {@const slots = locationSlots(model, bodies, location.body_ref)}
       <li
         class="plan-body"
         class:selected={selectedBody === location.body_ref}
@@ -233,7 +258,7 @@
                 label={location.name}
                 kind="orbital"
                 used={used.orbital_slots}
-                value={model.slots[location.body_ref]?.orbital_slots ?? null}
+                value={slots?.orbital_slots ?? null}
                 onchange={(value) =>
                   onslot(location.body_ref, 'orbital', value)}
               />
@@ -241,7 +266,7 @@
                   label={location.name}
                   kind="surface"
                   used={used.surface_slots}
-                  value={model.slots[location.body_ref]?.surface_slots ?? null}
+                  value={slots?.surface_slots ?? null}
                   disabled={location.is_landable === false}
                   onchange={(value) =>
                     onslot(location.body_ref, 'surface', value)}
@@ -281,6 +306,13 @@
     {/each}
   </ul>
   {#if !tree.length}<p>No bodies are recorded for this system.</p>{/if}
+  {#if nonCurrentSites.length}<h3 class="plan-muted">
+      No longer in the galaxy data
+    </h3>
+    {@render siteGroups(
+      nonCurrentSites,
+      'on locations no longer in the galaxy data',
+    )}{/if}
   {#if unplaced.length}<h3>Unplaced</h3>
     <p class="plan-muted">
       Choose a recorded location in the build's edit row.

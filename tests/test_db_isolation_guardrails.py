@@ -258,6 +258,7 @@ def test_ci_database_lanes_require_db_tests_to_run():
     )
     expected = {
         'importer-tooling': 'Run importer and synchronous tooling unit and PostgreSQL tests',
+        'journal-flows': 'Run V3 journal research and import flows',
         'integration': 'Run integration test suite',
         'finder-derived-data': 'Run every validation-fixture-backed Finder test module',
     }

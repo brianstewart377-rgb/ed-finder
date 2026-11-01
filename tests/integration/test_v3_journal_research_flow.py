@@ -16,6 +16,8 @@ Flows covered (plan Task 3):
      the receipt. Cross-account batch read -> 404.
   10. (3.1 regression) limit-truncated export replays byte-identically.
   11. (3.2 regression) same-instant superseded batches replay consistently.
+  12. Paused exports/grants refuse without writes; reads and withdrawal,
+      including lineage supersede, remain available.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ import pytest
 
 from edfinder_api.config import settings
 from edfinder_api.routers import auth as auth_router
+from edfinder_api.routers import v3_journal_research as research_router
 
 pytestmark = pytest.mark.skipif(
     not all(
@@ -51,6 +54,12 @@ def _v2_table_shim(v3_fixture_db_ready, v3_v2_table_shim):
     DB lacks the V2 tables conftest's ``clean_db`` TRUNCATEs; the shared
     ``v3_v2_table_shim`` fixture creates empty stand-ins. Autouse so the
     TRUNCATE always succeeds for these tests."""
+
+
+@pytest.fixture
+def research_exports_enabled(monkeypatch):
+    """Keep the builder and consent-machine regressions covered during D4's pause."""
+    monkeypatch.setattr(research_router, "RESEARCH_EXPORT_PAUSED", False)
 
 
 def _cookie(token: str) -> dict[str, str]:
@@ -155,7 +164,7 @@ async def _export(client, token, limit=1000):
     )
 
 
-async def test_consent_flow_and_supersede(client, pool):
+async def test_consent_flow_and_supersede(client, pool, research_exports_enabled):
     _, token = await _create_account(pool, f"consent-{uuid.uuid4().hex[:8]}")
     assert (await _import(client, token)).status_code == 200
 
@@ -234,7 +243,7 @@ async def test_consent_flow_and_supersede(client, pool):
     assert resp.status_code == 409, resp.text
 
 
-async def test_export_determinism_byte_identical(client, pool):
+async def test_export_determinism_byte_identical(client, pool, research_exports_enabled):
     """Binding replay contract: each build stamps export_batch_id,
     lineage_token and generated_at at build time, so two builds over
     unchanged data differ ONLY in those three receipt-pinned fields. The
@@ -279,7 +288,7 @@ async def test_export_determinism_byte_identical(client, pool):
     assert _bytes({**p2, **{k: p1[k] for k in pinned}}) == _bytes(p1)
 
 
-async def test_export_replay_hash_matches_receipt(client, pool):
+async def test_export_replay_hash_matches_receipt(client, pool, research_exports_enabled):
     _, token = await _create_account(pool, f"replay-{uuid.uuid4().hex[:8]}")
     assert (await _import(client, token)).status_code == 200
     assert (await _put_consent(client, token, "GRANT")).status_code == 200
@@ -304,23 +313,28 @@ async def test_export_replay_hash_matches_receipt(client, pool):
     assert resp.status_code == 404
 
 
-async def test_export_replay_limited_batch_matches_receipt(client, pool):
+async def test_export_replay_limited_batch_matches_receipt(client, pool, research_exports_enabled):
     """3.1 regression: a limit-truncated export replays byte-identically.
 
     The raw-row limit must be persisted in the receipt manifest
     (manifest.limit) at export time and read back by the GET rebuild, so a
     truncated export's rebuilt SHA matches its receipt. Fixture: 9 events,
-    6 exportable; LIMIT 5 raw rows (SQL order: 3 FSDJump travel-excluded
-    first, then FSSBodySignals + FSSDiscoveryScan) -> 2 sanitized
-    observations — the truncation lands inside the excluded-event prefix,
-    proving the limit applies to raw rows BEFORE sanitization.
+    6 exportable; LIMIT 5 raw rows ordered by event_timestamp DESC, event_key,
+    source_record_hash selects SellOrganicData (12:00), FSDJump (11:00),
+    Scan (10:06), FSDJump (10:05), and FSSDiscoveryScan (10:03:30).
+    The two travel-excluded FSDJump rows leave 3 sanitized observations,
+    proving the limit applies to raw rows BEFORE sanitization. Limiting
+    after sanitization would return 5 observations; ignoring the limit on
+    replay would return all 6 and change the payload hash.
     """
     _, token = await _create_account(pool, f"replay-lim-{uuid.uuid4().hex[:8]}")
     assert (await _import(client, token)).status_code == 200
     assert (await _put_consent(client, token, "GRANT")).status_code == 200
 
-    receipt = (await _export(client, token, limit=5)).json()
-    assert receipt["observation_count"] == 2
+    resp = await _export(client, token, limit=5)
+    assert resp.status_code == 200, resp.text
+    receipt = resp.json()
+    assert receipt["observation_count"] == 3
 
     resp = await client.get(
         f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
@@ -329,11 +343,20 @@ async def test_export_replay_limited_batch_matches_receipt(client, pool):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["receipt"]["payload_sha256"] == receipt["payload_sha256"]
+    # The selected rows are serialized in canonical observation order.
+    assert [
+        (observation["observation_type"], observation["source_event_sha256"])
+        for observation in body["payload"]["observations"]
+    ] == [
+        ("FSSDiscoveryScan", "05" * 32),
+        ("Scan", "07" * 32),
+        ("SellOrganicData", "09" * 32),
+    ]
     rebuilt = json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode()
     assert hashlib.sha256(rebuilt).hexdigest() == receipt["payload_sha256"]
 
 
-async def test_supersede_replay_same_second_batches(client, pool):
+async def test_supersede_replay_same_second_batches(client, pool, research_exports_enabled):
     """3.2 regression: supersede replay is consistent when superseded
     batches share one created_at instant.
 
@@ -386,7 +409,7 @@ async def test_supersede_replay_same_second_batches(client, pool):
     )
 
 
-async def test_research_lane_auth_and_origin(client, pool):
+async def test_research_lane_auth_and_origin(client, pool, research_exports_enabled):
     # Unauthenticated -> 401.
     resp = await client.get("/api/v1/journal/research-consent")
     assert resp.status_code == 401
@@ -415,3 +438,134 @@ async def test_research_lane_auth_and_origin(client, pool):
         headers=_ORIGIN, cookies=_cookie(token),
     )
     assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("has_grant", [False, True])
+async def test_paused_export_refuses_without_batch(client, pool, monkeypatch, has_grant):
+    account_id, token = await _create_account(pool, f"paused-export-{uuid.uuid4().hex[:8]}")
+    assert (await _import(client, token)).status_code == 200
+    if has_grant:
+        with monkeypatch.context() as unpaused:
+            unpaused.setattr(research_router, "RESEARCH_EXPORT_PAUSED", False)
+            assert (await _put_consent(client, token, "GRANT")).status_code == 200
+
+    assert research_router.RESEARCH_EXPORT_PAUSED is True
+    resp = await _export(client, token)
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"]["reason"] == "research_export_paused"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM v3_private.research_export_batch WHERE owner_account_id = $1",
+        account_id,
+    ) == 0
+
+
+async def test_paused_grant_refuses_without_consent(client, pool):
+    account_id, token = await _create_account(pool, f"paused-grant-{uuid.uuid4().hex[:8]}")
+
+    assert research_router.RESEARCH_EXPORT_PAUSED is True
+    resp = await _put_consent(client, token, "GRANT")
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"]["reason"] == "research_export_paused"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM v3_private.research_consent WHERE owner_account_id = $1",
+        account_id,
+    ) == 0
+
+
+async def test_paused_withdraw_supersedes_existing_lineages(client, pool, monkeypatch):
+    account_id, token = await _create_account(pool, f"paused-withdraw-{uuid.uuid4().hex[:8]}")
+    assert (await _import(client, token)).status_code == 200
+    with monkeypatch.context() as unpaused:
+        unpaused.setattr(research_router, "RESEARCH_EXPORT_PAUSED", False)
+        assert (await _put_consent(client, token, "GRANT")).status_code == 200
+        receipts = []
+        for _ in range(2):
+            resp = await _export(client, token)
+            assert resp.status_code == 200, resp.text
+            receipts.append(resp.json())
+
+    assert research_router.RESEARCH_EXPORT_PAUSED is True
+    resp = await _put_consent(client, token, "WITHDRAW")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["decision"] == "WITHDRAW"
+    assert resp.json()["withdrawable"] is False
+
+    decisions = await pool.fetch(
+        "SELECT decision FROM v3_private.research_consent "
+        "WHERE owner_account_id = $1 ORDER BY decided_at, research_consent_id",
+        account_id,
+    )
+    assert [row["decision"] for row in decisions] == ["GRANT", "WITHDRAW"]
+    batches = await pool.fetch(
+        "SELECT export_batch_id, batch_state, superseded_by_batch_id "
+        "FROM v3_private.research_export_batch WHERE owner_account_id = $1",
+        account_id,
+    )
+    assert len(batches) == 4, "expected two original batches and two supersede batches"
+    assert all(row["batch_state"] == "SUPERSEDED" for row in batches)
+    by_id = {str(row["export_batch_id"]): row for row in batches}
+    for receipt in receipts:
+        original = by_id[receipt["export_batch_id"]]
+        supersede_batch_id = str(original["superseded_by_batch_id"])
+        assert supersede_batch_id in by_id
+        detail = await client.get(
+            f"/api/v1/journal/research-exports/{supersede_batch_id}",
+            cookies=_cookie(token),
+        )
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["payload"]["kind"] == "supersede"
+        assert detail.json()["payload"]["superseded_export_batch_ids"] == [receipt["export_batch_id"]]
+
+
+async def test_paused_research_reads_preserve_existing_records(client, pool, monkeypatch):
+    _, token = await _create_account(pool, f"paused-reads-{uuid.uuid4().hex[:8]}")
+    assert (await _import(client, token)).status_code == 200
+    with monkeypatch.context() as unpaused:
+        unpaused.setattr(research_router, "RESEARCH_EXPORT_PAUSED", False)
+        assert (await _put_consent(client, token, "GRANT")).status_code == 200
+        resp = await _export(client, token)
+        assert resp.status_code == 200, resp.text
+        receipt = resp.json()
+        paths = (
+            "/api/v1/journal/research-consent",
+            "/api/v1/journal/research-exports",
+            f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
+        )
+        before_pause = {}
+        for path in paths:
+            resp = await client.get(path, cookies=_cookie(token))
+            assert resp.status_code == 200, resp.text
+            before_pause[path] = resp.json()
+
+    assert research_router.RESEARCH_EXPORT_PAUSED is True
+    for path in paths:
+        resp = await client.get(path, cookies=_cookie(token))
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == before_pause[path]
+
+    _, other_token = await _create_account(pool, f"paused-other-{uuid.uuid4().hex[:8]}")
+    resp = await client.get(paths[0], cookies=_cookie(other_token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["decision"] == "NONE"
+    resp = await client.get(paths[1], cookies=_cookie(other_token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+    resp = await client.get(paths[2], cookies=_cookie(other_token))
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.parametrize(("method", "path", "body"), [
+    ("PUT", "/api/v1/journal/research-consent", {"decision": "GRANT"}),
+    ("POST", "/api/v1/journal/research-exports", {}),
+])
+async def test_paused_research_auth_and_origin(client, pool, method, path, body):
+    assert research_router.RESEARCH_EXPORT_PAUSED is True
+    resp = await client.request(method, path, json=body, headers=_ORIGIN)
+    assert resp.status_code == 401, resp.text
+
+    _, token = await _create_account(pool, f"paused-origin-{uuid.uuid4().hex[:8]}")
+    for headers in ({}, {"Origin": "https://untrusted.example"}):
+        resp = await client.request(
+            method, path, json=body, headers=headers, cookies=_cookie(token),
+        )
+        assert resp.status_code == 403, resp.text
