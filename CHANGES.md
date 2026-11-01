@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Sixth F2d release `181f6fed` accepted in production
+
+Owner-approved. Release run 41319999720 (source `181f6fed`) passed preflight
+run 41320584087 and was accepted by promotion run 41320746913 at
+2026-11-01T15:21:35Z to slot blue: staging, active and public smoke 200, F2d
+image contract, OpenAPI bounds, 422 rejections and behavioural probes passed;
+no migration, no database writes, protected resources unchanged. It carries
+Colony Planner S5b (#967), the Raven layout import (#970) and Finder F4c behind
+its default-off flag (#969). Operator-code and ranking identities are
+unchanged. `deploy/v3-production/target-authority.json` records it as the
+accepted release, attested for the installed through-022 set; `3fd8e719` is the
+recorded rollback artifact and `f667bb4d` stays the minimum schema-compatible
+image. Receipts are under `docs/operations/evidence/2026-11-01-v3-production-*`.
+
 ## 2026-11-01 — Colony Planner S4b part 2: Raven layout file import
 
 The `/plan` page imports commander-exported Raven Colonial JSON files with
