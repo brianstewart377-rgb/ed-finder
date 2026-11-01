@@ -11,6 +11,44 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Finder slice 1c: opt-in representative-scale ranking proof
+
+Added `tests/test_archetype_rankings_scale_postgres.py` to prove bounded selected
+ranking plans and the owner-accepted warm/cold latency budgets on a disposable
+PostgreSQL 18 database with one million systems, for all eight archetypes at
+each B/A/S floor. It is opt-in via `EDF_RANKINGS_SCALE_PROOF=1` because seeding
+the corpus and restarting the server before all 72 cold measurements must not
+run in the Finder lane on every PR. Each run prepares the route's SQL and
+measures it with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE` under
+`plan_cache_mode = force_generic_plan`, and fails unless `pg_prepared_statements`
+shows that the run used a generic plan. Its JSON receipt records compact
+warm-median plans, cold plan summaries, timings, each run's plan-cache counters,
+identities and failures; a passing receipt is the representative-scale evidence
+that unblocks F4b.
+
+The proof was then run on a disposable PostgreSQL 18.4 server (2 CPUs, 7 GB
+RAM, default memory settings). The first run measured the near-ceiling page
+(offset 9950) over budget for all 24 archetype/floor pairs (705–1,098 ms warm
+against 600 ms): the page joined all 10,000 window rows to `system_search`
+before paging and the planner chose a sequential scan of the whole table. The
+owner approved a query fix (#948).
+
+Codex review of this proof then found that those first runs, and the
+measurements quoted in the #948 entry below, passed the page's `LIMIT`/`OFFSET`
+to `EXPLAIN` as bound values. PostgreSQL plans those as constants, so the runs
+measured custom plans, not the generic plans the F4 design requires, even
+though `force_generic_plan` was set. The harness was corrected to the
+prepared-statement method above. With #948, it passed all 72 measurements, and
+every one of the 432 timed runs used a generic plan (receipt
+`docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`,
+buffer-cold):
+
+| Query | Warm (budget) | Cold (budget) |
+|---|---|---|
+| First page | 3.5–6.9 ms (300 ms) | 9.2–22.4 ms (1,500 ms) |
+| Near-ceiling page | 39.5–72.4 ms (600 ms) | 70.7–169.0 ms (2,500 ms) |
+| Count | 37.0–65.6 ms (600 ms) | 62.8–138.1 ms (2,500 ms) |
+
 ## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
 
 The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
