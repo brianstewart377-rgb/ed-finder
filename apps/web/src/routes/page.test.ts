@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import TestShell from '$lib/components/TestShell.svelte';
@@ -54,10 +60,18 @@ describe('ED-Finder V3 shell', () => {
     expect(
       screen.getByRole('link', { name: 'Explore the galaxy' }),
     ).toHaveAttribute('href', '/explore');
-    expect(screen.getAllByText('Coming later')).toHaveLength(2);
+    const tools = within(
+      screen.getByRole('region', { name: 'A galaxy of possibilities.' }),
+    );
+    expect(tools.getAllByRole('link')).toHaveLength(3);
     expect(
-      screen.queryByRole('link', { name: 'Plan' }),
-    ).not.toBeInTheDocument();
+      tools.getByRole('link', {
+        name: 'Plan Lay out a colony body by body, check construction points and economies, and import a Raven Colonial layout.',
+      }),
+    ).toHaveAttribute('href', '/plan');
+    expect(screen.getAllByText('Coming later')).toHaveLength(1);
+    expect(screen.getByText('Review & export')).toBeInTheDocument();
+    expect(screen.queryByText('Colony planning')).not.toBeInTheDocument();
   });
   it('reports failed bootstrap requests without hiding the shell', async () => {
     mockedGetHealth.mockRejectedValue(new Error('Request failed (503)'));

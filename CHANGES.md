@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Surface the live Colony Planner on the home page and header
+
+The home page now links to `/plan` with a Plan tool card describing colony
+layouts, construction points, economies and Raven Colonial import. Only
+Review & export remains labelled Coming later. The tool grid uses three
+columns on desktop and stacks on tablet and phone widths. The product header
+now shows Explore, Inspect and Plan, including the active-page state on `/plan`.
+Component and browser coverage check the links, remaining upcoming item and
+responsive layout.
+
 ## 2026-11-01 — Sixth F2d release `181f6fed` accepted in production
 
 Owner-approved. Release run 41319999720 (source `181f6fed`) passed preflight

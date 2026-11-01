@@ -23,6 +23,13 @@
       detail: 'Take a closer look at a system, its stars and its worlds.',
       icon: Search,
     },
+    {
+      href: '/plan',
+      label: 'Plan',
+      detail:
+        'Lay out a colony body by body, check construction points and economies, and import a Raven Colonial layout.',
+      icon: Map,
+    },
   ] as const;
 </script>
 
@@ -92,10 +99,6 @@
       {/each}
     </div>
     <div class="upcoming-tools">
-      <p>
-        <Map size={18} aria-hidden="true" /><strong>Colony planning</strong
-        ><span>Coming later</span>
-      </p>
       <p>
         <ClipboardCheck size={18} aria-hidden="true" /><strong
           >Review & export</strong
