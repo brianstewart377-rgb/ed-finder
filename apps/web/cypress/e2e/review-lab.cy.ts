@@ -223,9 +223,9 @@ describe('isolated V3 Review Lab', () => {
       cy.contains('[role="option"]', REVIEW_SYSTEM.name).click();
     };
 
-    // A reload drops the anchor (SvelteKit page state) but keeps `selected`,
-    // and a selection-only link resolves through the V3 system routes the
-    // Review Lab API does not serve. Remount by visiting and re-anchoring.
+    // URL-owned anchors and selection-only links resolve through V3 system
+    // routes the Review Lab API does not serve. Remount through the supported
+    // autocomplete path instead of reloading the shared search URL.
     const remountExplore = () => {
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       chooseReviewAnchor();

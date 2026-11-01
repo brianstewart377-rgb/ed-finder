@@ -1,7 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
   import { fromStore } from 'svelte/store';
-  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import { onMount, tick, untrack } from 'svelte';
@@ -15,6 +14,7 @@
     getArchetypeRankings,
     getSystem,
     searchExploreSystems,
+    SOL_ID64,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
     type DistanceAnchor,
@@ -22,7 +22,7 @@
     type ExploreSystem,
     type FinderPageEnvelope,
   } from '$lib/api/client';
-  import { queryKeys } from '$lib/api/query';
+  import { queryClient, queryKeys } from '$lib/api/query';
   import { auth } from '$lib/auth/auth';
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
@@ -46,6 +46,16 @@
   import ArchetypePicker from './ArchetypePicker.svelte';
   import ArchetypeExplanation from './ArchetypeExplanation.svelte';
   import FinderResultRanking from './FinderResultRanking.svelte';
+  import BodyFilters from './BodyFilters.svelte';
+  import {
+    normalizeBodyFilters,
+    type BodyFilterKey,
+    type BodyFilterValues,
+  } from './body-filters';
+  import {
+    parseExploreSearchParams,
+    serializeExploreSearchParams,
+  } from './search-state';
   import { usePersistenceContext } from '$lib/persistence/context';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
@@ -105,10 +115,47 @@
   let query = $state('');
   let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
-  let legacyAnchor = $state<AutocompleteSystem | null>(null);
-  const anchor = $derived(
-    FINDER_F4_ENABLED ? readExploreAnchor(page.state) : legacyAnchor,
+  const parsedSearch = $derived(
+    parseExploreSearchParams(page.url.searchParams),
   );
+  const historyAnchor = $derived(readExploreAnchor(page.state));
+  // Old history entries still carry coordinates. An explicit URL always wins,
+  // including a malformed near parameter, which must not revive stale state.
+  const nearId = $derived(
+    parsedSearch.near ??
+      (!page.url.searchParams.has('near')
+        ? (historyAnchor?.id64 ?? null)
+        : null),
+  );
+  const anchorDetail = createQuery(() => {
+    const id64 = nearId;
+    return {
+      queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
+      queryFn: ({ signal }: { signal: AbortSignal }) => {
+        if (!id64) throw new Error('No search anchor');
+        return getSystem(id64, signal);
+      },
+      enabled: id64 !== null && historyAnchor?.id64 !== id64,
+      retry: 0,
+    };
+  });
+  const anchor = $derived.by(() => {
+    if (!nearId) return null;
+    if (historyAnchor?.id64 === nearId) return historyAnchor;
+    const detail = anchorDetail.data;
+    if (detail?.id64 !== nearId) return null;
+    // The legacy facade only guards unknown origins with F4 enabled. A near
+    // anchor requires real coordinates in either build.
+    if (
+      detail.id64 !== SOL_ID64 &&
+      detail.x === 0 &&
+      detail.y === 0 &&
+      detail.z === 0
+    )
+      return null;
+    return readExploreAnchor({ anchor: detail });
+  });
+  const bodyFilters = $derived(parsedSearch.bodyFilters);
   let anchorSelectionRevision = $state(0);
   let focusedAnchorRevision = 0;
   let hydratedAnchorIdentity: string | undefined;
@@ -135,7 +182,6 @@
   let regionLoadAttempt = 0;
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
-  let focusedResultSet = '';
   let initialGalaxyViewRequested = false;
   let streamCamera = $state<CameraState | null>({
     focusLy: { x: 0, y: 0, z: 0 },
@@ -171,6 +217,9 @@
     FINDER_F4_ENABLED ? parseRankingSearchParams(page.url.searchParams) : null,
   );
   const rankingState = $derived(parsedRanking?.state ?? DEFAULT_RANKING_STATE);
+  const bodyFiltersPaused = $derived(
+    !anchor || rankingState.archetype !== 'any',
+  );
   const urlSelection = $derived.by((): Id64 | null => {
     if (!FINDER_F4_ENABLED) return null;
     const values = page.url.searchParams.getAll('selected');
@@ -182,60 +231,59 @@
     }
   });
   const canonicalSearch = $derived.by(() => {
-    if (!FINDER_F4_ENABLED) return page.url.search;
-    const params = new URLSearchParams(page.url.searchParams);
-    params.delete('selected');
-    if (urlSelection) params.set('selected', urlSelection);
-    const serialized = serializeRankingSearchParams(
-      rankingState,
-      params,
-    ).toString();
+    let params = serializeExploreSearchParams(
+      { near: nearId, bodyFilters },
+      page.url.searchParams,
+    );
+    if (FINDER_F4_ENABLED) {
+      params.delete('selected');
+      if (urlSelection) params.set('selected', urlSelection);
+      params = serializeRankingSearchParams(rankingState, params);
+    } else {
+      params = stripRankingSearchParams(params);
+    }
+    const serialized = params.toString();
     return serialized ? `?${serialized}` : '';
   });
   const invalidAnchorState = $derived(
-    FINDER_F4_ENABLED && page.state?.anchor != null && anchor === null,
+    page.state?.anchor != null && historyAnchor === null,
   );
   const rankingUrlReady = $derived(
-    !FINDER_F4_ENABLED ||
-      (page.url.search === canonicalSearch && !invalidAnchorState),
+    page.url.search === canonicalSearch && !invalidAnchorState,
   );
   const hasResultsIntent = $derived(
-    anchor !== null ||
+    nearId !== null ||
       (FINDER_F4_ENABLED &&
         (rankingState.archetype !== 'any' ||
           hasRankingSearchParams(page.url.searchParams) ||
           page.state.finderRequested === true)),
   );
-  const resultsEnabled = $derived(rankingUrlReady && hasResultsIntent);
-  const finderRequest = $derived(
-    selectFinderRequest(
+  const resultsEnabled = $derived(
+    rankingUrlReady && hasResultsIntent && (!nearId || anchor !== null),
+  );
+  const finderRequest = $derived.by(() => {
+    const selected = selectFinderRequest(
       rankingState,
       anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
       { enabled: FINDER_F4_ENABLED },
-    ),
-  );
+    );
+    if (
+      selected.kind === 'any' &&
+      !bodyFiltersPaused &&
+      Object.keys(bodyFilters).length
+    )
+      return {
+        ...selected,
+        request: { ...selected.request, body_filters: bodyFilters },
+      };
+    return selected;
+  });
   const anchorReference = $derived<DistanceAnchor | null>(
     anchor ? { id64: anchor.id64, name: anchor.name } : null,
   );
-  // Keep the default-off request shape: no F4 request/state wrapping,
-  // placeholder observer options, or additional response-normalization pass.
-  const searchRequest = $derived.by((): ExploreSearchRequest => {
-    if (
-      anchor &&
-      typeof anchor.x === 'number' &&
-      typeof anchor.y === 'number' &&
-      typeof anchor.z === 'number'
-    ) {
-      return {
-        reference_coords: { x: anchor.x, y: anchor.y, z: anchor.z },
-        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
-        sort_by: 'distance',
-        size: 24,
-        from: 0,
-      };
-    }
-    return { galaxy_wide: true, sort_by: 'development', size: 24, from: 0 };
-  });
+  const searchRequest = $derived<ExploreSearchRequest>(
+    finderRequest.kind === 'any' ? finderRequest.request : {},
+  );
   const finderQueryKey = $derived(
     finderRequest.kind === 'rankings'
       ? queryKeys.rankings(finderRequest.request)
@@ -253,14 +301,17 @@
     finderIdentity?: string;
   };
   const results = createQuery<FinderResponse>(() => {
-    if (!FINDER_F4_ENABLED)
+    if (!FINDER_F4_ENABLED) {
+      const request = searchRequest;
+      const reference = anchorReference;
       return {
-        queryKey: queryKeys.explore(searchRequest, anchorReference),
+        queryKey: queryKeys.explore(request, reference),
         queryFn: ({ signal }) =>
-          searchExploreSystems(searchRequest, signal, anchorReference),
+          searchExploreSystems(request, signal, reference),
         enabled: resultsEnabled,
         retry: 0,
       };
+    }
     // Capture the complete request identity with its envelope. Placeholder rows
     // keep their old mode, floor and offset until the replacement arrives.
     const request = finderRequest;
@@ -342,13 +393,6 @@
   });
 
   $effect(() => {
-    if (!FINDER_F4_ENABLED) {
-      // History can restore an anchor even in the default-off build.
-      const restoredAnchor = readExploreAnchor(page.state);
-      legacyAnchor = restoredAnchor;
-      query = restoredAnchor?.name ?? '';
-      return;
-    }
     const current = page.url;
     const restoredAnchor = anchor;
     const identity = restoredAnchor ? JSON.stringify(restoredAnchor) : '';
@@ -360,30 +404,60 @@
       hydratedExploreUrl = current.href;
       query = restoredAnchor?.name ?? '';
     }
-    if ($selectedSystem.value !== urlSelection) {
+    if (FINDER_F4_ENABLED && $selectedSystem.value !== urlSelection) {
       selectedSystem.set(urlSelection);
       untrack(() => {
         selectionRevision += 1;
       });
     }
     if (!rankingUrlReady) {
-      if (parsedRanking?.issues.length)
-        rankingNotice = 'Unsupported link option removed.';
+      if (parsedSearch.issues.length || parsedRanking?.issues.length)
+        rankingNotice = parsedSearch.issues.length
+          ? 'Invalid search link option removed.'
+          : 'Unsupported link option removed.';
       void navigateWithAnchor(
         `${current.pathname}${canonicalSearch}${current.hash}`,
         {
           replaceState: true,
           state: {
-            ...(invalidAnchorState ? { anchor: null } : {}),
+            ...(invalidAnchorState ||
+            (current.searchParams.has('near') && !parsedSearch.near)
+              ? { anchor: null }
+              : {}),
             // Explicit default/ignored URL parameters can canonicalize away.
             // Keep that link's search intent in its history entry.
             finderRequested:
-              hasRankingSearchParams(current.searchParams) ||
-              page.state.finderRequested === true,
+              FINDER_F4_ENABLED &&
+              (hasRankingSearchParams(current.searchParams) ||
+                page.state.finderRequested === true),
           },
         },
       );
     }
+  });
+
+  $effect(() => {
+    // A lookup can fail, return a different id, or lack usable coordinates.
+    // Never let that turn an intended nearby search into a galaxy-wide one.
+    if (
+      !rankingUrlReady ||
+      !nearId ||
+      anchor ||
+      anchorDetail.isPending ||
+      anchorDetail.isFetching
+    )
+      return;
+    rankingNotice =
+      'Search anchor could not be restored; choose a system again.';
+    void navigateWithAnchor(
+      exploreDestination(
+        serializeExploreSearchParams(
+          { near: null, bodyFilters },
+          page.url.searchParams,
+        ),
+      ),
+      { replaceState: true, state: { anchor: null } },
+    );
   });
 
   $effect(() => {
@@ -449,7 +523,10 @@
     query = '';
     const params = serializeRankingSearchParams(
       { ...rankingState, offset: 0 },
-      page.url.searchParams,
+      serializeExploreSearchParams(
+        { near: null, bodyFilters },
+        page.url.searchParams,
+      ),
     );
     await navigateWithAnchor(exploreDestination(params), {
       state: { anchor: null, finderRequested: false },
@@ -458,6 +535,55 @@
       ? 'Anchor cleared; searching galaxy-wide.'
       : '';
     searchInput?.focus();
+  }
+
+  async function commitBodyFilters(value: BodyFilterValues): Promise<void> {
+    focusedAnchorRevision = anchorSelectionRevision;
+    const committed = normalizeBodyFilters(value);
+    const params = serializeExploreSearchParams(
+      { near: nearId, bodyFilters: committed },
+      page.url.searchParams,
+    );
+    params.delete('offset');
+    const destination = exploreDestination(
+      FINDER_F4_ENABLED
+        ? serializeRankingSearchParams({ ...rankingState, offset: 0 }, params)
+        : stripRankingSearchParams(params),
+    );
+    // Applying the same draft still means one refresh. A changed query is
+    // fetched by its observer exactly once after URL hydration.
+    if (
+      destination === `${page.url.pathname}${page.url.search}${page.url.hash}`
+    ) {
+      if (resultsEnabled && !bodyFiltersPaused) await results.refetch();
+      return;
+    }
+    if (!bodyFiltersPaused) {
+      const next = selectFinderRequest({ ...rankingState, offset: 0 }, anchor, {
+        enabled: FINDER_F4_ENABLED,
+      });
+      if (next.kind === 'any') {
+        const request = Object.keys(committed).length
+          ? { ...next.request, body_filters: committed }
+          : next.request;
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.explore(
+            request,
+            anchorReference,
+            FINDER_F4_ENABLED ? next.pageSize : null,
+          ),
+          exact: true,
+          refetchType: 'none',
+        });
+      }
+    }
+    await navigateWithAnchor(destination);
+  }
+
+  function removeBodyFilter(key: BodyFilterKey): void {
+    const next = { ...bodyFilters };
+    delete next[key];
+    void commitBodyFilters(next);
   }
 
   function followInspect(event: MouseEvent, id64: Id64): void {
@@ -473,24 +599,6 @@
     event.preventDefault();
     void navigateWithAnchor(inspectHref(id64, page.url));
   }
-
-  // Finder F4 gate (default off). In a disabled build the F4 URL parameters
-  // are never hydrated: they are replace-stripped so a hand-authored archetype
-  // or page URL cannot activate ranking state or the rankings request, while
-  // `selected`, `system` and unrelated parameters are left intact.
-  $effect(() => {
-    if (FINDER_F4_ENABLED) return;
-    const current = page.url;
-    if (!hasRankingSearchParams(current.searchParams)) return;
-    const search = stripRankingSearchParams(current.searchParams).toString();
-    const destination = `${current.pathname}${search ? `?${search}` : ''}${current.hash}`;
-    // eslint-disable-next-line svelte/no-navigation-without-resolve -- current URL is already resolved
-    void goto(destination, {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true,
-    });
-  });
 
   const starViewport = $derived(galaxyStarViewport(streamCamera));
   const viewportRequest = $derived(
@@ -694,7 +802,9 @@
   const systems = $derived(
     hasResultsIntent
       ? (displayedResults?.results ??
-          (FINDER_F4_ENABLED ? [] : viewportSystems))
+          (FINDER_F4_ENABLED || !anchor || Object.keys(bodyFilters).length
+            ? []
+            : viewportSystems))
       : [],
   );
   let finderSequence = 0;
@@ -926,20 +1036,14 @@
 
   $effect(() => {
     if (!anchor || !results.data || results.isFetching) return;
-    if (FINDER_F4_ENABLED) {
-      if (
-        rankingState.archetype !== 'any' ||
-        !currentResponse ||
-        anchorSelectionRevision === 0 ||
-        anchorSelectionRevision === focusedAnchorRevision
-      )
-        return;
-      focusedAnchorRevision = anchorSelectionRevision;
-    } else {
-      const resultSet = `${anchor.id64}:${results.dataUpdatedAt}`;
-      if (resultSet === focusedResultSet) return;
-      focusedResultSet = resultSet;
-    }
+    if (
+      rankingState.archetype !== 'any' ||
+      (FINDER_F4_ENABLED && !currentResponse) ||
+      anchorSelectionRevision === 0 ||
+      anchorSelectionRevision === focusedAnchorRevision
+    )
+      return;
+    focusedAnchorRevision = anchorSelectionRevision;
     void tick().then(() =>
       resultList
         ?.querySelector<HTMLButtonElement>('[data-result-select]')
@@ -955,22 +1059,23 @@
     pendingViewportCamera = null;
     query = hit.name;
     autocompleteOpen = false;
-    if (FINDER_F4_ENABLED) {
-      rankingNotice = '';
-      const params = new URLSearchParams(page.url.searchParams);
-      params.set('selected', hit.id64);
-      const committedAnchor = readExploreAnchor({ anchor: hit });
-      if (committedAnchor && rankingState.archetype === 'any')
-        anchorSelectionRevision += 1;
-      void navigateWithAnchor(
-        exploreDestination(
-          serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
-        ),
-        { state: { anchor: committedAnchor } },
-      );
-      if (!committedAnchor) return;
-    } else {
-      legacyAnchor = hit;
+    rankingNotice = '';
+    const committedAnchor = readExploreAnchor({ anchor: hit });
+    const params = serializeExploreSearchParams(
+      { near: committedAnchor?.id64 ?? null, bodyFilters },
+      page.url.searchParams,
+    );
+    if (FINDER_F4_ENABLED) params.set('selected', hit.id64);
+    if (committedAnchor && rankingState.archetype === 'any')
+      anchorSelectionRevision += 1;
+    void navigateWithAnchor(
+      exploreDestination(
+        serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
+      ),
+      { state: { anchor: committedAnchor } },
+    );
+    if (!committedAnchor) return;
+    if (!FINDER_F4_ENABLED) {
       selectedSystem.set(hit.id64);
       selectionRevision += 1;
     }
@@ -992,8 +1097,7 @@
   }
 
   function handleQueryInput(event: Event): void {
-    if (!FINDER_F4_ENABLED) legacyAnchor = null;
-    else if (!(event.currentTarget as HTMLInputElement).value.trim() && anchor)
+    if (!(event.currentTarget as HTMLInputElement).value.trim() && anchor)
       void clearAnchor();
     autocompleteOpen =
       (event.currentTarget as HTMLInputElement).value.trim().length >= 2;
@@ -1325,28 +1429,40 @@
     </div>
   </section>
 
-  {#if FINDER_F4_ENABLED}
-    {#if anchor}
-      <p class="committed-anchor">
-        Search anchor: {anchor.name}
-        <button
-          type="button"
-          aria-label={`Clear anchor ${anchor.name}`}
-          onclick={clearAnchor}>Clear</button
-        >
+  {#snippet bodyFilterTools()}
+    <BodyFilters
+      value={bodyFilters}
+      disabled={bodyFiltersPaused}
+      paused={bodyFiltersPaused}
+      onapply={(value) => void commitBodyFilters(value)}
+      onremove={removeBodyFilter}
+      onclear={() => void commitBodyFilters({})}
+    />
+  {/snippet}
+
+  {#if anchor}
+    <p class="committed-anchor">
+      Search anchor: {anchor.name}
+      <button
+        type="button"
+        aria-label={`Clear anchor ${anchor.name}`}
+        onclick={clearAnchor}>Clear</button
+      >
+    </p>
+    {#if FINDER_F4_ENABLED && rankingState.archetype !== 'any'}
+      <p>
+        Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
       </p>
-      {#if rankingState.archetype !== 'any'}
-        <p>
-          Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
-        </p>
-      {/if}
     {/if}
+  {/if}
+  {#if FINDER_F4_ENABLED}
     <ArchetypePicker
       archetype={rankingState.archetype}
       minimumTier={rankingState.minimumTier}
       onArchetypeChange={(archetype) =>
         commitRanking({ archetype, minimumTier: null })}
       onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
+      rankingTools={bodyFilterTools}
     />
     <label class="page-size"
       >Results per page
@@ -1360,6 +1476,12 @@
           commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
       />
     </label>
+  {:else}
+    {@render bodyFilterTools()}
+  {/if}
+
+  {#if rankingNotice}
+    <p role="status" class="ranking-status">{rankingNotice}</p>
   {/if}
 
   <div class="explore-grid">
@@ -1395,7 +1517,6 @@
 
       {#if FINDER_F4_ENABLED && hasResultsIntent}
         <div role="status" aria-live="polite" class="ranking-status">
-          {#if rankingNotice}<p>{rankingNotice}</p>{/if}
           {#if updatingResults}
             <p>
               {displayedResults ? 'Updating… ' : ''}{rankingState.archetype ===

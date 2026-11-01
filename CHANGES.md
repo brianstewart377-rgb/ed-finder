@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Explore body filters and refresh-safe search anchors
+
+Explore keeps the committed search anchor in a bounded, lossless `near` URL
+parameter and restores its name and coordinates on reload or from a shared link.
+Invalid or unresolved anchors are removed with a notice; a plain Explore visit
+still waits for a requested search.
+
+The Body filters pop-out groups the API's 19 body counts into Planets, Stars and
+Features, with whole-count ranges, number inputs and unlimited maxima. Apply
+commits the draft with one search; removable chips and Clear all update results.
+Filters are shared through the bounded `bodies` URL parameter and are paused
+outside an anchored Any search. Both features work with the F4 flag on or off;
+filters are never persisted to local storage. Unit/component coverage exercises
+validation, draft controls, accessibility and history; Product E2E covers Apply,
+the request body, URL-only reload restoration and the open pop-out's accessibility.
+
 ## 2026-11-01 — Finder F4 archetype UI enabled for governed release builds
 
 Owner enablement decision (F4 design question 3). Every gate in the F4 design is

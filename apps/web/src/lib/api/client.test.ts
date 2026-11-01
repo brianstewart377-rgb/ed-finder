@@ -1030,6 +1030,48 @@ describe('Any (local search) page envelope normalization', () => {
   });
 });
 
+describe('near-system body filters through the generated facade', () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sends count ranges exactly once as LocalSearchRequest.body_filters', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ results: [], total: 0, count: 0 }));
+    await searchExploreSystems({
+      reference_coords: { x: 12, y: -4, z: 3 },
+      filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+      sort_by: 'distance',
+      size: 24,
+      body_filters: {
+        elw_count: { min: 1 },
+        landable_count: { min: 2, max: 5 },
+        ring_count: { max: 3 },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/local/search');
+    expect(request.method).toBe('POST');
+    expect(await request.clone().json()).toMatchObject({
+      body_filters: {
+        elw_count: { min: 1 },
+        landable_count: { min: 2, max: 5 },
+        ring_count: { max: 3 },
+      },
+    });
+  });
+
+  it('omits body_filters when the caller leaves them unset', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ results: [], total: 0, count: 0 }));
+    await searchExploreSystems({ galaxy_wide: true, size: 24 });
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(await request.clone().json()).not.toHaveProperty('body_filters');
+  });
+});
+
 describe('facade page size versus clamped wire limit near the 10,000 ceiling', () => {
   const nearCeiling = (body: unknown) =>
     new Response(JSON.stringify(body), {

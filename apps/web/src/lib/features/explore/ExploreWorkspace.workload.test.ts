@@ -438,7 +438,9 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 5 : 6,
         loads: enabled ? 5 : 6,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 7 : 6,
+        // URL anchor reconstruction adds a disabled observer in legacy mode.
+        // F4's empty selection already shares its null-id query entry.
+        activeQueries: 7,
         transitions: 1,
         api: { ...idleApi, finder: 0, catalogue: 3, density: 2 },
       });
@@ -449,7 +451,9 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 12 : 16,
         loads: enabled ? 13 : 16,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 7 : 6,
+        // The committed anchor and selected result now have separate query
+        // identities; history coordinates still require no detail request.
+        activeQueries: enabled ? 8 : 7,
         transitions: enabled ? 6 : 5,
         api: {
           ...idleApi,
@@ -543,7 +547,7 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: 15,
         loads: 16,
         patches: 1,
-        activeQueries: 7,
+        activeQueries: 8,
         transitions: 6,
         api: {
           ...idleApi,

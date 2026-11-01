@@ -358,6 +358,143 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
 };
 
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('applies body counts near a system and restores the shared search on reload', () => {
+    const anchorId = '10477373803000';
+    const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';
+    let anchoredRequest: Record<string, unknown>;
+    cy.viewport(1280, 800);
+    // Each observer is registered once with its own alias; all responses come
+    // from the normal Product API and its published V3 fixture generation.
+    cy.intercept('GET', '/api/local/autocomplete*').as(
+      'bodyFilterAutocomplete',
+    );
+    cy.intercept('POST', '/api/local/search').as('bodyFilterSearch');
+    cy.intercept('GET', `/api/v1/systems/${anchorId}`).as('bodyFilterAnchor');
+    cy.visit('/explore');
+    cy.contains('button', /^Body filters$/).should('be.disabled');
+    cy.get('@bodyFilterSearch.all').should('have.length', 0);
+    cy.get('#system-search').type('Achenar');
+    cy.wait('@bodyFilterAutocomplete')
+      .its('response.statusCode')
+      .should('eq', 200);
+    cy.contains('[role="option"]', 'Achenar').click();
+    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
+      ({ request, response }) => {
+        expect(response?.statusCode).to.equal(200);
+        expect(request.body.sort_by).to.equal('distance');
+        expect(request.body.filters.distance).to.deep.equal({
+          min: 0,
+          max: 500,
+        });
+        expect(request.body).not.to.have.property('body_filters');
+        anchoredRequest = request.body;
+      },
+    );
+    waitForExploreSettled();
+    cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.contains('button', /^Body filters$/).click();
+    cy.get(dialog).should('be.visible').and('have.attr', 'aria-modal', 'false');
+    cy.get(`${dialog} [aria-label="Earth-like minimum slider"]`)
+      .invoke('val', '1')
+      .trigger('input');
+    cy.get(`${dialog} [aria-label="Earth-like minimum"]`)
+      .should('have.value', '1')
+      .clear()
+      .type('1')
+      .blur();
+    cy.get(`${dialog} [aria-label="Earth-like Any maximum"]`).should(
+      'be.checked',
+    );
+    cy.contains(`${dialog} [role="tab"]`, 'Planets').should(
+      'contain.text',
+      '1',
+    );
+    cy.injectAxe();
+    cy.checkA11y(dialog);
+    for (const [width, height] of [
+      [1280, 800],
+      [390, 844],
+    ]) {
+      cy.viewport(width, height);
+      cy.get(`${dialog} [role="tabpanel"]:visible`).scrollTo('top');
+      cy.get(dialog).should(($dialog) => {
+        const bounds = $dialog[0].getBoundingClientRect();
+        const viewport = $dialog[0].ownerDocument.defaultView?.visualViewport;
+        expect(bounds.top).to.be.at.least(viewport?.offsetTop ?? 0);
+        expect(bounds.bottom).to.be.at.most(
+          (viewport?.offsetTop ?? 0) + (viewport?.height ?? height) + 1,
+        );
+        expect(bounds.left).to.be.at.least(0);
+        expect(bounds.right).to.be.at.most(width);
+      });
+      cy.screenshot(
+        `product/explore-body-filters-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'viewport',
+          overwrite: true,
+          disableTimersAndAnimations: true,
+        },
+      );
+    }
+    cy.viewport(1280, 800);
+    cy.get('@bodyFilterSearch.all').should('have.length', 1);
+    cy.contains(`${dialog} button`, /^Apply$/).click();
+    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
+      ({ request, response }) => {
+        expect(request.body).to.deep.equal({
+          ...anchoredRequest,
+          body_filters: { elw_count: { min: 1 } },
+        });
+        expect(response?.statusCode).to.equal(200);
+        expect(response?.body.results.length).to.be.greaterThan(0);
+      },
+    );
+    cy.get(dialog).should('not.exist');
+    cy.contains('button', /^Body filters$/).should('be.focused');
+    waitForExploreSettled();
+    cy.get('@bodyFilterSearch.all').should('have.length', 2);
+    cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('near')).to.deep.equal([anchorId]);
+      expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
+    });
+    // Clear persisted state and SvelteKit's history payload so restoration can
+    // only use the URL, even in browsers that retain history state on reload.
+    cy.window().then((window) => {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      window.history.replaceState({}, '', window.location.href);
+    });
+    cy.reload();
+    cy.wait('@bodyFilterAnchor', { requestTimeout })
+      .its('response.statusCode')
+      .should('eq', 200);
+    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
+      ({ request, response }) => {
+        expect(request.body).to.deep.equal({
+          ...anchoredRequest,
+          body_filters: { elw_count: { min: 1 } },
+        });
+        expect(response?.statusCode).to.equal(200);
+        expect(response?.body.results.length).to.be.greaterThan(0);
+      },
+    );
+    waitForExploreSettled();
+    cy.get('@bodyFilterSearch.all').should('have.length', 3);
+    cy.get('#system-search').should('have.value', 'Achenar');
+    cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.get('[data-system-result]').should('have.length.greaterThan', 0);
+    cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');
+    cy.contains('button', /^Clear all$/).should('be.visible');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('near')).to.deep.equal([anchorId]);
+      expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
+    });
+  });
+
   it('ranks the pinned Flexible B corpus, retains URL selection and restores Finder history', () => {
     const selectedId = FLEXIBLE_B_FIXTURE_ROWS[0].id64;
     let copiedExploreUrl = '';

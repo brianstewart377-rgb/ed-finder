@@ -3,7 +3,7 @@ import { resolve } from '$app/paths';
 import { page } from '$app/state';
 import { isId64, type Id64 } from '$lib/domain/id64';
 
-/** The committed known-star query is history state, not shareable URL state. */
+/** Resolved history cache for the shareable `near=<id64>` search anchor. */
 export type ExploreAnchor = Readonly<{
   id64: Id64;
   name: string;
